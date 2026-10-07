@@ -1363,7 +1363,7 @@ edge-case tests belonged to no task at all.
 
 ### More than one spec's worth of work
 
-A spec is one cohesive feature — at most 10 requirements and 8 tasks — and a
+A spec is one cohesive feature — at most 10 requirements and 12 tasks — and a
 PRD for a whole subsystem is several. The PRD phase says so rather than
 producing an oversized spec: it writes the PRD for the first, foundational
 scope and reports the full split, every scope with the name its package will
@@ -1393,20 +1393,36 @@ package. A file or issue input is matched by where it came from, so an input
 edited between runs still resumes; text and stdin are matched by content. The
 plan is removed by the run that writes the last package, so its presence means
 exactly one thing: `spec` stopped before it was done. A plan for a *different*
-input is reported as a warning and left alone. A `--dry-run` writes no plan
-and resumes none: it reports the packages it would write and leaves an
-unfinished split exactly where it found it.
+input is reported as a warning and left alone, under `--dry-run` too. A
+`--dry-run` writes no plan and resumes none: it reports the packages it would
+write and leaves an unfinished split exactly where it found it. The packages it
+reports are hypothetical: each `spec_package` artifact carries `"dry_run":
+true`, `next[]` suggests no `impl` on a directory that does not exist, and a
+later scope is not told to read the earlier scopes' packages.
+
+A scope is recorded in the plan the moment its package is on disk, before the
+package is read back, activated or posted, so a run killed after the write
+does not leave a package the next run writes a second time. A package's number
+is reserved when it is allocated, by creating its directory (under a short
+lock file, `.spec-number.lock`, in the spec root), so a second run or a
+person's `mkdir` while the phases run cannot take the same number; a run that
+fails before writing removes the empty directory again. The specs already in
+the spec root are shown to every phase; one that cannot be read is named in a
+`specs_dir_unreadable` warning and the rest are still shown.
 
 A package that does not validate stops nothing: it is on disk, its errors name
 the rules, and the scopes after it are written. The run then exits 1 with
-`category: "invalid_spec"` naming the packages to fix. Every other failure
-stops the run on the scope it happened in, with the scope named in the message
-and `result.split` showing what exists.
+`category: "invalid_spec"` naming the packages to fix; with `--comment`, the
+PRD of an invalid package is not posted, and a `comment_not_posted` warning
+says so. Every other failure stops the run on the scope it happened in — a
+`--total-budget` stop before a scope's PRD phase included — with the scope
+named in the message, marked `failed` in `result.split`, and `result.split`
+showing what exists.
 
 | Flag | Default | Effect |
 |---|---|---|
 | `--specs-dir` | `<dir>/.specs`, or `$AF_SPEC_DIR` | where `NN_name` packages live |
-| `--name` | the model's choice | override the spec name; must match `[a-z][a-z0-9_]*` |
+| `--name` | the model's choice | override the spec name; must match `[a-z][a-z0-9]*(_[a-z0-9]+)*` |
 | `--architecture` | off | also write the optional `architecture.md` |
 | `--no-activate` | off | leave a valid package in `draft` instead of activating it |
 | `--comment` | off | post the finished PRD back to the issue the input came from |

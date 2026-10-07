@@ -2,7 +2,7 @@ Generate the requirements artifact: one flat list of criteria per requirement, p
 
 ## Scope first
 
-Decide whether the PRD fits in **at most 10 requirements**, each with at most 8 criteria. If it does not, say so in your response rather than generating an oversized spec: the PRD must be split into several specs first.
+Fit the PRD in **at most 10 requirements**, each with at most 8 criteria. The PRD phase has already sized the work, so do not answer in prose — this phase ends only when you call the tool. If the PRD still seems larger than that, merge closely related behaviour into one requirement rather than exceeding the limits; the validator warns on an oversized spec.
 
 ## Criterion fields
 

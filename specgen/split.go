@@ -169,7 +169,7 @@ func loadSplitPlan(path string) (*SplitPlan, error) {
 		return nil, fmt.Errorf("%s: a split plan needs at least two scopes", path)
 	}
 	for i, s := range p.Scopes {
-		if !specNameRE.MatchString(s.Name) {
+		if !validName(s.Name) {
 			return nil, fmt.Errorf("%s: scope %d has an unusable name %q", path, i+1, s.Name)
 		}
 	}

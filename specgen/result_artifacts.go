@@ -27,11 +27,13 @@ func (r *Result) Artifacts() []toolio.Artifact {
 
 	var out []toolio.Artifact
 	for _, p := range pkgs {
+		// Under --dry-run the package was not written: it is hypothetical.
 		out = append(out, toolio.Artifact{
-			Kind:  toolio.ArtifactSpecPackage,
-			Path:  p.SpecDir,
-			ID:    p.SpecID,
-			Valid: p.Validation.Valid,
+			Kind:   toolio.ArtifactSpecPackage,
+			Path:   p.SpecDir,
+			ID:     p.SpecID,
+			Valid:  p.Validation.Valid,
+			DryRun: r.DryRun,
 		})
 		if p.CommentURL != "" {
 			out = append(out, toolio.Artifact{Kind: toolio.ArtifactComment, URL: p.CommentURL, Role: "prd"})

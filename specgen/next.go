@@ -24,7 +24,8 @@ func (r *Result) Next() []toolio.Next {
 	pkgs = append(pkgs, r.FollowOnSpecs...)
 	var ready []Package
 	for _, p := range pkgs {
-		if p.Validation.Valid && p.SpecDir != "" {
+		// A dry run wrote no package, so there is none to implement.
+		if p.Validation.Valid && p.SpecDir != "" && !r.DryRun {
 			ready = append(ready, p)
 		}
 	}

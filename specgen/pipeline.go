@@ -38,7 +38,7 @@ type Options struct {
 	// <workspace>/.specs, or $AF_SPEC_DIR when that is set.
 	SpecsDir string
 	// Name overrides the spec name the model chooses. It must match
-	// [a-z][a-z0-9_]*.
+	// [a-z][a-z0-9]*(_[a-z0-9]+)*.
 	Name string
 	// Architecture runs the optional fifth phase and writes architecture.md.
 	Architecture bool
@@ -374,8 +374,8 @@ func Preflight(ctx context.Context, o Options) (*Result, *Failure) {
 				"--comment needs a forge credential: set GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN, or run without --comment")
 		}
 	}
-	if o.Name != "" && !specNameRE.MatchString(o.Name) {
-		return nil, failf("preflight", "usage", "--name %q must match [a-z][a-z0-9_]*", o.Name)
+	if o.Name != "" && !validName(o.Name) {
+		return nil, failf("preflight", "usage", "--name %q must match [a-z][a-z0-9]*(_[a-z0-9]+)*", o.Name)
 	}
 	if o.Workspace == nil {
 		return nil, failf("preflight", agentrun.CategoryInternal, "no workspace configured")
@@ -429,19 +429,22 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 	}
 	add("schemas_valid", true, "")
 
-	// A dry run resumes nothing, so it looks for no plan, exactly as Run.
+	// The plans are looked at exactly as Run looks at them, --dry-run
+	// included; a dry run resumes none, so its estimate is the fresh one.
 	packages := 1
-	if !o.DryRun {
-		plan, err := findSplitPlan(resolveSpecsDir(o, o.Workspace.Root), o.Input, o.Run)
-		if err != nil {
-			return nil, fail("preflight", "usage", err)
-		}
-		if plan != nil {
-			packages = plan.Pending()
-			add("split_plan", true, fmt.Sprintf("resuming a split: %d of %d scopes to write", plan.Pending(), len(plan.Scopes)))
-		} else {
-			add("split_plan", true, "no unfinished split for this input")
-		}
+	plan, err := findSplitPlan(resolveSpecsDir(o, o.Workspace.Root), o.Input, o.Run)
+	if err != nil {
+		return nil, fail("preflight", "usage", err)
+	}
+	// Under --dry-run the lookup is for its warnings only (another input's
+	// plan, a stale one): no split_plan entry (11-REQ-5.3).
+	switch {
+	case o.DryRun:
+	case plan != nil:
+		packages = plan.Pending()
+		add("split_plan", true, fmt.Sprintf("resuming a split: %d of %d scopes to write", plan.Pending(), len(plan.Scopes)))
+	default:
+		add("split_plan", true, "no unfinished split for this input")
 	}
 	if backend, err := agentrun.DetectSymbolBackend(o.Workspace); err == nil {
 		add("symbol_backend", true, backend)
@@ -536,12 +539,17 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	// decided; the PRD phase is not run again to re-decide it. A dry run
 	// writes nothing and so also resumes nothing: it must not spend the
 	// remaining scopes of a real plan without recording them.
-	var plan *SplitPlan
-	if !o.DryRun {
-		plan, err = findSplitPlan(specsDir, o.Input, o.Run)
-		if err != nil {
-			return nil, fail("preflight", "usage", err)
-		}
+	//
+	// The plans are still looked at under --dry-run, so another input's
+	// plan is reported the same way; a plan for this input is not resumed.
+	plan, err := findSplitPlan(specsDir, o.Input, o.Run)
+	if err != nil {
+		return nil, fail("preflight", "usage", err)
+	}
+	if plan != nil && o.DryRun {
+		o.Progress.Step("plan", "an unfinished split for this input is at %s; --dry-run does not resume it",
+			relativeTo(root, plan.Path(specsDir)))
+		plan = nil
 	}
 
 	var first *PRD
@@ -620,7 +628,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			// run already over its ceiling stops here with the plan in place,
 			// so the next run on the same input resumes from this scope.
 			if spent := o.Run.CostUSD(); o.TotalBudgetUSD > 0 && spent >= o.TotalBudgetUSD {
-				result.setSplit(splitReport(root, specsDir, plan, -1))
+				result.setSplit(splitReport(root, specsDir, plan, i))
 				bf := failf("budget", agentrun.CategoryBudget,
 					"the run has spent $%.2f of its $%.2f total budget; the packages written so far "+
 						"are on disk, re-run on the same input to continue", spent, o.TotalBudgetUSD)
@@ -647,7 +655,18 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			}
 		}
 
+		// The scope is recorded in the plan the moment its package is on
+		// disk, before the read-back, the activation and the comment: a run
+		// killed after the write must not leave a package the next run does
+		// not know about and writes a second time.
+		env.onWritten = func(specID, dirName string) {
+			sc.SpecID, sc.Dir = specID, dirName
+			if err := plan.save(specsDir); err != nil {
+				o.Run.Warn(toolio.WarnSplitPlanUpdateFailed, "high", "the split plan could not be updated after %s: %v", label, err)
+			}
+		}
 		pkg, dirName, err := env.buildPackage(ctx, prd, label)
+		env.onWritten = nil
 		if pkg != nil {
 			if wrote == 0 {
 				result.Package = *pkg
@@ -722,6 +741,9 @@ type runEnv struct {
 	// run — which leaves nothing on disk to count — still numbers its
 	// packages consecutively.
 	lastID int
+	// onWritten, when set, is told the package's id and directory as soon as
+	// the package is on disk: a split records the scope in its plan.
+	onWritten func(specID, dirName string)
 }
 
 // writePRD runs the PRD phase, for the whole input or for one scope of it.
@@ -774,18 +796,45 @@ func (e *runEnv) allocateID() string {
 // disk and worth naming.
 func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Package, string, error) {
 	o := e.o
-	specID := e.allocateID()
-	dirName := specID + "_" + prd.SpecName
-	if !afspec.IsSpecDirName(dirName) {
-		return nil, "", failf("scaffold", "internal",
-			"the derived directory name %q does not match NN_snake_case", dirName)
-	}
-	specPath := filepath.Join(e.specsDir, dirName)
 	wrap := func(err error) error {
 		if err == nil || label == "" {
 			return err
 		}
 		return scoped(label, err)
+	}
+	if !afspec.IsSpecName(prd.SpecName) {
+		return nil, "", wrap(failf("scaffold", "internal",
+			"the spec name %q does not make an NN_snake_case directory name", prd.SpecName))
+	}
+	// The number is reserved on disk now, by creating the package's
+	// directory, not when the package is written after four paid phases: a
+	// second run, or a person's mkdir, in the meantime would otherwise take
+	// the same number, and the ids inside the artifacts carry it, so the
+	// package cannot be renumbered afterwards. A run that fails before the
+	// write gives the number back. A dry run writes nothing and reserves
+	// nothing.
+	var specID string
+	if o.DryRun {
+		specID = e.allocateID()
+	} else {
+		id, err := reserveSpecDir(e.specsDir, prd.SpecName, e.lastID)
+		if err != nil {
+			return nil, "", wrap(fail("scaffold", CategoryDisk, err))
+		}
+		specID = id
+		if n, err := strconv.Atoi(id); err == nil {
+			e.lastID = n
+		}
+	}
+	dirName := specID + "_" + prd.SpecName
+	specPath := filepath.Join(e.specsDir, dirName)
+	written := false
+	if !o.DryRun {
+		defer func() {
+			if !written {
+				_ = os.Remove(specPath) // only an empty reservation; Remove refuses anything else
+			}
+		}()
 	}
 
 	pkg := &Package{
@@ -858,10 +907,14 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 
 	// ------------------------------------------------------------ write --
 	if !o.DryRun {
-		if err := writeSpec(spec, e.specsDir, specPath); err != nil {
+		if err := writeSpec(spec, specPath); err != nil {
 			return pkg, dirName, wrap(err)
 		}
+		written = true
 		o.Progress.Step("write", "wrote %s", specPath)
+		if e.onWritten != nil {
+			e.onWritten(specID, dirName)
+		}
 	}
 	pkg.Artifacts = append([]string{"prd.md"}, pkg.Artifacts...)
 
@@ -890,13 +943,20 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 	pkg.Traceability = traceOf(validated)
 
 	// The package now exists as far as later scopes are concerned, valid or
-	// not: the landscape lists it, so the next PRD is written against it.
-	e.landscape = append(e.landscape, afspec.SpecMeta{
-		SpecID: specID, SpecName: prd.SpecName, Status: pkg.Status, Dir: specPath,
-	})
+	// not: the landscape lists it, so the next PRD is written against it. A
+	// dry run wrote nothing, so there is nothing for a later scope to read.
+	if !o.DryRun {
+		e.landscape = append(e.landscape, afspec.SpecMeta{
+			SpecID: specID, SpecName: prd.SpecName, Status: pkg.Status, Dir: specPath,
+		})
+	}
 
 	if !report.Valid {
 		o.Progress.Step("validate", "the package does not validate: %d error(s)", report.ErrorCount)
+		if o.Comment && !o.DryRun && o.Input.Issue != nil {
+			o.Run.Warn(toolio.WarnCommentNotPosted, "low", "the PRD was not posted on %s: the package does not "+
+				"validate, and a PRD whose package is invalid is not one to circulate", o.Input.Issue)
+		}
 		return pkg, dirName, wrap(failf("validate", CategoryInvalid,
 			"the generated package has %d validation error(s); it is on disk at %s and each "+
 				"error names the rule it broke", report.ErrorCount, pkg.SpecDir))
@@ -964,21 +1024,13 @@ func scopeNames(plan *SplitPlan) string {
 	return strings.Join(names, ", ")
 }
 
-// writeSpec creates the package directory and saves the artifacts.
+// writeSpec saves the artifacts into the package directory reserveSpecDir
+// created.
 //
 // The directory is removed again if the save fails, because a half-written
 // spec directory is picked up by DiscoverSpecs and then reported as broken by
 // every later run.
-func writeSpec(spec *afspec.Spec, specsDir, specPath string) *Failure {
-	if err := os.MkdirAll(specsDir, 0o755); err != nil {
-		return fail("write", CategoryDisk, fmt.Errorf("creating %s: %w", specsDir, err))
-	}
-	if err := os.Mkdir(specPath, 0o755); err != nil {
-		if os.IsExist(err) {
-			return failf("write", CategoryDisk, "%s already exists", specPath)
-		}
-		return fail("write", CategoryDisk, fmt.Errorf("creating %s: %w", specPath, err))
-	}
+func writeSpec(spec *afspec.Spec, specPath string) *Failure {
 	if err := spec.Save(specPath); err != nil {
 		_ = os.RemoveAll(specPath)
 		return fail("write", CategoryDisk, fmt.Errorf("saving %s: %w", specPath, err))
@@ -1005,17 +1057,18 @@ func resolveSpecsDir(o Options, root string) string {
 }
 
 // discoverLandscape lists the specs that already exist, so the new one is not
-// written as though the repository had none.
+// written as though the repository had none. It returns what it could read
+// even when it also returns an error.
 func discoverLandscape(specsDir string) ([]afspec.SpecMeta, error) {
 	if _, err := os.Stat(specsDir); err != nil {
 		return nil, nil // a repository with no specs yet is not an error
 	}
+	// DiscoverSpecs returns the specs it could read alongside the errors of
+	// the ones it could not: one unreadable directory is reported, and the
+	// rest are still the landscape.
 	metas, err := afspec.DiscoverSpecs(specsDir)
-	if err != nil {
-		return nil, err
-	}
 	sort.Slice(metas, func(i, j int) bool { return metas[i].SpecID < metas[j].SpecID })
-	return metas, nil
+	return metas, err
 }
 
 // maxSpecNumber is the highest numeric prefix among the packages on disk,
@@ -1227,3 +1280,63 @@ func indexDetail(idx tools.Index, reason string) string {
 	}
 	return "unavailable: " + reason
 }
+
+// reserveSpecDir takes the next free spec number for a package called name,
+// by creating its directory: one past the highest number on disk, archived
+// specs included, and past floor (the highest this run has used). It returns
+// the number.
+//
+// Choosing the number and creating the directory happen under a lock file in
+// the spec root, taken with O_EXCL, so two runs cannot read the same highest
+// number and both create a directory under it with different names. A lock
+// older than reserveLockStale is from a run that died holding it, and is
+// broken.
+func reserveSpecDir(specsDir, name string, floor int) (string, error) {
+	if err := os.MkdirAll(specsDir, 0o755); err != nil {
+		return "", fmt.Errorf("creating %s: %w", specsDir, err)
+	}
+	lock := filepath.Join(specsDir, reserveLockName)
+	deadline := time.Now().Add(reserveLockStale)
+	for {
+		f, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err == nil {
+			_ = f.Close()
+			break
+		}
+		if !os.IsExist(err) {
+			return "", fmt.Errorf("locking %s: %w", specsDir, err)
+		}
+		if info, err := os.Stat(lock); err == nil && time.Since(info.ModTime()) > reserveLockStale {
+			_ = os.Remove(lock)
+			continue
+		}
+		if time.Now().After(deadline) {
+			return "", fmt.Errorf("%s is held by another run; remove it if no spec run is in progress", lock)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	defer func() { _ = os.Remove(lock) }()
+
+	n := max(maxSpecNumber(specsDir), floor) + 1
+	for range 100 {
+		id := formatSpecID(n)
+		dir := filepath.Join(specsDir, id+"_"+name)
+		err := os.Mkdir(dir, 0o755)
+		if err == nil {
+			return id, nil
+		}
+		if !os.IsExist(err) {
+			return "", fmt.Errorf("creating %s: %w", dir, err)
+		}
+		n++
+	}
+	return "", fmt.Errorf("no free spec number in %s after 100 attempts", specsDir)
+}
+
+// reserveLockName is the lock file reserveSpecDir holds while it picks a
+// number. It is not a directory, so nothing that lists specs sees it.
+const reserveLockName = ".spec-number.lock"
+
+// reserveLockStale is how long a lock may be held before it is taken to be a
+// dead run's: picking a number is a directory listing and a mkdir.
+const reserveLockStale = 30 * time.Second

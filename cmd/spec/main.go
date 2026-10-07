@@ -131,7 +131,7 @@ func newApp() toolio.App {
 		ResultSample: specgen.Result{},
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&f.specsDir, "specs-dir", "", "where NN_name packages live; default <dir>/"+specgen.DefaultSpecDirName+" or $"+specgen.SpecDirEnv)
-			fs.StringVar(&f.name, "name", "", "override the spec name the model chooses; must match [a-z][a-z0-9_]*")
+			fs.StringVar(&f.name, "name", "", "override the spec name the model chooses; must match [a-z][a-z0-9]*(_[a-z0-9]+)*")
 			fs.BoolVar(&f.architecture, "architecture", false, "also write the optional architecture.md")
 			fs.BoolVar(&f.noActivate, "no-activate", false, "leave a valid package in draft instead of activating it")
 			fs.BoolVar(&f.comment, "comment", false, "post the finished PRD back to the issue the input came from")
@@ -148,7 +148,7 @@ func newApp() toolio.App {
 		PreCheck: func(c *toolio.Common) error {
 			common = c
 			if f.name != "" && !specgen.ValidSpecName(f.name) {
-				return toolio.Usagef("--name %q must match [a-z][a-z0-9_]*", f.name)
+				return toolio.Usagef("--name %q must match [a-z][a-z0-9]*(_[a-z0-9]+)*", f.name)
 			}
 			return nil
 		},

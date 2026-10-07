@@ -289,6 +289,17 @@ func (s *Spec) ValidateSchema() ValidationResult {
 	if s.Tasks != nil {
 		errors = append(errors, ValidateArtifactSchema(s.Tasks, TasksSchemaName, "tasks.json")...)
 	}
+	// Keys on disk that no schema allows: the decode dropped them, so the
+	// schema run above never saw them.
+	for _, artifact := range []string{"requirements.json", "test_spec.json", "tasks.json"} {
+		for _, key := range s.unknown[artifact] {
+			errors = append(errors, ValidationEntry{
+				Category: "schema", Check: "unknown_field", Artifact: artifact,
+				Message: fmt.Sprintf("%s: the key %s is not allowed by the schema (additionalProperties: false); "+
+					"remove it", artifact, key),
+			})
+		}
+	}
 
 	return ValidationResult{Valid: len(errors) == 0, Errors: errors}
 }
