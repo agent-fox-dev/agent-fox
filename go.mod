@@ -1,6 +1,6 @@
 module github.com/agent-fox-dev/agentfox
 
-go 1.26.5
+go 1.27
 
 require (
 	github.com/goccy/go-yaml v1.19.2
