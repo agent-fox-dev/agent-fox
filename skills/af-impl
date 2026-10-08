@@ -1,0 +1,289 @@
+---
+name: af-impl
+description: Implement a version 2 specification package with the user watching. Reads the spec's four artefacts, surveys how they map onto the code, then implements the tasks in order on one branch, each test-first, each verified by the spec's own checks before it is committed with its state. Never edits the spec and never merges its own work.
+argument-hint: "[path to a spec package, e.g. .specs/16_indexed_code_search]"
+---
+
+# af-impl
+
+You take a specification package and turn it into code, task by task, with a
+person watching. The `impl` tool does the same thing unattended; this skill is
+for when the user wants to see the survey, steer a task, or run the plan one
+task at a time. Where the two differ in method, the tool is right: it was
+built from the errors a coder makes when the spec is only prose to it.
+
+The format (`spec-format-v2.md` in the `spec` repository) is the contract.
+Four rules shape everything below. **The plan is the contract**: every
+criterion is verified by a test, every test is owned by a task, and the task
+is the unit of work; you implement what a task owns and nothing else. **The
+spec is read-only**: `tasks.json` state is the only thing in the package that
+changes, and only after a task has been measured. **Measure, do not assert**:
+the spec's own `test_commands` run before any change and after every task,
+and the report says what they returned. **One landing**: the branch goes up
+for someone else to merge.
+
+If `.specs/steering.md` exists, read it first. Follow the repository's own
+agent instructions (`CLAUDE.md`, `AGENTS.md`) for branching, commits and
+landing; where they say nothing, the defaults below apply.
+
+## 1. Read the package
+
+`$ARGUMENTS` is a path to a spec package, such as
+`.specs/16_indexed_code_search`. It may also be a bare id (`16`), a name, or
+a file inside the package; resolve it against the spec root (`.specs/` unless
+the project says otherwise). The directory **must** contain all four
+artefacts:
+
+- `prd.md` — the intent; its frontmatter carries `spec_id`, `spec_name`,
+  `title` and `status`;
+- `requirements.json` — requirements, each a list of EARS criteria, plus the
+  execution paths;
+- `test_spec.json` — one flat list of tests, each of which `verifies`
+  criteria or paths;
+- `tasks.json` — `test_commands`, cross-spec `dependencies`, and the ordered
+  tasks, each owning `criteria` and `tests`.
+
+`architecture.md` is optional. If any required file is missing, stop and say
+which: an incomplete package is not implemented, and it is not yours to
+complete. A package under `.specs/archive/` is history; refuse it.
+
+Read all four in full. Note every module, type, command, file and library
+the spec names, and every `external_apis` entry whose `verified` is false:
+those signatures are assumptions, to confirm against the installed library
+before use.
+
+## 2. Refuse early
+
+Before reading any code in depth, check what would make the run pointless:
+
+- The working tree is clean. If not, stop and say so; do not stash on the
+  user's behalf.
+- You are on the branch the work should be based on (the default branch
+  unless the user says otherwise) and it is up to date with its remote.
+  Never start on the work branch itself: the diff under review would be
+  empty.
+- The package validates. If `impl` is installed, `impl <package> --preflight`
+  checks everything in this list and the format's rules at once; otherwise
+  check them by hand: `spec_id` and `spec_name` agree across the four files
+  and the directory name; every `verifies`, `criteria`, `tests` and
+  `depends_on` entry resolves; every criterion has a test and every test has
+  a task; the last task is the one `integration` task and owns every `smoke`
+  test; every `unwanted` criterion has a `contract`. A rule that fails is a
+  defect in the spec, and the spec is not yours to edit: report it and stop.
+- `status` is `draft` or `active`. A `sealed`, `superseded` or `archived`
+  package is not implemented; `draft` is, with a warning.
+- Every `dependencies[].spec` names a package that is sealed or whose
+  integration task is `done`. One that is not stops you here; ask.
+- `test_commands.linter` and `test_commands.all_tests` are commands the
+  project really has (`make`, `go test`, `pytest`, `npm test`), need no
+  shell features, and belong to this project's ecosystem.
+
+Then run `linter` and `all_tests` once, on the unchanged tree, and record
+both results. This is the baseline. A red baseline is a fact, not a blocker:
+it changes what a pass means later. Tell the user; if they want it fixed
+first, that is one commit of its own before any task, `fix: <subject>` with
+a `Spec: <NN_name>, repair` trailer, and the bar for everything after it is
+green.
+
+## 3. Survey
+
+One read-only pass over the spec and the repository, before any branch
+exists. Read only files `git ls-files` lists. Produce a brief that every
+task will be given:
+
+- **Where things live.** For each module, type, command and file the spec
+  names: the file it is in, its callers, its tests. Where the spec expects
+  something that does not exist, where it should be created and what it
+  should look like to fit.
+- **Conventions.** The test framework and where tests live, how errors are
+  handled, how packages are wired, what the linter enforces, what the
+  Makefile does. Read a neighbouring test file rather than guessing a style.
+- **Drift.** Every place the spec's assumptions and the code disagree: what
+  the spec assumes, what the code does, and the decision, numbered `D-1`,
+  `D-2`, … and written in the past tense as it will read in the pull request
+  ("Followed the code: …"). Prefer the code's reality when the spec is merely
+  wrong about a detail; prefer the spec's intent when the code is what the
+  spec changes.
+- **What the tasks do not say.** Per task, what a coder needs to know that
+  `steps` and `touches` leave out.
+
+Show the brief before writing code. This is where the user steers.
+
+A spec that cannot be implemented as written — it names a module the PRD
+does not say to create and nothing in the code plays that role, or it
+contradicts an invariant the code enforces — is a blocker: ask, with both
+readings and what each would change. That is the right answer perhaps one
+time in twenty. Everything smaller is drift with a resolution.
+
+## 4. Branch
+
+`impl/<NN>-<slug>` from the base branch, where `NN` is the `spec_id` and the
+slug is the `spec_name`. When that branch already exists, check it out and
+**continue**: tasks whose `state` is `done` are skipped, a task left
+`in_progress` is reopened, and a `wip:` commit at the tip is dropped so the
+task starts again from the last landed commit. Never force-push, and never
+rewrite a commit that landed.
+
+## 5. One task at a time
+
+For each task that is not `done`, in array order (a task's `depends_on`
+must all be `done` first):
+
+1. **Scope.** Work from the spec scoped to this task: the requirements that
+   own its criteria in full, its tests in full, the paths those tests verify,
+   and the task's own `steps`, `touches` and `done_when`. Other requirements
+   and tasks are context by id only. Implement this task and no other; do
+   not touch another task's work.
+2. **Orient.** Read the files the task `touches` and their tests, and the
+   survey's notes on them. Paths in the spec are what the author expected;
+   confirm them against the code.
+3. **Test first.** Write every test the task owns from its entry in
+   `test_spec.json` — `given`, `when`, `then`, `pseudocode` — in the
+   project's own framework and layout, and put the test id (`TS-16-3`) in the
+   function name or a comment so it can be found. Run them and watch them
+   fail **before** any implementation file changes; keep the command and the
+   failure, because you report them. If the tests cannot compile until the
+   task adds a signature, add the minimal stub first (empty body, zero value,
+   "not implemented"), then see them fail on behaviour, not on a compile
+   error. An `unwanted` criterion's test asserts the outcome its `contract`
+   names, not merely "an error occurred". A `smoke` test uses the
+   `real_components` it lists; nothing in that list is mocked. A test that
+   passes before the implementation proves nothing about it: when a red
+   first run is impossible (a pure refactor, a docs-only change), say so as
+   a test-first deviation rather than burying it in notes.
+4. **Implement** the `steps`, in order, until the tests pass. Follow the
+   conventions the survey recorded and the files you are editing already
+   use. No unrelated improvements: a "while I was here" fix belongs in a
+   change of its own. When every task lists `touches`, the change may touch
+   only those paths, the paths the survey's decisions name, documentation,
+   and the test files that carry the spec's test ids.
+5. **Check, narrowly.** Run the tests you wrote, then the package you
+   changed, in the suite's targeted form (`go test ./pkg -run Name`,
+   `pytest tests/test_x.py::test_y`, `npm test -- <file>`). The full suite
+   is the gate's job, once, after the task.
+6. **Documentation.** Update what the change makes wrong, from the code:
+   every quoted string, field name, exit code and sample payload is copied
+   from the code or a test, not from the PRD, and you can say which line it
+   came from. When the code does not do what the spec asks, the docs say
+   what the code does. The steering file's documentation table, if there is
+   one, names the files.
+7. **Never edit the spec package.** If the implementation has to diverge
+   from a requirement, a test's contract or a survey decision, do what is
+   right for the code, write an erratum under `docs/errata/` citing the code
+   line and the test of the delivered behaviour, and declare the deviation
+   in your report. A gap you declare is reported as one; a gap you bury in
+   notes is reported as a defect.
+
+Then the gate. Run `linter`, then `all_tests`, and compare with the
+baseline:
+
+| Before | After | Verdict | Land? |
+|---|---|---|---|
+| green | green | pass | yes |
+| red | green | pass, baseline was failing | yes, and the report says so |
+| green | red | regressed | no |
+| red | red | still failing | no |
+| a check could not run | | gate failed | no; the work was never measured |
+
+A task lands only on a landable verdict **and** a report that answers for
+every test it owns and every `done_when` entry. A task that changed nothing
+is a failed attempt. A failed attempt is discarded — reset to the last
+commit, new files removed — and the task is tried once more with the failure
+in view. A second failure is parked as a `wip: <subject>` commit with the
+task's state `in_progress`; return to the base branch and report what failed
+with the check's own output. A test that still fails is reported as failed,
+with why; it is worth more than one claimed passed on a run that never
+happened. Never skip, delete or weaken a test to get green.
+
+**Commit.** Set the task's `state` to `done` in `tasks.json` and commit it
+with the task's work as one `feat: <subject>` commit, body ending in a
+`Spec: <NN_name>, task <N>` trailer, and a `Deviation: {"key": …, "reason":
+…}` trailer for each deviation declared. Do not write that checks pass; say
+what they returned. The gate that passed after task N is the baseline for
+task N+1, so "regressed" always means "this task broke it".
+
+**The integration task** is last, and it exists to catch the wiring gaps
+component tests cannot see. Trace every execution path through the real
+code and confirm each step calls the next; for every criterion with a
+`contract`, confirm production code consumes the result, not only a test;
+search every `touches` path for stub markers (`panic("not implemented")`,
+`TODO`, `NotImplementedError`, a bare `return nil` on a non-trivial path);
+confirm entry points that belong to another spec are called from production
+code. A path that is not live in production code fails this task, and an
+erratum or a deferral does not satisfy it.
+
+## 6. Conformance
+
+Every task was verified by the checks; before anything is pushed, ask what
+the checks cannot: does the finished branch do what the spec says? Measure
+the whole diff from the base branch:
+
+- **Structure.** The project's formatter and vet over the touched files;
+  duplication of code that exists elsewhere; an error discarded under a
+  comment that says it is logged; a comment deferring to "a later task"; an
+  unexported declaration nothing uses; a function the change wrote or grew
+  past a hundred lines; a test with no assertion.
+- **Scope.** Any file outside the tasks' `touches`, the survey's decisions,
+  documentation and the spec's test files is a change the spec did not ask
+  for: take it out, or list it as unmet.
+- **A clean environment.** Run the gate once more with an empty `HOME`, no
+  global git configuration and `GIT_TERMINAL_PROMPT=0`. A test that passes
+  only on this machine's configuration (`git init` without `-b`, a commit
+  with no configured identity, a credential a dialog supplied) is a finding.
+- **Review.** Read the diff against the spec on a fresh footing — no task's
+  report — and answer for every requirement and test of the done tasks and
+  every survey decision: `implemented`, `partial`, `missing` or `different`;
+  `asserts_contract`, `weaker`, `tautological`, `no_assertions` or
+  `missing`; `followed` or `not_followed`; cite `file:line` for each, and
+  name every documentation statement the code contradicts.
+
+`missing`, `different`, `tautological`, `no_assertions`, `not_followed`, a
+contradicted document and a clean-environment failure are blocking. Fix
+what can be fixed in one `fix: <subject>` commit with a `Spec: <NN_name>,
+conformance` trailer, landed only on checks that still pass; declare what
+cannot, with an erratum, as above. Documentation findings and files out of
+scope can only be fixed. What remains is the `unmet` list, and the pull
+request must say the work is not complete while it is non-empty.
+
+## 7. Land
+
+- Push the branch and open a pull request against the base branch, unless
+  the repository's instructions or the user say the branch stays local. The
+  body holds: the unmet list first, if any; the spec's deviations and how
+  the tasks handled them, grouped by the survey's kinds; one entry per task
+  with its commit, files changed, test verdicts and any test-first deviation;
+  the verification, before and after, as measured; and the conformance
+  findings and what was done about each. Every claim in it comes from
+  something that ran.
+- Do not merge it. Do not seal the spec; a review that rejects the pull
+  request may reopen a task, which a sealed spec cannot record.
+
+If a push or the pull request fails, say exactly what failed and leave the
+branch and commits in place.
+
+## Never
+
+- Edit `prd.md`, `requirements.json` or `test_spec.json`, or anything in
+  `tasks.json` but a task's `state`. A spec that is wrong gets an erratum
+  and a report, not a quiet fix.
+- Implement a task whose tests you have not seen fail, or claim a test you
+  did not write or a check you did not run.
+- Write a verification result the checks did not produce, or soften a red
+  baseline into a pass.
+- Skip, delete or weaken a test to get green, or satisfy the integration
+  task with a deferral.
+- Start the next task before the current one has landed or been parked.
+- Merge, squash or push to the base branch. Force-push, or rewrite a
+  landed commit.
+- Stash, reset or otherwise change the user's uncommitted work.
+- Widen the change to things no task asked for.
+
+## 8. Report
+
+- The spec: id, title, tasks total, done, skipped, remaining.
+- Branch, commits, pull request URL (or what stopped it).
+- Per task: outcome, commit, verdict from the table, and the check output
+  when it is not a pass.
+- The survey's decisions, and the deviations declared with their errata.
+- The conformance findings, fixed and unmet.
+- Anything left unfinished, and the command that continues it.
