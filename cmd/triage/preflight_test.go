@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/agentfox/agentkit-go/tools"
 
+	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/envtest"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
@@ -124,6 +126,63 @@ func TestIssuePreflightThroughTheShell(t *testing.T) {
 	if _, ok := env["usage"]; ok {
 		t.Error("no phase ran, so the envelope must carry no usage")
 	}
+	if _, ok := env["error"]; ok {
+		t.Errorf("unexpected error: %v", env["error"])
+	}
+}
+
+// TS-17-53 (smoke): triage --preflight with a failing go_typecheck detection
+// prints the envelope without that entry, with every other check and the
+// estimate intact, and exits 0.
+//
+// Verifies: 17-PATH-2, 17-REQ-4.5
+func TestTS17_53_TriagePreflightOmitsGoTypecheckOnFailure(t *testing.T) {
+	old := agentrun.DetectGoTypecheck
+	agentrun.DetectGoTypecheck = func(ws *tools.Workspace) (string, error) {
+		return "", errors.New("find_references is not offered")
+	}
+	t.Cleanup(func() { agentrun.DetectGoTypecheck = old })
+
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("GITHUB_TOKEN", "test-token")
+
+	code, env := runIssueApp(t, "--preflight", "--dir", t.TempDir(), "--repo", "acme/widgets", "a report")
+	if code != toolio.ExitOK {
+		t.Fatalf("code = %d: %v", code, env)
+	}
+	res, _ := env["result"].(map[string]any)
+	if res["stage"] != "preflight" {
+		t.Errorf("stage = %v", res["stage"])
+	}
+
+	// Exactly 4 entries: target_repository, forge_credential, symbol_backend, code_search_index.
+	list, ok := res["preflight"].([]any)
+	wantNames := []string{"target_repository", "forge_credential", "symbol_backend", "code_search_index"}
+	if !ok || len(list) != len(wantNames) {
+		t.Fatalf("result.preflight has %d entries, want %d: %v", len(list), len(wantNames), res["preflight"])
+	}
+	for i, want := range wantNames {
+		entry, _ := list[i].(map[string]any)
+		if entry["check"] != want {
+			t.Errorf("preflight[%d].check = %v, want %q", i, entry["check"], want)
+		}
+	}
+
+	// No entry is named go_typecheck.
+	for _, entry := range list {
+		m, _ := entry.(map[string]any)
+		if m["check"] == "go_typecheck" {
+			t.Error("go_typecheck entry present despite failing detection")
+		}
+	}
+
+	// Estimate has phases 1.
+	if est, ok := res["estimate"].(map[string]any); !ok || est["phases"] != float64(1) {
+		t.Errorf("estimate = %v", res["estimate"])
+	}
+
+	// No error in the envelope.
 	if _, ok := env["error"]; ok {
 		t.Errorf("unexpected error: %v", env["error"])
 	}

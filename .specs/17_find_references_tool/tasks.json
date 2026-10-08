@@ -367,7 +367,7 @@
         "make check passes with the replace target carrying find_references",
         "every execution path 17-PATH-1 to 17-PATH-5 is reached from production code"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }
