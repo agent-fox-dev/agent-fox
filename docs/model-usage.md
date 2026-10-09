@@ -182,9 +182,9 @@ Six tools read the tree. `read_file`, `list_files`, `find_files` and
 file's declarations (kind, name and line) without reading its body, and
 `find_symbol` locates a name across the workspace in one call, where a
 `search_files` and a `read_file` would otherwise be needed. Both are
-AgentKit's. Universal-ctags is the accelerator: where it is installed they use
-it, and where it is not they fall back to heuristics, the same pattern as
-`search_files` with `rg`. Each result names the backend that produced it, and
+AgentKit's. Go is outlined with `go/ast`; fourteen other languages are parsed
+in-process by tree-sitter grammars when the binary is built with cgo, and have
+no outline without it. Each result names the backend that produced it, and
 `--preflight` reports which one a run will use (the `symbol_backend` check).
 Each phase holds its own symbol table: `find_symbol` builds it on its first
 call and it is bounded by AgentKit's defaults, so `fix` and `impl` do not carry

@@ -59,7 +59,7 @@ func TestTS15_12_ModelUsagePhaseTableListsSixReadTools(t *testing.T) {
 // Verifies: 15-REQ-6.2
 func TestTS15_13_ModelUsageReadingTheCodebaseDescribesSymbolTools(t *testing.T) {
 	section := docSection(t, readDoc(t, "model-usage.md"), "Reading the codebase")
-	for _, want := range []string{"file_outline", "find_symbol", "ctags", "heuristics", "symbol table"} {
+	for _, want := range []string{"file_outline", "find_symbol", "go/ast", "tree-sitter", "symbol table"} {
 		if !strings.Contains(section, want) {
 			t.Errorf("'Reading the codebase' does not mention %q", want)
 		}
@@ -80,7 +80,7 @@ func TestTS15_14_CLIListsSixReadToolsAndSymbolBackend(t *testing.T) {
 		}
 	}
 	// Every --preflight example carries the check.
-	if n := strings.Count(content, `{"check": "symbol_backend", "ok": true, "detail": "ctags"}`); n != 4 {
+	if n := strings.Count(content, `{"check": "symbol_backend", "ok": true, "detail": "tree-sitter"}`); n != 4 {
 		t.Errorf("docs/cli.md has %d symbol_backend example entries, want 4 (fix, impl, spec, triage)", n)
 	}
 	// The sections that say what the model may do name all six read tools.
@@ -99,12 +99,13 @@ func TestTS15_14_CLIListsSixReadToolsAndSymbolBackend(t *testing.T) {
 	}
 }
 
-// TS-15-15 (unit): docs/cli.md --preflight prose mentions ctags detection
+// TS-15-15 (unit): docs/cli.md --preflight prose mentions the symbol backend
+// detection (tree-sitter replaced ctags; see docs/errata/15_tree_sitter_outline.md)
 // Verifies: 15-REQ-7.3
-func TestTS15_15_CLIPreflightProseMentionsCtags(t *testing.T) {
+func TestTS15_15_CLIPreflightProseMentionsSymbolBackend(t *testing.T) {
 	section := docSection(t, readDoc(t, "cli.md"), "--preflight")
-	if !strings.Contains(section, "universal-ctags") {
-		t.Error("the --preflight section does not mention universal-ctags")
+	if !strings.Contains(section, "tree-sitter") {
+		t.Error("the --preflight section does not mention tree-sitter")
 	}
 	if !strings.Contains(section, "symbol backend") {
 		t.Error("the --preflight section does not mention the symbol backend")

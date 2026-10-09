@@ -300,7 +300,7 @@ func TestSummaryViewKeepsPreflightAndEstimate(t *testing.T) {
 }
 
 // TS-15-9 (unit): RunPreflight adds a symbol_backend check, OK true, with the
-// detail "ctags" or "heuristics".
+// detail "tree-sitter" or "go-only".
 //
 // Verifies: 15-REQ-4.1, 15-REQ-4.2
 func TestTS15_9_PreflightReportsSymbolBackend(t *testing.T) {
@@ -312,8 +312,8 @@ func TestTS15_9_PreflightReportsSymbolBackend(t *testing.T) {
 	if !ok {
 		t.Fatalf("no symbol_backend check in %+v", res.Preflight)
 	}
-	if !c.OK || (c.Detail != "ctags" && c.Detail != "heuristics") {
-		t.Errorf("symbol_backend = %+v, want OK with ctags or heuristics", c)
+	if !c.OK || (c.Detail != agentrun.SymbolBackendTreeSitter && c.Detail != agentrun.SymbolBackendGoOnly) {
+		t.Errorf("symbol_backend = %+v, want OK with tree-sitter or go-only", c)
 	}
 }
 

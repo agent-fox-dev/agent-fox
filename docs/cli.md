@@ -439,12 +439,13 @@ then the tool's own checks:
 - `triage`: the target repository and the forge credential.
 
 Every tool ends its list with two informational checks. The first is the
-`symbol_backend` check: whether
-universal-ctags was found, and so which symbol backend `file_outline` and
-`find_symbol` use in every phase of the run. Its `detail` is `ctags` when
-universal-ctags is installed and usable and `heuristics` when it is not. It is
-informational — `ok` is always `true`, because the heuristic fallback always
-works — and it is left out of the list when the detection itself fails.
+`symbol_backend` check: which symbol backend `file_outline` and
+`find_symbol` use for languages other than Go in every phase of the run. Its
+`detail` is `tree-sitter` when the binary was built with cgo and parses
+fourteen languages in-process, and `go-only` when it was built without cgo
+and only Go files have an outline. It is informational — `ok` is always
+`true`, because Go is outlined either way — and it is left out of the list
+when the detection itself fails.
 
 The second is `code_search_index`: whether the run built the code-search index
 that gives every phase the `code_search` tool. Its `detail` is `built` when the
@@ -529,7 +530,7 @@ fix ./bug-report.md --preflight
       {"check": "remote_configured", "ok": true, "detail": "origin"},
       {"check": "verify_command", "ok": true, "detail": "make test"},
       {"check": "verify_baseline", "ok": true, "detail": "passed"},
-      {"check": "symbol_backend", "ok": true, "detail": "ctags"},
+      {"check": "symbol_backend", "ok": true, "detail": "tree-sitter"},
       {"check": "code_search_index", "ok": true, "detail": "built"}
     ],
     "estimate": {
@@ -564,7 +565,7 @@ impl 09 --preflight
       {"check": "test_commands", "ok": true, "detail": "make lint · make test"},
       {"check": "dependencies", "ok": true, "detail": "no upstream specs"},
       {"check": "verify_baseline", "ok": true, "detail": "passed"},
-      {"check": "symbol_backend", "ok": true, "detail": "ctags"},
+      {"check": "symbol_backend", "ok": true, "detail": "tree-sitter"},
       {"check": "code_search_index", "ok": true, "detail": "built"}
     ],
     "estimate": {
@@ -596,7 +597,7 @@ spec ./prd.md --preflight
     "preflight": [
       {"check": "schemas_valid", "ok": true},
       {"check": "split_plan", "ok": true, "detail": "no unfinished split for this input"},
-      {"check": "symbol_backend", "ok": true, "detail": "ctags"},
+      {"check": "symbol_backend", "ok": true, "detail": "tree-sitter"},
       {"check": "code_search_index", "ok": true, "detail": "built"}
     ],
     "estimate": {
@@ -628,7 +629,7 @@ triage ./crash.log --preflight
     "preflight": [
       {"check": "target_repository", "ok": true, "detail": "acme/widgets"},
       {"check": "forge_credential", "ok": true},
-      {"check": "symbol_backend", "ok": true, "detail": "ctags"},
+      {"check": "symbol_backend", "ok": true, "detail": "tree-sitter"},
       {"check": "code_search_index", "ok": true, "detail": "built"}
     ],
     "estimate": {
@@ -1195,8 +1196,9 @@ phase of `fix` and `impl` runs under it. Its rules, in the order they matter:
 **Read tools.** Every phase of `fix` can call the six read tools: `read_file`,
 `list_files`, `find_files`, `search_files`, `file_outline` and `find_symbol`.
 `file_outline` returns a file's declarations and `find_symbol` finds where a
-name is declared; both use universal-ctags when it is installed and heuristics
-when it is not (`--preflight` reports which, as `symbol_backend`).
+name is declared; both outline Go with `go/ast` and other languages with
+tree-sitter when the binary was built with cgo (`--preflight` reports which,
+as `symbol_backend`).
 
 The system prompt tells the model what its tools are for. The phase's own text
 closes with the registered tools by name, and AgentKit follows it, under

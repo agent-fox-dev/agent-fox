@@ -31,10 +31,7 @@ import (
 var (
 	walkFn    = tools.Walk
 	outlineFn = outline.Outline
-	// ctagsRunner is what non-Go files are outlined with, as file_outline
-	// outlines them, so the map and the tool show the same declarations.
-	ctagsRunner = tools.CtagsRunner(nil)
-	ignore      = tools.IgnoreOptions{}
+	ignore    = tools.IgnoreOptions{}
 )
 
 // rootDir is the directory name of the workspace root in the map.
@@ -118,7 +115,7 @@ func describe(ctx context.Context, ws *tools.Workspace, rel string) (*file, erro
 	f := &file{path: rel, dir: dir, name: path.Base(rel), test: isTestFile(rel)}
 
 	out, err := outlineFn(ctx, filepath.Join(ws.Root, filepath.FromSlash(rel)), nil,
-		outline.Options{Root: ws.Root, Runner: ctagsRunner})
+		outline.Options{Root: ws.Root})
 	if err != nil {
 		if cerr := ctx.Err(); cerr != nil {
 			return nil, cerr
