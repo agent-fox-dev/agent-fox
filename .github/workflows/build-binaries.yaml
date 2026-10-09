@@ -1,0 +1,56 @@
+name: agentfox release binaries build
+
+# Builds the tools for each platform install.sh downloads, each on a runner of
+# that platform: the binaries build with cgo (AgentKit's tree-sitter outline
+# backend is C), so each needs a C compiler for its own target.
+
+on:
+  #push:
+  #  tags:
+  #    - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-arm64
+            runner: macos-latest
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+          - platform: linux-amd64
+            runner: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: clone agentkit-go dependency
+        run: git clone https://github.com/agent-fox-dev/agentkit-go.git ../agentkit-go
+
+      - name: setup go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: build
+        run: make build-${{ matrix.platform }}
+
+      # A binary built without cgo outlines Go files only; refuse to publish one.
+      - name: check the binaries were built with cgo
+        run: |
+          for f in dist/*-${{ matrix.platform }}; do
+            go version -m "$f" | grep -q 'CGO_ENABLED=1' || { echo "$f was built without cgo" >&2; exit 1; }
+          done
+
+      - name: upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: tools-${{ matrix.platform }}
+          path: dist/*-${{ matrix.platform }}
+          if-no-files-found: error

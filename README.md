@@ -128,7 +128,7 @@ git clone https://github.com/agent-fox-dev/agentkit-go ../agentkit-go
 ```bash
 make check          # gofmt + go vet + all tests
 make build          # go install spec, triage, fix and impl; af and nightshift into bin/
-make build-all      # static cross-builds of the four tools into dist/
+make build-all      # cgo release builds of the four tools into dist/ (one platform per host)
 ```
 
 The test suite needs no API key, no GitHub token and no network: the model half
