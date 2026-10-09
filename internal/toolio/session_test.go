@@ -38,6 +38,7 @@ func TestTS12_2_SessionIDsAreUniqueAndWellFormed(t *testing.T) {
 	re := regexp.MustCompile(`^[0-9a-f]{32}$`)
 	ids := make(map[string]bool, N)
 	pid := fmt.Sprintf("%x", os.Getpid())
+	pidPrefixed := 0
 	for i := 0; i < N; i++ {
 		r := NewRun("tool", "v1")
 		id := r.SessionID()
@@ -48,10 +49,15 @@ func TestTS12_2_SessionIDsAreUniqueAndWellFormed(t *testing.T) {
 			t.Fatalf("run %d: duplicate SessionID() = %q", i, id)
 		}
 		ids[id] = true
-		// The first 8 chars should not be the hex of the pid (weak check).
-		if len(pid) <= 8 && strings.HasPrefix(id, pid) {
-			t.Errorf("run %d: SessionID() %q starts with hex(pid) %q", i, id, pid)
+		if strings.HasPrefix(id, pid) {
+			pidPrefixed++
 		}
+	}
+	// A pid component would prefix every id. A random id starts with a short
+	// hex(pid) by chance (1 in 65536 for a 4-digit pid), so a single match is
+	// not evidence of one.
+	if pidPrefixed == N {
+		t.Errorf("all %d session ids start with hex(pid) %q", N, pid)
 	}
 	if len(ids) != N {
 		t.Fatalf("expected %d unique ids, got %d", N, len(ids))
