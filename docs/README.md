@@ -6,6 +6,7 @@
 | [Configuration](configuration.md) | Credentials, model selection, what the model is allowed to read, bounds |
 | [Model Usage](model-usage.md) | What each phase sends, and what happens when the answer is wrong |
 | [Development](development.md) | Setup, repository layout, the schema workflow, testing |
+| [Architecture](architecture.md) | **Proposed, placeholder.** The target shape: a brain (Claude Code, Pi, the AgentKit driver) owns the loop; `af` is the toolbelt of fact and effect commands; AgentKit is the hands |
 | [Go Library API](../afspec/README.md) | The `afspec` spec-format library |
 
 ## Architecture decisions
