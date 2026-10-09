@@ -99,6 +99,14 @@ clean:
 	-rm -rf bin/af bin/nightshift
 	-rm -rf $(DIST_DIR)/*-arm64 $(DIST_DIR)/*-amd64
 
+clean-branches:
+	git checkout main
+	@git branch --list 'feature/*' | xargs -r git branch -D
+	@git branch --list 'fix/*' | xargs -r git branch -D
+	@git branch --list 'impl/*' | xargs -r git branch -D
+	@git branch --list 'docs/*' | xargs -r git branch -D
+	@git branch --list 'worktree-agent-*' | xargs -r git branch -D
+
 # Regenerate the Go artifact types from the bundled JSON Schemas.
 # The canonical schemas live in the agent-fox-dev/spec repository; the copies
 # under afspec/schemas/ are what the library compiles and embeds.
