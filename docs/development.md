@@ -4,6 +4,9 @@
 
 - Go 1.26.5 or later
 - A sibling checkout of [`agentkit-go`](https://github.com/agent-fox-dev/agentkit-go), in a directory named `agentkit-go`
+- A C compiler for the builds: AgentKit outlines every language but Go with
+  tree-sitter, which is C, so the tools build with cgo (Xcode's command line
+  tools on macOS, `build-essential` on Debian and Ubuntu)
 
 ```bash
 git clone https://github.com/agent-fox-dev/agentkit-go ../agentkit-go
@@ -151,7 +154,7 @@ All tasks are driven through `make`. Run from the repository root.
 | `make lint`         | Lint Go source: `gofmt` + `go vet`                     |
 | `make format`       | Auto-format Go source: `gofmt -w`                      |
 | `make build`        | `go install` `spec`, `triage`, `fix` and `impl`; build `af` and `nightshift` into `bin/` |
-| `make build-all`    | Static cross-builds of the four tools into `dist/` (darwin/arm64, linux/arm64, linux/amd64) |
+| `make build-all`    | Release builds of the four tools into `dist/` (darwin/arm64, linux/arm64, linux/amd64), with cgo for the tree-sitter outline backend; each platform needs a matching host or `CC` set to a cross compiler (see below) |
 | `make build-containers` | Build the sandbox and tools images with `podman` |
 | `make clean`        | Remove build artifacts                                 |
 | `make json-gen`     | Regenerate Go artifact types from the schemas          |
@@ -174,6 +177,27 @@ The pipelines are tested through their real `Run`, with only the model half
 replaced. That split — judgment in the model, everything else in Go — is the
 design claim the tools make, and having it be an interface is what makes it
 checkable.
+
+### Release builds
+
+`make build-darwin-arm64`, `make build-linux-arm64` and `make build-linux-amd64`
+write the binaries `install.sh` downloads (`<tool>-<os>-<arch>`) into `dist/`.
+They build with cgo, so the tree-sitter outline backend is in them: a build
+without cgo outlines Go files only, and its `--preflight` reports
+`symbol_backend` as `go-only`. The Linux binaries are linked statically (with
+the `netgo` and `osusergo` tags), so they run on any distribution.
+
+A platform needs a C compiler for its own target, so each target refuses to
+run on a different host unless `CC` names a cross compiler:
+
+```bash
+make build-linux-amd64 CC="zig cc -target x86_64-linux-gnu"
+```
+
+The `agentfox release binaries build` workflow
+(`.github/workflows/build-binaries.yaml`, run by hand) builds each platform
+on a runner of that platform, checks every binary was built with cgo, and
+uploads them as workflow artifacts.
 
 ## Schema workflow
 
