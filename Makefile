@@ -18,6 +18,7 @@ TOOLS_IMAGE_TAG ?= $(VERSION)
 
 SCHEMAS_DIR := $(CURDIR)/afspec/schemas
 DIST_DIR    := $(CURDIR)/dist
+DOC_DIR ?= build/doc
 
 # Run lint + all tests
 check: lint test
@@ -45,8 +46,8 @@ coverage:
 
 # Build all CLIs
 build:
-	CGO_ENABLED=1 go build $(LDFLAGS) -o bin/af ./cmd/af
-	CGO_ENABLED=1 go build $(LDFLAGS) -o bin/nightshift ./cmd/nightshift
+	CGO_ENABLED=1 go build $(LDFLAGS) -o build/af ./cmd/af
+	CGO_ENABLED=1 go build $(LDFLAGS) -o build/nightshift ./cmd/nightshift
 	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/spec
 	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/triage
 	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/fix
@@ -96,7 +97,7 @@ build-tools-container:
 
 clean:
 	-rm -f coverage.txt
-	-rm -rf bin/af bin/nightshift
+	-rm -rf build/af build/nightshift
 	-rm -rf $(DIST_DIR)/*-arm64 $(DIST_DIR)/*-amd64
 
 clean-branches:
@@ -142,3 +143,15 @@ uninstall-skills:
 			echo "removed: $$name"; \
 		fi; \
 	done
+
+doc: ## Generate Go package reference (go doc -all) as text files under build/doc
+	@rm -rf $(DOC_DIR)
+	@mkdir -p $(DOC_DIR)
+	@for m in . codesearch; do \
+		( cd $$m && mod=$$(go list -m) && pkgs=$$(go list ./...) && \
+		for p in $$(printf '%s\n' "$$pkgs" | grep -v -e /internal/ -e /examples/); do \
+			rel=$${p#$$mod}; rel=$${rel#/}; out="$(CURDIR)/$(DOC_DIR)/$${rel:-$$(basename $$mod)}.txt"; \
+			mkdir -p "$$(dirname "$$out")" && go doc -all "$$p" > "$$out" || exit 1; \
+		done ) || exit 1; \
+	done
+	@echo "package docs written to $(DOC_DIR)"
