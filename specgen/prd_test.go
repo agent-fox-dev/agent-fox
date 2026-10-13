@@ -177,3 +177,19 @@ func TestValidSpecName(t *testing.T) {
 		}
 	}
 }
+
+// The document phases write their whole artifact as one tool call, after
+// thinking that shares the same output budget. At 32768 a long PRD under
+// xhigh effort ran out before the call began, so they have the same cap as
+// the artifact phases.
+func TestDocumentPhasesHaveRoomForThinkingAndTheDocument(t *testing.T) {
+	for name, n := range map[string]int{
+		"prd":          prdMaxTokens,
+		"architecture": architectureMaxTokens,
+		"generate":     generateMaxTokens,
+	} {
+		if n < 65536 {
+			t.Errorf("%s output cap = %d, want at least 65536", name, n)
+		}
+	}
+}

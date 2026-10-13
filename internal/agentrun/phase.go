@@ -72,6 +72,12 @@ const (
 	// compactionThreshold is the fraction of the context window at which the
 	// transcript is summarized in place.
 	compactionThreshold = 0.6
+	// maxTruncationNudges is how many times one phase is told that a response
+	// hit the output token limit before calling anything (see
+	// truncationNudge). Each such response is a full max_tokens of output, so
+	// a model that keeps overrunning is stopped here rather than at the
+	// budget.
+	maxTruncationNudges = 2
 )
 
 func (b Bounds) maxTurns() int {
@@ -250,6 +256,11 @@ type Result struct {
 	Task       string
 	Turns      int
 	StopReason core.RunStopReason
+	// LastReason is why the final response ended. It differs from
+	// StopReason when the output token limit cut that response off before
+	// any tool call: the loop then reports a clean end_turn, and only this
+	// says the model was still working.
+	LastReason core.StopReason
 	Usage      core.Usage
 	Elapsed    time.Duration
 	// Blocked counts the tool calls the authorization guard refused. A
@@ -392,6 +403,7 @@ func (r *Runner) run(ctx context.Context, p Phase) (Result, error) {
 		Task:            p.Task,
 		Turns:           res.TurnCount,
 		StopReason:      res.StopReason,
+		LastReason:      res.LastReason,
 		Usage:           res.Usage,
 		Elapsed:         time.Since(start),
 		Blocked:         blocked.count(),
@@ -400,6 +412,15 @@ func (r *Runner) run(ctx context.Context, p Phase) (Result, error) {
 		ToolResultBytes: tc.snapshotBytes(),
 	}
 	return out, r.wrap(p, res, runErr)
+}
+
+// truncationNudge is the message a phase sends after a response the output
+// token limit cut off before any tool call. Nothing in that response reached
+// the transcript as work, so the model is told so and asked to act.
+func truncationNudge(terminator string) string {
+	return fmt.Sprintf("Your last response hit the output token limit before it called any tool, "+
+		"so nothing was submitted. Keep your thinking brief: if you are ready, call %s now; "+
+		"otherwise make the next tool call you need.", terminator)
 }
 
 // readRootDirs is the read roots' directories, for the guard.
@@ -443,6 +464,25 @@ func (r *Runner) newAgent(p Phase) (*agentkit.Agent, *blockCounter, error) {
 	}
 	if maxTokens > 0 {
 		cfg.MaxTokens = &maxTokens
+	}
+	// A response the output limit cuts off before any tool call has no call
+	// for the loop to answer, so the loop ends the run as a clean end_turn —
+	// usually with the thinking before a long terminating call having used
+	// the whole max_tokens. OnTurnEnd runs before the loop decides to stop,
+	// and a follow-up queued there continues the same run, inside the same
+	// turn and budget bounds.
+	var agent *agentkit.Agent
+	nudges := 0
+	cfg.Hooks.OnTurnEnd = func(e core.TurnEndEvent) {
+		if nudges >= maxTruncationNudges || e.Message.StopReason != core.StopReasonLength ||
+			len(core.ExtractToolUse(&e.Message)) > 0 {
+			return
+		}
+		nudges++
+		r.detail("the response hit the output token limit before calling a tool; asking for %s", p.Terminator)
+		if err := agent.FollowUpText(truncationNudge(p.Terminator)); err != nil {
+			r.detail("queueing the nudge: %v", err)
+		}
 	}
 	if temperature > 0 {
 		cfg.Temperature = &temperature
@@ -495,7 +535,7 @@ func (r *Runner) newAgent(p Phase) (*agentkit.Agent, *blockCounter, error) {
 	history := core.NewConversationHistory()
 	r.installCompaction(&cfg, history)
 
-	agent, err := agentkit.NewAgentWithHistory(cfg, history)
+	agent, err = agentkit.NewAgentWithHistory(cfg, history)
 	if err != nil {
 		return nil, nil, newError(p.Name, CategoryInternal, err, "building the agent: %v", err)
 	}
@@ -822,11 +862,15 @@ const (
 // task.
 func NoResultError(phase, terminator string, res Result) error {
 	hint := "raise --max-turns or --budget, or narrow the input"
-	switch res.StopReason {
-	case core.RunStopBudgetExceeded:
+	switch {
+	case res.StopReason == core.RunStopBudgetExceeded:
 		hint = "raise --budget, or choose a cheaper model"
-	case core.RunStopMaxTurns:
+	case res.StopReason == core.RunStopMaxTurns:
 		hint = "raise --max-turns; the model was still working"
+	case res.LastReason == core.StopReasonLength:
+		// Neither bound was reached, so neither flag would help.
+		hint = "its last response hit the output token limit before calling it; " +
+			"run again, or narrow the input"
 	}
 	err := newError(phase, CategoryNoResult, nil,
 		"the phase ended (%s) without calling %s: %s", res.StopReason, terminator, hint)

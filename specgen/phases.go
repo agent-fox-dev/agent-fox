@@ -22,14 +22,16 @@ const ToolSubmitArchitecture = "submit_architecture"
 
 // Per-phase output caps, clamped to the model's own ceiling by the catalog.
 //
-// They differ by an order of magnitude because the artifacts do: a PRD is a
-// document, and a tasks artifact for a ten-requirement spec is a large JSON
-// object whose truncation is a validation failure rather than a shorter
-// answer.
+// Every phase writes its whole artifact as one terminating tool call, and the
+// thinking before that call comes out of the same budget. A PRD is 8-10k
+// tokens of document, but under xhigh effort the response that submits it
+// has used 23-28k in total, so 32768 cut it off before the call began. A
+// tasks artifact for a ten-requirement spec is a large JSON object whose
+// truncation is a validation failure rather than a shorter answer.
 const (
-	prdMaxTokens          = 32768
+	prdMaxTokens          = 65536
 	generateMaxTokens     = 65536
-	architectureMaxTokens = 32768
+	architectureMaxTokens = 65536
 )
 
 // specTemperature is low because every phase produces a structured artifact

@@ -20,9 +20,9 @@ one's *conclusion* rather than from how it got there.
 | `fix` | `analyse` | the six read tools, `code_search` (if indexed), plus `execute` under a read-only allowlist | provider default | `submit_analysis` |
 | `fix` | `implement` | the six read tools, `code_search` (if indexed), `write_file`, `edit_file`, `execute` under a build allowlist | provider default | `submit_implementation` |
 | `fix` | `review` (when the report cites spec ids) | the six read tools, `code_search` (if indexed), plus `execute` under a read-only allowlist; no repository map | provider default | `submit_review` |
-| `spec` | `prd` | the six read tools, `code_search` (if indexed) | 32 768 | `submit_prd` |
+| `spec` | `prd` | the six read tools, `code_search` (if indexed) | 65 536 | `submit_prd` |
 | `spec` | `generate:{artifact}` | the six read tools, `code_search` (if indexed) | 65 536 | `submit_requirements`, `submit_test_spec`, `submit_tasks` |
-| `spec` | `architecture` (opt-in) | the six read tools, `code_search` (if indexed) | 32 768 | `submit_architecture` |
+| `spec` | `architecture` (opt-in) | the six read tools, `code_search` (if indexed) | 65 536 | `submit_architecture` |
 | `impl` | `survey` | the six read tools, `code_search` (if indexed), plus `execute` under a read-only allowlist | provider default | `submit_survey` |
 | `impl` | `repair` (with `--repair`, on a red baseline or after the integration task) | the same as `implement`; on `--repair-model`, a model of its own | provider default | `submit_repair` |
 | `impl` | `implement` (once per task) | the six read tools, `code_search` (if indexed), `write_file`, `edit_file`, `execute` under a build allowlist; writes under the spec package refused | provider default | `submit_task` |
@@ -40,6 +40,9 @@ handling and the refusal format are in the
 [tool reference](cli.md#what-the-model-may-and-may-not-do).
 
 `max_tokens` is an upper bound, clamped to the resolved model's own ceiling.
+It covers thinking as well as the answer, so a phase that submits a whole
+document in one call needs room for both: under `xhigh` effort the response
+that submits a PRD uses 23-28k tokens.
 Temperature is 0.2 everywhere, because every phase produces a structured
 artifact that is then validated — creativity here shows up as a schema
 violation. A model whose catalog row rejects sampling parameters has them
@@ -154,16 +157,25 @@ validates against the same upstream artifacts as the one before it.
 
 ## A run that ends without submitting
 
-The error names the `RunStopReason`, because the three ways this happens want
-three different responses:
+The error names the `RunStopReason`, because the ways this happens want
+different responses:
 
 | Reason | What happened | What to do |
 |---|---|---|
 | `end_turn` | the model answered in prose instead of calling the tool | narrow the input; the phase declares its tool and a prompt guideline saying to call it |
+| `end_turn`, message says "output token limit" | the last response hit `max_tokens` before it called anything, after the phase had already asked twice for the call | run again, or narrow the input; `--max-turns` and `--budget` do not help |
 | `max_turns` | it kept failing validation | raise `--max-turns`, or read the rejections with `--verbose` |
 | `budget_exceeded` | the phase hit its cost cap | raise `--budget`, or choose a cheaper tier |
 
-The category in the envelope is `no_result` in all three cases — the phase
+A response that hits `max_tokens` before any tool call has no call for the
+loop to answer, so the loop reports it as a clean `end_turn` — usually because
+the thinking before a long terminating call used the whole limit. The phase
+does not stop there: it tells the model its response was cut off and asks for
+the terminating tool, and carries on inside the same turn and budget bounds.
+It does this at most twice per phase, since each such response costs a full
+`max_tokens` of output; `--verbose` reports each time.
+
+The category in the envelope is `no_result` in every case — the phase
 ran to its end and produced nothing — and the message carries the stop reason
 and the matching hint. The `max_turns` and `budget` categories are reserved
 for a phase that ends in an error while at its ceiling; a phase that merely

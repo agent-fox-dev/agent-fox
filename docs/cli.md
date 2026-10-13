@@ -142,7 +142,7 @@ it wrote nothing to continue. `fix_hint`, where present, names a mechanical reme
 | `api` | a provider or transport failure | yes |
 | `budget`, `max_turns` | a phase ended in an error at its ceiling; raising it may help | no |
 | `aborted` | the run was cancelled (Ctrl-C, or `--phase-timeout`) | yes |
-| `no_result` | the phase ended without calling its terminating tool: the model answered in prose, or stopped at its turn or budget ceiling; the message says which, and what to raise | no |
+| `no_result` | the phase ended without calling its terminating tool: the model answered in prose, its last response hit the output token limit, or it stopped at its turn or budget ceiling; the message says which, and what to do | no |
 | `git`, `forge`, `disk` | an external system refused: git, GitHub or GitLab, or (`spec`) the filesystem | no |
 | `ambiguous` | (`fix`) the input reads two ways; a question was posted | no |
 | `blocked` | (`impl`) the spec cannot be implemented as written, or an upstream spec is not done | no |
