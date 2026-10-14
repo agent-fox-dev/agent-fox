@@ -48,7 +48,6 @@ coverage:
 build:
 	CGO_ENABLED=1 go build $(LDFLAGS) -o build/af ./cmd/af
 	CGO_ENABLED=1 go build $(LDFLAGS) -o build/nightshift ./cmd/nightshift
-	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/spec
 	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/triage
 	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/fix
 	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/impl
