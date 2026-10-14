@@ -23,7 +23,7 @@ unchanged; what changes is who owns the loop.
 ## The shape
 
 ```
- brain (interchangeable)        Claude Code | Pi | the AgentKit driver | a person
+ brain (interchangeable)        Claude Code | Codex | Pi | the AgentKit driver | a person
    owns:  the loop, its context, read/edit/shell, its own compaction
    gets:  a brief (markdown + facts), a tool allowlist, a policy hook
    gives: a submission (JSON) through af
@@ -40,7 +40,13 @@ unchanged; what changes is who owns the loop.
         v
  agentkit-go (the hands)        Workspace, Walk, the ignore engine, the subprocess
                                 runner, outline, symbols, references, codesearch,
-                                guard.Check, the MCP pool, code mode, the driver
+                                guard.Check, the MCP pool, code mode, the driver,
+                                and the sandbox: the box the tree lives in
+        |
+        |  gateway.Dial, or a local provider
+        v
+ hub (the backend)              workspaces, scoped tokens, the git server, carry
+                                patches, the merge queue, the job queue, tasks
 ```
 
 Three layers, each replaceable without the others noticing:
@@ -57,7 +63,13 @@ Three layers, each replaceable without the others noticing:
   `internal/engine`, minus the phases and the prompts.
 - **The hands** are AgentKit after PRD 10: workspace mechanics with no
   opinion about phases, specs or envelopes. `af` is built on them. The
-  AgentKit driver is one of the brains, not a layer of its own.
+  AgentKit driver is one of the brains, not a layer of its own. The
+  sandbox is the hands' too: the box a tree lives in while a brain works
+  on it (*The box*, below).
+- **The hub** is the backend: the one caller of `af impl` that is not a
+  person, and the authority on where a landed branch goes afterwards. It
+  is not a layer `af` is built on, and `af` runs without it (*The hub*,
+  below).
 
 ## The toolbelt
 
@@ -147,12 +159,127 @@ under the spec directory, flags any file outside `touches`, and re-measures
 the tree itself. Nothing the brain did unobserved can reach `tasks.json`,
 the trailer, or the forge.
 
+## The box
+
+The hands' `sandbox` package is the box. A `Provider` (`podman` for a
+container or a micro-VM, `landlock` for a confined child process on Linux,
+`gateway` for a sandbox on another host, `local` for tests) creates one
+from a `Spec`: an image, an explicit environment, a network mode, resource
+bounds, a TTL. `Sync` fills its workspace from a host directory over the
+rsync protocol, or from a public repository in an init step; `Tools`
+returns `tools.All` as proxies whose every call runs inside; `Export`
+brings the tree back out, never `.git`; `Close` destroys it. The box has
+no host mount, inherits no environment, holds none of the provider's
+credentials, and inside it the hands' agent confines itself with Landlock
+to the workspace, a spill directory and a private `HOME`.
+
+The sections above say nothing about where the tree is. With the box they
+say this:
+
+**The tree lives in the box. Git and the credentials live on the host.
+Ring 1 runs where the tree is, ring 2 runs where the credentials are, and
+the brain runs wherever it brings its hands.**
+
+### Where the brain sits
+
+A brain either borrows the hands or brings its own.
+
+| | Borrowed hands | Own hands |
+|---|---|---|
+| Brains | the AgentKit driver; Claude Code with its native tools denied and `af serve` as its only tools | Claude Code, Codex, Pi, OpenCode; a person at a shell |
+| The brain runs | on the host, over `sb.Tools` | inside the box, from the image |
+| What it sees | tool results | the tree, a shell, its own tools |
+| What the box holds | no credential at all | the model vendor's key, nothing else |
+| Network the box needs | none | the vendor; a package registry if the gate fetches |
+| How it is started | `agentkit.New` over the proxy tools, or the MCP server over them | one `execute` call: the headless CLI, the brief as its prompt, its JSON output to a file in `$HOME` |
+
+Borrowed hands is the box as AgentKit
+[PRD 11](https://github.com/agent-fox-dev/agentkit-go/blob/main/docs/prd/11-run-tools-in-an-isolated-sandbox.md)
+designed it: the model, the driver and the loop on the host, only tool
+results crossing the boundary. It is the right placement for the driver.
+It is possible for Claude Code (an allowlist of `mcp__af__*` and nothing
+else, an empty working directory), but it takes from Claude Code the tools
+that are the reason to run it. So the vendor CLIs go inside, with the tools
+image as `Spec.Image` and the key in `Spec.Env`. The price is the network:
+on Podman the choice is nothing or everything (PRD 11 §9), so a brain in a
+box on a developer's machine has the whole network, and only a gateway
+whose backend filters egress narrows it to the vendor. The brain's own hook
+(`af guard check` is in the image) is still installed; the box is what
+makes its best-effort nature acceptable.
+
+### What the box makes physical
+
+The three things the hook could only ask for, the box enforces:
+
+- **The brain never pushes.** There is no forge token and no hub token in
+  the box, only the vendor's. `af forge`, `af run land` and the push are
+  host commands; inside the box they have nothing to authenticate with.
+- **The brain never makes a commit that counts.** `.git` goes in with the
+  sync, so `git log` and `git diff` inside are true, and never comes out:
+  `Export` drops it. A commit the brain makes inside stays inside. `af task
+  land` exports the tree, classifies it against the baseline, makes the
+  commit on the host's clone, and the next sync carries that commit back
+  in, so the box's history is the host's again. ADR 09's foreign-commit
+  check becomes a tree comparison: there is no branch inside for a foreign
+  commit to be on.
+- **The brain never reaches the spec state.** `tasks.json` is written by
+  the host after the landing; the copy in the box is overwritten by the
+  next sync. The protected-path revert still runs, on the exported tree,
+  and still reports.
+
+The run directory stays on the host, as *State* says. What the box needs
+of it, the rendered brief and the gate's command table, is synced in under
+the workspace's ignored `.agent-fox/`; what the brain produces for `af`,
+the submission, is a file in the same place, written by `af task submit`
+inside after validation and read by the host through `read_file` when the
+brain's process ends. The Brain interface's rule holds: the submission
+arrives through `af`, never by parsing the brain's output. The gate cache
+is keyed by tree hash on both sides, so a gate the brain ran inside is a
+hit for the landing gate the host runs through the same `execute`.
+
+### Who holds the box
+
+A `Sandbox` is owned by the process that created it; there is no reconnect
+(PRD 11 §9). So the loop holds the box: `af impl` and `af fix` create it at
+`run start`, keep it across every task, and close it at `run land` or when
+the attempt budget is spent. The ring-1 commands a brain calls from inside
+need no handle: they run on the tree they can see. Attended use has no
+box: a person in Claude Code on their own checkout is the brain and the
+host at once, and the hook is the only boundary, as today. `af serve`
+holding a box for an attended session is possible and is not the first
+release.
+
+### The image
+
+`quay.io/agentfox/tools` already is the sandbox base plus `af`, the three
+tools, Pi and Claude Code. It gains the overlay line
+(`COPY --from=quay.io/agentfox/agentkit-sandboxd:X.Y.Z …`), which puts the
+hands' agent at `AgentPath`, and Codex and OpenCode beside the other two.
+That image is `Spec.Image` for every brain with its own hands; the hands'
+base image suffices for borrowed hands.
+
+### What the hands lack for this
+
+Two additions to the sandbox, neither needed for the first run:
+
+- **A streaming `Exec`.** A headless brain is one process for twenty
+  minutes; `execute` returns when it ends, with the output capped and
+  spilled. The first release reads the brain's own JSON output from its
+  file afterwards; a streaming RPC would carry its progress events to the
+  host as they happen.
+- **A credential for the init step.** `GitRepo` is public only; a private
+  clone happens on the host and is synced in. For hub, whose git server is
+  private by construction, the gateway can hold the workspace-scoped token
+  and use it in the init step, one hop of trust as PRD 11 §5 has it; the
+  sandbox still never sees it.
+
 ## A task, end to end
 
 The `impl` replacement, with Claude Code as the brain:
 
-1. `af run start 16` validates the package, detects the language, runs the
-   baseline gate, creates the branch, snapshots untracked files, writes
+1. `af run start 16` validates the package, detects the language, creates
+   the branch, snapshots untracked files, creates the box from the brain's
+   `Spec`, syncs the tree in, runs the baseline gate inside, and writes
    the run directory and a settings file with the hook and the MCP server.
 2. `af task brief 16/3` renders the task's scoped spec, the survey's
    decisions, the repository map, the gate commands with their log paths,
@@ -161,12 +288,13 @@ The `impl` replacement, with Claude Code as the brain:
    cache prefix holds; the task block follows it.
 3. The brain works. **Attended:** a person is in Claude Code and a short
    skill says "read the brief, implement, submit". **Unattended:**
-   `af impl 16 --brain claude` runs the brain headless with the brief as
-   the prompt, the allowlist, the settings file, and reads cost from the
-   brain's own output.
+   `af impl 16 --brain claude` runs the brain headless inside the box with
+   the brief as the prompt, the allowlist, the settings file, and reads
+   cost from the brain's own output file.
 4. `af task submit 16/3` validates the report and rejects naming every
    problem at once.
-5. `af task land 16/3` measures and either commits or refuses with a
+5. `af task land 16/3` measures inside, exports the tree, and either
+   commits on the host and syncs the commit back in, or refuses with a
    structured reason the brain reads on its next turn. The attempt budget
    is `af`'s. A spent budget parks the work as `wip:` and returns the
    checkout to the base branch, as today.
@@ -174,8 +302,9 @@ The `impl` replacement, with Claude Code as the brain:
    `af review submit` validates the answers. The reviewer is a fresh
    context by construction: a Claude Code subagent with read-only tools, a
    second headless run, or the AgentKit driver.
-7. `af run land` runs the hermetic gate, pushes, and opens the pull request
-   from facts, as a draft when findings were neither fixed nor declared.
+7. `af run land` runs the hermetic gate, closes the box, pushes, opens the
+   pull request from facts, as a draft when findings were neither fixed
+   nor declared, and, under hub, registers the branch as a carry patch.
 
 `fix` is the same shape with three briefs (analyse, implement, review)
 instead of one per task, and `af fix land` deciding `Closes` versus `Refs`
@@ -201,6 +330,7 @@ type Brief struct {
     Document string   // the rendered markdown
     Tools    []string // the allowlist the host is asked to enforce
     Hook     HookConfig
+    Box      sandbox.Sandbox // the tree; nil only when attended, on the host's own checkout
     MaxCostUSD float64
     Timeout  time.Duration
 }
@@ -214,15 +344,106 @@ type Outcome struct {
 
 Three implementations:
 
-| Brain | Mechanism | Notes |
-|---|---|---|
-| `claude` | the Claude Code CLI headless, with the allowlist, the settings file and JSON output for cost | the default for unattended runs on a machine that has it |
-| `pi` | Pi's headless mode where it exists; otherwise attended only | *to be written once Pi's non-interactive surface is confirmed* |
-| `agentkit` | the PRD 10 driver in-process, with the hands' tools, `guard.Check` as the interceptor, and optionally code mode over the `af` fact tools | the one brain `af` fully controls; the one that needs no vendor CLI; the one that can bind code mode |
+| Brain | Where | Mechanism | Notes |
+|---|---|---|---|
+| `claude` | in the box | the Claude Code CLI headless, started by one `execute`, with the allowlist, the settings file and JSON output for cost | the default for unattended runs |
+| `codex`, `opencode` | in the box | the same shape as `claude` | *rows to be written once their non-interactive surfaces are confirmed* |
+| `pi` | in the box | Pi's headless mode where it exists; otherwise attended only | *to be written once Pi's non-interactive surface is confirmed* |
+| `agentkit` | on the host | the PRD 10 driver in-process over `Box.Tools`, `guard.Check` as the interceptor, and optionally code mode over the `af` fact tools | the one brain `af` fully controls; the one that needs no vendor CLI and no network in the box; the one that can bind code mode |
 
 The interface is honest only if the three agree on the contract above. A
 test runs the same brief through each available brain against the scripted
 provider and checks that `af` saw the same submission.
+
+## The hub
+
+[hub](https://github.com/agent-fox-dev/hub) owns what one machine cannot:
+workspaces, identity and scoped tokens, secrets, a git server, a merge
+queue, carry patches, a job queue and, per
+[the tasks draft](drafts/add_tasks_to_the_hub.md), tasks. `af` does not
+depend on it. Hub depends on `af`: a task's program is `af impl` or
+`af fix`, and what hub adds is the scheduling before the run and the
+carrying after it.
+
+### Topology
+
+```
+ hub (control plane)   tasks · workspaces · secrets · the git server · patches · the merge queue
+        |  a task.attempt job: the program, its input, a workspace-scoped token, the vendor key
+        v
+ worker                af impl <spec> --brain claude      ring 2, git, the tokens
+        |  gateway.Dial(url, token): Create, Sync, Tools, Export, Close
+        v
+ agentkit-gateway      podman on the worker's host, or pods, or elsewhere
+        |
+        v
+ box                   the tree · agentkit-sandboxd · the brain · af (ring 1)
+```
+
+The tasks draft puts an `af-runner` inside the image as the process that
+talks to hub. This document moves it out: the worker runs `af impl`, which
+holds the token and the box, and the box holds the brain and the vendor
+key. That is the same split as on a developer's machine, with the gateway
+in place of a local Podman, and it is why neither the Brain interface nor
+the toolbelt changes between the two. Hub's sandbox concept is the hands'
+gateway: hub deploys one, or points at one, and does not build its own.
+
+### Carry patches
+
+Hub's carry-patch workspace tracks an upstream, holds an ordered list of
+patch branches, rebuilds an integration branch (`deploy`) as upstream plus
+the patches in order, detects when a patch has merged upstream, squash
+merges included, remembers conflict resolutions with rerere, and marks a
+patch `conflict` with its files when a rebuild cannot apply it. That is the
+lifecycle of an agent's output. `af` uses it in four places:
+
+1. **A landed run is a patch.** `af run land` pushes the branch and opens
+   the pull request as today. The workspace is forge-authoritative
+   (`PATCH_BRANCH_SOURCE=origin`: `origin` is the repository the branch was
+   pushed to, `upstream` the repository whose default branch the spec was
+   written against, the same URL when the team owns it), so hub's next
+   sync sees the branch; `af run land` registers it with
+   `POST /patches {branch, upstream_pr_url, description}` at the position
+   below. From then on hub carries it: every upstream advance rebuilds
+   `deploy` with the branch on top, and when the pull request merges, hub
+   retires the patch and compacts the list. The branch is never rebased by
+   hand, and `deploy` is always "main plus every open agent change", which
+   is what a staging deployment wants.
+2. **Spec order is patch order.** A spec's dependencies give the patch its
+   position: after the patches of the specs it depends on. Today `af run
+   start` refuses an unmet upstream; with hub it has a second answer: when
+   the upstream spec is landed and still an active patch, the run branches
+   from `deploy` at the position after it and is registered there. The
+   rebase strategy's `--cherry-pick` skips the commits the two branches
+   share, so the stack stays one commit per change.
+3. **A conflict is a fix.** A rebuild that leaves a patch in `conflict`
+   names the files. Hub creates a `fix` task from it (the tasks draft's
+   `next` rules) whose input is the patch branch, the upstream base and
+   `conflict_files`; the brain resolves it in a box; `af fix land` pushes
+   the rebased branch; sync picks it up and the next rebuild applies it.
+   The `Closes`-or-`Refs` decision of `af fix land` has its analogue: the
+   patch leaves `conflict` or it does not.
+4. **The stack is gated.** Hub rebuilds mechanically and runs nothing.
+   Each patch was gated alone by `af run land`'s hermetic gate; two green
+   patches can still be red together. A rebuild that completes enqueues a
+   task that runs `af gate run` on `deploy` in a box and records the
+   verdict on the workspace; a red stack of green patches is a `fix` task
+   of its own. This is the one new thing hub has to learn about `af`; the
+   rest is the patch API it has.
+
+Hub-authoritative workspaces (`PATCH_BRANCH_SOURCE=hub`: patches pushed to
+hub's git server and mirrored to the forge) are the other configuration.
+They fit a worker that may reach hub but not the forge. They are not the
+first release, because the forge-authoritative one needs nothing new on
+either side.
+
+### The merge queue
+
+Hub's merge queue merges a branch into a target with its own
+serialization. `af run land` does not use it: the pull request is the
+review surface and the forge merges. A workspace that merges agent changes
+without a person is a hub policy, decided per workspace, and `af` is not
+involved beyond landing the branch.
 
 ## What moves where
 
@@ -237,6 +458,7 @@ provider and checks that `af` saw the same submission.
 | `issuetriage` | unchanged for now; it is single-phase and the cost of the current shape is small. *To be decided.* |
 | the `af-impl` skill | shrinks to the attended loop over `af` commands |
 | `cmd/impl`, `cmd/fix` | thin entry points that become `af impl`, `af fix`; the envelope, flags and exit codes stay as documented |
+| `containers/tools` | `Spec.Image` for a brain with its own hands: the overlay line, Codex and OpenCode added |
 
 ## Open decisions
 
@@ -262,6 +484,23 @@ provider and checks that `af` saw the same submission.
   tools (`file_outline`, `find_symbol`, `find_references`, `code_search`)
   could be served to a brain that lacks them. Pi and Claude Code have their
   own; serving duplicates them. *To be decided per brain.*
+- **The network of a box with a brain inside.** On Podman it is all or
+  nothing, and a brain needs its vendor, so on a developer's machine the
+  box has the whole network. Acceptable for the first release; a gateway
+  whose backend filters egress is the answer where it is not. The
+  alternative, Claude Code on the host with borrowed hands, keeps the box
+  at `NetworkNone` and loses the brain's own tools. *Measure both.*
+- **`af-runner` inside the image or `af impl` on the worker.** The tasks
+  draft has the first; *The hub* argues the second, because it keeps the
+  hub token out of the box and the toolbelt identical on a laptop and
+  under hub. *To be reconciled in the tasks draft.*
+- **One repository as both `origin` and `upstream`.** The carry-patch
+  workspace assumes a fork and an upstream. A team that owns its
+  repository has one URL for both; whether hub accepts that, and what
+  sync does with it, is hub's to confirm.
+- **Who gates the stack.** Hub, on rebuild completion, as the fourth use
+  above says; or `af`, polling patch status. Hub, unless the tasks draft
+  finds a reason not to.
 
 ## What this replaces
 
@@ -283,6 +522,12 @@ provider and checks that `af` saw the same submission.
 - The `af` command reference, once the commands exist, in `docs/cli.md`.
 - The run directory layout and the ledger file formats.
 - The host settings `af run start` writes for each brain.
+- The `Spec` `af run start` builds for each brain: image, environment,
+  network, resources, TTL, and `RequireLandlock`.
+- The tools image after the overlay line: what is pinned, and how the
+  hands' version and `af`'s are kept in step.
+- Hub's task templates for `impl`, `fix`, the stack gate and the conflict
+  fix, once the tasks draft is reconciled with *The hub*.
 - The measured comparison this design has to win: tokens per landed task
   and the share of `impl` runs whose pull request merges without a human
   fix, against the numbers in PRD 14's intent.
