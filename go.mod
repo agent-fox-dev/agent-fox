@@ -3,9 +3,9 @@ module github.com/agent-fox-dev/agentfox
 go 1.27
 
 require (
+	github.com/agent-fox-dev/spec v1.4.2-0.20261014064100-e2d4a688656d
 	github.com/agentfox/agentkit-go v0.0.0
 	github.com/agentfox/agentkit-go/codesearch v0.0.0
-	github.com/goccy/go-yaml v1.19.2
 	github.com/google/go-cmp v0.7.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	golang.org/x/oauth2 v0.37.0
@@ -28,6 +28,7 @@ require (
 	github.com/getsentry/sentry-go v0.31.1 // indirect
 	github.com/go-enry/go-enry/v2 v2.9.6 // indirect
 	github.com/go-enry/go-oniguruma v1.2.1 // indirect
+	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grafana/regexp v0.0.0-20240607082908-2cb410fa05da // indirect

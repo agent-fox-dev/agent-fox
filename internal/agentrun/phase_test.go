@@ -18,7 +18,7 @@ import (
 	"github.com/agentfox/agentkit-go/schema"
 	"github.com/agentfox/agentkit-go/tools"
 
-	"github.com/agent-fox-dev/agentfox/afspec"
+	"github.com/agent-fox-dev/spec/afspec"
 )
 
 // The tests below script a provider rather than mocking this package.

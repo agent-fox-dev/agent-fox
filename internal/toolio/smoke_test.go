@@ -17,11 +17,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agent-fox-dev/spec/afspec"
 	"github.com/agentfox/agentkit-go/core"
 	"github.com/agentfox/agentkit-go/provider/faux"
 
 	"github.com/agent-fox-dev/agentfox"
-	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/codefix"
 	"github.com/agent-fox-dev/agentfox/codeimpl"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
@@ -94,40 +94,6 @@ func initGitRepo(t *testing.T, dir string, originURL, pushURL string) {
 			t.Fatalf("git remote set-url --push failed: %v\n%s", err, out)
 		}
 	}
-}
-
-func loadFixture(t *testing.T, specID, specName string) (map[afspec.GenerationStep]map[string]any, string) {
-	t.Helper()
-	root := findWorkspaceRoot(t)
-	fixtureDir := filepath.Join(root, "testdata", "valid_spec")
-
-	artifacts := map[afspec.GenerationStep]map[string]any{}
-	for _, step := range afspec.GenerationSteps {
-		raw, err := os.ReadFile(filepath.Join(fixtureDir, afspec.ArtifactFileName(step)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		text := strings.ReplaceAll(string(raw), `"01-`, `"`+specID+`-`)
-		text = strings.ReplaceAll(text, `TS-01-`, `TS-`+specID+`-`)
-		text = strings.ReplaceAll(text, `"spec_id": "01"`, `"spec_id": "`+specID+`"`)
-		text = strings.ReplaceAll(text, `"spec_name": "test_feature"`, `"spec_name": "`+specName+`"`)
-
-		var content map[string]any
-		if err := json.Unmarshal([]byte(text), &content); err != nil {
-			t.Fatalf("%s: %v", step, err)
-		}
-		artifacts[step] = content
-	}
-
-	prd, err := os.ReadFile(filepath.Join(fixtureDir, "prd.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := string(prd)
-	if i := strings.Index(body[4:], "\n---\n"); i >= 0 {
-		body = strings.TrimSpace(body[4+i+5:])
-	}
-	return artifacts, body
 }
 
 func writeSpecPackage(t *testing.T, destDir, specID, specName string) {

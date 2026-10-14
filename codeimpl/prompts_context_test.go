@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agent-fox-dev/agentfox/afspec"
+	"github.com/agent-fox-dev/spec/afspec"
 )
 
 // 05-REQ-3.7 for impl: the caller's --context block is appended to the survey's

@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/agent-fox-dev/spec/afspec"
 	agentkit "github.com/agentfox/agentkit-go"
 	"github.com/agentfox/agentkit-go/compaction"
 	"github.com/agentfox/agentkit-go/core"
@@ -24,7 +25,6 @@ import (
 	"github.com/agentfox/agentkit-go/stop"
 	"github.com/agentfox/agentkit-go/tools"
 
-	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/project"
 )
 

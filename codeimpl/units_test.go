@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/agent-fox-dev/spec/afspec"
 	"github.com/agentfox/agentkit-go/core"
 
-	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )

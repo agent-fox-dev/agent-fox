@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agent-fox-dev/agentfox/afspec"
+	"github.com/agent-fox-dev/spec/afspec"
 )
 
 // Issue #200: when the checks pass with the work and still pass with its

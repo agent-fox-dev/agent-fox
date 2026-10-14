@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agent-fox-dev/agentfox/afspec"
+	"github.com/agent-fox-dev/spec/afspec"
 )
 
 func projectDir(t *testing.T, files map[string]string) string {

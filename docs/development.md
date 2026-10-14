@@ -17,8 +17,6 @@ container build is the one place that still expects the checkout at
 ## Repository layout
 
 ```
-afspec/                   # Spec format library (package afspec)
-  schemas/                # Bundled JSON Schemas, embedded at compile time
 issuetriage/              # The triage pipeline
 codefix/                  # The fix pipeline
 codeimpl/                 # The implementation pipeline
@@ -61,11 +59,13 @@ go mod download
 - **agentfox** (repository root) — build-time metadata (`Version`, `Commit`,
   `BuildTime`), injected via `-ldflags`.
 
-- **afspec** (`afspec/`) — core library. Spec loading, validation (schema and
-  cross-file rules C1–C11), lifecycle state machines, EARS criterion builders,
-  dependency graphs, coverage and traceability derivation, rendering, and
-  discovery. Types are value-oriented — mutation methods return new copies. No
-  goroutine-safety guarantees; callers must synchronize externally.
+- **afspec** — the spec format library, imported from the
+  [`spec`](https://github.com/agent-fox-dev/spec) module as
+  `github.com/agent-fox-dev/spec/afspec`; this repository has no copy. Spec
+  loading, validation (schema and cross-file rules C1–C11), lifecycle state
+  machines, coverage and traceability derivation, rendering, and discovery.
+  `impl` resolves, validates and updates packages with it; `fix` and the
+  conformance stage read the requirement and test ids a change cites.
 
 - **internal/toolio** — the shared interface. `input.go` classifies the one
   positional argument; `envelope.go` is the JSON object every tool writes and
@@ -151,7 +151,6 @@ All tasks are driven through `make`. Run from the repository root.
 | `make build-all`    | Static cross-builds of the three tools into `dist/` (darwin/arm64, linux/arm64, linux/amd64) |
 | `make build-containers` | Build the sandbox and tools images with `podman` |
 | `make clean`        | Remove build artifacts                                 |
-| `make json-gen`     | Regenerate Go artifact types from the schemas          |
 
 Tests need no API key, no GitHub token and no network:
 
@@ -172,26 +171,18 @@ replaced. That split — judgment in the model, everything else in Go — is the
 design claim the tools make, and having it be an interface is what makes it
 checkable.
 
-## Schema workflow
+## The spec format
 
-The canonical JSON Schemas for the spec format live in the
-[`spec`](https://github.com/agent-fox-dev/spec) repository under
-`specification/schemas/`. The copies in `afspec/schemas/` are what this library
-compiles and embeds:
-
-- `prd-frontmatter.v2.json`
-- `requirements.v2.json`
-- `tasks.v2.json`
-- `test_spec.v2.json`
-
-After syncing a changed schema, regenerate the Go struct types with
-[go-jsonschema](https://github.com/atombender/go-jsonschema):
+The format, its JSON Schemas and the `afspec` library live in the
+[`spec`](https://github.com/agent-fox-dev/spec) repository. A format change
+lands there first; this repository picks it up by moving its requirement on
+`github.com/agent-fox-dev/spec` forward:
 
 ```bash
-make json-gen
+go get github.com/agent-fox-dev/spec@main
+go mod tidy
+make check
 ```
-
-The generated files are `afspec/*.v2.go`. Always run `make check` afterwards.
 
 ## Git workflow
 

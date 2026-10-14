@@ -1,6 +1,6 @@
 # 10. Move the spec tool to its own repository
 
-**Status:** accepted
+**Status:** accepted; keeping `afspec` here is superseded by [ADR 11](11-import-afspec-from-the-spec-module.md)
 **Date:** 2026-10-14
 **Supersedes:** nothing
 **Related:** [ADR 02](02-build-the-spec-pipeline-on-agentkit.md),

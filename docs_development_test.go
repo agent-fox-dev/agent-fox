@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agent-fox-dev/agentfox/afspec"
+	"github.com/agent-fox-dev/spec/afspec"
 )
 
 // navigationBaseline is docs/development.md's Navigation baseline section, up
