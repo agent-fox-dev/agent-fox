@@ -1,6 +1,6 @@
 # 05. Write every scope of a split, and record the split until it is done
 
-**Status:** accepted
+**Status:** accepted; moved to `agent-fox-dev/spec` with the `spec` tool ([ADR 10](10-move-the-spec-tool-to-its-own-repository.md))
 **Date:** 2026-09-10
 **Supersedes:** nothing
 **Related:** [ADR 03](03-rebuild-the-skills-as-tools.md)

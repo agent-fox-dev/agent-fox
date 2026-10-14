@@ -1,5 +1,5 @@
 // Package indextest holds the recording tools.Index double and the shared
-// lifecycle tests of the four cmd/ entry points (spec 16_indexed_code_search,
+// lifecycle tests of the three cmd/ entry points (spec 16_indexed_code_search,
 // 16-REQ-3): each entry point builds one code-search index per run, hands the
 // same instance to its Runner and its tool's Options, and closes it once on
 // every exit path.

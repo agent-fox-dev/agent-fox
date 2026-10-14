@@ -6,7 +6,7 @@ REPO="agent-fox-dev/agent-fox"
 # The tools share one release, one interface and one version. Installing
 # one of them and not the others leaves a shell where `fix` cannot be reached
 # from the issue `triage` just filed.
-TOOLS="${TOOLS:-spec triage fix impl}"
+TOOLS="${TOOLS:-triage fix impl}"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"

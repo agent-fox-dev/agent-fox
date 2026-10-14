@@ -1,7 +1,7 @@
 # The tools container
 
-`containers/tools/Containerfile` builds `quay.io/agentfox/tools`: the four
-agent-fox tools (`spec`, `triage`, `fix`, `impl`), the `af` and `nightshift`
+`containers/tools/Containerfile` builds `quay.io/agentfox/tools`: the three
+agent-fox tools (`triage`, `fix`, `impl`), the `af` and `nightshift`
 stubs, the `pi` agent and Claude Code, on top of the sandbox image built from
 `containers/sandbox/Containerfile` (`quay.io/agentfox/sandbox`, a RHEL 10
 base with Go, Node, Rust and Python toolchains). `make build-containers` builds
@@ -18,7 +18,7 @@ podman run -d --name tools quay.io/agentfox/tools:latest sleep infinity
 ```
 
 Enter the running container with an interactive shell to run the tools
-(`spec`, `triage`, `fix`, `impl`) or the agents (`pi`, `claude`):
+(`triage`, `fix`, `impl`) or the agents (`pi`, `claude`):
 
 ```bash
 podman exec -it tools bash

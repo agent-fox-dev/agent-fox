@@ -7,19 +7,17 @@ import (
 	"github.com/agent-fox-dev/agentfox/codeimpl"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuetriage"
-	"github.com/agent-fox-dev/agentfox/specgen"
 )
 
 // TS-11-40 (unit): Resumable() is false for every Result whose Stage is
 // preflight, even when impl's Branch is populated (the name the branch would
-// have) or spec names a split plan.
+// have).
 //
 // Verifies: 11-REQ-6.4
 func TestTS11_40_ResumableIsFalseForEveryPreflightResult(t *testing.T) {
 	cases := map[string]toolio.Resumabler{
 		"impl":   codeimpl.Result{Stage: "preflight", Branch: "feature/x"},
 		"fix":    codefix.Result{Stage: "preflight"},
-		"spec":   specgen.Result{Stage: "preflight", SplitPlan: ".specs/x.split.json"},
 		"triage": issuetriage.Result{Stage: "preflight"},
 	}
 	for tool, r := range cases {

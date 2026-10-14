@@ -93,7 +93,7 @@ func TestIssuePreflightThroughTheShell(t *testing.T) {
 // TS-11-22 (property, triage's share): for every scenario that fails before
 // the first model call, adding --preflight changes neither the error nor the
 // exit code. The corpus here is the pre-model failures triage can have; the
-// other tools' share is in cmd/fix, cmd/impl and cmd/spec.
+// other tools' share is in cmd/fix and cmd/impl.
 //
 // Verifies: 11-REQ-4.1
 func TestTS11_22_PreflightDoesNotChangeAPreModelFailure(t *testing.T) {

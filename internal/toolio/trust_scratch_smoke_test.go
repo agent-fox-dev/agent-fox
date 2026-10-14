@@ -47,11 +47,11 @@ func copyTree(t *testing.T, src, dst string) {
 	}
 }
 
-// scratchTest runs the four-tree exhaustiveness test in the scratch copy and
+// scratchTest runs the Result-tree exhaustiveness test in the scratch copy and
 // returns its combined output and whether it passed.
 func scratchTest(t *testing.T, dir string) (string, bool) {
 	t.Helper()
-	cmd := exec.Command("go", "test", "-count=1", "-run", "^TestTS10_10_FourResultTreesFullyClassified$", "./internal/toolio")
+	cmd := exec.Command("go", "test", "-count=1", "-run", "^TestTS10_10_ResultTreesFullyClassified$", "./internal/toolio")
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	return string(out), err == nil

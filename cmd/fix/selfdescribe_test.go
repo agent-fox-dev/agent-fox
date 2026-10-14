@@ -44,7 +44,7 @@ func sortedKeys(m map[string]any) []string {
 	return keys
 }
 
-var allTools = []string{"spec", "triage", "fix", "impl"}
+var allTools = []string{"triage", "fix", "impl"}
 
 // TS-09-8 (integration): the document carries exactly the seven top-level
 // keys, with tool and schema_version matching an ordinary envelope.
@@ -76,8 +76,8 @@ func TestTS09_9_DescriptionsDistinctSingleSentences(t *testing.T) {
 		}
 		seen[d] = tool
 	}
-	if len(seen) != 4 {
-		t.Errorf("want 4 distinct descriptions, got %d", len(seen))
+	if len(seen) != len(allTools) {
+		t.Errorf("want %d distinct descriptions, got %d", len(allTools), len(seen))
 	}
 }
 
@@ -119,13 +119,11 @@ func TestTS09_11_FixExitCodes(t *testing.T) {
 	}
 }
 
-// TS-09-12 (integration): triage and spec each report exactly 0, 1 and 2.
-func TestTS09_12_IssueSpecExitCodes(t *testing.T) {
+// TS-09-12 (integration): triage reports exactly 0, 1 and 2.
+func TestTS09_12_IssueExitCodes(t *testing.T) {
 	want := []string{"0", "1", "2"}
-	for _, tool := range []string{"triage", "spec"} {
-		if got := exitCodeKeys(t, tool); !reflect.DeepEqual(got, want) {
-			t.Errorf("%s exit_codes keys = %v, want %v", tool, got, want)
-		}
+	if got := exitCodeKeys(t, "triage"); !reflect.DeepEqual(got, want) {
+		t.Errorf("triage exit_codes keys = %v, want %v", got, want)
 	}
 }
 

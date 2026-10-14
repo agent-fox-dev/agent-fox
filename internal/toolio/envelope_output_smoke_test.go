@@ -26,6 +26,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/issuetriage"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
@@ -455,10 +456,10 @@ func TestTS08_27_FailedOutputWriteIsAWarningNotAFailure_Smoke(t *testing.T) {
 	}
 }
 
-// TS-08-28 (smoke): spec's --output and --report-file, pointed at the same
-// path, land the complete report rather than the --detail view
+// TS-08-28 (smoke): --output and --report-file, pointed at the same path,
+// land the complete report rather than the --detail view
 // Verifies: 08-PATH-3, 08-REQ-4.3, 08-REQ-4.4
-// Real components: toolio.App, specgen.Run, issuex.GitLabClient (over an httptest server)
+// Real components: toolio.App, issuetriage.Result's views, issuex.GitLabClient (over an httptest server)
 func TestTS08_28_OutputAndReportFileCollideCompleteReportLands_Smoke(t *testing.T) {
 	t.Setenv("GITLAB_TOKEN", "gl-smoke-token")
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
@@ -510,17 +511,25 @@ func TestTS08_28_OutputAndReportFileCollideCompleteReportLands_Smoke(t *testing.
 		return oldTransport.RoundTrip(req)
 	})
 
-	var p *faux.Provider
-	app := smokeSpecApp(t, smokeSpecTurns(t, "01", "widget_core", 0, nil), &p)
-	inner := app.Exec
+	// The result has a summary view smaller than its full one, so the two
+	// destinations can be told apart.
 	var receivedForge issuex.Client
-	app.Exec = func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
-		receivedForge = d.Forge
-		return inner(ctx, d)
+	app := toolio.App{
+		Name:    "triage",
+		Version: agentfox.Version,
+		Usage:   "triage [flags] <input>\n",
+		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			receivedForge = d.Forge
+			return toolio.ExitOK, &issuetriage.Result{
+				Action:    "none",
+				Title:     "Widgets: a model and a store",
+				Body:      strings.Repeat("The widget store loses writes under load. ", 50),
+				RootCause: strings.Repeat("The store's flush races the writer. ", 50),
+			}, nil
+		},
 	}
 
 	// Both flags name ./run.json, spelled two ways, from the working directory.
-	// (The fixtures are loaded above, relative to the repository's cwd.)
 	cwd := t.TempDir()
 	t.Chdir(cwd)
 	var stdout, stderr bytes.Buffer

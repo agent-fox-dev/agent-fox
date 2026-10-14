@@ -208,7 +208,7 @@ func TestTS06_60_SharedFlagsTable(t *testing.T) {
 	if !ok {
 		t.Fatalf("--total-budget is not in the shared-flags table")
 	}
-	for _, tool := range []string{"triage", "fix", "spec", "impl"} {
+	for _, tool := range []string{"triage", "fix", "impl"} {
 		if !strings.Contains(row, tool) {
 			t.Errorf("--total-budget row does not state its granularity for %s", tool)
 		}
@@ -219,7 +219,7 @@ func TestTS06_60_SharedFlagsTable(t *testing.T) {
 	if _, ok := tableRow(shared, "| `--dry-run`"); !ok {
 		t.Errorf("shared-flags table has no --dry-run row")
 	}
-	for _, tool := range []string{"triage", "fix", "spec", "impl"} {
+	for _, tool := range []string{"triage", "fix", "impl"} {
 		if _, ok := tableRow(docSection(t, doc, "`"+tool+"`"), "| `--dry-run`"); ok {
 			t.Errorf("--dry-run is still in %s's own flag table", tool)
 		}
@@ -236,8 +236,6 @@ func TestTS06_61_ToolSectionsSummaryAndDryRun(t *testing.T) {
 			"affected_files", "labels", "rejected_path_calls"},
 		"fix": {"stage", "branch", "base_branch", "commit", "changed_files", "verdict",
 			"criteria_outcome", "pull_request_url", "dry_run", "verification"},
-		"spec": {"spec_dir", "spec_id", "spec_name", "status", "artifacts", "validation",
-			"traceability", "open_questions", "split"},
 		"impl": {"stage", "spec_dir", "spec_id", "spec_name", "title", "status", "branch",
 			"tasks_total", "tasks_done", "tasks_skipped", "tasks_remaining", "tasks",
 			"verdict", "pull_request_url", "verification"},

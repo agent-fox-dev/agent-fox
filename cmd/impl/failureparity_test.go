@@ -13,7 +13,7 @@ import (
 
 // TS-11-22 (property, impl's share): for every scenario that fails before the
 // first model call, adding --preflight changes neither the error nor the exit
-// code. The other tools' share is in cmd/fix, cmd/spec and cmd/issue.
+// code. The other tools' share is in cmd/fix and cmd/triage.
 //
 // Verifies: 11-REQ-4.1
 func TestTS11_22_PreflightDoesNotChangeAPreModelFailure(t *testing.T) {

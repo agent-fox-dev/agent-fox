@@ -9,7 +9,6 @@ import (
 	"github.com/agent-fox-dev/agentfox/codeimpl"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuetriage"
-	"github.com/agent-fox-dev/agentfox/specgen"
 )
 
 type descNested struct {
@@ -62,9 +61,9 @@ func TestTS09_39_CheckDescriptionsPromotesEmbeddedFields(t *testing.T) {
 	}
 }
 
-// TS-09-39 (unit): the envelope and the four Result types are fully tagged.
+// TS-09-39 (unit): the envelope and the three Result types are fully tagged.
 func TestTS09_39_EnvelopeAndResultsFullyTagged(t *testing.T) {
-	for _, sample := range []any{toolio.Envelope{}, codefix.Result{}, codeimpl.Result{}, issuetriage.Result{}, specgen.Result{}} {
+	for _, sample := range []any{toolio.Envelope{}, codefix.Result{}, codeimpl.Result{}, issuetriage.Result{}} {
 		typ := reflect.TypeOf(sample)
 		if missing := toolio.CheckDescriptions(typ); missing != nil {
 			t.Errorf("%s: fields without a description tag: %v", typ, missing)

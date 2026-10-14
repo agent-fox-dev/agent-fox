@@ -48,8 +48,8 @@ func TestTS12_50_StatetestHelperIsolatesAndCleansUp(t *testing.T) {
 	}
 }
 
-// TS-12-50 also verifies that TestMain in internal/toolio, cmd/fix, cmd/impl,
-// cmd/triage and cmd/spec each call the helper. This is checked by TS-12-54.
+// TS-12-50 also verifies that TestMain in internal/toolio, cmd/fix, cmd/impl
+// and cmd/triage each call the helper. This is checked by TS-12-54.
 
 // TS-12-51 (unit): The real directories are the HOME default ignoring
 // XDG_STATE_HOME plus the developer's own XDG directory.
@@ -145,7 +145,6 @@ func TestTS12_54_TestsKeepOwnXDGStateHome(t *testing.T) {
 		"cmd/fix",
 		"cmd/impl",
 		"cmd/triage",
-		"cmd/spec",
 	}
 	for _, pkg := range pkgs {
 		dir := filepath.Join(root, pkg)

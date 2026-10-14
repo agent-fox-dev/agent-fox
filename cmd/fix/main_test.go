@@ -330,7 +330,7 @@ func TestCLICommandsParseRepoAndForwardForge_TS_04_32(t *testing.T) {
 		}
 	}
 
-	commands := []string{"fix", "impl", "triage", "spec"}
+	commands := []string{"fix", "impl", "triage"}
 	for _, cmdName := range commands {
 		t.Run(cmdName, func(t *testing.T) {
 			usage, bindsForge, usesGhapi := extractUsageAndForgeField(t, cmdName)

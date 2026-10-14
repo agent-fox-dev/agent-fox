@@ -30,7 +30,7 @@ func TestPhaseFromResultCarriesTheCacheFiguresAndScope(t *testing.T) {
 }
 
 func TestEnvelopeSumsTheCacheTokensOverPhases(t *testing.T) {
-	run := toolio.NewRun("spec", "test")
+	run := toolio.NewRun("impl", "test")
 	run.AddPhase(toolio.PhaseFromResult(cachedResult(), "a"))
 	run.AddPhase(toolio.PhaseFromResult(cachedResult(), "b"))
 	u := run.Envelope(toolio.ExitOK, nil, nil).Usage
@@ -72,7 +72,7 @@ func TestPhaseSummaryPluralisesBlockedTools(t *testing.T) {
 }
 
 func TestAddPhaseWarnsOnManyToolErrors(t *testing.T) {
-	run := toolio.NewRun("spec", "test")
+	run := toolio.NewRun("impl", "test")
 	few := toolio.PhaseInfo{Name: "prd", ToolErrors: map[string]int{"bash": 2}}
 	run.AddPhase(few)
 	if len(run.Warnings()) != 0 {

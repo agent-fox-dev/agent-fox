@@ -91,7 +91,6 @@ const (
 	ArtifactPullRequest ArtifactKind = "pull_request"
 	ArtifactComment     ArtifactKind = "comment"
 	ArtifactIssue       ArtifactKind = "issue"
-	ArtifactSpecPackage ArtifactKind = "spec_package"
 	ArtifactReportFile  ArtifactKind = "report_file"
 	ArtifactEventsFile  ArtifactKind = "events_file"
 )
@@ -117,12 +116,8 @@ type Artifact struct {
 	Number int
 	Role   string
 
-	// spec_package
-	Path  string
-	ID    string
-	Valid bool
-
-	// report_file: Path (above).
+	// report_file, events_file
+	Path string
 
 	// DryRun marks an entry as hypothetical: something that would have
 	// happened on a forge or a remote under --dry-run, but did not
@@ -155,10 +150,6 @@ func (a Artifact) MarshalJSON() ([]byte, error) {
 	case ArtifactIssue:
 		m["url"] = a.URL
 		m["number"] = a.Number
-	case ArtifactSpecPackage:
-		m["path"] = a.Path
-		m["id"] = a.ID
-		m["valid"] = a.Valid
 	case ArtifactReportFile:
 		m["path"] = a.Path
 	case ArtifactEventsFile:
@@ -181,7 +172,7 @@ func (Artifact) JSONSchema() SchemaObject {
 	}
 	kinds := []string{
 		string(ArtifactBranch), string(ArtifactCommit), string(ArtifactPullRequest), string(ArtifactComment),
-		string(ArtifactIssue), string(ArtifactSpecPackage), string(ArtifactReportFile), string(ArtifactEventsFile),
+		string(ArtifactIssue), string(ArtifactReportFile), string(ArtifactEventsFile),
 	}
 	return SchemaObject{
 		{Key: "type", Value: "object"},
@@ -197,9 +188,7 @@ func (Artifact) JSONSchema() SchemaObject {
 			{Key: "branch", Value: prop("string", "commit: the branch the commit is on.")},
 			{Key: "url", Value: prop("string", "pull_request, issue, comment: the URL.")},
 			{Key: "number", Value: prop("integer", "pull_request, issue: the number.")},
-			{Key: "path", Value: prop("string", "spec_package, report_file, events_file: the path.")},
-			{Key: "id", Value: prop("string", "spec_package: the spec identifier.")},
-			{Key: "valid", Value: prop("boolean", "spec_package: true when the package validates.")},
+			{Key: "path", Value: prop("string", "report_file, events_file: the path.")},
 			{Key: "dry_run", Value: prop("boolean", "True only for an entry that is hypothetical under --dry-run: it would have happened on a forge or a remote, but did not. Absent otherwise.")},
 		}},
 		{Key: "required", Value: []string{"kind"}},
@@ -209,7 +198,7 @@ func (Artifact) JSONSchema() SchemaObject {
 // ArtifactsProvider is implemented by Result types that supply what the run
 // produced, in the uniform shape Artifact fixes (06-REQ-4). Every entry
 // must be read off a fact the Result already holds — Branch, Commit,
-// PullRequestURL, Comments, SpecDir, Validation.Valid and the rest — never
+// PullRequestURL, Comments and the rest — never
 // from a field that is the model's own account of its work.
 type ArtifactsProvider interface {
 	Artifacts() []Artifact
@@ -250,7 +239,7 @@ const AnswerPlaceholder = "\"<answer>\""
 // the single input to give it, the flags to add, and why. It is derived in
 // Go from a tool's own Result, never from the model.
 type Next struct {
-	Tool  string   `json:"tool" description:"The agent-fox tool to run next: spec, triage, fix or impl."`
+	Tool  string   `json:"tool" description:"The agent-fox tool to run next: triage, fix or impl."`
 	Input string   `json:"input" description:"The single input to give it: a file path or an issue URL, or the placeholder <same input> when the original input was raw text or stdin."`
 	Flags []string `json:"flags" description:"Flags to add to the invocation, one argument per element."`
 	Why   string   `json:"why" description:"Why this follow-up is suggested."`
@@ -324,10 +313,10 @@ type Warning struct {
 	Message  string   `json:"message" description:"Human-readable explanation of what went differently than intended."`
 }
 
-// SchemaVersion is the version of the envelope interface shared by all four
+// SchemaVersion is the version of the envelope interface shared by all three
 // tools: one shell, one envelope shape, one version. The compatibility rule
 // is in docs/cli.md (Interface versions) and ADR 06.
-const SchemaVersion = "3.1.0"
+const SchemaVersion = "4.0.0"
 
 // Envelope is the single JSON object every agent-fox tool writes to stdout.
 //
@@ -336,8 +325,8 @@ const SchemaVersion = "3.1.0"
 // bare sentence on failure forces its caller to parse two formats and guess
 // which one it got.
 type Envelope struct {
-	// Tool is the program that produced this object: "spec", "triage", "fix".
-	Tool string `json:"tool" description:"The program that produced this object: spec, triage, fix or impl."`
+	// Tool is the program that produced this object: "triage", "fix" or "impl".
+	Tool string `json:"tool" description:"The program that produced this object: triage, fix or impl."`
 	// Version is the build identity, so a surprising result can be traced to
 	// a build.
 	Version string `json:"version" description:"The build identity of the tool, so a surprising result can be traced to a build."`

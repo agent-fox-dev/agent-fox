@@ -32,18 +32,6 @@ const (
 	WarnUpstreamMissing        WarnCode = "upstream_missing"
 	WarnParkedAttemptDiscarded WarnCode = "parked_attempt_discarded"
 	WarnSpecValidationWarning  WarnCode = "spec_validation_warning"
-	WarnSpecsDirUnreadable     WarnCode = "specs_dir_unreadable"
-	WarnProjectLanguageUnknown WarnCode = "project_language_unknown"
-	WarnNameFlagIgnored        WarnCode = "name_flag_ignored"
-	WarnScopeRenamed           WarnCode = "scope_renamed"
-	WarnScopeCountMismatch     WarnCode = "scope_count_mismatch"
-	WarnSplitPlanForeign       WarnCode = "split_plan_foreign"
-	WarnSplitPlanUnreadable    WarnCode = "split_plan_unreadable"
-	WarnSplitPlanStale         WarnCode = "split_plan_stale"
-	WarnSplitPlanUpdateFailed  WarnCode = "split_plan_update_failed"
-	WarnSplitPlanNotRemoved    WarnCode = "split_plan_not_removed"
-	WarnArchitectureNotWritten WarnCode = "architecture_not_written"
-	WarnActivationFailed       WarnCode = "activation_failed"
 	// WarnIssueBodyTruncated is recorded when triage cut the issue body to
 	// fit the forge's body limit before writing it.
 	WarnIssueBodyTruncated WarnCode = "issue_body_truncated"
@@ -97,10 +85,6 @@ const (
 	// implementation taken out: no test depends on the fix, so the issue is
 	// referenced rather than closed.
 	WarnFixNotProven WarnCode = "fix_not_proven"
-	// WarnRelevantFilesUnavailable is recorded when a resumed split skips
-	// the PRD phase and no relevant_files list is available for the later
-	// generation phases.
-	WarnRelevantFilesUnavailable WarnCode = "relevant_files_unavailable"
 	// WarnRepoMapBuildFailed is recorded (14-REQ-10.1) when building the
 	// repository map failed. The phase runs without a map, as it did before
 	// the map existed; navigation is an optimisation and never fails a run.
@@ -128,56 +112,43 @@ const (
 // rather than accepting it as a call-site parameter, so a code can never be
 // recorded against two different stages.
 var warnStages = map[WarnCode]string{
-	WarnInputTruncated:           "input",
-	WarnCommentsUnreadable:       "input",
-	WarnCommentsTruncated:        "input",
-	WarnNoVerifyCommand:          "preflight",
-	WarnCriteriaUnmet:            "implement",
-	WarnCommitNotParked:          "park",
-	WarnCheckoutNotRestored:      "park",
-	WarnPullRequestNotOpened:     "land",
-	WarnCommentNotPosted:         "report",
-	WarnSpecEditReverted:         "task",
-	WarnStateNotSaved:            "park",
-	WarnGateEdited:               "task",
-	WarnDocsNotUpdated:           "task",
-	WarnToolErrors:               "phase",
-	WarnScratchFileRemoved:       "task",
-	WarnScratchFileSuspected:     "task",
-	WarnDraftPackage:             "preflight",
-	WarnUpstreamMissing:          "preflight",
-	WarnParkedAttemptDiscarded:   "preflight",
-	WarnSpecValidationWarning:    "preflight",
-	WarnSpecsDirUnreadable:       "preflight",
-	WarnProjectLanguageUnknown:   "preflight",
-	WarnNameFlagIgnored:          "usage",
-	WarnScopeRenamed:             "prd",
-	WarnScopeCountMismatch:       "prd",
-	WarnSplitPlanForeign:         "split",
-	WarnSplitPlanUnreadable:      "split",
-	WarnSplitPlanStale:           "split",
-	WarnSplitPlanUpdateFailed:    "split",
-	WarnSplitPlanNotRemoved:      "split",
-	WarnArchitectureNotWritten:   "write",
-	WarnActivationFailed:         "activate",
-	WarnRejectedPathCalls:        "analyse",
-	WarnIssueBodyTruncated:       "write",
-	WarnReportFileNotWritten:     "report",
-	WarnInputLooksLikePath:       "input",
-	WarnOutputNotWritten:         "emit",
-	WarnOutputMatchesReportFile:  "emit",
-	WarnEventsFileNotWritten:     "report",
-	WarnEffortClamped:            "preflight",
-	WarnReviewNotRun:             "review",
-	WarnResolveNotRun:            "resolve",
-	WarnUnmetRequirements:        "review",
-	WarnDeviationNotTracked:      "land",
-	WarnFixNotProven:             "verify",
-	WarnRelevantFilesUnavailable: "prd",
-	WarnRepoMapBuildFailed:       "repo_map",
-	WarnCodeSearchUnavailable:    "preflight",
-	WarnUntrackedFilesLeftAlone:  "commit",
-	WarnUnlistedFileCommitted:    "commit",
+	WarnInputTruncated:          "input",
+	WarnCommentsUnreadable:      "input",
+	WarnCommentsTruncated:       "input",
+	WarnNoVerifyCommand:         "preflight",
+	WarnCriteriaUnmet:           "implement",
+	WarnCommitNotParked:         "park",
+	WarnCheckoutNotRestored:     "park",
+	WarnPullRequestNotOpened:    "land",
+	WarnCommentNotPosted:        "report",
+	WarnSpecEditReverted:        "task",
+	WarnStateNotSaved:           "park",
+	WarnGateEdited:              "task",
+	WarnDocsNotUpdated:          "task",
+	WarnToolErrors:              "phase",
+	WarnScratchFileRemoved:      "task",
+	WarnScratchFileSuspected:    "task",
+	WarnDraftPackage:            "preflight",
+	WarnUpstreamMissing:         "preflight",
+	WarnParkedAttemptDiscarded:  "preflight",
+	WarnSpecValidationWarning:   "preflight",
+	WarnRejectedPathCalls:       "analyse",
+	WarnIssueBodyTruncated:      "write",
+	WarnReportFileNotWritten:    "report",
+	WarnInputLooksLikePath:      "input",
+	WarnOutputNotWritten:        "emit",
+	WarnOutputMatchesReportFile: "emit",
+	WarnEventsFileNotWritten:    "report",
+	WarnEffortClamped:           "preflight",
+	WarnReviewNotRun:            "review",
+	WarnResolveNotRun:           "resolve",
+	WarnUnmetRequirements:       "review",
+	WarnDeviationNotTracked:     "land",
+	WarnFixNotProven:            "verify",
+	WarnRepoMapBuildFailed:      "repo_map",
+	WarnCodeSearchUnavailable:   "preflight",
+	WarnUntrackedFilesLeftAlone: "commit",
+	WarnUnlistedFileCommitted:   "commit",
 }
 
 // WarnStage looks up the stage recorded for a declared WarnCode. ok is false
@@ -211,18 +182,6 @@ func DeclaredWarnCodes() []WarnCode {
 		WarnUpstreamMissing,
 		WarnParkedAttemptDiscarded,
 		WarnSpecValidationWarning,
-		WarnSpecsDirUnreadable,
-		WarnProjectLanguageUnknown,
-		WarnNameFlagIgnored,
-		WarnScopeRenamed,
-		WarnScopeCountMismatch,
-		WarnSplitPlanForeign,
-		WarnSplitPlanUnreadable,
-		WarnSplitPlanStale,
-		WarnSplitPlanUpdateFailed,
-		WarnSplitPlanNotRemoved,
-		WarnArchitectureNotWritten,
-		WarnActivationFailed,
 		WarnRejectedPathCalls,
 		WarnIssueBodyTruncated,
 		WarnReportFileNotWritten,
@@ -236,7 +195,6 @@ func DeclaredWarnCodes() []WarnCode {
 		WarnUnmetRequirements,
 		WarnDeviationNotTracked,
 		WarnFixNotProven,
-		WarnRelevantFilesUnavailable,
 		WarnRepoMapBuildFailed,
 		WarnCodeSearchUnavailable,
 		WarnUntrackedFilesLeftAlone,

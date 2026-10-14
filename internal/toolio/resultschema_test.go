@@ -11,7 +11,6 @@ import (
 	"github.com/agent-fox-dev/agentfox/codeimpl"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuetriage"
-	"github.com/agent-fox-dev/agentfox/specgen"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
@@ -103,10 +102,26 @@ func jsonFieldOrder(t reflect.Type) []string {
 	return out
 }
 
+// orderPackage is embedded in orderResult the way a Result embeds a group of
+// fields it shares with another type.
+type orderPackage struct {
+	SpecDir    string `json:"spec_dir" description:"The directory."`
+	Validation string `json:"validation" description:"The validation outcome."`
+}
+
+// orderResult has a promoted embedded struct ahead of its own fields and an
+// unexported field that must not appear.
+type orderResult struct {
+	orderPackage
+	Stage    string `json:"stage" description:"The stage."`
+	DryRun   bool   `json:"dry_run,omitempty" description:"Whether this was a dry run."`
+	inputRef string
+}
+
 // TS-09-22 (unit): A struct type renders as an object schema whose property
 // order follows reflect.VisibleFields, including promoted embedded fields.
 func TestTS09_22_StructOrderFollowsVisibleFields(t *testing.T) {
-	typ := reflect.TypeOf(specgen.Result{})
+	typ := reflect.TypeOf(orderResult{inputRef: "unused"})
 	s := toolio.SchemaFor(typ)
 
 	if got := field(t, s, "type"); got != "object" {
@@ -117,16 +132,16 @@ func TestTS09_22_StructOrderFollowsVisibleFields(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("property order\n got %v\nwant %v", got, want)
 	}
-	if has(got, "Package") || has(got, "package") {
-		t.Errorf("embedded Package is nested, not promoted: %v", got)
+	if has(got, "orderPackage") || has(got, "Package") {
+		t.Errorf("embedded orderPackage is nested, not promoted: %v", got)
 	}
 	if !has(got, "spec_dir") || !has(got, "validation") {
-		t.Errorf("Package's own fields are not promoted in place: %v", got)
+		t.Errorf("orderPackage's own fields are not promoted in place: %v", got)
 	}
 	if has(got, "inputRef") {
 		t.Errorf("unexported field leaked into properties: %v", got)
 	}
-	// Promoted fields come first, as Package precedes the rest of Result.
+	// Promoted fields come first, as orderPackage precedes the rest of orderResult.
 	if got[0] != "spec_dir" {
 		t.Errorf("first property = %q, want the first promoted field spec_dir", got[0])
 	}
@@ -246,10 +261,10 @@ func TestTS09_25_DescriptionsFromStructTag(t *testing.T) {
 	}
 }
 
-// Every field reachable from any of the four tools' Result types is
+// Every field reachable from any of the three tools' Result types is
 // described, not just codefix's.
 func TestTS09_25_EveryResultTypeFullyDescribed(t *testing.T) {
-	for _, sample := range []any{codefix.Result{}, codeimpl.Result{}, issuetriage.Result{}, specgen.Result{}} {
+	for _, sample := range []any{codefix.Result{}, codeimpl.Result{}, issuetriage.Result{}} {
 		typ := reflect.TypeOf(sample)
 		walkDescribed(t, typ.String(), toolio.SchemaFor(typ), func(path string, node toolio.SchemaObject) {
 			d, _ := node.Get("description")
@@ -349,7 +364,7 @@ func TestTS09_27_EnvelopeResultSubstituted(t *testing.T) {
 
 // Each tool's result document compiles against the 2020-12 meta-schema.
 func TestTS09_28_ResultDocumentCompilesAgainstMetaSchema(t *testing.T) {
-	for _, sample := range []any{codefix.Result{}, codeimpl.Result{}, issuetriage.Result{}, specgen.Result{}} {
+	for _, sample := range []any{codefix.Result{}, codeimpl.Result{}, issuetriage.Result{}} {
 		name := reflect.TypeOf(sample).String()
 		doc, err := jsonschema.UnmarshalJSON(strings.NewReader(mustJSON(t, toolio.BuildResultDocument(sample))))
 		if err != nil {
@@ -368,7 +383,7 @@ func TestTS09_28_ResultDocumentCompilesAgainstMetaSchema(t *testing.T) {
 // TS-09-28 (unit): The result document is a standalone, independently valid
 // JSON Schema 2020-12 document.
 func TestTS09_28_ResultDocumentIsStandalone(t *testing.T) {
-	doc := toolio.BuildResultDocument(specgen.Result{})
+	doc := toolio.BuildResultDocument(codefix.Result{})
 
 	if got := field(t, doc, "$schema"); got != "https://json-schema.org/draft/2020-12/schema" {
 		t.Errorf("$schema = %v", got)

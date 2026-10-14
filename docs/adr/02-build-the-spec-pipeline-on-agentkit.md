@@ -1,6 +1,6 @@
 # 02. Build the spec pipeline on AgentKit
 
-**Status:** accepted
+**Status:** accepted; the spec pipeline moved to `agent-fox-dev/spec` with the `spec` tool ([ADR 10](10-move-the-spec-tool-to-its-own-repository.md)), and `internal/agentrun` stays here
 **Date:** 2026-09-09
 **Supersedes:** nothing
 **Related:** [`docs/errata/agentkit_model_resolution.md`](../errata/agentkit_model_resolution.md)

@@ -2,7 +2,7 @@
 
 **Status: proposed. This is a placeholder for the target architecture, not a
 description of the code as it is.** Today's architecture is the one ADR 03,
-ADR 04 and ADR 09 describe: four programs that each own an agent loop built
+ADR 04 and ADR 09 describe: three programs that each own an agent loop built
 on AgentKit, with the model called once per phase. This document describes
 what replaces it once AgentKit
 [PRD 10](https://github.com/agent-fox-dev/agentkit-go/blob/main/docs/prd/10-cut-agentkit-down-to-the-hands.md)
@@ -234,7 +234,7 @@ provider and checks that `af` saw the same submission.
 | `internal/checks`, `internal/conform`, `internal/gitx`, the untracked snapshots, parking, the PR body | `af`'s effect layer, on the hands' runner and outline |
 | `afspec`, `issuex`, `internal/project` (later the language profiles) | unchanged, inside `af` |
 | prompts as Go strings | the briefs, as templated documents rendered by `af task brief` and `af review brief` |
-| `specgen`, `issuetriage` | unchanged for now; they are single-phase and the cost of the current shape is small. *To be decided.* |
+| `issuetriage` | unchanged for now; it is single-phase and the cost of the current shape is small. *To be decided.* |
 | the `af-impl` skill | shrinks to the attended loop over `af` commands |
 | `cmd/impl`, `cmd/fix` | thin entry points that become `af impl`, `af fix`; the envelope, flags and exit codes stay as documented |
 
@@ -255,9 +255,9 @@ provider and checks that `af` saw the same submission.
   Code owns its system prompt; the brief is the first user message. The
   AgentKit driver puts it in `Config.Prefix` with a cache breakpoint. Pi:
   *to be written.*
-- **Whether `spec` and `triage` move to the same shape.** They are one
-  phase each and already fit the current design; moving them buys
-  uniformity and little else.
+- **Whether `triage` moves to the same shape.** It is one phase and
+  already fits the current design; moving it buys uniformity and little
+  else.
 - **What `af serve` exposes beyond the toolbelt.** The hands' navigation
   tools (`file_outline`, `find_symbol`, `find_references`, `code_search`)
   could be served to a brain that lacks them. Pi and Claude Code have their

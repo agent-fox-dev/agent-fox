@@ -18,7 +18,7 @@ func TestTS16_27_CLIListsCodeSearchForEachTool(t *testing.T) {
 		t.Fatal("docs/cli.md does not mention code_search")
 	}
 	// Each tool's section names code_search, with its condition.
-	for _, heading := range []string{"## `triage`", "## `fix`", "## `spec`", "## `impl`"} {
+	for _, heading := range []string{"## `triage`", "## `fix`", "## `impl`"} {
 		section := docSection(t, content, heading)
 		if !strings.Contains(section, "`code_search`") {
 			t.Errorf("%s does not mention `code_search`", heading)
@@ -45,8 +45,8 @@ func TestTS16_27_CLIListsCodeSearchForEachTool(t *testing.T) {
 		}
 	}
 	// Every --preflight example carries the check, and the prose explains it.
-	if n := strings.Count(content, codeSearchPreflightExample); n != 4 {
-		t.Errorf("docs/cli.md has %d code_search_index example entries, want 4 (fix, impl, spec, triage)", n)
+	if n := strings.Count(content, codeSearchPreflightExample); n != 3 {
+		t.Errorf("docs/cli.md has %d code_search_index example entries, want 3 (fix, impl, triage)", n)
 	}
 	preflight := docSection(t, content, "--preflight")
 	if !strings.Contains(preflight, "`code_search_index`") {
@@ -100,7 +100,7 @@ func TestTS16_29_NavigationBaselineHasCodeSearchColumn(t *testing.T) {
 	if !strings.Contains(section, "code_search") || !strings.Contains(section, "search_files") {
 		t.Fatal("the navigation baseline mentions neither code_search nor search_files")
 	}
-	for _, tool := range []string{"triage", "fix", "spec", "impl"} {
+	for _, tool := range []string{"triage", "fix", "impl"} {
 		_, table, ok := strings.Cut(section, "\n#### "+tool+"\n")
 		if !ok {
 			t.Errorf("the baseline has no table for %s", tool)

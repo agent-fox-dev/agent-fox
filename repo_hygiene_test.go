@@ -73,11 +73,11 @@ func TestEarlierStrayFilesAreNotTracked(t *testing.T) {
 }
 
 // What `go build ./cmd/<tool>` leaves in the working directory is ignored, for
-// each of the four tools, from the repository root and from the tool's own
+// each of the three tools, from the repository root and from the tool's own
 // directory.
 func TestToolBinariesAreIgnored(t *testing.T) {
 	root := findWorkspaceRoot(t)
-	for _, tool := range []string{"fix", "impl", "spec", "triage"} {
+	for _, tool := range []string{"fix", "impl", "triage"} {
 		for _, path := range []string{tool, filepath.Join("cmd", tool, tool)} {
 			err := exec.Command("git", "-C", root, "check-ignore", "-q", path).Run()
 			var ee *exec.ExitError

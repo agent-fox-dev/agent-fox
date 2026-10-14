@@ -80,8 +80,8 @@ func TestTS15_14_CLIListsSixReadToolsAndSymbolBackend(t *testing.T) {
 		}
 	}
 	// Every --preflight example carries the check.
-	if n := strings.Count(content, `{"check": "symbol_backend", "ok": true, "detail": "tree-sitter"}`); n != 4 {
-		t.Errorf("docs/cli.md has %d symbol_backend example entries, want 4 (fix, impl, spec, triage)", n)
+	if n := strings.Count(content, `{"check": "symbol_backend", "ok": true, "detail": "tree-sitter"}`); n != 3 {
+		t.Errorf("docs/cli.md has %d symbol_backend example entries, want 3 (fix, impl, triage)", n)
 	}
 	// The sections that say what the model may do name all six read tools.
 	for _, heading := range []string{"## `fix`", "## `impl`"} {
@@ -129,7 +129,7 @@ func TestTS15_16_NavigationBaselineHasSymbolColumns(t *testing.T) {
 	}
 	measured, _, _ = strings.Cut(measured, "\n")
 	unmeasured := strings.HasPrefix(measured, "— (commit)")
-	for _, tool := range []string{"triage", "fix", "spec", "impl"} {
+	for _, tool := range []string{"triage", "fix", "impl"} {
 		_, table, ok := strings.Cut(section, "\n#### "+tool+"\n")
 		if !ok {
 			t.Errorf("the baseline has no table for %s", tool)

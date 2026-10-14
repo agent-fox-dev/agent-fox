@@ -53,8 +53,8 @@ func CreateSpec(specID, specName string) *Spec {
 
 // IsScaffold reports whether the spec is still an empty scaffold: no
 // requirements, no tests and no tasks. A scaffold is incomplete rather than
-// invalid, which is what lets `spec new` write a spec before `spec generate`
-// has produced its content.
+// invalid, which is what lets a draft package be written before its
+// content has been generated.
 func (s *Spec) IsScaffold() bool {
 	return s.Requirements != nil && len(s.Requirements.Requirements) == 0 &&
 		s.TestSpec != nil && len(s.TestSpec.Tests) == 0 &&

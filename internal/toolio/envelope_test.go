@@ -13,7 +13,6 @@ import (
 	"github.com/agent-fox-dev/agentfox/codeimpl"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuetriage"
-	"github.com/agent-fox-dev/agentfox/specgen"
 )
 
 // TS-09-29 (unit): Envelope.SchemaVersion is tagged json:"schema_version",
@@ -45,10 +44,10 @@ func TestTS09_29_EnvelopeSchemaVersionFieldShape(t *testing.T) {
 	}
 }
 
-// TS-09-31 (unit): toolio.SchemaVersion is the literal string 3.1.0.
+// TS-09-31 (unit): toolio.SchemaVersion is the literal string 4.0.0.
 func TestTS09_31_SchemaVersionConstant(t *testing.T) {
-	if toolio.SchemaVersion != "3.1.0" {
-		t.Errorf("toolio.SchemaVersion = %q, want 3.1.0", toolio.SchemaVersion)
+	if toolio.SchemaVersion != "4.0.0" {
+		t.Errorf("toolio.SchemaVersion = %q, want 4.0.0", toolio.SchemaVersion)
 	}
 }
 
@@ -84,7 +83,7 @@ func TestEnvelopeRefusesOKWithAnError(t *testing.T) {
 }
 
 func TestEnvelopeSumsPhases(t *testing.T) {
-	r := toolio.NewRun("spec", "v1")
+	r := toolio.NewRun("impl", "v1")
 	r.AddPhase(toolio.PhaseInfo{Name: "prd", Turns: 3, InputTokens: 100, OutputTokens: 20, CostUSD: 0.5})
 	r.AddPhase(toolio.PhaseInfo{Name: "requirements", Turns: 2, InputTokens: 50, OutputTokens: 10, CostUSD: 0.25})
 
@@ -239,7 +238,7 @@ func TestEnvelopeDropsATypedNilResult(t *testing.T) {
 	}
 	var missing *result
 
-	r := toolio.NewRun("spec", "v1")
+	r := toolio.NewRun("impl", "v1")
 	env := r.Envelope(toolio.ExitFailed, missing, &toolio.ErrorInfo{Stage: "prd", Category: "api", Message: "boom"})
 	if env.Result != nil {
 		t.Errorf("Result = %#v, want it dropped", env.Result)
@@ -519,18 +518,6 @@ func TestTS05_24_CodeimplResultResumableWhenBranchNonEmpty(t *testing.T) {
 	}
 }
 
-// TS-05-25 (unit): specgen.Result.Resumable returns true exactly when SplitPlan is non-empty
-func TestTS05_25_SpecgenResultResumableWhenSplitPlanNonEmpty(t *testing.T) {
-	r1 := specgen.Result{SplitPlan: ".specs/09_widget.split.json"}
-	if r1.Resumable() != true {
-		t.Errorf("specgen.Result with SplitPlan non-empty Resumable() = %v, want true", r1.Resumable())
-	}
-	r2 := specgen.Result{SplitPlan: ""}
-	if r2.Resumable() != false {
-		t.Errorf("specgen.Result with empty SplitPlan Resumable() = %v, want false", r2.Resumable())
-	}
-}
-
 // TS-05-26 (unit): issuetriage.Result.Resumable always returns false
 func TestTS05_26_IssuetriageResultResumableAlwaysFalse(t *testing.T) {
 	r := issuetriage.Result{Action: "filed", Number: 57}
@@ -673,10 +660,11 @@ func TestTS_13_6_PhaseInfoToolCallsAndToolResultBytesJSONTags(t *testing.T) {
 	}
 }
 
-// TS-13-8 (unit): SchemaVersion is bumped to 3.1.0
-func TestTS_13_8_SchemaVersionBumpedTo310(t *testing.T) {
-	if toolio.SchemaVersion != "3.1.0" {
-		t.Errorf("toolio.SchemaVersion = %q, want 3.1.0", toolio.SchemaVersion)
+// TS-13-8 (unit): SchemaVersion is bumped past 3.0.0: to 3.1.0 by spec 13,
+// and since to 4.0.0 by the removal of the spec tool.
+func TestTS_13_8_SchemaVersionBumped(t *testing.T) {
+	if toolio.SchemaVersion != "4.0.0" {
+		t.Errorf("toolio.SchemaVersion = %q, want 4.0.0", toolio.SchemaVersion)
 	}
 }
 
