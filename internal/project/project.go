@@ -13,7 +13,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/agent-fox-dev/agentfox/afspec"
+	"github.com/agent-fox-dev/spec/afspec"
 )
 
 // Profile is what this repository is written in and how it is checked.

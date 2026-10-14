@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agent-fox-dev/spec/afspec"
 	"github.com/agentfox/agentkit-go/core"
 	"github.com/agentfox/agentkit-go/provider/faux"
 	"github.com/agentfox/agentkit-go/tools"
 
-	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun/indextest"
 	"github.com/agent-fox-dev/agentfox/internal/checks"

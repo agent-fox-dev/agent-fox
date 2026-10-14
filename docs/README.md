@@ -5,9 +5,8 @@
 | [Tool Reference](cli.md) | `triage`, `fix` and `impl`: the shared interface, every flag, the JSON envelope and the exit codes |
 | [Configuration](configuration.md) | Credentials, model selection, what the model is allowed to read, bounds |
 | [Model Usage](model-usage.md) | What each phase sends, and what happens when the answer is wrong |
-| [Development](development.md) | Setup, repository layout, the schema workflow, testing |
+| [Development](development.md) | Setup, repository layout, the spec format dependency, testing |
 | [Architecture](architecture.md) | **Proposed, placeholder.** The target shape: a brain (Claude Code, Pi, the AgentKit driver) owns the loop; `af` is the toolbelt of fact and effect commands; AgentKit is the hands |
-| [Go Library API](../afspec/README.md) | The `afspec` spec-format library |
 
 ## Architecture decisions
 
@@ -21,6 +20,7 @@
 | [06](adr/06-version-the-envelope-interface.md) | Version the envelope interface: additive within a major version |
 | [09](adr/09-grade-the-work-independently.md) | Grade the work independently of the phase that did it: `impl`'s conformance stage and `fix`'s proof |
 | [10](adr/10-move-the-spec-tool-to-its-own-repository.md) | Move the `spec` tool to its own repository, and bump the envelope to 4.0.0 |
+| [11](adr/11-import-afspec-from-the-spec-module.md) | Import `afspec` from the `spec` module instead of keeping a copy |
 
 ## Errata
 

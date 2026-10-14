@@ -1,4 +1,4 @@
-.PHONY: check test test-fast lint format build json-gen clean build-darwin-arm64 build-linux-arm64 build-linux-amd64
+.PHONY: check test test-fast lint format build clean build-darwin-arm64 build-linux-arm64 build-linux-amd64
 
 VERSION    := $(shell git describe --tags 2>/dev/null || echo "0.1.0")
 COMMIT     := $(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
@@ -16,7 +16,6 @@ SANDBOX_IMAGE_TAG ?= $(VERSION)
 TOOLS_IMAGE ?= tools
 TOOLS_IMAGE_TAG ?= $(VERSION)
 
-SCHEMAS_DIR := $(CURDIR)/afspec/schemas
 DIST_DIR    := $(CURDIR)/dist
 DOC_DIR ?= build/docs
 
@@ -106,19 +105,6 @@ clean-branches:
 	@git branch --list 'impl/*' | xargs -r git branch -D
 	@git branch --list 'docs/*' | xargs -r git branch -D
 	@git branch --list 'worktree-agent-*' | xargs -r git branch -D
-
-# Regenerate the Go artifact types from the bundled JSON Schemas.
-# The canonical schemas live in the agent-fox-dev/spec repository; the copies
-# under afspec/schemas/ are what the library compiles and embeds.
-# --only-models: structural checking belongs to Validate(), which runs the
-# compiled schemas. Generated UnmarshalJSON methods would duplicate it and
-# would also reject a draft scaffold that CreateSpec writes and LoadSpec reads.
-json-gen:
-	go install github.com/atombender/go-jsonschema@latest
-	go-jsonschema --only-models -p afspec $(SCHEMAS_DIR)/requirements.v2.json  > $(CURDIR)/afspec/requirements.v2.go
-	go-jsonschema --only-models -p afspec $(SCHEMAS_DIR)/test_spec.v2.json     > $(CURDIR)/afspec/test_spec.v2.go
-	go-jsonschema --only-models -p afspec $(SCHEMAS_DIR)/tasks.v2.json         > $(CURDIR)/afspec/tasks.v2.go
-	go-jsonschema --only-models -p afspec $(SCHEMAS_DIR)/prd-frontmatter.v2.json > $(CURDIR)/afspec/prd-frontmatter.v2.go
 
 # manage skills
 

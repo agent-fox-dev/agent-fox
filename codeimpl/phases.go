@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/agent-fox-dev/spec/afspec"
 	"github.com/agentfox/agentkit-go/core"
 	"github.com/agentfox/agentkit-go/schema"
 
-	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"

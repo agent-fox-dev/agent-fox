@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-fox-dev/agentfox/afspec"
+	"github.com/agent-fox-dev/spec/afspec"
 )
 
 // Task state is the one thing this package writes into the spec package,

@@ -3,7 +3,7 @@ package codeimpl
 import (
 	"testing"
 
-	"github.com/agent-fox-dev/agentfox/afspec"
+	"github.com/agent-fox-dev/spec/afspec"
 )
 
 // Issue #196: the implement and resolve phases name the gate's test suite,

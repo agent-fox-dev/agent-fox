@@ -21,7 +21,7 @@ import (
 	"github.com/agentfox/agentkit-go/outline"
 	"github.com/agentfox/agentkit-go/tools"
 
-	"github.com/agent-fox-dev/agentfox/afspec"
+	"github.com/agent-fox-dev/spec/afspec"
 )
 
 // The walk, the outline and the ignore options are package-level seams so the

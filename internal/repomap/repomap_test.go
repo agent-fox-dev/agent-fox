@@ -16,7 +16,7 @@ import (
 	"github.com/agentfox/agentkit-go/outline"
 	"github.com/agentfox/agentkit-go/tools"
 
-	"github.com/agent-fox-dev/agentfox/afspec"
+	"github.com/agent-fox-dev/spec/afspec"
 )
 
 // hermetic pins the ignore engine's global layer to empty for the duration of

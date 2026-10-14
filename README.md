@@ -7,9 +7,10 @@ services. It depends on
 
 - [`agentkit-go`](https://github.com/agent-fox-dev/agentkit-go) — the AgentKit SDK
   (module `github.com/agentfox/agentkit-go`)
-- [`spec`](https://github.com/agent-fox-dev/spec) — the spec format, whose
-  JSON Schemas are copied into `afspec/schemas/`, and the `spec` tool that
-  writes the specification packages `impl` implements
+- [`spec`](https://github.com/agent-fox-dev/spec) (module
+  `github.com/agent-fox-dev/spec`) — the spec format, its Go library
+  `afspec`, which `impl` loads, validates and updates packages with, and the
+  `spec` tool that writes the specification packages `impl` implements
 
 and works with [`hub`](https://github.com/agent-fox-dev/hub) as its backend
 service.
@@ -84,7 +85,6 @@ applies it to the legacy orchestrator that `impl` replaces.
 
 | Path | Package | Purpose |
 |---|---|---|
-| [`afspec/`](afspec/README.md) | `afspec` | Spec format library: load, validate, mutate, render and save specification packages. |
 | `issuetriage/` | `issuetriage` | The triage pipeline: the diagnosis schema, the citation check, the rendered issue. |
 | `codefix/` | `codefix` | The fix pipeline: pre-flight, analysis, implementation, verification, landing. |
 | `codeimpl/` | `codeimpl` | The implementation pipeline: a spec's tasks in order, each verified by the spec's own checks and committed with its state. |
@@ -97,8 +97,11 @@ applies it to the legacy orchestrator that `impl` replaces.
 
 The spec format itself is specified in the
 [`spec`](https://github.com/agent-fox-dev/spec) repository
-(`specification/spec-format-v2.md`). The JSON Schemas the library compiles and
-embeds live in `afspec/schemas/`.
+(`specification/spec-format-v2.md`), together with the `afspec` library that
+loads, validates, mutates, renders and saves specification packages. This
+repository imports `afspec` from that module
+(`github.com/agent-fox-dev/spec/afspec`) and keeps no copy of the format's
+schemas.
 
 ## Quick start
 
@@ -137,6 +140,5 @@ runs against AgentKit's scripted provider, GitHub and GitLab against
 - [Tool Reference](docs/cli.md) — the tools, their flags, their JSON
 - [Configuration](docs/configuration.md) — credentials, model selection, what the model is allowed to read
 - [Model Usage](docs/model-usage.md) — what each phase sends, and how a failure is repaired
-- [Go Library API](afspec/README.md) — the `afspec` library
 - [Development Guide](docs/development.md) — setup, testing, contributing
 - [ADRs](docs/adr/) — architecture decisions

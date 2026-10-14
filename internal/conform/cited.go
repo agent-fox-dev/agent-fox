@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/agent-fox-dev/agentfox/afspec"
+	"github.com/agent-fox-dev/spec/afspec"
 )
 
 var (
