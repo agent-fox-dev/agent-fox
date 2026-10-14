@@ -31,8 +31,8 @@ func runFixRaw(t *testing.T, argv ...string) (int, string, string) {
 }
 
 // TS-11-41 (integration, fix's share): --detail summary keeps preflight and
-// estimate in the trimmed result. The other tools' shares are in cmd/impl,
-// cmd/spec and cmd/issue.
+// estimate in the trimmed result. The other tools' shares are in cmd/impl
+// and cmd/triage.
 //
 // Verifies: 11-REQ-7.1
 func TestTS11_41_DetailSummaryKeepsPreflightAndEstimate_Fix(t *testing.T) {

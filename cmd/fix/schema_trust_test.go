@@ -79,7 +79,7 @@ func TestTS10_14_XTrustOnlyInsideResultSubtree(t *testing.T) {
 	}
 }
 
-// TS-10-15 (integration): The four golden files carrying x-trust still pass
+// TS-10-15 (integration): The golden files carrying x-trust still pass
 // TestSchemaGolden and still compile against the 2020-12 meta-schema.
 //
 // Verifies: 10-REQ-3.4

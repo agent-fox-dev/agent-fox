@@ -53,7 +53,7 @@ build:
 	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/impl
 
 # Cross-platform static builds of the tools
-TOOLS := spec triage fix impl
+TOOLS := triage fix impl
 
 build-all: build-darwin-arm64 build-linux-arm64 build-linux-amd64
 
@@ -112,7 +112,7 @@ clean-branches:
 # under afspec/schemas/ are what the library compiles and embeds.
 # --only-models: structural checking belongs to Validate(), which runs the
 # compiled schemas. Generated UnmarshalJSON methods would duplicate it and
-# would also reject a scaffold that `spec new` must be able to write and read.
+# would also reject a draft scaffold that CreateSpec writes and LoadSpec reads.
 json-gen:
 	go install github.com/atombender/go-jsonschema@latest
 	go-jsonschema --only-models -p afspec $(SCHEMAS_DIR)/requirements.v2.json  > $(CURDIR)/afspec/requirements.v2.go

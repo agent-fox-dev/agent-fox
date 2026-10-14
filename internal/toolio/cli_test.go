@@ -20,7 +20,6 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuetriage"
-	"github.com/agent-fox-dev/agentfox/specgen"
 	"github.com/agentfox/agentkit-go/core"
 )
 
@@ -148,36 +147,6 @@ func TestTS05_16_CodeimplBlockerMapsOntoNeedsHuman(t *testing.T) {
 	}
 	if len(env.NeedsHuman.Options) != 0 {
 		t.Errorf("expected len(Options) == 0, got %d", len(env.NeedsHuman.Options))
-	}
-}
-
-// TS-05-18 (unit): specgen never sets needs_human even when open_questions is non-empty; the summary reports only the count
-func TestTS05_18_SpecgenNeverSetsNeedsHuman(t *testing.T) {
-	run := toolio.NewRun("spec", "v1")
-	threeQuestions := []specgen.OpenQuestion{
-		{Question: "Q1?"},
-		{Question: "Q2?"},
-		{Question: "Q3?"},
-	}
-	result := &specgen.Result{
-		Package: specgen.Package{
-			SpecID:        "01",
-			OpenQuestions: threeQuestions,
-		},
-	}
-	env := run.Envelope(toolio.ExitOK, result, nil)
-	b, err := json.Marshal(env)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
-	if bytes.Contains(b, []byte(`"needs_human"`)) {
-		t.Errorf("unexpected needs_human in json: %s", string(b))
-	}
-	if len(result.OpenQuestions) != 3 {
-		t.Errorf("expected 3 open questions, got %d", len(result.OpenQuestions))
-	}
-	if !strings.Contains(env.Summary, "3 open questions") {
-		t.Errorf("expected summary to contain '3 open questions', got %q", env.Summary)
 	}
 }
 
@@ -436,9 +405,8 @@ func TestTS06_1_ValidDetailRefusesUnknownValues(t *testing.T) {
 	}
 }
 
-// jsonKeysOf walks t's fields (recursing into anonymous embedded structs,
-// the way specgen.Result embeds Package) and returns every json tag name it
-// finds, skipping "-". It is a static view of what a type CAN emit, not what
+// jsonKeysOf walks t's fields (recursing into anonymous embedded structs)
+// and returns every json tag name it finds, skipping "-". It is a static view of what a type CAN emit, not what
 // one populated value happens to: an omitempty field with a zero value is
 // still counted, which is what makes it usable as a superset check
 // regardless of how a fixture value is populated.
@@ -478,8 +446,7 @@ func jsonKeysOf(t reflect.Type) []string {
 //
 // preKeys is a fixture snapshot of every JSON key each Result type carried
 // before this task added "detail": read directly off issuetriage/pipeline.go,
-// codefix/types.go, codeimpl/types.go and specgen/pipeline.go as they stood
-// going into this task.
+// codefix/types.go and codeimpl/types.go as they stood going into this task.
 func TestTS06_3_FullViewKeysSupersetOfPreSpecKeys(t *testing.T) {
 	cases := []struct {
 		tool    string
@@ -519,16 +486,6 @@ func TestTS06_3_FullViewKeysSupersetOfPreSpecKeys(t *testing.T) {
 				"pull_request_number", "repair", "survey", "blocker", "cost_usd", "dry_run",
 			},
 		},
-		{
-			tool: "spec",
-			typ:  reflect.TypeOf(specgen.Result{}),
-			preKeys: []string{
-				"spec_dir", "spec_id", "spec_name", "title", "status", "source",
-				"artifacts", "requirements", "criteria", "execution_paths", "tests",
-				"tasks", "validation", "traceability", "open_questions", "comment_url",
-				"follow_on_specs", "split", "split_plan", "dry_run",
-			},
-		},
 	}
 
 	for _, c := range cases {
@@ -563,10 +520,6 @@ func TestTS06_4_ResultRecordsDetailView(t *testing.T) {
 	})
 	t.Run("impl", func(t *testing.T) {
 		r := &codeimpl.Result{}
-		assertDetailRoundTrips(t, r)
-	})
-	t.Run("spec", func(t *testing.T) {
-		r := &specgen.Result{}
 		assertDetailRoundTrips(t, r)
 	})
 }
@@ -616,8 +569,8 @@ func TestTS06_4_FullViewSetsDetailFull(t *testing.T) {
 	}
 }
 
-// toolFlagSetNames are the four tools whose flag sets share Common.
-var toolFlagSetNames = []string{"triage", "fix", "spec", "impl"}
+// toolFlagSetNames are the three tools whose flag sets share Common.
+var toolFlagSetNames = []string{"triage", "fix", "impl"}
 
 // TS-06-52 (unit): --dry-run is registered exactly once, on Common, with the
 // one make-no-remote-change definition.

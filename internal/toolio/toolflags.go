@@ -10,9 +10,9 @@ import (
 const notDefinedPrefix = "flag provided but not defined: -"
 
 // toolOrder is the order the accepting tools are named in.
-var toolOrder = []string{"triage", "fix", "spec", "impl"}
+var toolOrder = []string{"triage", "fix", "impl"}
 
-// toolFlags is each of the four tools' own flags — the ones registered in its
+// toolFlags is each of the three tools' own flags — the ones registered in its
 // Flags func, beside Common's. It exists so that a flag given to a tool that
 // does not use it can be reported as another tool's flag rather than as an
 // unknown one. The shared flags (Common) are not listed: every tool has them.
@@ -25,7 +25,6 @@ var toolFlags = map[string][]string{
 	"triage": {"repo", "label", "overwrite"},
 	"fix": {"repo", "land", "verify", "no-verify", "verify-timeout", "push-attempts",
 		"allow", "draft", "pull", "branch-prefix", "no-review"},
-	"spec": {"specs-dir", "name", "architecture", "no-activate", "comment"},
 	"impl": {"specs-dir", "task", "branch", "repo", "land", "verify", "no-verify",
 		"verify-timeout", "push-attempts", "allow", "draft", "pull", "no-survey",
 		"no-test-first", "no-review", "max-func-lines", "task-attempts", "repair", "repair-attempts", "repair-model",

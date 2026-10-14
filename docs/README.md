@@ -2,7 +2,7 @@
 
 | Document | What it covers |
 |---|---|
-| [Tool Reference](cli.md) | `spec`, `triage`, `fix` and `impl`: the shared interface, every flag, the JSON envelope and the exit codes |
+| [Tool Reference](cli.md) | `triage`, `fix` and `impl`: the shared interface, every flag, the JSON envelope and the exit codes |
 | [Configuration](configuration.md) | Credentials, model selection, what the model is allowed to read, bounds |
 | [Model Usage](model-usage.md) | What each phase sends, and what happens when the answer is wrong |
 | [Development](development.md) | Setup, repository layout, the schema workflow, testing |
@@ -20,6 +20,7 @@
 | [05](adr/05-write-every-scope-of-a-split.md) | Write every scope of a split, and record the split until it is done |
 | [06](adr/06-version-the-envelope-interface.md) | Version the envelope interface: additive within a major version |
 | [09](adr/09-grade-the-work-independently.md) | Grade the work independently of the phase that did it: `impl`'s conformance stage and `fix`'s proof |
+| [10](adr/10-move-the-spec-tool-to-its-own-repository.md) | Move the `spec` tool to its own repository, and bump the envelope to 4.0.0 |
 
 ## Errata
 

@@ -7,7 +7,6 @@ import (
 	"github.com/agent-fox-dev/agentfox/codefix"
 	"github.com/agent-fox-dev/agentfox/codeimpl"
 	"github.com/agent-fox-dev/agentfox/issuetriage"
-	"github.com/agent-fox-dev/agentfox/specgen"
 )
 
 func isStringOrStringSlice(t reflect.Type) bool {
@@ -42,7 +41,7 @@ func walkTrustFields(t reflect.Type, prefix string, seen map[reflect.Type]bool, 
 }
 
 // TS-10-1 (property): every string- or []string-typed field reachable from
-// the four Result trees carries a trust tag with a legal value.
+// the three Result trees carries a trust tag with a legal value.
 //
 // Verifies: 10-REQ-1.1
 func TestTS10_1_EveryStringFieldClassified(t *testing.T) {
@@ -50,7 +49,6 @@ func TestTS10_1_EveryStringFieldClassified(t *testing.T) {
 		reflect.TypeOf(codefix.Result{}),
 		reflect.TypeOf(codeimpl.Result{}),
 		reflect.TypeOf(issuetriage.Result{}),
-		reflect.TypeOf(specgen.Result{}),
 	}
 	for _, root := range roots {
 		n := 0

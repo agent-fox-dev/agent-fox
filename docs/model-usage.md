@@ -20,9 +20,6 @@ one's *conclusion* rather than from how it got there.
 | `fix` | `analyse` | the six read tools, `code_search` (if indexed), plus `execute` under a read-only allowlist | provider default | `submit_analysis` |
 | `fix` | `implement` | the six read tools, `code_search` (if indexed), `write_file`, `edit_file`, `execute` under a build allowlist | provider default | `submit_implementation` |
 | `fix` | `review` (when the report cites spec ids) | the six read tools, `code_search` (if indexed), plus `execute` under a read-only allowlist; no repository map | provider default | `submit_review` |
-| `spec` | `prd` | the six read tools, `code_search` (if indexed) | 32 768 | `submit_prd` |
-| `spec` | `generate:{artifact}` | the six read tools, `code_search` (if indexed) | 65 536 | `submit_requirements`, `submit_test_spec`, `submit_tasks` |
-| `spec` | `architecture` (opt-in) | the six read tools, `code_search` (if indexed) | 32 768 | `submit_architecture` |
 | `impl` | `survey` | the six read tools, `code_search` (if indexed), plus `execute` under a read-only allowlist | provider default | `submit_survey` |
 | `impl` | `repair` (with `--repair`, on a red baseline or after the integration task) | the same as `implement`; on `--repair-model`, a model of its own | provider default | `submit_repair` |
 | `impl` | `implement` (once per task) | the six read tools, `code_search` (if indexed), `write_file`, `edit_file`, `execute` under a build allowlist; writes under the spec package refused | provider default | `submit_task` |
@@ -103,9 +100,6 @@ What each handler rejects, and what the rejection says:
 | `submit_analysis` | an empty title, an unknown classification, an ambiguity with no question | which field, and what it is for |
 | `submit_implementation` | an empty commit subject | that it is the subject of the commit this run makes |
 | `submit_implementation` | `criteria_verdicts` that skips an acceptance criterion the report defined, names one it did not, answers twice, uses a verdict outside `pass`/`fail`, or offers a one-word evidence | which ids are missing or unknown, and what a piece of evidence has to name |
-| `submit_prd` | a spec name the format cannot use (the directory rule's: no doubled or trailing underscore), an empty title, a body with no `## Intent` spelled exactly so (the heading the intent hash is computed from) or one that starts with YAML frontmatter; a `recommended_split` of one scope, with a name the format cannot use or used twice, or whose first scope is not the PRD being submitted | each would otherwise fail later and more expensively — the split's names become directory names, three phases on |
-| `submit_{artifact}` | the artifact's v2 schema, including a key it does not allow (`additionalProperties: false`), plus every cross-file rule decidable at that point | the rule that failed, by name (`C1`…`C11`), or the disallowed keys by path |
-| `submit_tasks` | test commands from another ecosystem than the project's | the detected language, and the project's real commands |
 | `submit_survey` | an empty summary, a blocker with no reason | which field, and what it is for |
 | `submit_repair` | an empty cause, an empty commit subject, an empty change list, a blocker with no reason | which field, and what a reviewer needs it for |
 | `submit_task` | an empty commit subject; `test_verdicts` that skips a test the task owns, names one it does not, answers twice, uses a verdict outside `pass`/`fail`, or offers a one-word evidence; the same for `done_when_verdicts`; a blocker with no reason | which ids are missing or unknown, and what a piece of evidence has to name |
@@ -114,43 +108,6 @@ A `blocker` is accepted as soon as it has a reason: it is the one submission
 that is not asked to be complete, because its whole content is "a person has
 to decide". A `submit_task` or `submit_repair` that carries one skips every
 other check.
-
-The three `submit_{artifact}` schemas are converted from the format's own JSON
-Schemas rather than re-authored, with one omission: the artifact's `$schema`
-field. A tool schema may not declare a property by that name — the vendors
-restrict property names to `^[a-zA-Z0-9_.-]{1,64}$` — so the model is not
-shown the field and the submit handler writes its value from the schema
-document's own `$id`. See
-[the erratum](errata/tool_schema_property_names.md). Any other name a tool
-schema cannot carry fails the run in pre-flight, naming the property.
-
-## A split is decided once, and every scope gets its own PRD phase
-
-An input the PRD phase reports as several specs' worth of work is written as
-several packages. The first comes from the PRD just written. Each later scope
-is a fresh `prd` phase with the same system prompt and the same tool, plus a
-block in the task stating the decided split as a fact: every scope in order,
-which are written, which this one is, and that its `spec_name` is fixed. The
-model's job narrows to writing one PRD well against the packages that exist —
-which it can read under the spec root — rather than re-deciding the shape of
-the work. A `recommended_split` it reports anyway is a warning, not a second
-split: the plan was recorded before the first package was written, and the
-plan is what a later run resumes from.
-
-## Generation is sequential, and each step sees everything before it
-
-Format v2 §12.1 fixes the order: `requirements`, then `test_spec`, then
-`tasks`. Each step receives the complete artifacts produced before it, in full
-JSON rather than as a summary.
-
-The order is the rule and the reason for it is concrete: the previous format
-ran `test_spec` and `tasks` concurrently off a summary of requirement ids, so
-the task generator never saw a test id and could not own the tests it was
-supposed to own. In all eight archived v1 specs, every edge-case and property
-test ended up owned by no task.
-
-A rejected artifact leaves the accumulated state untouched, so the next attempt
-validates against the same upstream artifacts as the one before it.
 
 ## A run that ends without submitting
 
@@ -202,8 +159,8 @@ not support it), the run continues without `code_search`, falls back to
 `search_files`, and records a `low` `code_search_unavailable` warning
 (`--preflight` reports which as the `code_search_index` check). The index reads
 the tree only when `code_search` is first called, under that call's deadline; a
-build that fails there fails that call, and the phase still has `search_files`. `triage` and `spec` never change the
-tree, so their index is never stale. `fix` and `impl` invalidate it after
+build that fails there fails that call, and the phase still has `search_files`. `triage` never changes the
+tree, so its index is never stale. `fix` and `impl` invalidate it after
 every change the program itself makes to the tree, so the next phase's
 `code_search` results reflect the tree it is working on. `fix` invalidates it
 after it creates the work branch, after each run of the verification command
@@ -255,25 +212,14 @@ breakpoints over the tool schemas and the assembled system prompt.
 
 Each phase reports a `SessionID` of `<tool>/<phase>`, which becomes
 `prompt_cache_key` on the OpenAI wires. It is the tool's name and not a
-per-run identifier on purpose: every `spec/generate:tasks` call in the world
+per-run identifier on purpose: every `impl/implement` call in the world
 shares this repository's system prompt and tool schemas, and making the key
 unique per run would fragment exactly the cache it exists to help.
 
 ## Prompt templates
 
-`spec`'s prompts are Markdown files embedded at compile time, because they are
-prose a requirements engineer maintains and a diff against a document reads
-better than a diff against escaped string concatenation:
-
-```
-prd_system   prd_user
-generation_system   generation_user_base
-generation_user_requirements   generation_user_test_spec   generation_user_tasks
-architecture_user
-```
-
-`triage`'s, `fix`'s and `impl`'s prompts are Go string constants, because they
-are short and assembled with the run's own facts — the baseline verification
+The tools' prompts are Go string constants, because they are short and
+assembled with the run's own facts — the baseline verification
 result, the branch name, the diagnosis, the spec rendered scoped to one task.
 
 `impl`'s three phase names are the same for every task and every run: the

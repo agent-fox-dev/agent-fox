@@ -48,42 +48,6 @@ func TestCLIDocContextBoundOrderMatchesTheCode(t *testing.T) {
 	}
 }
 
-// The spec summary view's traceability keeps the covered counts, so a package
-// with no gaps does not print {} (specgen/summary.go, issue #57).
-func TestCLIDocSummaryTraceabilityKeepsTheCoveredCounts(t *testing.T) {
-	row, ok := tableRow(readDoc(t, "cli.md"), "| `traceability` | `{")
-	if !ok {
-		t.Fatal("docs/cli.md has no summary-view traceability row")
-	}
-	for _, want := range []string{"criteria_covered", "paths_covered", "criteria_uncovered", "paths_uncovered", "tests_unowned"} {
-		if !strings.Contains(row, want) {
-			t.Errorf("the traceability row does not name %q: %s", want, row)
-		}
-	}
-	if strings.Contains(row, "dropped") {
-		t.Errorf("the traceability row still says something is dropped: %s", row)
-	}
-}
-
-// spec's next[] suggests impl on every package that validates, in split order
-// (specgen/next.go), not only the first.
-func TestCLIDocNextTableSuggestsImplOnEveryValidPackage(t *testing.T) {
-	row, ok := tableRow(readDoc(t, "cli.md"), "| `spec` | `impl` on")
-	if !ok {
-		t.Fatal("docs/cli.md has no spec row in the next[] table")
-	}
-	if strings.Contains(row, "the first package") || !strings.Contains(row, "every package that validates") {
-		t.Errorf("spec next[] row = %s, want impl on every package that validates", row)
-	}
-}
-
-// triage was called issue until d8d8db5; no sentence still folds "like issue".
-func TestCLIDocUsesTheToolsCurrentName(t *testing.T) {
-	if doc := readDoc(t, "cli.md"); strings.Contains(doc, "folds like `issue`") {
-		t.Error("docs/cli.md still says an unsplit input folds like `issue`")
-	}
-}
-
 // A pull request that could not be opened is recorded on <owner>/<repo> with no
 // number (06-REQ-5.3), and the docs say so.
 func TestCLIDocSaysWhereAFailedOpenPRIsRecorded(t *testing.T) {
@@ -128,10 +92,10 @@ func TestCLIDocSummaryTablesListPreflightEstimateAndStage(t *testing.T) {
 	doc := readDoc(t, "cli.md")
 	const marker = "Under `--detail summary` (the default) `result` keeps only:"
 	parts := strings.Split(doc, marker)
-	if len(parts) != 5 {
-		t.Fatalf("found %d summary tables, want 4 (triage, fix, spec, impl)", len(parts)-1)
+	if len(parts) != 4 {
+		t.Fatalf("found %d summary tables, want 3 (triage, fix, impl)", len(parts)-1)
 	}
-	for i, tool := range []string{"triage", "fix", "spec", "impl"} {
+	for i, tool := range []string{"triage", "fix", "impl"} {
 		// The table runs from its first row to the next blank line.
 		table := parts[i+1]
 		table = table[strings.Index(table, "|"):]

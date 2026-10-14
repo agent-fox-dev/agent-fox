@@ -126,7 +126,7 @@ func TestTS07_8_EveryTypeIsInTheClosedSet(t *testing.T) {
 // optional field).
 func TestTS07_9_EventCarriesOnlyItsOwnFields(t *testing.T) {
 	var buf bytes.Buffer
-	s := newEventsSink("spec", &buf)
+	s := newEventsSink("impl", &buf)
 	events := everyEvent()
 	// A phase_start without a task must omit the field, and with one carry it.
 	events = append(events, newPhaseStartEvent("analyse", "", 10, 2))

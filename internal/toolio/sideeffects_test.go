@@ -36,8 +36,8 @@ func TestTS06_26_SideEffectsListedAndOmittedWhenEmpty(t *testing.T) {
 		t.Errorf("an ok entry carries a warning: %v", e)
 	}
 
-	specRun := toolio.NewRun("spec", "v1")
-	sb, _ := json.Marshal(specRun.Envelope(toolio.ExitOK, nil, nil))
+	implRun := toolio.NewRun("impl", "v1")
+	sb, _ := json.Marshal(implRun.Envelope(toolio.ExitOK, nil, nil))
 	var sdoc map[string]any
 	_ = json.Unmarshal(sb, &sdoc)
 	if _, has := sdoc["side_effects"]; has {

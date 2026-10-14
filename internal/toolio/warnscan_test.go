@@ -105,7 +105,7 @@ func TestTS05_36_SourceScanFlagsLiteralWarnCode(t *testing.T) {
 	root := findWorkspaceRoot(t)
 
 	real := scanWarnCallSites(t, root, []string{
-		"internal/toolio", "codefix", "codeimpl", "specgen", "issuetriage",
+		"internal/toolio", "codefix", "codeimpl", "issuetriage",
 	})
 	if len(real) != 0 {
 		t.Errorf("the real tree has %d Run.Warn call site(s) passing a bare string literal: %v", len(real), real)

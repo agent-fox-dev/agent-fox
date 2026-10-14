@@ -12,7 +12,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/schematest"
 )
 
-var schemaTools = []string{"spec", "triage", "fix", "impl"}
+var schemaTools = []string{"triage", "fix", "impl"}
 
 // TS-09-35 (integration): Each tool ships a checked-in golden file holding
 // its --schema output's exact bytes.
@@ -148,7 +148,7 @@ func TestTS09_38_InvalidSchemaFailsCompilation(t *testing.T) {
 	}
 }
 
-// TS-13-26 (unit): Schema golden files of all four tools contain effort and
+// TS-13-26 (unit): Schema golden files of all three tools contain effort and
 // not variant; impl's also contains repair-model-effort.
 func TestTS13_26_GoldenFilesContainEffortNotVariant(t *testing.T) {
 	root := schematest.Root(t)
@@ -159,7 +159,7 @@ func TestTS13_26_GoldenFilesContainEffortNotVariant(t *testing.T) {
 		} `json:"flags"`
 	}
 
-	for _, tool := range []string{"triage", "fix", "spec", "impl"} {
+	for _, tool := range []string{"triage", "fix", "impl"} {
 		t.Run(tool, func(t *testing.T) {
 			path := filepath.Join(root, "cmd", tool, "testdata", "schema.golden.json")
 			data, err := os.ReadFile(path)

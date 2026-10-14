@@ -28,7 +28,7 @@ func navigationBaseline(t *testing.T) string {
 
 // baselineRunRe is one run of the procedure: a tool, --dry-run, and the fixed
 // input under $B (testdata/baseline) as its last argument.
-var baselineRunRe = regexp.MustCompile(`(?m)^(triage|fix|spec|impl) --dry-run .*"\$B/([^"]+)"\s*$`)
+var baselineRunRe = regexp.MustCompile(`(?m)^(triage|fix|impl) --dry-run .*"\$B/([^"]+)"\s*$`)
 
 // TS-13-33 (unit): docs/development.md contains the Navigation baseline
 // section with procedure, tables and regeneration note
@@ -36,7 +36,7 @@ var baselineRunRe = regexp.MustCompile(`(?m)^(triage|fix|spec|impl) --dry-run .*
 //
 // The tool the spec calls `issue` is `triage` today
 // (docs/errata/13_navigation_baseline.md), so the procedure is checked for
-// triage, fix, spec and impl.
+// triage, fix and impl.
 func TestTS_13_33_NavigationBaselineSection(t *testing.T) {
 	section := navigationBaseline(t)
 	root := findWorkspaceRoot(t)
@@ -71,8 +71,8 @@ func TestTS_13_33_NavigationBaselineSection(t *testing.T) {
 }
 
 // baselineInputs checks that the procedure runs a fixed set of inputs per
-// tool with --dry-run (two for triage, two for fix, three for spec, one for
-// impl), in a throwaway clone, that every input exists, and that the triage
+// tool with --dry-run (two for triage, two for fix, one for impl), in a
+// throwaway clone, that every input exists, and that the triage
 // inputs are a stack trace and a prose report. It returns the inputs by tool,
 // relative to baseline.
 func baselineInputs(t *testing.T, section, baseline string) map[string][]string {
@@ -81,7 +81,7 @@ func baselineInputs(t *testing.T, section, baseline string) map[string][]string 
 	for _, m := range baselineRunRe.FindAllStringSubmatch(section, -1) {
 		inputs[m[1]] = append(inputs[m[1]], m[2])
 	}
-	for tool, want := range map[string]int{"triage": 2, "fix": 2, "spec": 3, "impl": 1} {
+	for tool, want := range map[string]int{"triage": 2, "fix": 2, "impl": 1} {
 		if got := len(inputs[tool]); got != want {
 			t.Errorf("the procedure runs `%s --dry-run` on %d fixed input(s) %v, want %d", tool, got, inputs[tool], want)
 		}
@@ -162,7 +162,6 @@ func checkBaselineTables(t *testing.T, section string) {
 	phases := map[string][]string{
 		"triage": {"triage"},
 		"fix":    {"analyse", "implement"},
-		"spec":   {"prd", "generate:requirements", "generate:test_spec", "generate:tasks"},
 		"impl":   {"survey", "implement (task 1)", "implement (task 2)", "implement (task 3)", "review"},
 	}
 	for tool, names := range phases {

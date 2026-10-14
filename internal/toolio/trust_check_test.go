@@ -9,7 +9,6 @@ import (
 	"github.com/agent-fox-dev/agentfox/codeimpl"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuetriage"
-	"github.com/agent-fox-dev/agentfox/specgen"
 )
 
 type trustCheckSub struct {
@@ -65,17 +64,16 @@ func TestTS10_9_CheckTrustTerminatesOnCycle(t *testing.T) {
 	}
 }
 
-// TS-10-10 (unit): CheckTrust reports no missing field for any of the four
+// TS-10-10 (unit): CheckTrust reports no missing field for any of the three
 // real Result types. A field added later without a trust tag fails here,
 // named by its dotted path.
 //
 // Verifies: 10-REQ-2.2
-func TestTS10_10_FourResultTreesFullyClassified(t *testing.T) {
+func TestTS10_10_ResultTreesFullyClassified(t *testing.T) {
 	for _, typ := range []reflect.Type{
 		reflect.TypeOf(codefix.Result{}),
 		reflect.TypeOf(codeimpl.Result{}),
 		reflect.TypeOf(issuetriage.Result{}),
-		reflect.TypeOf(specgen.Result{}),
 	} {
 		if missing := toolio.CheckTrust(typ); len(missing) != 0 {
 			t.Errorf("%s: fields without a trust tag: %v", typ, missing)
@@ -85,7 +83,7 @@ func TestTS10_10_FourResultTreesFullyClassified(t *testing.T) {
 
 // TS-10-10 (unit, summary views): the default envelope's untrusted_fields is
 // computed over the --detail summary view, which App.emit swaps in after the
-// full Result is built, so the views are outside the four Result trees TS-10-10
+// full Result is built, so the views are outside the Result trees TS-10-10
 // walks. Each view's string fields must be classified too; a model-authored
 // string added to a summary view without a trust tag would otherwise be absent
 // from the default view's untrusted_fields with no test failing (10-REQ-2.3).
@@ -96,7 +94,6 @@ func TestTS10_10_SummaryViewsFullyClassified(t *testing.T) {
 		"codefix":     &codefix.Result{},
 		"codeimpl":    &codeimpl.Result{},
 		"issuetriage": &issuetriage.Result{},
-		"specgen":     &specgen.Result{},
 	} {
 		view := sample.SummaryView()
 		typ := reflect.TypeOf(view)
@@ -143,7 +140,6 @@ func TestTS10_TrustTagValuesAreLegal(t *testing.T) {
 		"codefix":     &codefix.Result{},
 		"codeimpl":    &codeimpl.Result{},
 		"issuetriage": &issuetriage.Result{},
-		"specgen":     &specgen.Result{},
 	}
 	for name, r := range results {
 		walk(reflect.TypeOf(r), name+".Result", map[reflect.Type]bool{})

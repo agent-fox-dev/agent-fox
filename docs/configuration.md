@@ -1,6 +1,6 @@
 # Configuration
 
-The tools — `spec`, `triage`, `fix` and `impl` — reach a model through
+The tools — `triage`, `fix` and `impl` — reach a model through
 [AgentKit](https://github.com/agent-fox-dev/agentkit-go)
 (module `github.com/agentfox/agentkit-go`), so it speaks every wire API that
 library implements: Anthropic, both OpenAI wires, Google and Ollama, plus the
@@ -154,7 +154,7 @@ export AF_MODEL=anthropic/claude-opus-5
 export AF_MODEL=openai/gpt-6-astra
 export AF_MODEL=ADVANCED
 
-spec --model anthropic/claude-fable-5-1 --effort xhigh ./big-idea.md
+fix --model anthropic/claude-fable-5-1 --effort xhigh ./crash.log
 ```
 
 `--model` wins over `$AF_MODEL`, which wins over `$AGENTKIT_MODEL` (honoured so
@@ -184,9 +184,9 @@ is set.
 To use Gemini with both keys exported:
 
 ```sh
-spec --vendor google ./idea.md                 # tier table of google
-export AF_MODEL_VENDOR=google                  # the same, for the shell
-spec --model google/gemini-3.8-flash ./idea.md # or name the model
+triage --vendor google ./crash.log                 # tier table of google
+export AF_MODEL_VENDOR=google                      # the same, for the shell
+triage --model google/gemini-3.8-flash ./crash.log # or name the model
 ```
 
 One model serves every phase of a run. Per-phase model selection existed in the
@@ -196,9 +196,9 @@ they need.
 
 ## What the model may read
 
-By default a spec is written from the PRD alone. Two separate grants change
-that, and they are separate because wanting a project's steering directives is
-not wanting a source-reading run.
+Two separate grants decide what the model may read, and they are separate
+because wanting a project's steering directives is not wanting a
+source-reading run.
 
 | Grant | Flag | What it does |
 |---|---|---|
@@ -206,13 +206,12 @@ not wanting a source-reading run.
 | Project trust | `--trust-project` | Admits repository-authored skills and context files — `AGENTS.md`, `CLAUDE.md`, `.specs/steering.md` — into the system prompt |
 
 Reading the source is not optional here as it was in the previous CLI: a
-diagnosis written without reading the code is not a diagnosis, and a spec
-written against a repository it never looked at names components that already
-exist under other names. `--dir` defaults to `.`.
+diagnosis written without reading the code is not a diagnosis. `--dir`
+defaults to `.`.
 
 The read-only mandate is a mechanism rather than a prompt instruction. In every
-phase that only reads — `triage`'s one phase, every `spec` phase, `impl`'s survey
-— the mutating file tools (`write_file`, `edit_file`) are excluded from the
+phase that only reads — `triage`'s one phase and `impl`'s survey — the
+mutating file tools (`write_file`, `edit_file`) are excluded from the
 resolved set, an invariant checks that set before the first request, and
 AgentKit's own unguarded-shell guard fails any run where an unguarded shell
 survived. `fetch_url` is never registered by any tool, so no phase has
@@ -237,20 +236,18 @@ clone, cd, run.
 One phase is bounded by turns and by spend. Both stop the run cleanly at a turn
 boundary rather than aborting mid-call.
 
-| Setting | Flag | `triage` | `fix` | `spec` | `impl` |
-|---|---|---|---|---|---|
-| Turns per phase | `--max-turns` | 100 | 150 | 60 | 150 |
-| Spend per phase | `--budget` | $2.00 | $5.00 | $5.00 | $5.00 |
-| Wall clock per phase | `--phase-timeout` | none | none | none | none |
-| Attempts per model call | — | 3 | 3 | 3 | 3 |
+| Setting | Flag | `triage` | `fix` | `impl` |
+|---|---|---|---|---|
+| Turns per phase | `--max-turns` | 100 | 150 | 150 |
+| Spend per phase | `--budget` | $2.00 | $5.00 | $5.00 |
+| Wall clock per phase | `--phase-timeout` | none | none | none |
+| Attempts per model call | — | 3 | 3 | 3 |
 
 `impl` runs one phase per task, so its per-phase ceilings multiply by the
 number of tasks. `--total-budget`, a shared flag, caps the whole run; zero
 (the default) means no ceiling beyond `--budget`. `impl` stops between tasks
 with everything landed so far committed on the branch; `fix` checks between
-its analyse and implement phases; `spec` checks before each scope's PRD phase
-after the first, leaving the split plan in place to resume from; `triage`, and
-a `spec` input that is not split, have one phase, so the lower of
+its analyse and implement phases; `triage` has one phase, so the lower of
 `--total-budget` and `--budget` is that phase's ceiling. Its `--repair` phase, when it runs, is bounded like any other phase and
 counts toward the total; `--repair-model` changes its model and nothing
 else about its bounds.
@@ -362,7 +359,7 @@ which an unclassified host was probed with `GET /api/v4/version`; see
 | `AF_MODEL` | model tier or catalog spec for every phase; `AGENTKIT_MODEL` is a fallback |
 | `AF_MODEL_VENDOR` | which tier table `SIMPLE`/`STANDARD`/`ADVANCED` resolve against |
 | `AF_MODEL_EFFORT` | reasoning effort (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`); `--effort` wins |
-| `AF_SPEC_DIR` | the spec root (`spec` and `impl`); `--specs-dir` wins |
+| `AF_SPEC_DIR` | the spec root (`impl`); `--specs-dir` wins |
 | `AF_LAND` | the default for `--land` (`fix` and `impl`): `pr`, `branch` or `none`; `AF_LAND=none` keeps every run on the machine. The flag wins; an invalid value is a usage error |
 | `AF_BRANCH_PREFIX` | the default for `fix --branch-prefix`, e.g. `feature`; the flag wins |
 | `XDG_STATE_HOME` | where report and events files go (`$XDG_STATE_HOME/agent-fox/runs` and `events/`); `~/.local/state` when unset; `--report-file` overrides the report path only. Tests set it to a temporary directory |

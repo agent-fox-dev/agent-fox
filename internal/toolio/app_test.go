@@ -102,9 +102,9 @@ func TestTS06_58_UnsupportedFlagNamesTheAcceptingTool(t *testing.T) {
 		accepting  []string
 	}{
 		{"impl", "label", []string{"triage"}},
-		{"fix", "specs-dir", []string{"spec", "impl"}},
+		{"fix", "specs-dir", []string{"impl"}},
 		{"triage", "land", []string{"fix", "impl"}},
-		{"spec", "repair", []string{"impl"}},
+		{"triage", "repair", []string{"impl"}},
 	}
 	for _, tc := range cases {
 		app, _ := newApp(t, nil)

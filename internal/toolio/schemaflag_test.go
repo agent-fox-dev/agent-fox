@@ -238,11 +238,11 @@ var (
 	schemaBinErr  error
 )
 
-// schemaBin builds the four tools once and returns the path of one.
+// schemaBin builds the three tools once and returns the path of one.
 func schemaBin(t *testing.T, tool string) string {
 	t.Helper()
 	if testing.Short() {
-		t.Skip("builds four binaries")
+		t.Skip("builds three binaries")
 	}
 	schemaBinOnce.Do(func() {
 		dir, err := os.MkdirTemp("", "toolio-schema-bin")
@@ -251,7 +251,7 @@ func schemaBin(t *testing.T, tool string) string {
 			return
 		}
 		schemaBinDir = dir
-		for _, name := range []string{"spec", "triage", "fix", "impl"} {
+		for _, name := range []string{"triage", "fix", "impl"} {
 			build := exec.Command("go", "build", "-o", filepath.Join(dir, name), "github.com/agent-fox-dev/agentfox/cmd/"+name)
 			if out, err := build.CombinedOutput(); err != nil {
 				schemaBinErr = errors.New("go build " + name + ": " + err.Error() + "\n" + string(out))
@@ -355,11 +355,11 @@ func TestTS09_6_UnparseableFlagBesideSchemaIsReported(t *testing.T) {
 	}
 }
 
-// TS-09-7 (integration, binaries): each of the four tools prints its document
+// TS-09-7 (integration, binaries): each of the three tools prints its document
 // and exits 0 with no credential, no model variable and --dir an empty
 // directory.
-func TestTS09_7_AllFourToolsDescribeThemselvesWithNoCredential(t *testing.T) {
-	for _, tool := range []string{"spec", "triage", "fix", "impl"} {
+func TestTS09_7_AllToolsDescribeThemselvesWithNoCredential(t *testing.T) {
+	for _, tool := range []string{"triage", "fix", "impl"} {
 		t.Run(tool, func(t *testing.T) {
 			bin := schemaBin(t, tool)
 			r := runBin(t, bin, t.TempDir(), "--dir", t.TempDir(), "--schema")

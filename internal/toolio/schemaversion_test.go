@@ -10,19 +10,18 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
-// TS-09-30 (integration): all four tools set Envelope.SchemaVersion from the
+// TS-09-30 (integration): all three tools set Envelope.SchemaVersion from the
 // same shared constant. Each binary is built and driven to a usage error,
 // which still goes through Run.Envelope.
-func TestTS09_30_AllFourToolsAdvertiseTheSameSchemaVersion(t *testing.T) {
+func TestTS09_30_AllToolsAdvertiseTheSameSchemaVersion(t *testing.T) {
 	if testing.Short() {
-		t.Skip("builds four binaries")
+		t.Skip("builds three binaries")
 	}
 	// Each invocation is a usage error the tool reports as an envelope.
 	cases := []struct {
 		tool string
 		args []string
 	}{
-		{"spec", []string{"--name", "BAD!", "x"}},
 		{"triage", []string{"--repo", "single", "x"}},
 		{"fix", []string{"--land", "bogus", "x"}},
 		{"impl", []string{"--land", "bogus", "x"}},

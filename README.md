@@ -8,17 +8,17 @@ services. It depends on
 - [`agentkit-go`](https://github.com/agent-fox-dev/agentkit-go) — the AgentKit SDK
   (module `github.com/agentfox/agentkit-go`)
 - [`spec`](https://github.com/agent-fox-dev/spec) — the spec format, whose
-  JSON Schemas are copied into `afspec/schemas/`
+  JSON Schemas are copied into `afspec/schemas/`, and the `spec` tool that
+  writes the specification packages `impl` implements
 
 and works with [`hub`](https://github.com/agent-fox-dev/hub) as its backend
 service.
 
 ## The tools
 
-Four programs, one interface: **one input, one JSON object out.**
+Three programs, one interface: **one input, one JSON object out.**
 
 ```
-spec   [flags] <input>    a product idea      → a validated specification package
 triage [flags] <input>    a problem report    → a structured issue on GitHub or GitLab
 fix    [flags] <input>    a problem           → a verified change on a branch
 impl   [flags] <input>    a specification     → the spec implemented, task by task, on a branch
@@ -34,7 +34,6 @@ export GITHUB_TOKEN=ghp_...            # or GITLAB_TOKEN=glpat-...
 
 triage "panic: assignment to entry in nil map in loop.go, after an abort"
 fix    https://github.com/acme/widgets/issues/42 --dir ~/src/widgets
-spec   ./docs/prds/widget-cache.md --architecture
 impl   09 --dir ~/src/widgets --land branch
 
 kubectl logs deploy/api --since 1h | triage - --repo acme/widgets --dry-run
@@ -86,7 +85,6 @@ applies it to the legacy orchestrator that `impl` replaces.
 | Path | Package | Purpose |
 |---|---|---|
 | [`afspec/`](afspec/README.md) | `afspec` | Spec format library: load, validate, mutate, render and save specification packages. |
-| `specgen/` | `specgen` | The spec pipeline: the PRD phase, the three generation phases, and the project audit. |
 | `issuetriage/` | `issuetriage` | The triage pipeline: the diagnosis schema, the citation check, the rendered issue. |
 | `codefix/` | `codefix` | The fix pipeline: pre-flight, analysis, implementation, verification, landing. |
 | `codeimpl/` | `codeimpl` | The implementation pipeline: a spec's tasks in order, each verified by the spec's own checks and committed with its state. |
@@ -95,18 +93,17 @@ applies it to the legacy orchestrator that `impl` replaces.
 | `internal/agentrun/` | `agentrun` | Model and credential resolution, the phase runner, the read-only invariant, the shell guard. |
 | `internal/gitx/`, `internal/checks/` | | git, and the command that decides whether a change is correct. |
 | `internal/project/` | `project` | What a repository is written in, and the audit that refuses a plan naming another ecosystem's tooling. |
-| `cmd/spec/`, `cmd/triage/`, `cmd/fix/`, `cmd/impl/` | `main` | The four tools. |
+| `cmd/triage/`, `cmd/fix/`, `cmd/impl/` | `main` | The three tools. |
 
 The spec format itself is specified in the
 [`spec`](https://github.com/agent-fox-dev/spec) repository
 (`specification/spec-format-v2.md`). The JSON Schemas the library compiles and
-embeds live in `afspec/schemas/` — and they are also what the generation tools
-declare to the model, so the two cannot drift.
+embeds live in `afspec/schemas/`.
 
 ## Quick start
 
 Release binaries for darwin and linux, on arm64 and amd64, are installed by
-the script at the repository root. It fetches all four tools, because they
+the script at the repository root. It fetches all three tools, because they
 share one release and one interface:
 
 ```bash
@@ -127,8 +124,8 @@ git clone https://github.com/agent-fox-dev/agentkit-go ../agentkit-go
 
 ```bash
 make check          # gofmt + go vet + all tests
-make build          # go install spec, triage, fix and impl; af and nightshift into bin/
-make build-all      # static cross-builds of the four tools into dist/
+make build          # go install triage, fix and impl; af and nightshift into bin/
+make build-all      # static cross-builds of the three tools into dist/
 ```
 
 The test suite needs no API key, no GitHub token and no network: the model half

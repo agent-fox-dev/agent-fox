@@ -1,6 +1,6 @@
 {
   "tool": "impl",
-  "schema_version": "3.1.0",
+  "schema_version": "4.0.0",
   "description": "Implements a specification package task by task on a branch, verifying each task with the spec's own checks, and lands the branch.",
   "input": {
     "description": "Exactly one of: a spec directory, a spec id, name or directory name, a path to a file in the package, or - to read the reference from stdin. Issue URLs are refused.",
@@ -268,7 +268,7 @@
     "properties": {
       "tool": {
         "type": "string",
-        "description": "The program that produced this object: spec, triage, fix or impl."
+        "description": "The program that produced this object: triage, fix or impl."
       },
       "version": {
         "type": "string",
@@ -2334,7 +2334,6 @@
                 "pull_request",
                 "comment",
                 "issue",
-                "spec_package",
                 "report_file",
                 "events_file"
               ],
@@ -2366,15 +2365,7 @@
             },
             "path": {
               "type": "string",
-              "description": "spec_package, report_file, events_file: the path."
-            },
-            "id": {
-              "type": "string",
-              "description": "spec_package: the spec identifier."
-            },
-            "valid": {
-              "type": "boolean",
-              "description": "spec_package: true when the package validates."
+              "description": "report_file, events_file: the path."
             },
             "dry_run": {
               "type": "boolean",
@@ -2458,7 +2449,7 @@
           "properties": {
             "tool": {
               "type": "string",
-              "description": "The agent-fox tool to run next: spec, triage, fix or impl."
+              "description": "The agent-fox tool to run next: triage, fix or impl."
             },
             "input": {
               "type": "string",

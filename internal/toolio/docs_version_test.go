@@ -46,14 +46,14 @@ func tableRowV(sec, prefix string) (string, bool) {
 	return "", false
 }
 
-// TS-12-55 (integration): SchemaVersion is 3.0.0 and each tool's --schema
+// TS-12-55 (integration): SchemaVersion is 4.0.0 and each tool's --schema
 // output equals its regenerated golden file.
 // Verifies: 12-REQ-10.1
 func TestTS12_55_SchemaVersionAndGoldenFiles(t *testing.T) {
 	if testing.Short() {
-		t.Skip("builds four binaries")
+		t.Skip("builds three binaries")
 	}
-	tools := []string{"fix", "impl", "triage", "spec"}
+	tools := []string{"fix", "impl", "triage"}
 	for _, tool := range tools {
 		t.Run(tool, func(t *testing.T) {
 			live := schematest.Live(t, tool)
@@ -71,13 +71,13 @@ func TestTS12_55_SchemaVersionAndGoldenFiles(t *testing.T) {
 				t.Fatalf("cannot parse --schema output: %v", err)
 			}
 
-			// schema_version is 3.0.0
+			// schema_version is 4.0.0
 			var sv string
 			if err := json.Unmarshal(doc["schema_version"], &sv); err != nil {
 				t.Fatalf("cannot parse schema_version: %v", err)
 			}
-			if sv != "3.1.0" {
-				t.Errorf("schema_version = %q, want 3.1.0", sv)
+			if sv != "4.0.0" {
+				t.Errorf("schema_version = %q, want 4.0.0", sv)
 			}
 
 			text := string(live)
@@ -118,8 +118,8 @@ func TestTS12_55_SchemaVersionAndGoldenFiles(t *testing.T) {
 	}
 
 	// Also verify the Go constant
-	if toolio.SchemaVersion != "3.1.0" {
-		t.Errorf("toolio.SchemaVersion = %q, want 3.1.0", toolio.SchemaVersion)
+	if toolio.SchemaVersion != "4.0.0" {
+		t.Errorf("toolio.SchemaVersion = %q, want 4.0.0", toolio.SchemaVersion)
 	}
 }
 

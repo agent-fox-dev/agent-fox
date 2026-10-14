@@ -1,6 +1,6 @@
 {
   "tool": "fix",
-  "schema_version": "3.1.0",
+  "schema_version": "4.0.0",
   "description": "Diagnoses a problem, writes the change on a branch, verifies it with the project's own checks, and lands it.",
   "input": {
     "description": "Exactly one of: a GitHub or GitLab issue or pull/merge-request URL (the issue is the problem), a path to a readable file (its contents are the problem), any other text (the text is the problem), or - to read the problem from stdin.",
@@ -209,7 +209,7 @@
     "properties": {
       "tool": {
         "type": "string",
-        "description": "The program that produced this object: spec, triage, fix or impl."
+        "description": "The program that produced this object: triage, fix or impl."
       },
       "version": {
         "type": "string",
@@ -1157,7 +1157,6 @@
                 "pull_request",
                 "comment",
                 "issue",
-                "spec_package",
                 "report_file",
                 "events_file"
               ],
@@ -1189,15 +1188,7 @@
             },
             "path": {
               "type": "string",
-              "description": "spec_package, report_file, events_file: the path."
-            },
-            "id": {
-              "type": "string",
-              "description": "spec_package: the spec identifier."
-            },
-            "valid": {
-              "type": "boolean",
-              "description": "spec_package: true when the package validates."
+              "description": "report_file, events_file: the path."
             },
             "dry_run": {
               "type": "boolean",
@@ -1281,7 +1272,7 @@
           "properties": {
             "tool": {
               "type": "string",
-              "description": "The agent-fox tool to run next: spec, triage, fix or impl."
+              "description": "The agent-fox tool to run next: triage, fix or impl."
             },
             "input": {
               "type": "string",

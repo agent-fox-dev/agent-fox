@@ -16,7 +16,7 @@ import (
 //
 // Verifies: 17-REQ-7.2
 func TestTS17_19_TheChangeStaysInAgentrun(t *testing.T) {
-	for _, pkg := range []string{"codefix", "codeimpl", "specgen", "issuetriage", "internal/conform"} {
+	for _, pkg := range []string{"codefix", "codeimpl", "issuetriage", "internal/conform"} {
 		files, err := filepath.Glob(filepath.Join("..", "..", pkg, "*.go"))
 		if err != nil || len(files) == 0 {
 			t.Fatalf("no source in %s: %v", pkg, err)
