@@ -18,7 +18,7 @@ TOOLS_IMAGE_TAG ?= $(VERSION)
 
 SCHEMAS_DIR := $(CURDIR)/afspec/schemas
 DIST_DIR    := $(CURDIR)/dist
-DOC_DIR ?= build/doc
+DOC_DIR ?= build/docs
 
 # Run lint + all tests
 check: lint test
