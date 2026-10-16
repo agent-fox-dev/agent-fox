@@ -1,16 +1,18 @@
 ---
 name: af-impl
-description: Implement a version 2 specification package with the user watching. Reads the spec's four artefacts, surveys how they map onto the code, then implements the tasks in order on one branch, each test-first, each verified by the spec's own checks before it is committed with its state. Never edits the spec and never merges its own work.
+description: Implement a version 2 specification package with the user watching. Reads the spec's four artefacts, surveys how they map onto the code, then implements the tasks in order on one branch, each test-first, each verified by the spec's own checks before it is committed with its state, and runs from the survey to the pull request on its own, without waiting to be told to continue. Never edits the spec and never merges its own work.
 argument-hint: "[path to a spec package, e.g. .specs/16_indexed_code_search]"
 ---
 
 # af-impl
 
 You take a specification package and turn it into code, task by task, with a
-person watching. The `impl` tool does the same thing unattended; this skill is
-for when the user wants to see the survey, steer a task, or run the plan one
-task at a time. Where the two differ in method, the tool is right: it was
-built from the errors a coder makes when the spec is only prose to it.
+person watching. The `impl` tool does the same thing unattended; this skill
+does it in the user's own session, where they can read the survey and every
+task as it goes by. Watching is not a gate: you run the plan to the end on
+your own (see *Run to the end*). Where the two differ in method, the tool is
+right: it was built from the errors a coder makes when the spec is only prose
+to it.
 
 The format (`spec-format-v2.md` in the `spec` repository) is the contract.
 Four rules shape everything below. **The plan is the contract**: every
@@ -25,6 +27,37 @@ for someone else to merge.
 If `.specs/steering.md` exists, read it first. Follow the repository's own
 agent instructions (`CLAUDE.md`, `AGENTS.md`) for branching, commits and
 landing; where they say nothing, the defaults below apply.
+
+## Run to the end
+
+This is one run, not a conversation: read the package, survey, every task,
+conformance, the pull request, the report. Nobody has to say "continue". The
+person watching reads what you write as it appears and may interrupt; you do
+not wait for them. If their request asks for a stop (after the survey, after
+task N), stop there and say which command continues; otherwise go to the end.
+
+You stop short of the end, and report how far you got (§8), for these
+reasons and no others:
+
+- a refusal in §2 (an unmet dependency is one), or a blocker in §3;
+- a task parked after its second failed attempt (§5), because every later
+  task builds on it.
+
+Everything else is information, not a stop: a red baseline, a `draft`
+package, drift, a deviation, an erratum, a task's first failed attempt, a
+conformance finding, a long run. Write it where the report will find it and
+carry on. Do not ask whether to continue, whether a task's result is
+acceptable, or whether to start the next task. A turn that ends in text is a
+stop, so never end one on a summary of the task just finished: a task's
+progress line (its number, commit and verdict) goes in the same turn as the
+first tool call of the next task.
+
+The branch is the record, not your memory. After any gap (a compaction, an
+interruption, a resumed session), `git log`, `git status` and a fresh
+`specr <package> --section tasks` say where you are; continue with the first
+task not done, as §4 describes. If you have a task-list tool, enter every
+task before the first one, then conformance, landing and the report, and
+finish the turn only when none is left open.
 
 ## 1. Read the package
 
@@ -108,10 +141,11 @@ Before reading any code in depth, check what would make the run pointless:
 
 Then run `linter` and `all_tests` once, on the unchanged tree, and record
 both results. This is the baseline. A red baseline is a fact, not a blocker:
-it changes what a pass means later. Tell the user; if they want it fixed
-first, that is one commit of its own before any task, `fix: <subject>` with
-a `Spec: <NN_name>, repair` trailer, and the bar for everything after it is
-green.
+it changes what a pass means later. Say so in the report and go on, with
+the baseline as the bar; do not stop to ask. If the user's request asked for
+it to be fixed first, that is one commit of its own before any task, `fix:
+<subject>` with a `Spec: <NN_name>, repair` trailer, and the bar for
+everything after it is green.
 
 ## 3. Survey
 
@@ -135,7 +169,9 @@ task will be given:
 - **What the tasks do not say.** Per task, what a coder needs to know that
   `steps` and `touches` leave out.
 
-Show the brief before writing code. This is where the user steers.
+Show the brief, in full, before writing code, then go straight on to §4 in
+the same turn. The user can steer by interrupting; you do not wait for them
+to.
 
 A spec that cannot be implemented as written — it names a module the PRD
 does not say to create and nothing in the code plays that role, or it
@@ -152,7 +188,7 @@ slug is the `spec_name`. When that branch already exists, check it out and
 task starts again from the last landed commit. Never force-push, and never
 rewrite a commit that landed.
 
-## 5. One task at a time
+## 5. Each task, in order
 
 For each task that is not `done`, in array order (a task's `depends_on`
 must all be `done` first):
@@ -224,11 +260,12 @@ A task lands only on a landable verdict **and** a report that answers for
 every test it owns and every `done_when` entry. A task that changed nothing
 is a failed attempt. A failed attempt is discarded — reset to the last
 commit, new files removed — and the task is tried once more with the failure
-in view. A second failure is parked as a `wip: <subject>` commit with the
-task's state `in_progress`; return to the base branch and report what failed
-with the check's own output. A test that still fails is reported as failed,
-with why; it is worth more than one claimed passed on a run that never
-happened. Never skip, delete or weaken a test to get green.
+in view, at once, without a message in between. A second failure is parked as
+a `wip: <subject>` commit with the task's state `in_progress`; that ends the
+run, because every later task builds on it. Return to the base branch and
+report what failed with the check's own output. A test that still fails is
+reported as failed, with why; it is worth more than one claimed passed on a
+run that never happened. Never skip, delete or weaken a test to get green.
 
 **Commit.** Set the task's `state` to `done` in `tasks.json` and commit it
 with the task's work as one `feat: <subject>` commit, body ending in a
@@ -236,6 +273,12 @@ with the task's work as one `feat: <subject>` commit, body ending in a
 …}` trailer for each deviation declared. Do not write that checks pass; say
 what they returned. The gate that passed after task N is the baseline for
 task N+1, so "regressed" always means "this task broke it".
+
+**Next.** The commit body carries what the pull request will need — the test
+verdicts, any test-first deviation — because §7 is assembled from `git log`,
+not from what you remember. Then write one progress line and, in the same
+turn, render the next task that is not done and begin it. When none is left,
+begin §6 the same way.
 
 **The integration task** is last, and it exists to catch the wiring gaps
 component tests cannot see. Trace every execution path through the real
@@ -308,6 +351,8 @@ branch and commits in place.
 - Skip, delete or weaken a test to get green, or satisfy the integration
   task with a deferral.
 - Start the next task before the current one has landed or been parked.
+- Stop between tasks, ask whether to go on, or end a turn for any reason
+  *Run to the end* does not list.
 - Merge, squash or push to the base branch. Force-push, or rewrite a
   landed commit.
 - Stash, reset or otherwise change the user's uncommitted work.
