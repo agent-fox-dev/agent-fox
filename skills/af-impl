@@ -47,10 +47,37 @@ artefacts:
 which: an incomplete package is not implemented, and it is not yours to
 complete. A package under `.specs/archive/` is history; refuse it.
 
-Read all four in full. Note every module, type, command, file and library
-the spec names, and every `external_apis` entry whose `verified` is false:
-those signatures are assumptions, to confirm against the installed library
-before use.
+Render the package with `specr` and read the rendering; do not read the four
+JSON files and scope them by hand. `specr` is the `spec` repository's
+renderer. It changes nothing, it produces the same document `impl` hands its
+coder, and it gathers a task's criteria, tests and verified paths from three
+files more reliably than reading them does.
+
+```sh
+specr <package> --markdown-file "${TMPDIR:-/tmp}/af-impl-<NN>.md" > "${TMPDIR:-/tmp}/af-impl-<NN>.json"
+```
+
+`<package>` is `$ARGUMENTS` as given; `specr` resolves the same references as
+this section. Write both files outside the repository so the tree stays
+clean, and send stdout to a file: the envelope repeats the whole Markdown.
+Read the `.md` in full. It holds the PRD, the architecture if there is one,
+the requirements, the tests and the tasks. In the `.json`, `result.valid` is
+the format's own validation, and exit `0` does not imply it: an invalid
+package still renders, with a `spec_invalid` warning that names the rules.
+`result.tasks` lists every task with its `state` and `depends_on`. Do not set
+`--max-tokens`: it drops the architecture and each test's `given`, `when` and
+`pseudocode`, which the survey and the test-first step need.
+
+Exit `1` means the package could not be read: that is the missing-file
+refusal above, with `error.message` as the reason. Exit `2` is a wrong
+reference or task id; correct it and render again, and never go on without
+the rendering. If `specr` is not installed, read the four JSON files and
+scope each task by hand, and say in the report that you did;
+`make build` in a checkout of `github.com/agent-fox-dev/spec` installs it.
+
+Note every module, type, command, file and library the spec names, and every
+`external_apis` entry whose `verified` is false: those signatures are
+assumptions, to confirm against the installed library before use.
 
 ## 2. Refuse early
 
@@ -64,12 +91,13 @@ Before reading any code in depth, check what would make the run pointless:
   empty.
 - The package validates. If `impl` is installed, `impl <package> --preflight`
   checks everything in this list and the format's rules at once; otherwise
-  check them by hand: `spec_id` and `spec_name` agree across the four files
-  and the directory name; every `verifies`, `criteria`, `tests` and
-  `depends_on` entry resolves; every criterion has a test and every test has
-  a task; the last task is the one `integration` task and owns every `smoke`
-  test; every `unwanted` criterion has a `contract`. A rule that fails is a
-  defect in the spec, and the spec is not yours to edit: report it and stop.
+  `result.valid` in §1's envelope checks the format's rules, which are:
+  `spec_id` and `spec_name` agree across the four files and the directory
+  name; every `verifies`, `criteria`, `tests` and `depends_on` entry
+  resolves; every criterion has a test and every test has a task; the last
+  task is the one `integration` task and owns every `smoke` test; every
+  `unwanted` criterion has a `contract`. A rule that fails is a defect in the
+  spec, and the spec is not yours to edit: report it and stop.
 - `status` is `draft` or `active`. A `sealed`, `superseded` or `archived`
   package is not implemented; `draft` is, with a warning.
 - Every `dependencies[].spec` names a package that is sealed or whose
@@ -129,11 +157,18 @@ rewrite a commit that landed.
 For each task that is not `done`, in array order (a task's `depends_on`
 must all be `done` first):
 
-1. **Scope.** Work from the spec scoped to this task: the requirements that
-   own its criteria in full, its tests in full, the paths those tests verify,
-   and the task's own `steps`, `touches` and `done_when`. Other requirements
-   and tasks are context by id only. Implement this task and no other; do
-   not touch another task's work.
+1. **Scope.** Render the spec scoped to this task, to files as in §1:
+
+   ```sh
+   specr <package> --task <N> --markdown-file "${TMPDIR:-/tmp}/af-impl-<NN>-task-<N>.md" > "${TMPDIR:-/tmp}/af-impl-<NN>-task-<N>.json"
+   ```
+
+   Read the Markdown in full. It holds what the task owns in full: the
+   requirements that own its criteria, its tests, the paths those tests
+   verify, and its `steps`, `touches` and `done_when`. Every other
+   requirement, test and task is there by id and title, as context. Render
+   again for each task, because states change as tasks land. Implement this
+   task and no other; do not touch another task's work.
 2. **Orient.** Read the files the task `touches` and their tests, and the
    survey's notes on them. Paths in the spec are what the author expected;
    confirm them against the code.
@@ -231,7 +266,7 @@ the whole diff from the base branch:
   only on this machine's configuration (`git init` without `-b`, a commit
   with no configured identity, a credential a dialog supplied) is a finding.
 - **Review.** Read the diff against the spec on a fresh footing — no task's
-  report — and answer for every requirement and test of the done tasks and
+  report, and a new whole-package `specr <package>` render — and answer for every requirement and test of the done tasks and
   every survey decision: `implemented`, `partial`, `missing` or `different`;
   `asserts_contract`, `weaker`, `tautological`, `no_assertions` or
   `missing`; `followed` or `not_followed`; cite `file:line` for each, and
