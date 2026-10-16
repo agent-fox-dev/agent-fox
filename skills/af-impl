@@ -1,16 +1,18 @@
 ---
 name: af-impl
-description: Implement a version 2 specification package with the user watching. Reads the spec's four artefacts, surveys how they map onto the code, then implements the tasks in order on one branch, each test-first, each verified by the spec's own checks before it is committed with its state. Never edits the spec and never merges its own work.
+description: Implement a version 2 specification package with the user watching. Reads the spec's four artefacts, surveys how they map onto the code, then implements the tasks in order on one branch, each test-first, each verified by the spec's own checks before it is committed with its state, and runs from the survey to the pull request on its own, without waiting to be told to continue. Never edits the spec and never merges its own work.
 argument-hint: "[path to a spec package, e.g. .specs/16_indexed_code_search]"
 ---
 
 # af-impl
 
 You take a specification package and turn it into code, task by task, with a
-person watching. The `impl` tool does the same thing unattended; this skill is
-for when the user wants to see the survey, steer a task, or run the plan one
-task at a time. Where the two differ in method, the tool is right: it was
-built from the errors a coder makes when the spec is only prose to it.
+person watching. The `impl` tool does the same thing unattended; this skill
+does it in the user's own session, where they can read the survey and every
+task as it goes by. Watching is not a gate: you run the plan to the end on
+your own (see *Run to the end*). Where the two differ in method, the tool is
+right: it was built from the errors a coder makes when the spec is only prose
+to it.
 
 The format (`spec-format-v2.md` in the `spec` repository) is the contract.
 Four rules shape everything below. **The plan is the contract**: every
@@ -25,6 +27,37 @@ for someone else to merge.
 If `.specs/steering.md` exists, read it first. Follow the repository's own
 agent instructions (`CLAUDE.md`, `AGENTS.md`) for branching, commits and
 landing; where they say nothing, the defaults below apply.
+
+## Run to the end
+
+This is one run, not a conversation: read the package, survey, every task,
+conformance, the pull request, the report. Nobody has to say "continue". The
+person watching reads what you write as it appears and may interrupt; you do
+not wait for them. If their request asks for a stop (after the survey, after
+task N), stop there and say which command continues; otherwise go to the end.
+
+You stop short of the end, and report how far you got (§8), for these
+reasons and no others:
+
+- a refusal in §2 (an unmet dependency is one), or a blocker in §3;
+- a task parked after its second failed attempt (§5), because every later
+  task builds on it.
+
+Everything else is information, not a stop: a red baseline, a `draft`
+package, drift, a deviation, an erratum, a task's first failed attempt, a
+conformance finding, a long run. Write it where the report will find it and
+carry on. Do not ask whether to continue, whether a task's result is
+acceptable, or whether to start the next task. A turn that ends in text is a
+stop, so never end one on a summary of the task just finished: a task's
+progress line (its number, commit and verdict) goes in the same turn as the
+first tool call of the next task.
+
+The branch is the record, not your memory. After any gap (a compaction, an
+interruption, a resumed session), `git log`, `git status` and a fresh
+`specr <package> --section tasks` say where you are; continue with the first
+task not done, as §4 describes. If you have a task-list tool, enter every
+task before the first one, then conformance, landing and the report, and
+finish the turn only when none is left open.
 
 ## 1. Read the package
 
@@ -47,10 +80,37 @@ artefacts:
 which: an incomplete package is not implemented, and it is not yours to
 complete. A package under `.specs/archive/` is history; refuse it.
 
-Read all four in full. Note every module, type, command, file and library
-the spec names, and every `external_apis` entry whose `verified` is false:
-those signatures are assumptions, to confirm against the installed library
-before use.
+Render the package with `specr` and read the rendering; do not read the four
+JSON files and scope them by hand. `specr` is the `spec` repository's
+renderer. It changes nothing, it produces the same document `impl` hands its
+coder, and it gathers a task's criteria, tests and verified paths from three
+files more reliably than reading them does.
+
+```sh
+specr <package> --markdown-file "${TMPDIR:-/tmp}/af-impl-<NN>.md" > "${TMPDIR:-/tmp}/af-impl-<NN>.json"
+```
+
+`<package>` is `$ARGUMENTS` as given; `specr` resolves the same references as
+this section. Write both files outside the repository so the tree stays
+clean, and send stdout to a file: the envelope repeats the whole Markdown.
+Read the `.md` in full. It holds the PRD, the architecture if there is one,
+the requirements, the tests and the tasks. In the `.json`, `result.valid` is
+the format's own validation, and exit `0` does not imply it: an invalid
+package still renders, with a `spec_invalid` warning that names the rules.
+`result.tasks` lists every task with its `state` and `depends_on`. Do not set
+`--max-tokens`: it drops the architecture and each test's `given`, `when` and
+`pseudocode`, which the survey and the test-first step need.
+
+Exit `1` means the package could not be read: that is the missing-file
+refusal above, with `error.message` as the reason. Exit `2` is a wrong
+reference or task id; correct it and render again, and never go on without
+the rendering. If `specr` is not installed, read the four JSON files and
+scope each task by hand, and say in the report that you did;
+`make build` in a checkout of `github.com/agent-fox-dev/spec` installs it.
+
+Note every module, type, command, file and library the spec names, and every
+`external_apis` entry whose `verified` is false: those signatures are
+assumptions, to confirm against the installed library before use.
 
 ## 2. Refuse early
 
@@ -64,12 +124,13 @@ Before reading any code in depth, check what would make the run pointless:
   empty.
 - The package validates. If `impl` is installed, `impl <package> --preflight`
   checks everything in this list and the format's rules at once; otherwise
-  check them by hand: `spec_id` and `spec_name` agree across the four files
-  and the directory name; every `verifies`, `criteria`, `tests` and
-  `depends_on` entry resolves; every criterion has a test and every test has
-  a task; the last task is the one `integration` task and owns every `smoke`
-  test; every `unwanted` criterion has a `contract`. A rule that fails is a
-  defect in the spec, and the spec is not yours to edit: report it and stop.
+  `result.valid` in §1's envelope checks the format's rules, which are:
+  `spec_id` and `spec_name` agree across the four files and the directory
+  name; every `verifies`, `criteria`, `tests` and `depends_on` entry
+  resolves; every criterion has a test and every test has a task; the last
+  task is the one `integration` task and owns every `smoke` test; every
+  `unwanted` criterion has a `contract`. A rule that fails is a defect in the
+  spec, and the spec is not yours to edit: report it and stop.
 - `status` is `draft` or `active`. A `sealed`, `superseded` or `archived`
   package is not implemented; `draft` is, with a warning.
 - Every `dependencies[].spec` names a package that is sealed or whose
@@ -80,10 +141,11 @@ Before reading any code in depth, check what would make the run pointless:
 
 Then run `linter` and `all_tests` once, on the unchanged tree, and record
 both results. This is the baseline. A red baseline is a fact, not a blocker:
-it changes what a pass means later. Tell the user; if they want it fixed
-first, that is one commit of its own before any task, `fix: <subject>` with
-a `Spec: <NN_name>, repair` trailer, and the bar for everything after it is
-green.
+it changes what a pass means later. Say so in the report and go on, with
+the baseline as the bar; do not stop to ask. If the user's request asked for
+it to be fixed first, that is one commit of its own before any task, `fix:
+<subject>` with a `Spec: <NN_name>, repair` trailer, and the bar for
+everything after it is green.
 
 ## 3. Survey
 
@@ -107,7 +169,9 @@ task will be given:
 - **What the tasks do not say.** Per task, what a coder needs to know that
   `steps` and `touches` leave out.
 
-Show the brief before writing code. This is where the user steers.
+Show the brief, in full, before writing code, then go straight on to §4 in
+the same turn. The user can steer by interrupting; you do not wait for them
+to.
 
 A spec that cannot be implemented as written — it names a module the PRD
 does not say to create and nothing in the code plays that role, or it
@@ -124,16 +188,23 @@ slug is the `spec_name`. When that branch already exists, check it out and
 task starts again from the last landed commit. Never force-push, and never
 rewrite a commit that landed.
 
-## 5. One task at a time
+## 5. Each task, in order
 
 For each task that is not `done`, in array order (a task's `depends_on`
 must all be `done` first):
 
-1. **Scope.** Work from the spec scoped to this task: the requirements that
-   own its criteria in full, its tests in full, the paths those tests verify,
-   and the task's own `steps`, `touches` and `done_when`. Other requirements
-   and tasks are context by id only. Implement this task and no other; do
-   not touch another task's work.
+1. **Scope.** Render the spec scoped to this task, to files as in §1:
+
+   ```sh
+   specr <package> --task <N> --markdown-file "${TMPDIR:-/tmp}/af-impl-<NN>-task-<N>.md" > "${TMPDIR:-/tmp}/af-impl-<NN>-task-<N>.json"
+   ```
+
+   Read the Markdown in full. It holds what the task owns in full: the
+   requirements that own its criteria, its tests, the paths those tests
+   verify, and its `steps`, `touches` and `done_when`. Every other
+   requirement, test and task is there by id and title, as context. Render
+   again for each task, because states change as tasks land. Implement this
+   task and no other; do not touch another task's work.
 2. **Orient.** Read the files the task `touches` and their tests, and the
    survey's notes on them. Paths in the spec are what the author expected;
    confirm them against the code.
@@ -189,11 +260,12 @@ A task lands only on a landable verdict **and** a report that answers for
 every test it owns and every `done_when` entry. A task that changed nothing
 is a failed attempt. A failed attempt is discarded — reset to the last
 commit, new files removed — and the task is tried once more with the failure
-in view. A second failure is parked as a `wip: <subject>` commit with the
-task's state `in_progress`; return to the base branch and report what failed
-with the check's own output. A test that still fails is reported as failed,
-with why; it is worth more than one claimed passed on a run that never
-happened. Never skip, delete or weaken a test to get green.
+in view, at once, without a message in between. A second failure is parked as
+a `wip: <subject>` commit with the task's state `in_progress`; that ends the
+run, because every later task builds on it. Return to the base branch and
+report what failed with the check's own output. A test that still fails is
+reported as failed, with why; it is worth more than one claimed passed on a
+run that never happened. Never skip, delete or weaken a test to get green.
 
 **Commit.** Set the task's `state` to `done` in `tasks.json` and commit it
 with the task's work as one `feat: <subject>` commit, body ending in a
@@ -201,6 +273,12 @@ with the task's work as one `feat: <subject>` commit, body ending in a
 …}` trailer for each deviation declared. Do not write that checks pass; say
 what they returned. The gate that passed after task N is the baseline for
 task N+1, so "regressed" always means "this task broke it".
+
+**Next.** The commit body carries what the pull request will need — the test
+verdicts, any test-first deviation — because §7 is assembled from `git log`,
+not from what you remember. Then write one progress line and, in the same
+turn, render the next task that is not done and begin it. When none is left,
+begin §6 the same way.
 
 **The integration task** is last, and it exists to catch the wiring gaps
 component tests cannot see. Trace every execution path through the real
@@ -231,7 +309,7 @@ the whole diff from the base branch:
   only on this machine's configuration (`git init` without `-b`, a commit
   with no configured identity, a credential a dialog supplied) is a finding.
 - **Review.** Read the diff against the spec on a fresh footing — no task's
-  report — and answer for every requirement and test of the done tasks and
+  report, and a new whole-package `specr <package>` render — and answer for every requirement and test of the done tasks and
   every survey decision: `implemented`, `partial`, `missing` or `different`;
   `asserts_contract`, `weaker`, `tautological`, `no_assertions` or
   `missing`; `followed` or `not_followed`; cite `file:line` for each, and
@@ -273,6 +351,8 @@ branch and commits in place.
 - Skip, delete or weaken a test to get green, or satisfy the integration
   task with a deferral.
 - Start the next task before the current one has landed or been parked.
+- Stop between tasks, ask whether to go on, or end a turn for any reason
+  *Run to the end* does not list.
 - Merge, squash or push to the base branch. Force-push, or rewrite a
   landed commit.
 - Stash, reset or otherwise change the user's uncommitted work.
