@@ -9,7 +9,7 @@ CONTAINER_REGISTRY ?= quay.io/agentfox
 SANDBOX_IMAGE ?= sandbox
 SANDBOX_IMAGE_TAG ?= $(VERSION)
 
-DOC_DIR ?= build/docs
+DOC_DIR ?= docs/generated
 
 # Run lint + all tests
 check: lint test
@@ -88,7 +88,7 @@ uninstall-skills:
 doc: ## Generate Go package reference (go doc -all) as text files under build/doc
 	@rm -rf $(DOC_DIR)
 	@mkdir -p $(DOC_DIR)
-	@for m in . codesearch; do \
+	@for m in . ; do \
 		( cd $$m && mod=$$(go list -m) && pkgs=$$(go list ./...) && \
 		for p in $$(printf '%s\n' "$$pkgs" | grep -v -e /internal/ -e /examples/); do \
 			rel=$${p#$$mod}; rel=$${rel#/}; out="$(CURDIR)/$(DOC_DIR)/$${rel:-$$(basename $$mod)}.txt"; \
