@@ -5,7 +5,6 @@ go 1.27
 require (
 	github.com/agent-fox-dev/spec v1.4.2-0.20261014064100-e2d4a688656d
 	github.com/agentfox/agentkit-go v0.0.0
-	github.com/agentfox/agentkit-go/codesearch v0.0.0
 	github.com/google/go-cmp v0.7.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	golang.org/x/oauth2 v0.37.0
