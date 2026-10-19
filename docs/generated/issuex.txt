@@ -1,0 +1,545 @@
+package issuex // import "github.com/agent-fox-dev/agentfox/issuex"
+
+
+CONSTANTS
+
+const (
+	GitHubMaxBodyLength = 65536
+	GitLabMaxBodyLength = 1048576
+)
+    The largest body, in characters, each forge accepts for an issue, a pull
+    or merge request, or a comment. A body over the limit is refused outright
+    (GitHub answers 422), so a caller that renders an unbounded body measures it
+    against MaxBodyLength first.
+
+const MaxResponseBodyBytes = 8 << 20
+    MaxResponseBodyBytes is the maximum number of bytes read from an HTTP
+    response body by the shared transport safety utilities (8 MB = 8388608
+    bytes).
+
+const MaxResponseBytes = MaxResponseBodyBytes
+    MaxResponseBytes is an alias for MaxResponseBodyBytes.
+
+
+VARIABLES
+
+var (
+	// ErrNoToken indicates that an operation requiring authentication was attempted without credentials.
+	ErrNoToken = errors.New("no authentication token configured")
+
+	// ErrNotFound indicates that the requested repository, issue, or pull request was not found.
+	ErrNotFound = errors.New("resource not found")
+
+	// ErrConflict indicates a state conflict, such as a merge conflict or duplicate label.
+	ErrConflict = errors.New("conflict")
+
+	// ErrRateLimited indicates that the forge rate limit has been exceeded and retries were exhausted or backoff was too long.
+	ErrRateLimited = errors.New("rate limited")
+
+	// ErrUnsupportedForge indicates that the requested or detected forge type is not supported.
+	ErrUnsupportedForge = errors.New("unsupported forge")
+
+	// ErrAmbiguousForge indicates that the forge type could not be determined from configuration or environment.
+	ErrAmbiguousForge = errors.New("ambiguous forge")
+)
+    Sentinel errors defined by the issuex package.
+
+
+FUNCTIONS
+
+func HandleResponse(resp *http.Response, authenticated bool) error
+    HandleResponse inspects an HTTP response and client authentication state.
+    If the status indicates an error (status >= 400), it returns the error
+    classifyError describes; for successful responses (status < 400), it returns
+    nil.
+
+func HandleResponseStatus(statusCode int, authenticated bool) error
+    HandleResponseStatus evaluates an HTTP status code and client authentication
+    state.
+
+func IsConflict(err error) bool
+    IsConflict returns true if the error wraps ErrConflict or is an HTTPError
+    with status 409, and false otherwise.
+
+func IsNoToken(err error) bool
+    IsNoToken returns true if the error wraps ErrNoToken, and false otherwise.
+
+func IsNotFound(err error) bool
+    IsNotFound returns true if the error wraps ErrNotFound or is an HTTPError
+    with status 404, and false otherwise.
+
+func IsRateLimited(err error) bool
+    IsRateLimited returns true if the error wraps ErrRateLimited or is an
+    HTTPError with status 429 or a 403 rate limit (forbiddenByRateLimit),
+    and false otherwise.
+
+func LimitResponseBody(r io.Reader) io.Reader
+    LimitResponseBody wraps an io.Reader in an io.LimitReader bounded to
+    MaxResponseBodyBytes (8 MB).
+
+func MaxBodyLength(c Client) int
+    MaxBodyLength is the body limit of the forge c talks to. A client that does
+    not report one gets the smallest known limit, GitHub's, so a body measured
+    against it fits every forge.
+
+    The limits are in characters; a caller measuring in bytes (len) is safe,
+    because a body never has more characters than bytes.
+
+func ReadResponse(resp *http.Response) ([]byte, error)
+    ReadResponse reads resp.Body bounded to MaxResponseBodyBytes (8 MB) and
+    closes resp.Body.
+
+func ReadResponseBody(r io.Reader) ([]byte, error)
+    ReadResponseBody reads from r bounded to MaxResponseBodyBytes (8 MB).
+
+func RegisterAdapter(forge ForgeType, factory func(Options) (Client, error))
+    RegisterAdapter registers a client factory function for a specific
+    ForgeType. This allows provider packages (such as issuex_github or
+    issuex_gitlab) to register their implementations.
+
+func SetGitHubSleep(c Client, fn func(time.Duration))
+    SetGitHubSleep sets the rate-limit sleep function on a GitHub Client. It is
+    intended for deterministic testing of rate-limit backoff without delays.
+
+func SetGitLabSleep(c Client, fn func(time.Duration))
+    SetGitLabSleep sets the rate-limit sleep function on a GitLab Client. It is
+    intended for deterministic testing of rate-limit backoff without delays.
+
+
+TYPES
+
+type BodyLimiter interface {
+	MaxBodyLength() int
+}
+    BodyLimiter is a client that reports its forge's body limit.
+
+type ChangedFile struct {
+	Filename  string `json:"filename"`
+	Status    string `json:"status"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+}
+    ChangedFile represents a file modified in a pull request.
+
+type CheckRun struct {
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+	Summary    string `json:"summary,omitempty"`
+	URL        string `json:"url,omitempty"`
+}
+    CheckRun represents a CI check run or pipeline job.
+
+type Client interface {
+	// Lifecycle methods
+	Authenticated() bool
+	Close() error
+
+	// Repository operations
+	GetRepository(ctx context.Context, repo Repo) (Repository, error)
+
+	// Issue operations
+	CreateIssue(ctx context.Context, repo Repo, req CreateIssueRequest) (Issue, error)
+	ReadIssue(ctx context.Context, ref IssueRef) (IssueThread, error)
+	UpdateIssue(ctx context.Context, ref IssueRef, req UpdateIssueRequest) (Issue, error)
+	CloseIssue(ctx context.Context, ref IssueRef, comment string) error
+	ListIssues(ctx context.Context, repo Repo, filter IssueFilter) (IssueList, error)
+	AddComment(ctx context.Context, ref IssueRef, body string) (string, error)
+	ListComments(ctx context.Context, ref IssueRef) (CommentList, error)
+	AddLabels(ctx context.Context, ref IssueRef, labels []string) error
+	RemoveLabel(ctx context.Context, ref IssueRef, label string) error
+	CreateLabel(ctx context.Context, repo Repo, label Label) error
+
+	// Pull request operations
+	CreatePullRequest(ctx context.Context, repo Repo, req CreatePullRequestRequest) (PullRequest, error)
+	ReadPullRequest(ctx context.Context, ref IssueRef) (PullRequest, error)
+	ReadChangedFiles(ctx context.Context, ref IssueRef) ([]ChangedFile, error)
+	GetPRState(ctx context.Context, ref IssueRef) (PRState, error)
+	GetCIChecks(ctx context.Context, ref IssueRef) ([]CheckRun, error)
+	GetPRReviews(ctx context.Context, ref IssueRef) ([]Review, error)
+	PostReviewComment(ctx context.Context, ref IssueRef, body string) error
+	MergePullRequest(ctx context.Context, ref IssueRef, opts MergeOptions) (MergeResult, error)
+	ClosePullRequest(ctx context.Context, ref IssueRef) error
+}
+    Client is the forge-neutral client interface declaring unified repository,
+    issue, and pull request operations across Git forges like GitHub and GitLab.
+
+func New(userAgent string) (Client, error)
+    New creates a Client with default options and the specified user agent.
+
+func NewGitHub(o Options) (Client, error)
+    NewGitHub constructs a GitHub client adapter directly from Options.
+
+func NewGitLab(o Options) (Client, error)
+    NewGitLab constructs a GitLab client adapter directly from Options.
+
+func NewNoOp() Client
+    NewNoOp creates a new NoOpClient satisfying the Client interface.
+
+func NewWithOptions(o Options) (Client, error)
+    NewWithOptions instantiates a Client based on the provided Options.
+
+type Comment struct {
+	ID        int64     `json:"id,omitempty"`
+	Body      string    `json:"body"`
+	User      User      `json:"user"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	URL       string    `json:"url,omitempty"`
+	HTMLURL   string    `json:"html_url,omitempty"`
+}
+    Comment represents an issue comment.
+
+type CommentList struct {
+	Comments  []Comment `json:"comments"`
+	Truncated bool      `json:"truncated"`
+}
+    CommentList contains comments returned from an issue.
+
+type CreateIssueRequest struct {
+	Title     string   `json:"title"`
+	Body      string   `json:"body,omitempty"`
+	Labels    []string `json:"labels,omitempty"`
+	Assignees []string `json:"assignees,omitempty"`
+}
+    CreateIssueRequest specifies parameters for creating an issue.
+
+type CreatePullRequestRequest struct {
+	Title string `json:"title"`
+	Body  string `json:"body,omitempty"`
+	Head  string `json:"head"`
+	Base  string `json:"base"`
+	Draft bool   `json:"draft,omitempty"`
+}
+    CreatePullRequestRequest specifies parameters for creating a pull request.
+
+type ForgeClient = Client
+    ForgeClient is an alias for Client.
+
+type ForgeType string
+    ForgeType identifies a supported Git forge platform.
+
+const (
+	// ForgeTypeUnknown represents an unknown or unresolved forge type.
+	ForgeTypeUnknown ForgeType = ""
+	// ForgeTypeGitHub represents the GitHub platform.
+	ForgeTypeGitHub ForgeType = "github"
+	// ForgeTypeGitLab represents the GitLab platform.
+	ForgeTypeGitLab ForgeType = "gitlab"
+)
+func DetectForge(o Options) (ForgeType, error)
+    DetectForge resolves the ForgeType from explicit configuration, environment
+    variables, or the local git origin remote.
+
+type HTTPError struct {
+	Method             string
+	Path               string
+	Status             int
+	Message            string
+	RetryAfterHeader   string
+	RateLimitReset     string
+	RateLimitRemaining string
+}
+    HTTPError represents an HTTP error response returned by a forge API.
+
+func HTTPErrorFromResponse(resp *http.Response) *HTTPError
+    HTTPErrorFromResponse constructs an HTTPError from an http.Response.
+
+func (e *HTTPError) Error() string
+    Error formats the HTTPError as "<Method> <Path>: <Status> <Message>".
+
+func (e *HTTPError) RetryAfter() (time.Duration, bool)
+    RetryAfter calculates the backoff duration when status is 429 or status is
+    403 with RateLimitRemaining "0". It inspects numeric seconds in Retry-After
+    header or epoch timestamp in X-RateLimit-Reset header, adds a 1-second
+    buffer, and returns the duration with true. If not rate limited or headers
+    are missing, it returns (0, false).
+
+type Issue struct {
+	Number    int        `json:"number"`
+	Title     string     `json:"title"`
+	Body      string     `json:"body"`
+	State     string     `json:"state"`
+	URL       string     `json:"url,omitempty"`
+	HTMLURL   string     `json:"html_url,omitempty"`
+	Author    User       `json:"author"`
+	Labels    []string   `json:"labels,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	ClosedAt  *time.Time `json:"closed_at,omitempty"`
+	IsPR      bool       `json:"is_pr"`
+}
+    Issue represents an issue or pull request metadata.
+
+type IssueFilter struct {
+	State     string   `json:"state,omitempty"`
+	Labels    []string `json:"labels,omitempty"`
+	Assignee  string   `json:"assignee,omitempty"`
+	Sort      string   `json:"sort,omitempty"`
+	Direction string   `json:"direction,omitempty"`
+	Limit     int      `json:"limit,omitempty"`
+}
+    IssueFilter configures issue list filtering.
+
+type IssueList struct {
+	Issues     []Issue `json:"issues"`
+	Incomplete bool    `json:"incomplete"`
+}
+    IssueList contains issues returned from a query.
+
+type IssueRef struct {
+	Repo          Repo `json:"repo"`
+	Number        int  `json:"number"`
+	IsPullRequest bool `json:"is_pull_request"`
+}
+    IssueRef identifies an issue or pull request in a repository by number.
+
+func ParseIssueURL(s string) (IssueRef, bool)
+    ParseIssueURL parses GitHub web issue/PR URLs and GitLab web issue/MR URLs
+    into an IssueRef. Returns (IssueRef{}, false) if the input is malformed,
+    non-numeric, or a non-issue path.
+
+func (r IssueRef) String() string
+    String returns "owner/repo#number".
+
+func (r IssueRef) URL() string
+    URL returns the canonical web URL for the issue or pull request.
+
+type IssueThread struct {
+	Issue       Issue     `json:"issue"`
+	Comments    []Comment `json:"comments"`
+	Truncated   bool      `json:"truncated"`
+	CommentsErr error     `json:"comments_err,omitempty"`
+}
+    IssueThread represents an issue and its comments.
+
+type Label struct {
+	Name        string `json:"name"`
+	Color       string `json:"color,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+    Label represents an issue label.
+
+type MergeMethod string
+    MergeMethod defines the strategy used when merging a pull request.
+
+const (
+	MergeMethodDefault MergeMethod = ""
+	MergeMethodMerge   MergeMethod = "merge"
+	MergeMethodSquash  MergeMethod = "squash"
+	MergeMethodRebase  MergeMethod = "rebase"
+)
+type MergeOptions struct {
+	Method        MergeMethod `json:"method,omitempty"`
+	CommitTitle   string      `json:"commit_title,omitempty"`
+	CommitMessage string      `json:"commit_message,omitempty"`
+	SHA           string      `json:"sha,omitempty"`
+}
+    MergeOptions specifies parameters for merging a pull request.
+
+type MergeResult struct {
+	Merged  bool   `json:"merged"`
+	SHA     string `json:"sha,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+    MergeResult contains the result of a pull request merge.
+
+type NoOpClient struct{}
+    NoOpClient is an offline, forge-disabled client implementation. It returns
+    zero values for issue reads and repository info, performs silent no-ops for
+    issue writes, and returns an error for pull request operations.
+
+func (c *NoOpClient) AddComment(ctx context.Context, ref IssueRef, body string) (string, error)
+    AddComment performs no remote operation and returns an empty ID and nil.
+
+func (c *NoOpClient) AddLabels(ctx context.Context, ref IssueRef, labels []string) error
+    AddLabels performs no remote operation and returns nil.
+
+func (c *NoOpClient) Authenticated() bool
+    Authenticated returns false for NoOpClient.
+
+func (c *NoOpClient) Close() error
+    Close returns nil for NoOpClient.
+
+func (c *NoOpClient) CloseIssue(ctx context.Context, ref IssueRef, comment string) error
+    CloseIssue performs no remote operation and returns nil.
+
+func (c *NoOpClient) ClosePullRequest(ctx context.Context, ref IssueRef) error
+    ClosePullRequest returns an error indicating that PR operations require an
+    active forge client.
+
+func (c *NoOpClient) CreateIssue(ctx context.Context, repo Repo, req CreateIssueRequest) (Issue, error)
+    CreateIssue performs no remote operation and returns a zero-value Issue and
+    nil.
+
+func (c *NoOpClient) CreateLabel(ctx context.Context, repo Repo, label Label) error
+    CreateLabel performs no remote operation and returns nil.
+
+func (c *NoOpClient) CreatePullRequest(ctx context.Context, repo Repo, req CreatePullRequestRequest) (PullRequest, error)
+    CreatePullRequest returns an error indicating that PR operations require an
+    active forge client.
+
+func (c *NoOpClient) GetCIChecks(ctx context.Context, ref IssueRef) ([]CheckRun, error)
+    GetCIChecks returns an error indicating that PR operations require an active
+    forge client.
+
+func (c *NoOpClient) GetPRReviews(ctx context.Context, ref IssueRef) ([]Review, error)
+    GetPRReviews returns an error indicating that PR operations require an
+    active forge client.
+
+func (c *NoOpClient) GetPRState(ctx context.Context, ref IssueRef) (PRState, error)
+    GetPRState returns an error indicating that PR operations require an active
+    forge client.
+
+func (c *NoOpClient) GetRepository(ctx context.Context, repo Repo) (Repository, error)
+    GetRepository returns a zero-value Repository and nil error.
+
+func (c *NoOpClient) ListComments(ctx context.Context, ref IssueRef) (CommentList, error)
+    ListComments returns a zero-value CommentList and nil.
+
+func (c *NoOpClient) ListIssues(ctx context.Context, repo Repo, filter IssueFilter) (IssueList, error)
+    ListIssues returns a zero-value IssueList and nil.
+
+func (c *NoOpClient) MergePullRequest(ctx context.Context, ref IssueRef, opts MergeOptions) (MergeResult, error)
+    MergePullRequest returns an error indicating that PR operations require an
+    active forge client.
+
+func (c *NoOpClient) PostReviewComment(ctx context.Context, ref IssueRef, body string) error
+    PostReviewComment returns an error indicating that PR operations require an
+    active forge client.
+
+func (c *NoOpClient) ReadChangedFiles(ctx context.Context, ref IssueRef) ([]ChangedFile, error)
+    ReadChangedFiles returns an error indicating that PR operations require an
+    active forge client.
+
+func (c *NoOpClient) ReadIssue(ctx context.Context, ref IssueRef) (IssueThread, error)
+    ReadIssue returns a zero-value IssueThread and nil.
+
+func (c *NoOpClient) ReadPullRequest(ctx context.Context, ref IssueRef) (PullRequest, error)
+    ReadPullRequest returns an error indicating that PR operations require an
+    active forge client.
+
+func (c *NoOpClient) RemoveLabel(ctx context.Context, ref IssueRef, label string) error
+    RemoveLabel performs no remote operation and returns nil.
+
+func (c *NoOpClient) UpdateIssue(ctx context.Context, ref IssueRef, req UpdateIssueRequest) (Issue, error)
+    UpdateIssue performs no remote operation and returns a zero-value Issue and
+    nil.
+
+type Options struct {
+	BaseURL    string
+	Token      string
+	HTTPClient *http.Client
+	UserAgent  string
+	NoOp       bool
+	Repo       Repo
+	RemoteURL  string
+	// Dir is the working tree whose origin remote decides the forge when
+	// nothing else does. Empty means the process's working directory.
+	Dir string
+
+	// Has unexported fields.
+}
+    Options configures client creation for Git forge operations.
+
+type PRState struct {
+	Number  int    `json:"number"`
+	State   string `json:"state"`
+	Merged  bool   `json:"merged"`
+	HeadSHA string `json:"head_sha"`
+}
+    PRState represents lightweight pull request state.
+
+type PullRequest struct {
+	Number     int        `json:"number"`
+	Title      string     `json:"title"`
+	Body       string     `json:"body"`
+	State      string     `json:"state"`
+	URL        string     `json:"url,omitempty"`
+	HTMLURL    string     `json:"html_url,omitempty"`
+	Draft      bool       `json:"draft"`
+	Merged     bool       `json:"merged"`
+	HeadSHA    string     `json:"head_sha"`
+	HeadBranch string     `json:"head_branch"`
+	BaseBranch string     `json:"base_branch"`
+	Author     User       `json:"author"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+	ClosedAt   *time.Time `json:"closed_at,omitempty"`
+	MergedAt   *time.Time `json:"merged_at,omitempty"`
+}
+    PullRequest represents a pull request or merge request.
+
+type Repo struct {
+	Owner string `json:"owner"`
+	Name  string `json:"name"`
+	Host  string `json:"host,omitempty"`
+}
+    Repo names a Git repository across GitHub or GitLab. For GitLab, Owner may
+    contain nested group segments (e.g. "group/subgroup").
+
+func DetectRepo(dir string) (Repo, bool)
+    DetectRepo executes "git -C <dir> remote get-url origin" and parses the
+    output with ParseRemote. If the directory is not a git repository or origin
+    remote is not configured, it returns (Repo{}, false) without error.
+
+func ParseRemote(remote string) (Repo, bool)
+    ParseRemote parses git remote URLs across HTTPS, SSH, and SCP-style syntax
+    matching a supported forge host into a Repo. It supports multi-segment
+    owner paths (e.g. for GitLab) and strips the .git suffix. Returns (Repo{},
+    false) for invalid remote URLs, missing hosts, or unsupported formats.
+
+func ParseRepo(s string) (Repo, bool)
+    ParseRepo parses a slash-delimited repository path (e.g. "owner/repo" or
+    "group/subgroup/project") into a Repo. The last segment is assigned to Name,
+    and all preceding segments joined by slash are assigned to Owner. Returns
+    (Repo{}, false) if the input is empty or lacks slash-delimited segments.
+
+func (r Repo) String() string
+    String returns "Owner/Name".
+
+func (r Repo) Valid() bool
+    Valid reports whether both Owner and Name are non-empty.
+
+type RepoPermissions struct {
+	Push  bool `json:"push"`
+	Pull  bool `json:"pull"`
+	Admin bool `json:"admin"`
+}
+    RepoPermissions represents repository permissions for the authenticated
+    user.
+
+type Repository struct {
+	FullName         string          `json:"full_name"`
+	DefaultBranch    string          `json:"default_branch"`
+	Private          bool            `json:"private"`
+	Archived         bool            `json:"archived"`
+	Permissions      RepoPermissions `json:"permissions"`
+	AllowMergeCommit bool            `json:"allow_merge_commit,omitempty"`
+	AllowSquashMerge bool            `json:"allow_squash_merge,omitempty"`
+	AllowRebaseMerge bool            `json:"allow_rebase_merge,omitempty"`
+}
+    Repository represents repository metadata.
+
+type Review struct {
+	Author      User      `json:"author"`
+	State       string    `json:"state"`
+	Body        string    `json:"body"`
+	SubmittedAt time.Time `json:"submitted_at"`
+}
+    Review represents a pull request review.
+
+type UpdateIssueRequest struct {
+	Title     string   `json:"title,omitempty"`
+	Body      string   `json:"body,omitempty"`
+	State     string   `json:"state,omitempty"`
+	Labels    []string `json:"labels,omitempty"`
+	Assignees []string `json:"assignees,omitempty"`
+}
+    UpdateIssueRequest specifies parameters for updating an issue.
+
+type User struct {
+	Login string `json:"login"`
+}
+    User represents an account on the forge.
+

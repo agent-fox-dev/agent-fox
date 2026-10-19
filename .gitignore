@@ -33,12 +33,3 @@ go.work.sum
 bin/
 dist/
 /build/
-
-# What `go build ./cmd/<tool>` leaves in the working directory: at the root
-# and in the tool's own directory, for each of the three tools.
-/fix
-/impl
-/triage
-/cmd/fix/fix
-/cmd/impl/impl
-/cmd/triage/triage

@@ -1,23 +1,15 @@
-.PHONY: check test test-fast lint format build clean build-darwin-arm64 build-linux-arm64 build-linux-amd64
+.PHONY: check test test-fast lint format coverage build clean build-containers build-sandbox-container clean-branches install-skills uninstall-skills doc
 
 VERSION    := $(shell git describe --tags 2>/dev/null || echo "0.1.0")
 COMMIT     := $(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
 BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
-LDFLAGS := -ldflags "\
-  -X github.com/agent-fox-dev/agentfox.Version=$(VERSION) \
-  -X github.com/agent-fox-dev/agentfox.Commit=$(COMMIT) \
-  -X github.com/agent-fox-dev/agentfox.BuildTime=$(BUILD_TIME)"
-
 CONTAINER_REGISTRY ?= quay.io/agentfox
 
 SANDBOX_IMAGE ?= sandbox
 SANDBOX_IMAGE_TAG ?= $(VERSION)
-TOOLS_IMAGE ?= tools
-TOOLS_IMAGE_TAG ?= $(VERSION)
 
-DIST_DIR    := $(CURDIR)/dist
-DOC_DIR ?= build/docs
+DOC_DIR ?= docs/generated
 
 # Run lint + all tests
 check: lint test
@@ -43,35 +35,11 @@ coverage:
 	go test ./... -coverprofile=coverage.txt -covermode=atomic
 	go tool cover -func=coverage.txt
 
-# Build all CLIs
+# Build every package
 build:
-	CGO_ENABLED=1 go build $(LDFLAGS) -o build/af ./cmd/af
-	CGO_ENABLED=1 go build $(LDFLAGS) -o build/nightshift ./cmd/nightshift
-	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/triage
-	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/fix
-	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/impl
+	go build ./...
 
-# Cross-platform static builds of the tools
-TOOLS := triage fix impl
-
-build-all: build-darwin-arm64 build-linux-arm64 build-linux-amd64
-
-build-darwin-arm64:
-	@for tool in $(TOOLS); do \
-		CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(DIST_DIR)/$$tool-darwin-arm64 ./cmd/$$tool; \
-	done
-
-build-linux-arm64:
-	@for tool in $(TOOLS); do \
-		CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(DIST_DIR)/$$tool-linux-arm64 ./cmd/$$tool; \
-	done
-
-build-linux-amd64:
-	@for tool in $(TOOLS); do \
-		CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(DIST_DIR)/$$tool-linux-amd64 ./cmd/$$tool; \
-	done
-
-build-containers: build-sandbox-container build-tools-container
+build-containers: build-sandbox-container
 
 # Build the sandbox container locally.
 build-sandbox-container:
@@ -83,20 +51,8 @@ build-sandbox-container:
 		-t $(CONTAINER_REGISTRY)/$(SANDBOX_IMAGE):latest \
 		-f containers/sandbox/Containerfile .
 
-build-tools-container:
-	podman build \
-		--build-context agentkit-go=../agentkit-go \
-		--build-arg VERSION=$(VERSION) \
-		--build-arg BUILD=$(COMMIT) \
-		--build-arg BUILD_TIME=$(BUILD_TIME) \
-		-t $(CONTAINER_REGISTRY)/$(TOOLS_IMAGE):$(TOOLS_IMAGE_TAG) \
-		-t $(CONTAINER_REGISTRY)/$(TOOLS_IMAGE):latest \
-		-f containers/tools/Containerfile .
-
 clean:
 	-rm -f coverage.txt
-	-rm -rf build/af build/nightshift
-	-rm -rf $(DIST_DIR)/*-arm64 $(DIST_DIR)/*-amd64
 
 clean-branches:
 	git checkout main
@@ -132,7 +88,7 @@ uninstall-skills:
 doc: ## Generate Go package reference (go doc -all) as text files under build/doc
 	@rm -rf $(DOC_DIR)
 	@mkdir -p $(DOC_DIR)
-	@for m in . codesearch; do \
+	@for m in . ; do \
 		( cd $$m && mod=$$(go list -m) && pkgs=$$(go list ./...) && \
 		for p in $$(printf '%s\n' "$$pkgs" | grep -v -e /internal/ -e /examples/); do \
 			rel=$${p#$$mod}; rel=$${rel#/}; out="$(CURDIR)/$(DOC_DIR)/$${rel:-$$(basename $$mod)}.txt"; \
