@@ -1,9 +1,9 @@
 # Triage and fix forge issues as a service
 
-Status: **workshop draft, second pass, decisions settled** (2026-10-19).
-Nothing here is implemented. The decisions in §0 were open in the first
-pass and are now recorded with their outcomes; the rest of the document is
-written to them. Details left to settle at spec time are marked *spec
+Status: **workshop draft, third pass, decisions settled** (2026-10-19).
+Nothing here is implemented. The eleven decisions in §0 were open in the
+first two passes and are now recorded with their outcomes; the rest of the
+document is written to them. Details left to settle at spec time are marked *spec
 time*. Next step: the hub asks in §9 become hub specs, and §10 step 1
 becomes this repository's first spec package.
 
@@ -222,18 +222,34 @@ lease.
 
 ### D11. Triggers reach the service through hub
 
-**Recommended, new in this pass; follows from D4.** A forge webhook is
-verified by the party that holds the forge credential and has a public
-URL, which is hub. Hub receives it at `POST /hooks/forge/:slug`, verifies
-the signature with the subscription's secret, and emits an audit event
+**Decided; follows from D4.** A forge webhook is verified by the party
+that holds the forge credential and has a public URL, which is hub. Hub
+receives it at `POST /hooks/forge/:slug`, verifies the signature with the
+workspace's webhook secret, and emits an audit event
 (`forge.issue.labeled`, `forge.pull_request.merged`, …) on its SSE stream.
 The service subscribes to `GET /api/v1/events?workspace=` with the
 workspace's PAT and acts on the label events; a poll through hub's issues
 API is the catch-up for a lost delivery or a dropped stream. The service
-listens on no public endpoint for the forge. *Workshop: whether hub should
-relay webhooks at all, or the service keeps its own `/hooks/:slug` and
-verifies with a secret the subscriber hands it.* The recommendation keeps
-the forge entirely hub's.
+listens on no public endpoint for the forge, and keeps no webhook secret:
+the forge is entirely hub's. The alternative, a `/hooks/:slug` on the
+service with a secret the subscriber hands it, was rejected because it
+would give the service a public surface and a second credential for one
+delivery path.
+
+### D12. In `origin` mode the worker pushes to hub and hub forwards to the fork
+
+**Decided.** On a carry-patch workspace whose `PATCH_BRANCH_SOURCE` is
+`origin`, the worker has no fork credential (D4) and hub's git server
+refuses a push to a registered patch branch unless it can forward it. So
+`PUSH_PATCHES_TO_ORIGIN=true` is the required configuration for a
+service-driven `origin` workspace: the worker pushes the patch branch to
+`hub_url` with the PAT, hub forwards it to the fork before writing its own
+ref, and the next sync finds the fork's tip where it expects it. The
+service checks the variable at preflight and refuses an `origin` workspace
+without it, naming the variable; hub lending a short-lived push credential
+in the lease is not built. This is the forwarding mode hub's ADR 01 already
+defines, used for the reason it was added: one writer, the fork
+authoritative, tooling that only knows the hub URL.
 
 ## Goals
 
@@ -541,16 +557,16 @@ On a `carry_patch` workspace a landed fix is registered, not merged:
    (`refs/remotes/upstream/HEAD` as the last sync left it; the worker
    reads `upstream_head_sha` from the workspace and clones from hub's git
    server, which has every ref).
-2. The push target follows `PATCH_BRANCH_SOURCE`, read from
-   `GET /workspaces/:slug/vars/resolved`: `hub` means `hub_url` with the
-   PAT; `origin` means the fork at `git_url`, which the worker cannot
-   reach with a credential of its own under D4. *Spec time, hub's:* either
-   `PUSH_PATCHES_TO_ORIGIN=true` forwarding (the worker pushes to hub, hub
-   forwards to the fork before writing its ref, which is what that
-   variable already does in `origin` mode) is the required configuration
-   for a service-driven `origin` workspace, or hub lends a short-lived
-   push credential in the lease. The recommendation is the first: it
-   exists.
+2. The push always goes to `hub_url` with the PAT. What hub does with it
+   follows `PATCH_BRANCH_SOURCE`, read from
+   `GET /workspaces/:slug/vars/resolved`: in `hub` mode hub writes the ref
+   and is the authority; in `origin` mode hub forwards the push to the
+   fork before writing its ref, which needs `PUSH_PATCHES_TO_ORIGIN=true`
+   (D12). The service reads both variables at preflight and refuses an
+   `origin` workspace without forwarding, naming the variable, before any
+   model is called. A forward that fails is hub's refusal of the push
+   (`ng <ref> <message>`), which the worker reports as a `git` failure
+   with hub's message.
 3. `POST /workspaces/:slug/patches {branch_name, description,
    upstream_pr_url?, if_not_exists: true}`. The description is the issue's
    title and URL. Position is appended; a workspace may pin it with
@@ -595,9 +611,9 @@ registered. Patches it did not register are not its business unless
 
 ### 5.4 What the service never does on a carry-patch workspace
 
-Commit to the integration branch; push to the upstream remote; push a
-registered patch branch to hub in `origin` mode without forwarding on;
-submit a rebuild while one is running (hub answers 409; the service waits
+Commit to the integration branch; push to the upstream remote; push to
+the fork itself (in `origin` mode the push goes to hub and hub forwards,
+D12); submit a rebuild while one is running (hub answers 409; the service waits
 on the running one); touch the trunk. These are the rules hub's own agent
 guidance (`docs/examples/AGENTS_carry_patch.md`) gives a person, and the
 program enforces them on the brain by giving it no way to do any of them.
@@ -1010,7 +1026,7 @@ the same issues (D8).
 | the service, its configuration, its API | `docs/api.md` (new), `docs/configuration.md` (new) |
 | `af` and its subcommands, `--local`, the exit codes | `docs/cli.md` (new) |
 | the topology, the attempt pipeline, the label protocol, the carry-patch use, the driver in the box | `docs/architecture.md`: the *to be written* sections it reserves, a new section for the service, and the brain table's placement column |
-| the decisions, once implemented | one ADR per decision that changes the architecture document (D4, D6, D7, D8, D9) |
+| the decisions, once implemented | one ADR per decision that changes the architecture document (D4, D6, D7, D8, D9, D11, D12) |
 | hub's asks | one issue on hub per item of §9, this PRD linked |
 | `issuex`'s move | this repository's `README.md` and `AGENTS.md` layout; the new repository's README |
 | the skills | `skills/af-triage` (new), `skills/af-fix` (the brief's rule: submit through `af`, never commit) |
