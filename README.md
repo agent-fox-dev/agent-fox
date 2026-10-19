@@ -2,124 +2,37 @@
 
 agent-fox is an autonomous spec-first coding agent (golang version).
 
-The mono-repo for all agent-fox (golang) code: library modules, CLI tools and
-services. It depends on
+This repository is being rebuilt from a clean state. The previous
+implementation (the `triage`, `fix` and `impl` tools and the packages under
+them) was removed; `1e6458d` is the last commit that has it.
+
+It depends on
 
 - [`agentkit-go`](https://github.com/agent-fox-dev/agentkit-go) — the AgentKit SDK
-  (module `github.com/agentfox/agentkit-go`)
-- [`spec`](https://github.com/agent-fox-dev/spec) (module
-  `github.com/agent-fox-dev/spec`) — the spec format, its Go library
-  `afspec`, which `impl` loads, validates and updates packages with, and the
-  `spec` tool that writes the specification packages `impl` implements
+  (module `github.com/agent-fox-dev/agentkit-go`)
 
 and works with [`hub`](https://github.com/agent-fox-dev/hub) as its backend
-service.
+service. The spec format and the `spec` tool that writes specification
+packages live in the [`spec`](https://github.com/agent-fox-dev/spec)
+repository.
 
-## The tools
+## What is here
 
-Three programs, one interface: **one input, one JSON object out.**
-
-```
-triage [flags] <input>    a problem report    → a structured issue on GitHub or GitLab
-fix    [flags] <input>    a problem           → a verified change on a branch
-impl   [flags] <input>    a specification     → the spec implemented, task by task, on a branch
-```
-
-The input is exactly one of: a GitHub or GitLab issue or pull/merge-request
-URL, a path to a readable file, `-` for stdin, or any other text. There is no flag that selects
-the kind — the argument's shape decides, in Go, before anything else happens.
-
-```sh
-export ANTHROPIC_API_KEY=sk-ant-...
-export GITHUB_TOKEN=ghp_...            # or GITLAB_TOKEN=glpat-...
-
-triage "panic: assignment to entry in nil map in loop.go, after an abort"
-fix    https://github.com/acme/widgets/issues/42 --dir ~/src/widgets
-impl   09 --dir ~/src/widgets --land branch
-
-kubectl logs deploy/api --since 1h | triage - --repo acme/widgets --dry-run
-```
-
-Each writes exactly one JSON object to stdout, on every program-driven path
-including the failing ones. Progress goes to stderr, so the two never
-interleave. `--version` and `-h`/`--help` (and a bare invocation with no
-input) are the human-driven exceptions: they print text and emit no JSON.
-Exit codes are shared: `0` done (`status: "done"`), `1` failed (`status:
-"failed"`), `2` usage (`status: "usage"`), `3` a person has to answer something
-(`status: "needs_human"`), `4` work exists but the checks do not pass
-(`status: "unverified"`).
-
-See the [tool reference](docs/cli.md) for every flag, every result field and
-every error category.
-
-### Why they are programs
-
-Each tool started as a markdown skill handed to a coding CLI. A skill can
-describe a workflow; it cannot enforce one. `af-issue` states its read-only
-mandate three times and then hands the CLI a `write_file` tool. `af-fix` opens
-a pull request *and* squash-merges the same branch, posts its analysis before
-checking whether it can work at all, and writes "✅ all tests pass" from a
-template rather than from a test run.
-
-So the model does the two or three steps that genuinely need judgment, and Go
-does the rest:
-
-| The skill says, in prose | The tool does, in code |
+| Path | Purpose |
 |---|---|
-| "the codebase is read-only to you" | the mutating tools are not in the resolved set |
-| the issue-body template | a JSON Schema; Go renders the markdown |
-| "cite real files; do not guess" | every cited path resolved against the workspace |
-| `gh issue create --repo …` | a `net/http` call after the run, suppressed by `--dry-run` |
-| "run the tests" then "✅ all tests pass" | a measured before/after pair, and a renderer that takes one |
-| "halt until input is received" | exit 2, before a token is spent |
+| `issuex/` | The forge client: one interface over GitHub and GitLab for issues, labels, and pull or merge requests. |
+| `internal/gitx/` | The git and shell invocations the tools make, hermetic and issued from Go. |
+| `skills/` | The coding-agent skills (`af-prd`, `af-impl`, `af-fix`, `af-bug-hunter`, `af-code-quality`, `af-code-simplifier`). `make install-skills` copies them to `~/.claude/skills`. |
+| `containers/sandbox/` | The sandbox image. |
+| `.specs/` | `steering.md` holds the directives every session follows; `archive/` holds the specs of `issuex`. |
+| `docs/` | `architecture.md` is the proposed target architecture, `drafts/` holds design drafts, `errata/` holds the errata of `issuex`. |
 
-None of the right-hand column depends on the model cooperating. That is the
-whole argument for embedding an agent in a program rather than writing a longer
-prompt: **the parts you cannot afford to have wrong stop being prompt.**
+[AGENTS.md](AGENTS.md) is the policy for every coding session in this
+repository.
 
-[ADR 03](docs/adr/03-rebuild-the-skills-as-tools.md) records the reasoning and
-the errors the rewrite found; [ADR 04](docs/adr/04-implement-a-spec-as-a-tool.md)
-applies it to the legacy orchestrator that `impl` replaces.
+## Building
 
-## Modules
-
-| Path | Package | Purpose |
-|---|---|---|
-| `issuetriage/` | `issuetriage` | The triage pipeline: the diagnosis schema, the citation check, the rendered issue. |
-| `codefix/` | `codefix` | The fix pipeline: pre-flight, analysis, implementation, verification, landing. |
-| `codeimpl/` | `codeimpl` | The implementation pipeline: a spec's tasks in order, each verified by the spec's own checks and committed with its state. |
-| `issuex/` | `issuex` | The forge client: one interface over GitHub and GitLab, twenty operations: reading, filing, rewriting, closing, listing and commenting on issues, labels, and pull or merge requests with their changed files, state, CI check runs and reviews, review comments, and merging by the repository's own policy. Every forge call the tools make goes through it. |
-| `internal/toolio/` | `toolio` | Input classification, the JSON envelope, exit codes, and the shell the commands share. |
-| `internal/agentrun/` | `agentrun` | Model and credential resolution, the phase runner, the read-only invariant, the shell guard. |
-| `internal/gitx/`, `internal/checks/` | | git, and the command that decides whether a change is correct. |
-| `internal/project/` | `project` | What a repository is written in, and the audit that refuses a plan naming another ecosystem's tooling. |
-| `cmd/triage/`, `cmd/fix/`, `cmd/impl/` | `main` | The three tools. |
-
-The spec format itself is specified in the
-[`spec`](https://github.com/agent-fox-dev/spec) repository
-(`specification/spec-format-v2.md`), together with the `afspec` library that
-loads, validates, mutates, renders and saves specification packages. This
-repository imports `afspec` from that module
-(`github.com/agent-fox-dev/spec/afspec`) and keeps no copy of the format's
-schemas.
-
-## Quick start
-
-Release binaries for darwin and linux, on arm64 and amd64, are installed by
-the script at the repository root. It fetches all three tools, because they
-share one release and one interface:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/agent-fox-dev/agent-fox/main/install.sh | sh
-```
-
-`TOOLS`, `INSTALL_DIR` (default `/usr/local/bin`) and `VERSION` (default
-`latest`) are read from the environment.
-
-To build from source: the tools run on AgentKit, which lives in the `agentkit-go`
-repository under the module path `github.com/agentfox/agentkit-go`. That path
-does not match its repository URL, so the module proxy cannot serve it and it
-is consumed through a `replace` to a sibling checkout named after the module:
+AgentKit is consumed through a `replace` to a sibling checkout:
 
 ```bash
 git clone https://github.com/agent-fox-dev/agentkit-go ../agentkit-go
@@ -127,18 +40,9 @@ git clone https://github.com/agent-fox-dev/agentkit-go ../agentkit-go
 
 ```bash
 make check          # gofmt + go vet + all tests
-make build          # go install triage, fix and impl; af and nightshift into bin/
-make build-all      # static cross-builds of the three tools into dist/
+make build          # go build ./...
 ```
 
-The test suite needs no API key, no GitHub token and no network: the model half
-runs against AgentKit's scripted provider, GitHub and GitLab against
-`httptest` servers, and git against real temporary repositories.
-
-## Documentation
-
-- [Tool Reference](docs/cli.md) — the tools, their flags, their JSON
-- [Configuration](docs/configuration.md) — credentials, model selection, what the model is allowed to read
-- [Model Usage](docs/model-usage.md) — what each phase sends, and how a failure is repaired
-- [Development Guide](docs/development.md) — setup, testing, contributing
-- [ADRs](docs/adr/) — architecture decisions
+The test suite needs no API key, no token and no network. It does start
+`httptest` servers on the loopback interface, so a sandbox that forbids
+binding a local port fails it.
