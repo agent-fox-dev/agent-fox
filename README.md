@@ -25,7 +25,7 @@ repository.
 | `skills/` | The coding-agent skills (`af-prd`, `af-impl`, `af-fix`, `af-bug-hunter`, `af-code-quality`, `af-code-simplifier`). `make install-skills` copies them to `~/.claude/skills`. |
 | `containers/sandbox/` | The sandbox image. |
 | `.specs/` | `steering.md` holds the directives every session follows; `archive/` holds the specs of `issuex`. |
-| `docs/` | `architecture.md` is the proposed target architecture, `drafts/` holds design drafts, `errata/` holds the errata of `issuex`. |
+| `docs/` | `architecture.md` is the proposed target architecture, `prd/` holds the product requirements, `drafts/` holds design drafts, `errata/` holds the errata of `issuex`. |
 
 [AGENTS.md](AGENTS.md) is the policy for every coding session in this
 repository.
