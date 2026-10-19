@@ -27,7 +27,7 @@ from the repository and derives the right API base: `https://api.github.com` for
 `/api/v4` address for GitLab. Until issue #222 the code did not compare the
 host with `github.com` or with the API URL's host, so a self-hosted host was
 sent to the public API with its token; the comparison now decides the address
-and whether the token is sent (see [Choosing the forge](../configuration.md#choosing-the-forge)). See [Choosing the forge](../configuration.md#choosing-the-forge).
+and whether the token is sent (see `classifyHost` and `hostEndpoint` in `issuex/detect.go`).
 
 The behaviour is covered by `issuex/host_repo_test.go` and by the shell's own
 test of an issue URL (`internal/toolio/app_test.go`), introduced with the fix

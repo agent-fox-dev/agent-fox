@@ -38,8 +38,8 @@ No form of the probe is both safe and useful:
 
 **Is:** `NewWithOptions` returns `ErrAmbiguousForge` and sends nothing. The
 spec 01 contract stands unchanged, and `03-REQ-1.4` is withdrawn. A
-self-hosted GitLab is named with `GITLAB_API_URL`, as `docs/configuration.md`
-already says.
+self-hosted GitLab is named with `GITLAB_API_URL`, as `classifyHost` in
+`issuex/detect.go` documents.
 
 ## What changed in the tests
 
