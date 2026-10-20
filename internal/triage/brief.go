@@ -297,11 +297,24 @@ func taskBlock(p BriefParams) string {
 	}
 
 	fmt.Fprintf(&b, "This is run %s.\n\n", p.RunID)
-	if p.InProcess {
-		b.WriteString("Submit your diagnosis by calling the `file_diagnosis` tool with the diagnosis as its input.\n\n")
-	} else {
-		fmt.Fprintf(&b, "Submit your diagnosis by running `af triage submit --run-id %s` with the diagnosis as JSON on stdin.\n\n", p.RunID)
-	}
-	fmt.Fprintf(&b, "You have at most %d turns, $%.2f of model cost and %s.\n", p.Bounds.MaxTurns, p.Bounds.MaxCostUSD, p.Bounds.Timeout)
+	b.WriteString(submitRoute(p.InProcess, p.RunID) + "\n\n")
+	b.WriteString(boundsLine(p.Bounds))
 	return b.String()
+}
+
+// submitRoute is the sentence that says how to submit: through the tool for a
+// brain that has it, by the command otherwise.
+func submitRoute(inProcess bool, runID string) string {
+	if inProcess {
+		return "Submit your diagnosis by calling the `file_diagnosis` tool with the diagnosis as its input."
+	}
+	return fmt.Sprintf("Submit your diagnosis by running `af triage submit --run-id %s` with the diagnosis as JSON on stdin.", runID)
+}
+
+// boundsPrefix starts the line that reminds the brain of its bounds, which ends
+// the task block.
+const boundsPrefix = "You have at most "
+
+func boundsLine(b Bounds) string {
+	return fmt.Sprintf("%s%d turns, $%.2f of model cost and %s.\n", boundsPrefix, b.MaxTurns, b.MaxCostUSD, b.Timeout)
 }

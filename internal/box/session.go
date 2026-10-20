@@ -50,6 +50,10 @@ type Session struct {
 	// a brain's tools may ask for several files together.
 	stream sync.Mutex
 
+	// inPlace says the session is over a directory where it is (Here): there is
+	// nothing to sync, and no state of the directory is touched.
+	inPlace bool
+
 	mu      sync.Mutex
 	closed  bool
 	exports []string // the export directories Close removes
@@ -84,6 +88,9 @@ func (s *Session) HostDir() string { return s.hostDir }
 // content of the same length within the second of the host's modification of it
 // is still not put back; a checkout does not come to that outside a test.
 func (s *Session) Sync(ctx context.Context) error {
+	if s.inPlace {
+		return &toolio.Failure{Category: toolio.CategoryInternal, Message: "box: Sync on a session over a directory in place: there is nothing to sync"}
+	}
 	if err := s.refreshGit(ctx); err != nil {
 		return err
 	}

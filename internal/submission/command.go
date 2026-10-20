@@ -35,6 +35,22 @@ var resultSchema = json.RawMessage(`{
   }
 }`)
 
+// Options are what CommandWith adds to the command that Command builds.
+type Options struct {
+	// Kind, when it is not nil, makes the kind of a run from its --dir, for a
+	// kind whose check needs the tree it is on. Nil leaves the kind that was given.
+	Kind func(dir string) Kind
+	// ResultSchema replaces the schema of Result, for a command whose Result
+	// below makes another.
+	ResultSchema json.RawMessage
+	// Prepare, when it is not nil, runs before the payload is submitted, in the
+	// run directory of the run; an error ends the command.
+	Prepare func(r *toolio.Run, run *toolio.RunDir) error
+	// Result, when it is not nil, makes the result of an accepted submission in
+	// place of Result. The status is done either way.
+	Result func(r *toolio.Run, run *toolio.RunDir, receipt Receipt) (any, error)
+}
+
 // Command builds the `af <agent> submit` command of a kind, which a brain with
 // its own hands runs inside the box to hand back its result: the payload is the
 // JSON object on stdin, the tree is --dir (the current directory by default)
@@ -44,8 +60,16 @@ var resultSchema = json.RawMessage(`{
 // writes nothing; an earlier valid submission stays. The command makes no run
 // directory of its own and takes no --dry-run: it writes one file, into the run
 // that it is for.
-func Command(path string, kind Kind) toolio.Command {
+func Command(path string, kind Kind) toolio.Command { return CommandWith(path, kind, Options{}) }
+
+// CommandWith is Command with what the options add: the kind made from the tree
+// of the run, a step before the submission, and a result of its own.
+func CommandWith(path string, kind Kind, opts Options) toolio.Command {
 	var runID string
+	schema := resultSchema
+	if opts.ResultSchema != nil {
+		schema = opts.ResultSchema
+	}
 	return toolio.Command{
 		Path:    path,
 		Summary: "Submit the " + kind.Name + " result of a run, as a JSON object on stdin",
@@ -56,13 +80,13 @@ func Command(path string, kind Kind) toolio.Command {
 		MaxArgs:      toolio.NoArgs,
 		Dir:          true,
 		RawStdin:     true,
-		ResultSchema: resultSchema,
-		Run:          func(r *toolio.Run) (toolio.Outcome, error) { return submit(r, kind, runID) },
+		ResultSchema: schema,
+		Run:          func(r *toolio.Run) (toolio.Outcome, error) { return submit(r, kind, opts, runID) },
 	}
 }
 
 // submit is the run of the command.
-func submit(r *toolio.Run, kind Kind, runID string) (toolio.Outcome, error) {
+func submit(r *toolio.Run, kind Kind, opts Options, runID string) (toolio.Outcome, error) {
 	if runID == "" {
 		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: "--run-id is required: the id of the run the submission is for"}
 	}
@@ -75,6 +99,14 @@ func submit(r *toolio.Run, kind Kind, runID string) (toolio.Outcome, error) {
 		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("--dir %s: %v", r.Dir, err)}
 	}
 	defer func() { _ = root.Close() }()
+	if opts.Kind != nil {
+		kind = opts.Kind(r.Dir)
+	}
+	if opts.Prepare != nil {
+		if err := opts.Prepare(r, run); err != nil {
+			return toolio.Outcome{}, err
+		}
+	}
 
 	// One byte more than a submission may be: enough to tell that it is, and
 	// no more of an input that does not end.
@@ -96,9 +128,15 @@ func submit(r *toolio.Run, kind Kind, runID string) (toolio.Outcome, error) {
 	}
 	abs := filepath.Join(r.Dir, filepath.FromSlash(receipt.Path))
 	r.Artifact(toolio.Artifact{Kind: "submission", Path: abs})
+	var result any = Result{RunID: run.ID, Kind: kind.Name, Path: abs, SHA256: receipt.SHA256}
+	if opts.Result != nil {
+		if result, err = opts.Result(r, run, receipt); err != nil {
+			return toolio.Outcome{}, err
+		}
+	}
 	return toolio.Outcome{
 		Status:  toolio.StatusDone,
 		Summary: fmt.Sprintf("submitted the %s result of run %s", kind.Name, run.ID),
-		Result:  Result{RunID: run.ID, Kind: kind.Name, Path: abs, SHA256: receipt.SHA256},
+		Result:  result,
 	}, nil
 }

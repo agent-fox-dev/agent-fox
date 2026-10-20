@@ -43,6 +43,11 @@ type Kind struct {
 	// must be there) and returns the payload normalised, or every problem it
 	// found. A nil Validate accepts the payload as it is.
 	Validate func(ctx context.Context, tree fs.FS, payload json.RawMessage) (json.RawMessage, []Problem)
+	// OnRefused, when it is not nil, is called after Submit has refused a
+	// payload, with the target and every problem. It may write beside the
+	// submission, through the target, to note the refusal; nothing it does or
+	// fails to do changes the refusal.
+	OnRefused func(ctx context.Context, target Target, problems []Problem)
 }
 
 // Refused is the error of a submission that was not accepted: nothing was

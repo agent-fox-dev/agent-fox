@@ -343,11 +343,24 @@ func TestBriefReturnsItsResultArtifactAndNextEntries_TS_08_23(t *testing.T) {
 // embedded schema has the fields of the Go type, and requires the ones that are
 // never left out.
 func TestTheBriefSchemaMatchesItsResult(t *testing.T) {
+	checkSchema(t, "triage_brief", triageBriefResult{})
+}
+
+// checkSchema compares the embedded schema of a command with the fields of its
+// result type.
+func checkSchema(t *testing.T, name string, typ any) {
+	t.Helper()
 	var schema map[string]any
-	if err := json.Unmarshal(resultSchema("triage_brief"), &schema); err != nil {
+	if err := json.Unmarshal(resultSchema(name), &schema); err != nil {
 		t.Fatal(err)
 	}
-	for _, diff := range schemaDiff(schema, reflect.TypeOf(triageBriefResult{}), "triage_brief") {
+	for _, diff := range schemaDiff(schema, reflect.TypeOf(typ), name) {
 		t.Error(diff)
 	}
+}
+
+// git2 runs git in dir and returns what it printed.
+func git2(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	return strings.TrimSpace(gitDo(t, dir, args...))
 }

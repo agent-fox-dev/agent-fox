@@ -89,7 +89,7 @@ func Submit(ctx context.Context, target Target, kind Kind, raw []byte, now time.
 	}
 	payload, problems := checkShape(raw)
 	if len(problems) > 0 {
-		return Receipt{}, refuse(problems)
+		return Receipt{}, refuseAndNote(ctx, target, kind, problems)
 	}
 
 	run, problems := readRun(target, kind)
@@ -99,7 +99,7 @@ func Submit(ctx context.Context, target Target, kind Kind, raw []byte, now time.
 	}
 	problems = append(problems, found...)
 	if len(problems) > 0 {
-		return Receipt{}, refuse(problems)
+		return Receipt{}, refuseAndNote(ctx, target, kind, problems)
 	}
 
 	sum := PayloadSHA256(compact)
@@ -193,6 +193,20 @@ func Marshal(f File) []byte {
 func quote(s string) string {
 	b, _ := json.Marshal(s) // a string always marshals
 	return string(b)
+}
+
+// refuseAndNote is the refusal for the problems, after the kind has been told of
+// it. The kind's hook writes beside the submission, and what it does or fails to
+// do, a panic included, is not the refusal's business.
+func refuseAndNote(ctx context.Context, target Target, kind Kind, problems []Problem) *Refused {
+	r := refuse(problems)
+	if kind.OnRefused != nil {
+		func() {
+			defer func() { _ = recover() }()
+			kind.OnRefused(ctx, target, r.Problems)
+		}()
+	}
+	return r
 }
 
 // refuse is the refusal for the problems, sorted by Path and then by Message.

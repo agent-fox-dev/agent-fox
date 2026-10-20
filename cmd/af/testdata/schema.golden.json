@@ -1064,6 +1064,63 @@
           "description": "True when an earlier run's question, which the --context answers, was found and is in the task block."
         }
       }
+    },
+    "triage_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "submitted",
+        "rejected_path_calls"
+      ],
+      "description": "A triage run executed in this process over --dir: the agentkit brain ran on the brief of the run and submitted a diagnosis.",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "description": "The run that was executed."
+        },
+        "submitted": {
+          "type": "boolean",
+          "const": true,
+          "description": "Always true: a run in which the brain submitted nothing valid is a failure and has no result."
+        },
+        "rejected_path_calls": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many refused submit calls of the run cited a path that is no file of the repository."
+        }
+      }
+    },
+    "triage_submit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "accepted",
+        "submission",
+        "rejected_path_calls"
+      ],
+      "description": "A diagnosis that was accepted and stored.",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "description": "The run the diagnosis is for."
+        },
+        "accepted": {
+          "type": "boolean",
+          "const": true,
+          "description": "Always true: a diagnosis that is refused is a failure and has no result."
+        },
+        "submission": {
+          "type": "string",
+          "description": "The submission file, as an absolute path. It holds the normalized diagnosis: paths cleaned and path:N split into a path and a line."
+        },
+        "rejected_path_calls": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many refused submit calls of the run cited a path that is no file of the repository. It is counted from rejections.jsonl, and never decides a landing."
+        }
+      }
     }
   }
 }
