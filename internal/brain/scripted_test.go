@@ -363,3 +363,83 @@ func TestACancelledReplayStops(t *testing.T) {
 		t.Errorf("Run = %+v, %v; want the context's error and no step", out, err)
 	}
 }
+
+// TestTheScriptedBrainReplaysRoundKOnTheKthRun_TS_09_69 verifies TS-09-69:
+// a script of rounds is replayed one round for each run of the same brain, a run
+// past the last round ends at once, and a plain script is one round.
+// Verifies: 09-REQ-10.3
+func TestTheScriptedBrainReplaysRoundKOnTheKthRun_TS_09_69(t *testing.T) {
+	w := newWorld(t)
+	round := func(brain Brain, k int) Outcome {
+		t.Helper()
+		b := w.brief(k)
+		b.Kind = citeKind()
+		b.Tools = []string{"read_file", "write_file", "list_files", "execute"}
+		res, _ := Execute(context.Background(), w.request(b, brain))
+		return res.Outcome
+	}
+	inBox := func(name string) bool {
+		_, err := w.boxFile(name)
+		return err == nil
+	}
+
+	multi, err := Default.New(ScriptedName, Options{Script: writeScript(t, `{"rounds":[
+		{"steps":[{"tool":"write_file","args":{"path":"r1.txt","content":"one\n"},"expect":"ok"}]},
+		{"steps":[{"tool":"write_file","args":{"path":"r2.txt","content":"two\n"},"expect":"ok"},{"tool":"write_file","args":{"path":"r2b.txt","content":"two\n"},"expect":"ok"}]}
+	]}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first := round(multi, 1)
+	if first.Turns != 1 || first.StopReason != StopEnded || !inBox("r1.txt") || inBox("r2.txt") {
+		t.Errorf("run 1: %+v, r1 %v, r2 %v; want round 1 alone", first, inBox("r1.txt"), inBox("r2.txt"))
+	}
+	second := round(multi, 2)
+	if second.Turns != 2 || second.StopReason != StopEnded || !inBox("r2.txt") || !inBox("r2b.txt") {
+		t.Errorf("run 2: %+v, want round 2: its two steps", second)
+	}
+	third := round(multi, 3)
+	if third.Turns != 0 || third.StopReason != StopEnded || third.Submitted || third.CostUSD != 0 {
+		t.Errorf("run 3: %+v, want it ended at once, with no step", third)
+	}
+	if again := round(multi, 4); again.Turns != 0 || again.StopReason != StopEnded {
+		t.Errorf("run 4: %+v, want it ended at once too", again)
+	}
+
+	plain, err := Default.New(ScriptedName, Options{Script: writeScript(t, `{"steps":[{"tool":"write_file","args":{"path":"p.txt","content":"p\n"},"expect":"ok"}]}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o := round(plain, 5); o.Turns != 1 || !inBox("p.txt") {
+		t.Errorf("the plain script, run 1: %+v, want its one round", o)
+	}
+	if o := round(plain, 6); o.Turns != 0 || o.StopReason != StopEnded {
+		t.Errorf("the plain script, run 2: %+v, want it ended at once: a plain script is one round", o)
+	}
+}
+
+// TestAScriptOfRoundsIsCheckedAsAScriptIs guards 09-REQ-10.3 at construction: a
+// script that mixes the forms, or holds a step that cannot be used in any round,
+// is a usage failure that names the round.
+func TestAScriptOfRoundsIsCheckedAsAScriptIs(t *testing.T) {
+	for name, tc := range map[string]struct{ content, mention string }{
+		"both forms":           {`{"steps":[],"rounds":[]}`, "steps"},
+		"an unknown key":       {`{"rounds":[{"steps":[],"extra":1}]}`, "extra"},
+		"a bad step in round":  {`{"rounds":[{"steps":[{"tool":"read_file"}]},{"steps":[{"expect":"ok"}]}]}`, "round 2 step 0"},
+		"rounds that are none": {`{"rounds":{"steps":[]}}`, "script.json"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			b, err := Default.New(ScriptedName, Options{Script: writeScript(t, tc.content)})
+			f := asFailure(t, err)
+			if b != nil || f.Category != toolio.CategoryUsage || !strings.Contains(f.Message, tc.mention) {
+				t.Errorf("New = %v, %v; want a usage failure that mentions %q", b, err, tc.mention)
+			}
+		})
+	}
+	for _, ok := range []string{`{"rounds":[]}`, `{"rounds":[{"steps":[]},{"steps":[]}]}`} {
+		if b, err := Default.New(ScriptedName, Options{Script: writeScript(t, ok)}); err != nil || b == nil {
+			t.Errorf("%s: %v, %v", ok, b, err)
+		}
+	}
+}
