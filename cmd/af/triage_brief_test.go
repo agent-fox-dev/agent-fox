@@ -55,7 +55,9 @@ func (e *triageEnv) run(stdin string, args ...string) (int, map[string]any) {
 	e.t.Helper()
 	var out, errb bytes.Buffer
 	code := e.app.Main(context.Background(), append([]string{"af"}, args...), strings.NewReader(stdin), &out, &errb)
-	return code, oneDocument(e.t, out.String())
+	env := oneDocument(e.t, out.String())
+	see(env)
+	return code, env
 }
 
 // runDir is the run directory of an envelope.

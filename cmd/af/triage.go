@@ -513,6 +513,7 @@ func triageLand(r *toolio.Run, runID, land, repoFlag string, labelFlags []string
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
+	listed := listRunArtifacts(r, run)
 	facts, err := readFacts(run)
 	if err != nil {
 		return toolio.Outcome{}, err
@@ -544,46 +545,72 @@ func triageLand(r *toolio.Run, runID, land, repoFlag string, labelFlags []string
 			return toolio.Outcome{}, refusalFailure(refusal)
 		}
 	}
-	listRunArtifacts(r, run)
-	return landRun(r, run, facts, tree, forge, land, labels)
+	return landRun(r, landing{run: run, facts: facts, tree: tree, forge: forge, mode: land, labels: labels, artifact: listed})
+}
+
+// landing is what a landing of a run is made of.
+type landing struct {
+	run    *toolio.RunDir
+	facts  triage.Facts
+	tree   triage.Tree
+	forge  issuex.Client
+	mode   string
+	labels []string
+	// artifact lists a file of the run; the files are listed once each.
+	artifact func(toolio.Artifact)
+	// retry is the command that lands the run again; it is suggested when the
+	// landing fails after the run had a valid submission.
+	retry []string
 }
 
 // landRun writes the submission of a run to the forge, or to diagnosis.md alone,
 // and says how that came out. It is the landing that `af triage land` and the loop
 // share: both have checked the target and the credential by now.
-func landRun(r *toolio.Run, run *toolio.RunDir, facts triage.Facts, tree triage.Tree, forge issuex.Client, land string, labels []string) (toolio.Outcome, error) {
+func landRun(r *toolio.Run, l landing) (toolio.Outcome, error) {
 	res, err := triage.Land(r.Ctx, triage.LandParams{
-		RunDir: run.Path, RunID: run.ID, Facts: facts, Forge: forge, Mode: land, Labels: labels,
+		RunDir: l.run.Path, RunID: l.run.ID, Facts: l.facts, Forge: l.forge, Mode: l.mode, Labels: l.labels,
 		IsDryRun: func(err error) bool { return errors.Is(err, toolio.ErrDryRun) },
-		Tree:     tree, Created: createdIssue(run),
-		Record: run.Record,
+		Tree:     l.tree, Created: createdIssue(l.run),
+		Record: l.run.Record,
 		Warn:   r.Warn,
 		Artifact: func(a triage.Artifact) {
-			r.Artifact(toolio.Artifact{Kind: a.Kind, Path: a.Path, URL: a.URL, Number: a.Number})
+			l.artifact(toolio.Artifact{Kind: a.Kind, Path: a.Path, URL: a.URL, Number: a.Number})
 		},
 		SideEffect: func(s triage.SideEffect) {
 			r.SideEffect(toolio.SideEffect{Kind: s.Kind, Target: s.Target, State: s.State})
 		},
 	})
 	if err != nil {
+		if res.Submitted && l.retry != nil {
+			r.Next(toolio.Next{Argv: l.retry, Reason: "write the diagnosis to the forge again"})
+		}
 		var refusal *triage.Refusal
 		if errors.As(err, &refusal) {
 			return toolio.Outcome{}, refusalFailure(refusal)
 		}
 		return toolio.Outcome{}, err
 	}
-	return landOutcome(r, run, facts, res), nil
+	return landOutcome(r, l.run, l.facts, res), nil
 }
 
 // listRunArtifacts lists the files of the run that exist and a failed run still
-// has: the brief and the submission.
-func listRunArtifacts(r *toolio.Run, run *toolio.RunDir) {
-	for _, a := range []struct{ kind, name string }{{"brief", "brief.md"}, {"submission", "submission.json"}} {
-		path := filepath.Join(run.Path, a.name)
-		if _, err := os.Stat(path); err == nil {
-			r.Artifact(toolio.Artifact{Kind: a.kind, Path: path})
+// has: the brief, the submission and the diagnosis. It returns the function that
+// lists an artifact of the run, which lists none a second time.
+func listRunArtifacts(r *toolio.Run, run *toolio.RunDir) func(toolio.Artifact) {
+	seen := map[toolio.Artifact]bool{}
+	list := func(a toolio.Artifact) {
+		if !seen[a] {
+			seen[a] = true
+			r.Artifact(a)
 		}
 	}
+	for _, a := range []struct{ kind, name string }{{"brief", "brief.md"}, {"submission", "submission.json"}, {"diagnosis", "diagnosis.md"}} {
+		path := filepath.Join(run.Path, a.name)
+		if _, err := os.Stat(path); err == nil {
+			list(toolio.Artifact{Kind: a.kind, Path: path})
+		}
+	}
+	return list
 }
 
 // landOutcome is the outcome of a landing: done, or needs_human when the
@@ -611,6 +638,9 @@ func landOutcome(r *toolio.Run, run *toolio.RunDir, facts triage.Facts, res tria
 			Status: toolio.StatusNeedsHuman, Summary: "the diagnosis of run " + run.ID + " asks a question, and nothing was written",
 			Result: result, NeedsHuman: &toolio.Question{Text: q.Text, Options: q.Options},
 		}
+	}
+	if triage.FixSuggested(res.Diagnosis, res.Issue) {
+		r.Next(toolio.Next{Argv: []string{"af", "fix", res.Issue.URL, "--dir", r.Dir}, Reason: "fix the problem the diagnosis describes"})
 	}
 	return toolio.Outcome{Status: toolio.StatusDone, Summary: landSummary(res), Result: result}
 }
@@ -726,7 +756,12 @@ func triageLoop(r *toolio.Run, s *brain.Settings, land string, labelFlags []stri
 	recordSubmission(r, r.RunDir, res)
 
 	r.Emit("step", triageStep{stepLand})
-	return landRun(r, r.RunDir, rendered.facts, tree, r.Forge, land, labels)
+	retry := triage.LandAgain(r.RunDir.ID, r.Dir, "")
+	if rendered.report.Kind == triage.KindIssue {
+		// The client was built from the URL of the input, so landing again is told the repository.
+		retry = triage.LandAgain(r.RunDir.ID, r.Dir, rendered.facts.Target.Repo)
+	}
+	return landRun(r, landing{run: r.RunDir, facts: rendered.facts, tree: tree, forge: r.Forge, mode: land, labels: labels, artifact: r.Artifact, retry: retry})
 }
 
 // loopPreflight is every refusal that needs no model, in the order flags, input,
