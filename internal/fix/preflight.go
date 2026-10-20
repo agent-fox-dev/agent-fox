@@ -119,6 +119,20 @@ func Preflight(ctx context.Context, p PreflightParams) (Preflighted, error) {
 	return res, nil
 }
 
+// gateError is the failure for an error of a gate run, which is what names: a mistake in
+// the options is usage, a run that was stopped is the stop, and anything else is a failure
+// to read or write.
+func gateError(ctx context.Context, what string, err error) error {
+	var usageErr *checks.UsageError
+	switch {
+	case errors.As(err, &usageErr):
+		return usage("%s", usageErr.Message)
+	case ctx.Err() != nil:
+		return ctx.Err()
+	}
+	return &toolio.Failure{Category: toolio.CategoryIO, Message: fmt.Sprintf("%s could not run: %v", what, err)}
+}
+
 // runBaseline runs the pinned table once on the unchanged tree, in the default
 // mode of the runner and with no label: the label file is shared by every run in
 // the checkout, and a run that sets one could take another's. A red baseline is a
@@ -130,14 +144,7 @@ func runBaseline(ctx context.Context, p PreflightParams, table project.Table) (*
 	}
 	res, err := run(ctx, p.Dir, checks.Options{Table: table})
 	if err != nil {
-		var usageErr *checks.UsageError
-		switch {
-		case errors.As(err, &usageErr):
-			return nil, usage("%s", usageErr.Message)
-		case ctx.Err() != nil:
-			return nil, ctx.Err()
-		}
-		return nil, &toolio.Failure{Category: toolio.CategoryIO, Message: fmt.Sprintf("the baseline gate could not run: %v", err)}
+		return nil, gateError(ctx, "the baseline gate", err)
 	}
 	if !res.Passed {
 		p.Warn(WarnBaselineFailing, "the gate fails on the tree as it is, before any change; a check that already fails is not counted against the change")

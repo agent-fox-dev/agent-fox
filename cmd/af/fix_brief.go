@@ -20,19 +20,13 @@ const ledgerFixBrief = "fix.brief"
 // baseUsage is the help of --base.
 const baseUsage = "the `branch` the fix is made on and goes back to; the one that is checked out when it is not given"
 
-// fixGateRef is a gate run, as a result names it.
-type fixGateRef struct {
-	GateID string `json:"gate_id"`
-	Passed bool   `json:"passed"`
-}
-
 // fixBriefResult is the result of af fix brief.
 type fixBriefResult struct {
 	BriefPath    string        `json:"brief_path"`
 	PrefixSHA256 string        `json:"prefix_sha256"`
 	Base         string        `json:"base"`
 	BaseHead     string        `json:"base_head"`
-	Baseline     *fixGateRef   `json:"baseline"`
+	Baseline     *fix.GateRef  `json:"baseline"`
 	Table        project.Table `json:"table"`
 	SubmitArgv   []string      `json:"submit_argv"`
 }
@@ -95,11 +89,11 @@ func fixBrief(r *toolio.Run, base string) (toolio.Outcome, error) {
 }
 
 // gateRef is the baseline of a run as a result names it, or nil when the run has none.
-func gateRef(s fix.State) *fixGateRef {
+func gateRef(s fix.State) *fix.GateRef {
 	if s.BaselineGateID == "" {
 		return nil
 	}
-	return &fixGateRef{GateID: s.BaselineGateID, Passed: s.BaselinePassed}
+	return &fix.GateRef{GateID: s.BaselineGateID, Passed: s.BaselinePassed}
 }
 
 // refusePullRequest is the usage failure for an input that is a pull or merge

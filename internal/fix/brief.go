@@ -199,7 +199,9 @@ const (
 type Refusal struct {
 	// Kind is gate or no_change; Verdict is the verdict of the comparison.
 	Kind, Verdict string
-	Failing       []FailingCheck
+	// Detail says more, when the verdict does not: why the checks could not be compared.
+	Detail  string
+	Failing []FailingCheck
 	// Reverted are the protected paths that were put back.
 	Reverted []string
 }
@@ -280,6 +282,9 @@ func refusalText(r Refusal) string {
 	default:
 		fmt.Fprintf(&b, "`af` measured the tree you left and refused it (refusal: %s, verdict: %s). Fix what it found, in the "+
 			"tree as it is, and submit again.\n\n", r.Kind, r.Verdict)
+	}
+	if r.Detail != "" {
+		b.WriteString(fenced("What `af` found:", r.Detail) + "\n")
 	}
 	for _, f := range r.Failing {
 		b.WriteString(fenced("The end of the output of `"+oneLine(f.Name)+"` after your change:", tail(f.Tail)) + "\n")
