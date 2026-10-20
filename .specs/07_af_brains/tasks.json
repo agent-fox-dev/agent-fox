@@ -464,7 +464,7 @@
       "done_when": [
         "`go test ./internal/brain/... -count=1` passes offline with ANTHROPIC_API_KEY unset"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
