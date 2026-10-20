@@ -4,7 +4,6 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -162,16 +161,7 @@ func repositoryMap(ctx context.Context, dir string) (repomap.Result, error) {
 	if err != nil {
 		return repomap.Result{}, fmt.Errorf("the file view of %s: %w", dir, err)
 	}
-	entries := make([]repomap.Entry, len(files))
-	for i, f := range files {
-		entries[i] = repomap.Entry{Path: f, Size: -1}
-		if len(files) <= repomap.MaxOutlineFiles { // beyond that no file is outlined, and no size is read
-			if info, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(f))); err == nil {
-				entries[i].Size = info.Size()
-			}
-		}
-	}
-	res, err := repomap.Build(ctx, entries, repomap.NewOutliner(dir), mapTokens)
+	res, err := repomap.BuildDir(ctx, dir, files, mapTokens)
 	if err != nil {
 		return repomap.Result{}, fmt.Errorf("the map of %s: %w", dir, err)
 	}

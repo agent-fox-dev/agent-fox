@@ -1,0 +1,103 @@
+package fix
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/agent-fox-dev/agentfox/internal/agentdir"
+	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/project"
+)
+
+// State is fix.json: everything the later steps of a run need, written once the
+// preflight and the brief are done.
+type State struct {
+	RunID          string        `json:"run_id"`
+	Input          StateInput    `json:"input"`
+	Issue          *StateIssue   `json:"issue"`
+	Target         StateTarget   `json:"target"`
+	Base           string        `json:"base"`
+	BaseHead       string        `json:"base_head"`
+	Table          project.Table `json:"table"`
+	BaselineGateID string        `json:"baseline_gate_id"`
+	BaselinePassed bool          `json:"baseline_passed"`
+	BaselineMS     int64         `json:"baseline_ms"`
+	NoVerify       bool          `json:"no_verify"`
+	PrefixSHA256   string        `json:"prefix_sha256"`
+	Context        []string      `json:"context"`
+	Rounds         int           `json:"rounds"`
+}
+
+// StateInput is the input of a run, and the key that finds it again.
+type StateInput struct {
+	Kind   string `json:"kind"`
+	Origin string `json:"origin"`
+	Key    string `json:"key"`
+}
+
+// StateTarget is the repository a pull request is opened in, with its host, which a
+// later step builds its forge client from. It is empty when there is none.
+type StateTarget struct {
+	Repo string `json:"repo"`
+	Host string `json:"host"`
+}
+
+// StateIssue is the issue of a run: its URL and its title.
+type StateIssue struct {
+	URL   string `json:"url"`
+	Title string `json:"title"`
+}
+
+// StateFile is the name of the file, in the run directory.
+const StateFile = "fix.json"
+
+// InputKey identifies an input across runs: the URL of the issue, the absolute path
+// of the file, or the SHA-256 of the text, which is the body of a text or a standard
+// input. The questions of an earlier run are found by it.
+func InputKey(kind, origin, body string) string {
+	switch kind {
+	case "issue", "file":
+		return origin
+	}
+	sum := sha256.Sum256([]byte(body))
+	return hex.EncodeToString(sum[:])
+}
+
+// GateMS is how long the checks of a gate run took, added up: the time a measuring of
+// a change is expected to need.
+func GateMS(res *checks.Result) int64 {
+	var ms int64
+	if res != nil {
+		for _, c := range res.Checks {
+			ms += c.DurationMS
+		}
+	}
+	return ms
+}
+
+// Write stores the state in the run directory, atomically: a reader sees the file
+// as it was or as it is, and never half of it.
+func (s State) Write(runDir string) error {
+	data, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode %s: %w", StateFile, err)
+	}
+	return agentdir.WriteFileAtomic(filepath.Join(runDir, StateFile), append(data, '\n'))
+}
+
+// LoadState reads fix.json of a run directory.
+func LoadState(runDir string) (State, error) {
+	data, err := os.ReadFile(filepath.Join(runDir, StateFile))
+	if err != nil {
+		return State{}, err
+	}
+	var s State
+	if err := json.Unmarshal(data, &s); err != nil {
+		return State{}, fmt.Errorf("%s: %w", filepath.Join(runDir, StateFile), err)
+	}
+	return s, nil
+}

@@ -16,8 +16,15 @@ var FS embed.FS
 
 // Triage is the body of the af-triage skill without its frontmatter, which the
 // brief of a triage run carries.
-func Triage() string {
-	data, err := FS.ReadFile("af-triage")
+func Triage() string { return skill("af-triage") }
+
+// Fix is the body of the af-fix skill without its frontmatter, which the brief of a
+// fix run carries.
+func Fix() string { return skill("af-fix") }
+
+// skill is the body of an embedded skill.
+func skill(name string) string {
+	data, err := FS.ReadFile(name)
 	if err != nil {
 		// The file is embedded at build time; a missing one is a mistake in the
 		// build, which the tests find.
@@ -28,14 +35,14 @@ func Triage() string {
 
 // body is a skill without its frontmatter: the lines between the first two
 // lines of three dashes, and the blank line after them.
-func body(skill string) string {
-	rest, ok := strings.CutPrefix(skill, "---\n")
+func body(text string) string {
+	rest, ok := strings.CutPrefix(text, "---\n")
 	if !ok {
-		return skill
+		return text
 	}
 	_, after, ok := strings.Cut(rest, "\n---\n")
 	if !ok {
-		return skill
+		return text
 	}
 	return after
 }

@@ -26,8 +26,11 @@ const (
 
 // The warnings of the checks before a run.
 const (
-	WarnNoForgeToken = "no_forge_token"
-	WarnIssueClosed  = "issue_closed"
+	WarnNoForgeToken    = "no_forge_token"
+	WarnIssueClosed     = "issue_closed"
+	WarnBaselineFailing = "baseline_failing"
+	// WarnQuestionNotFound: an answer was given to a question no earlier run asked.
+	WarnQuestionNotFound = "question_not_found"
 )
 
 // maxDirtyNamed is how many dirty paths a refusal names.
@@ -36,7 +39,8 @@ const maxDirtyNamed = 20
 // PreflightParams is what the checks before a run are made against.
 type PreflightParams struct {
 	// Dir is --dir, absolute. Base is --base, or empty for the branch that is
-	// checked out. Land is one of the ways of landing.
+	// checked out. Land is one of the ways of landing, or empty for a command that
+	// lands nothing.
 	Dir, Base, Land string
 	NoVerify        bool
 	DryRun          bool
@@ -45,23 +49,36 @@ type PreflightParams struct {
 	Forge  issuex.Client
 	Target issuex.Repo
 	// NewBrain makes the brain of the run: the last of the checks, since it is
-	// the one that needs a credential of a model.
+	// the one that needs a credential of a model. A command that runs no brain
+	// has none.
 	NewBrain func() (brain.Brain, error)
+	// Gate runs the checks of the baseline; checks.Run when it is nil.
+	Gate func(ctx context.Context, dir string, o checks.Options) (checks.Result, error)
 	// Warn raises a warning of the run.
 	Warn func(code, message string)
 }
 
 // Preflighted is what a run goes on with once the checks have passed.
 type Preflighted struct {
-	Git       *gitx.Git
-	Base      string
+	Git *gitx.Git
+	// Base is the branch the fix is made on, and BaseHead the full hash of its commit.
+	Base, BaseHead string
+	// Detection holds the gate table, which is pinned for the run, and Files the
+	// file view of the checkout it was detected from.
 	Detection project.Detection
-	Brain     brain.Brain
+	Files     []string
+	// Baseline is the gate on the unchanged tree, and nil under --no-verify.
+	Baseline *checks.Result
+	Brain    brain.Brain
 }
 
 // Preflight runs the checks that need no model, in order, and stops at the first
 // that fails: the work tree, the branch, a clean tree, a gate, the landing, the
-// brain. A failure makes no model call and no write.
+// brain. A failure makes no model call and no write. A command that lands nothing
+// has no Land and a command that runs no brain has no NewBrain, and those two checks
+// are not made. When every check has passed it records the full hash of the base and
+// runs the gate once on the tree as it is, which is the baseline a change is
+// compared with, unless the run is not verified.
 func Preflight(ctx context.Context, p PreflightParams) (Preflighted, error) {
 	g := gitx.New(p.Dir, gitx.ExecRunner)
 	if err := checkTopLevel(ctx, g, p.Dir); err != nil {
@@ -74,18 +91,58 @@ func Preflight(ctx context.Context, p PreflightParams) (Preflighted, error) {
 	if err := checkClean(ctx, g); err != nil {
 		return Preflighted{}, err
 	}
-	detection, err := checkGate(ctx, p)
+	detection, files, err := checkGate(ctx, p)
 	if err != nil {
 		return Preflighted{}, err
 	}
-	if err := checkLanding(ctx, g, p); err != nil {
-		return Preflighted{}, err
+	if p.Land != "" {
+		if err := checkLanding(ctx, g, p); err != nil {
+			return Preflighted{}, err
+		}
 	}
-	b, err := p.NewBrain()
+	var b brain.Brain
+	if p.NewBrain != nil {
+		if b, err = p.NewBrain(); err != nil {
+			return Preflighted{}, err
+		}
+	}
+	head, err := g.RevParse(ctx, "HEAD")
 	if err != nil {
-		return Preflighted{}, err
+		return Preflighted{}, &toolio.Failure{Category: toolio.CategoryGit, Message: fmt.Sprintf("cannot read the commit of %s: %v", base, err)}
 	}
-	return Preflighted{Git: g, Base: base, Detection: detection, Brain: b}, nil
+	res := Preflighted{Git: g, Base: base, BaseHead: head, Detection: detection, Files: files, Brain: b}
+	if !p.NoVerify {
+		if res.Baseline, err = runBaseline(ctx, p, detection.Gate); err != nil {
+			return Preflighted{}, err
+		}
+	}
+	return res, nil
+}
+
+// runBaseline runs the pinned table once on the unchanged tree, in the default
+// mode of the runner and with no label: the label file is shared by every run in
+// the checkout, and a run that sets one could take another's. A red baseline is a
+// fact, and a warning.
+func runBaseline(ctx context.Context, p PreflightParams, table project.Table) (*checks.Result, error) {
+	run := p.Gate
+	if run == nil {
+		run = checks.Run
+	}
+	res, err := run(ctx, p.Dir, checks.Options{Table: table})
+	if err != nil {
+		var usageErr *checks.UsageError
+		switch {
+		case errors.As(err, &usageErr):
+			return nil, usage("%s", usageErr.Message)
+		case ctx.Err() != nil:
+			return nil, ctx.Err()
+		}
+		return nil, &toolio.Failure{Category: toolio.CategoryIO, Message: fmt.Sprintf("the baseline gate could not run: %v", err)}
+	}
+	if !res.Passed {
+		p.Warn(WarnBaselineFailing, "the gate fails on the tree as it is, before any change; a check that already fails is not counted against the change")
+	}
+	return &res, nil
 }
 
 func usage(format string, args ...any) *toolio.Failure {
@@ -151,11 +208,12 @@ func checkClean(ctx context.Context, g *gitx.Git) error {
 	return preflight("the working tree is not clean, and every change in it must be the run's own: commit, stash or remove %s", list)
 }
 
-// checkGate checks that there is something to measure the change by.
-func checkGate(ctx context.Context, p PreflightParams) (project.Detection, error) {
+// checkGate checks that there is something to measure the change by, and gives the
+// table and the file view it was detected from.
+func checkGate(ctx context.Context, p PreflightParams) (project.Detection, []string, error) {
 	files, err := checks.FileView(ctx, p.Dir)
 	if err != nil {
-		return project.Detection{}, &toolio.Failure{Category: toolio.CategoryIO, Message: err.Error()}
+		return project.Detection{}, nil, &toolio.Failure{Category: toolio.CategoryIO, Message: err.Error()}
 	}
 	detection, err := project.Detect(p.Dir, files)
 	if err != nil {
@@ -163,17 +221,17 @@ func checkGate(ctx context.Context, p PreflightParams) (project.Detection, error
 		if errors.Is(err, project.ErrGateConfig) {
 			category = toolio.CategoryConfig
 		}
-		return project.Detection{}, &toolio.Failure{Category: category, Message: err.Error()}
+		return project.Detection{}, nil, &toolio.Failure{Category: category, Message: err.Error()}
 	}
 	if p.NoVerify {
-		return detection, nil
+		return detection, files, nil
 	}
 	for _, c := range detection.Gate.Checks {
 		if c.Available {
-			return detection, nil
+			return detection, files, nil
 		}
 	}
-	return project.Detection{}, &toolio.Failure{
+	return project.Detection{}, nil, &toolio.Failure{
 		Category: toolio.CategoryPreflight,
 		Message:  "no check of the gate can be run here, so the change could not be measured: add a Makefile check target or a .agent-fox/gate.json, or pass --no-verify",
 		FixHint:  &toolio.FixHint{Flag: "--no-verify"},

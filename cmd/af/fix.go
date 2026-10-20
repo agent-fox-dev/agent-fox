@@ -6,11 +6,11 @@ import (
 	"os"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/brain"
+	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/fix"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
@@ -23,6 +23,9 @@ var fixRegistry = brain.Default
 // and the provider and the credentials the brain finds for itself. A test
 // replaces it with a brain on the faux provider.
 var fixBrainOptions = func() brain.Options { return brain.Options{Model: os.Getenv("AF_MODEL")} }
+
+// fixGate runs the checks of the baseline; a test counts the runs with its own.
+var fixGate = checks.Run
 
 // The defaults of the fix commands.
 const (
@@ -83,7 +86,7 @@ func registerFix(app *toolio.App) {
 		Flags: func(fs *flag.FlagSet) {
 			o = fixOptions{attempts: fixDefaultAttempts, land: fix.LandPR}
 			o.settings = brain.Flags(fs, brain.Defaults{Budget: fixDefaultBudget, MaxTurns: fixDefaultMaxTurns})
-			fs.StringVar(&o.base, "base", "", "the `branch` the fix is made on and goes back to; the one that is checked out when it is not given")
+			fs.StringVar(&o.base, "base", "", baseUsage)
 			fs.Var(&o.attempts, "attempts", "up to `n` attempts, each with a budget of its own; from 1 to 5")
 			fs.Var(&o.land, "land", "where the change goes, as a `mode`: pr (push the branch and open a pull request), branch (push it), or none (keep it on a local branch)")
 			fs.BoolVar(&o.noVerify, "no-verify", false, "land without the gate: no baseline, no check after, a draft that says Refs")
@@ -104,8 +107,8 @@ func registerFix(app *toolio.App) {
 
 // fixLoop is a fix run from the report to the pull request.
 func fixLoop(r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
-	if r.Input.Kind == toolio.KindIssue && r.Input.Issue != nil && r.Input.Issue.IsPullRequest {
-		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("%s is a pull or merge request: fix takes an issue, a file or text", r.Input.Issue.URL())}
+	if err := refusePullRequest(r); err != nil {
+		return toolio.Outcome{}, err
 	}
 	if err := o.settings.Validate(); err != nil {
 		return toolio.Outcome{}, err
@@ -119,7 +122,7 @@ func fixLoop(r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 
 	_, err := fix.Preflight(r.Ctx, fix.PreflightParams{
 		Dir: r.Dir, Base: o.base, Land: string(o.land), NoVerify: o.noVerify, DryRun: r.DryRun,
-		Forge: r.Forge, Target: r.Target, Warn: r.Warn,
+		Forge: r.Forge, Target: r.Target, Warn: r.Warn, Gate: fixGate,
 		NewBrain: func() (brain.Brain, error) {
 			opts := fixBrainOptions()
 			opts.Script = o.settings.Script
@@ -129,8 +132,6 @@ func fixLoop(r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
-	if r.Input.Kind == toolio.KindIssue && r.Input.Thread != nil && strings.EqualFold(r.Input.Thread.Issue.State, "closed") {
-		r.Warn(fix.WarnIssueClosed, fmt.Sprintf("%s is closed; the run goes on", r.Input.Issue.URL()))
-	}
+	warnIssueClosed(r)
 	return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryInternal, Message: "fix loop not wired"}
 }
