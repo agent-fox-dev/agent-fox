@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/submission"
+	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	agentkit "github.com/agent-fox-dev/agentkit-go"
 	"github.com/agent-fox-dev/agentkit-go/core"
 )
@@ -25,6 +25,9 @@ func init() {
 type agentkitBrain struct {
 	model    string
 	provider core.ProviderClient
+	// priced says the cost of a run can be measured: the catalog lists the model,
+	// or the provider is one the caller made.
+	priced bool
 }
 
 // newAgentkit makes the brain. The provider is Options.NewProvider's, or the
@@ -37,15 +40,16 @@ func newAgentkit(opts Options) (Brain, error) {
 	}
 	var provider core.ProviderClient
 	var err error
+	priced := true
 	if opts.NewProvider != nil {
 		provider, err = opts.NewProvider(model)
 	} else {
-		provider, err = anthropicProvider(model, opts.lookup())
+		provider, priced, err = anthropicProvider(model, opts.lookup())
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &agentkitBrain{model: model, provider: provider}, nil
+	return &agentkitBrain{model: model, provider: provider, priced: priced}, nil
 }
 
 // agentkitRun is one run of the driver: what its guard and its interceptor
@@ -55,7 +59,6 @@ type agentkitRun struct {
 	brief    Brief
 	cancel   context.CancelFunc
 	accepted atomic.Bool
-	denied   sync.Map // the ids of the calls the gate denied, which it has recorded already
 }
 
 // Run sends the task as the first user message of the driver, with the prefix
@@ -71,14 +74,18 @@ func (a *agentkitBrain) Run(ctx context.Context, b Brief) (Outcome, error) {
 	if err := ValidateTools(b.Tools, b.Box.Tools()); err != nil {
 		return Outcome{StopReason: StopError}, err
 	}
-	var tr *Transcript
-	if b.TranscriptPath != "" {
-		var err error
-		if tr, err = NewTranscript(b.TranscriptPath); err != nil {
-			return Outcome{StopReason: StopError}, fmt.Errorf("the transcript cannot be written: %w", err)
+	if !a.priced && b.MaxCostUSD > 0 {
+		return Outcome{StopReason: StopError}, &toolio.Failure{
+			Category: toolio.CategoryUsage,
+			Message:  fmt.Sprintf("the cost bound of $%s cannot be enforced: the model %s is not in the catalog, so what a run of it costs is not known", decimal(b.MaxCostUSD), a.model),
+			FixHint:  &toolio.FixHint{Env: modelVar},
 		}
-		defer tr.Close()
 	}
+	tr, err := openTranscript(b)
+	if err != nil {
+		return Outcome{StopReason: StopError}, err
+	}
+	defer closeTranscript(tr, b)
 	gate, err := GateFor(ctx, b, AgentkitName, tr)
 	if err != nil {
 		return Outcome{StopReason: StopError}, err
@@ -105,13 +112,21 @@ func (a *agentkitBrain) Run(ctx context.Context, b Brief) (Outcome, error) {
 		return Outcome{StopReason: StopError}, err
 	}
 
+	if !a.priced && b.Warn != nil {
+		b.Warn("model_unpriced", fmt.Sprintf("the model %s is not in the catalog, so the run has no cost to report", a.model))
+	}
 	res, runErr := agent.Run(runCtx, b.Task)
-	return r.outcome(ctx, res, runErr, b.TranscriptPath)
+	out, err := r.outcome(ctx, res, runErr, b.TranscriptPath)
+	if !a.priced {
+		out.CostUSD, out.CostSource = 0, CostNone
+	}
+	return out, err
 }
 
 // toolset is the driver's tools: the box's tools that the brief allows, the
-// others as stubs that deny (and that the model is not told of), and the
-// terminating tool. It returns the names of the tools that are hidden.
+// others as stubs that deny (which the model is not offered and whose guidelines
+// stay out of the system prompt), and the terminating tool. It returns the names
+// of the tools that are hidden.
 func (r *agentkitRun) toolset() (agentkit.Toolset, []string, error) {
 	b := r.brief
 	var tools []core.Tool
@@ -123,6 +138,7 @@ func (r *agentkitRun) toolset() (agentkit.Toolset, []string, error) {
 		}
 		stub := t
 		stub.Handler = nil
+		stub.PromptGuidelines = nil
 		stub.Execute = func(context.Context, json.RawMessage) core.ToolResult {
 			return Denial(fmt.Sprintf("tool %s is not in this run's allowlist", t.Name))
 		}
@@ -135,7 +151,10 @@ func (r *agentkitRun) toolset() (agentkit.Toolset, []string, error) {
 	}
 	tools = append(tools, core.Tool{
 		Name: b.Kind.ToolName, Description: b.Kind.Description, InputSchema: in, Terminating: true,
-		Execute: r.submit,
+		// One call at a time: the submit tool reads the box and writes the one
+		// file, and the second of two submits in a turn comes after the first.
+		ExecutionMode: core.Sequential,
+		Execute:       r.submit,
 	})
 	return agentkit.Toolset{Tools: tools, Guard: r.guard, After: r.after}, hidden, nil
 }
@@ -157,25 +176,22 @@ func (r *agentkitRun) submit(ctx context.Context, in json.RawMessage) core.ToolR
 }
 
 // guard is the driver's interceptor before a call: the gate decides, and a
-// denied call is recorded here, since it will not run.
+// denied call is recorded here, since the driver does not run it and does not
+// give it to the interceptor after a call.
 func (r *agentkitRun) guard(ctx context.Context, in core.BeforeToolCallContext) core.BeforeToolCallDecision {
 	v := r.gate.Decide(in.ToolName, in.Arguments)
 	if v.Decision == DecisionAllow {
 		return core.BeforeToolCallDecision{}
 	}
-	r.denied.Store(in.ToolUseID, true)
 	r.gate.Record(in.ToolName, in.RawInput, v, false, v.Reason, 0)
 	return core.BeforeToolCallDecision{Block: true, Reason: v.Reason}
 }
 
 // after is the driver's interceptor after a call: what ran is recorded with its
 // result. An accepted submission ends the run, by the vote of the terminating
-// tool and, for a model that submitted among other calls of the same turn, by
-// cancelling the driver's context.
+// tool and by this interceptor's own, and cancels the driver's context, which
+// aborts the calls of the same turn that have not started.
 func (r *agentkitRun) after(ctx context.Context, in core.AfterToolCallContext) core.AfterToolCallDecision {
-	if _, was := r.denied.LoadAndDelete(in.ToolUseID); was {
-		return core.AfterToolCallDecision{}
-	}
 	args, _ := json.Marshal(in.Arguments)
 	r.gate.Record(in.ToolName, args, Verdict{Decision: DecisionAllow}, in.ToolResult.OK, in.ToolResult.LLMText(), in.Elapsed)
 	if in.ToolName == r.brief.Kind.ToolName && r.accepted.Load() {

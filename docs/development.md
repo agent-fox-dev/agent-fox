@@ -29,7 +29,7 @@ change as the code: a document that is out of date is a regression.
 |---|---|
 | `cmd/af` | The binary. `main.go` hands the process to the shell; each command is a file here (`lang.go`, `gate.go`, `gate_compare.go`, `revert_check.go`, `guard.go`, `map.go`) that registers it, with its flags, its result and the JSON Schema of the result in `schemas/`. |
 | `internal/toolio` | The command shell: the envelope, exit codes, coded warnings, `--dir` and `--timeout`, `--schema`, the positional input, the run directory. |
-| `internal/agentdir` | The `.agent-fox/` directory and its `.gitignore`, and the atomic write every file in it is made with. |
+| `internal/agentdir` | The `.agent-fox/` directory and its `.gitignore`, and the atomic write the files the host keeps in it are made with (the submission core's `RootWriter` is the root-confined variant of it). |
 | `internal/gitx` | The git and process invocations, hermetic and issued from Go: the runners, the NUL-separated listings of files and of changed paths. |
 | `internal/project` | What a repository is written in and how it is checked: the languages, the gate table (`gate.json`, the Makefile, the manifests), the suite forms, the programs, and which paths are tests. |
 | `internal/checks` | The file view and the tree hash; the gate engine and its cache (`.agent-fox/gate/`), the labels and the comparison of two results. |
@@ -37,7 +37,7 @@ change as the code: a document that is out of date is a regression.
 | `internal/policy` | The guard: the tokenizer, the rules, the policy files, and the decision for a tool call. |
 | `internal/repomap` | The repository map at a token budget. |
 | `internal/box` | The box that holds a brain's tree: a registry of providers (`local`), `Open` and `Sync` (the checkout goes in with its `.git`), a read-only `FS`, `WriteFile` under `.agent-fox/`, `Export` (without `.git`), `Close`, and `With`, which closes on every path. Every name of the hands' sandbox module that is not a type is in `adapter.go`. |
-| `internal/submission` | The submission protocol: `Kind`, `Submit` (the one path to a submission file, which validates before it writes), `RootWriter`, and `Command`, the `af <agent> submit` command of a kind. |
+| `internal/submission` | The submission protocol: `Kind`, `Submit` (the path to a submission file for a brain that is af's own: it validates before it writes), `Check` (what the host asks of a file it did not write), `RootWriter`, and `Command`, the `af <agent> submit` command of a kind. |
 | `internal/brain` | The `Brain` contract and its registry, the shared flags, `Execute` (place the brief, run the brain, decide from the file), the tool gate and the transcript, the `scripted` brain and the `agentkit` brain. |
 
 The five packages from `project` to `repomap` (not the three after them, which are
@@ -69,7 +69,7 @@ so nothing in it changes a tree hash.
 | `gate/<id>/result.json` | `gate run` | The result for the key `<id>`: the SHA-256 of the tree hash, the checks and the runner mode, 12 hex characters. Written after the logs, through a temporary file and a rename. |
 | `gate/labels.json` | `gate run --label` | `{label: id}`; the latest result for a label wins. |
 | `revert/<id>/` | `revert-check` | The backup that exists while the check is working: `manifest.json`, `index` (the index as it was) and `files/` (a copy of every file it changes). `<id>` is 12 random hex characters, and the directory, made exclusively, is the claim on the checkout. `changed/` holds what a path held when it was changed while the checks ran. It is removed when the tree is back. One that is left was left by a check that was killed or that could not put the tree back, and the next check refuses until someone has looked at it. |
-| `run/<id>/` | the shell | The run directory of a command that has one; see [cli.md](cli.md#the-run-directory). None of the ring-1 commands makes one. |
+| `run/<id>/` | the shell | The run directory of a command that has one; see [cli.md](cli.md#the-run-directory). None of the ring-1 commands makes one. A command that runs a brain adds its briefs, hook, accepted submission, transcripts and a panic's stack; the box has a `run/<id>/` of its own with `brief.md`, `run.json`, `hook.json` and `submission.json`. |
 
 ## Tests
 

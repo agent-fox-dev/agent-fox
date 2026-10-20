@@ -3,12 +3,14 @@ package brain
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/policy"
+	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentkit-go/core"
 )
 
@@ -40,13 +42,22 @@ type Verdict struct {
 	Reason   string
 }
 
-// Gate is the one check every tool call of an in-process brain passes. A call
-// is allowed only when its tool is on the brief's allowlist (the terminating
-// tool always is) and the ring-1 guard, given the brief's hook, allows it: no
-// shell command that the guard refuses, and no write to a path that the hook
-// protects, which always includes .agent-fox/, where only af writes. A denied
-// call is never executed, and its reason goes back to the brain as the tool's
-// error result, which is the brain's next turn.
+// Gate is the one check every tool call of an in-process brain passes that the
+// brain's driver hands it. A call is allowed only when its tool is on the
+// brief's allowlist (the terminating tool always is) and the ring-1 guard,
+// given the brief's hook, allows it: no shell command that the guard refuses,
+// and no write to a path that the hook protects, which always includes
+// .agent-fox/, where only af writes. A denied call is never executed, and its
+// reason goes back to the brain as the tool's error result, which is the
+// brain's next turn.
+//
+// The guard is prevention and not a boundary (internal/policy says the same).
+// It reads a command as the shell would, and does not read what a program
+// writes: a script that an allowed program runs can write where the guard would
+// refuse a redirect, and the guard decides a batch of calls before the earlier
+// calls of the batch have run. What a brain cannot do is make a submission af
+// accepts without the submission being valid: the host reads the file and checks
+// it again (decide).
 type Gate struct {
 	brain      string
 	allowed    map[string]bool
@@ -77,6 +88,9 @@ func NewGate(cfg GateConfig) (*Gate, error) {
 	for _, t := range cfg.Box {
 		g.byName[t.Name] = t
 	}
+	if _, clash := g.byName[cfg.Terminating]; clash {
+		return nil, fmt.Errorf("brain: the tool of the kind, %s, has the name of a tool of the box, which it would hide", cfg.Terminating)
+	}
 	if g.dir == "" {
 		g.dir = "."
 	}
@@ -93,6 +107,10 @@ func NewGate(cfg GateConfig) (*Gate, error) {
 // to run.
 func GateFor(ctx context.Context, b Brief, brainName string, transcript *Transcript) (*Gate, error) {
 	pol, err := policy.LoadPolicy(ctx, b.Box.HostDir(), "")
+	var bad *policy.ConfigError
+	if errors.As(err, &bad) {
+		return nil, &toolio.Failure{Category: toolio.CategoryConfig, Message: fmt.Sprintf("the guard policy cannot be used, so the brain's tool calls cannot be judged: %v", bad)}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("brain: the guard policy of %s cannot be loaded: %w", b.Box.HostDir(), err)
 	}
@@ -132,7 +150,10 @@ func (g *Gate) Decide(tool string, args map[string]any) Verdict {
 	if _, isBox := g.byName[tool]; !isBox {
 		return Verdict{Decision: DecisionAllow} // the terminating tool, which the brain wires in
 	}
-	if d := policy.DecideAt(g.policy, g.dir, g.dir, tool, args); d.Decision == policy.Deny {
+	// The tool resolves a path as the workspace does (it takes off the quotes and
+	// the @ a model puts on one, and the spaces around it), so the guard must
+	// judge the path that the tool will use, and not the spelling it was given.
+	if d := policy.DecideAt(g.policy, g.dir, g.dir, tool, normalisedPaths(args)); d.Decision == policy.Deny {
 		return Verdict{Decision: DecisionDeny, Reason: d.Reason}
 	}
 	return Verdict{Decision: DecisionAllow}

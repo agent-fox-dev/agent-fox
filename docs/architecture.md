@@ -148,8 +148,8 @@ the run directory, and a command adds its own beside them:
 | `report.md` | the command, through `RunDir.WriteReport` | a report, listed in the envelope as an artifact |
 | `panic.txt` | the shell | the stack of a panic of the command |
 | `brief.<attempt>.md`, `hook.json` | `brain.Execute` | the brief a brain was given, and the hook configuration placed with it |
-| `submission.json` | `brain.Execute` | the accepted submission, copied from the box once it is validated again |
-| `transcript.<attempt>.jsonl` | an in-process brain | its tool calls, `{seq, tool, args, decision, reason, ok, result}` with `args` and `result` cut to 4096 bytes; af never reads it |
+| `submission.json` | `brain.Execute` | the accepted submission, written from what the host checked again in the box's file, and only if there is one: an attempt that has none leaves no such file |
+| `transcript.<attempt>.jsonl` | an in-process brain | its tool calls that reached the gate, `{seq, tool, args, decision, reason, ok, result}` with `args` and `result` cut to 4096 bytes, and the steps of a script that were skipped, `{seq, skipped, step, what}`; af never reads it |
 | `brain-panic.<attempt>.txt` | `brain.Execute` | the stack of a brain that panicked |
 
 The box has run files of its own under `.agent-fox/run/<id>/`: `brief.md`,
@@ -161,8 +161,8 @@ lists.
 
 `toolio.OpenRunDir(dir, id)` opens an existing run for the commands that
 carry one on (`submit`, `land`); an id that is not of the form of a run id is
-refused before any path is made of it. The briefs, the baseline and the
-submission that later specs keep in the run directory join these files.
+refused before any path is made of it. The baseline and the other files that
+later specs keep in the run directory join these files.
 [`docs/cli.md`](cli.md) has the formats in full.
 
 ### Ring 1, as built
@@ -334,8 +334,9 @@ The run directory stays on the host, as *State* says. What the box needs
 of it, the rendered brief and the gate's command table, is synced in under
 the workspace's ignored `.agent-fox/`; what the brain produces for `af`,
 the submission, is a file in the same place, written by `af task submit`
-inside after validation and read by the host through `read_file` when the
-brain's process ends. The Brain interface's rule holds: the submission
+inside after validation and read by the host from the box when the
+brain's process ends (as built, with the list tool and a single-file export,
+not `read_file`: see *The brain interface, as built*). The Brain interface's rule holds: the submission
 arrives through `af`, never by parsing the brain's output. The gate cache
 is keyed by tree hash on both sides, so a gate the brain ran inside is a
 hit for the landing gate the host runs through the same `execute`.
@@ -474,14 +475,15 @@ type Brief struct {
     Kind           submission.Kind // what the brain submits and how it is validated
     Prefix, Task   string         // Document() is Prefix + Task; Prefix is byte-identical across attempts
     Tools          []string       // the allowlist of box tool names
-    Hook           HookConfig     // {run_id, protected_paths, allow_programs}; always protects .agent-fox/
+    Hook           HookConfig     // {run_id, protected_paths, allow_programs}; the one Execute hands the brain protects .agent-fox/
     Box            *box.Session   // never nil in this release
     Env            map[string]string // for a brain started inside the box; empty for the in-process brains
     MaxCostUSD     float64
     MaxTurns       int
     Timeout        time.Duration
     TranscriptPath string         // a host path the brain may write a transcript to
-    Observe        func(ToolCall) // told of every tool call
+    Observe        func(ToolCall) // told of every tool call that reaches the gate
+    Warn           func(code, message string) // a warning of the run, such as a transcript that cannot be written
 }
 
 type Outcome struct {
@@ -497,8 +499,12 @@ type Outcome struct {
 `Brief.Box` is a `*box.Session` and not the hands' `sandbox.Sandbox`, because a
 brain needs the run-file writes, the read view and the tools together, and the
 session keeps the sandbox's API behind one adapter file. `Outcome` is used for
-the envelope's `usage` and for one warning, `submission_claim_mismatch`:
-whether a submission exists is decided from the file alone.
+the envelope's `usage`, for one warning, `submission_claim_mismatch`, and to tell
+which bound a run without a submission reached: whether a submission exists is
+decided from the file alone. `box.Session.FS` is read-only and built on the
+box's own tools: a directory is listed with the list tool and a file is
+exported, one file at a time, because the read tool shows lines, caps them, and
+takes the box down on a file that is not UTF-8.
 
 **Choosing.** `brain.Registry` holds `Entry{Name, CostSource, BoxEnv, New}`; the
 default has `agentkit` (cost source `measured`) and `scripted` (`none`).
@@ -507,26 +513,35 @@ else does: it is empty for both. `box` has a registry of providers of its own,
 with `local` in it. `brain.Flags` is the shared set of flags ([cli.md](cli.md#brains-and-boxes)).
 
 **Running.** `brain.Execute(ctx, Request{Session, Name, Brain, Brief, RunDir,
-Report, Tally, Heartbeat, Rand})` runs one brief in a held box
-(`box.With` opens it and closes it on every path). Before the brain it draws a
+Report, Tally, Heartbeat, Rand})` runs one brief in a held box (the caller opens
+it with `box.With`, which closes it on every path). Before the brain it draws a
 16-hex nonce and writes into the box `.agent-fox/.gitignore`, `brief.md`,
 `run.json` (`{run_id, kind, attempt, nonce}`) and `hook.json`, and into the run
 directory `brief.<attempt>.md` and `hook.json`; then it runs the brain, adds its
 cost to the `Tally` (a failed attempt and a panic included) and decides from the
-box's `submission.json` whether there is a submission (see [cli.md](cli.md#brains-and-boxes)).
+box's `submission.json` whether there is a submission, also after a panic (see
+[cli.md](cli.md#brains-and-boxes)). A run is one `Execute` at a time in a box.
 The nonce makes a stale file, left by an earlier attempt or by a sync, count as
 no submission whatever the sync does with `.agent-fox/`.
 
 **The submission file** is written by one function, `submission.Submit`, which
 validates before it writes and never leaves a refused one: inside a box a brain
 reaches it through its terminating tool (`agentkit`), a step of its script
-(`scripted`), or `af <agent> submit` (a brain with its own hands).
+(`scripted`), or `af <agent> submit` (a brain with its own hands). A brain whose
+process can write the file some other way (the `local` box is not isolated) gains
+nothing by it: the host reads the file again with `submission.Check`, and keeps
+the file it writes itself from what it checked.
 
 **The tool gate.** Both in-process brains send every call through one gate: the
 brief's allowlist, then the ring-1 policy (`policy.DecideAt`) with the brief's
-hook and the suite of the checkout, which is the same rule set that `af guard
-check` gives a hook. The `agentkit` brain uses it as the driver's `Guard` and
-`After`.
+hook and the suite of the checkout, which are the rules of `af guard check`
+configured by the brief's hook (the gate does not read the checkout's
+`guard.json` beyond its suite; a `guard.json` that cannot be used is a `config`
+failure). The paths of a write are normalised as the box's tools do before they
+are judged. The `agentkit` brain uses it as the driver's `Guard` and `After`; a
+call the driver answers itself (a tool that does not exist, arguments that do
+not fit) never reaches it. The policy is prevention and not a boundary, as its
+package says.
 
 **Placement.** In this release the `agentkit` brain always runs on the host,
 over the box's tools, which is the only placement that means anything with the

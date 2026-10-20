@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"time"
@@ -69,8 +70,8 @@ func newScripted(opts Options) (Brain, error) {
 	if err := dec.Decode(&file); err != nil {
 		return nil, usage("is not a script, {\"steps\": [...]}: %v", err)
 	}
-	if _, err := dec.Token(); err == nil {
-		return nil, usage("holds more than one JSON document")
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, usage("holds more than one JSON document, or text after its object")
 	}
 	for i, st := range file.Steps {
 		if msg := st.check(); msg != "" {
@@ -122,14 +123,11 @@ func (s *scripted) Run(ctx context.Context, b Brief) (Outcome, error) {
 	if err := ValidateTools(b.Tools, b.Box.Tools()); err != nil {
 		return Outcome{StopReason: StopError}, err
 	}
-	var tr *Transcript
-	if b.TranscriptPath != "" {
-		var err error
-		if tr, err = NewTranscript(b.TranscriptPath); err != nil {
-			return Outcome{StopReason: StopError}, fmt.Errorf("the transcript cannot be written: %w", err)
-		}
-		defer tr.Close()
+	tr, err := openTranscript(b)
+	if err != nil {
+		return Outcome{StopReason: StopError}, err
 	}
+	defer closeTranscript(tr, b)
 	gate, err := GateFor(ctx, b, ScriptedName, tr)
 	if err != nil {
 		return Outcome{StopReason: StopError}, err

@@ -528,6 +528,18 @@ func (g *Git) ListFiles(ctx context.Context) ([]string, error) {
 	return sortedUnique(splitNUL(out)), nil
 }
 
+// TrackedIgnored lists the tracked files that an ignore rule matches, as
+// `git status` shows them when they are clean: committed before the rule was
+// written, or added with -f. They are NUL-separated, byte for byte, relative to
+// Dir, de-duplicated and sorted.
+func (g *Git) TrackedIgnored(ctx context.Context) ([]string, error) {
+	out, err := g.raw(ctx, "ls-files", "-z", "--cached", "--ignored", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	return sortedUnique(splitNUL(out)), nil
+}
+
 // ChangedPaths lists the paths that differ from since, staged or not, and the
 // untracked files that are not ignored, NUL-separated and byte for byte,
 // de-duplicated and sorted. A renamed file is both of its paths, so that a

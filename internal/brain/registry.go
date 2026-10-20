@@ -14,6 +14,9 @@ import (
 // Getenv looks a host variable up: its value, and whether it is set.
 type Getenv func(name string) (string, bool)
 
+// modelVar is the variable that names the model of the agentkit brain.
+const modelVar = "AF_MODEL"
+
 // Options is what a brain is constructed from.
 type Options struct {
 	// Model is the model to use, from AF_MODEL; empty is the driver's default.
@@ -107,6 +110,9 @@ func (r *Registry) New(name string, opts Options) (Brain, error) {
 // names in the entry's BoxEnv that are set, and nothing else. It is never nil.
 func BuildBoxEnv(e Entry, getenv Getenv) map[string]string {
 	env := map[string]string{}
+	if getenv == nil {
+		getenv = os.LookupEnv
+	}
 	for _, name := range e.BoxEnv {
 		if v, ok := getenv(name); ok {
 			env[name] = v

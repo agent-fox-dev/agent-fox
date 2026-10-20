@@ -63,7 +63,7 @@ func newGate(t *testing.T, spy *spyTools, allowed []string, hook HookConfig, obs
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { tr.Close() })
+	t.Cleanup(func() { _ = tr.Close() })
 	if hook.ProtectedPaths == nil {
 		hook.ProtectedPaths = []string{".agent-fox/"}
 	}
@@ -84,7 +84,7 @@ func lines(t *testing.T, path string) []map[string]any {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var out []map[string]any
 	sc := bufio.NewScanner(f)
 	sc.Buffer(nil, 1<<20)
@@ -169,7 +169,7 @@ func TestTheGuardDecidesTheRest_TS_07_60(t *testing.T) {
 func TestWritesUnderAgentFoxAreDenied_TS_07_61(t *testing.T) {
 	w := newWorld(t)
 	b := w.brief(1)
-	Execute(context.Background(), w.request(b, stubBrain(func(context.Context, Brief) (Outcome, error) { return Outcome{}, nil })))
+	_, _ = Execute(context.Background(), w.request(b, stubBrain(func(context.Context, Brief) (Outcome, error) { return Outcome{}, nil })))
 	run := ".agent-fox/run/" + w.run.ID + "/run.json"
 	before, err := w.boxFile(run)
 	if err != nil {

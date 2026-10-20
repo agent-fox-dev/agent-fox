@@ -3,6 +3,7 @@ package box
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -20,7 +21,10 @@ type Request struct {
 	// RunID and Tool label the sandbox: af.run_id and af.tool.
 	RunID string
 	Tool  string
-	// Env is the environment of the box's tools, and nothing else.
+	// Env is what the box's tools are given on top of what the provider gives
+	// them, which for `local` is the host's PATH, LANG and TERM and a HOME and a
+	// TMPDIR of the box's own. No token and no key is among it unless a brain asks
+	// for it by name.
 	Env map[string]string
 	// TTL bounds the box's lifetime; zero is the provider's default.
 	TTL time.Duration
@@ -78,6 +82,9 @@ func Open(ctx context.Context, req Request) (*Session, error) {
 		return nil, s.abandon(ctx, &toolio.Failure{Category: toolio.CategorySandbox, Message: fmt.Sprintf("the %s provider could not give the box's tools: %v", entry.Name, err)})
 	}
 	s.tools = tools
+	if err := s.scrubGit(ctx); err != nil {
+		return nil, s.abandon(ctx, err)
+	}
 
 	if entry.Unconfined && req.Warn != nil {
 		req.Warn("box_unconfined", unconfinedMessage)
@@ -85,11 +92,20 @@ func Open(ctx context.Context, req Request) (*Session, error) {
 	return s, nil
 }
 
-// topLevel checks that dir is the top level of a git work tree, and returns
-// it. Both paths are compared after their links are resolved, because git
-// prints the real path of the top level.
+// topLevel checks that dir is the top level of a git work tree that keeps
+// its .git in it, and returns it with its links resolved. Both are compared as
+// the files they are, because git prints the real path of the top level, and
+// the file system may not tell two spellings of one path apart.
+//
+// A work tree whose .git is a file (a linked worktree, a submodule) keeps git's
+// state outside the tree, in the host's repository: a commit made in a box that
+// held it would write there. The box has no such tree.
 func topLevel(ctx context.Context, dir string) (string, error) {
-	g := gitx.New(dir, nil)
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("--dir %s: %v", dir, err)}
+	}
+	g := gitx.New(abs, nil)
 	if !g.IsRepo(ctx) {
 		return "", &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("--dir %s is not inside a git work tree: the box needs the top level of one, with its .git", dir)}
 	}
@@ -97,15 +113,17 @@ func topLevel(ctx context.Context, dir string) (string, error) {
 	if err != nil {
 		return "", &toolio.Failure{Category: toolio.CategoryGit, Message: fmt.Sprintf("cannot find the top level of the work tree of %s: %v", dir, err)}
 	}
-	real, err := filepath.EvalSymlinks(dir)
+	real, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		return "", &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("--dir %s: %v", dir, err)}
 	}
-	if realTop, err := filepath.EvalSymlinks(top); err == nil {
-		top = realTop
-	}
-	if filepath.Clean(real) != filepath.Clean(top) {
+	given, gerr := os.Stat(real)
+	found, ferr := os.Stat(top)
+	if gerr != nil || ferr != nil || !os.SameFile(given, found) {
 		return "", &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("--dir %s is inside a work tree but is not its top level, %s: the box needs the top level, so that .git is at its root", dir, top)}
+	}
+	if info, err := os.Lstat(filepath.Join(real, ".git")); err != nil || !info.IsDir() {
+		return "", &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("--dir %s does not hold its own .git directory (a linked worktree or a submodule keeps git's state in another repository, which a commit in the box would write): the box needs a checkout of its own", dir)}
 	}
 	return real, nil
 }

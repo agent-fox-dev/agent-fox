@@ -44,6 +44,9 @@ func newRepo(t *testing.T) string {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")
 	}
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh is not installed: the box runs its commands with it")
+	}
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -255,7 +258,7 @@ func TestExecutePlacesTheRunFiles_TS_07_40(t *testing.T) {
 		return Outcome{}, nil
 	})
 
-	Execute(context.Background(), w.request(b, brain))
+	_, _ = Execute(context.Background(), w.request(b, brain))
 
 	if files["gitignore"] != "*" {
 		t.Errorf(".agent-fox/.gitignore = %q, want *", files["gitignore"])
@@ -302,7 +305,7 @@ func TestHookAlwaysProtectsAgentFox_TS_07_41(t *testing.T) {
 		b := w.brief(i + 1)
 		b.Hook = hc
 
-		Execute(context.Background(), w.request(b, stubBrain(func(context.Context, Brief) (Outcome, error) { return Outcome{}, nil })))
+		_, _ = Execute(context.Background(), w.request(b, stubBrain(func(context.Context, Brief) (Outcome, error) { return Outcome{}, nil })))
 
 		boxHook, err := w.boxFile(".agent-fox/run/" + w.run.ID + "/hook.json")
 		if err != nil {
@@ -346,7 +349,7 @@ func TestExecuteWritesHostCopiesAndWiresTheBrief_TS_07_42(t *testing.T) {
 		return Outcome{}, nil
 	})
 
-	Execute(context.Background(), w.request(b, brain))
+	_, _ = Execute(context.Background(), w.request(b, brain))
 
 	if got, err := os.ReadFile(filepath.Join(w.run.Path, "brief.2.md")); err != nil || string(got) != b.Document() {
 		t.Errorf("brief.2.md = %q, %v", got, err)
@@ -382,7 +385,7 @@ func TestExecuteEmitsStepsAndHeartbeats_TS_07_43(t *testing.T) {
 	}))
 	req.Heartbeat = 10 * time.Millisecond
 
-	Execute(context.Background(), req)
+	_, _ = Execute(context.Background(), req)
 
 	var steps []string
 	for _, e := range w.report.eventsOf("step") {
@@ -438,19 +441,19 @@ func TestExecuteAppliesTheTimeout_TS_07_44(t *testing.T) {
 	start := time.Now()
 	b := w.brief(1)
 	b.Timeout = 5 * time.Second
-	Execute(context.Background(), w.request(b, brain))
+	_, _ = Execute(context.Background(), w.request(b, brain))
 	if !has || deadline.Before(start.Add(5*time.Second)) || deadline.After(start.Add(5*time.Second+2*time.Second)) {
 		t.Errorf("deadline %v (%v), want about %v", deadline, has, start.Add(5*time.Second))
 	}
 
-	Execute(context.Background(), w.request(w.brief(2), brain))
+	_, _ = Execute(context.Background(), w.request(w.brief(2), brain))
 	if has {
 		t.Errorf("a run with no timeout has the deadline %v", deadline)
 	}
 
 	caller, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Hour))
 	defer cancel()
-	Execute(caller, w.request(w.brief(3), brain))
+	_, _ = Execute(caller, w.request(w.brief(3), brain))
 	if want, _ := caller.Deadline(); !has || !deadline.Equal(want) {
 		t.Errorf("deadline %v, want the caller's %v", deadline, want)
 	}
@@ -497,7 +500,7 @@ func TestExecuteAddsUsageEvenWhenRunFails_TS_07_46(t *testing.T) {
 	}))
 	second.Tally = tally
 
-	Execute(context.Background(), first)
+	_, _ = Execute(context.Background(), first)
 	if u := w.report.lastUsage(); u.Brain != "scripted" || u.CostUSD != 0.10 || u.Turns != 3 || u.InputTokens != 100 || u.OutputTokens != 50 || u.CostSource != CostMeasured {
 		t.Errorf("usage after attempt 1 = %+v", u)
 	}
@@ -536,7 +539,7 @@ func TestToolCallEventsCarryNoArguments_TS_07_64(t *testing.T) {
 	b := w.brief(1)
 	b.Observe = func(c ToolCall) { caller = append(caller, c) }
 
-	Execute(context.Background(), w.request(b, brain))
+	_, _ = Execute(context.Background(), w.request(b, brain))
 
 	events := w.report.eventsOf("tool_call")
 	if len(events) != len(calls) || len(caller) != len(calls) {
@@ -550,7 +553,7 @@ func TestToolCallEventsCarryNoArguments_TS_07_64(t *testing.T) {
 			}
 		}
 		c := calls[i]
-		if e.data["tool"] != c.Tool || e.data["decision"] != c.Decision || e.data["reason"] != c.Reason || e.data["ok"] != c.OK || e.data["duration_ms"] != float64(c.DurationMS) {
+		if e.data["brain"] != c.Brain || e.data["tool"] != c.Tool || e.data["decision"] != c.Decision || e.data["reason"] != c.Reason || e.data["ok"] != c.OK || e.data["duration_ms"] != float64(c.DurationMS) {
 			t.Errorf("event %d = %v, want %+v", i, e.data, c)
 		}
 	}

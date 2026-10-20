@@ -258,7 +258,7 @@ func TestTheFirstRequestCarriesTheBrief_TS_07_72(t *testing.T) {
 
 	_, err := runFaux(t, w, brain, func(b *Brief) { b.Tools = []string{"read_file"} })
 
-	if f := asFailure(t, err); f.Category != CategoryNoResult {
+	if f := asFailure(t, err); f.Category != toolio.CategoryNoResult {
 		t.Errorf("a brain that submits nothing: %+v, want no_result", f)
 	}
 	reqs := p.Requests()
@@ -350,7 +350,7 @@ func TestARefusedSubmissionIsTheNextTurn_TS_07_74(t *testing.T) {
 
 	_, err := runFaux(t, w, brain, func(b *Brief) { b.Kind = twoProblemsKind() })
 
-	if f := asFailure(t, err); f.Category != CategoryNoResult {
+	if f := asFailure(t, err); f.Category != toolio.CategoryNoResult {
 		t.Errorf("failure = %+v, want no_result: the brain gave up", f)
 	}
 	reqs := p.Requests()
@@ -404,13 +404,13 @@ func TestADriverThatStopsIsMapped_TS_07_76(t *testing.T) {
 	}{
 		"the cost bound": {
 			[]faux.Turn{withUsage(call("c1", "read_file", read), usage(0.5, 1000, 200)), faux.Text("never")},
-			func(b *Brief) { b.MaxCostUSD = 0.01 }, StopBudget, CategoryBudget, "0.02"},
+			func(b *Brief) { b.MaxCostUSD = 0.01 }, StopBudget, toolio.CategoryBudget, "0.02"},
 		"the turn bound": {
 			[]faux.Turn{withUsage(call("c1", "read_file", read), usage(0.001, 1000, 200)), withUsage(faux.Text("never"), usage(0.001, 10, 10))},
-			func(b *Brief) { b.MaxTurns = 1 }, StopTurns, CategoryBudget, "2"},
+			func(b *Brief) { b.MaxTurns = 1 }, StopTurns, toolio.CategoryBudget, "2"},
 		"a natural end": {
 			[]faux.Turn{withUsage(faux.Text("I am done, and have nothing to submit"), usage(0.002, 1000, 200))},
-			nil, StopEnded, CategoryNoResult, ""},
+			nil, StopEnded, toolio.CategoryNoResult, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newWorld(t)
@@ -430,6 +430,23 @@ func TestADriverThatStopsIsMapped_TS_07_76(t *testing.T) {
 				t.Errorf("usage = %+v, want the measured cost of the run", u)
 			}
 		})
+	}
+}
+
+// TestTheInputTokensIncludeTheCache guards 07-REQ-10.5: the tokens of the
+// outcome are what the driver counted, the reads and the writes of the cache
+// among the input.
+func TestTheInputTokensIncludeTheCache(t *testing.T) {
+	w := newWorld(t)
+	u := usage(0.01, 1000, 200)
+	u.SetField(core.UsageCacheReadTokens, 2000)
+	u.SetField(core.UsageCacheWriteTokens, 300)
+	brain, _ := fauxBrain(t, withUsage(faux.Text("nothing to submit"), u))
+
+	res, _ := runFaux(t, w, brain, nil)
+
+	if o := res.Outcome; o.InputTokens != 3300 || o.OutputTokens != 200 {
+		t.Errorf("tokens = %d in, %d out; want 3300 (1000 + 2000 cache reads + 300 cache writes) and 200", o.InputTokens, o.OutputTokens)
 	}
 }
 

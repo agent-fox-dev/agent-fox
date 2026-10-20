@@ -22,7 +22,7 @@ func syncSource(hostDir string) sandbox.Source {
 }
 
 // networkFor is the network a spec asks for: none when the provider can honour
-// that, and otherwise the only mode it offers (the local provider offers only
+// that, and otherwise the first mode it offers (the local provider offers only
 // an unrestricted one, which is part of why it raises box_unconfined).
 func networkFor(caps sandbox.Capabilities) sandbox.Network {
 	for _, mode := range caps.Network {

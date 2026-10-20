@@ -15,7 +15,7 @@ that later specs add; no command of this release runs one.
 
 | Brain | Model | Where it runs | Cost source |
 |---|---|---|---|
-| `agentkit` | the AgentKit driver, on the model `AF_MODEL` names (`claude-sonnet-5-5` by default), through the hands' Anthropic provider | on the host, over the tools of the box | `measured`: the driver counts the tokens and prices them |
+| `agentkit` | the AgentKit driver, on the model `AF_MODEL` names (`claude-sonnet-5-5` by default), through the hands' Anthropic provider | on the host, over the tools of the box | `measured`: the driver counts the tokens and prices them from the catalog; a model the catalog does not list has no price, so the run reports `none` and `--budget` is refused |
 | `scripted` | none: it replays a script | on the host | `none`: cost 0 |
 
 The cost of a run is the sum over its attempts, counted also for an attempt that

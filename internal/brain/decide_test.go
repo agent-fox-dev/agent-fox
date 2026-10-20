@@ -106,14 +106,14 @@ func TestAClaimWithoutAFileIsNoSubmission_TS_07_47(t *testing.T) {
 		}
 		return Outcome{Submitted: true, StopReason: StopSubmitted}, nil
 	})
-	t.Cleanup(func() { os.Chmod(filepath.Join(w.run.Path, "transcript.1.jsonl"), 0o644) })
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(w.run.Path, "transcript.1.jsonl"), 0o644) })
 
 	res, err := Execute(context.Background(), w.request(w.brief(1), brain))
 
 	if err == nil || res.Payload != nil || res.Path != "" {
 		t.Errorf("Execute = %+v, %v; want no payload and a failure", res, err)
 	}
-	if f := asFailure(t, err); f.Category != CategoryNoResult {
+	if f := asFailure(t, err); f.Category != toolio.CategoryNoResult {
 		t.Errorf("failure = %+v, want no_result", f)
 	}
 	if _, ok := w.hostSubmission(); ok {
@@ -127,7 +127,9 @@ func TestAClaimWithoutAFileIsNoSubmission_TS_07_47(t *testing.T) {
 func TestTheSubmissionIsReadAfterATimeout_TS_07_48(t *testing.T) {
 	w := newWorld(t)
 	b := w.brief(1)
-	b.Timeout = 80 * time.Millisecond
+	// The brief's deadline counts from the start of Execute, which places the
+	// brief first; the brain submits well within it and then waits for it.
+	b.Timeout = time.Second
 	brain := stubBrain(func(ctx context.Context, b Brief) (Outcome, error) {
 		if err := submitIn(ctx, b, `{"summary":"in time"}`); err != nil {
 			return Outcome{}, err
@@ -229,7 +231,7 @@ func TestAnInvalidBoxFileIsNoSubmission_TS_07_50(t *testing.T) {
 
 			res, err := Execute(context.Background(), w.request(b, brain))
 
-			if f := asFailure(t, err); f.Category != CategoryNoResult || res.Payload != nil {
+			if f := asFailure(t, err); f.Category != toolio.CategoryNoResult || res.Payload != nil {
 				t.Errorf("Execute = %+v, %v; want no_result and no payload", res, err)
 			}
 			warned := w.report.warned("submission_invalid")
@@ -267,7 +269,7 @@ func TestAStaleOrMissingFile_TS_07_51(t *testing.T) {
 
 	_, err := Execute(context.Background(), second)
 
-	if f := asFailure(t, err); f.Category != CategoryNoResult {
+	if f := asFailure(t, err); f.Category != toolio.CategoryNoResult {
 		t.Errorf("failure = %+v, want no_result", f)
 	}
 	if !w.ledgerHas("submission_stale") || w.ledgerHas("submission_absent") {
@@ -280,7 +282,7 @@ func TestAStaleOrMissingFile_TS_07_51(t *testing.T) {
 
 	empty := newWorld(t)
 	_, err = Execute(context.Background(), empty.request(empty.brief(1), stubBrain(func(context.Context, Brief) (Outcome, error) { return Outcome{StopReason: StopEnded}, nil })))
-	if f := asFailure(t, err); f.Category != CategoryNoResult || !empty.ledgerHas("submission_absent") || empty.ledgerHas("submission_stale") {
+	if f := asFailure(t, err); f.Category != toolio.CategoryNoResult || !empty.ledgerHas("submission_absent") || empty.ledgerHas("submission_stale") {
 		kinds, _ := empty.ledger()
 		t.Errorf("an empty box: %v, ledger %v, want submission_absent", err, kinds)
 	}
@@ -305,7 +307,7 @@ func TestAClaimThatDiffers_TS_07_52(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			w := newWorld(t)
 
-			Execute(context.Background(), w.request(w.brief(1), tc.brain))
+			_, _ = Execute(context.Background(), w.request(w.brief(1), tc.brain))
 
 			if got := len(w.report.warned("submission_claim_mismatch")); got != tc.want {
 				t.Errorf("%d submission_claim_mismatch warnings, want %d (%+v)", got, tc.want, w.report.warnings)
@@ -324,9 +326,9 @@ func TestATranscriptIsAnArtifactNotRead_TS_07_53(t *testing.T) {
 		path = b.TranscriptPath
 		return Outcome{}, os.WriteFile(path, []byte("not for af\n"), 0o000)
 	})
-	t.Cleanup(func() { os.Chmod(path, 0o644) })
+	t.Cleanup(func() { _ = os.Chmod(path, 0o644) })
 
-	Execute(context.Background(), w.request(w.brief(1), with))
+	_, _ = Execute(context.Background(), w.request(w.brief(1), with))
 
 	want := toolio.Artifact{Kind: "transcript", Path: filepath.Join(w.run.Path, "transcript.1.jsonl")}
 	if path != want.Path || !slices.Contains(w.report.artifacts, want) {
@@ -334,7 +336,7 @@ func TestATranscriptIsAnArtifactNotRead_TS_07_53(t *testing.T) {
 	}
 
 	none := newWorld(t)
-	Execute(context.Background(), none.request(none.brief(1), stubBrain(func(context.Context, Brief) (Outcome, error) { return Outcome{}, nil })))
+	_, _ = Execute(context.Background(), none.request(none.brief(1), stubBrain(func(context.Context, Brief) (Outcome, error) { return Outcome{}, nil })))
 	for _, a := range none.report.artifacts {
 		if a.Kind == "transcript" {
 			t.Errorf("a transcript artifact for a transcript that is not there: %+v", a)
@@ -393,7 +395,7 @@ func TestTimeoutAndCancellation_TS_07_55(t *testing.T) {
 
 	w2 := newWorld(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() { time.Sleep(40 * time.Millisecond); cancel() }()
+	go func() { time.Sleep(400 * time.Millisecond); cancel() }()
 	_, err = Execute(ctx, w2.request(w2.brief(1), blocks))
 	var failure *toolio.Failure
 	if !errors.Is(err, context.Canceled) || errors.As(err, &failure) {
@@ -404,7 +406,7 @@ func TestTimeoutAndCancellation_TS_07_55(t *testing.T) {
 	}
 
 	w3 := newWorld(t)
-	ctx3, cancel3 := context.WithTimeout(context.Background(), 40*time.Millisecond)
+	ctx3, cancel3 := context.WithTimeout(context.Background(), 400*time.Millisecond)
 	defer cancel3()
 	_, err = Execute(ctx3, w3.request(w3.brief(1), blocks))
 	if !errors.Is(err, context.DeadlineExceeded) || errors.As(err, &failure) {

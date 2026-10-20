@@ -45,7 +45,7 @@ func TestSmokeAnExportWithoutGitIsRemovedOnClose_TS_07_84(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(out) })
+	t.Cleanup(func() { _ = os.RemoveAll(out) })
 
 	if rel, err := filepath.Rel(os.TempDir(), out); err != nil || strings.HasPrefix(rel, "..") || !strings.HasPrefix(filepath.Base(out), "af-export-"+rd.ID+"-") {
 		t.Errorf("the export %s is not af-export-%s-* under %s", out, rd.ID, os.TempDir())

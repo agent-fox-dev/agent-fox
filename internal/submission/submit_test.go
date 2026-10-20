@@ -43,7 +43,7 @@ func newTree(t *testing.T, kind string) *tree {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { root.Close() })
+	t.Cleanup(func() { _ = root.Close() })
 	tr.target = Target{Tree: root.FS(), Write: RootWriter(root), RunID: runID}
 	if kind != "" {
 		tr.writeRun(fmt.Sprintf(`{"run_id":%q,"kind":%q,"attempt":2,"nonce":"abcdef0123456789"}`, runID, kind))
@@ -189,7 +189,7 @@ func TestSubmitWritesTheFile_TS_07_26(t *testing.T) {
 // the problem, and nothing is written.
 // Verifies: 07-REQ-4.2
 func TestSubmitRefusesBadShapes_TS_07_27(t *testing.T) {
-	big := `{"a":"` + strings.Repeat("x", 1<<20) + `"}`
+	big := `{"a":"` + strings.Repeat("x", 1<<20-7) + `"}`
 	for name, tc := range map[string]struct{ raw, mention string }{
 		"over 1 MiB":           {big, "1 MiB"},
 		"empty":                {"", "empty"},
@@ -217,7 +217,7 @@ func TestSubmitRefusesBadShapes_TS_07_27(t *testing.T) {
 			}
 		})
 	}
-	if len(big) != 1<<20+8 {
+	if len(big) != 1<<20+1 {
 		t.Fatalf("the test payload is %d bytes", len(big))
 	}
 	// A payload of exactly 1 MiB is accepted.
@@ -361,7 +361,7 @@ func TestRefusalLeavesEverythingAlone_TS_07_31(t *testing.T) {
 
 				_, err := Submit(context.Background(), tr.target, tc.kind(tr), []byte(tc.raw), fixedNow.Add(time.Hour))
 
-				refused(t, err)
+				_ = refused(t, err)
 				after, ok := tr.submission()
 				if ok != prior || !bytes.Equal(after, before) {
 					t.Errorf("the submission file was %q, is %q (exists %v)", before, after, ok)

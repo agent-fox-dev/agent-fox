@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/agent-fox-dev/agentkit-go/core"
-	"github.com/agent-fox-dev/agentkit-go/sandbox"
 )
 
 // FS is a read-only view of the box's tree, built on the box's tools: what
@@ -32,9 +31,12 @@ import (
 //
 // A missing path is fs.ErrNotExist, and so is a path below a file. A symbolic
 // link is not followed, which the export does not do either: it stats as a file
-// or a directory, and reading it is fs.ErrPermission. A directory stats as one. A directory lists at most the 500 entries the list tool gives,
-// and a longer one is an error, not a part of the truth. The size of a file is
-// found when it is asked for, because it takes a read.
+// or a directory, and reading it is fs.ErrPermission (a link to a directory in
+// the middle of a path is followed by the list tool when it stays in the
+// workspace). A directory stats as one. A directory lists at most the 500
+// entries the list tool gives, and a longer one is an error, not a part of the
+// truth. A file is read whole, up to maxReadBytes. The size of a file is found
+// when it is asked for, because it takes a read.
 func (s *Session) FS(ctx context.Context) fs.FS { return &treeFS{s: s, ctx: ctx} }
 
 type treeFS struct {
@@ -42,13 +44,18 @@ type treeFS struct {
 	ctx context.Context
 }
 
-// listLimit is the most entries the list tool gives.
-const listLimit = 500
+const (
+	// listLimit is the most entries the list tool gives.
+	listLimit = 500
+	// maxReadBytes is the most a file may hold to be read through the view.
+	maxReadBytes = 32 << 20
+)
 
 var (
 	errIsDir   = errors.New("is a directory")
 	errNotDir  = errors.New("not a directory")
 	errTooMany = fmt.Errorf("the directory has more than %d entries, which is as many as the box lists", listLimit)
+	errTooBig  = fmt.Errorf("the file is larger than %d bytes, which is as much as the view reads", maxReadBytes)
 )
 
 func (t *treeFS) Open(name string) (fs.File, error) {
@@ -83,7 +90,7 @@ func (t *treeFS) Stat(name string) (fs.FileInfo, error) {
 	case errors.Is(err, errNotDir):
 		err = fs.ErrNotExist // a directory of the path is a file
 	case errors.Is(err, errTooMany):
-		return t.statByExport(name)
+		return t.statInLongDir(name)
 	}
 	if err != nil {
 		return nil, &fs.PathError{Op: "stat", Path: name, Err: err}
@@ -99,13 +106,21 @@ func (t *treeFS) Stat(name string) (fs.FileInfo, error) {
 	return nil, &fs.PathError{Op: "stat", Path: name, Err: fs.ErrNotExist}
 }
 
-// statByExport stats a path in a directory that is too long to list, by
-// exporting what is at it: what exports as a file is one, and a directory is a
-// directory (the export of which is then the whole of it, and is thrown away).
-func (t *treeFS) statByExport(name string) (fs.FileInfo, error) {
+// statInLongDir stats a path in a directory that is too long to list. What the
+// list tool says of the path itself tells a directory (it lists, or lists too
+// long) from a file (it is not a directory), and a file is then exported for its
+// size.
+func (t *treeFS) statInLongDir(name string) (fs.FileInfo, error) {
+	_, err := t.list(name)
+	switch {
+	case err == nil || errors.Is(err, errTooMany):
+		return &fileInfo{name: path.Base(name), dir: true}, nil
+	case !errors.Is(err, errNotDir):
+		return nil, &fs.PathError{Op: "stat", Path: name, Err: err}
+	}
 	data, err := t.exportOne(name)
 	if err != nil {
-		return nil, &fs.PathError{Op: "stat", Path: name, Err: fs.ErrNotExist}
+		return nil, &fs.PathError{Op: "stat", Path: name, Err: err}
 	}
 	return &fileInfo{name: path.Base(name), known: true, size: int64(len(data))}, nil
 }
@@ -132,15 +147,19 @@ func (t *treeFS) exportOne(name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(dir)
-	if err := t.s.sb.Export(t.ctx, name, sandbox.LocalDir{Path: dir}); err != nil {
+	defer func() { _ = os.RemoveAll(dir) }()
+	if err := t.s.export(t.ctx, name, dir); err != nil {
 		if strings.Contains(err.Error(), "symlink") {
 			// The box exports no link, whatever it leads to.
 			return nil, fmt.Errorf("%w: a symbolic link is not followed", fs.ErrPermission)
 		}
 		return nil, fmt.Errorf("exporting it out of the box: %w", err)
 	}
-	return os.ReadFile(filepath.Join(dir, path.Base(name)))
+	file := filepath.Join(dir, path.Base(name))
+	if info, err := os.Lstat(file); err == nil && info.Size() > maxReadBytes {
+		return nil, errTooBig
+	}
+	return os.ReadFile(file)
 }
 
 func (t *treeFS) ReadDir(name string) ([]fs.DirEntry, error) {

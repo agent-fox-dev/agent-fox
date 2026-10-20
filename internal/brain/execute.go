@@ -22,13 +22,6 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
-// The failure categories of a run that has no submission.
-const (
-	CategoryBrain    = "brain"
-	CategoryNoResult = "no_result"
-	CategoryBudget   = "budget"
-)
-
 // defaultHeartbeat is how often a run that is still going says so.
 const defaultHeartbeat = 30 * time.Second
 
@@ -75,6 +68,11 @@ type run struct {
 // and records its beginning and its end; whatever the brain does, a panic
 // included, its cost is added to the tally and reported. Then the host decides,
 // from the submission file alone, whether there is a submission (see decide).
+//
+// A run is one Execute at a time in a box: two that share a box and a run id
+// would place the same files. The brain must honour its context; Execute waits
+// for it to return. The brief's timeout counts from the start of Execute, so
+// that placing the brief is part of it.
 func Execute(ctx context.Context, req Request) (Result, error) {
 	started := time.Now()
 	r, err := newRun(req, started)
@@ -84,7 +82,11 @@ func Execute(ctx context.Context, req Request) (Result, error) {
 	req = r.req
 
 	req.Report.Emit("step", stepEvent{Name: "brief"})
+	r.clearHostSubmission() // one of an earlier attempt is not this attempt's
 	if err := r.place(ctx); err != nil {
+		if ctx.Err() != nil {
+			return Result{}, ctx.Err() // a box that could not be written to because the run was cancelled
+		}
 		return Result{}, err
 	}
 
@@ -96,7 +98,7 @@ func Execute(ctx context.Context, req Request) (Result, error) {
 		runCtx, cancel = context.WithDeadline(ctx, started.Add(b.Timeout))
 	}
 	stopBeats := r.heartbeat()
-	outcome, runErr, panicked := r.runBrain(runCtx, b)
+	outcome, panicked, runErr := r.runBrain(runCtx, b)
 	stopBeats()
 	runCtxErr := runCtx.Err() // whether the brief's own deadline passed, before it is cancelled
 	cancel()
@@ -106,14 +108,14 @@ func Execute(ctx context.Context, req Request) (Result, error) {
 		"cost_source": outcome.CostSource, "turns": outcome.Turns, "duration_ms": time.Since(started).Milliseconds(),
 	})
 	// The cost was spent, whether or not the brain finished.
-	req.Tally.Add(outcome)
-	req.Report.SetUsage(req.Tally.Usage(req.Name))
+	req.Tally.Spend(outcome, req.Name, req.Report.SetUsage)
 
+	var panicErr error
 	if panicked != nil {
-		return Result{Outcome: outcome}, r.panicFailure(panicked)
+		panicErr = r.panicFailure(panicked)
 	}
 	req.Report.Emit("step", stepEvent{Name: "submission"})
-	return r.decide(ctx, outcome, runCtxErr, runErr)
+	return r.decide(ctx, outcome, runCtxErr, runErr, panicErr)
 }
 
 // newRun checks the request and fills in what it leaves out.
@@ -203,6 +205,7 @@ func (r *run) place(ctx context.Context) error {
 	if hook.AllowPrograms == nil {
 		hook.AllowPrograms = []string{}
 	}
+	r.brief.Hook = hook // the brain is given the hook that was placed
 	hookJSON, err := json.MarshalIndent(hook, "", "  ")
 	if err != nil {
 		return err
@@ -239,9 +242,10 @@ func (r *run) place(ctx context.Context) error {
 	})
 
 	r.brief.TranscriptPath = filepath.Join(req.RunDir.Path, fmt.Sprintf("transcript.%d.jsonl", b.Attempt))
+	r.brief.Warn = req.Report.Warn
 	observe := b.Observe
 	r.brief.Observe = func(c ToolCall) {
-		req.Report.Emit("tool_call", toolCallEvent{Brain: c.Brain, Tool: c.Tool, Decision: c.Decision, Reason: c.Reason, OK: c.OK, DurationMS: c.DurationMS})
+		req.Report.Emit("tool_call", toolCallEvent(c))
 		if observe != nil {
 			observe(c)
 		}
@@ -252,7 +256,7 @@ func (r *run) place(ctx context.Context) error {
 // agentDir is where af keeps its files in the tree, and protectedAgentDir the
 // way a protected path names it: as a directory.
 const (
-	agentDir          = ".agent-fox"
+	agentDir          = agentdir.Name
 	protectedAgentDir = agentDir + "/"
 )
 
@@ -275,7 +279,9 @@ func (r *run) heartbeat() (stop func()) {
 			case <-done:
 				return
 			case <-ticker.C:
-				r.req.Report.Emit("heartbeat", map[string]any{"brain": r.req.Name, "elapsed_ms": time.Since(r.started).Milliseconds()})
+				if !r.beat() {
+					return
+				}
 			}
 		}
 	}()
@@ -285,6 +291,18 @@ func (r *run) heartbeat() (stop func()) {
 	}
 }
 
+// beat emits one heartbeat. A Report that panics ends the heartbeat and not the
+// process: no one has a goroutine here to recover it for the caller.
+func (r *run) beat() (ok bool) {
+	defer func() {
+		if recover() != nil {
+			ok = false
+		}
+	}()
+	r.req.Report.Emit("heartbeat", map[string]any{"brain": r.req.Name, "elapsed_ms": time.Since(r.started).Milliseconds()})
+	return true
+}
+
 // panicInfo is what a recovered panic leaves.
 type panicInfo struct {
 	value any
@@ -292,7 +310,7 @@ type panicInfo struct {
 }
 
 // runBrain calls the brain, and recovers a panic of it.
-func (r *run) runBrain(ctx context.Context, b Brief) (outcome Outcome, err error, panicked *panicInfo) {
+func (r *run) runBrain(ctx context.Context, b Brief) (outcome Outcome, panicked *panicInfo, err error) {
 	defer func() {
 		if v := recover(); v != nil {
 			panicked = &panicInfo{value: v, stack: debug.Stack()}
@@ -300,11 +318,12 @@ func (r *run) runBrain(ctx context.Context, b Brief) (outcome Outcome, err error
 		}
 	}()
 	outcome, err = r.req.Brain.Run(ctx, b)
-	return outcome, err, nil
+	return outcome, nil, err
 }
 
 // panicFailure writes the stack of a panic of the brain to the run directory and
-// is the failure that says so.
+// is the failure that says so, which a run that has no valid submission ends
+// with.
 func (r *run) panicFailure(p *panicInfo) error {
 	name := fmt.Sprintf("brain-panic.%d.txt", r.brief.Attempt)
 	text := fmt.Sprintf("the %s brain panicked: %v\n\n%s", r.req.Name, p.value, p.stack)
@@ -312,5 +331,5 @@ func (r *run) panicFailure(p *panicInfo) error {
 	if err := agentdir.WriteFileAtomic(filepath.Join(r.req.RunDir.Path, name), []byte(text)); err != nil {
 		where = fmt.Sprintf("%s (which could not be written: %v)", name, err)
 	}
-	return &toolio.Failure{Category: CategoryBrain, Message: fmt.Sprintf("the %s brain panicked: %v; the stack is in %s", r.req.Name, p.value, where)}
+	return &toolio.Failure{Category: toolio.CategoryBrain, Message: fmt.Sprintf("the %s brain panicked: %v; the stack is in %s", r.req.Name, p.value, where)}
 }

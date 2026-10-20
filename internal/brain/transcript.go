@@ -3,6 +3,7 @@ package brain
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -31,6 +32,31 @@ func NewTranscript(path string) (*Transcript, error) {
 		return nil, err
 	}
 	return &Transcript{f: f}, nil
+}
+
+// openTranscript makes the transcript of a brief, or none when the brief has no
+// path for one.
+func openTranscript(b Brief) (*Transcript, error) {
+	if b.TranscriptPath == "" {
+		return nil, nil
+	}
+	tr, err := NewTranscript(b.TranscriptPath)
+	if err != nil {
+		return nil, fmt.Errorf("the transcript cannot be written: %w", err)
+	}
+	return tr, nil
+}
+
+// closeTranscript closes the transcript of a brief, if there is one. A
+// transcript that could not be written is a warning: the run goes on, and the
+// file is partial.
+func closeTranscript(tr *Transcript, b Brief) {
+	if tr == nil {
+		return
+	}
+	if err := tr.Close(); err != nil && b.Warn != nil {
+		b.Warn("transcript_unwritable", fmt.Sprintf("the transcript %s could not be written whole: %v", b.TranscriptPath, err))
+	}
 }
 
 // Add appends the line of a call, and returns its seq.

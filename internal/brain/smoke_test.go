@@ -279,9 +279,6 @@ func TestSmokeAStaleSubmissionIsNoResult_TS_07_83(t *testing.T) {
 		if _, err := s.execute(sess, 1, nil); err != nil {
 			t.Fatalf("attempt 1: %v", err)
 		}
-		if err := os.Remove(filepath.Join(s.run.Path, "submission.json")); err != nil {
-			t.Fatal(err)
-		}
 		// Attempt 2, in the same box: its steps end without a submission.
 		s.brain = second
 		resolved, attemptTwo = s.execute(sess, 2, nil)
@@ -289,7 +286,7 @@ func TestSmokeAStaleSubmissionIsNoResult_TS_07_83(t *testing.T) {
 	})
 
 	f := asFailure(t, err)
-	if f.Category != CategoryNoResult || !f.Retryable {
+	if f.Category != toolio.CategoryNoResult || !f.Retryable {
 		t.Errorf("attempt 2: %+v, want failed/no_result, retryable", f)
 	}
 	if resolved.Payload != nil {

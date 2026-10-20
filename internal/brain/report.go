@@ -19,7 +19,8 @@ var _ Report = (*toolio.Run)(nil)
 
 // Tally accumulates what the brains of the attempts of a run cost, so that the
 // envelope reports the run and not the last attempt. The zero Tally is empty and
-// is safe for concurrent use.
+// is safe for concurrent use; Spend makes the whole of adding and reporting one
+// step.
 type Tally struct {
 	mu                 sync.Mutex
 	cost               float64
@@ -33,6 +34,10 @@ type Tally struct {
 func (t *Tally) Add(o Outcome) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.add(o)
+}
+
+func (t *Tally) add(o Outcome) {
 	t.cost += o.CostUSD
 	t.turns += o.Turns
 	t.input += o.InputTokens
@@ -45,12 +50,26 @@ func (t *Tally) Add(o Outcome) {
 	}
 }
 
+// Spend adds the outcome of an attempt and hands the new total to report, in one
+// step: two attempts that finish together cannot report out of turn, which would
+// leave the smaller total as the last one.
+func (t *Tally) Spend(o Outcome, brainName string, report func(toolio.Usage)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.add(o)
+	report(t.usage(brainName))
+}
+
 // Usage is the total, as the envelope reports it, for the brain of the name. The
 // source of the cost is the best any attempt had: measured, then reported, then
 // none.
 func (t *Tally) Usage(brainName string) toolio.Usage {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	return t.usage(brainName)
+}
+
+func (t *Tally) usage(brainName string) toolio.Usage {
 	source := CostNone
 	switch {
 	case t.measured:

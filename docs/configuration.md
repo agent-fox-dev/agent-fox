@@ -20,20 +20,6 @@ Without a token, `af` reads public issues and a 404 means the issue may be
 private (`failed`/`auth` with the token to set in `fix_hint`). Writing needs a
 token.
 
-### The brain
-
-| Variable | Used for |
-|---|---|
-| `AF_MODEL` | The model the `agentkit` brain runs, as the catalog of the hands names it. Empty is the catalog's default for the vendor, `claude-sonnet-5-5`. The commands that run a brain read it and give it to the brain as `brain.Options.Model`; no command of this release does yet. |
-| `ANTHROPIC_API_KEY` | The credential of the `agentkit` brain's provider, when no provider is injected. The provider resolves its credentials as the hands' does: `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` (and `ANTHROPIC_OAUTH_TOKEN`), optionally `ANTHROPIC_BASE_URL`, and Vertex AI or Bedrock when `CLAUDE_CODE_USE_VERTEX` or `CLAUDE_CODE_USE_BEDROCK` is `1`. Without any, the brain is not made: `failed`/`auth` with `fix_hint.env` `ANTHROPIC_API_KEY`, before a box is opened. |
-
-The key goes to the host process that runs the driver and to nothing else: the
-box's environment holds only the names the chosen brain asks for (none, for
-`agentkit` and `scripted`), so no host token, no forge token and no vendor key
-is in a box. The `scripted` brain reads no variable. The `local` box provider,
-the only one in this release, has no process or network isolation, and a run
-that opens it says so with the warning `box_unconfined`.
-
 **Which forge.** The forge of a command is the one the issue URL names, else
 the one `--repo` and the environment say, else the one the `origin` remote of
 `--dir` names. If only the GitHub variables are set, it is GitHub; if only
@@ -47,6 +33,23 @@ client that does nothing.
 the environment points it at: the host of `GITHUB_API_URL` or
 `GITLAB_API_URL` when that names the forge's host, or the public forge when no
 API URL is set. A request to any other host carries no token.
+
+### The brain
+
+| Variable | Used for |
+|---|---|
+| `AF_MODEL` | The model the `agentkit` brain runs, as the catalog of the hands names it. Empty is the catalog's default for the vendor, `claude-sonnet-5-5`. A model the catalog does not list has no price: the run reports no cost (`cost_source` `none`, with the warning `model_unpriced`), and with `--budget` it does not start (`failed`/`usage`, with `fix_hint.env` `AF_MODEL`). The commands that run a brain read the variable and give it to the brain as `brain.Options.Model`; no command of this release does yet. |
+| `ANTHROPIC_API_KEY` | The credential of the `agentkit` brain's provider, when no provider is injected. The provider resolves its credentials as the hands' does: `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` (and `ANTHROPIC_OAUTH_TOKEN`), optionally `ANTHROPIC_BASE_URL`, and Vertex AI or Bedrock when `CLAUDE_CODE_USE_VERTEX` or `CLAUDE_CODE_USE_BEDROCK` is `1`. Without any, the brain is not made: `failed`/`auth` with `fix_hint.env` `ANTHROPIC_API_KEY`, before a box is opened. |
+
+The key goes to the host process that runs the driver and to nothing else: the
+host values the box's tools are given beside what the provider gives them
+(`PATH`, `LANG` and `TERM` for `local`, and a `HOME` and a `TMPDIR` of the box's
+own) are the names the chosen brain asks for (none, for `agentkit` and
+`scripted`), so no host token, no forge token and no vendor key is in a box, and
+the credentials in the checkout's `.git/config` are taken out of the box's copy.
+The `scripted` brain reads no variable. The `local` box provider, the only one in
+this release, has no process or network isolation, and a box opened with it says
+so with the warning `box_unconfined`.
 
 ## The `.agent-fox` directory
 
@@ -62,7 +65,7 @@ and the map read, and its `.gitignore` keeps it out of the repository.
 | `gate/<id>/` | The logs and the stored result of a gate run (see [cli.md](cli.md#gate-run)). Safe to delete: the next run makes them again, but a label in `labels.json` that names a deleted id makes `gate compare` fail with `usage` until the label is set again. |
 | `gate/labels.json` | Maps labels to those ids. `labels.json.lock` is beside it while a run writes it. |
 | `revert/<id>/` | The backup that [`revert-check`](cli.md#revert-check) keeps while it works and removes when the tree is back. One that is left means a check was killed, or the tree could not be put back, or something changed a path while the checks ran (what it held is in `changed/`): look at it before checking again. |
-| `run/<id>/` | One directory per invocation of a command that has one: the envelope, the event stream, the ledger, and a report or a panic's stack. Delete one when it is no use; nothing refers to one except the commands that carry a run on. The layout is in [cli.md](cli.md#the-run-directory). |
+| `run/<id>/` | One directory per invocation of a command that has one: the envelope, the event stream, the ledger, and a report or a panic's stack, and for a command that runs a brain its briefs, hook, accepted submission, transcripts and the stack of a brain's panic. Delete one when it is no use; nothing refers to one except the commands that carry a run on. The layout is in [cli.md](cli.md#the-run-directory). |
 
 ### gate.json
 

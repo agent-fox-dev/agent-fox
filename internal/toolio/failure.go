@@ -22,6 +22,13 @@ const (
 	CategorySandbox = "sandbox"
 	// CategorySubmission: a submission was refused, and nothing was written.
 	CategorySubmission = "submission"
+	// CategoryBrain: the brain failed, or panicked, and left no submission.
+	CategoryBrain = "brain"
+	// CategoryNoResult: the brain stopped and left no valid submission.
+	CategoryNoResult = "no_result"
+	// CategoryBudget: the brain used the cost bound or the turn bound and left
+	// no submission.
+	CategoryBudget = "budget"
 )
 
 // Failure is the error a command returns to set the envelope's error object.

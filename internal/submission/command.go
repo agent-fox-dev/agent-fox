@@ -74,7 +74,7 @@ func submit(r *toolio.Run, kind Kind, runID string) (toolio.Outcome, error) {
 	if err != nil {
 		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("--dir %s: %v", r.Dir, err)}
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 
 	// One byte more than a submission may be: enough to tell that it is, and
 	// no more of an input that does not end.

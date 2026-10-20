@@ -34,7 +34,7 @@ repository.
 | `internal/policy/` | The guard policy: whether a brain may make a tool call. |
 | `internal/repomap/` | The repository map at a token budget. |
 | `internal/box/` | The box that holds a brain's tree: the checkout goes in with its `.git`, run files are placed under `.agent-fox/`, the tree comes out without `.git`. One provider, `local`, which has no isolation. |
-| `internal/submission/` | The submission protocol: a brain hands back one validated JSON object, and the submit core is the one path to the file. |
+| `internal/submission/` | The submission protocol: a brain hands back one validated JSON object through the submit core, and the host checks the file again. |
 | `internal/brain/` | The `Brain` interface, its registry and shared flags, `Execute` (run a brief and decide from the file), the tool gate, and two brains: `scripted` and the AgentKit driver on the host. |
 | `skills/` | The coding-agent skills (`af-prd`, `af-impl`, `af-fix`, `af-bug-hunter`, `af-code-quality`, `af-code-simplifier`). `make install-skills` copies them to `~/.claude/skills`. |
 | `containers/sandbox/` | The sandbox image. |

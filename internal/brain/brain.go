@@ -47,9 +47,13 @@ type Brief struct {
 	Timeout time.Duration
 	// TranscriptPath is a host path that the brain may write a transcript to.
 	TranscriptPath string
-	// Observe, when it is not nil, is called once for each tool call the brain
-	// makes.
+	// Observe, when it is not nil, is called once for each tool call that
+	// reaches the gate. A call that the driver answers itself, because the tool
+	// does not exist or the arguments do not fit its schema, does not.
 	Observe func(ToolCall)
+	// Warn, when it is not nil, raises a warning of the run: what the brain
+	// could not do that does not stop it, such as a transcript it cannot write.
+	Warn func(code, message string)
 }
 
 // Document is the brief as the brain reads it: the prefix, then the task.
@@ -71,9 +75,10 @@ const (
 	CostNone     = "none"     // no model was used
 )
 
-// Outcome is what a brain says about its run. It is used for exactly two
-// things: the envelope's usage, and the warning submission_claim_mismatch.
-// Whether a submission exists is decided only from the file.
+// Outcome is what a brain says about its run. It is used for the envelope's
+// usage, the warning submission_claim_mismatch, and the failure of a run that has
+// no submission (the stop reason says whether a bound was reached). Whether a
+// submission exists is decided only from the file.
 type Outcome struct {
 	// Submitted is the brain's claim; af decides from the file.
 	Submitted    bool
@@ -91,7 +96,8 @@ type Outcome struct {
 // with. It is also hook.json in the box.
 type HookConfig struct {
 	RunID string `json:"run_id"`
-	// ProtectedPaths always contains ".agent-fox/".
+	// ProtectedPaths always contains ".agent-fox/": the Brief that Execute gives
+	// a brain has it, and so has hook.json.
 	ProtectedPaths []string `json:"protected_paths"`
 	// AllowPrograms are the programs a shell command may run, beside af and
 	// git; none means no restriction.

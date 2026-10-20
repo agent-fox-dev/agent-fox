@@ -187,7 +187,7 @@ func TestAnExpectThatDoesNotHoldStopsTheReplay_TS_07_67(t *testing.T) {
 			res, err := runScript(t, w, tc.script, nil)
 
 			f := asFailure(t, err)
-			if f.Category != CategoryBrain {
+			if f.Category != toolio.CategoryBrain {
 				t.Errorf("failure = %+v, want failed/brain, the error of Run", f)
 			}
 			for _, want := range tc.mention {
@@ -271,7 +271,7 @@ func TestTheTurnBoundStopsTheReplay_TS_07_69(t *testing.T) {
 	if res.Outcome.StopReason != StopTurns || res.Outcome.Turns != 3 || res.Outcome.Submitted {
 		t.Errorf("Outcome = %+v, want turns, 3 turns, not submitted", res.Outcome)
 	}
-	if f := asFailure(t, err); f.Category != CategoryBudget || f.FixHint == nil || f.FixHint.Flag != "--max-turns" || f.FixHint.Suggest != "6" {
+	if f := asFailure(t, err); f.Category != toolio.CategoryBudget || f.FixHint == nil || f.FixHint.Flag != "--max-turns" || f.FixHint.Suggest != "6" {
 		t.Errorf("failure = %+v, want failed/budget with --max-turns 6", f)
 	}
 	if n := len(w.transcript()); n != 3 {
@@ -291,7 +291,7 @@ func TestRunningOutOfStepsEnds_TS_07_70(t *testing.T) {
 	if res.Outcome.StopReason != StopEnded || res.Outcome.Submitted || res.Outcome.Turns != 2 {
 		t.Errorf("Outcome = %+v, want ended after 2 turns", res.Outcome)
 	}
-	if f := asFailure(t, err); f.Category != CategoryNoResult {
+	if f := asFailure(t, err); f.Category != toolio.CategoryNoResult {
 		t.Errorf("failure = %+v, want no_result: the script ended without a submission", f)
 	}
 	// As many steps as turns is the end of the script, not the turn bound.
@@ -336,7 +336,7 @@ func TestAScriptedBrainThatCannotStart(t *testing.T) {
 	_, err := runScript(t, w, `{"steps":[{"tool":"read_file","args":{"path":"README.md"}}]}`, func(b *Brief) { b.Tools = []string{"read_file", "teleport"} })
 
 	f := asFailure(t, err)
-	if f.Category != CategoryBrain || !strings.Contains(f.Message, "teleport") {
+	if f.Category != toolio.CategoryBrain || !strings.Contains(f.Message, "teleport") {
 		t.Errorf("failure = %+v, want failed/brain naming teleport", f)
 	}
 	if data, err := os.ReadFile(filepath.Join(w.run.Path, "transcript.1.jsonl")); err == nil && len(data) > 0 {

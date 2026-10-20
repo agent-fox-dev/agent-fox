@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -11,6 +12,7 @@ import (
 	"github.com/agent-fox-dev/agentkit-go/core"
 	"github.com/agent-fox-dev/agentkit-go/provider/anthropic"
 	"github.com/agent-fox-dev/agentkit-go/schema"
+	"github.com/agent-fox-dev/agentkit-go/workspace"
 )
 
 // This file is where the AgentKit brain meets agentkit-go: the model and its
@@ -46,23 +48,50 @@ type lookupEnv Getenv
 func (l lookupEnv) Lookup(name string) (string, bool) { return l(name) }
 
 // anthropicProvider is the production provider for the model, with the
-// credentials of the environment. A missing credential is failed/auth, with the
-// variable to set, and is found here, when the brain is constructed, before any
-// box is opened.
-func anthropicProvider(model string, get Getenv) (core.ProviderClient, error) {
+// credentials of the environment, and whether the catalog prices the model: for
+// one it does not list, no cost can be measured. A missing credential is
+// failed/auth, with the variable to set, and is found here, when the brain is
+// constructed, before any box is opened.
+func anthropicProvider(model string, get Getenv) (provider core.ProviderClient, priced bool, err error) {
 	client, _, err := anthropic.Resolve(lookupEnv(get))
 	if errors.Is(err, anthropic.ErrNoCredentials) {
-		return nil, &toolio.Failure{
+		return nil, false, &toolio.Failure{
 			Category: toolio.CategoryAuth,
 			Message:  "the agentkit brain needs a credential for the model: " + err.Error(),
 			FixHint:  &toolio.FixHint{Env: anthropic.APIKeyVar},
 		}
 	}
 	if err != nil {
-		return nil, &toolio.Failure{Category: toolio.CategoryConfig, Message: fmt.Sprintf("the model provider cannot be configured from the environment: %v", err)}
+		return nil, false, &toolio.Failure{Category: toolio.CategoryConfig, Message: fmt.Sprintf("the model provider cannot be configured from the environment: %v", err)}
 	}
-	m, _ := catalog.Lookup(model)
-	return anthropic.Provider(m, anthropic.Options{Client: client}), nil
+	m, priced := catalog.Lookup(model)
+	return anthropic.Provider(m, anthropic.Options{Client: client}), priced, nil
+}
+
+// pathFields are the fields of a tool's input that name the file it writes.
+var pathFields = []string{"path", "file_path", "notebook_path"}
+
+// normalisedPaths is the input of a call with its paths spelled as the
+// workspace spells them (workspace.Normalize), which is how the box's tools
+// resolve them. The input it was given is not changed.
+func normalisedPaths(args map[string]any) map[string]any {
+	var out map[string]any
+	for _, field := range pathFields {
+		p, ok := args[field].(string)
+		if !ok {
+			continue
+		}
+		if n, err := workspace.Normalize(p); err == nil && n != p {
+			if out == nil {
+				out = maps.Clone(args)
+			}
+			out[field] = n
+		}
+	}
+	if out == nil {
+		return args
+	}
+	return out
 }
 
 // inputSchema is the schema of the terminating tool, from the JSON Schema of the
@@ -83,7 +112,8 @@ func inputSchema(raw []byte) (*schema.Schema, error) {
 // the driver's toolset, where a call to one is denied by the gate with the
 // allowlist's own words (the driver answers a name that it does not know itself,
 // without asking the guard, and says only that the tool is not there); the model
-// is never told that they exist.
+// is not offered them, and their stubs carry no prompt guidelines, so the
+// driver's system prompt does not name them either.
 type visibleTools struct {
 	inner  core.ProviderClient
 	hidden []string

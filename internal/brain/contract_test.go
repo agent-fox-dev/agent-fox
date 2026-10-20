@@ -329,8 +329,8 @@ func (d *denyNetwork) RoundTrip(r *http.Request) (*http.Response, error) {
 // Verifies: 07-REQ-10.7
 func TestTheBrainsNeedNoKeyAndNoNetwork_TS_07_79(t *testing.T) {
 	if old, ok := os.LookupEnv("ANTHROPIC_API_KEY"); ok {
-		os.Unsetenv("ANTHROPIC_API_KEY")
-		t.Cleanup(func() { os.Setenv("ANTHROPIC_API_KEY", old) })
+		_ = os.Unsetenv("ANTHROPIC_API_KEY")
+		t.Cleanup(func() { _ = os.Setenv("ANTHROPIC_API_KEY", old) })
 	}
 	deny := &denyNetwork{}
 	old := http.DefaultTransport

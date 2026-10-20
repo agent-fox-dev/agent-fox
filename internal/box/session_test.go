@@ -41,6 +41,11 @@ func commitFiles(t *testing.T, dir string, files map[string][]byte) {
 type faults struct {
 	closeErr  error // what Close returns, after closing
 	exportGit bool  // the export carries a .git, as no provider should let it
+	syncErr   error // what Sync returns, instead of syncing
+
+	// afterExport, when it is set, is called once the box has exported, before
+	// Export returns to its caller.
+	afterExport func()
 
 	mu         sync.Mutex
 	exports    []string    // the directories the box was asked to export into
@@ -65,8 +70,18 @@ type faultySandbox struct {
 	f *faults
 }
 
+func (s *faultySandbox) Sync(ctx context.Context, src sandbox.Source) (sandbox.SyncResult, error) {
+	if s.f.syncErr != nil {
+		return sandbox.SyncResult{}, s.f.syncErr
+	}
+	return s.countingSandbox.Sync(ctx, src)
+}
+
 func (s *faultySandbox) Export(ctx context.Context, path string, dst sandbox.Destination) error {
 	err := s.Sandbox.Export(ctx, path, dst)
+	if s.f.afterExport != nil {
+		s.f.afterExport()
+	}
 	if ld, ok := dst.(sandbox.LocalDir); ok {
 		s.f.mu.Lock()
 		s.f.exports = append(s.f.exports, ld.Path)
@@ -185,7 +200,7 @@ func TestFSIsReadOnly_TS_07_18(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if _, ok := f.(io.Writer); ok {
 		t.Error("an open file has a write method")
 	}
@@ -302,7 +317,7 @@ func TestExportWritesTheEditsWithoutGit_TS_07_20(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(out) })
+	t.Cleanup(func() { _ = os.RemoveAll(out) })
 
 	if !strings.HasPrefix(filepath.Base(out), "af-export-20261020_120000_abcdef-") {
 		t.Errorf("the export is in %s, want af-export-<run_id>-*", out)
@@ -405,7 +420,7 @@ var errFn = errors.New("fn failed")
 
 // runWith runs With with fn doing the outcome, and says what came out of it:
 // the error returned, or the value panicked with.
-func runWith(t *testing.T, r *Registry, dir string, l *ledger, o withOutcome) (err error, panicked any) {
+func runWith(t *testing.T, r *Registry, dir string, l *ledger, o withOutcome) (panicked any, err error) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -422,7 +437,7 @@ func runWith(t *testing.T, r *Registry, dir string, l *ledger, o withOutcome) (e
 		}
 		return nil
 	})
-	return err, nil
+	return nil, err
 }
 
 // TestWithClosesOnEveryPath_TS_07_23 verifies TS-07-23:
@@ -437,7 +452,7 @@ func TestWithClosesOnEveryPath_TS_07_23(t *testing.T) {
 			r, c := faultyRegistry(f)
 			start := time.Now()
 
-			err, panicked := runWith(t, r, dir, &ledger{}, o)
+			panicked, err := runWith(t, r, dir, &ledger{}, o)
 
 			if c.creates.Load() != 1 || c.closes.Load() != 1 {
 				t.Errorf("%d created, %d closed, want 1 and 1", c.creates.Load(), c.closes.Load())
@@ -485,7 +500,7 @@ func TestWithClosesOncePerOpen_TS_07_24(t *testing.T) {
 		n := 3 + rng.IntN(4)
 		for j := range n {
 			o := withOutcome(rng.IntN(4))
-			err, panicked := runWith(t, r, dir, &ledger{}, o)
+			panicked, err := runWith(t, r, dir, &ledger{}, o)
 
 			switch {
 			case o == returnsNil && (err != nil || panicked != nil),

@@ -44,6 +44,9 @@ func newRepo(t *testing.T, commits int, branch string) string {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")
 	}
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh is not installed: the box runs its commands with it")
+	}
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

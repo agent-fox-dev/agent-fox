@@ -1,7 +1,10 @@
 // Package submission is how a brain hands back its result: exactly one JSON
-// object, validated before it exists. A brain never writes the submission
-// itself and af never parses it from the brain's output; the submit core is the
-// one path to a submission file, and a refused submission leaves nothing.
+// object, validated before it exists. A brain is given no way to write the
+// submission itself and af never parses it from the brain's output; the submit
+// core is the path to a submission file, and a refused submission leaves
+// nothing. A brain with hands of its own could write the file all the same, so
+// what a host keeps is what it has checked again (Check) and written itself
+// (Marshal).
 package submission
 
 import (
