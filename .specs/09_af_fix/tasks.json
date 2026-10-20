@@ -555,7 +555,7 @@
         "`make check` passes",
         "every execution path 09-PATH-1..7 is exercised by a smoke test"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }

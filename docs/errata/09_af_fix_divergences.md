@@ -83,3 +83,17 @@ uses it; `gitx.RevParse`, `Ignored`, `TrackedIgnored` and `CreateBranchFrom`
 scripted brain in `internal/fix`, and the same behaviour through the shell in
 `cmd/af/fix_loop_test.go` and `cmd/af/fix_end_test.go`. The command glue of tasks 3
 and 9 was written together with its tests, and not after a red run of the glue alone.
+
+## 7. The smoke tests are in `cmd/af/fix_smoke_test.go` only (task 12)
+
+**Spec:** task 12 names `internal/fix/smoke_test.go` and `cmd/af/fix_smoke_test.go`.
+
+**Code:** a smoke test runs the commands through the shell, with the registry, the
+forge injected through `App.NewForge` and the flags of the commands, which are in
+package `main`; there is nothing for it to run in package `fix` alone. TS-09-73 to
+TS-09-79 are in `cmd/af/fix_smoke_test.go`, and `internal/fix/smoke_test.go` does not
+exist. A brain cannot run `git commit` through the tool gate of the box, so
+TS-09-73 commits in the box with a `make` target that its fixture repository has.
+
+**Test:** `TestAnIssueBecomesOneCommitOnItsBranchAndAPullRequest_TS_09_73` and the six
+after it (`cmd/af/fix_smoke_test.go`).
