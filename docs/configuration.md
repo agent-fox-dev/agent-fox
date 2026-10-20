@@ -38,7 +38,7 @@ API URL is set. A request to any other host carries no token.
 
 `af` keeps its local state under the checkout it works in (`--dir`), in
 `.agent-fox/`. It holds `.gitignore`, which ignores the whole directory
-without touching the repository's own `.gitignore`, `gate.json` (below), and `run/<id>/`, one
+without touching the repository's own `.gitignore`, `gate.json` (below), `gate/<id>/`, the logs and the stored result of a gate run (see [cli.md](cli.md#gate-run); safe to delete, the next run makes them again), and `run/<id>/`, one
 directory per invocation of a command that has one: the envelope, the event
 stream, the ledger, and a report or a panic's stack. Delete a run directory
 when it is no use; nothing refers to one except the commands that carry a run

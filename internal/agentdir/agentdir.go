@@ -42,3 +42,38 @@ func Ensure(dir string) (string, error) {
 	}
 	return agent, nil
 }
+
+// WriteFileAtomic writes data to path through a temporary file in the same
+// directory and a rename, so that a reader sees the old file or the new one
+// and never half of one, and runs that write together leave the last
+// writer's complete file. The directory must exist; the file is made 0644.
+func WriteFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-"+filepath.Base(path)+"-*")
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tmp.Close()
+			_ = os.Remove(tmp.Name())
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}

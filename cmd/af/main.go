@@ -53,4 +53,5 @@ func resultSchema(name string) json.RawMessage {
 // register registers the commands of the binary on app.
 func register(app *toolio.App) {
 	registerLang(app)
+	registerGate(app)
 }

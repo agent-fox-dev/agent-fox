@@ -15,6 +15,9 @@ import (
 
 var hex64 = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
+// regexpID matches a gate id.
+var regexpID = regexp.MustCompile(`^[0-9a-f]{12}$`)
+
 // mustHash is TreeHash, failing the test on an error.
 func mustHash(t *testing.T, dir string) string {
 	t.Helper()

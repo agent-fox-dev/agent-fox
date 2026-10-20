@@ -8,11 +8,12 @@ exit codes, coded warnings, a stop on a question that is resumed with
 `--context`, a `--dry-run` that cannot write to the forge, a fetchable
 schema, and a git-ignored run directory.
 
-**This release registers one work command, [`lang detect`](#lang-detect).**
-The binary also answers `--version`, `--schema` and `help`; `af` with no
-arguments, or with a command it does not know, prints a `usage` envelope and
-exits 2. The other commands of this scope and of later specs (`gate run`,
-`triage`, `fix`, …) register on the shell and get everything below.
+**This release registers two work commands, [`lang detect`](#lang-detect) and
+[`gate run`](#gate-run).** The binary also answers `--version`, `--schema` and
+`help`; `af` with no arguments, or with a command it does not know, prints a
+`usage` envelope and exits 2. The other commands of this scope and of later
+specs (`gate compare`, `triage`, `fix`, …) register on the shell and get
+everything below.
 
 ```
 $ af --version
@@ -148,6 +149,76 @@ On this repository:
 
 (The result is indented and the arrays are spread over lines in the real
 output; the count of Go files is the repository's at the time.)
+
+### gate run
+
+```
+af gate run [--dir DIR] [--label LABEL] [--hermetic] [--no-cache] [--timeout DURATION]
+```
+
+Runs the checks of the gate table (the `gate` of [lang detect](#lang-detect))
+on the tree in `--dir` and reports what they said, or returns the result
+stored for that tree. It builds no forge client, calls no model, opens no
+network connection and creates no run directory; it writes only under
+`.agent-fox/gate/`. The default `--timeout` is 30 minutes.
+
+| Flag | Meaning |
+|---|---|
+| `--label <label>` | The label the result is reported under: the result's `label`. |
+| `--hermetic` | Run the checks with a clean environment: a temporary `HOME` that is removed afterwards, whether the run completed, failed or was cancelled, no git configuration and no credential prompt. The toolchains' download caches stay where they are. |
+| `--no-cache` | Run the checks even when a result is stored for this tree, and replace it. |
+
+**How the checks run.** The checks that can be run (`available`) run one
+after the other, in table order, in `--dir`. They run with the credential
+variables of the environment stripped (the model vendors' keys and anything
+named `*_TOKEN`, `*_SECRET`, `*_API_KEY` or `*_PASSWORD`), because a suite is
+repository code. A check that is not available is skipped, not run, and is
+listed in `skipped` with the reason `unavailable`. Each check has 20 minutes;
+one that takes longer is stopped, with everything it started, and has the
+status `timeout`, and the checks after it still run. The output of each check,
+standard output and standard error together, is written in full to
+`.agent-fox/gate/<id>/NN-<slug>.log`, with `NN` the two-digit position among
+the checks that ran and `<slug>` the check's name.
+
+**The result** (its schema is `gate_run` under `$defs`):
+
+| Field | Meaning |
+|---|---|
+| `id` | The first 12 hex characters of the cache key (below). The result is stored in `.agent-fox/gate/<id>/`. |
+| `tree` | The hash of the tree the checks ran on: a SHA-256 over the file view in order, each file as its kind, its executable bit, its path and the SHA-256 of its content (a symlink as its target, any other file as its type, an unreadable file as a fixed marker). It depends on the content of the files in the view and on nothing else: not on `HEAD`, not on where the checkout is, not on ignored files. |
+| `table_source` | `file` or `detected`: where the table came from. |
+| `hermetic` | Whether the checks ran with `--hermetic`. |
+| `label` | The label asked for; `""` for none. |
+| `cached` | True when the result was stored and no check ran. |
+| `passed` | True only when at least one check ran and every check that ran passed. |
+| `checks` | `[{name, status, exit_code, duration_ms, log, tail}]` for the checks that ran. `status` is `pass` (exit code 0), `fail` (another exit code), `error` (the program could not start; `exit_code` is `-1` and the log says why) or `timeout` (`exit_code` is `-1`). `log` is relative to `--dir`. `tail` is the last 40 lines of the output, at most 4096 bytes. |
+| `skipped` | `[{name, reason}]` for the checks that did not run. |
+
+| Outcome | When |
+|---|---|
+| `done`, exit 0, `passed: false` | A check failed, errored or timed out. A red gate is a measured fact, not a failure of `af`. |
+| `done`, exit 0, `passed: false`, warning `no_checks` | No check of the table can be run here, or the table is empty. Nothing ran. |
+| `done`, warning `tree_changed_during_gate` | The tree hash taken after the checks differs from the one taken before. The result is kept under the earlier hash's id, and its `tree` is the earlier hash. |
+| `failed`/`timeout` or `failed`/`cancelled` | `--timeout` ran out, or a signal arrived. The process group of the running check is killed, and nothing is stored. |
+| `failed`/`config` | `.agent-fox/gate.json` cannot be used (see [lang detect](#lang-detect)). |
+| `failed`/`io` | The tree cannot be read, or a log or the result cannot be written. |
+
+**The cache.** The key is the SHA-256 of the tree hash, the canonical JSON of
+the table's checks (`name`, `argv` and `kind` of each, with the keys in order
+and no whitespace, and not `source` or `available`, which are not about what
+is measured) and the runner mode, `reduced` or `hermetic`. The same tree and
+the same table give the same key on every machine, and so a gate that ran in
+a box is a hit for the gate that runs outside it. `result.json` is written
+after the logs, through a temporary file and a rename, so that runs that start
+together without a lock leave the last writer's complete file and never half
+of one. Only a run that completed is stored.
+
+- A stored result for the key is returned with `cached: true` and no check
+  runs, unless `--no-cache` is given, or the result skipped a check that can
+  be run here (it was made where its program was missing), or `result.json` is
+  not a result of this key. Then the checks run and the result is replaced.
+- A change of one byte in a file of the view makes the next run another key. A
+  change confined to ignored files does not.
 
 ## The envelope
 
@@ -309,6 +380,8 @@ A code matches `^[a-z][a-z0-9_]*$`; one that does not is reported under
 | `output_unwritable` | The file named by `--output` could not be written. |
 | `events_unwritable` | An event could not be written to the run directory or to `--emit-events`. Raised once. |
 | `invalid_warning_code` | A command raised a warning whose code does not match the pattern; the message begins with the code it gave. |
+| `no_checks` | `gate run`: no check of the gate table can be run here, or the table has none. Nothing ran and `passed` is false. |
+| `tree_changed_during_gate` | `gate run`: the checks changed the tree. The result is kept under the hash of the tree they ran on. |
 | `check_unavailable` | `lang detect`: a check of the gate table names a program that cannot be run on this machine. The check stays in the table with `available: false`; the message names the check. |
 
 ## The positional input

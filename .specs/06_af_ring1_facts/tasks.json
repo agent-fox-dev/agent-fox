@@ -190,7 +190,7 @@
       "done_when": [
         "`go test ./internal/checks/... ./cmd/af/... -count=1` passes"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

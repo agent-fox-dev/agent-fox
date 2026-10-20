@@ -34,13 +34,12 @@ func registerLang(app *toolio.App) {
 // langDetect detects the repository at r.Dir. With write it stores the table
 // the repository's files give, whatever gate.json says now.
 func langDetect(r *toolio.Run, write bool) (toolio.Outcome, error) {
-	files, err := checks.FileView(r.Ctx, r.Dir)
-	if err != nil {
-		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryIO, Message: err.Error()}
-	}
-
 	var detection project.Detection
 	if write {
+		files, err := fileView(r)
+		if err != nil {
+			return toolio.Outcome{}, err
+		}
 		detection = project.DetectFresh(r.Dir, files)
 		if err := project.WriteGateFile(r.Dir, detection.Gate.Checks); err != nil {
 			return toolio.Outcome{}, &toolio.Failure{
@@ -49,12 +48,11 @@ func langDetect(r *toolio.Run, write bool) (toolio.Outcome, error) {
 			}
 		}
 		r.Artifact(toolio.Artifact{Kind: "gate_file", Path: project.GatePath(r.Dir)})
-	} else if detection, err = project.Detect(r.Dir, files); err != nil {
-		category := toolio.CategoryInternal
-		if errors.Is(err, project.ErrGateConfig) {
-			category = toolio.CategoryConfig
+	} else {
+		var err error
+		if detection, err = detect(r); err != nil {
+			return toolio.Outcome{}, err
 		}
-		return toolio.Outcome{}, &toolio.Failure{Category: category, Message: err.Error()}
 	}
 
 	for _, c := range detection.Gate.Checks {
@@ -63,6 +61,34 @@ func langDetect(r *toolio.Run, write bool) (toolio.Outcome, error) {
 		}
 	}
 	return toolio.Outcome{Status: toolio.StatusDone, Summary: detectSummary(detection), Result: detection}, nil
+}
+
+// fileView is the file view of r.Dir, with a failure in the io category when
+// it cannot be made.
+func fileView(r *toolio.Run) ([]string, error) {
+	files, err := checks.FileView(r.Ctx, r.Dir)
+	if err != nil {
+		return nil, &toolio.Failure{Category: toolio.CategoryIO, Message: err.Error()}
+	}
+	return files, nil
+}
+
+// detect is the detection of the repository at r.Dir, with the gate.json it
+// has. A gate.json that cannot be used is a failure in the config category.
+func detect(r *toolio.Run) (project.Detection, error) {
+	files, err := fileView(r)
+	if err != nil {
+		return project.Detection{}, err
+	}
+	detection, err := project.Detect(r.Dir, files)
+	if err != nil {
+		category := toolio.CategoryInternal
+		if errors.Is(err, project.ErrGateConfig) {
+			category = toolio.CategoryConfig
+		}
+		return project.Detection{}, &toolio.Failure{Category: category, Message: err.Error()}
+	}
+	return detection, nil
 }
 
 // unavailableReason says why a program cannot be run.
