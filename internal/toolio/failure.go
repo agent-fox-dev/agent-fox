@@ -20,6 +20,8 @@ const (
 	// CategorySandbox: the box could not be opened, or its tree could not be
 	// synced in or exported out.
 	CategorySandbox = "sandbox"
+	// CategorySubmission: a submission was refused, and nothing was written.
+	CategorySubmission = "submission"
 )
 
 // Failure is the error a command returns to set the envelope's error object.

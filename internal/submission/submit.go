@@ -137,7 +137,7 @@ func refuse(problems []Problem) *Refused {
 func checkShape(raw []byte) ([]byte, []Problem) {
 	whole := func(format string, args ...any) []Problem { return []Problem{{Message: fmt.Sprintf(format, args...)}} }
 	if len(raw) > MaxPayloadBytes {
-		return nil, whole("the payload is %d bytes, more than the 1 MiB that a submission may be", len(raw))
+		return nil, whole("the payload is larger than the 1 MiB that a submission may be")
 	}
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 {
