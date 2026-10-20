@@ -97,3 +97,37 @@ TS-09-73 commits in the box with a `make` target that its fixture repository has
 
 **Test:** `TestAnIssueBecomesOneCommitOnItsBranchAndAPullRequest_TS_09_73` and the six
 after it (`cmd/af/fix_smoke_test.go`).
+
+## 8. Other places where the code differs from a criterion, and why (conformance)
+
+**09-REQ-2.5 (a credential the forge rejects).** The contract says a repository that is
+"unreadable or archived" is `failed`/`forge`. A repository that is archived, not found, or
+cannot be read for a reason of the forge is `forge` (`internal/fix/preflight.go:292-307`).
+A 401 or a 403 that is not a rate limit means the credential is no good, and is
+`failed`/`auth` with `fix_hint.env`, as it is for `af triage` and for a missing token, since
+the person has to change a token and not a repository. **Test:** `TS-09-14`
+(`cmd/af/fix_test.go`, the 401 case).
+
+**09-REQ-6.8 (`fix land` on a change that is nothing).** The glossary says a refusal in
+`af fix land` goes straight to parking. A refusal for `no_change` has nothing to commit, so
+it cannot be parked: `LandRun` (`internal/fix/landcmd.go:90`) fails it as `usage`, and the
+message says that the paths that changed were protected ones and were put back. Every other
+refusal is parked. **Test:** `TestFixLandHasNothingToLandWhenNothingChanged`
+(`internal/fix/landcmd_test.go`).
+
+**09-REQ-2.1 (`fix brief` and the order of the preflight).** `fix brief` has no `--land` and
+no `--brain`, so it makes the checks of the checkout, the branch, the clean tree and the gate,
+and the baseline; the checks of the landing and of the brain are made by `fix land` and by
+`fix run`, and by `fix` before everything. **Test:**
+`TestACommandThatLandsAndRunsNoBrainSkipsThoseChecks` (`internal/fix/preflight_test.go`).
+
+**09-REQ-4.2 (three small differences in the report).** `criteria[].evidence` is optional,
+as `name` of a test is; a string of `decisions` has to be at least one character; and a
+`tests` path that is a link to a regular file of the tree is accepted, since it is a file one
+can run. **Test:** `TestReportAndQuestionLimitsHoldAtTheirBoundaries_TS_09_27` (`internal/fix/kind_test.go`).
+
+**09-REQ-9.6 (a question after a refused round).** The criteria say a question touches nothing
+of the checkout. A question asked in round 2 or later finds the change of an earlier round in
+the tree, and `Finish` puts it back (`internal/fix/finish.go`), with the warning
+`question_tree_kept` when it cannot, so that the tree is clean and the run can be resumed.
+**Test:** `TestAQuestionAfterAnAppliedRoundPutsTheCheckoutBack` (`internal/fix/finish_test.go`).

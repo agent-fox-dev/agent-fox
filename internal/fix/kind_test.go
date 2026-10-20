@@ -116,10 +116,9 @@ func TestTheKindIsFixReportAndTakesOneOfTwoForms_TS_09_26(t *testing.T) {
 }
 
 type limit struct {
-	name     string
-	ok, bad  func(m map[string]any)
-	pointer  string
-	baseline func() map[string]any
+	name    string
+	ok, bad func(m map[string]any)
+	pointer string
 }
 
 func str(n int) string { return strings.Repeat("x", n) }
@@ -294,6 +293,33 @@ func TestAnInvalidPayloadYieldsEveryProblemAtOnce_TS_09_28(t *testing.T) {
 	}
 }
 
+// TestEveryViolationOfAFieldIsAProblemOfItsOwn guards 09-REQ-4.3 inside one field: a subject
+// that ends with a period and starts with a type, and a path that is absolute, has a
+// backslash and goes up, are each refused for every rule they break, so that a brain that is
+// told to correct them all does it in one round.
+func TestEveryViolationOfAFieldIsAProblemOfItsOwn(t *testing.T) {
+	_, problems := validate(t, with(func(m map[string]any) {
+		m["subject"] = "fix: add thing."
+		m["files"] = []any{map[string]any{"path": `/a\..\.git/config`, "why": "w"}}
+	}))
+
+	var subject, file []string
+	for _, p := range problems {
+		switch p.Path {
+		case "/subject":
+			subject = append(subject, p.Message)
+		case "/files/0/path":
+			file = append(file, p.Message)
+		}
+	}
+	if len(subject) != 2 || !strings.Contains(strings.Join(subject, "|"), "period") || !strings.Contains(strings.Join(subject, "|"), "type") {
+		t.Errorf("subject problems = %v, want the period and the type, each once", subject)
+	}
+	if len(file) < 2 || !strings.Contains(strings.Join(file, "|"), "backslash") || !strings.Contains(strings.Join(file, "|"), "absolute") {
+		t.Errorf("path problems = %v, want the backslashes and the absolute path at least", file)
+	}
+}
+
 // TestNormalisationIsIdempotentAndApplied_TS_09_29 verifies TS-09-29: for
 // reports with white space, CRLF, no type and files out of order, the
 // normalised payload has none of them, and validating it returns it unchanged.
@@ -301,7 +327,8 @@ func TestAnInvalidPayloadYieldsEveryProblemAtOnce_TS_09_28(t *testing.T) {
 func TestNormalisationIsIdempotentAndApplied_TS_09_29(t *testing.T) {
 	rng := rand.New(rand.NewSource(29))
 	pad := func(s string) string {
-		return []string{"", " ", "\n", "\r\n", "\t "}[rng.Intn(5)] + s + []string{"", " ", "\n", "\r\n"}[rng.Intn(4)]
+		white := []string{"", " ", "\n", "\r\n", "\t ", "\t", "\v\f", "\u00a0", "\u2003\n", " \t\r\n "}
+		return white[rng.Intn(len(white))] + s + white[rng.Intn(len(white))]
 	}
 	text := func(n int) string {
 		words := []string{"alpha", "beta", "gamma", "delta"}
@@ -354,8 +381,12 @@ func TestNormalisationIsIdempotentAndApplied_TS_09_29(t *testing.T) {
 		}) {
 			t.Fatalf("case %d: files are not sorted: %s", i, first)
 		}
-		if strings.Contains(string(first), `"subject":" `) || strings.Contains(string(first), `\n"`) {
-			t.Fatalf("case %d: a string is not trimmed: %s", i, first)
+		var every any
+		if err := json.Unmarshal(first, &every); err != nil {
+			t.Fatal(err)
+		}
+		if s, ok := untrimmed(every); ok {
+			t.Fatalf("case %d: the string %q is not trimmed: %s", i, s, first)
 		}
 		second, problems := FixReport.Validate(context.Background(), tree(), first)
 		if len(problems) != 0 || string(second) != string(first) {
@@ -365,6 +396,27 @@ func TestNormalisationIsIdempotentAndApplied_TS_09_29(t *testing.T) {
 			t.Fatalf("case %d: the type was not defaulted: %s", i, first)
 		}
 	}
+}
+
+// untrimmed is a string of the value that has white space at either end, if there is one.
+func untrimmed(v any) (string, bool) {
+	switch v := v.(type) {
+	case string:
+		return v, strings.TrimSpace(v) != v
+	case []any:
+		for _, item := range v {
+			if s, ok := untrimmed(item); ok {
+				return s, true
+			}
+		}
+	case map[string]any:
+		for _, item := range v {
+			if s, ok := untrimmed(item); ok {
+				return s, true
+			}
+		}
+	}
+	return "", false
 }
 
 var fixedNow = time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC)

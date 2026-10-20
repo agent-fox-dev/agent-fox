@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -254,25 +255,38 @@ func TestPreflightChecksRunInOrderAndAFailureCostsNothing_TS_09_9(t *testing.T) 
 		code       int
 		category   string
 		mention    string
+		// input is the report, and brain the brain: the issue 7 and the spy when they are empty.
+		input func(e *fixEnv) string
+		brain string
 	}{
 		"dirty, no gate, no origin: the tree": {map[string]string{"README.md": "x\n"}, false, func(e *fixEnv) {
-			os.WriteFile(filepath.Join(e.dir, "dirty.txt"), []byte("x"), 0o644)
-		}, []string{"--land", "branch"}, 1, "preflight", "dirty.txt"},
+			e.writeFile("dirty.txt", "x")
+		}, []string{"--land", "branch"}, 1, "preflight", "dirty.txt", nil, ""},
 		"detached and dirty: the branch": {fixFiles, true, func(e *fixEnv) {
 			gitDo(e.t, e.dir, "checkout", "-q", "--detach")
-			os.WriteFile(filepath.Join(e.dir, "dirty.txt"), []byte("x"), 0o644)
-		}, nil, 2, "usage", "detached"},
-		"no gate and no origin: the gate": {map[string]string{"README.md": "x\n"}, false, nil, []string{"--land", "branch"}, 1, "preflight", "gate"},
-		"no origin: the origin":           {fixFiles, false, nil, []string{"--land", "branch"}, 1, "preflight", "origin"},
+			e.writeFile("dirty.txt", "x")
+		}, nil, 2, "usage", "detached", nil, ""},
+		"no gate and no origin: the gate": {map[string]string{"README.md": "x\n"}, false, nil, []string{"--land", "branch"}, 1, "preflight", "gate", nil, ""},
+		"no origin: the origin":           {fixFiles, false, nil, []string{"--land", "branch"}, 1, "preflight", "origin", nil, ""},
+		// The landing is checked before the brain is made, and the parts of the landing in order.
+		"no origin and a brain with no credential: the origin": {fixFiles, false, nil, []string{"--land", "pr"}, 1, "preflight", "origin", nil, "agentkit"},
+		"no token and a brain with no credential: the token": {fixFiles, true, func(e *fixEnv) { e.app.NewForge = e.forge.NewForge("") }, []string{"--land", "pr"},
+			1, "auth", "GITHUB_TOKEN", nil, "agentkit"},
+		"a text, no repository and no token: the repository": {fixFiles, true, func(e *fixEnv) { e.app.NewForge = e.forge.NewForge("") }, []string{"--land", "pr"},
+			2, "usage", "--repo", func(*fixEnv) string { return "the greeting says helo" }, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := newFixEnvWith(t, fakeforge.GitHub, tc.files, tc.withOrigin)
 			if tc.prepare != nil {
 				tc.prepare(e)
 			}
-			before := e.branches()
+			before, head := e.branches(), strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "HEAD"))
+			input, brain := e.forge.IssueURL(7), cmp.Or(tc.brain, "spy")
+			if tc.input != nil {
+				input = tc.input(e)
+			}
 
-			code, env := e.fix(e.forge.IssueURL(7), append(tc.args, "--brain", "spy", "--sandbox", "countbox")...)
+			code, env := e.fix(input, append(tc.args, "--brain", brain, "--sandbox", "countbox")...)
 
 			errObj := refusedBy(t, code, env, tc.code, tc.category)
 			if !strings.Contains(errObj["message"].(string), tc.mention) {
@@ -281,8 +295,8 @@ func TestPreflightChecksRunInOrderAndAFailureCostsNothing_TS_09_9(t *testing.T) 
 			if spy.news != 0 || spy.runs != 0 || boxes.Load() != 0 {
 				t.Errorf("the brain was made %d times, ran %d times, and %d boxes were opened", spy.news, spy.runs, boxes.Load())
 			}
-			if !slices.Equal(e.branches(), before) {
-				t.Errorf("branches %v, were %v", e.branches(), before)
+			if !slices.Equal(e.branches(), before) || strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "HEAD")) != head {
+				t.Errorf("branches %v, were %v, or HEAD moved: a refused run makes no branch and no commit", e.branches(), before)
 			}
 			if n := len(e.forge.Writes()); n != 0 {
 				t.Errorf("%d writes to the forge", n)
@@ -324,9 +338,9 @@ func TestADirtyTreeFailsPreflightAndNamesTwentyPaths_TS_09_11(t *testing.T) {
 	requireMake(t)
 	e := newFixEnv(t, fakeforge.GitHub)
 	for i := 1; i <= 25; i++ {
-		os.WriteFile(filepath.Join(e.dir, fmt.Sprintf("f%02d.txt", i)), []byte("x"), 0o644)
+		e.writeFile(fmt.Sprintf("f%02d.txt", i), "x")
 	}
-	os.WriteFile(filepath.Join(e.dir, "src", "greet.sh"), []byte("echo changed\n"), 0o644)
+	e.writeFile("src/greet.sh", "echo changed\n")
 
 	code, env := e.fix(e.forge.IssueURL(7), "--land", "none")
 
@@ -535,11 +549,12 @@ func TestTheHelpOfFixShowsItsDefaults(t *testing.T) {
 	e.app.Main(context.Background(), []string{"af", "help", "fix"}, strings.NewReader(""), &out, &out)
 	help := out.String()
 
-	for _, want := range []string{
-		"--brain brain", "(default agentkit)", "--sandbox provider", "(default local)", "--budget dollars", "(default 10)",
-		"--max-turns turns", "(default 150)", "--attempts n", "(default 2)", "--land mode", "(default pr)", "(default 45m0s)",
-		"--base branch", "--no-verify", "--dry-run", "--context", "--repo",
-	} {
+	for flag, def := range map[string]string{"brain": "agentkit", "sandbox": "local", "budget": "10", "max-turns": "150", "attempts": "2", "land": "pr", "timeout": "45m0s"} {
+		if !regexp.MustCompile(`(?m)^\s+--` + flag + ` .*\(default ` + regexp.QuoteMeta(def) + `\)$`).MatchString(help) {
+			t.Errorf("af help fix does not show --%s with the default %s:\n%s", flag, def, help)
+		}
+	}
+	for _, want := range []string{"--base branch", "--no-verify", "--dry-run", "--context", "--repo"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("af help fix does not show %q:\n%s", want, help)
 		}

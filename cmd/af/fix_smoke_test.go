@@ -109,6 +109,11 @@ func TestAnIssueBecomesOneCommitOnItsBranchAndAPullRequest_TS_09_73(t *testing.T
 	if !slices.Contains(e.remoteBranches(t), branch) {
 		t.Errorf("the origin has %v, want %s pushed", e.remoteBranches(t), branch)
 	}
+	for _, want := range []string{"branch", "commit", "pull_request", "report", "submission", "run_dir", "transcript"} {
+		if !slices.Contains(artifactKinds(env), want) {
+			t.Errorf("artifacts = %v, want %s", artifactKinds(env), want)
+		}
+	}
 	prs := e.forge.PullRequests()
 	if len(prs) != 1 || prs[0].Head != branch || prs[0].Draft || !strings.Contains(prs[0].Body, "Closes "+e.forge.IssueURL(7)) {
 		t.Errorf("pull requests = %+v, want one for %s that says Closes", prs, branch)
@@ -252,8 +257,13 @@ func TestAQuestionStopsTheRunAndTheAnswerResumesIt_TS_09_77(t *testing.T) {
 		t.Fatalf("exit code %d, status %v, error %v", code, first["status"], first["error"])
 	}
 	nh, _ := first["needs_human"].(map[string]any)
-	if opts, _ := nh["options"].([]any); len(opts) != 2 || nh["question"] != "Which greeting?" {
-		t.Errorf("needs_human = %v", nh)
+	var ids []string
+	opts, _ := nh["options"].([]any)
+	for _, o := range opts {
+		ids = append(ids, o.(map[string]any)["id"].(string))
+	}
+	if !slices.Equal(ids, []string{"A", "B"}) || nh["question"] != "Which greeting?" {
+		t.Errorf("needs_human = %v, want the question and the options A and B", nh)
 	}
 	if !equalMaps(before, snapshot(t, e.dir)) || !slices.Equal(e.branches(), branches) || strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "HEAD")) != head {
 		t.Error("the checkout changed")

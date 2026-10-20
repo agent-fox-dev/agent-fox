@@ -284,6 +284,12 @@ func TestAfterAnApplyTheCheckoutIsTheExport_TS_09_34(t *testing.T) {
 			hostTree[".gitignore"], export[".gitignore"] = file("build/\n*.log\n"), file("build/\n*.log\n")
 			r := newTestRepo(t, nil, false)
 			commitTree(t, r, ignoredFree(hostTree))
+			// What the checkout tracks and its rules ignore is never in an export, and never the brain's to
+			// delete; what it only ignores is not tracked at all.
+			trackedIgnored := map[string]node{"build/tracked.o": file("tracked"), "tracked.log": file("tracked log")}
+			writeTree(t, r.Dir, trackedIgnored)
+			gitDo(t, r.Dir, "add", "-f", "build/tracked.o", "tracked.log")
+			gitDo(t, r.Dir, "commit", "-q", "-m", "chore: tracked and ignored")
 			ignoredOnHost := map[string]node{"build/cache": file("cache"), "host.log": file("log")}
 			writeTree(t, r.Dir, ignoredOnHost)
 			dir := exportOf(t, export)
@@ -298,10 +304,13 @@ func TestAfterAnApplyTheCheckoutIsTheExport_TS_09_34(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := snapshotOf(t, dir, ignoredFree2(allPaths(t, dir)))
+			for path, n := range trackedIgnored {
+				want[path] = fmt.Sprintf("file:%o:%s", n.mode, n.content)
+			}
 			if got := snapshotOf(t, r.Dir, view); !equalSnapshots(got, want) {
 				t.Errorf("the checkout holds\n%v\nwant\n%v", got, want)
 			}
-			if kept := snapshotOf(t, r.Dir, []string{"build/cache", "host.log"}); len(kept) != 2 {
+			if kept := snapshotOf(t, r.Dir, []string{"build/cache", "host.log", "build/tracked.o", "tracked.log"}); len(kept) != 4 {
 				t.Errorf("what the checkout ignores was touched: %v", kept)
 			}
 		})
@@ -432,8 +441,66 @@ func TestApplyNeverWritesThroughALink(t *testing.T) {
 	})
 }
 
+// TestApplyNeverWritesUnderADifferentlyCasedGitDirectory guards the one place a box could
+// reach git's hooks: on a file system that does not tell .GIT from .git, an export with
+// .GIT/hooks/pre-commit would be written to the hooks of the checkout, which the commit of the
+// landing runs. A directory of git's or af's is left out whatever its case.
+func TestApplyNeverWritesUnderADifferentlyCasedGitDirectory(t *testing.T) {
+	r := newTestRepo(t, map[string]string{"keep.txt": "keep\n"}, false)
+	export := exportOf(t, map[string]node{
+		"keep.txt": file("changed\n"), ".GIT/hooks/pre-commit": exe("#!/bin/sh\n"), ".Git/config": file("x"), ".AGENT-FOX/run/x/hook.json": file("{}"), "sub/.GIT/HEAD": file("x"),
+	})
+	p, _ := applying(r, export)
+
+	res, err := Apply(context.Background(), p)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Written != 1 || res.Ignored != 4 {
+		t.Errorf("result = %+v, want the one changed file written and the four of git's and af's left out", res)
+	}
+	if _, err := os.Lstat(filepath.Join(r.Dir, ".git", "hooks", "pre-commit")); err == nil {
+		t.Error("an export wrote a hook of the checkout")
+	}
+	if entries, _ := filepath.Glob(filepath.Join(r.Dir, ".[GA]*")); len(entries) != 0 {
+		t.Errorf("the checkout has %v", entries)
+	}
+}
+
+// TestApplyLeavesTheFilesOfASubmoduleAlone guards a checkout that has a submodule: what is
+// under a gitlink is another repository's, git cannot say whether it is ignored, and the file
+// view names the gitlink and not the files under it. The apply neither fails on it, nor
+// writes into it, nor deletes it.
+func TestApplyLeavesTheFilesOfASubmoduleAlone(t *testing.T) {
+	r := newTestRepo(t, map[string]string{"keep.txt": "keep\n", "old.txt": "old\n"}, false)
+	sub := newTestRepo(t, map[string]string{"lib.txt": "lib\n"}, false)
+	gitDo(t, r.Dir, "-c", "protocol.file.allow=always", "submodule", "add", "-q", sub.Dir, "vendor/lib")
+	gitDo(t, r.Dir, "commit", "-q", "-m", "chore: submodule")
+	modules, err := os.ReadFile(filepath.Join(r.Dir, ".gitmodules"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	export := exportOf(t, map[string]node{".gitmodules": file(string(modules)), "keep.txt": file("changed\n"), "vendor/lib/lib.txt": file("changed in the box\n"), "vendor/lib/new.txt": file("new\n")})
+	p, _ := applying(r, export)
+
+	res, err := Apply(context.Background(), p)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Written != 1 || res.Deleted != 1 {
+		t.Errorf("result = %+v, want keep.txt written, old.txt deleted, and nothing done under the submodule", res)
+	}
+	if got := snapshotOf(t, r.Dir, []string{"vendor/lib/lib.txt", "vendor/lib/new.txt", "keep.txt"}); got["vendor/lib/lib.txt"] != "file:644:lib\n" || got["vendor/lib/new.txt"] != "" || got["keep.txt"] != "file:644:changed\n" {
+		t.Errorf("the checkout holds %v", got)
+	}
+}
+
 // TestApplyTwiceChangesNothingTheSecondTime guards that an apply writes only what
-// differs, and keeps a tracked link that a rule ignores, which the box never held.
+// differs, and keeps what the checkout tracks and a rule ignores, the link and the file: the
+// export never has them, since it leaves out what the rules ignore, and they are not the
+// brain's to delete.
 func TestApplyTwiceChangesNothingTheSecondTime(t *testing.T) {
 	r := newTestRepo(t, map[string]string{".gitignore": "ignored-link\nsecret.cfg\n", "keep.txt": "keep\n"}, false)
 	writeTree(t, r.Dir, map[string]node{"ignored-link": link("keep.txt"), "secret.cfg": file("x\n")})
@@ -448,11 +515,11 @@ func TestApplyTwiceChangesNothingTheSecondTime(t *testing.T) {
 	if err != nil || err2 != nil {
 		t.Fatal(err, err2)
 	}
-	if first.Written != 2 || first.Deleted != 1 {
-		t.Errorf("first = %+v, want the new file and the link written, the tracked file that a rule ignores deleted as the brain deleted it, and the tracked link that a rule ignores kept", first)
+	if first.Written != 2 || first.Deleted != 0 {
+		t.Errorf("first = %+v, want the new file and the link written and nothing deleted: the tracked file and the tracked link that a rule ignores are kept", first)
 	}
-	if _, err := os.Lstat(filepath.Join(r.Dir, "secret.cfg")); err == nil {
-		t.Error("secret.cfg, which the box held and the brain deleted, is still in the checkout")
+	if got := snapshotOf(t, r.Dir, []string{"secret.cfg"}); got["secret.cfg"] != "file:644:x\n" {
+		t.Errorf("secret.cfg, which the checkout tracks and the export cannot have, was touched: %v", got)
 	}
 	if second.Written != 0 || second.Deleted != 0 {
 		t.Errorf("second = %+v, want nothing to do", second)
@@ -535,7 +602,7 @@ func TestMakeRoomReplacesAFileInTheWayAndRefusesALink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 
 	if err := makeRoom(root, "a/b/c.txt", false); err != nil {
 		t.Fatal(err)

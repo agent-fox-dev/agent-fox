@@ -661,13 +661,16 @@ in the box, runs `brain.Execute` on the brief, and takes the tree out of the box
 **Apply.** The export is mirrored onto the checkout, and not committed. The files
 the export lacks are deleted first, then new and changed files, modes and links are
 written, through an `os.Root` of the checkout so that no path can leave it. `.git/`,
-`.agent-fox/`, ignored paths and anything that is not a file or a link are left
+`.agent-fox/` (whatever their case, since on a file system that does not tell `.GIT`
+from `.git` an export could write a hook that the landing runs), ignored paths,
+anything that is not a file or a link, and everything under a submodule are left
 alone; a path beyond a link of the checkout is judged after the links the export
-replaces are deleted (and left out if the checkout keeps the link), and a tracked
-link or special file that an ignore rule matches is never deleted, since the box was
-never sent it. The deletions cover the files of the checkout's file view, and the
-directories they empty. A round that did not
-submit a report, and one that asked a question, applies nothing; an export with no
+replaces are deleted (and left out if the checkout keeps the link). A file that git
+tracks and a rule ignores is never deleted, since the export never has it: the
+rules of the box's hands leave it out. The deletions cover the other files of the
+checkout's file view, and the directories they empty. A round that did not
+submit a report, and one that asked a question, applies nothing, and a run that ends on
+a question later puts back what an earlier round applied; an export with no
 file that can be applied fails as `sandbox`. It is the host that writes, never the
 box, and a box that cheats gets nothing past what the host's own rules let through.
 

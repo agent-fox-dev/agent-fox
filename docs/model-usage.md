@@ -81,8 +81,8 @@ more. The cost of the run is in the envelope's `usage` (`brain`, `cost_usd`,
 names, over a box that holds a copy of the checkout. Unlike triage, the brain
 writes: its tools read and search the repository, write and edit files, and run
 commands (`execute`) that the policy of the box allows, which are the checks of
-the gate, `af` and the utilities that only read; it can neither commit nor write
-under a protected path. The one tool that ends a round is `submit_fix`. Everything
+the gate, `af`, `git` for reading and a few utilities that only read or make a
+directory; it can neither commit nor write under a protected path. The one tool that ends a round is `submit_fix`. Everything
 the brain reads goes to the model provider, and so does what it is told; the box
 holds no token and no key.
 
@@ -107,7 +107,7 @@ with a fresh budget of both. A round is one run of the brain, ended by a report 
 a question; a change that `af` refuses after measuring it is the task block of the
 next round, so a run that needs three tries to pass the gate is three rounds of
 one attempt, each paid from the same budget. Another round starts only while cost
-and turns remain and the time left of `--timeout` is more than a minute after the
+and turns remain and the time left of `--timeout` is at least a minute after the
 time kept for measuring (three times what the baseline took, and a minute). A run
 that has spent its attempts without a change that may land parks what it has, as a
 `wip` commit; one that applied nothing fails with the category of its last round

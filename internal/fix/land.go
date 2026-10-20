@@ -241,7 +241,7 @@ func Land(ctx context.Context, p LandParams) (LandResult, error) {
 		parked, perr := l.parkAfterRefusedCommit(ctx, p, err)
 		return parked, perr
 	}
-	if err := l.recordCommit(ctx); err != nil {
+	if err := l.recordCommit(); err != nil {
 		return res, l.finish(err)
 	}
 	res.Commit = l.commit
@@ -310,14 +310,15 @@ func landMessage(typ, subject, change, issueURL string, closes bool, runID strin
 // committed without the hooks, and if that works the hook is named in a warning.
 func (l *landing) parkAfterRefusedCommit(ctx context.Context, p LandParams, refused error) (LandResult, error) {
 	verdict := p.Measured.Verdict
-	if _, err := l.g.CommitAllNoVerify(ctx, parkMessage(l.subject, verdict, nil, l.issueURL, p.State.RunID)); err != nil {
+	l.hookRefused = true
+	if _, err := l.g.CommitAllNoVerify(ctx, parkMessage(l.subject, verdict, nil, l.issueURL, p.State.RunID, true)); err != nil {
 		l.rep.SideEffect(toolio.SideEffect{Kind: EffectCommit, Target: l.branch, State: toolio.StateFailed, Detail: err.Error()})
 		l.undoBranch()
 		return LandResult{}, &toolio.Failure{Category: toolio.CategoryGit, Message: fmt.Sprintf("cannot commit the change: %v", refused)}
 	}
 	l.rep.Warn(WarnCommitHookFailed, fmt.Sprintf("the commit was refused, by a hook of the repository: %s; the change is parked", firstChars(refused.Error(), 300)))
 	parked, err := l.afterParkCommit(ctx, verdict, nil)
-	return LandResult{Outcome: parked.Outcome, Status: parked.Status, Branch: parked.Branch, Commit: parked.Commit, Pushed: parked.Pushed, PullRequest: parked.PullRequest, IssueCreated: parked.IssueCreated}, err
+	return LandResult(parked), err
 }
 
 func firstChars(s string, n int) string {
@@ -349,9 +350,12 @@ type landing struct {
 	created  *IssueRef
 	// skipPR says an issue was needed and could not be made.
 	skipPR bool
-	branch string
-	commit string
-	pushed bool
+	// hookRefused says the change is parked because a hook of the repository refused its commit,
+	// and not because the gate refused the change.
+	hookRefused bool
+	branch      string
+	commit      string
+	pushed      bool
 	// back is a context that the cancellation of the run did not reach, for the way back.
 	back context.Context
 }
@@ -407,7 +411,7 @@ func (l *landing) undoBranch() {
 }
 
 // recordCommit reads the full hash of the commit that was made, and reports it.
-func (l *landing) recordCommit(ctx context.Context) error {
+func (l *landing) recordCommit() error {
 	commit, err := l.g.RevParse(l.back, "HEAD")
 	if err != nil {
 		return &toolio.Failure{Category: toolio.CategoryGit, Message: fmt.Sprintf("cannot read the commit that was made: %v", err)}

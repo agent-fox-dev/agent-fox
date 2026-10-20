@@ -446,40 +446,49 @@ func (v *validator) subject(obj map[string]any) string {
 	if !ok {
 		return s
 	}
-	switch {
-	case strings.Contains(s, "\n"):
+	if strings.Contains(s, "\n") {
 		v.add("/subject", "must be one line")
-	case strings.HasSuffix(s, "."):
+	}
+	if strings.HasSuffix(s, ".") {
 		v.add("/subject", "must not end with a period")
-	case typePrefix.MatchString(s):
+	}
+	if typePrefix.MatchString(s) {
 		v.add("/subject", "must not start with a type and a colon: af adds the type, from the field type")
 	}
 	return s
 }
 
 // relPath reads a path of the repository: relative, with slashes, clean, and
-// not under .git/ or .agent-fox/.
+// not under .git/ or .agent-fox/. A path that breaks several of these is a problem for each,
+// except that it is not also called unclean for what it is called already.
 func (v *validator) relPath(obj map[string]any, pointer string) string {
 	key := pointer[strings.LastIndex(pointer, "/")+1:]
 	p, ok := v.text(obj, key, pointer, true, 1, 4096)
 	if !ok {
 		return ""
 	}
-	switch {
-	case strings.Contains(p, `\`):
-		v.add(pointer, "must use slashes, not backslashes")
-	case strings.HasPrefix(p, "/") || driveLetter.MatchString(p):
-		v.add(pointer, "must be relative to the root of the repository, not absolute")
-	case slices.Contains(strings.Split(p, "/"), ".."):
-		v.add(pointer, `must not contain ".."`)
-	case path.Clean(p) != p || p == ".":
-		v.add(pointer, "must be a clean path: no \"./\", no empty element, no trailing slash")
-	default:
-		if first, _, _ := strings.Cut(p, "/"); strings.EqualFold(first, ".git") || strings.EqualFold(first, ".agent-fox") {
-			v.add(pointer, "must not be under %s/: only af writes there", first)
-			return ""
-		}
-		return p
+	problems := 0
+	flag := func(format string, args ...any) {
+		v.add(pointer, format, args...)
+		problems++
 	}
-	return ""
+	if strings.Contains(p, `\`) {
+		flag("must use slashes, not backslashes")
+	}
+	if strings.HasPrefix(p, "/") || driveLetter.MatchString(p) {
+		flag("must be relative to the root of the repository, not absolute")
+	}
+	if slices.Contains(strings.Split(p, "/"), "..") {
+		flag(`must not contain ".."`)
+	}
+	if problems == 0 && (path.Clean(p) != p || p == ".") {
+		flag("must be a clean path: no \"./\", no empty element, no trailing slash")
+	}
+	if first, _, _ := strings.Cut(p, "/"); strings.EqualFold(first, ".git") || strings.EqualFold(first, ".agent-fox") {
+		flag("must not be under %s/: only af writes there", first)
+	}
+	if problems > 0 {
+		return ""
+	}
+	return p
 }

@@ -50,6 +50,9 @@ func fixLand(r *toolio.Run, runID, mode string) (toolio.Outcome, error) {
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
+	if err := fix.CheckReport(runID, run.Path, state); err != nil {
+		return toolio.Outcome{}, err
+	}
 	target := repoOfState(state.Target)
 	var forge issuex.Client
 	if mode == fix.LandPR {

@@ -91,7 +91,7 @@ func Park(ctx context.Context, p ParkParams) (ParkResult, error) {
 	if err := l.makeBranch(ctx); err != nil {
 		return ParkResult{}, err
 	}
-	if _, err := l.g.CommitAllNoVerify(ctx, parkMessage(l.subject, p.Verdict, p.Failing, l.issueURL, p.State.RunID)); err != nil {
+	if _, err := l.g.CommitAllNoVerify(ctx, parkMessage(l.subject, p.Verdict, p.Failing, l.issueURL, p.State.RunID, false)); err != nil {
 		l.rep.SideEffect(toolio.SideEffect{Kind: EffectCommit, Target: l.branch, State: toolio.StateFailed, Detail: err.Error()})
 		l.undoBranch()
 		return ParkResult{}, &toolio.Failure{Category: toolio.CategoryGit, Message: fmt.Sprintf("cannot commit the parked change: %v", err)}
@@ -105,7 +105,7 @@ func Park(ctx context.Context, p ParkParams) (ParkResult, error) {
 func (l *landing) afterParkCommit(ctx context.Context, verdict string, failing []FailingCheck) (ParkResult, error) {
 	rep := l.rep
 	res := ParkResult{Outcome: OutcomeParked, Status: toolio.StatusUnverified, Branch: l.branch, IssueCreated: l.created}
-	if err := l.recordCommit(ctx); err != nil {
+	if err := l.recordCommit(); err != nil {
 		return res, l.finish(err)
 	}
 	res.Commit = l.commit
@@ -120,7 +120,7 @@ func (l *landing) afterParkCommit(ctx context.Context, verdict string, failing [
 			if l.skipPR || l.issueURL == "" {
 				rep.Warn(WarnPullRequestSkipped, "no pull request was opened: there is no issue for it to refer to")
 			} else {
-				res.PullRequest = l.openPullRequest(ctx, "wip: "+l.subject, parkedBody(l.state.RunID, verdict, failing, l.issueURL), true)
+				res.PullRequest = l.openPullRequest(ctx, "wip: "+l.subject, parkedBody(l.state.RunID, verdict, failing, l.issueURL, l.hookRefused), true)
 			}
 		}
 	}
@@ -128,7 +128,11 @@ func (l *landing) afterParkCommit(ctx context.Context, verdict string, failing [
 		return res, err
 	}
 
-	rep.Warn(WarnFixNotLanded, fmt.Sprintf("the change did not land (verdict %s) and is parked on the branch %s", verdict, l.branch))
+	why := "verdict " + verdict
+	if l.hookRefused {
+		why += ", the commit was refused by a hook of the repository"
+	}
+	rep.Warn(WarnFixNotLanded, fmt.Sprintf("the change did not land (%s) and is parked on the branch %s", why, l.branch))
 	rep.Next(toolio.Next{Argv: []string{"git", "switch", l.branch}, Reason: "look at the parked change"})
 	if !res.Pushed && !l.interrupted && l.mode != LandNone {
 		rep.Next(toolio.Next{Argv: []string{"git", "push", "-u", "origin", l.branch}, Reason: "publish the parked branch"})
@@ -154,10 +158,14 @@ func issueTitle(s State) string {
 	return ""
 }
 
-// parkMessage is the message of the commit that parks a change.
-func parkMessage(subject, verdict string, failing []FailingCheck, issueURL, runID string) string {
+// parkMessage is the message of the commit that parks a change; hook says a hook of the
+// repository refused the commit of the landing, which is why the change is parked.
+func parkMessage(subject, verdict string, failing []FailingCheck, issueURL, runID string, hook bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "wip: %s\n\nParked by af fix: verdict %s\n", subject, verdict)
+	if hook {
+		b.WriteString("The commit was refused by a hook of the repository.\n")
+	}
 	if len(failing) > 0 {
 		b.WriteString("Failing checks:\n")
 		for _, f := range failing {
@@ -172,10 +180,14 @@ func parkMessage(subject, verdict string, failing []FailingCheck, issueURL, runI
 }
 
 // parkedBody is the body of the draft pull request of a parked change.
-func parkedBody(runID, verdict string, failing []FailingCheck, issueURL string) string {
+func parkedBody(runID, verdict string, failing []FailingCheck, issueURL string, hook bool) string {
 	var b strings.Builder
 	b.WriteString(runMarker(runID) + "\n")
-	fmt.Fprintf(&b, "This draft pull request was opened by af fix because the change did not pass the gate (verdict: %s). It keeps the work; it is not ready to merge.\n", verdict)
+	reason := "the change did not pass the gate"
+	if hook {
+		reason = "a hook of the repository refused the commit"
+	}
+	fmt.Fprintf(&b, "This draft pull request was opened by af fix because %s (verdict: %s). It keeps the work; it is not ready to merge.\n", reason, verdict)
 	if len(failing) > 0 {
 		b.WriteString("\nFailing checks:\n")
 		for _, f := range failing {

@@ -173,6 +173,17 @@ func TestAFailingCommitHookParksTheWork_TS_09_56(t *testing.T) {
 	if prs := w.forge.PullRequests(); len(prs) != 1 || !prs[0].Draft || !strings.Contains(prs[0].Body, "Refs https://github.com/o/r/issues/7") || !strings.HasPrefix(prs[0].Title, "wip: ") {
 		t.Errorf("pull requests = %+v, want a draft that refers to the issue", prs)
 	}
+	// What a reader of the parked work is told is that a hook refused it, and not that the gate did:
+	// the gate said pass.
+	if !strings.Contains(msg, "The commit was refused by a hook of the repository.") {
+		t.Errorf("message = %q, want it to say that a hook refused the commit", msg)
+	}
+	if prs := w.forge.PullRequests(); len(prs) != 1 || !strings.Contains(prs[0].Body, "a hook of the repository refused the commit") || strings.Contains(prs[0].Body, "did not pass the gate") {
+		t.Errorf("pull requests = %+v, want a body that says a hook refused the commit and not that the gate failed", prs)
+	}
+	if i := slices.Index(w.rep.warnings, WarnFixNotLanded); i < 0 || !strings.Contains(w.rep.messages[i], "refused by a hook") {
+		t.Errorf("warnings = %v %v, want fix_not_landed to say a hook refused the commit", w.rep.warnings, w.rep.messages)
+	}
 	w.onBase(t)
 }
 

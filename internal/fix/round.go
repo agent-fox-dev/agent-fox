@@ -3,6 +3,7 @@ package fix
 import (
 	"context"
 	"fmt"
+	"path"
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/box"
@@ -62,12 +63,17 @@ func GuardFile(s State) ([]byte, error) {
 }
 
 // WriteBoxFiles places gate.json and guard.json in the box, so that a brain's own gate
-// run and the hook use the host's table and rules, and not what the box would detect.
+// run and the hook use the host's table and rules, and not what the box would detect, and
+// fix.json in the run directory of the box, so that a brain with hands of its own can run
+// af fix submit there, which refuses a run directory that is no fix run.
 func WriteBoxFiles(ctx context.Context, sess *box.Session, s State) error {
 	for _, f := range []struct {
 		rel  string
 		make func(State) ([]byte, error)
-	}{{boxGatePath, GateFile}, {boxGuardPath, GuardFile}} {
+	}{
+		{boxGatePath, GateFile}, {boxGuardPath, GuardFile},
+		{path.Join(".agent-fox", "run", s.RunID, StateFile), State.Marshal},
+	} {
 		data, err := f.make(s)
 		if err != nil {
 			return &toolio.Failure{Category: toolio.CategoryInternal, Message: fmt.Sprintf("cannot make %s: %v", f.rel, err)}

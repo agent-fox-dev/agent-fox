@@ -17,6 +17,9 @@ const (
 	WarnAttemptFailed = "attempt_failed"
 	WarnTreeKept      = "dry_run_tree_kept"
 	WarnParkFailed    = "park_failed"
+	// WarnQuestionTreeKept is raised when a run that ended on a question could not put back the change
+	// of a round before it.
+	WarnQuestionTreeKept = "question_tree_kept"
 )
 
 // ParkTimeout bounds the parking of a change when the run was stopped: it is done on a
@@ -61,18 +64,22 @@ type Ending struct {
 // Finish turns what the loop came to into the end of the run. A change that may land is
 // landed, and one that was refused with no attempt left is parked, under the report it was
 // made with; a run with nothing applied fails with the failure of its last round; a question
-// is the end of the run, and nothing was applied. Under a dry run the change is discarded
+// is the end of the run, and the change that an earlier round applied and was refused is put
+// back, since the run starts again from the base with the answer. Under a dry run the change is discarded
 // instead and the writes are planned, with the status the real run would have had. A run
 // that was stopped parks what it applied on a local branch, on a context that the stop did
 // not reach, or discards it under a dry run, and returns the stop.
 func Finish(ctx context.Context, p FinishParams) (Ending, error) {
 	if p.LoopErr != nil {
-		return Ending{}, p.stopped(ctx)
+		return Ending{}, p.stopped(ctx, p.LoopErr)
 	}
 	ended := p.Ended
 	in := ResultInput{State: p.State, Attempts: ended.Attempts, Rounds: ended.Rounds, AttemptsMax: p.AttemptsMax, Land: p.Mode, Box: p.Box}
 	switch ended.End {
 	case EndQuestion:
+		if ended.HoldsChange {
+			p.discard(ctx, WarnQuestionTreeKept, "the change of an earlier round of the run")
+		}
 		in.Outcome = OutcomeNeedsHuman
 		return Ending{Result: NewResult(in), Status: toolio.StatusNeedsHuman, Summary: "the brain asks a question, and nothing was applied to the checkout", Question: ended.Question}, nil
 	case EndLandable:
@@ -91,7 +98,7 @@ func (p FinishParams) landable(ctx context.Context, in ResultInput) (Ending, err
 	}
 	if p.DryRun {
 		p.plan(ctx, false)
-		p.discard(ctx)
+		p.discard(ctx, WarnTreeKept, "the change of the dry run")
 		in.Outcome = OutcomeDryRun
 		return Ending{Result: NewResult(in), Status: status, Summary: "a dry run: the change would land, and nothing was written"}, nil
 	}
@@ -100,6 +107,9 @@ func (p FinishParams) landable(ctx context.Context, in ResultInput) (Ending, err
 		Brain: p.State.Brain, CostUSD: p.State.CostUSD, CostSource: costSource(p.State), Reporter: p.Reporter, WriteReport: p.WriteReport,
 	})
 	if err != nil {
+		if ctx.Err() != nil { // stopped while it landed: what was measured is parked, not left in the tree
+			return Ending{}, p.stopped(ctx, ctx.Err())
+		}
 		return Ending{}, err
 	}
 	in.Outcome, in.Branch, in.Commit, in.Pushed, in.PullRequest, in.IssueCreated = landed.Outcome, landed.Branch, landed.Commit, landed.Pushed, landed.PullRequest, landed.IssueCreated
@@ -129,7 +139,7 @@ func (p FinishParams) exhausted(ctx context.Context, in ResultInput) (Ending, er
 	}
 	if p.DryRun {
 		p.plan(ctx, true)
-		p.discard(ctx)
+		p.discard(ctx, WarnTreeKept, "the change of the dry run")
 		in.Outcome = OutcomeDryRun
 		return Ending{Result: NewResult(in), Status: toolio.StatusUnverified, Summary: "a dry run: the change would be parked, and nothing was written"}, nil
 	}
@@ -152,17 +162,17 @@ func (p FinishParams) subject() string {
 	return ""
 }
 
-// stopped ends a run that did not come to an end of its loop: the work is kept or discarded,
-// and the error is the loop's. A run that was stopped parks what it applied on a local
-// branch; one that failed to measure leaves the work where it is, unless a dry run is to
-// leave nothing.
-func (p FinishParams) stopped(ctx context.Context) error {
+// stopped ends a run that did not come to an end of its loop, or that was stopped while it
+// landed: the work is kept or discarded, and the error is the cause. A run that was stopped
+// parks what it applied on a local branch; one that failed to measure leaves the work where
+// it is, unless a dry run is to leave nothing.
+func (p FinishParams) stopped(ctx context.Context, cause error) error {
 	detached, cancel := context.WithTimeout(context.WithoutCancel(ctx), ParkTimeout)
 	defer cancel()
 	switch {
 	case p.DryRun:
-		p.discard(detached)
-	case errors.Is(p.LoopErr, context.Canceled) || errors.Is(p.LoopErr, context.DeadlineExceeded):
+		p.discard(detached, WarnTreeKept, "the change of the dry run")
+	case errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded):
 		_, err := Park(detached, ParkParams{
 			Git: p.Git, State: p.State, Input: p.Input, Mode: LandNone, Subject: p.subject(), Verdict: verdictInterrupted, Interrupted: true, Report: p.Reporter,
 		})
@@ -170,25 +180,25 @@ func (p FinishParams) stopped(ctx context.Context) error {
 			p.Reporter.Warn(WarnParkFailed, fmt.Sprintf("the change could not be parked after the run was stopped, and is in the working tree: %v", err))
 		}
 	}
-	return p.LoopErr
+	return cause
 }
 
-// discard puts the checkout back as the run found it, for a dry run: the applied change goes.
-// A checkout that is no longer at the commit the run began at has been moved by someone, and
-// is left alone, with a warning.
-func (p FinishParams) discard(ctx context.Context) {
+// discard puts the checkout back as the run found it: the applied change goes. A checkout that
+// is no longer at the commit the run began at has been moved by someone, and is left alone,
+// with the warning of the code, which says what the change was.
+func (p FinishParams) discard(ctx context.Context, code, what string) {
 	branch, berr := p.Git.CurrentBranch(ctx)
 	head, herr := p.Git.RevParse(ctx, "HEAD")
 	if berr != nil || herr != nil || branch != p.State.Base || head != p.State.BaseHead {
-		p.Reporter.Warn(WarnTreeKept, fmt.Sprintf("the checkout is not on %s at %s any more, so the change of the dry run was not discarded", p.State.Base, p.State.BaseHead))
+		p.Reporter.Warn(code, fmt.Sprintf("the checkout is not on %s at %s any more, so %s was not discarded", p.State.Base, p.State.BaseHead, what))
 		return
 	}
 	if err := p.Git.ResetHard(ctx, p.State.BaseHead); err != nil {
-		p.Reporter.Warn(WarnTreeKept, fmt.Sprintf("the change of the dry run could not be discarded: %v", err))
+		p.Reporter.Warn(code, fmt.Sprintf("%s could not be discarded: %v", what, err))
 		return
 	}
 	if err := p.Git.Clean(ctx); err != nil {
-		p.Reporter.Warn(WarnTreeKept, fmt.Sprintf("the files of the dry run could not be removed: %v", err))
+		p.Reporter.Warn(code, fmt.Sprintf("the files of %s could not be removed: %v", what, err))
 	}
 }
 

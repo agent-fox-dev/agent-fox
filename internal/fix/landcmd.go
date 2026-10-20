@@ -136,6 +136,14 @@ func RecordMeasurement(record func(kind string, data any), m Measurement) {
 	}
 }
 
+// CheckReport says whether the submission of the run is a report that can be landed, which
+// is what LandRun needs of it first: a command that needs a forge for the landing checks it
+// before it asks for one, so that a question is refused as a question.
+func CheckReport(runID, runPath string, state State) error {
+	_, err := readReport(LandRunParams{RunID: runID, RunPath: runPath, State: state})
+	return err
+}
+
 // readReport reads the submission of the run, which must be a fix report: a question is
 // answered with the command that asks again, and a run with no submission is told to
 // submit one.

@@ -72,6 +72,33 @@ func TestTrackedIgnoredListsWhatTheRulesMatchAndGitStillHolds(t *testing.T) {
 	}
 }
 
+func TestGitlinksListsTheSubmodulesOfTheIndex(t *testing.T) {
+	g, dir := newRepo(t)
+	ctx := context.Background()
+	write(t, dir, "plain.go", "x")
+	if _, err := g.CommitAll(ctx, "chore: files\n"); err != nil {
+		t.Fatal(err)
+	}
+	head, err := g.RevParse(ctx, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"vendor/lib", "z sub"} {
+		if out, code, err := g.git(ctx, "update-index", "--add", "--cacheinfo", "160000,"+head+","+path); err != nil || code != 0 {
+			t.Fatalf("git update-index: %v %d %s", err, code, out)
+		}
+	}
+
+	got, err := g.Gitlinks(ctx)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"vendor/lib", "z sub"}; !slices.Equal(got, want) {
+		t.Errorf("Gitlinks = %q, want %q (plain.go is a file and not a submodule)", got, want)
+	}
+}
+
 // TestChangedPaths_TS_06_8 verifies TS-06-8:
 // ChangedPaths returns diff-from-ref plus untracked paths NUL-separated,
 // byte-exact, de-duplicated and sorted.

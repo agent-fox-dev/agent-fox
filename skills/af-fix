@@ -113,8 +113,7 @@ is put back and reported.
 ## 5. Verify
 
 Run `af gate run` on the tree with your change: it is the project's checks the
-way `af` will measure them, and its cached result is what the landing reuses.
-Read what it says. `af` compares it with the baseline, by check:
+way `af` will measure them. Read what it says. `af` compares it with the baseline, by check:
 
 | Before | After | Verdict | Lands? |
 |---|---|---|---|
@@ -130,7 +129,7 @@ again while you can; do not report a pass the checks did not produce.
 
 For each acceptance criterion, state whether the change meets it and what shows
 that. An unmet criterion does not stop a landing by itself, but the pull request
-is a draft that says the work is unfinished.
+is a draft, and its criteria list shows the ones that are unmet.
 
 ## 6. Report
 
@@ -171,7 +170,7 @@ run next.
 
 - Commit, push, create a branch, tag, reset or stash. `af` makes every git
   effect itself, from the tree you leave.
-- Edit the issue, or comment on the issue. `af` writes to the forge, once, after
+- Edit the issue, or comment on the issue. `af` writes to the forge itself, after
   the change exists and is measured.
 - Merge, squash or push to the base branch, or force-push anything.
 - Write a verification result the checks did not produce, or soften a red

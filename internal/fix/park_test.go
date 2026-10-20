@@ -379,6 +379,14 @@ func TestAParkedRunPushesAndOpensADraftThatRefsTheIssue_TS_09_62(t *testing.T) {
 			t.Errorf("pull requests = %+v", prs)
 		}
 	})
+}
+
+// TestParkingFollowsTheModeOfTheLanding guards what a parked change sends and where: branch
+// mode pushes and asks nothing of the forge, none mode keeps the branch here, and a run that
+// was interrupted sends nothing beyond the machine.
+// Verifies: 09-REQ-9.2, 09-REQ-9.4
+func TestParkingFollowsTheModeOfTheLanding(t *testing.T) {
+	text := Input{Kind: "text", Body: "the greeting says helo"}
 	t.Run("branch mode", func(t *testing.T) {
 		w := newLandWorld(t, fakeforge.GitHub)
 
@@ -579,6 +587,12 @@ func TestParkingKeepsTheWorkWhateverTheForgeDoes(t *testing.T) {
 			t.Errorf("warnings = %v, want issue_creation_failed and pull_request_skipped", w.rep.warnings)
 		}
 	})
+}
+
+// TestParkingThatCannotBeMadeLeavesTheCheckoutAsItWas guards the ways parking itself can
+// come to nothing: there is no change to keep, or the commit is refused.
+func TestParkingThatCannotBeMadeLeavesTheCheckoutAsItWas(t *testing.T) {
+	text := Input{Kind: "text", Body: "the greeting says helo"}
 	t.Run("nothing to keep", func(t *testing.T) {
 		w := newLandWorld(t, fakeforge.GitHub)
 		gitDo(t, w.repo.Dir, "checkout", "-q", "--", "src/greet.sh")

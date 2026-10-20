@@ -98,6 +98,21 @@ func TestAResultCarriesEveryFieldWhateverTheRunDid_TS_09_67(t *testing.T) {
 		t.Errorf("pull_request = %v", m["pull_request"])
 	}
 
+}
+
+// TestAResultOfARunThatParkedOrAskedCarriesEveryField_TS_09_67 verifies the other half of
+// TS-09-67: a parked result, one of a failed run that measured something with no verdict,
+// and one of a run that asked a question and measured nothing have all the fields, with the
+// lists as lists and the rest null.
+// Verifies: 09-REQ-10.1
+func TestAResultOfARunThatParkedOrAskedCarriesEveryField_TS_09_67(t *testing.T) {
+	state := sampleState()
+	local, err := box.Default.Lookup("local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := NewBoxInfo(local, sandbox.Spec{Image: "img", Network: sandbox.Network{Mode: sandbox.NetworkUnrestricted}})
+
 	// A run that parked, with an issue that was made for a text.
 	state.Issue, state.NoVerify = nil, false
 	parked := asMap(t, NewResult(ResultInput{

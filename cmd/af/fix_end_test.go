@@ -423,11 +423,14 @@ func TestEveryEndOfARunLeavesTheBaseCheckedOutClean_TS_09_66(t *testing.T) {
 		code   int
 		onHead bool
 	}{
-		"landed":         {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyFixed, spyReport, 0, 1)}, nil, 0, false},
-		"parked":         {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyBroken, spyReport, 10, 1)}, []string{"--attempts", "1"}, 4, false},
-		"needs_human":    {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyBroken, question, 0, 1)}, nil, 3, true},
-		"dry_run":        {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyFixed, spyReport, 0, 1)}, []string{"--dry-run"}, 0, true},
-		"dry_run parked": {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyBroken, spyReport, 10, 1)}, []string{"--dry-run", "--attempts", "1"}, 4, true},
+		"landed":      {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyFixed, spyReport, 0, 1)}, nil, 0, false},
+		"parked":      {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyBroken, spyReport, 10, 1)}, []string{"--attempts", "1"}, 4, false},
+		"needs_human": {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyBroken, question, 0, 1)}, nil, 3, true},
+		"dry_run":     {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyFixed, spyReport, 0, 1)}, []string{"--dry-run"}, 0, true},
+		// A question in a later round: the change of the round before it, which was refused, is not kept.
+		"needs_human after a refused round":         {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyBroken, spyReport, 0, 1), spyRound(t, nil, question, 0, 1)}, nil, 3, true},
+		"dry_run needs_human after a refused round": {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyBroken, spyReport, 0, 1), spyRound(t, nil, question, 0, 1)}, []string{"--dry-run"}, 3, true},
+		"dry_run parked":                            {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyBroken, spyReport, 10, 1)}, []string{"--dry-run", "--attempts", "1"}, 4, true},
 	}
 	for name, sc := range scenarios {
 		for _, mode := range []string{"pr", "branch", "none"} {
@@ -527,6 +530,15 @@ func TestTheDefaultsOfTheLoopApplyWhenFlagsAreOmitted_TS_09_2(t *testing.T) {
 	if bx, _ := res["box"].(map[string]any); bx["provider"] != "local" {
 		t.Errorf("box = %v, want the default sandbox", res["box"])
 	}
+
+	// The default brain is the agentkit driver: with no credential for its model, it is the one that
+	// cannot be made, and the run is refused before a box is opened.
+	e2 := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
+	code, env := e2.fix(e2.forge.IssueURL(7), "--dry-run")
+	errObj := refusedBy(t, code, env, 1, "auth")
+	if hint, _ := errObj["fix_hint"].(map[string]any); hint["env"] != "ANTHROPIC_API_KEY" {
+		t.Errorf("error = %v, want the agentkit brain, which needs ANTHROPIC_API_KEY", errObj)
+	}
 }
 
 // TestEachFixCommandAcceptsExactlyItsFlags_TS_09_3 verifies TS-09-3: the flags each command
@@ -566,8 +578,8 @@ func TestEachFixCommandAcceptsExactlyItsFlags_TS_09_3(t *testing.T) {
 			}
 		}
 	}
-	if got := flagsOf("fix", "submit"); !slices.Contains(got, "run-id") || !slices.Contains(got, "dir") {
-		t.Errorf("af help fix submit shows %v", got)
+	if got, want := flagsOf("fix", "submit"), []string{"dir", "emit-events", "output", "run-id", "timeout"}; !slices.Equal(got, want) {
+		t.Errorf("af help fix submit shows %v, want exactly %v", got, want)
 	}
 	for _, args := range [][]string{{"fix", "land", "--run-id", "x", "--attempts", "2"}, {"fix", "brief", "x", "--land", "none"}, {"fix", "run", "--run-id", "x", "--base", "main"}, {"fix", "brief", "x", "--dry-run"}} {
 		if code, env := e.run("", args...); code != 2 {

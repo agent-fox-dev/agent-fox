@@ -3,6 +3,7 @@ package fix
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -134,7 +135,19 @@ func TestARoundPlacesTheFilesRunsTheBrainAndAppliesAnAcceptedTree(t *testing.T) 
 	w := newRoundWorld(t)
 	head := strings.TrimSpace(gitDo(t, w.repo.Dir, "rev-parse", "HEAD"))
 	var seen = map[string]string{}
+	var boxTools []string
 	b := &spy{run: func(ctx context.Context, b brain.Brief) (brain.Outcome, error) {
+		for _, tool := range b.Box.Tools() {
+			boxTools = append(boxTools, tool.Name)
+		}
+		// The run directory of the box holds fix.json, so that af fix submit, which refuses a directory
+		// that is no fix run, can be run in the box by a brain that has hands of its own.
+		runFile := ".agent-fox/run/" + b.RunID + "/" + StateFile
+		if data, err := fs.ReadFile(b.Box.FS(ctx), runFile); err != nil {
+			t.Errorf("%s is not in the box when the brain starts: %v", runFile, err)
+		} else if want, _ := json.MarshalIndent(w.state, "", "  "); string(data) != string(want)+"\n" {
+			t.Errorf("%s holds %s, want the state of the run", runFile, data)
+		}
 		for _, name := range []string{".agent-fox/gate.json", ".agent-fox/guard.json"} {
 			data, err := fs.ReadFile(b.Box.FS(ctx), name)
 			if err != nil {
@@ -174,7 +187,10 @@ func TestARoundPlacesTheFilesRunsTheBrainAndAppliesAnAcceptedTree(t *testing.T) 
 	if got.Attempt != 3 || got.RunID != w.run.ID || got.Prefix != w.prefix || got.Task != w.task || got.MaxCostUSD != 3 || got.MaxTurns != 7 || got.Kind.Name != KindName {
 		t.Errorf("brief = %+v, want the round's number, run, prefix, task and bounds", got)
 	}
-	if len(got.Tools) == 0 || !slices.Contains(got.Hook.AllowPrograms, "make") || !slices.Equal(got.Hook.ProtectedPaths[:5], policy.DefaultProtectedPaths()) {
+	if len(boxTools) < 2 || !slices.Equal(got.Tools, boxTools) {
+		t.Errorf("the brief allows %v, and the box has the tools %v: a round gives its brain all of them", got.Tools, boxTools)
+	}
+	if !slices.Contains(got.Hook.AllowPrograms, "make") || !slices.Equal(got.Hook.ProtectedPaths[:5], policy.DefaultProtectedPaths()) {
 		t.Errorf("tools %v, hook %+v", got.Tools, got.Hook)
 	}
 	var ledger []string

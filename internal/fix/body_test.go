@@ -287,6 +287,33 @@ func TestSectionsWithNothingReportedSaySo(t *testing.T) {
 	}
 }
 
+// TestTheBodyFitsTheLimitWhateverTheNumberOfFilesThatIsCut guards the cut of the list of files
+// at every limit around a size: the line that says how many files are not shown is part of
+// the body, and a body one byte over the limit is a pull request the forge refuses. The files
+// are a thousand and more, so that the count of the ones that are not shown has as many digits
+// as the count of all of them.
+func TestTheBodyFitsTheLimitWhateverTheNumberOfFilesThatIsCut(t *testing.T) {
+	for _, n := range []int{2500, 3000} {
+		f := sampleFacts()
+		f.Changed = nil
+		for i := range n {
+			f.Changed = append(f.Changed, fmt.Sprintf("pkg%d/file%04d.go", i%7, i))
+		}
+		for limit := 40000; limit < 40060; limit++ {
+			body := RenderBody(f, limit)
+			if len(body) > limit {
+				t.Fatalf("%d files, a limit of %d: the body is %d bytes", n, limit, len(body))
+			}
+			if !strings.Contains(body, "\nCloses https://github.com/o/r/issues/7\n") {
+				t.Fatalf("%d files, a limit of %d: the Closes line was cut", n, limit)
+			}
+			if limit-len(body) > 120 {
+				t.Fatalf("%d files, a limit of %d: the body is %d bytes, a cut that takes more than it must", n, limit, len(body))
+			}
+		}
+	}
+}
+
 // TestTheListOfFilesIsSortedOnceAndCutTight guards the list of files and the cut of it: the
 // paths come sorted whatever order git gave, once each, and the cut takes no more of them
 // than it must.

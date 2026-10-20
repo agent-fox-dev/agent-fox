@@ -22,6 +22,10 @@ const (
 // forge takes.
 const BodyCutMarker = "[cut: the body is over the limit of the forge]"
 
+// hiddenFilesLine is the line that ends a list of files that was cut: the marker, and how many files are
+// not shown.
+const hiddenFilesLine = "- %s (%d more files)\n"
+
 // NotDeclared stands for the reason of a changed file the report did not name.
 const NotDeclared = "(not declared)"
 
@@ -96,7 +100,7 @@ func RenderBody(f BodyFacts, limit int) string {
 	}
 	if len(body) > limit && len(files) > 0 {
 		// The files that go are the last ones, and the line that says so takes room too.
-		over := len(body) - limit + len(BodyCutMarker) + len("- ( more files)\n") + len(fmt.Sprint(len(files)))
+		over := len(body) - limit + len(fmt.Sprintf(hiddenFilesLine, BodyCutMarker, len(files)))
 		for ; hidden < len(files) && over > 0; hidden++ {
 			over -= len(files[len(files)-1-hidden]) + 1
 		}
@@ -132,7 +136,7 @@ func composeBody(f BodyFacts, sections []reportedSection, files []string, hidden
 		b.WriteString(line + "\n")
 	}
 	if hidden > 0 {
-		fmt.Fprintf(&b, "- %s (%d more files)\n", BodyCutMarker, hidden)
+		fmt.Fprintf(&b, hiddenFilesLine, BodyCutMarker, hidden)
 	}
 	if f.IssueURL != "" {
 		word := "Refs"

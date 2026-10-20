@@ -121,14 +121,23 @@ func GateMS(res *checks.Result) int64 {
 	return ms
 }
 
+// Marshal is the content of fix.json.
+func (s State) Marshal() ([]byte, error) {
+	data, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("encode %s: %w", StateFile, err)
+	}
+	return append(data, '\n'), nil
+}
+
 // Write stores the state in the run directory, atomically: a reader sees the file
 // as it was or as it is, and never half of it.
 func (s State) Write(runDir string) error {
-	data, err := json.MarshalIndent(s, "", "  ")
+	data, err := s.Marshal()
 	if err != nil {
-		return fmt.Errorf("encode %s: %w", StateFile, err)
+		return err
 	}
-	return agentdir.WriteFileAtomic(filepath.Join(runDir, StateFile), append(data, '\n'))
+	return agentdir.WriteFileAtomic(filepath.Join(runDir, StateFile), data)
 }
 
 // LoadState reads fix.json of a run directory.

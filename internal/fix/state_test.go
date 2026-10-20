@@ -68,7 +68,9 @@ func TestFixJSONHoldsEveryFieldAndIsWrittenAtomically_TS_09_17(t *testing.T) {
 		t.Error("LoadState of a directory with no fix.json succeeded")
 	}
 	bad := t.TempDir()
-	os.WriteFile(filepath.Join(bad, "fix.json"), []byte("{"), 0o644)
+	if err := os.WriteFile(filepath.Join(bad, "fix.json"), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := LoadState(bad); err == nil {
 		t.Error("LoadState of a file that does not parse succeeded")
 	}

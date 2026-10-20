@@ -551,6 +551,23 @@ func (g *Git) TrackedIgnored(ctx context.Context) ([]string, error) {
 	return sortedUnique(splitNUL(out)), nil
 }
 
+// Gitlinks lists the paths that are submodules: the entries of the index whose mode is
+// 160000, NUL-separated, byte for byte, de-duplicated and sorted. What is under one is
+// another repository's.
+func (g *Git) Gitlinks(ctx context.Context) ([]string, error) {
+	out, err := g.raw(ctx, "ls-files", "-z", "--stage")
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, record := range splitNUL(out) {
+		if meta, path, ok := strings.Cut(record, "\t"); ok && strings.HasPrefix(meta, "160000 ") {
+			paths = append(paths, path)
+		}
+	}
+	return sortedUnique(paths), nil
+}
+
 // ChangedPaths lists the paths that differ from since, staged or not, and the
 // untracked files that are not ignored, NUL-separated and byte for byte,
 // de-duplicated and sorted. A renamed file is both of its paths, so that a

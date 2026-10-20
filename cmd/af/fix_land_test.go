@@ -233,6 +233,24 @@ func TestFixLandLandsAGoodChangeAsAPullRequestWithItsReport(t *testing.T) {
 	}
 }
 
+// TestFixLandTellsAboutAQuestionBeforeItAsksForARepository guards 09-REQ-4.6 at the command: a
+// run on a text, whose checkout names no repository, that ended on a question, is refused
+// for the question, which is what the person has to act on, and not for the repository that a
+// pull request would need.
+func TestFixLandTellsAboutAQuestionBeforeItAsksForARepository(t *testing.T) {
+	requireMake(t)
+	e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
+	_, brief := e.brief("the greeting says helo")
+	e.submitReport(brief, `{"question":{"text":"Which greeting?","options":["hello","hi"]}}`)
+
+	code, env := e.land(brief)
+
+	msg := refusedBy(t, code, env, 1, "submission")["message"].(string)
+	if !strings.Contains(msg, "Which greeting?") || !strings.Contains(msg, "--context") {
+		t.Errorf("message = %q, want the question and the way to answer it", msg)
+	}
+}
+
 // TestFixLandRefusesWhatItCannotLand guards the refusals of the command: a question
 // submission points at fix brief, a foreign commit is told, a pull request without a
 // repository says so, and none of them makes a branch.

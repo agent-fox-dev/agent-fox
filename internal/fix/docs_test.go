@@ -108,7 +108,7 @@ var docNeeds = map[string][]string{
 		"| `baseline_failing` |", "| `issue_closed` |", "| `question_not_found` |", "| `protected_path_reverted` |", "| `scope_mismatch` |", "| `fix_not_proven` |",
 		"| `push_retried` |", "| `criteria_unmet` |", "| `pull_request_failed` |", "| `fix_not_landed` |", "| `not_verified` |", "| `attempt_failed` |",
 		"| `commit_hook_failed` |", "| `no_forge_token` |", "| `park_failed` |", "| `push_failed` |", "| `issue_creation_failed` |", "| `pull_request_skipped` |",
-		"| `dry_run_tree_kept` |", "| `report_unwritable` |",
+		"| `dry_run_tree_kept` |", "| `question_tree_kept` |", "| `report_unwritable` |",
 		// the category and the exit codes
 		"| `preflight` |", "How a fix run ends", "needs_human", "unverified",
 		// the records

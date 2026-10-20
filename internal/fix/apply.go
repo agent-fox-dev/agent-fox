@@ -137,7 +137,11 @@ func record(p ApplyParams, res ApplyResult) {
 func planApply(ctx context.Context, p ApplyParams) (plan, error) {
 	var pl plan
 	var candidates []string
-	err := filepath.WalkDir(p.Export, func(full string, d fs.DirEntry, err error) error {
+	gitlinks, err := p.Git.Gitlinks(ctx)
+	if err != nil {
+		return plan{}, &toolio.Failure{Category: toolio.CategoryGit, Message: err.Error()}
+	}
+	err = filepath.WalkDir(p.Export, func(full string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -149,7 +153,7 @@ func planApply(ctx context.Context, p ApplyParams) (plan, error) {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if kind := d.Type(); leftOut(rel) || (!kind.IsRegular() && kind&fs.ModeSymlink == 0) {
+		if kind := d.Type(); leftOut(rel) || underAny(rel, gitlinks) || (!kind.IsRegular() && kind&fs.ModeSymlink == 0) {
 			pl.ignored++
 			return nil
 		}
@@ -198,7 +202,7 @@ func planApply(ctx context.Context, p ApplyParams) (plan, error) {
 	if err != nil {
 		return plan{}, &toolio.Failure{Category: toolio.CategoryIO, Message: err.Error()}
 	}
-	unsynced, err := neverSynced(ctx, p)
+	kept, err := keptAsTheyAre(ctx, p)
 	if err != nil {
 		return plan{}, err
 	}
@@ -207,11 +211,21 @@ func planApply(ctx context.Context, p ApplyParams) (plan, error) {
 		have[rel] = true
 	}
 	for _, rel := range view {
-		if !have[rel] && !unsynced[rel] {
+		if !have[rel] && !kept[rel] && !underAny(rel, gitlinks) {
 			pl.deletes = append(pl.deletes, rel)
 		}
 	}
 	return pl, nil
+}
+
+// underAny says whether rel is one of the directories, or lies under one.
+func underAny(rel string, dirs []string) bool {
+	for _, dir := range dirs {
+		if rel == dir || strings.HasPrefix(rel, dir+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // ignoredAmong is the paths that the checkout's git rules ignore.
@@ -275,25 +289,25 @@ func judgeBeyond(ctx context.Context, p ApplyParams, root *os.Root, beyond map[s
 }
 
 // leftOut says a path of the export is not the checkout's to take: git's own state
-// anywhere in the tree, and the directory af keeps its files in at its top.
+// anywhere in the tree, and the directory af keeps its files in at its top. They are
+// matched whatever their case, since on a file system that does not tell .GIT from .git
+// an export with .GIT/hooks/pre-commit would write a hook that the landing runs.
 func leftOut(rel string) bool {
 	parts := strings.Split(rel, "/")
-	return parts[0] == ".agent-fox" || slices.Contains(parts, ".git")
+	return strings.EqualFold(parts[0], ".agent-fox") || slices.ContainsFunc(parts, func(part string) bool { return strings.EqualFold(part, ".git") })
 }
 
-// neverSynced are the tracked files that an ignore rule matches and that are not
-// regular files. The box is sent the regular ones and no link, so that the export
-// lacks the others whatever the brain did, and they are not the brain's to delete.
-func neverSynced(ctx context.Context, p ApplyParams) (map[string]bool, error) {
+// keptAsTheyAre are the tracked files that an ignore rule matches. The export of the box
+// has no file that the rules ignore, so it lacks these whatever the brain did, and they
+// are not the brain's to delete.
+func keptAsTheyAre(ctx context.Context, p ApplyParams) (map[string]bool, error) {
 	tracked, err := p.Git.TrackedIgnored(ctx)
 	if err != nil {
 		return nil, &toolio.Failure{Category: toolio.CategoryGit, Message: err.Error()}
 	}
 	out := map[string]bool{}
 	for _, rel := range tracked {
-		if info, err := os.Lstat(filepath.Join(p.Dir, filepath.FromSlash(rel))); err == nil && !info.Mode().IsRegular() {
-			out[rel] = true
-		}
+		out[rel] = true
 	}
 	return out, nil
 }
