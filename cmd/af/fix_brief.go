@@ -146,7 +146,7 @@ func startRun(r *toolio.Run, pre fix.Preflighted, noVerify bool) (startedRun, er
 		Context: append([]string{}, r.Context...),
 	}
 	if r.Input.Kind == toolio.KindIssue && r.Input.Issue != nil && r.Input.Thread != nil {
-		state.Issue = &fix.StateIssue{URL: r.Input.Issue.URL(), Title: r.Input.Thread.Issue.Title}
+		state.Issue = &fix.StateIssue{URL: r.Input.Issue.URL(), Title: r.Input.Thread.Issue.Title, Number: r.Input.Issue.Number}
 		state.Target = fix.StateTarget{Repo: r.Input.Issue.Repo.String(), Host: r.Input.Issue.Repo.Host}
 	} else if r.Target.Valid() {
 		state.Target = fix.StateTarget{Repo: r.Target.String(), Host: r.Target.Host}

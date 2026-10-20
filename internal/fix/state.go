@@ -55,10 +55,11 @@ type StateTarget struct {
 	Host string `json:"host"`
 }
 
-// StateIssue is the issue of a run: its URL and its title.
+// StateIssue is the issue of a run: its URL, its title and its number, which names the branch.
 type StateIssue struct {
-	URL   string `json:"url"`
-	Title string `json:"title"`
+	URL    string `json:"url"`
+	Title  string `json:"title"`
+	Number int    `json:"number"`
 }
 
 // StateFile is the name of the file, in the run directory.

@@ -150,6 +150,17 @@ func (g *Git) CreateBranch(ctx context.Context, name string) error {
 	return err
 }
 
+// CreateBranchFrom creates name at ref and checks it out, carrying the working tree
+// along: a fix is made on the tree of the base, and its branch starts at the commit the
+// base was at when the run began, whatever HEAD has moved to since.
+func (g *Git) CreateBranchFrom(ctx context.Context, name, ref string) error {
+	if strings.HasPrefix(name, "-") || strings.HasPrefix(ref, "-") {
+		return fmt.Errorf("git checkout: %q from %q: a name or a ref may not start with a hyphen", name, ref)
+	}
+	_, err := g.must(ctx, "checkout", "-b", name, ref)
+	return err
+}
+
 // Checkout switches to an existing branch.
 func (g *Git) Checkout(ctx context.Context, name string) error {
 	_, err := g.must(ctx, "checkout", name)

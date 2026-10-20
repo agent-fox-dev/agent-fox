@@ -686,3 +686,56 @@ func TestIgnoredNamesWhatTheRulesIgnore(t *testing.T) {
 		t.Errorf("Ignored of odd names = %v, %v, want all three: no name is quoted", odd, err)
 	}
 }
+
+// TestCreateBranchFromStartsAtTheRefAndCarriesTheWorkingTree guards the branch of a fix:
+// it starts at the commit the run began at, whatever HEAD has moved to, and the change in
+// the working tree comes along.
+func TestCreateBranchFromStartsAtTheRefAndCarriesTheWorkingTree(t *testing.T) {
+	g, dir := newRepo(t)
+	ctx := context.Background()
+	base, err := g.RevParse(ctx, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "other.txt"), []byte("later\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.CommitAll(ctx, "chore: a later commit"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "untracked.txt"), []byte("u\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := g.CreateBranchFrom(ctx, "fix/x", base); err != nil {
+		t.Fatal(err)
+	}
+
+	if branch, _ := g.CurrentBranch(ctx); branch != "fix/x" {
+		t.Errorf("branch = %q", branch)
+	}
+	if head, _ := g.RevParse(ctx, "HEAD"); head != base {
+		t.Errorf("HEAD = %s, want the ref %s", head, base)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "other.txt")); err == nil {
+		t.Error("the later commit is on the branch")
+	}
+	if data, _ := os.ReadFile(filepath.Join(dir, "README.md")); string(data) != "# changed\n" {
+		t.Errorf("README.md = %q, want the change carried along", data)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "untracked.txt")); err != nil {
+		t.Errorf("the untracked file did not come along: %v", err)
+	}
+	if err := g.CreateBranchFrom(ctx, "fix/x", base); err == nil {
+		t.Error("a branch that exists was made again")
+	}
+	if err := g.CreateBranchFrom(ctx, "fix/y", "no-such-ref"); err == nil {
+		t.Error("a branch was made from a ref that is not one")
+	}
+	if err := g.CreateBranchFrom(ctx, "fix/z", "-bad"); err == nil {
+		t.Error("a ref that is an option was taken")
+	}
+}

@@ -145,7 +145,7 @@ func TestFixJSONHasTheInputKeyOfEveryKindOfInput_TS_09_17(t *testing.T) {
 			}
 			if tc.kind == "issue" {
 				issue, _ := fj["issue"].(map[string]any)
-				if issue["url"] != tc.origin || issue["title"] != "Greeting is wrong" {
+				if issue["url"] != tc.origin || issue["title"] != "Greeting is wrong" || issue["number"] != float64(7) {
 					t.Errorf("issue = %v, want its URL and title", issue)
 				}
 			} else if fj["issue"] != nil {

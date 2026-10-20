@@ -36,6 +36,8 @@ const (
 	OpLabels   = "labels"
 	OpComment  = "comment"
 	OpCreate   = "create"
+	// OpPullRequest creates a pull request, or a merge request on GitLab.
+	OpPullRequest = "pull_request"
 )
 
 // Comment is a comment on an issue.
@@ -55,6 +57,16 @@ type Issue struct {
 	Labels   []string
 	Created  time.Time
 	Comments []Comment
+}
+
+// PullRequest is a pull request, or a merge request, that was opened.
+type PullRequest struct {
+	Number int
+	Title  string
+	Body   string
+	Head   string
+	Base   string
+	Draft  bool
 }
 
 // Request is a request the forge received.
@@ -88,6 +100,7 @@ type Forge struct {
 	srv      *httptest.Server
 	mu       sync.Mutex
 	issues   map[int]*Issue
+	pulls    []PullRequest
 	next     int
 	requests []Request
 	fail     map[string]Failure
@@ -134,6 +147,13 @@ func (f *Forge) Issue(number int) Issue {
 	return cp
 }
 
+// PullRequests are the pull requests that were opened, in order.
+func (f *Forge) PullRequests() []PullRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]PullRequest(nil), f.pulls...)
+}
+
 // Fail makes every request of the operation fail from now on.
 func (f *Forge) Fail(op string, fl Failure) {
 	f.mu.Lock()
@@ -153,7 +173,7 @@ func (f *Forge) Writes() []Request {
 	var out []Request
 	for _, r := range f.Requests() {
 		switch r.Op {
-		case OpBody, OpLabels, OpComment, OpCreate:
+		case OpBody, OpLabels, OpComment, OpCreate, OpPullRequest:
 			out = append(out, r)
 		}
 	}
@@ -195,7 +215,7 @@ func (f *Forge) IssueURL(number int) string {
 }
 
 var (
-	githubPath = regexp.MustCompile(`^/repos/([^/]+/[^/]+)(?:/issues(?:/(\d+))?(/comments|/labels)?)?$`)
+	githubPath = regexp.MustCompile(`^/repos/([^/]+/[^/]+)(?:/issues(?:/(\d+))?(/comments|/labels)?|/pulls)?$`)
 	gitlabPath = regexp.MustCompile(`^/api/v4/projects/([^/]+/[^/]+)(?:/(?:issues|merge_requests)(?:/(\d+))?(/notes)?)?$`)
 )
 
@@ -257,6 +277,8 @@ func (f *Forge) serve(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintf(w, `{"id":1,"html_url":%q,"body":"x"}`, fmt.Sprintf("%s/%s/issues/%d#comment-1", f.URL, f.Repo, number))
 	case OpCreate:
 		f.create(w, req.JSON)
+	case OpPullRequest:
+		f.openPullRequest(w, req.JSON)
 	default:
 		http.NotFound(w, r)
 	}
@@ -292,6 +314,8 @@ func (f *Forge) classify(r *http.Request, raw []byte) (op string, number int) {
 		return OpComments, number
 	case r.Method == http.MethodPost && m[2] == "" && isIssues:
 		return OpCreate, 0
+	case r.Method == http.MethodPost && m[2] == "" && !isIssues && (strings.HasSuffix(r.URL.Path, "/pulls") || strings.HasSuffix(r.URL.Path, "/merge_requests")):
+		return OpPullRequest, 0
 	case r.Method == http.MethodPost && (tail == "/comments" || tail == "/notes"):
 		return OpComment, number
 	case r.Method == http.MethodPost && tail == "/labels":
@@ -339,6 +363,34 @@ func (f *Forge) create(w http.ResponseWriter, body map[string]any) {
 	f.issues[n] = i
 	f.mu.Unlock()
 	f.writeIssue(w, n, http.StatusCreated)
+}
+
+// openPullRequest keeps a pull request and answers as the forge does.
+func (f *Forge) openPullRequest(w http.ResponseWriter, body map[string]any) {
+	f.mu.Lock()
+	n := f.next
+	f.next++
+	pr := PullRequest{Number: n, Title: fmt.Sprint(body["title"]), Body: fmt.Sprint(body[f.bodyField()])}
+	if f.Kind == GitLab {
+		pr.Head, pr.Base = fmt.Sprint(body["source_branch"]), fmt.Sprint(body["target_branch"])
+		pr.Draft = strings.HasPrefix(pr.Title, "Draft: ")
+	} else {
+		pr.Head, pr.Base = fmt.Sprint(body["head"]), fmt.Sprint(body["base"])
+		pr.Draft, _ = body["draft"].(bool)
+	}
+	f.pulls = append(f.pulls, pr)
+	f.mu.Unlock()
+
+	var doc map[string]any
+	if f.Kind == GitLab {
+		doc = map[string]any{"id": n, "iid": n, "title": pr.Title, "description": pr.Body, "state": "opened", "draft": pr.Draft,
+			"source_branch": pr.Head, "target_branch": pr.Base, "web_url": fmt.Sprintf("%s/%s/-/merge_requests/%d", f.URL, f.Repo, n)}
+	} else {
+		doc = map[string]any{"number": n, "title": pr.Title, "body": pr.Body, "state": "open", "draft": pr.Draft,
+			"head": map[string]any{"ref": pr.Head}, "base": map[string]any{"ref": pr.Base}, "html_url": fmt.Sprintf("%s/%s/pull/%d", f.URL, f.Repo, n)}
+	}
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(doc)
 }
 
 func (f *Forge) writeRepo(w http.ResponseWriter) {
