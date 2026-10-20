@@ -183,11 +183,11 @@
       "when": "each is run and the raw stdout key order is read with a token decoder",
       "then": [
         "top-level keys are exactly schema_version, tool, run_id, status, exit_code, summary, input, result, needs_human, error, warnings, artifacts, side_effects, next, usage, started_at, finished_at, duration_ms in that order",
-        "schema_version is \"4.0.0\"",
+        "schema_version is \"5.0.0\"",
         "warnings, artifacts, side_effects and next are [] never null",
         "fix_hint is null or has only keys among flag, env, var, suggest"
       ],
-      "pseudocode": "for s in statuses: keys = topLevelKeys(out); assert keys == EXPECTED; assert e.schema_version == '4.0.0'; assert e.warnings == []"
+      "pseudocode": "for s in statuses: keys = topLevelKeys(out); assert keys == EXPECTED; assert e.schema_version == '5.0.0'; assert e.warnings == []"
     },
     {
       "id": "TS-05-11",
@@ -1242,11 +1242,11 @@
       "when": "Main is called with [\"--schema\"]",
       "then": [
         "exit code 0 and stdout is one JSON document with $schema draft 2020-12",
-        "properties.schema_version has const \"4.0.0\"",
+        "properties.schema_version has const \"5.0.0\"",
         "required lists every envelope field in envelope order",
         "result is open and $defs contains key gate_run"
       ],
-      "pseudocode": "s = json(out); assert s.properties.schema_version.const == '4.0.0'; assert s.required == ENVELOPE_FIELDS; assert 'gate_run' in s['$defs']"
+      "pseudocode": "s = json(out); assert s.properties.schema_version.const == '5.0.0'; assert s.required == ENVELOPE_FIELDS; assert 'gate_run' in s['$defs']"
     },
     {
       "id": "TS-05-69",

@@ -7,7 +7,7 @@ import (
 )
 
 // SchemaVersion is the envelope's schema_version.
-const SchemaVersion = "4.0.0"
+const SchemaVersion = "5.0.0"
 
 // Status is the envelope's status, and with it the process's exit code.
 type Status string

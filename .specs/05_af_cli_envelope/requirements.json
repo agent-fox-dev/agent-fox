@@ -7,7 +7,7 @@
   "glossary": {
     "DryRunForge": "`toolio.DryRunForge(inner)`: an issuex.Client decorator that passes reads through and refuses every write with an error wrapping `toolio.ErrDryRun`, recording it as a planned side effect.",
     "command path": "The one or more words a command is registered under (\"triage\", \"gate run\"); it is the envelope's `tool` value.",
-    "envelope": "The single JSON object (`toolio.Envelope`, schema_version \"4.0.0\") that every af command invocation other than --version, --schema and help writes to stdout, with a fixed field set and order.",
+    "envelope": "The single JSON object (`toolio.Envelope`, schema_version \"5.0.0\") that every af command invocation other than --version, --schema and help writes to stdout, with a fixed field set and order.",
     "failure": "`*toolio.Failure{Category, Message, Retryable, FixHint}`: the error type a command returns to set the envelope's `error` object and category.",
     "ledger": "`<run_dir>/ledger.jsonl`: append-only JSON lines `{seq, ts, kind, data}` that later commands use to record what they measured.",
     "outcome": "`toolio.Outcome{Status, Summary, Result, NeedsHuman}`: what a command returns when it did not fail; status is done, unverified or needs_human.",
@@ -103,7 +103,7 @@
           "id": "05-REQ-2.2",
           "pattern": "ubiquitous",
           "system": "shell",
-          "action": "emit the envelope fields in the order schema_version (\"4.0.0\"), tool, run_id, status, exit_code, summary, input, result, needs_human, error, warnings, artifacts, side_effects, next, usage, started_at, finished_at, duration_ms, with every field present, arrays as `[]` never null, and `fix_hint` either null or an object with only the keys flag, env, var and suggest",
+          "action": "emit the envelope fields in the order schema_version (\"5.0.0\"), tool, run_id, status, exit_code, summary, input, result, needs_human, error, warnings, artifacts, side_effects, next, usage, started_at, finished_at, duration_ms, with every field present, arrays as `[]` never null, and `fix_hint` either null or an object with only the keys flag, env, var and suggest",
           "contract": "JSON key order equals the listed order for every status"
         },
         {
@@ -587,7 +587,7 @@
           "pattern": "event_driven",
           "condition": "`af --schema` is invoked",
           "system": "shell",
-          "action": "print the JSON Schema (draft 2020-12) embedded from `internal/toolio/schema/envelope.schema.json`, with schema_version `const: \"4.0.0\"`, `required` listing every envelope field in envelope order, `result` open, and each registered command's result schema under `$defs` keyed by its path with spaces replaced by `_`",
+          "action": "print the JSON Schema (draft 2020-12) embedded from `internal/toolio/schema/envelope.schema.json`, with schema_version `const: \"5.0.0\"`, `required` listing every envelope field in envelope order, `result` open, and each registered command's result schema under `$defs` keyed by its path with spaces replaced by `_`",
           "contract": "exit code 0; stdout is one JSON document"
         },
         {

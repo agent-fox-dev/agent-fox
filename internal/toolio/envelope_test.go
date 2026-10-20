@@ -104,8 +104,8 @@ func TestEnvelopeFieldOrder_TS_05_10(t *testing.T) {
 				t.Fatalf("keys = %v, want %v", got, envelopeKeys)
 			}
 			env := decode(t, stdout)
-			if env["schema_version"] != "4.0.0" {
-				t.Errorf("schema_version = %v, want 4.0.0", env["schema_version"])
+			if env["schema_version"] != "5.0.0" {
+				t.Errorf("schema_version = %v, want 5.0.0", env["schema_version"])
 			}
 			for _, key := range []string{"warnings", "artifacts", "side_effects", "next"} {
 				if list, ok := env[key].([]any); !ok || len(list) != 0 {

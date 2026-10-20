@@ -43,7 +43,7 @@
       ],
       "steps": [
         "Write the listed tests in internal/toolio (package toolio, test commands registered on an App with in-memory buffers) and confirm they fail",
-        "Create internal/toolio/envelope.go: Envelope struct with the PRD §2 fields in order and JSON tags, SchemaVersion=\"4.0.0\", sub-structs (Input, NeedsHuman{Question,Options,Resume}, ErrorInfo, FixHint with omitempty flag/env/var/suggest, Warning, Artifact, SideEffect, Next, Usage), Status constants and ExitCode(Status) int; normalise nil slices to [] before marshalling",
+        "Create internal/toolio/envelope.go: Envelope struct with the PRD §2 fields in order and JSON tags, SchemaVersion=\"5.0.0\", sub-structs (Input, NeedsHuman{Question,Options,Resume}, ErrorInfo, FixHint with omitempty flag/env/var/suggest, Warning, Artifact, SideEffect, Next, Usage), Status constants and ExitCode(Status) int; normalise nil slices to [] before marshalling",
         "Create internal/toolio/failure.go: Failure{Category,Message,Retryable,FixHint} implementing error, the seven Category* constants (usage, auth, forge, io, cancelled, timeout, internal), and Outcome{Status,Summary,Result,NeedsHuman}",
         "Create internal/toolio/app.go: App{Name,Version,Commit,BuildTime,NewForge,Now,Rand}, Command{Path,Summary,Usage,Flags,Run,...opt-in fields} and Run{Ctx,Tool,Argv,Dir,Input,Forge,Target,DryRun,Context,RunDir,Stderr} with Warn/Artifact/SideEffect/Next/Emit/SetUsage, App.Register and a minimal App.Main(ctx,args,stdin,stdout,stderr) int that matches a registered path exactly, parses a flag.FlagSet (ContinueOnError, output discarded) and calls the command (T2 refines dispatch and parsing)",
         "Implement finish(): map outcome/error to status, error object, exit code (Failure usage->usage/2, other Failure->failed/1, plain error->failed/internal, retryable false), copy summary/result, default usage {brain \"\",cost_usd 0,cost_source none,0,0,0}, started_at/finished_at RFC 3339 UTC with milliseconds from App.Now, integer duration_ms",
@@ -382,7 +382,7 @@
       ],
       "steps": [
         "Write the listed tests (golden comparison with a -update flag defined in each test package via flag.Bool) and confirm they fail",
-        "Create internal/toolio/schema/envelope.schema.json (draft 2020-12): every §2 field, schema_version const \"4.0.0\", required listing all fields in envelope order, result open, plus the $defs placeholder",
+        "Create internal/toolio/schema/envelope.schema.json (draft 2020-12): every §2 field, schema_version const \"5.0.0\", required listing all fields in envelope order, result open, plus the $defs placeholder",
         "Embed it with //go:embed in internal/toolio/schema.go; Command.ResultSchema json.RawMessage; `af --schema` prints the base schema with each registered command's result schema under $defs keyed by the path with spaces replaced by \"_\"; `af <command> --schema` narrows tool to const the path and result to null-or-the command's schema",
         "Make --schema, --version and --help/-h take precedence anywhere on the command line, before input resolution, forge construction, stdin reads or run-directory creation (no .agent-fox directory, NewForge not called)",
         "Create cmd/af/main.go: package main with var version, commit, buildTime string for ldflags, building toolio.App with them, registering no commands in this scope, and os.Exit(app.Main(ctx, os.Args, os.Stdin, os.Stdout, os.Stderr)); factor registration into a function testable without a subprocess",

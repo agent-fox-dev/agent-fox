@@ -86,7 +86,7 @@ order; arrays are `[]`, never null, and an object that does not apply is
 
 ```json
 {
-  "schema_version": "4.0.0",
+  "schema_version": "5.0.0",
   "tool": "example",
   "run_id": "20261020_072649_a31f9c",
   "status": "done",
@@ -148,7 +148,7 @@ the shell under a test command, with the path of the checkout shortened.)
 
 | Field | Type | Meaning |
 |---|---|---|
-| `schema_version` | string | `"4.0.0"`. |
+| `schema_version` | string | `"5.0.0"`. |
 | `tool` | string | The command path, or `"af"` when no command was resolved. |
 | `run_id` | string or null | The name of the run directory; null for a command without one. |
 | `status` | string | `done`, `failed`, `usage`, `needs_human` or `unverified`. |
@@ -340,6 +340,32 @@ go test ./internal/toolio ./cmd/af -update
 
 (`go test ./... -update` fails in the packages that do not define the flag;
 see `docs/errata/05_update_flag.md`.)
+
+## Interface versions
+
+`schema_version` is the version of the envelope's interface: its fields and
+their types. It is separate from the build, which `af --version` reports. A
+caller compares the major number with the one it was written for before it
+reads the rest of the envelope.
+
+Within a major version a change is additive only. These need no new major
+version: a new top-level field; a new field on an existing object; a new value
+in a field documented as an open set (a warning `code`, an error `category`,
+an artifact `kind`, an event `type`). These are breaking, and each
+bumps the major version: removing a field, renaming it, changing its type, or
+narrowing a field documented as a closed set (`status`, `exit_code`,
+`input.kind`, `side_effects[].state`, `usage.cost_source`). A change on purpose changes
+`toolio.SchemaVersion`, the `const` in
+`internal/toolio/schema/envelope.schema.json` and the two golden files
+together; a test fails until they agree.
+
+`5.0.0` is the envelope of the `af` binary. The earlier `triage`, `fix` and
+`impl` tools printed an envelope that reached 4.0.0, and this one is not
+compatible with it: it removes `ok`, `version`, `session_id`, `model`,
+`timings`, `untrusted_fields` and `report_file`, renames and retypes fields
+inside `needs_human`, `error`, `side_effects`, `artifacts` and `next`, and
+always prints every field. `docs/errata/05_old_envelope_fields.md` lists the
+differences.
 
 ## Help
 

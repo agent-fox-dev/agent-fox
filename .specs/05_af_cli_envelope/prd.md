@@ -88,7 +88,7 @@ Every command invocation other than `--version`, `--schema` and help writes exac
 
 | Field | Type | Meaning |
 |---|---|---|
-| `schema_version` | string | `"4.0.0"` |
+| `schema_version` | string | `"5.0.0"` |
 | `tool` | string | The command path (`"triage"`, `"gate run"`), or `"af"` when no command was resolved |
 | `run_id` | string or null | The run directory's id, or null when the command has none |
 | `status` | string | `done`, `failed`, `usage`, `needs_human` or `unverified` |
@@ -222,7 +222,7 @@ When `--schema`, `--version` or `--help` appears anywhere on a command line, the
 
 ### 9. `--schema`
 
-- `af --schema` prints the envelope's JSON Schema (draft 2020-12): every field of §2, with `schema_version` as `const: "4.0.0"`, and `required` listing every field in envelope order. `result` is open. Each registered command's result schema appears under `$defs`, keyed by the command path with spaces replaced by `_`.
+- `af --schema` prints the envelope's JSON Schema (draft 2020-12): every field of §2, with `schema_version` as `const: "5.0.0"`, and `required` listing every field in envelope order. `result` is open. Each registered command's result schema appears under `$defs`, keyed by the command path with spaces replaced by `_`.
 - `af <command> --schema` prints the same schema narrowed to that command: `tool` is `const` the command path, and `result` is null or the command's own schema.
 - The base schema is a file embedded with `embed`, `internal/toolio/schema/envelope.schema.json`. The golden files `internal/toolio/testdata/schema.golden.json` (no commands registered) and `cmd/af/testdata/schema.golden.json` (the real binary) are committed, and regenerated with `go test ./... -update`.
 - A test fails when the schema's `required` list differs, in names or in order, from the JSON tags of `toolio.Envelope`.
@@ -242,7 +242,7 @@ The steering directive requires these updates in the same change:
 
 1. **Split the input into six specs, and make this the first.** The PRD covers six areas that can each be built and tested independently: the shell, ring 1, the brains, triage, fix, and the boxes. That is well over 10 requirements and 12 tasks, and every later scope needs the envelope first.
 2. **Define the envelope here rather than "revive as it was".** `1e6458d` is not readable from the tree, so the field set and order are written down from the old contract as the archived spec and PRDs 01, 03 and 05 record it. If the implementer recovers the old code and finds a field missing here, it is reported in an erratum, not added silently.
-3. **`schema_version` is `"4.0.0"`.** PRD 02 asks for the next major version after the old one, and the only recorded old value is the hub tasks draft's `"3.0.0"`.
+3. **`schema_version` is `"5.0.0"`.** PRD 02 asks for the next major version after the old one. The old tools' last value was `"4.0.0"` (`1e6458d:internal/toolio/envelope.go`, bumped from 3.1.0 on 2026-10-14), not the hub tasks draft's example `"3.0.0"`, which was written before it. This envelope removes, renames and retypes fields of the old one (`docs/errata/05_old_envelope_fields.md` lists them), which the old interface rule counts as breaking, so the next major is `"5.0.0"` and a consumer that reads `schema_version` can tell the two shapes apart.
 4. **Every field is always present; arrays are `[]` and inapplicable objects are `null`.** A consumer (hub, the service, a model) never has to tell "missing" from "empty", and Go's struct order fixes the field order.
 5. **Indented JSON on stdout.** People read it in a terminal, and every JSON parser accepts it.
 6. **Help is plain text on stdout with exit 0, the one non-JSON output.** A person asked for it. `--version` and `--schema` stay JSON because tools consume them.
