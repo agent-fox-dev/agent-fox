@@ -68,6 +68,16 @@ func (g *Git) UntrackedFiles(ctx context.Context) ([]string, error) {
 	return nonEmptyLines(out), nil
 }
 
+// TopLevel is the top level of the work tree that Dir is in, as git prints it:
+// an absolute path with the links of its own directories resolved.
+func (g *Git) TopLevel(ctx context.Context) (string, error) {
+	out, err := g.raw(ctx, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(out, "\r\n"), nil
+}
+
 // Head is the short hash of the current commit.
 func (g *Git) Head(ctx context.Context) (string, error) {
 	return g.must(ctx, "rev-parse", "--short", "HEAD")
@@ -512,6 +522,18 @@ func (g *Git) MergeBase(ctx context.Context, ref string) (string, error) {
 // The paths are de-duplicated and sorted byte-wise, and relative to Dir.
 func (g *Git) ListFiles(ctx context.Context) ([]string, error) {
 	out, err := g.raw(ctx, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	return sortedUnique(splitNUL(out)), nil
+}
+
+// TrackedIgnored lists the tracked files that an ignore rule matches, as
+// `git status` shows them when they are clean: committed before the rule was
+// written, or added with -f. They are NUL-separated, byte for byte, relative to
+// Dir, de-duplicated and sorted.
+func (g *Git) TrackedIgnored(ctx context.Context) ([]string, error) {
+	out, err := g.raw(ctx, "ls-files", "-z", "--cached", "--ignored", "--exclude-standard")
 	if err != nil {
 		return nil, err
 	}

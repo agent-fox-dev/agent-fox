@@ -52,6 +52,26 @@ func TestListFilesIsNULSeparatedAndByteExact(t *testing.T) {
 	}
 }
 
+func TestTrackedIgnoredListsWhatTheRulesMatchAndGitStillHolds(t *testing.T) {
+	g, dir := newRepo(t)
+	ctx := context.Background()
+	write(t, dir, "gen/api.pb.go", "x")
+	write(t, dir, "plain.go", "x")
+	if _, err := g.CommitAll(ctx, "chore: files\n"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, dir, ".gitignore", "gen/\n*.log\n")
+	write(t, dir, "untracked.log", "x")
+
+	got, err := g.TrackedIgnored(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"gen/api.pb.go"}; !slices.Equal(got, want) {
+		t.Errorf("TrackedIgnored = %q, want %q (an untracked ignored file is not tracked)", got, want)
+	}
+}
+
 // TestChangedPaths_TS_06_8 verifies TS-06-8:
 // ChangedPaths returns diff-from-ref plus untracked paths NUL-separated,
 // byte-exact, de-duplicated and sorted.

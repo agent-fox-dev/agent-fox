@@ -582,6 +582,123 @@ on it holds none, and the number is still the files that were read) and
 whatever order the files are read: a brief that carries the map can rely on it
 being the same on every attempt. The status is `done`.
 
+### Brains and boxes
+
+The agent commands (`af triage`, `af fix`) run a brief through a *brain* in a
+*box* and take back one submission. No command of this release registers them;
+the pieces they are built from are in `internal/brain`, `internal/box` and
+`internal/submission`, and this is the contract they share.
+
+**The shared flags** (`brain.Flags`, registered on a command's flags with the
+defaults that command supplies):
+
+| Flag | Meaning |
+|---|---|
+| `--brain <name>` | `agentkit` (the AgentKit driver, on the host, over the box's tools) or `scripted` (a replay of a script, with no model; see [development.md](development.md#the-scripted-brain)). An unknown name is a `usage` failure that lists the registered ones. |
+| `--sandbox <provider>` | The box provider. `local` is the only one in this release, and the default. An unknown name is a `usage` failure that lists the registered ones. |
+| `--budget <usd>` | Stop the brain after this much model cost. A finite number above 0. It needs a model whose price the catalog knows: with another, the `agentkit` brain fails as `usage` and names `AF_MODEL`, since no cost could be counted against it. |
+| `--max-turns <n>` | Stop the brain after this many turns. At least 1. |
+| `--script <file>` | The script of `--brain scripted`, and only with it. |
+
+A value that is out of range, `--brain scripted` without `--script` and
+`--script` with another brain are `usage` failures (exit 2) that name the flag.
+`Flags.Validate` and `Registry.New` report them, with a script that cannot be
+used (it is read whole: text after its object is refused) and a missing
+credential for the model, and a command that calls them first finds all of
+these before a box opens.
+
+**The box** holds the tree. The checkout goes in with its `.git` (it must be the
+top level of a git work tree that keeps its own `.git` directory: a path inside
+one, a linked worktree and a submodule are `usage` failures that say so, since a
+commit made in a box that held one would write the repository it was linked to).
+The files that the checkout's ignore rules ignore (a `.env`, build output) stay
+out, except the ones git tracks, which go in all the same so that git in the box
+sees what git on the host sees. The tree comes out again without `.git` into
+`af-export-<run_id>-*` under the temporary directory of the OS, which `Close`
+removes.
+
+Git writes and the credentials stay on the host: a commit made in the box is
+not on the host's branch, and what could carry a credential in the box's
+`.git/config` (the URLs of the remotes, extra headers, credential helpers, URL
+rewrites) is taken out when the box is opened and again after each sync. The
+environment of the box's tools is what the provider gives them, which for
+`local` is the host's `PATH`, `LANG` and `TERM` and a `HOME` and `TMPDIR` of the
+box's own, and the host values of the names the chosen brain asks for (none, for
+`agentkit` and `scripted`): no token and no key is among them. The `local`
+provider runs the tools in this process, with its privileges: it has no process
+or network isolation, and every box opened raises the warning `box_unconfined`
+once. A box is closed after a result, a failure, a panic of the brain and a
+cancellation; a close that fails is the warning `box_close_failed`.
+
+The host reads the box through its tools: it lists a directory with the list tool
+(at most 500 entries) and takes a file out by exporting that file, so that any
+bytes come out exact, at most 32 MiB of them. A symbolic link is not followed.
+
+**The submission.** A brain hands back one JSON object, which af validates
+against the tree and writes before it exists: `.agent-fox/run/<id>/submission.json`
+in the box, `{kind, run_id, attempt, nonce, submitted_at, payload_sha256,
+payload}`, with the attempt and the nonce of `run.json`, which the loop places
+before each brain run. The brains of this release submit through the submit core
+(`submission.Submit`); a brain with hands of its own could write the file by
+other means, so the host decides from the file and trusts nothing about how it
+got there. After the brain, the host reads that file (at most 2 MiB) and decides
+from it, and from nothing the brain said or printed: it must parse, carry this
+run's kind, run id, attempt and nonce, have a `payload_sha256` that is the hash
+of its payload, and the payload must pass what a submission passes (at most 1
+MiB, valid UTF-8, one JSON object, and the kind's own check against the box's
+tree, in which a panic is a problem with the payload). Then the host writes
+`<run dir>/submission.json` from what it checked and nothing else the file held
+(no extra field, no second `payload`). A file left by an earlier attempt (another
+nonce) is not this attempt's, and counts as no submission. The last valid
+submission wins; a refused one never replaces anything. A run directory that has
+no accepted submission has no `submission.json`: the one an earlier attempt
+accepted is removed when the next attempt starts, and one that anything but af
+wrote there is removed (the warning `submission_not_removed` if it cannot be).
+Because the `local` box has no isolation, a process of the brain that outlives
+its run could still rewrite the file; consumers take the payload from the result
+of the run, or check the file's `payload_sha256` against the ledger's
+`submission_accepted`. A valid submission wins over an error of the brain and
+over a panic of it, which is the warning `brain_error` (the stack of a panic is
+kept either way). Without one, the run fails as `timeout`, `brain`, `budget` or
+`no_result` (see the [categories](#error-categories)).
+
+**The tool gate.** Every tool call that the driver of an in-process brain passes
+to its guard is decided before it runs: the tool must be in the brief's
+allowlist (the tool that ends the run always is), and the rules of
+[`guard check`](#guard-check), with the brief's hook as their configuration and
+the suite of the checkout, must allow it. A path that a write names is judged as
+the box's tools will resolve it (quotes, a leading `@`, a `file://` prefix and
+the spaces around it are taken off first). A denied call is not executed, and its
+reason is the brain's next turn. A call to a tool that does not exist, or with
+arguments that do not fit the tool's schema, is answered by the driver and never
+reaches the gate, so it is not in the transcript. The brief's hook always
+protects `.agent-fox/`, where only af places the brief, `run.json` and the
+submission, but the guard is prevention and not a boundary: it reads a command
+and not what a program it allows goes on to write, so a script can write where a
+redirect would be refused. What holds is the host's decision above, which
+accepts only a file that is valid.
+
+### The submit command of an agent
+
+`submission.Command(path, kind)` builds the `af <agent> submit` command that a
+brain with its own hands runs inside the box.
+
+```
+af <agent> submit --run-id ID [--dir DIR]  < payload.json
+```
+
+The payload is the JSON object on stdin (at most 1 MiB), `--dir` the tree (the
+current directory by default, opened so that no link in it leads out of it) and
+`--run-id` the run, which must exist under `--dir` (a missing or malformed id is
+`usage`, exit 2). Accepted, the status is `done` with the result `{run_id, kind,
+path, sha256}` (the file, absolute, and the hash its `payload_sha256` holds) and
+the artifact `{kind: "submission", path}`. Refused, malformed JSON included, the
+status is `failed`, the category `submission`, `retryable` is true, the result is
+null, the message names every problem, and the exit code is 1; nothing is
+written and an earlier valid submission stays. The command makes no run
+directory and takes no `--dry-run`. Its result schema is under `$defs` of `af
+--schema`, as `<agent>_submit`.
+
 ## The envelope
 
 Every invocation other than `--version`, `--schema` and help writes exactly
@@ -668,7 +785,7 @@ the shell under a test command, with the path of the checkout shortened.)
 | `artifacts` | array | `[{kind, path?, url?, name?, number?}]`. Paths are absolute; a relative path a command records is made absolute. |
 | `side_effects` | array | `[{kind, target, state, detail?}]`. `state` is `done`, `planned` or `failed`. |
 | `next` | array | `[{argv, reason}]`: suggested follow-up commands. |
-| `usage` | object | `{brain, cost_usd, cost_source, input_tokens, output_tokens, turns}`. With no brain, `brain` is `""`, the numbers are 0 and `cost_source` is `none`; it is otherwise `measured` or `reported`. |
+| `usage` | object | `{brain, cost_usd, cost_source, input_tokens, output_tokens, turns}`. With no brain, `brain` is `""`, the numbers are 0 and `cost_source` is `none`; it is otherwise `measured` or `reported`, and `none` for a brain that used no model (`scripted`) or a model with no price in the catalog. |
 | `started_at`, `finished_at` | string | RFC 3339, UTC, with milliseconds. |
 | `duration_ms` | integer | The wall time of the invocation. |
 
@@ -715,15 +832,20 @@ outcome, and a run that fails after the command returned prints the envelope.
 | `error.category` | Used for |
 |---|---|
 | `usage` | The invocation is wrong. Status `usage`. |
-| `auth` | An issue was not found without a token, so it may be private. `fix_hint.env` names the token to set. |
+| `auth` | An issue was not found without a token, so it may be private, or the `agentkit` brain has no credential for its model. `fix_hint.env` names the variable to set (a forge token, or `ANTHROPIC_API_KEY`). |
 | `forge` | The forge could not be reached, refused, or the client could not be built. `retryable` is true after a rate limit, a server error or a lost connection, and false after a refusal. |
 | `io` | A file, stdin or the run directory could not be read or written. |
 | `cancelled` | The process was sent SIGINT, SIGTERM or SIGHUP. |
-| `timeout` | `--timeout` ran out. Not retryable; `fix_hint` is `{flag: "--timeout", suggest: <twice the value>}`. |
+| `timeout` | `--timeout` ran out, or the time a brief allows ran out with no submission (it counts from the start of the run, so placing the brief is part of it). Not retryable; `fix_hint` is `{flag: "--timeout", suggest: <twice the value>}`. |
 | `internal` | A bug: a plain error, a panic, an inconsistent outcome, a result that is not JSON. |
-| `config` | A configuration file `af` reads cannot be used, for example a `.agent-fox/gate.json` that does not parse. The message names the file. |
+| `config` | A configuration file `af` reads cannot be used, for example a `.agent-fox/gate.json` that does not parse, or the `.agent-fox/guard.json` that a brain's tool gate loads. The message names the file. The `agentkit` brain also uses it when the model provider cannot be configured from the environment. |
 | `restore` | A tree that a command changed in order to measure it could not be put back, or a leftover of an earlier measurement stands in the way. The message names the directory that holds what is left. |
 | `git` | git failed in a way the command cannot work around. |
+| `sandbox` | The box could not be opened, synced or exported. The provider could not create it (not retryable); the checkout could not be synced in, or the tree could not be exported out (retryable); or an export carried a `.git`, which stops the run. |
+| `brain` | A brain failed: it returned an error and left no submission (retryable), or it panicked (not retryable; the stack is in `brain-panic.<attempt>.txt` in the run directory). |
+| `no_result` | A brain ended without a valid submission: it stopped for another reason than the cost or the turns, or the submission file did not count. Retryable. |
+| `budget` | A brain used its cost bound or its turn bound and left no submission. Not retryable; `fix_hint` is `{flag: "--budget"` or `"--max-turns", suggest: <twice the bound>}`. |
+| `submission` | A submission was refused (the `submit` command, [below](#the-submit-command-of-an-agent)); nothing was written, and the message names every problem. Retryable. |
 
 Later specs add categories of their own to this list.
 
@@ -747,6 +869,15 @@ A code matches `^[a-z][a-z0-9_]*$`; one that does not is reported under
 | `fix_not_proven` | `revert-check`: the outcome is not `proven` and not `no_changes`, so the change must not close its issue. |
 | `map_outline_skipped` | `map`: the declarations were not read, because the names of the files alone do not fit the budget or the view has more than 5000 files. The map has the names only, or less. |
 | `check_unavailable` | `lang detect`: a check of the gate table names a program that cannot be run on this machine. The check stays in the table with `available: false`; the message names the check. |
+| `box_unconfined` | A box was opened with the `local` provider, once for each box: it has no process or network isolation, because the tools run in this process with its privileges. |
+| `box_close_failed` | The box could not be closed, also one that could not be synced and was closed for that. The result of the run is what it was; the message carries the error. |
+| `submission_invalid` | The submission file in the box did not count: it did not parse, is not for this run's kind, run, attempt or payload hash, or the kind refused its payload against the box's tree. The message lists the problems, and the run has no submission. |
+| `submission_claim_mismatch` | A brain says it submitted and there is no valid submission file, or says it did not and there is one. The file decides. |
+| `brain_error` | A brain returned an error, or panicked, after it had submitted, which does not change the submission. The message carries the error. |
+| `submission_not_removed` | The run directory held a `submission.json` that af did not accept (one of an earlier attempt, or one that a process of the brain wrote), and it could not be removed. |
+| `model_unpriced` | The `agentkit` brain's model is not in the catalog, so the run has no cost to report (`cost_source` is `none`). With `--budget` the run does not start: it is a `usage` failure. |
+| `transcript_unwritable` | The transcript of an in-process brain could not be written whole. The run goes on and the file is partial. |
+| `ledger_unwritable` | A ledger entry could not be written: at most once for the box and once for the brain run, since each reports its own. |
 
 ## The positional input
 
@@ -924,7 +1055,15 @@ edited.
     ledger.jsonl      what the command recorded (empty or absent unless it records)
     report.md         if the command wrote a report; listed as {kind: "report", path}
     panic.txt         if the command panicked
+    brief.<attempt>.md       the brief a brain was given, if the command runs a brain
+    hook.json                the hook configuration placed with it
+    submission.json          the accepted submission, if there is one
+    transcript.<attempt>.jsonl   the tool calls of an in-process brain, listed as {kind: "transcript", path}
+    brain-panic.<attempt>.txt    the stack of a brain that panicked
 ```
+
+The last five are written by a command that runs a brain
+([below](#brains-and-boxes)); `af` itself never reads a transcript.
 
 ### Events
 
@@ -939,8 +1078,12 @@ appended), hold one JSON object per line, written as the event happens:
 emits `run_start` (`{tool, argv, input_kind}`) first, a `warning`
 (`{code, message}`) for each warning, and `run_end` (`{status, exit_code,
 duration_ms}`) last, also for an invocation that was refused before its
-command ran. A command emits its own types (`step`, `tool_call`,
-`heartbeat`, …) through `Run.Emit`.
+command ran. A command emits its own types through `Run.Emit`. A command that
+runs a brain emits `step` (`{name, brain?}`, for the stages `brief`, `brain` and
+`submission`), `heartbeat` (`{brain, elapsed_ms}`, every 30 seconds while the
+brain runs) and `tool_call` (`{brain, tool, decision, reason, ok, duration_ms}`,
+once for each call that reached the gate; it carries no argument and no result, because events can go
+to an audit and arguments can hold the content of files).
 
 ### The ledger
 
@@ -948,4 +1091,12 @@ command ran. A command emits its own types (`step`, `tool_call`,
 A command records what it measured with `RunDir.Record(kind, data)` and reads
 it back with `RunDir.Ledger()`; `toolio.OpenRunDir(dir, id)` opens an
 existing run, for the commands that carry one on, and refuses an id that is
-not of the form of a run id. The shell records nothing in the ledger.
+not of the form of a run id. The shell records nothing in the ledger. A command
+that runs a brain records `box_open {provider}`, `box_sync {head}` (the host's
+short HEAD, or "" for a repository with no commit, also at every later sync), `box_export {path}`, `box_close
+{provider}`, `brief_placed {attempt, bytes, sha256, prefix_sha256}`,
+`brain_start {brain, attempt}`, `brain_end {brain, stop_reason,
+submitted_claim, cost_usd, cost_source, turns, duration_ms}` and, for what it
+found in the box after the brain, `submission_accepted {attempt, sha256}`,
+`submission_invalid {attempt, problems}`, `submission_stale {attempt,
+file_attempt}` or `submission_absent {attempt}`.

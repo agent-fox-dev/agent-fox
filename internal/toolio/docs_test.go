@@ -141,7 +141,7 @@ func TestDocumentationNamesWhatTheShellDefines_TS_05_72(t *testing.T) {
 		}
 	}
 	var terms []string
-	for _, category := range []string{CategoryUsage, CategoryAuth, CategoryForge, CategoryIO, CategoryCancelled, CategoryTimeout, CategoryInternal, CategoryConfig, CategoryRestore, CategoryGit} {
+	for _, category := range []string{CategoryUsage, CategoryAuth, CategoryForge, CategoryIO, CategoryCancelled, CategoryTimeout, CategoryInternal, CategoryConfig, CategoryRestore, CategoryGit, CategorySandbox, CategorySubmission, CategoryBrain, CategoryNoResult, CategoryBudget} {
 		terms = append(terms, "`"+category+"`")
 	}
 	for _, code := range WarningCodes {

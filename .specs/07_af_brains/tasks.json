@@ -63,7 +63,7 @@
       "done_when": [
         "`go test ./internal/box/... -count=1` passes offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -105,7 +105,7 @@
       "done_when": [
         "`go test ./internal/box/... -count=1` passes offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -147,7 +147,7 @@
       "done_when": [
         "`go test ./internal/submission/... -count=1` passes offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -187,7 +187,7 @@
       "done_when": [
         "`go test ./internal/submission/... -count=1` passes offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -230,7 +230,7 @@
       "done_when": [
         "`go test ./internal/brain/... -count=1` passes offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -281,7 +281,7 @@
       "done_when": [
         "`go test ./internal/brain/... -count=1` passes offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -327,7 +327,7 @@
       "done_when": [
         "`go test ./internal/brain/... -count=1` passes offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -368,7 +368,7 @@
       "done_when": [
         "`go test ./internal/brain/... -count=1` passes offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -409,7 +409,7 @@
       "done_when": [
         "`go test ./internal/brain/... -count=1` passes offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -464,7 +464,7 @@
       "done_when": [
         "`go test ./internal/brain/... -count=1` passes offline with ANTHROPIC_API_KEY unset"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -508,7 +508,7 @@
       "done_when": [
         "`make check` exits 0 with ANTHROPIC_API_KEY unset and no network"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -542,7 +542,7 @@
       "done_when": [
         "`make check` passes offline with no key and no network"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     }
   ]

@@ -1,0 +1,76 @@
+// Package box holds the tree a brain works in: the checkout goes in with its
+// .git, run files are placed under .agent-fox/, and the tree comes out again
+// without .git. Git and the credentials stay on the host.
+package box
+
+import (
+	"fmt"
+	"slices"
+	"strings"
+	"sync"
+
+	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentkit-go/sandbox"
+)
+
+// Entry is a provider that the box can open.
+type Entry struct {
+	// Name is what --sandbox calls it.
+	Name string
+	// Unconfined says the provider puts no process or network boundary around
+	// the tools, so that every run that opens it raises box_unconfined.
+	Unconfined bool
+	// New returns the provider.
+	New func() sandbox.Provider
+}
+
+// Registry holds providers by name.
+type Registry struct {
+	mu      sync.Mutex
+	entries map[string]Entry
+}
+
+// NewRegistry returns a registry with no provider.
+func NewRegistry() *Registry { return &Registry{entries: map[string]Entry{}} }
+
+// Default is the registry that a Request without a Registry uses: `local`
+// until later scopes register more providers.
+var Default = func() *Registry {
+	r := NewRegistry()
+	r.Register(localEntry())
+	return r
+}()
+
+// Register adds a provider, replacing one of the same name.
+func (r *Registry) Register(e Entry) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.entries[e.Name] = e
+}
+
+// Names lists the registered providers, sorted.
+func (r *Registry) Names() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	names := make([]string, 0, len(r.entries))
+	for name := range r.entries {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
+}
+
+// Lookup finds a provider. A name that is not registered is a usage failure
+// that lists every registered name.
+func (r *Registry) Lookup(name string) (Entry, error) {
+	r.mu.Lock()
+	e, ok := r.entries[name]
+	r.mu.Unlock()
+	if ok {
+		return e, nil
+	}
+	return Entry{}, &toolio.Failure{
+		Category: toolio.CategoryUsage,
+		Message:  fmt.Sprintf("--sandbox %q is not a box provider; the providers are %s", name, strings.Join(r.Names(), ", ")),
+	}
+}

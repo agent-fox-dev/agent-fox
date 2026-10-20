@@ -33,6 +33,9 @@ repository.
 | `internal/conform/` | The revert check: do the tests of a change fail without it, with the tree and the index given back. |
 | `internal/policy/` | The guard policy: whether a brain may make a tool call. |
 | `internal/repomap/` | The repository map at a token budget. |
+| `internal/box/` | The box that holds a brain's tree: the checkout goes in with its `.git`, run files are placed under `.agent-fox/`, the tree comes out without `.git`. One provider, `local`, which has no isolation. |
+| `internal/submission/` | The submission protocol: a brain hands back one validated JSON object through the submit core, and the host checks the file again. |
+| `internal/brain/` | The `Brain` interface, its registry and shared flags, `Execute` (run a brief and decide from the file), the tool gate, and two brains: `scripted` and the AgentKit driver on the host. |
 | `skills/` | The coding-agent skills (`af-prd`, `af-impl`, `af-fix`, `af-bug-hunter`, `af-code-quality`, `af-code-simplifier`). `make install-skills` copies them to `~/.claude/skills`. |
 | `containers/sandbox/` | The sandbox image. |
 | `.specs/` | `steering.md` holds the directives every session follows; `archive/` holds the specs of `issuex`, which now lives in `aflib`. |
@@ -43,7 +46,9 @@ repository.
 
 ## Building
 
-AgentKit is consumed through a `replace` to a sibling checkout:
+AgentKit is consumed through a `replace` to a sibling checkout (two of its
+modules are used: the root, and `sandbox`, which holds the boxes, and both are
+replaced to the same checkout):
 
 ```bash
 git clone https://github.com/agent-fox-dev/agentkit-go ../agentkit-go
