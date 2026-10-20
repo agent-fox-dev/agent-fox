@@ -67,7 +67,7 @@
       "done_when": [
         "`go test ./internal/triage/... ./skills/... -count=1` passes"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
