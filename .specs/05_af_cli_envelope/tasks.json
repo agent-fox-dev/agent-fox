@@ -399,7 +399,7 @@
         "cmd/af/schema_test.go",
         "cmd/af/testdata/schema.golden.json"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 11,

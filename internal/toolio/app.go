@@ -7,6 +7,7 @@ package toolio
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -92,6 +93,9 @@ type Command struct {
 	Timeout bool
 	// DefaultTimeout is the deadline when --timeout is absent; zero is none.
 	DefaultTimeout time.Duration
+	// ResultSchema is the JSON Schema of the command's result, which
+	// af --schema prints under $defs. Nil if the command has none.
+	ResultSchema json.RawMessage
 	// Run does the work. It returns an outcome or an error.
 	Run func(r *Run) (Outcome, error)
 }
@@ -488,11 +492,11 @@ func (a *App) unknownCommand(words []string) string {
 	return fmt.Sprintf("unknown command %q; the commands are: %s", strings.Join(leading, " "), commands)
 }
 
-// answer prints what a request for help or the version asks for, wherever on
-// the command line it stands, and reports that it did. Neither reads input,
-// builds a forge client or creates anything.
+// answer prints what a request for help, the version or the schema asks for,
+// wherever on the command line it stands, and reports that it did. None of
+// them reads input, builds a forge client or creates anything.
 func (a *App) answer(words []string, started time.Time, stdout io.Writer) (code int, answered bool) {
-	var wantHelp, wantVersion bool
+	var wantHelp, wantVersion, wantSchema bool
 	for _, w := range words {
 		if w == "--" {
 			break
@@ -502,6 +506,8 @@ func (a *App) answer(words []string, started time.Time, stdout io.Writer) (code 
 			wantHelp = true
 		case "-version", "--version":
 			wantVersion = true
+		case "-schema", "--schema":
+			wantSchema = true
 		}
 	}
 
@@ -521,6 +527,19 @@ func (a *App) answer(words []string, started time.Time, stdout io.Writer) (code 
 		return a.printHelp(cmd, stdout), true
 	case wantVersion:
 		data, _ := encodeIndented(a.version())
+		_, _ = stdout.Write(data)
+		return 0, true
+	case wantSchema:
+		cmd, _ := a.match(words)
+		if cmd == nil && len(leadingWords(words)) > 0 {
+			return 0, false // not a command: the usage error says so
+		}
+		data, err := a.schema(cmd)
+		if err != nil {
+			inv := a.newInvocation(stdout, a.name(), started)
+			inv.env.fail(&Failure{Category: CategoryInternal, Message: err.Error()})
+			return inv.finish(), true
+		}
 		_, _ = stdout.Write(data)
 		return 0, true
 	}
