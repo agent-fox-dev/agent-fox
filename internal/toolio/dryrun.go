@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/agent-fox-dev/agentfox/issuex"
+	"github.com/agent-fox-dev/aflib/issuex"
 )
 
 // ErrDryRun is wrapped by the error of every forge write a dry run refuses.

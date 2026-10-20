@@ -2,7 +2,10 @@ module github.com/agent-fox-dev/agentfox
 
 go 1.27
 
-require github.com/agent-fox-dev/agentkit-go v0.0.0
+require (
+	github.com/agent-fox-dev/aflib v0.0.0-20261019184100-07adcb691832
+	github.com/agent-fox-dev/agentkit-go v0.0.0
+)
 
 require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect

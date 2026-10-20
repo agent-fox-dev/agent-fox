@@ -23,7 +23,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/agent-fox-dev/agentfox/issuex"
+	"github.com/agent-fox-dev/aflib/issuex"
 )
 
 // contextFlag is the flag a needs_human answer is appended with.

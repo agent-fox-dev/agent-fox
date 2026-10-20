@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agent-fox-dev/agentfox/issuex"
+	"github.com/agent-fox-dev/aflib/issuex"
 )
 
 // issueCommand is a test command that takes an input and uses a forge.
