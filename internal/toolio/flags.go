@@ -38,7 +38,7 @@ func flagSet(cmd *Command, v *flagValues) *flag.FlagSet {
 	fs.SetOutput(io.Discard)
 	fs.StringVar(&v.output, "output", "", "also write the envelope to this `file`")
 	fs.StringVar(&v.emitEvents, "emit-events", "", "also append the events to this `file`")
-	if cmd.Dir {
+	if cmd.hasDir() {
 		fs.StringVar(&v.dir, "dir", ".", "the checkout to work in")
 	}
 	if cmd.Context {
@@ -57,6 +57,12 @@ func flagSet(cmd *Command, v *flagValues) *flag.FlagSet {
 		cmd.Flags(fs)
 	}
 	return fs
+}
+
+// hasDir reports whether cmd has --dir: it asked for it, or it uses a forge,
+// whose detection depends on the directory.
+func (c *Command) hasDir() bool {
+	return c.Dir || c.UsesForge
 }
 
 // maxArgs is how many positional arguments cmd takes.
@@ -91,7 +97,7 @@ func parse(cmd *Command, words []string) (*flagValues, []string, *Failure) {
 			return nil, nil, &Failure{Category: CategoryUsage, Message: "a --context value is empty; give the answer after the flag"}
 		}
 	}
-	if cmd.Dir {
+	if cmd.hasDir() {
 		abs, err := filepath.Abs(v.dir)
 		if err != nil {
 			return nil, nil, &Failure{Category: CategoryUsage, Message: fmt.Sprintf("--dir %q: %v", v.dir, err)}

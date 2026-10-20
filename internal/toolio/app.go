@@ -19,6 +19,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
 // contextFlag is the flag a needs_human answer is appended with.
@@ -42,6 +44,9 @@ type App struct {
 	// BuildInfo reads the binary's build information;
 	// runtime/debug.ReadBuildInfo when nil.
 	BuildInfo func() (*debug.BuildInfo, bool)
+	// NewForge builds the forge client of a command that uses one;
+	// issuex.NewWithOptions when nil. Tests inject their own.
+	NewForge func(issuex.Options) (issuex.Client, error)
 	// Grace is how long a command that has been told to stop, by a signal or
 	// by its deadline, gets to return before the shell gives up on it; 10
 	// seconds when zero.
@@ -71,6 +76,8 @@ type Command struct {
 	// Input says whether the first positional argument is an input to
 	// resolve.
 	Input InputMode
+	// UsesForge gives the command a forge client, Run.Forge, and --dir.
+	UsesForge bool
 	// Dir, Context, DryRun, Repo and Timeout opt the command into the flags
 	// --dir, --context, --dry-run, --repo and --timeout. Every command
 	// accepts --output and --emit-events.
@@ -103,6 +110,12 @@ type Run struct {
 	Dir string
 	// Context holds the --context values, verbatim and in order.
 	Context []string
+	// Forge is the forge client; nil for a command that does not use one.
+	// The shell closes it when the command returns.
+	Forge issuex.Client
+	// Target is the repository the forge client works on; invalid when
+	// none could be determined.
+	Target issuex.Repo
 	// Stderr is where a command may write diagnostics; the shell writes
 	// nothing else to it but a panic's stack.
 	Stderr io.Writer
@@ -229,11 +242,31 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 		Context: slices.Clone(values.context),
 		Stderr:  stderr,
 	}
-	if cmd.Input != InputNone {
-		in, err := resolveInput(sigCtx, cmd.Input, positional, stdin, nil)
+
+	// The forge client is closed before the envelope is written, whichever
+	// way the invocation ends.
+	closeForge := func() {}
+	finish := func() int {
+		closeForge()
+		return a.write(stdout, env, started)
+	}
+	if cmd.UsesForge {
+		client, target, err := a.forgeFor(cmd, values, positional)
 		if err != nil {
 			env.fail(failureOf(err, stderr))
 			return a.write(stdout, env, started)
+		}
+		run.Forge, run.Target = client, target
+		// A client that fails to close its idle connections has nothing
+		// more to tell.
+		closeForge = func() { _ = client.Close() }
+	}
+
+	if cmd.Input != InputNone {
+		in, err := resolveInput(sigCtx, cmd.Input, positional, stdin, run.Forge)
+		if err != nil {
+			env.fail(failureOf(err, stderr))
+			return finish()
 		}
 		run.Input = in
 		env.Input = InputInfo{Kind: in.Kind, Origin: in.Origin, Truncated: in.Truncated}
@@ -244,7 +277,7 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 	out, err := a.execute(sigCtx, cmd, run, values.timeout)
 	a.settle(env, run, out, err, stderr)
 	run.collect(env)
-	return a.write(stdout, env, started)
+	return finish()
 }
 
 // match returns the command with the longest registered path that the
