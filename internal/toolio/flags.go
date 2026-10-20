@@ -60,9 +60,10 @@ func flagSet(cmd *Command, v *flagValues) *flag.FlagSet {
 }
 
 // hasDir reports whether cmd has --dir: it asked for it, or it uses a forge,
-// whose detection depends on the directory.
+// whose detection depends on the directory, or a run directory, which lives
+// under it.
 func (c *Command) hasDir() bool {
-	return c.Dir || c.UsesForge
+	return c.Dir || c.UsesForge || c.UsesRunDir
 }
 
 // maxArgs is how many positional arguments cmd takes.

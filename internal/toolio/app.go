@@ -44,6 +44,8 @@ type App struct {
 	// BuildInfo reads the binary's build information;
 	// runtime/debug.ReadBuildInfo when nil.
 	BuildInfo func() (*debug.BuildInfo, bool)
+	// Rand is the source of the random part of run ids; crypto/rand when nil.
+	Rand io.Reader
 	// NewForge builds the forge client of a command that uses one;
 	// issuex.NewWithOptions when nil. Tests inject their own.
 	NewForge func(issuex.Options) (issuex.Client, error)
@@ -78,6 +80,8 @@ type Command struct {
 	Input InputMode
 	// UsesForge gives the command a forge client, Run.Forge, and --dir.
 	UsesForge bool
+	// UsesRunDir gives the command a run directory, Run.RunDir, and --dir.
+	UsesRunDir bool
 	// Dir, Context, DryRun, Repo and Timeout opt the command into the flags
 	// --dir, --context, --dry-run, --repo and --timeout. Every command
 	// accepts --output and --emit-events.
@@ -113,6 +117,8 @@ type Run struct {
 	// DryRun is set when the command was given --dry-run. Run.Forge then
 	// refuses every write; the command should not attempt other effects.
 	DryRun bool
+	// RunDir is the run directory; nil for a command that does not use one.
+	RunDir *RunDir
 	// Forge is the forge client; nil for a command that does not use one.
 	// The shell closes it when the command returns.
 	Forge issuex.Client
@@ -228,6 +234,12 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 		return a.write(stdout, env, started)
 	}
 
+	if cmd.UsesRunDir {
+		if failure := checkDir(values.dir); failure != nil {
+			env.fail(failure)
+			return a.write(stdout, env, started)
+		}
+	}
 	if values.timeout < 0 {
 		env.fail(&Failure{Category: CategoryUsage, Message: fmt.Sprintf("--timeout %s is negative; use 0 for no limit", values.timeout)})
 		return a.write(stdout, env, started)
@@ -281,8 +293,24 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 			run.Warn(w.Code, w.Message)
 		}
 	}
+	if cmd.UsesRunDir {
+		rd, err := NewRunDir(values.dir, a.now, a.Rand)
+		if err != nil {
+			env.fail(failureOf(err, stderr))
+			return finish()
+		}
+		run.RunDir = rd
+		env.RunID = &rd.ID
+		run.Artifact(Artifact{Kind: "run_dir", Path: rd.Path})
+	}
+
 	out, err := a.execute(sigCtx, cmd, run, values.timeout)
 	a.settle(env, run, out, err, stderr)
+	if run.RunDir != nil {
+		if path := run.RunDir.reportPath(); path != "" {
+			run.Artifact(Artifact{Kind: "report", Path: path})
+		}
+	}
 	run.collect(env)
 	return finish()
 }
@@ -415,6 +443,9 @@ func call(cmd *Command, r *Run) (out Outcome, err error) {
 func (a *App) settle(env *Envelope, r *Run, out Outcome, err error, stderr io.Writer) {
 	if err != nil {
 		env.fail(failureOf(err, stderr))
+		if p := panicOf(err); p != nil && r.RunDir != nil {
+			r.RunDir.writePanic(p)
+		}
 		return
 	}
 	if problem := checkOutcome(out); problem != "" {
@@ -433,8 +464,7 @@ func (a *App) settle(env *Envelope, r *Run, out Outcome, err error, stderr io.Wr
 // as an internal failure whose stack goes to stderr, and any other error as
 // an internal failure.
 func failureOf(err error, stderr io.Writer) *Failure {
-	var p *panicError
-	if errors.As(err, &p) {
+	if p := panicOf(err); p != nil {
 		fmt.Fprintf(stderr, "panic: %v\n\n%s", p.value, p.stack)
 		return &Failure{Category: CategoryInternal, Message: p.Error()}
 	}
@@ -445,6 +475,15 @@ func failureOf(err error, stderr io.Writer) *Failure {
 		return &failure
 	}
 	return &Failure{Category: CategoryInternal, Message: err.Error()}
+}
+
+// panicOf is the recovered panic err stands for, or nil.
+func panicOf(err error) *panicError {
+	var p *panicError
+	if errors.As(err, &p) {
+		return p
+	}
+	return nil
 }
 
 // checkOutcome returns what is wrong with an outcome, or "". An outcome that

@@ -325,7 +325,7 @@
         "internal/toolio/app.go",
         "internal/toolio/rundir_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 9,
