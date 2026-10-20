@@ -83,7 +83,7 @@ often as it likes, and so may a person.
 |---|---|---|
 | `af spec validate <ref>` | is this package a complete plan (C1 to C11) | `afspec` |
 | `af lang detect` | what the repository is written in, its gate commands | `internal/project`, later the language profiles of PRD 13 §1 |
-| `af map` | the repository map at a token budget | `internal/repomap` on the hands' `Walk` and `outline` |
+| `af map` | the repository map at a token budget | `internal/repomap` on the file view and the hands' `outline` |
 | `af gate run [--baseline\|--label]` | run the project's checks; results cached by tree hash | `internal/checks` on the hands' runner |
 | `af gate compare` | the before/after verdict | `checks.Compare` |
 | `af revert-check` | do the tests the change wrote fail without it | `internal/conform` |
@@ -153,6 +153,58 @@ carry one on (`submit`, `land`); an id that is not of the form of a run id is
 refused before any path is made of it. The briefs, the baseline and the
 submission that later specs keep in the run directory join these files.
 [`docs/cli.md`](cli.md) has the formats in full.
+
+### Ring 1, as built
+
+Six of these commands exist: `af lang detect`, `af gate run`, `af gate
+compare`, `af revert-check`, `af guard check` and `af map`. (`af guard check`
+is listed with ring 2 above, for the hook it serves; as built it is a fact
+command like the others: it reads one payload and writes nothing.) Each is a
+file in `cmd/af` over a package that knows nothing of the shell and returns a
+plain result, so that the loops of later specs call the same code in process:
+
+| Package | Commands | What it holds |
+|---|---|---|
+| `internal/project` | `lang detect` | The languages, the gate table (`.agent-fox/gate.json`, else a Makefile with a `check` or `test` target, else the manifests), the suite forms, the programs, and the classification of a path as a test. |
+| `internal/checks` | `gate run`, `gate compare` | The file view and the tree hash; the gate engine, which runs the checks under the reduced or the hermetic runner; the cache keyed by tree hash, table and mode; the labels; the per-check comparison. |
+| `internal/conform` | `revert-check` | The revert check: backup, a revert that never writes the index, the tests on the reverted tree, and a restore that nothing cancels. |
+| `internal/policy` | `guard check` | The tokenizer, the seven rules, the policy files (`guard.json`) and the decision for a shell or a write tool. |
+| `internal/repomap` | `map` | The map at a token budget: a six-level ladder over the file view and the declarations the hands' outline gives. |
+
+One view of the tree is shared. `checks.FileView` is git's own view of `--dir`
+(the tracked files and the untracked files that are not ignored, read
+NUL-separated, so no name is quoted), or a walk of the directory outside a work
+tree, and never `.git/` or `.agent-fox/`. Detection, the tree hash and the map
+all read it, so they agree on what the repository is. The tree hash covers
+content only, whatever `HEAD` is, so that a gate a brain ran inside a box is a
+cache hit for the landing gate outside it.
+
+What `af` keeps for these commands is under `.agent-fox/`, git-ignored by a
+`.gitignore` of its own, and never part of the view:
+
+- `.agent-fox/gate/<id>/` holds the logs and `result.json` of a gate run, and
+  `.agent-fox/gate/labels.json` maps the labels the loop gives (`baseline`,
+  `after`) to those ids. `<id>` is the first 12 hex characters of the SHA-256
+  of the tree hash, the canonical JSON of the checks and the runner mode, so the
+  same tree and table give the same id on every machine. Nothing is locked:
+  writes are atomic (a temporary file and a rename) and the last writer wins.
+- `.agent-fox/revert/<id>/` is the backup that `af revert-check` keeps while
+  it works: a copy of every file it changes, the index as it was, and a
+  manifest. It exists only during the check. A directory left there means a
+  check was killed, and the next one refuses until the tree has been looked at.
+- `.agent-fox/gate.json` and `.agent-fox/guard.json` are the files a loop
+  writes to pin the gate table and the guard policy
+  ([configuration](configuration.md)).
+
+Three properties hold, and tests hold them. A result is a fact of the tree and
+the table and not of the machine: availability is reported and never changes
+which checks are selected or the key. A revert check gives back the tree hash
+and the bytes of `.git/index` in every outcome, including a signal, the timeout
+and a panic; git is made to refresh a copy of the index and not the real one.
+The hook fails closed: with `--host claude` an error, a panic or a late answer
+is a denial, because the exit code of a failed command is not one the host acts
+on. [development.md](development.md) has the layout and the conventions in
+full.
 
 ## The three bindings
 

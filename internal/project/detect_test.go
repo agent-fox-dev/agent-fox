@@ -8,6 +8,7 @@ import (
 	"maps"
 	"math/rand/v2"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -186,8 +187,9 @@ func TestGateFileDefaultsAreFilledIn(t *testing.T) {
 	if len(d.Gate.Checks) != 2 {
 		t.Fatalf("checks = %+v", d.Gate.Checks)
 	}
-	if c := d.Gate.Checks[0]; c.Name != "sh -c true" || c.Kind != KindCheck || !c.Available {
-		t.Errorf("first check = %+v, want name \"sh -c true\", kind check, available", c)
+	_, shErr := exec.LookPath("sh")
+	if c := d.Gate.Checks[0]; c.Name != "sh -c true" || c.Kind != KindCheck || c.Available != (shErr == nil) {
+		t.Errorf("first check = %+v, want name \"sh -c true\", kind check, available if there is an sh", c)
 	}
 	if c := d.Gate.Checks[1]; c.Available {
 		t.Errorf("a program that does not exist is available: %+v", c)

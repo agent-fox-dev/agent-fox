@@ -329,6 +329,9 @@ func TestBranchName(t *testing.T) {
 }
 
 func TestPull(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
 	ctx := context.Background()
 	// Create an origin "remote" bare repo, and two clones: alice and bob.
 	originDir := t.TempDir()
@@ -437,6 +440,9 @@ func TestResetHardDiscardsAnAttempt(t *testing.T) {
 }
 
 func TestRunnerSeparatesExitCodesFromExecFailures(t *testing.T) {
+	if _, err := exec.LookPath("false"); err != nil {
+		t.Skip("false is not installed")
+	}
 	ctx := context.Background()
 	if _, code, err := ExecRunner(ctx, t.TempDir(), []string{"false"}); err != nil || code == 0 {
 		t.Errorf("a non-zero exit should be information: code=%d err=%v", code, err)

@@ -4,6 +4,7 @@ package gitx
 
 import (
 	"context"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,9 @@ func TestATimeoutEndsTheWholeProcessGroup(t *testing.T) {
 // TestEnvRunnerAddsToTheEnvironment: the extra variables are there for the
 // command, and the rest of the environment is too.
 func TestEnvRunnerAddsToTheEnvironment(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh is not installed")
+	}
 	t.Setenv("AF_ENV_RUNNER_OLD", "kept")
 
 	out, code, err := EnvRunner("AF_ENV_RUNNER_NEW=added")(context.Background(), t.TempDir(),
