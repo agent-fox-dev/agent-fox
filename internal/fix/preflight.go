@@ -96,7 +96,7 @@ func Preflight(ctx context.Context, p PreflightParams) (Preflighted, error) {
 		return Preflighted{}, err
 	}
 	if p.Land != "" {
-		if err := checkLanding(ctx, g, p); err != nil {
+		if err := CheckLanding(ctx, g, p); err != nil {
 			return Preflighted{}, err
 		}
 	}
@@ -245,9 +245,10 @@ func checkGate(ctx context.Context, p PreflightParams) (project.Detection, []str
 	}
 }
 
-// checkLanding checks what landing needs: an origin to push to, a repository to
-// open the pull request in, and a forge that can be written to.
-func checkLanding(ctx context.Context, g *gitx.Git, p PreflightParams) error {
+// CheckLanding checks what landing needs: an origin to push to, a repository to open the
+// pull request in, and a forge that can be written to. It reads the Land, DryRun, Forge,
+// Target and Warn of the parameters.
+func CheckLanding(ctx context.Context, g *gitx.Git, p PreflightParams) error {
 	if p.Land == LandNone {
 		return nil
 	}

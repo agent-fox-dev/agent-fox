@@ -64,13 +64,18 @@ func openFixRun(r *toolio.Run, runID string) (*toolio.RunDir, fix.State, error) 
 		return nil, fix.State{}, err
 	}
 	state, err := fix.LoadState(run.Path)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return nil, fix.State{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("run %s has no %s, so it is not a fix run: run af fix brief first", runID, fix.StateFile)}
-	case err != nil:
-		return nil, fix.State{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("run %s: %v", runID, err)}
+	if err != nil {
+		return nil, fix.State{}, notAFixRun(runID, err)
 	}
 	return run, state, nil
+}
+
+// notAFixRun is the usage failure for a run directory that fix.json cannot be read from.
+func notAFixRun(runID string, err error) error {
+	if errors.Is(err, fs.ErrNotExist) {
+		return &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("run %s has no %s, so it is not a fix run: run af fix brief first", runID, fix.StateFile)}
+	}
+	return &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("run %s: %v", runID, err)}
 }
 
 // fixRun runs one round of the brain on the brief of the run, in a box over the checkout,
@@ -107,6 +112,7 @@ func fixRun(r *toolio.Run, runID string, s *brain.Settings) (toolio.Outcome, err
 	}
 
 	round := state.Rounds + 1
+	tally := &brain.Tally{}
 	var out fix.RoundResult
 	err = box.With(r.Ctx, box.Request{
 		Provider: s.Sandbox, HostDir: r.Dir, RunID: runID, Tool: "fix",
@@ -114,7 +120,7 @@ func fixRun(r *toolio.Run, runID string, s *brain.Settings) (toolio.Outcome, err
 	}, func(sess *box.Session) error {
 		var err error
 		out, err = fix.RunRound(r.Ctx, fix.RoundParams{
-			Dir: r.Dir, Git: gitx.New(r.Dir, gitx.ExecRunner), Session: sess, Name: s.Brain, Brain: b, Tally: &brain.Tally{},
+			Dir: r.Dir, Git: gitx.New(r.Dir, gitx.ExecRunner), Session: sess, Name: s.Brain, Brain: b, Tally: tally,
 			RunDir: run, Report: r, State: state, Prefix: prefix, Task: task, Round: round,
 			MaxCostUSD: s.Budget, MaxTurns: s.MaxTurns, Timeout: timeLeft(r),
 		})
@@ -125,6 +131,7 @@ func fixRun(r *toolio.Run, runID string, s *brain.Settings) (toolio.Outcome, err
 	}
 
 	state.Rounds = round
+	state.AddUsage(tally.Usage(s.Brain))
 	if err := state.Write(run.Path); err != nil {
 		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryIO, Message: err.Error()}
 	}

@@ -46,8 +46,15 @@ type measureWorld struct {
 
 func newMeasureWorld(t *testing.T, files map[string]string) *measureWorld {
 	t.Helper()
+	return newMeasureWorldWith(t, files, false)
+}
+
+// newMeasureWorldWith is a measure world whose checkout has a bare origin when withOrigin
+// is set.
+func newMeasureWorldWith(t *testing.T, files map[string]string, withOrigin bool) *measureWorld {
+	t.Helper()
 	requireMake(t)
-	r := newTestRepo(t, files, false)
+	r := newTestRepo(t, files, withOrigin)
 	p, _ := params(r)
 	p.Land = ""
 	pre, err := Preflight(context.Background(), p)

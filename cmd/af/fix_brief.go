@@ -163,6 +163,9 @@ func startRun(r *toolio.Run, pre fix.Preflighted, noVerify bool) (startedRun, er
 	}
 	task := fix.TaskBlock(fix.TaskParams{RunID: r.RunDir.ID, Attempt: 1, Round: 1, Earlier: earlier})
 
+	if err := writeRunFile(filepath.Join(r.RunDir.Path, "original.md"), []byte(in.Body)); err != nil {
+		return startedRun{}, err
+	}
 	started := startedRun{state: state, prefix: prefix, task: task, briefPath: filepath.Join(r.RunDir.Path, "brief.md"), document: prefix.Text + task}
 	if err := writeRunFile(started.briefPath, []byte(started.document)); err != nil {
 		return startedRun{}, err
@@ -191,7 +194,12 @@ func writeRunFile(path string, data []byte) error {
 func registerFixSubmit(app *toolio.App) {
 	cmd := submission.CommandWith("fix submit", fix.FixReport, submission.Options{
 		ResultSchema: resultSchema("fix_submit"),
-		Prepare:      func(_ *toolio.Run, run *toolio.RunDir) error { return placeRunJSON(run, fix.KindName) },
+		Prepare: func(r *toolio.Run, run *toolio.RunDir) error {
+			if _, err := fix.LoadState(run.Path); err != nil {
+				return notAFixRun(run.ID, err)
+			}
+			return placeRunJSON(run, fix.KindName)
+		},
 	})
 	cmd.Summary = "Submit the fix report of a run, as JSON on stdin"
 	cmd.Usage = "af fix submit --run-id ID [--dir DIR] < report.json"

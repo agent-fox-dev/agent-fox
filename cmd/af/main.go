@@ -63,4 +63,5 @@ func register(app *toolio.App) {
 	registerFixBrief(app)
 	registerFixRun(app)
 	registerFixSubmit(app)
+	registerFixLand(app)
 }

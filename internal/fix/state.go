@@ -12,6 +12,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/agentdir"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/project"
+	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
 // State is fix.json: everything the later steps of a run need, written once the
@@ -39,6 +40,21 @@ type State struct {
 	Programs []string   `json:"programs"`
 	Context  []string   `json:"context"`
 	Rounds   int        `json:"rounds"`
+	// Brain, CostUSD and CostSource are what the rounds of the run have used so far: the
+	// footer of a pull request says it.
+	Brain      string  `json:"brain"`
+	CostUSD    float64 `json:"cost_usd"`
+	CostSource string  `json:"cost_source"`
+}
+
+// AddUsage adds what a round used: the cost, and the brain it was the cost of. The source
+// of the total is the best any round had: measured, then reported, then none.
+func (s *State) AddUsage(u toolio.Usage) {
+	s.Brain, s.CostUSD = u.Brain, s.CostUSD+u.CostUSD
+	rank := map[string]int{"": 0, toolio.CostNone: 1, toolio.CostReported: 2, toolio.CostMeasured: 3}
+	if rank[u.CostSource] > rank[s.CostSource] {
+		s.CostSource = u.CostSource
+	}
 }
 
 // StateInput is the input of a run, and the key that finds it again.

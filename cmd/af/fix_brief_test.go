@@ -240,6 +240,9 @@ func TestFixBriefWritesTheBriefAndRunJSONAndNothingElse_TS_09_25(t *testing.T) {
 	if list, _ := table["checks"].([]any); len(list) == 0 {
 		t.Errorf("table = %v, want the pinned table", res["table"])
 	}
+	if original, err := os.ReadFile(filepath.Join(dir, "original.md")); err != nil || !strings.Contains(string(original), "Greeting") && !strings.Contains(string(original), "hello") {
+		t.Errorf("original.md = %q, %v, want the report as the run was given it", original, err)
+	}
 	submit, _ := res["submit_argv"].([]any)
 	if len(submit) < 5 || submit[0] != "af" || submit[1] != "fix" || submit[2] != "submit" || !slices.Contains(submit, any(env["run_id"])) {
 		t.Errorf("submit argv = %v, want af fix submit --run-id <id> …", submit)

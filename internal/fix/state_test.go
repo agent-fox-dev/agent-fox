@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/agent-fox-dev/agentfox/internal/project"
+	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
 func sampleState() State {
@@ -172,5 +173,27 @@ func TestSplitBriefSplitsWhereTheBriefWasRenderedAndChecksThePrefix(t *testing.T
 	}
 	if _, gotTask, err := SplitBrief(prefix, s); err != nil || gotTask != "" {
 		t.Errorf("a brief that is only its prefix: %q, %v", gotTask, err)
+	}
+}
+
+// TestUsageAddsUpAndKeepsTheBestSourceOfTheCost guards what the rounds of a run have used:
+// the costs are added, the last brain is the brain, and the source is the best any round had.
+func TestUsageAddsUpAndKeepsTheBestSourceOfTheCost(t *testing.T) {
+	var s State
+	for _, step := range []struct {
+		u      toolio.Usage
+		cost   float64
+		source string
+	}{
+		{toolio.Usage{Brain: "scripted", CostUSD: 0, CostSource: toolio.CostNone}, 0, toolio.CostNone},
+		{toolio.Usage{Brain: "agentkit", CostUSD: 0.5, CostSource: toolio.CostReported}, 0.5, toolio.CostReported},
+		{toolio.Usage{Brain: "agentkit", CostUSD: 0.25, CostSource: toolio.CostMeasured}, 0.75, toolio.CostMeasured},
+		{toolio.Usage{Brain: "agentkit", CostUSD: 1, CostSource: toolio.CostNone}, 1.75, toolio.CostMeasured},
+		{toolio.Usage{Brain: "agentkit", CostUSD: 0, CostSource: toolio.CostReported}, 1.75, toolio.CostMeasured},
+	} {
+		s.AddUsage(step.u)
+		if s.CostUSD != step.cost || s.CostSource != step.source || s.Brain != step.u.Brain {
+			t.Fatalf("after %+v: brain %q, cost %v, source %q, want %v and %q", step.u, s.Brain, s.CostUSD, s.CostSource, step.cost, step.source)
+		}
 	}
 }

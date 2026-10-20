@@ -104,7 +104,13 @@ func (w *landWorld) park(t *testing.T, input Input, mode string, mutate func(*Pa
 
 func (w *landWorld) remoteHas(t *testing.T, branch string) bool {
 	t.Helper()
-	return strings.TrimSpace(gitDo(t, w.repo.Dir, "ls-remote", "--heads", "origin", branch)) != ""
+	return remoteHasBranch(t, w.repo.Dir, branch)
+}
+
+// remoteHasBranch says whether the origin of the checkout in dir has the branch.
+func remoteHasBranch(t *testing.T, dir, branch string) bool {
+	t.Helper()
+	return strings.TrimSpace(gitDo(t, dir, "ls-remote", "--heads", "origin", branch)) != ""
 }
 
 var fileInput = Input{Kind: "file", Origin: "/work/bug.md", Body: "The greeting says helo.\nIt should say hello."}
