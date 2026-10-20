@@ -437,7 +437,7 @@
         "`make build` produces bin/af and `bin/af --version` reports the Makefile VERSION",
         "`make check` passes offline"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 12,
