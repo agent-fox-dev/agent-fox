@@ -102,7 +102,7 @@
         "internal/toolio/version.go",
         "internal/toolio/dispatch_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,

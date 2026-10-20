@@ -227,11 +227,18 @@ func (e *Envelope) normalize() {
 // trailing newline, arrays as [] never null.
 func (e *Envelope) marshal() ([]byte, error) {
 	e.normalize()
+	return encodeIndented(e)
+}
+
+// encodeIndented renders v the way every JSON document af prints is
+// rendered: two-space indented, one trailing newline, and without escaping
+// <, > and & so that URLs and placeholders stay readable.
+func encodeIndented(v any) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
-	if err := enc.Encode(e); err != nil {
+	if err := enc.Encode(v); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil

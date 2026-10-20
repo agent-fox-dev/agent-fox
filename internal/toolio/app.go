@@ -36,9 +36,16 @@ type App struct {
 	BuildTime string
 	// Now is the clock; time.Now when nil.
 	Now func() time.Time
+	// BuildInfo reads the binary's build information;
+	// runtime/debug.ReadBuildInfo when nil.
+	BuildInfo func() (*debug.BuildInfo, bool)
 
 	commands []*Command
 }
+
+// NoArgs is the Command.MaxArgs of a command that takes no positional
+// argument.
+const NoArgs = -1
 
 // Command is one af command. The shell owns everything around Run.
 type Command struct {
@@ -51,6 +58,19 @@ type Command struct {
 	Usage string
 	// Flags registers the command's own flags on fs.
 	Flags func(fs *flag.FlagSet)
+	// MaxArgs is how many positional arguments the command takes. Zero means
+	// one; NoArgs means none. Another is a usage error.
+	MaxArgs int
+	// Dir, Context, DryRun, Repo and Timeout opt the command into the flags
+	// --dir, --context, --dry-run, --repo and --timeout. Every command
+	// accepts --output and --emit-events.
+	Dir     bool
+	Context bool
+	DryRun  bool
+	Repo    bool
+	Timeout bool
+	// DefaultTimeout is the deadline when --timeout is absent; zero is none.
+	DefaultTimeout time.Duration
 	// Run does the work. It returns an outcome or an error.
 	Run func(r *Run) (Outcome, error)
 }
@@ -65,6 +85,12 @@ type Run struct {
 	// Argv is the invocation as received, with argv[0] replaced by the
 	// program's name.
 	Argv []string
+	// Args are the positional arguments, in order.
+	Args []string
+	// Dir is --dir, made absolute; empty for a command without the flag.
+	Dir string
+	// Context holds the --context values, verbatim and in order.
+	Context []string
 	// Stderr is where a command may write diagnostics; the shell writes
 	// nothing else to it but a panic's stack.
 	Stderr io.Writer
@@ -152,29 +178,32 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 		words = args[1:]
 	}
 
-	cmd := a.match(words)
+	if code, answered := a.answer(words, started, stdout); answered {
+		return code
+	}
+
+	cmd, rest := a.match(words)
 	if cmd == nil {
 		env := a.newEnvelope(a.name())
-		env.fail(&Failure{Category: CategoryUsage, Message: "unknown command"})
+		env.fail(&Failure{Category: CategoryUsage, Message: a.unknownCommand(words)})
 		return a.write(stdout, env, started)
 	}
 
 	env := a.newEnvelope(cmd.Path)
-	fs := flag.NewFlagSet(cmd.Path, flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	if cmd.Flags != nil {
-		cmd.Flags(fs)
-	}
-	if err := fs.Parse(words[1:]); err != nil {
-		env.fail(&Failure{Category: CategoryUsage, Message: err.Error()})
+	values, positional, failure := parse(cmd, rest)
+	if failure != nil {
+		env.fail(failure)
 		return a.write(stdout, env, started)
 	}
 
 	run := &Run{
-		Ctx:    ctx,
-		Tool:   cmd.Path,
-		Argv:   append([]string{a.name()}, words...),
-		Stderr: stderr,
+		Ctx:     ctx,
+		Tool:    cmd.Path,
+		Argv:    append([]string{a.name()}, words...),
+		Args:    positional,
+		Dir:     values.dir,
+		Context: slices.Clone(values.context),
+		Stderr:  stderr,
 	}
 	out, err := call(cmd, run)
 	a.settle(env, run, out, err, stderr)
@@ -182,17 +211,95 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 	return a.write(stdout, env, started)
 }
 
-// match returns the command registered under the first word.
-func (a *App) match(words []string) *Command {
-	if len(words) == 0 {
-		return nil
-	}
+// match returns the command with the longest registered path that the
+// leading non-flag words begin with, and the words after that path.
+func (a *App) match(words []string) (*Command, []string) {
+	leading := leadingWords(words)
+	var best *Command
+	bestLen := 0
 	for _, c := range a.commands {
-		if c.Path == words[0] {
-			return c
+		path := strings.Fields(c.Path)
+		if len(path) > bestLen && len(path) <= len(leading) && slices.Equal(path, leading[:len(path)]) {
+			best, bestLen = c, len(path)
 		}
 	}
-	return nil
+	if best == nil {
+		return nil, nil
+	}
+	return best, words[bestLen:]
+}
+
+// leadingWords are the words before the first flag.
+func leadingWords(words []string) []string {
+	for i, w := range words {
+		if strings.HasPrefix(w, "-") {
+			return words[:i]
+		}
+	}
+	return words
+}
+
+// unknownCommand is the usage message for words that name no command: it
+// lists every registered command.
+func (a *App) unknownCommand(words []string) string {
+	commands := strings.Join(a.paths(), ", ")
+	if commands == "" {
+		commands = "none"
+	}
+	leading := leadingWords(words)
+	if len(leading) == 0 {
+		return fmt.Sprintf("no command given; the commands are: %s", commands)
+	}
+	return fmt.Sprintf("unknown command %q; the commands are: %s", strings.Join(leading, " "), commands)
+}
+
+// answer prints what a request for help or the version asks for, wherever on
+// the command line it stands, and reports that it did. Neither reads input,
+// builds a forge client or creates anything.
+func (a *App) answer(words []string, started time.Time, stdout io.Writer) (code int, answered bool) {
+	var wantHelp, wantVersion bool
+	for _, w := range words {
+		if w == "--" {
+			break
+		}
+		switch w {
+		case "-h", "-help", "--help":
+			wantHelp = true
+		case "-version", "--version":
+			wantVersion = true
+		}
+	}
+
+	switch {
+	case len(words) > 0 && words[0] == "help":
+		// "help" asks for a command by name; one that does not exist is the
+		// one reply to a help request that is not plain text.
+		cmd, _ := a.match(words[1:])
+		if cmd == nil && len(leadingWords(words[1:])) > 0 {
+			env := a.newEnvelope(a.name())
+			env.fail(&Failure{Category: CategoryUsage, Message: a.unknownCommand(words[1:])})
+			return a.write(stdout, env, started), true
+		}
+		return a.printHelp(cmd, stdout), true
+	case wantHelp:
+		cmd, _ := a.match(words)
+		return a.printHelp(cmd, stdout), true
+	case wantVersion:
+		data, _ := encodeIndented(a.version())
+		_, _ = stdout.Write(data)
+		return 0, true
+	}
+	return 0, false
+}
+
+// printHelp prints the help of cmd, or of the program when cmd is nil.
+func (a *App) printHelp(cmd *Command, stdout io.Writer) int {
+	text := a.listHelp()
+	if cmd != nil {
+		text = a.commandHelp(cmd)
+	}
+	_, _ = io.WriteString(stdout, text)
+	return 0
 }
 
 // newEnvelope returns an envelope with the fields that hold unless something
