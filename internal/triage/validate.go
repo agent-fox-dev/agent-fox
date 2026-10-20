@@ -180,6 +180,13 @@ func (v *validator) run(payload []byte) Diagnosis {
 		d.Question = v.question(question, d.Confidence)
 	}
 
+	// The lists are lists in the normalized form, empty or not.
+	if d.AffectedFiles == nil {
+		d.AffectedFiles = []AffectedFile{}
+	}
+	if d.AcceptanceCriteria == nil {
+		d.AcceptanceCriteria = []string{}
+	}
 	if size := renderedSize(d, placeholderRun); size > MaxRenderedBytes {
 		v.add("", "the rendered diagnosis is %d bytes, and the limit is %d: shorten the root cause, the notes or the fix", size, MaxRenderedBytes)
 	}

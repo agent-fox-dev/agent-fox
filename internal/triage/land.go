@@ -105,8 +105,8 @@ type LandParams struct {
 	// Mode is LandIssue or LandNone; Labels are the labels to add.
 	Mode   string
 	Labels []string
-	DryRun bool
-	// IsDryRun says whether an error is the refusal of a write by a dry run.
+	// IsDryRun says whether an error is the refusal of a write by a dry run, which
+	// the forge it is given then stands in for.
 	IsDryRun func(error) bool
 	// Tree is what the submission is validated against again.
 	Tree Tree

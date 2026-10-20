@@ -576,7 +576,7 @@ func TestADryRunIsPlannedNotAFailure(t *testing.T) {
 			l := newLanding(t, fakeforge.GitHub, "the report", diagnosisJSON(t, nil))
 			client, _ := l.forge.NewForge("test-token")(issuex.Options{})
 			dry := &dryForge{Client: client}
-			l.params.Forge, l.params.DryRun = dry, true
+			l.params.Forge = dry
 			l.params.IsDryRun = func(err error) bool { return errors.Is(err, errDry) }
 			l.params.Labels = []string{"triaged"}
 			if !issue {

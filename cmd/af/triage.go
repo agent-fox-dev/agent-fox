@@ -10,11 +10,15 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"github.com/agent-fox-dev/aflib/issuex"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentdir"
 	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/brain"
+	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/submission"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/internal/triage"
@@ -25,6 +29,7 @@ func registerTriage(app *toolio.App) {
 	registerTriageBrief(app)
 	registerTriageSubmit(app)
 	registerTriageRun(app)
+	registerTriageLand(app)
 }
 
 // The ledger kinds of a triage run.
@@ -377,4 +382,247 @@ func timeLeft(r *toolio.Run) time.Duration {
 		return max(time.Until(deadline), time.Second)
 	}
 	return 0
+}
+
+// triageResult is the result of af triage and of af triage land.
+type triageResult struct {
+	RunID                string            `json:"run_id"`
+	Issue                *triage.IssueInfo `json:"issue"`
+	Action               string            `json:"action"`
+	Diagnosis            triage.Diagnosis  `json:"diagnosis"`
+	RejectedPathCalls    int               `json:"rejected_path_calls"`
+	RejectedSubmissions  int               `json:"rejected_submissions"`
+	Labels               []string          `json:"labels"`
+	OriginalReportSHA256 string            `json:"original_report_sha256"`
+}
+
+// labelList is a flag that may be given more than once.
+type labelList []string
+
+func (l *labelList) String() string { return strings.Join(*l, ",") }
+
+func (l *labelList) Set(v string) error {
+	*l = append(*l, v)
+	return nil
+}
+
+// registerTriageLand registers af triage land: the landing of a run that has a
+// submission, which can be repeated.
+func registerTriageLand(app *toolio.App) {
+	var runID, land, repo string
+	var labels labelList
+	app.Register(toolio.Command{
+		Path:    "triage land",
+		Summary: "Write the diagnosis of a triage run to the forge",
+		Usage:   "af triage land --run-id ID [--dir DIR] [--land issue|none] [--label L]... [--repo owner/name] [--dry-run]",
+		Flags: func(fs *flag.FlagSet) {
+			labels = nil
+			fs.StringVar(&runID, "run-id", "", "the `id` of the run, with a submission")
+			fs.StringVar(&land, "land", triage.LandIssue, "where the diagnosis goes: `issue` (write it to the forge) or none (write diagnosis.md only)")
+			fs.StringVar(&repo, "repo", "", "the repository, `owner/name`, which must be the one the run recorded")
+			fs.Var(&labels, "label", "add this `label` to the issue; may be repeated")
+		},
+		MaxArgs:        toolio.NoArgs,
+		Dir:            true,
+		DryRun:         true,
+		Timeout:        true,
+		DefaultTimeout: 2 * time.Minute,
+		ResultSchema:   resultSchema("triage_land"),
+		Run:            func(r *toolio.Run) (toolio.Outcome, error) { return triageLand(r, runID, land, repo, labels) },
+	})
+}
+
+// readFacts reads triage.json of a run.
+func readFacts(run *toolio.RunDir) (triage.Facts, error) {
+	var facts triage.Facts
+	data, err := os.ReadFile(filepath.Join(run.Path, "triage.json"))
+	if err == nil {
+		err = json.Unmarshal(data, &facts)
+	}
+	if err != nil {
+		return facts, &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("run %s has no triage.json (%v): run af triage brief first", run.ID, err)}
+	}
+	return facts, nil
+}
+
+// repoOfFacts is the repository of a fact, with its host.
+func repoOfFacts(f triage.RepoFact) issuex.Repo {
+	repo, _ := issuex.ParseRepo(f.Repo)
+	repo.Host = f.Host
+	return repo
+}
+
+// hostTree is what a diagnosis is checked against on the host: the file view of
+// the checkout, and the lines of its files.
+func hostTree(r *toolio.Run) (triage.Tree, error) {
+	files, err := checks.FileView(r.Ctx, r.Dir)
+	if err != nil {
+		return triage.Tree{}, &toolio.Failure{Category: toolio.CategoryIO, Message: err.Error()}
+	}
+	roots := []string{r.Dir}
+	if resolved, err := filepath.EvalSymlinks(r.Dir); err == nil && resolved != r.Dir {
+		roots = append(roots, resolved)
+	}
+	return triage.Tree{Roots: roots, Files: files, Lines: func(p string) (int, error) {
+		data, err := os.ReadFile(filepath.Join(r.Dir, filepath.FromSlash(p)))
+		if err != nil {
+			return 0, err
+		}
+		n := strings.Count(string(data), "\n")
+		if len(data) > 0 && data[len(data)-1] != '\n' {
+			n++
+		}
+		return n, nil
+	}}, nil
+}
+
+// createdIssue is the issue an earlier landing of the run created, from its
+// ledger: the last landing that wrote to an issue of a report that was no issue.
+func createdIssue(run *toolio.RunDir) func() (issuex.IssueRef, bool) {
+	return func() (issuex.IssueRef, bool) {
+		entries, err := run.Ledger()
+		if err != nil {
+			return issuex.IssueRef{}, false
+		}
+		for i := len(entries) - 1; i >= 0; i-- {
+			if entries[i].Kind != ledgerLand {
+				continue
+			}
+			var land struct {
+				Issue *triage.IssueInfo `json:"issue"`
+			}
+			if json.Unmarshal(entries[i].Data, &land) == nil && land.Issue != nil && land.Issue.Number > 0 {
+				return issuex.IssueRef{Repo: repoOfFacts(triage.RepoFact{Repo: land.Issue.Repo, Host: land.Issue.Host}), Number: land.Issue.Number}, true
+			}
+		}
+		return issuex.IssueRef{}, false
+	}
+}
+
+// triageLand lands the submission of a run.
+func triageLand(r *toolio.Run, runID, land, repoFlag string, labelFlags []string) (toolio.Outcome, error) {
+	labels, refusal := triage.CheckLandFlags(land, labelFlags)
+	if refusal != nil {
+		return toolio.Outcome{}, refusalFailure(refusal)
+	}
+	if runID == "" {
+		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: "--run-id is required: the id of a run with a submission"}
+	}
+	run, err := toolio.OpenRunDir(r.Dir, runID)
+	if err != nil {
+		return toolio.Outcome{}, err
+	}
+	facts, err := readFacts(run)
+	if err != nil {
+		return toolio.Outcome{}, err
+	}
+	target := repoOfFacts(facts.Target)
+	if repoFlag != "" {
+		given, ok := issuex.ParseRepo(repoFlag)
+		switch {
+		case !ok:
+			return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("--repo %q is not of the form owner/repo", repoFlag)}
+		case facts.Target.Repo != "" && !strings.EqualFold(given.String(), target.String()):
+			return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("--repo %s is not the repository of run %s, which is %s", given, runID, target)}
+		case facts.Target.Repo == "":
+			target = given
+			facts.Target.Repo = given.String()
+		}
+	}
+	tree, err := hostTree(r)
+	if err != nil {
+		return toolio.Outcome{}, err
+	}
+
+	var forge issuex.Client
+	if land != triage.LandNone {
+		if forge, err = r.ForgeFor(target); err != nil {
+			return toolio.Outcome{}, err
+		}
+		if refusal := triage.CheckLandTarget(r.Ctx, triage.LandCheck{Forge: forge, Target: target, DryRun: r.DryRun}); refusal != nil {
+			return toolio.Outcome{}, refusalFailure(refusal)
+		}
+	}
+	listRunArtifacts(r, run)
+
+	res, err := triage.Land(r.Ctx, triage.LandParams{
+		RunDir: run.Path, RunID: runID, Facts: facts, Forge: forge, Mode: land, Labels: labels,
+		IsDryRun: func(err error) bool { return errors.Is(err, toolio.ErrDryRun) },
+		Tree:     tree, Created: createdIssue(run),
+		Record: run.Record,
+		Warn:   r.Warn,
+		Artifact: func(a triage.Artifact) {
+			r.Artifact(toolio.Artifact{Kind: a.Kind, Path: a.Path, URL: a.URL, Number: a.Number})
+		},
+		SideEffect: func(s triage.SideEffect) {
+			r.SideEffect(toolio.SideEffect{Kind: s.Kind, Target: s.Target, State: s.State})
+		},
+	})
+	if err != nil {
+		var refusal *triage.Refusal
+		if errors.As(err, &refusal) {
+			return toolio.Outcome{}, refusalFailure(refusal)
+		}
+		return toolio.Outcome{}, err
+	}
+	return landOutcome(r, run, facts, res), nil
+}
+
+// listRunArtifacts lists the files of the run that exist and a failed run still
+// has: the brief and the submission.
+func listRunArtifacts(r *toolio.Run, run *toolio.RunDir) {
+	for _, a := range []struct{ kind, name string }{{"brief", "brief.md"}, {"submission", "submission.json"}} {
+		path := filepath.Join(run.Path, a.name)
+		if _, err := os.Stat(path); err == nil {
+			r.Artifact(toolio.Artifact{Kind: a.kind, Path: path})
+		}
+	}
+}
+
+// landOutcome is the outcome of a landing: done, or needs_human when the
+// submission carries a question and nothing was landed.
+func landOutcome(r *toolio.Run, run *toolio.RunDir, facts triage.Facts, res triage.LandResult) toolio.Outcome {
+	pathCalls, total, warning := triage.CountRejections(filepath.Join(run.Path, triage.RejectionsFile))
+	if warning != "" {
+		r.Warn(warning, "rejections.jsonl of run "+run.ID+" cannot be read, so the refused calls are counted as 0")
+	}
+	labels := res.Labels
+	if labels == nil {
+		labels = []string{}
+	}
+	sha := res.OriginalSHA256
+	if sha == "" {
+		sha = facts.OriginalReportSHA256
+	}
+	result := triageResult{
+		RunID: run.ID, Issue: res.Issue, Action: res.Action, Diagnosis: res.Diagnosis,
+		RejectedPathCalls: pathCalls, RejectedSubmissions: total, Labels: labels, OriginalReportSHA256: sha,
+	}
+	if q := res.Question; q != nil {
+		recordIn(r, run, ledgerQuestion, q)
+		return toolio.Outcome{
+			Status: toolio.StatusNeedsHuman, Summary: "the diagnosis of run " + run.ID + " asks a question, and nothing was written",
+			Result: result, NeedsHuman: &toolio.Question{Text: q.Text, Options: q.Options},
+		}
+	}
+	return toolio.Outcome{Status: toolio.StatusDone, Summary: landSummary(res), Result: result}
+}
+
+// landSummary says what a landing did in a line.
+func landSummary(res triage.LandResult) string {
+	where := "nowhere"
+	if res.Issue != nil {
+		where = res.Issue.URL
+	}
+	switch res.Action {
+	case triage.ActionReplacedBody:
+		return "replaced the body of " + where + " with the diagnosis, keeping the original report"
+	case triage.ActionCommented:
+		return "posted the diagnosis as a comment on " + where + ", since the body would be too long"
+	case triage.ActionCreatedIssue:
+		return "created " + where + " with the diagnosis"
+	case triage.ActionPlanned:
+		return "planned the writes of the diagnosis; a dry run sent none"
+	}
+	return "wrote the diagnosis to diagnosis.md only"
 }

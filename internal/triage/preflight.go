@@ -67,11 +67,18 @@ func CheckFlags(f Flags) ([]string, *Refusal) {
 		return nil, usage("--budget must be a finite number of dollars above 0, not %v", f.Budget)
 	case f.MaxTurns < 1:
 		return nil, usage("--max-turns must be at least 1, not %d", f.MaxTurns)
-	case f.Land != "" && f.Land != LandIssue && f.Land != LandNone:
-		return nil, usage("--land must be issue or none, not %q", f.Land)
+	}
+	return CheckLandFlags(f.Land, f.Labels)
+}
+
+// CheckLandFlags checks --land and --label, which `af triage land` takes as well,
+// and returns the labels with exact duplicates collapsed in first-seen order.
+func CheckLandFlags(land string, labelFlags []string) ([]string, *Refusal) {
+	if land != "" && land != LandIssue && land != LandNone {
+		return nil, usage("--land must be issue or none, not %q", land)
 	}
 	var labels []string
-	for _, l := range f.Labels {
+	for _, l := range labelFlags {
 		switch {
 		case l == "":
 			return nil, usage(`--label "" is empty: give the name of a label`)
@@ -89,7 +96,7 @@ func CheckFlags(f Flags) ([]string, *Refusal) {
 	if len(labels) > maxLabels {
 		return nil, usage("--label was given %d distinct labels, and at most %d are allowed", len(labels), maxLabels)
 	}
-	if len(labels) > 0 && f.Land == LandNone {
+	if len(labels) > 0 && land == LandNone {
 		return nil, usage("--label cannot be used with --land none: nothing is written to the forge, so no label is added")
 	}
 	return labels, nil
