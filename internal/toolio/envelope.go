@@ -3,6 +3,7 @@ package toolio
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 )
 
 // SchemaVersion is the envelope's schema_version.
@@ -228,6 +229,17 @@ func (e *Envelope) normalize() {
 func (e *Envelope) marshal() ([]byte, error) {
 	e.normalize()
 	return encodeIndented(e)
+}
+
+// ensureEncodable turns an envelope that cannot be encoded as JSON, because
+// a result or a cost is not encodable, into an internal failure that can.
+func (e *Envelope) ensureEncodable() {
+	_, err := e.marshal()
+	if err == nil {
+		return
+	}
+	e.Usage = Usage{CostSource: CostNone}
+	e.fail(&Failure{Category: CategoryInternal, Message: fmt.Sprintf("the envelope cannot be encoded as JSON: %v", err)})
 }
 
 // encodeIndented renders v the way every JSON document af prints is

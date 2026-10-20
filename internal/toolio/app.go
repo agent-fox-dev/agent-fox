@@ -129,6 +129,8 @@ type Run struct {
 	// nothing else to it but a panic's stack.
 	Stderr io.Writer
 
+	events *eventStream
+
 	mu          sync.Mutex
 	warnings    []Warning
 	artifacts   []Artifact
@@ -140,11 +142,23 @@ type Run struct {
 // Warn records a warning. The code matches ^[a-z][a-z0-9_]*$. A warning
 // already recorded, with the same code and message, is recorded once.
 func (r *Run) Warn(code, message string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	w := Warning{Code: code, Message: message}
-	if !slices.Contains(r.warnings, w) {
+	r.mu.Lock()
+	recorded := slices.Contains(r.warnings, w)
+	if !recorded {
 		r.warnings = append(r.warnings, w)
+	}
+	r.mu.Unlock()
+	if !recorded && r.events != nil {
+		r.events.emit("warning", w)
+	}
+}
+
+// Emit writes an event of the command's own, such as "step", "tool_call" or
+// "heartbeat", to the event stream. The data is anything JSON can encode.
+func (r *Run) Emit(typ string, data any) {
+	if r.events != nil {
+		r.events.emit(typ, data)
 	}
 }
 
@@ -174,6 +188,13 @@ func (r *Run) SetUsage(u Usage) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.usage = u
+}
+
+// warningList is a copy of the warnings recorded so far.
+func (r *Run) warningList() []Warning {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.warnings)
 }
 
 // collect copies what the run recorded into the envelope.
@@ -222,27 +243,29 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 
 	cmd, rest := a.match(words)
 	if cmd == nil {
-		env := a.newEnvelope(a.name())
-		env.fail(&Failure{Category: CategoryUsage, Message: a.unknownCommand(words)})
-		return a.write(stdout, env, started)
+		inv := a.newInvocation(stdout, a.name(), started)
+		inv.env.fail(&Failure{Category: CategoryUsage, Message: a.unknownCommand(words)})
+		return inv.finish()
 	}
 
-	env := a.newEnvelope(cmd.Path)
+	inv := a.newInvocation(stdout, cmd.Path, started)
+	env := inv.env
 	values, positional, failure := parse(cmd, rest)
 	if failure != nil {
 		env.fail(failure)
-		return a.write(stdout, env, started)
+		return inv.finish()
 	}
+	inv.values = values
 
 	if cmd.UsesRunDir {
 		if failure := checkDir(values.dir); failure != nil {
 			env.fail(failure)
-			return a.write(stdout, env, started)
+			return inv.finish()
 		}
 	}
 	if values.timeout < 0 {
 		env.fail(&Failure{Category: CategoryUsage, Message: fmt.Sprintf("--timeout %s is negative; use 0 for no limit", values.timeout)})
-		return a.write(stdout, env, started)
+		return inv.finish()
 	}
 
 	sigCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
@@ -257,19 +280,20 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 		Context: slices.Clone(values.context),
 		Stderr:  stderr,
 	}
-
-	// The forge client is closed before the envelope is written, whichever
-	// way the invocation ends.
-	closeForge := func() {}
-	finish := func() int {
-		closeForge()
-		return a.write(stdout, env, started)
+	inv.run = run
+	if values.emitEvents != "" || cmd.UsesRunDir {
+		inv.events = newEventStream(a.now, run.Warn)
+		run.events = inv.events
+		if values.emitEvents != "" {
+			inv.events.addFile(values.emitEvents)
+		}
 	}
+
 	if cmd.UsesForge {
 		client, target, err := a.forgeFor(cmd, values, positional)
 		if err != nil {
 			env.fail(failureOf(err, stderr))
-			return a.write(stdout, env, started)
+			return inv.finish()
 		}
 		run.Forge, run.Target = client, target
 		if values.dryRun {
@@ -278,14 +302,14 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 		}
 		// A client that fails to close its idle connections has nothing
 		// more to tell.
-		closeForge = func() { _ = client.Close() }
+		inv.closeForge = func() { _ = client.Close() }
 	}
 
 	if cmd.Input != InputNone {
 		in, err := resolveInput(sigCtx, cmd.Input, positional, stdin, run.Forge)
 		if err != nil {
 			env.fail(failureOf(err, stderr))
-			return finish()
+			return inv.finish()
 		}
 		run.Input = in
 		env.Input = InputInfo{Kind: in.Kind, Origin: in.Origin, Truncated: in.Truncated}
@@ -293,16 +317,20 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 			run.Warn(w.Code, w.Message)
 		}
 	}
+
 	if cmd.UsesRunDir {
 		rd, err := NewRunDir(values.dir, a.now, a.Rand)
 		if err != nil {
 			env.fail(failureOf(err, stderr))
-			return finish()
+			return inv.finish()
 		}
 		run.RunDir = rd
 		env.RunID = &rd.ID
 		run.Artifact(Artifact{Kind: "run_dir", Path: rd.Path})
+		inv.events.setRunID(rd.ID)
+		inv.events.addFile(rd.file("events.jsonl"))
 	}
+	inv.beginEvents()
 
 	out, err := a.execute(sigCtx, cmd, run, values.timeout)
 	a.settle(env, run, out, err, stderr)
@@ -311,8 +339,111 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 			run.Artifact(Artifact{Kind: "report", Path: path})
 		}
 	}
-	run.collect(env)
-	return finish()
+	return inv.finish()
+}
+
+// invocation is one call of Main: the envelope being made, and what has to
+// be done with it before the process ends.
+type invocation struct {
+	app     *App
+	stdout  io.Writer
+	started time.Time
+	env     *Envelope
+
+	values     *flagValues // nil until the flags are parsed
+	run        *Run        // nil until the flags are parsed
+	events     *eventStream
+	closeForge func()
+}
+
+func (a *App) newInvocation(stdout io.Writer, tool string, started time.Time) *invocation {
+	return &invocation{app: a, stdout: stdout, started: started, env: a.newEnvelope(tool)}
+}
+
+// beginEvents starts the event stream, if there is one to write to, with
+// run_start and the warnings raised so far.
+func (inv *invocation) beginEvents() {
+	if inv.events == nil || !inv.events.active() {
+		return
+	}
+	inv.events.begin(inv.run.Tool, inv.run.Argv, inv.run.Input.Kind, inv.run.warningList())
+}
+
+// finish ends the invocation: it closes the forge client, stamps the
+// envelope with its times and exit code, ends the events, and writes the
+// envelope to the run directory, to --output and to stdout, in that order.
+// It returns the exit code.
+func (inv *invocation) finish() int {
+	if inv.closeForge != nil {
+		inv.closeForge()
+	}
+	env := inv.env
+	inv.collect()
+	env.ensureEncodable()
+
+	finished := inv.app.now()
+	env.StartedAt = stamp(inv.started)
+	env.FinishedAt = stamp(finished)
+	env.DurationMS = finished.Sub(inv.started).Milliseconds()
+	env.ExitCode = ExitCode(env.Status)
+	env.Summary = oneLine(env.Summary)
+	if env.Summary == "" && env.Error != nil {
+		env.Summary = defaultSummary(env.Error.Category)
+	}
+
+	if inv.events != nil && inv.events.active() {
+		inv.beginEvents()
+		inv.events.end(env)
+		inv.collect() // the events may have raised a warning
+	}
+	return inv.print()
+}
+
+// collect copies what the run recorded into the envelope.
+func (inv *invocation) collect() {
+	if inv.run != nil {
+		inv.run.collect(inv.env)
+	}
+}
+
+// print writes the envelope to <run_dir>/envelope.json, to the file named by
+// --output, and to stdout. A copy that cannot be written is a warning of the
+// envelope, which stdout then carries, and the status stays what it was.
+func (inv *invocation) print() int {
+	env := inv.env
+	data, _ := env.marshal() // ensureEncodable made sure it can be
+
+	type target struct{ path, code string }
+	var targets []target
+	if inv.run != nil && inv.run.RunDir != nil {
+		targets = append(targets, target{inv.run.RunDir.file("envelope.json"), WarnEnvelopeUnwritable})
+	}
+	if inv.values != nil && inv.values.output != "" {
+		targets = append(targets, target{inv.values.output, WarnOutputUnwritable})
+	}
+	var written []string
+	for _, t := range targets {
+		if err := os.WriteFile(t.path, data, 0o644); err != nil {
+			w := Warning{Code: t.code, Message: fmt.Sprintf("cannot write the envelope to %s: %v", t.path, err)}
+			if !slices.Contains(env.Warnings, w) {
+				env.Warnings = append(env.Warnings, w)
+			}
+			continue
+		}
+		written = append(written, t.path)
+	}
+	if len(written) < len(targets) {
+		// The warning is in the envelope now; the copies that were written
+		// are written again so that every copy is the one stdout gets.
+		data, _ = env.marshal()
+		for _, path := range written {
+			_ = os.WriteFile(path, data, 0o644)
+		}
+	}
+
+	// A broken stdout changes nothing: the exit code is the status's.
+	_, _ = inv.stdout.Write(data)
+	return env.ExitCode
 }
 
 // match returns the command with the longest registered path that the
@@ -380,9 +511,9 @@ func (a *App) answer(words []string, started time.Time, stdout io.Writer) (code 
 		// one reply to a help request that is not plain text.
 		cmd, _ := a.match(words[1:])
 		if cmd == nil && len(leadingWords(words[1:])) > 0 {
-			env := a.newEnvelope(a.name())
-			env.fail(&Failure{Category: CategoryUsage, Message: a.unknownCommand(words[1:])})
-			return a.write(stdout, env, started), true
+			inv := a.newInvocation(stdout, a.name(), started)
+			inv.env.fail(&Failure{Category: CategoryUsage, Message: a.unknownCommand(words[1:])})
+			return inv.finish(), true
 		}
 		return a.printHelp(cmd, stdout), true
 	case wantHelp:
@@ -519,31 +650,6 @@ func newNeedsHuman(q *Question, argv []string) *NeedsHuman {
 		Options:  options,
 		Resume:   Resume{Argv: slices.Clone(argv), Flag: contextFlag},
 	}
-}
-
-// write stamps the envelope with its times and exit code, prints it, and
-// returns the exit code.
-func (a *App) write(stdout io.Writer, env *Envelope, started time.Time) int {
-	finished := a.now()
-	env.StartedAt = stamp(started)
-	env.FinishedAt = stamp(finished)
-	env.DurationMS = finished.Sub(started).Milliseconds()
-	env.ExitCode = ExitCode(env.Status)
-	env.Summary = oneLine(env.Summary)
-	if env.Summary == "" && env.Error != nil {
-		env.Summary = defaultSummary(env.Error.Category)
-	}
-
-	data, err := env.marshal()
-	if err != nil {
-		// The result cannot be encoded. One envelope is still owed.
-		env.fail(&Failure{Category: CategoryInternal, Message: "the result cannot be encoded as JSON: " + err.Error()})
-		env.ExitCode = ExitCode(env.Status)
-		data, _ = env.marshal()
-	}
-	// A broken stdout changes nothing: the exit code is the status's.
-	_, _ = stdout.Write(data)
-	return env.ExitCode
 }
 
 // stamp formats t as RFC 3339 in UTC with milliseconds.
