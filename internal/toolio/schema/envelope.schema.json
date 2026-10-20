@@ -26,7 +26,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "4.0.0",
+      "const": "5.0.0",
       "description": "The version of this schema. A caller compares it before acting on the rest."
     },
     "tool": {

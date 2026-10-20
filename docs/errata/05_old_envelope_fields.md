@@ -50,26 +50,27 @@ ones do not:
 | `input` | `bytes`, `comments_truncated`, `context_bytes` |
 | `usage` | `cache_read_tokens`, `cache_creation_tokens`, `phases` |
 
-## The schema version is the old one
+## The schema version
 
-Design Decision 3 sets `schema_version` to `"4.0.0"` as "the next major
-version after the old one", on the ground that "the only recorded old value is
-the hub tasks draft's `"3.0.0"`". The old code records another:
-`1e6458d:internal/toolio/envelope.go:319` is `const SchemaVersion = "4.0.0"`,
-and `1e6458d:docs/cli.md` calls 4.0.0 "the current version". The same
-document makes removing or renaming a field, changing its type, or narrowing
-a closed enum a breaking change that bumps the major version, and the tables
-above are such changes.
+Design Decision 3 originally set `schema_version` to `"4.0.0"` as "the next
+major version after the old one", on the ground that "the only recorded old
+value is the hub tasks draft's `"3.0.0"`". The old code records another:
+`1e6458d:internal/toolio/envelope.go:319` was `const SchemaVersion = "4.0.0"`
+(bumped from 3.1.0 on 2026-10-14, when the `spec` tool left), and
+`1e6458d:docs/cli.md` called it the current version. The draft's example had
+been written while the version was still 3.x. The old interface rule made
+removing or renaming a field, or changing its type, a breaking change that
+bumps the major version, and the tables above are such changes, so the old
+and the new envelope would have carried the same version for two shapes that
+a caller reads differently.
 
-The delivered envelope therefore says `"4.0.0"`, as the criteria, the schema
-and the tests of the spec require, and is not compatible with the 4.0.0 that
-the old tools printed: a consumer that keys on `schema_version` cannot tell
-the two apart. Nothing was changed on this account. If the two must be told
-apart, `toolio.SchemaVersion`, the `const` in
-`internal/toolio/schema/envelope.schema.json` and the two golden files change
-together (`TestSchemaMatchesEnvelope_TS_05_71` and the golden tests fail until
-they do), and so do the spec's criteria and tests, which this scope does not
-edit.
+This was found after the implementation, and settled at the maintainer's
+request: the spec package now asks for `"5.0.0"` (its Design Decision 3 says
+why), `toolio.SchemaVersion`, the `const` in
+`internal/toolio/schema/envelope.schema.json`, the goldens and `docs/cli.md`
+follow, and `docs/cli.md` states the compatibility rule that the number
+stands for. Nothing in the delivered envelope differs from the spec any more
+on this point.
 
 ## Consequence
 

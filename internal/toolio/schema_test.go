@@ -77,8 +77,8 @@ func TestSchemaPrintsEnvelopeSchema_TS_05_68(t *testing.T) {
 	if doc["$schema"] != "https://json-schema.org/draft/2020-12/schema" {
 		t.Errorf("$schema = %v, want draft 2020-12", doc["$schema"])
 	}
-	if got := at(doc, "properties", "schema_version", "const"); got != "4.0.0" {
-		t.Errorf("schema_version const = %v, want 4.0.0", got)
+	if got := at(doc, "properties", "schema_version", "const"); got != "5.0.0" {
+		t.Errorf("schema_version const = %v, want 5.0.0", got)
 	}
 	var required []string
 	for _, f := range doc["required"].([]any) {
@@ -224,6 +224,21 @@ func TestSchemaMatchesEnvelope_TS_05_71(t *testing.T) {
 	required := requiredOfSchema(t)
 	if !slices.Equal(tags, required) {
 		t.Fatalf("Envelope fields %v, schema required %v", tags, required)
+	}
+
+	// The version the schema promises is the version the envelope carries.
+	var schema struct {
+		Properties struct {
+			SchemaVersion struct {
+				Const string `json:"const"`
+			} `json:"schema_version"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(envelopeSchema, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if got := schema.Properties.SchemaVersion.Const; got != SchemaVersion {
+		t.Errorf("the schema's schema_version const is %q, toolio.SchemaVersion is %q", got, SchemaVersion)
 	}
 
 	// The comparison notices a field added, removed, renamed or moved.

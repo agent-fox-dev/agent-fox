@@ -148,6 +148,8 @@ func TestDocumentationNamesWhatTheShellDefines_TS_05_72(t *testing.T) {
 	for _, field := range jsonTags(Envelope{}) {
 		terms = append(terms, "`"+field+"`")
 	}
+	// The version the envelope carries, and the rule for changing it.
+	terms = append(terms, "`"+SchemaVersion+"`", "## Interface versions", "bumps the major version")
 	terms = append(terms, "--context", "--dry-run", "--schema", "--version", "--timeout", "--output", "--emit-events",
 		"envelope.json", "events.jsonl", "ledger.jsonl", "report.md", "panic.txt", ".agent-fox/.gitignore", "go test ./internal/toolio ./cmd/af -update")
 	if lacking := missing(cli, terms...); len(lacking) > 0 {
