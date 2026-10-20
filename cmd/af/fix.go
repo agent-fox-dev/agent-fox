@@ -105,6 +105,9 @@ func registerFix(app *toolio.App) {
 	})
 }
 
+// The ledger record of the question a run ended on.
+const ledgerFixQuestion = "fix.question"
+
 // fixLoop is a fix run from the report to the pull request.
 func fixLoop(r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 	if err := refusePullRequest(r); err != nil {
@@ -113,25 +116,64 @@ func fixLoop(r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 	if err := o.settings.Validate(); err != nil {
 		return toolio.Outcome{}, err
 	}
-	if _, err := fixRegistry.Lookup(o.settings.Brain); err != nil {
+	entry, err := fixRegistry.Lookup(o.settings.Brain)
+	if err != nil {
 		return toolio.Outcome{}, err
 	}
-	if _, err := box.Default.Lookup(o.settings.Sandbox); err != nil {
+	boxEntry, err := box.Default.Lookup(o.settings.Sandbox)
+	if err != nil {
 		return toolio.Outcome{}, err
 	}
 
-	_, err := fix.Preflight(r.Ctx, fix.PreflightParams{
+	opts := fixBrainOptions()
+	opts.Script = o.settings.Script
+	pre, err := fix.Preflight(r.Ctx, fix.PreflightParams{
 		Dir: r.Dir, Base: o.base, Land: string(o.land), NoVerify: o.noVerify, DryRun: r.DryRun,
 		Forge: r.Forge, Target: r.Target, Warn: r.Warn, Gate: fixGate,
-		NewBrain: func() (brain.Brain, error) {
-			opts := fixBrainOptions()
-			opts.Script = o.settings.Script
-			return fixRegistry.New(o.settings.Brain, opts)
-		},
+		NewBrain: func() (brain.Brain, error) { return entry.New(opts) },
 	})
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
 	warnIssueClosed(r)
-	return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryInternal, Message: "fix loop not wired"}
+	start, err := startRun(r, pre, o.noVerify)
+	if err != nil {
+		return toolio.Outcome{}, err
+	}
+
+	state := start.state
+	var ended fix.LoopResult
+	var info fix.BoxInfo
+	err = box.With(r.Ctx, box.Request{
+		Provider: o.settings.Sandbox, HostDir: r.Dir, RunID: r.RunDir.ID, Tool: "fix",
+		Env: brain.BuildBoxEnv(entry, opts.Getenv), Record: r.RunDir.Record, Warn: r.Warn,
+	}, func(sess *box.Session) error {
+		info = fix.NewBoxInfo(boxEntry, sess.Spec())
+		var err error
+		ended, err = fix.RunLoop(r.Ctx, fix.LoopParams{
+			Dir: r.Dir, Git: pre.Git, Session: sess, Name: o.settings.Brain, Brain: pre.Brain, Tally: &brain.Tally{}, RunDir: r.RunDir, Report: r, Reporter: r,
+			State: &state, Prefix: start.prefix.Text, Attempts: int(o.attempts), Budget: o.settings.Budget, MaxTurns: o.settings.MaxTurns, Gate: fixGate,
+		})
+		return err
+	})
+	if err != nil {
+		return toolio.Outcome{}, err
+	}
+	return endFixLoop(r, o, state, ended, info)
+}
+
+// endFixLoop turns what the rounds came to into the outcome of the run. A question is the
+// end of the run, with nothing applied to the checkout.
+func endFixLoop(r *toolio.Run, o fixOptions, state fix.State, ended fix.LoopResult, info fix.BoxInfo) (toolio.Outcome, error) {
+	if q := ended.Question; q != nil {
+		record(r, ledgerFixQuestion, q)
+		result := fix.NewResult(fix.ResultInput{
+			State: state, Attempts: ended.Attempts, Rounds: ended.Rounds, AttemptsMax: int(o.attempts), Outcome: fix.OutcomeNeedsHuman, Land: string(o.land), Box: &info,
+		})
+		return toolio.Outcome{
+			Status: toolio.StatusNeedsHuman, Summary: "the brain asks a question, and nothing was applied to the checkout",
+			Result: result, NeedsHuman: &toolio.Question{Text: q.Text, Options: q.Options},
+		}, nil
+	}
+	return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryInternal, Message: "the endings of the fix loop are not wired"}
 }

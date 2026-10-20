@@ -63,6 +63,7 @@ func newMeasureWorldWith(t *testing.T, files map[string]string, withOrigin bool)
 	}
 	return &measureWorld{repo: r, state: State{
 		Base: pre.Base, BaseHead: pre.BaseHead, Table: pre.Detection.Gate, BaselineGateID: pre.Baseline.ID, BaselinePassed: pre.Baseline.Passed,
+		BaselineMS: GateMS(pre.Baseline),
 	}}
 }
 
@@ -80,6 +81,23 @@ func (w *measureWorld) edit(t *testing.T, path, content string) {
 func (w *measureWorld) read(path string) (string, bool) {
 	data, err := os.ReadFile(filepath.Join(w.repo.Dir, filepath.FromSlash(path)))
 	return string(data), err == nil
+}
+
+// gateSeam and conformSeam are the seams of the world, which count the runs.
+func (w *measureWorld) gateSeam() func(ctx context.Context, dir string, o checks.Options) (checks.Result, error) {
+	return func(ctx context.Context, dir string, o checks.Options) (checks.Result, error) {
+		w.gateRuns++
+		w.gateOptions = o
+		return checks.Run(ctx, dir, o)
+	}
+}
+
+func (w *measureWorld) conformSeam() func(ctx context.Context, dir, since string, o conform.Options) (conform.Result, error) {
+	return func(ctx context.Context, dir, since string, o conform.Options) (conform.Result, error) {
+		w.conformRun++
+		w.conformSince = since
+		return conform.Check(ctx, dir, since, o)
+	}
 }
 
 // measure measures the change on the checkout, counting the runs of the gate and of the
