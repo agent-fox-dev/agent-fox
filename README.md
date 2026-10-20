@@ -20,12 +20,14 @@ repository.
 
 | Path | Purpose |
 |---|---|
+| `cmd/af/` | The `af` binary: it registers the commands on the shell and hands the process to it. No work command yet; it answers `--version`, `--schema` and `help`. |
+| `internal/toolio/` | The command shell behind `af`: the envelope and its exit codes, `needs_human` and `--context`, `--dry-run`, `--schema`, the positional input, and the run directory with its events and ledger. [`docs/cli.md`](docs/cli.md) describes it. |
 | `issuex/` | The forge client: one interface over GitHub and GitLab for issues, labels, and pull or merge requests. |
 | `internal/gitx/` | The git and shell invocations the tools make, hermetic and issued from Go. |
 | `skills/` | The coding-agent skills (`af-prd`, `af-impl`, `af-fix`, `af-bug-hunter`, `af-code-quality`, `af-code-simplifier`). `make install-skills` copies them to `~/.claude/skills`. |
 | `containers/sandbox/` | The sandbox image. |
 | `.specs/` | `steering.md` holds the directives every session follows; `archive/` holds the specs of `issuex`. |
-| `docs/` | `architecture.md` is the proposed target architecture, `prd/` holds the product requirements, `drafts/` holds design drafts, `errata/` holds the errata of `issuex`. |
+| `docs/` | `cli.md`, `configuration.md` and `model-usage.md` describe `af` as it is; `architecture.md` is the proposed target architecture, `prd/` holds the product requirements, `drafts/` holds design drafts, `errata/` holds the errata of the specs, `generated/` the Go package docs (`make doc`). |
 
 [AGENTS.md](AGENTS.md) is the policy for every coding session in this
 repository.
@@ -40,7 +42,8 @@ git clone https://github.com/agent-fox-dev/agentkit-go ../agentkit-go
 
 ```bash
 make check          # gofmt + go vet + all tests
-make build          # go build ./...
+make build          # go build ./..., and bin/af
+bin/af --version
 ```
 
 The test suite needs no API key, no token and no network. It does start
