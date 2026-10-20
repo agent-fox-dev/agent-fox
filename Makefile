@@ -4,6 +4,9 @@ VERSION    := $(shell git describe --tags 2>/dev/null || echo "0.1.0")
 COMMIT     := $(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
 BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
+# The identity of the af binary, set with -ldflags -X on cmd/af's variables.
+LDFLAGS    := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildTime=$(BUILD_TIME)
+
 CONTAINER_REGISTRY ?= quay.io/agentfox
 
 SANDBOX_IMAGE ?= sandbox
@@ -35,9 +38,10 @@ coverage:
 	go test ./... -coverprofile=coverage.txt -covermode=atomic
 	go tool cover -func=coverage.txt
 
-# Build every package
+# Build every package, and bin/af
 build:
 	go build ./...
+	go build -ldflags "$(LDFLAGS)" -o bin/af ./cmd/af
 
 build-containers: build-sandbox-container
 
@@ -53,6 +57,7 @@ build-sandbox-container:
 
 clean:
 	-rm -f coverage.txt
+	-rm -rf bin
 
 clean-branches:
 	git checkout main

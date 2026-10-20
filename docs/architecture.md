@@ -58,7 +58,7 @@ Three layers, each replaceable without the others noticing:
 - **`af`** is the toolbelt: the enforcement that today lives inside
   `codeimpl`, `codefix`, `internal/conform`, `internal/checks`,
   `internal/gitx` and `issuex`, exposed as commands with the envelope
-  `internal/toolio` already defines. It is what
+  `internal/toolio` defines and [`docs/cli.md`](cli.md) describes. It is what
   [PRD 13](prds/13-rebuild-fix-on-a-shared-change-engine.md) called
   `internal/engine`, minus the phases and the prompts.
 - **The hands** are AgentKit after PRD 10: workspace mechanics with no
@@ -117,9 +117,10 @@ change; only who calls them does.
 
 A run's state lives in three places, none of them a transcript:
 
-- `.agent-fox/run/<session_id>/`: the ledger, the baseline result and its
-  log, the rendered briefs, the check logs a brief refers to by path. Git
-  ignores it through its own `.gitignore`.
+- `.agent-fox/run/<id>/`: the envelope, the events, the ledger, the baseline
+  result and its log, the rendered briefs, the check logs a brief refers to
+  by path. Git ignores it through its own `.gitignore` (*The run directory*,
+  below).
 - `tasks.json`: the task states, written only by `af task land` and
   `af task start`, committed beside the work.
 - git: the branch, the commits with their trailers, the parked `wip:`
@@ -128,14 +129,38 @@ A run's state lives in three places, none of them a transcript:
 A brain that dies mid-task loses nothing `af` had measured. The next brain,
 or the next run, continues from `af task brief`.
 
+### The run directory
+
+The shell creates `<dir>/.agent-fox/run/<id>/` for a command that declares
+one, before the command runs, under `--dry-run` too. `<dir>` is `--dir`, made
+absolute; `<id>` is `YYYYMMDD_HHMMSS_<6 lowercase hex>`, the UTC time and
+three random bytes. `<dir>/.agent-fox/.gitignore` holds `*` and is created,
+exclusively, when it is missing: Git ignores the whole directory, and the
+repository's own `.gitignore` is never edited. The shell puts these files in
+the run directory, and a command adds its own beside them:
+
+| File | Written by | Content |
+|---|---|---|
+| `envelope.json` | the shell | the envelope, byte for byte what stdout got |
+| `events.jsonl` | the shell and the command | JSON lines `{seq, ts, run_id, type, data}`, `seq` from 1, each flushed when written; `run_start` first, `run_end` last |
+| `ledger.jsonl` | the command, through `RunDir.Record` | append-only JSON lines `{seq, ts, kind, data}`, `seq` from 1; the shell records nothing in it |
+| `report.md` | the command, through `RunDir.WriteReport` | a report, listed in the envelope as an artifact |
+| `panic.txt` | the shell | the stack of a panic of the command |
+
+`toolio.OpenRunDir(dir, id)` opens an existing run for the commands that
+carry one on (`submit`, `land`); an id that is not of the form of a run id is
+refused before any path is made of it. The briefs, the baseline and the
+submission that later specs keep in the run directory join these files.
+[`docs/cli.md`](cli.md) has the formats in full.
+
 ## The three bindings
 
 From weakest to strongest. The first must work on its own, because it is
 the one every host has.
 
 **Shell.** Every `af` command reads JSON on stdin where it takes input,
-writes one envelope on stdout, and uses the exit-code table `docs/cli.md`
-already documents. Any brain with a shell tool can drive it.
+writes one envelope on stdout, and uses the exit-code table of
+[`docs/cli.md`](cli.md). Any brain with a shell tool can drive it.
 
 **MCP.** `af serve` exposes the same commands as typed tools over stdio, on
 the official MCP Go SDK. Claude Code attaches it with one `claude mcp add`
@@ -519,8 +544,9 @@ involved beyond landing the branch.
 
 ## Sections to be written
 
-- The `af` command reference, once the commands exist, in `docs/cli.md`.
-- The run directory layout and the ledger file formats.
+- The reference of each `af` command, in `docs/cli.md`, as the commands
+  land. The shell's contract (the envelope, the exit codes, `--dry-run`,
+  `--context`, `--schema`) is documented there already.
 - The host settings `af run start` writes for each brain.
 - The `Spec` `af run start` builds for each brain: image, environment,
   network, resources, TTL, and `RequireLandlock`.
