@@ -57,7 +57,8 @@ Three layers, each replaceable without the others noticing:
   vendor CLI on the machine; a person at a shell is a valid brain too.
 - **`af`** is the toolbelt: the enforcement that today lives inside
   `codeimpl`, `codefix`, `internal/conform`, `internal/checks`,
-  `internal/gitx` and `issuex`, exposed as commands with the envelope
+  `internal/gitx` and `issuex` (now a package of
+  [aflib](https://github.com/agent-fox-dev/aflib)), exposed as commands with the envelope
   `internal/toolio` defines and [`docs/cli.md`](cli.md) describes. It is what
   [PRD 13](prds/13-rebuild-fix-on-a-shared-change-engine.md) called
   `internal/engine`, minus the phases and the prompts.
@@ -479,7 +480,7 @@ involved beyond landing the branch.
 | `internal/agentrun` (phase runner, guard, policy, scratch) | gone; `guard.Check` from the hands behind `af guard check`; scratch is the run directory |
 | the `submit_*` tools and their handlers | `af ... submit` commands over the same schemas |
 | `internal/checks`, `internal/conform`, `internal/gitx`, the untracked snapshots, parking, the PR body | `af`'s effect layer, on the hands' runner and outline |
-| `afspec`, `issuex`, `internal/project` (later the language profiles) | unchanged, inside `af` |
+| `afspec`, `issuex`, `internal/project` (later the language profiles) | unchanged, inside `af`; `issuex` is imported from `github.com/agent-fox-dev/aflib/issuex` |
 | prompts as Go strings | the briefs, as templated documents rendered by `af task brief` and `af review brief` |
 | `issuetriage` | unchanged for now; it is single-phase and the cost of the current shape is small. *To be decided.* |
 | the `af-impl` skill | shrinks to the attended loop over `af` commands |

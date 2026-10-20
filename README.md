@@ -10,6 +10,10 @@ It depends on
 
 - [`agentkit-go`](https://github.com/agent-fox-dev/agentkit-go) — the AgentKit SDK
   (module `github.com/agent-fox-dev/agentkit-go`)
+- [`aflib`](https://github.com/agent-fox-dev/aflib) — the packages shared by the
+  agent-fox repositories: `issuex`, the forge client (one interface over GitHub
+  and GitLab for issues, labels, and pull or merge requests), and `jobqueue`
+  (module `github.com/agent-fox-dev/aflib`)
 
 and works with [`hub`](https://github.com/agent-fox-dev/hub) as its backend
 service. The spec format and the `spec` tool that writes specification
@@ -22,11 +26,10 @@ repository.
 |---|---|
 | `cmd/af/` | The `af` binary: it registers the commands on the shell and hands the process to it. No work command yet; it answers `--version`, `--schema` and `help`. |
 | `internal/toolio/` | The command shell behind `af`: the envelope and its exit codes, `needs_human` and `--context`, `--dry-run`, `--schema`, the positional input, and the run directory with its events and ledger. [`docs/cli.md`](docs/cli.md) describes it. |
-| `issuex/` | The forge client: one interface over GitHub and GitLab for issues, labels, and pull or merge requests. |
 | `internal/gitx/` | The git and shell invocations the tools make, hermetic and issued from Go. |
 | `skills/` | The coding-agent skills (`af-prd`, `af-impl`, `af-fix`, `af-bug-hunter`, `af-code-quality`, `af-code-simplifier`). `make install-skills` copies them to `~/.claude/skills`. |
 | `containers/sandbox/` | The sandbox image. |
-| `.specs/` | `steering.md` holds the directives every session follows; `archive/` holds the specs of `issuex`. |
+| `.specs/` | `steering.md` holds the directives every session follows; `archive/` holds the specs of `issuex`, which now lives in `aflib`. |
 | `docs/` | `cli.md`, `configuration.md` and `model-usage.md` describe `af` as it is; `architecture.md` is the proposed target architecture, `prd/` holds the product requirements, `drafts/` holds design drafts, `errata/` holds the errata of the specs, `generated/` the Go package docs (`make doc`). |
 
 [AGENTS.md](AGENTS.md) is the policy for every coding session in this
@@ -38,6 +41,15 @@ AgentKit is consumed through a `replace` to a sibling checkout:
 
 ```bash
 git clone https://github.com/agent-fox-dev/agentkit-go ../agentkit-go
+```
+
+`aflib` is an ordinary Go module: `go.mod` requires it at a commit (it has no
+tag yet), and `go` fetches it, so no checkout is needed. To change `aflib` and
+agent-fox together, put both in a `go.work` (it is git-ignored):
+
+```bash
+git clone https://github.com/agent-fox-dev/aflib ../aflib
+go work init . ../aflib
 ```
 
 ```bash
