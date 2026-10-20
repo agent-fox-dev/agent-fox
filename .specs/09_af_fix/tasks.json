@@ -521,7 +521,7 @@
       "done_when": [
         "`make check` passes with no vendor key and no network beyond loopback"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 12,

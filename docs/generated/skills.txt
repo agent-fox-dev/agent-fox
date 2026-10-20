@@ -13,6 +13,10 @@ var FS embed.FS
 
 FUNCTIONS
 
+func Fix() string
+    Fix is the body of the af-fix skill without its frontmatter, which the brief
+    of a fix run carries.
+
 func Triage() string
     Triage is the body of the af-triage skill without its frontmatter, which the
     brief of a triage run carries.

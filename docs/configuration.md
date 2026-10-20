@@ -18,7 +18,11 @@ pinned in [`.agent-fox/gate.json`](#gatejson); everything else is a flag (see
 
 Without a token, `af` reads public issues and a 404 means the issue may be
 private (`failed`/`auth` with the token to set in `fix_hint`). Writing needs a
-token.
+token, and so does `af fix --land pr`: opening a pull request needs `GITHUB_TOKEN`
+or `GH_TOKEN` for a GitHub repository and `GITLAB_TOKEN` for a GitLab one. Without
+it the run is `failed`/`auth` before it spends anything, with the variable in
+`fix_hint.env`; under `--dry-run` it is the warning `no_forge_token`, and
+`--land branch` and `--land none` need none.
 
 **Which forge.** The forge of a command is the one the issue URL names, else
 the one `--repo` and the environment say, else the one the `origin` remote of
@@ -38,7 +42,7 @@ API URL is set. A request to any other host carries no token.
 
 | Variable | Used for |
 |---|---|
-| `AF_MODEL` | The model the `agentkit` brain runs, as the catalog of the hands names it. Empty is the catalog's default for the vendor, `claude-sonnet-5-5`. A model the catalog does not list has no price: the run reports no cost (`cost_source` `none`, with the warning `model_unpriced`), and with `--budget` it does not start (`failed`/`usage`, with `fix_hint.env` `AF_MODEL`). The commands that run a brain read the variable and give it to the brain as `brain.Options.Model`; `af triage` and `af triage run` do. |
+| `AF_MODEL` | The model the `agentkit` brain runs, as the catalog of the hands names it. Empty is the catalog's default for the vendor, `claude-sonnet-5-5`. A model the catalog does not list has no price: the run reports no cost (`cost_source` `none`, with the warning `model_unpriced`), and with `--budget` it does not start (`failed`/`usage`, with `fix_hint.env` `AF_MODEL`). The commands that run a brain read the variable and give it to the brain as `brain.Options.Model`; `af triage`, `af triage run`, `af fix` and `af fix run` do. |
 | `ANTHROPIC_API_KEY` | The credential of the `agentkit` brain's provider, when no provider is injected. The provider resolves its credentials as the hands' does: `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` (and `ANTHROPIC_OAUTH_TOKEN`), optionally `ANTHROPIC_BASE_URL`, and Vertex AI or Bedrock when `CLAUDE_CODE_USE_VERTEX` or `CLAUDE_CODE_USE_BEDROCK` is `1`. Without any, the brain is not made: `failed`/`auth` with `fix_hint.env` `ANTHROPIC_API_KEY`, before a box is opened. |
 
 The key goes to the host process that runs the driver and to nothing else: the
@@ -87,6 +91,37 @@ API URL are those above, and the model and its credential are `AF_MODEL` and
 `ANTHROPIC_API_KEY` of [the brain](#the-brain). The skill `af-triage` that the
 brief embeds is compiled into the binary, so no file is read for it. Everything
 else is a flag: [cli.md](cli.md#triage).
+
+### The files of a fix run
+
+`af fix` and `af fix brief` make a run directory, and the steps that follow
+(`run`, `submit`, `land`) carry it on by its id. Besides the files every run
+directory has, a fix run keeps in `.agent-fox/run/<id>/`:
+
+| File | What it is |
+|---|---|
+| `brief.md` | The brief of the first round, which the brain read: the mandate, the `af-fix` skill, the report in a fence, the gate and its baseline, the repository map, the schema of the report, and the task block. |
+| `original.md` | The original report, exactly as `af` took it; an issue made for a text or a file under `--land pr` keeps these bytes. |
+| `run.json` | The attempt and the nonce that the submission protocol reads, placed again before each round. |
+| `fix.json` | The state of the run, written last and atomically: the `input` (`kind`, `origin`, `key`), the `issue` or null, the `target` repository and its host, the `base` branch and the full hash `base_head` of its commit, the pinned gate `table`, the baseline (`baseline_gate_id`, `baseline_passed`, `baseline_ms`), `no_verify`, the `prefix_sha256` and `prefix_bytes` of the brief, the `suite` and `programs` the gate detected, the `context` answers, the number of `rounds` and the `brain`, `cost_usd` and `cost_source` they used. |
+| `submission.json` | The report the brain handed over and `af` accepted, in its normalised form. |
+| `report.md` | The body of the pull request, rendered from what `af` measured and what the report says; written before anything is sent to the forge. |
+
+A round of a brain runs in a box, and `af` places two files in it before each
+round: `.agent-fox/gate.json`, the table of checks the run was pinned to, so that
+the brain's own `af gate run` measures what `af` will, and `.agent-fox/guard.json`,
+the policy of the tool gate (the `suite` of the gate, the default protected paths
+and, as `allow_programs`, the programs of the gate together with `af`, `git` and
+a few utilities that only read or make a directory). They are the host's table and rules, and not what the
+box would detect; the files of the checkout itself are not changed, and the
+`.agent-fox/` directory of the box never comes back out (see
+[gate.json](#gatejson) and [guard.json](#guardjson)).
+
+The fix commands read **no new environment variable**. The forge token and API
+URL are those above (`--land pr` needs the token), and the model and its credential
+are `AF_MODEL` and `ANTHROPIC_API_KEY` of [the brain](#the-brain). The skill
+`af-fix` that the brief embeds is compiled into the binary, so no file is read for
+it. Everything else is a flag: [cli.md](cli.md#fix).
 
 ### gate.json
 
