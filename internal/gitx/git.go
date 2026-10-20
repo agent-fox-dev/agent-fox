@@ -3,6 +3,7 @@ package gitx
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -503,4 +504,66 @@ func (g *Git) CommitsSince(ctx context.Context, since string) ([]Commit, error) 
 // change is measured from, however far ref has moved since.
 func (g *Git) MergeBase(ctx context.Context, ref string) (string, error) {
 	return g.must(ctx, "merge-base", ref, "HEAD")
+}
+
+// ListFiles lists every file git tracks plus the untracked files that are
+// not ignored, read NUL-separated so that a name with a space, a newline or a
+// non-ASCII character comes back byte for byte, unquoted. Nothing is trimmed.
+// The paths are de-duplicated and sorted byte-wise, and relative to Dir.
+func (g *Git) ListFiles(ctx context.Context) ([]string, error) {
+	out, err := g.raw(ctx, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	return sortedUnique(splitNUL(out)), nil
+}
+
+// ChangedPaths lists the paths that differ from since, staged or not, and the
+// untracked files that are not ignored, NUL-separated and byte for byte,
+// de-duplicated and sorted. A renamed file is both of its paths, so that a
+// revert puts the old one back. Dir must be the top level of the work tree:
+// the two lists git gives are relative to different roots otherwise.
+func (g *Git) ChangedPaths(ctx context.Context, since string) ([]string, error) {
+	if strings.HasPrefix(since, "-") {
+		return nil, fmt.Errorf("git diff: %q is not a ref", since)
+	}
+	tracked, err := g.raw(ctx, "diff", "-z", "--name-only", "--no-renames", since, "--")
+	if err != nil {
+		return nil, err
+	}
+	untracked, err := g.raw(ctx, "ls-files", "-z", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	return sortedUnique(append(splitNUL(tracked), splitNUL(untracked)...)), nil
+}
+
+// raw runs git and returns its output exactly as it came, where Git.git trims
+// it. A non-zero exit is an error.
+func (g *Git) raw(ctx context.Context, args ...string) (string, error) {
+	out, code, err := g.run(ctx, g.Dir, append([]string{"git"}, args...))
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+	if code != 0 {
+		return "", fmt.Errorf("git %s exited %d: %s", strings.Join(args, " "), code, strings.TrimSpace(out))
+	}
+	return out, nil
+}
+
+// splitNUL splits the output of a -z listing into its entries.
+func splitNUL(out string) []string {
+	var entries []string
+	for _, e := range strings.Split(out, "\x00") {
+		if e != "" {
+			entries = append(entries, e)
+		}
+	}
+	return entries
+}
+
+// sortedUnique sorts paths byte-wise and drops the repeats.
+func sortedUnique(paths []string) []string {
+	slices.Sort(paths)
+	return slices.Compact(paths)
 }
