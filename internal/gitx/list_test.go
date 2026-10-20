@@ -1,11 +1,13 @@
 package gitx
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 )
 
 // write creates a file under dir with the given content.
@@ -118,5 +120,43 @@ func TestListingsOutsideARepositoryFail(t *testing.T) {
 	}
 	if _, err := g.ChangedPaths(context.Background(), "HEAD"); err == nil {
 		t.Error("ChangedPaths outside a repository succeeded")
+	}
+}
+
+// TestChangedPathsOnAPrivateIndexLeavesTheRealOne guards the way revert-check
+// lists what changed: git diff refreshes the stat data of the index and
+// writes it back, so the listing runs against a copy of the index and the
+// real one stays byte for byte as it was.
+func TestChangedPathsOnAPrivateIndexLeavesTheRealOne(t *testing.T) {
+	g, dir := newRepo(t)
+	write(t, dir, "f.txt", "same\n")
+	if _, err := g.CommitAll(context.Background(), "feat: f\n"); err != nil {
+		t.Fatal(err)
+	}
+	// The content is the same and the stat data is not: what a refresh updates.
+	later := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(filepath.Join(dir, "f.txt"), later, later); err != nil {
+		t.Fatal(err)
+	}
+	index := filepath.Join(dir, ".git", "index")
+	before, err := os.ReadFile(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyPath := filepath.Join(t.TempDir(), "index")
+	if err := os.WriteFile(copyPath, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	paths, err := New(dir, EnvRunner("GIT_INDEX_FILE="+copyPath)).ChangedPaths(context.Background(), "HEAD")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 0 {
+		t.Errorf("ChangedPaths = %q, want none: only the stat data of f.txt changed", paths)
+	}
+	if after, _ := os.ReadFile(index); !bytes.Equal(after, before) {
+		t.Error("the real index changed although git was pointed at a copy")
 	}
 }

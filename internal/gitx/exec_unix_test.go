@@ -4,6 +4,7 @@ package gitx
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -18,5 +19,18 @@ func TestATimeoutEndsTheWholeProcessGroup(t *testing.T) {
 	_, _, _ = ExecRunner(ctx, t.TempDir(), []string{"sh", "-c", "sleep 30 & wait"})
 	if d := time.Since(start); d > 10*time.Second {
 		t.Errorf("the run took %s past a 300ms timeout: the grandchild kept it alive", d)
+	}
+}
+
+// TestEnvRunnerAddsToTheEnvironment: the extra variables are there for the
+// command, and the rest of the environment is too.
+func TestEnvRunnerAddsToTheEnvironment(t *testing.T) {
+	t.Setenv("AF_ENV_RUNNER_OLD", "kept")
+
+	out, code, err := EnvRunner("AF_ENV_RUNNER_NEW=added")(context.Background(), t.TempDir(),
+		[]string{"sh", "-c", `echo "$AF_ENV_RUNNER_NEW $AF_ENV_RUNNER_OLD"`})
+
+	if err != nil || code != 0 || strings.TrimSpace(out) != "added kept" {
+		t.Errorf("EnvRunner ran with output %q, exit code %d, error %v; want \"added kept\"", out, code, err)
 	}
 }

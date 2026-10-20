@@ -8,12 +8,13 @@ exit codes, coded warnings, a stop on a question that is resumed with
 `--context`, a `--dry-run` that cannot write to the forge, a fetchable
 schema, and a git-ignored run directory.
 
-**This release registers three work commands, [`lang detect`](#lang-detect),
-[`gate run`](#gate-run) and [`gate compare`](#gate-compare).** The binary also
-answers `--version`, `--schema` and `help`; `af` with no arguments, or with a
-command it does not know, prints a `usage` envelope and exits 2. The other
-commands of this scope and of later specs (`triage`, `fix`, …) register on the
-shell and get everything below.
+**This release registers four work commands, [`lang detect`](#lang-detect),
+[`gate run`](#gate-run), [`gate compare`](#gate-compare) and
+[`revert-check`](#revert-check).** The binary also answers `--version`,
+`--schema` and `help`; `af` with no arguments, or with a command it does not
+know, prints a `usage` envelope and exits 2. The other commands of this scope
+and of later specs (`triage`, `fix`, …) register on the shell and get
+everything below.
 
 ```
 $ af --version
@@ -269,6 +270,98 @@ the comparison could not be made: an argument is missing or names no result
 measured by the same checks (the message lists the names that are on one side
 only).
 
+### revert-check
+
+```
+af revert-check --since REF [--dir DIR] [--timeout DURATION]
+```
+
+Answers one question: do the tests of a change fail without the rest of the
+change? It lists what differs from `REF`, sets the paths that are not tests
+back to what `REF` has, runs the tests, and puts every path back as it was.
+It calls no model and opens no network connection, and it creates no run
+directory. The default `--timeout` is 30 minutes.
+
+| Flag | Meaning |
+|---|---|
+| `--since <ref>` | The commit the change starts from: a ref or a hash. Required. |
+
+`--dir` must be the top level of a git work tree and `--since` must resolve to
+a commit; otherwise the status is `usage` (exit 2), the message names the
+argument, and nothing was touched.
+
+**What it does,** in this order, stopping at the first step that settles the
+outcome:
+
+1. It refuses, as `failed`/`restore`, if a directory exists under
+   `.agent-fox/revert/`: an earlier check was killed, the tree may not be the
+   one it started on, and nothing is overwritten. The message names the
+   directory.
+2. It lists the changed paths: those that differ from `REF`, staged or not,
+   and the untracked files that are not ignored, byte for byte (a rename is
+   its two paths). The index is never written, not even by git's own refresh
+   of its stat data: the listing runs against a copy of it. Each path is a
+   *test path* or not: Go `_test.go` or `testdata/`; Python `test_*.py`,
+   `*_test.py` or `conftest.py`; JavaScript and TypeScript `*.test.*`,
+   `*.spec.*` or `__tests__/`; Java `src/test/`, `*Test.java`, `*Tests.java`
+   or `*IT.java`; Ruby `*_spec.rb` or `*_test.rb`; and anything below a
+   directory called `test`, `tests` or `spec`.
+3. It returns the outcome of a case with nothing to measure, and changes no
+   file: `no_changes` (nothing differs), `no_code_changes` (only tests do),
+   `no_test_changes` (no test does) or `inconclusive` with the reason
+   `no_test_check` (the gate table has no check of kind `test` or `check`).
+4. It takes the full table's result for the current tree from the gate cache,
+   or runs it and caches it (see [gate run](#gate-run)); `after` is its id.
+   If a `test` or `check` check did not pass, the outcome is `inconclusive`
+   with the reason `after_not_green`; if none could be run here, with
+   `test_check_unavailable`. Nothing is reverted.
+5. It backs up, reverts, tests and restores. The backup is
+   `.agent-fox/revert/<id>/` (`<id>` is the first 12 hex characters of the
+   tree hash): `files/` holds a copy of every file it will change,
+   `manifest.json` says what each path was (a file with its mode and
+   modification time, a link with its target, or absent), and `index` is the
+   index as it was. Then, without touching the index, each non-test path that
+   the commit has gets the commit's content and mode (read with `git cat-file`
+   from the blob `git ls-tree` names), and each one it does not have is moved
+   aside; test paths stay as they are. Then only the checks of kind `test` and
+   `check` run on that tree, through the gate engine, cached by the reverted
+   tree's hash.
+6. It restores every path from the backup, with a context that nothing
+   cancels, so that a signal, `--timeout` or a panic during the tests still
+   puts the tree back. It checks that the tree hash equals the one taken
+   before the revert and that `.git/index` is byte for byte the same, and
+   then removes the backup.
+
+A directory (a nested repository) or a path where the commit has a directory
+or a submodule is not reverted. The checks must not leave files of their own
+in the tree outside the ignored paths: a file made while the reverted tree is
+tested changes the tree hash, and is a restore failure although every
+reverted path is back.
+
+**The result** (its schema is `revert_check` under `$defs`):
+
+| Field | Meaning |
+|---|---|
+| `outcome` | `proven`, `not_proven`, `inconclusive`, `no_changes`, `no_code_changes` or `no_test_changes`. |
+| `reason` | Why, as a code. For `proven`: `tests_fail_without_the_change`. For `not_proven`: `tests_pass_without_the_change`. For `inconclusive`: `no_test_check`, `after_not_green`, `test_check_unavailable`, `reverted_check_error` (a check could not start on the reverted tree, so it measured nothing) or `nothing_to_revert`. For the others: `no_paths_changed`, `only_test_files_changed` or `no_test_files_changed`. |
+| `closes` | True only for `proven`: a check of kind `test` or `check` failed or timed out on the reverted tree. |
+| `since` | The commit `--since` resolved to, in full. |
+| `test_files` | The changed test paths. |
+| `reverted_files` | The paths that were set back to the commit; empty when nothing was reverted. |
+| `after` | The id of the gate result for the current tree; `""` when it was not measured. |
+| `reverted` | `{id, passed, checks}`, the gate result of the reverted tree, as in [gate run](#gate-run); null when nothing was reverted. |
+| `restored` | True when the tree and the index are as they were, which is so for every result. |
+
+| Outcome | When |
+|---|---|
+| `done`, exit 0 | Every outcome above, `not_proven` and `inconclusive` included. Every outcome except `proven` and `no_changes` also raises the warning `fix_not_proven`. |
+| `usage` | `--dir` is not the top level of a work tree, or `--since` is missing or is not a commit. |
+| `failed`/`restore` | A backup from an earlier check is there, or the tree could not be put back or came back as another tree. The backup is kept in `.agent-fox/revert/<id>/`, the message names it, and nothing further is reverted. |
+| `failed`/`git` | git could not be run, or failed. |
+| `failed`/`config` | `.agent-fox/gate.json` cannot be used. |
+| `failed`/`timeout`, `failed`/`cancelled` | `--timeout` ran out or a signal arrived. The tree has been put back first. |
+| `failed`/`io` | A file could not be read or written. |
+
 ## The envelope
 
 Every invocation other than `--version`, `--schema` and help writes exactly
@@ -431,6 +524,7 @@ A code matches `^[a-z][a-z0-9_]*$`; one that does not is reported under
 | `invalid_warning_code` | A command raised a warning whose code does not match the pattern; the message begins with the code it gave. |
 | `no_checks` | `gate run`: no check of the gate table can be run here, or the table has none. Nothing ran and `passed` is false. |
 | `tree_changed_during_gate` | `gate run`: the checks changed the tree. The result is kept under the hash of the tree they ran on. |
+| `fix_not_proven` | `revert-check`: the outcome is not `proven` and not `no_changes`, so the change must not close its issue. |
 | `check_unavailable` | `lang detect`: a check of the gate table names a program that cannot be run on this machine. The check stays in the table with `available: false`; the message names the check. |
 
 ## The positional input

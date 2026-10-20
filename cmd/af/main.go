@@ -55,4 +55,5 @@ func register(app *toolio.App) {
 	registerLang(app)
 	registerGate(app)
 	registerGateCompare(app)
+	registerRevertCheck(app)
 }

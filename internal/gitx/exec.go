@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -75,4 +76,13 @@ func run(ctx context.Context, dir string, argv, env []string, stdin ...string) (
 		return string(out), -1, fmt.Errorf("running %s: %w", argv[0], err)
 	}
 	return string(out), 0, nil
+}
+
+// EnvRunner is ExecRunner with extra variables, each "name=value", added to
+// the environment of every command. It is how a command is pointed at
+// another index (GIT_INDEX_FILE) so that what git refreshes is a copy.
+func EnvRunner(extra ...string) Runner {
+	return func(ctx context.Context, dir string, argv []string, stdin ...string) (string, int, error) {
+		return run(ctx, dir, argv, append(os.Environ(), extra...), stdin...)
+	}
 }
