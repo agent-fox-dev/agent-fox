@@ -277,8 +277,8 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 		}
 		run.Input = in
 		env.Input = InputInfo{Kind: in.Kind, Origin: in.Origin, Truncated: in.Truncated}
-		if in.Truncated {
-			run.Warn(WarnInputTruncated, fmt.Sprintf("the input was cut at %d bytes", MaxInputBytes))
+		for _, w := range in.warnings() {
+			run.Warn(w.Code, w.Message)
 		}
 	}
 	out, err := a.execute(sigCtx, cmd, run, values.timeout)

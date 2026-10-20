@@ -3,8 +3,10 @@ package toolio
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,9 +31,14 @@ const (
 	maxReadBytes = 16 << 20
 )
 
-// WarnInputTruncated is raised when an input's body was cut, or the thread of
-// an issue was cut short.
-const WarnInputTruncated = "input_truncated"
+// The warnings the input raises.
+const (
+	// WarnInputTruncated: the body was cut, or the thread of an issue was cut
+	// short.
+	WarnInputTruncated = "input_truncated"
+	// WarnCommentsUnreadable: the issue was read, its comments were not.
+	WarnCommentsUnreadable = "comments_unreadable"
+)
 
 // InputMode says whether a command takes the positional input, the
 // <issue|file|text|-> argument.
@@ -56,6 +63,8 @@ type Input struct {
 	Truncated bool
 	Issue     *issuex.IssueRef
 	Thread    *issuex.IssueThread
+
+	cut bool // the body was cut at MaxInputBytes
 }
 
 // Resolve classifies arg, in this order, and reads it:
@@ -90,14 +99,33 @@ func Resolve(ctx context.Context, arg string, stdin io.Reader, forge issuex.Clie
 		return Input{}, err
 	}
 
-	in.Body = strings.TrimSpace(in.Body)
-	if in.Body == "" {
+	if in.Kind != KindIssue { // a rendered thread is left as it is
+		in.Body = strings.TrimSpace(in.Body)
+	}
+	if strings.TrimSpace(in.Body) == "" {
 		return Input{}, &Failure{Category: CategoryUsage, Message: "the input is empty"}
 	}
-	body, cut := Truncate(in.Body)
-	in.Body = body
-	in.Truncated = in.Truncated || cut
+	in.Body, in.cut = Truncate(in.Body)
+	in.Truncated = in.Truncated || in.cut
 	return in, nil
+}
+
+// warnings are what the shell tells the caller about the input: a body that
+// was cut, a thread that was cut short, comments that could not be read.
+func (in Input) warnings() []Warning {
+	var ws []Warning
+	if in.cut {
+		ws = append(ws, Warning{WarnInputTruncated, fmt.Sprintf("the input was cut at %d bytes", MaxInputBytes)})
+	}
+	if in.Thread != nil {
+		if in.Thread.Truncated {
+			ws = append(ws, Warning{WarnInputTruncated, "the thread has more comments than were read"})
+		}
+		if err := in.Thread.CommentsErr; err != nil {
+			ws = append(ws, Warning{WarnCommentsUnreadable, fmt.Sprintf("the comments could not be read: %v", err)})
+		}
+	}
+	return ws
 }
 
 // resolveInput resolves the first positional argument of a command that
@@ -125,9 +153,77 @@ func Truncate(body string) (string, bool) {
 	return body[:cut] + truncationMarker, true
 }
 
-// resolveIssue reads the thread of ref with forge.
+// resolveIssue reads the thread of ref with forge and renders it. The thread
+// of a pull request that was named by an issue URL makes ref a pull request.
 func resolveIssue(ctx context.Context, ref issuex.IssueRef, forge issuex.Client) (Input, error) {
-	return Input{}, &Failure{Category: CategoryInternal, Message: "reading an issue or pull request is not implemented"}
+	if forge == nil {
+		return Input{}, &Failure{Category: CategoryUsage, Message: "this command does not read issues or pull requests from a forge; pass text or a file"}
+	}
+	thread, err := forge.ReadIssue(ctx, ref)
+	if err != nil {
+		return Input{}, readFailure(ctx, ref, forge, err)
+	}
+	ref.IsPullRequest = ref.IsPullRequest || thread.Issue.IsPR
+	return Input{
+		Kind:      KindIssue,
+		Origin:    ref.URL(),
+		Body:      RenderThread(ref, thread),
+		Truncated: thread.Truncated,
+		Issue:     &ref,
+		Thread:    &thread,
+	}, nil
+}
+
+// readFailure is the failure for an issue that could not be read. A run that
+// was cancelled is cancelled, whatever the forge client made of it; a 404
+// without a token may be a private issue; a refusal retrying cannot undo is
+// not retryable.
+func readFailure(ctx context.Context, ref issuex.IssueRef, forge issuex.Client, err error) *Failure {
+	switch {
+	case ctx.Err() != nil:
+		return &Failure{Category: CategoryCancelled, Message: fmt.Sprintf("cancelled while reading %s", ref.URL())}
+	case issuex.IsNotFound(err) && !forge.Authenticated():
+		return &Failure{
+			Category: CategoryAuth,
+			Message:  fmt.Sprintf("%s was not found; it may be private. Set GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN to read it", ref.URL()),
+			FixHint:  &FixHint{Env: tokenVariable(ref)},
+		}
+	case issuex.IsNotFound(err):
+		return &Failure{Category: CategoryForge, Message: fmt.Sprintf("%s was not found: %v", ref.URL(), err)}
+	}
+	return &Failure{Category: CategoryForge, Message: fmt.Sprintf("cannot read %s: %v", ref.URL(), err), Retryable: retryable(err)}
+}
+
+// tokenVariable is the environment variable that holds the token of the
+// forge ref lives on.
+func tokenVariable(ref issuex.IssueRef) string {
+	// The host decides, and an API URL in the environment can name a host
+	// that has neither forge in its name.
+	forge, err := issuex.DetectForge(issuex.Options{Repo: ref.Repo})
+	if err != nil {
+		forge = issuex.ForgeTypeUnknown
+		if strings.Contains(strings.ToLower(ref.Repo.Host), "gitlab") {
+			forge = issuex.ForgeTypeGitLab
+		}
+	}
+	if forge == issuex.ForgeTypeGitLab {
+		return "GITLAB_TOKEN"
+	}
+	return "GITHUB_TOKEN"
+}
+
+// retryable reports whether trying a failed read again may succeed: it may
+// after a rate limit, a server error or a lost connection, and may not after
+// the forge refused the request.
+func retryable(err error) bool {
+	if issuex.IsRateLimited(err) {
+		return true
+	}
+	var he *issuex.HTTPError
+	if errors.As(err, &he) && he.Status >= 400 && he.Status < 500 && he.Status != http.StatusRequestTimeout {
+		return false
+	}
+	return true
 }
 
 // isHTTPURL reports whether arg looks like a web URL.
