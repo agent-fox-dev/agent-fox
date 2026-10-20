@@ -542,7 +542,7 @@
       "done_when": [
         "`make check` passes offline with no key and no network"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     }
   ]

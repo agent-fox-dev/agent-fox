@@ -82,7 +82,7 @@ func snapshot(t *testing.T, dir string) hostState {
 		branch: git(t, dir, "rev-parse", "--abbrev-ref", "HEAD"),
 		status: git(t, dir, "status", "--porcelain"),
 		index:  sha256.Sum256(index),
-		files:  git(t, dir, "ls-files", "--others", "--cached"),
+		files:  git(t, dir, "ls-files", "--others", "--cached", "--exclude-standard"),
 	}
 }
 
