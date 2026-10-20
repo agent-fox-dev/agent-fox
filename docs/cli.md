@@ -8,12 +8,12 @@ exit codes, coded warnings, a stop on a question that is resumed with
 `--context`, a `--dry-run` that cannot write to the forge, a fetchable
 schema, and a git-ignored run directory.
 
-**This release registers two work commands, [`lang detect`](#lang-detect) and
-[`gate run`](#gate-run).** The binary also answers `--version`, `--schema` and
-`help`; `af` with no arguments, or with a command it does not know, prints a
-`usage` envelope and exits 2. The other commands of this scope and of later
-specs (`gate compare`, `triage`, `fix`, …) register on the shell and get
-everything below.
+**This release registers three work commands, [`lang detect`](#lang-detect),
+[`gate run`](#gate-run) and [`gate compare`](#gate-compare).** The binary also
+answers `--version`, `--schema` and `help`; `af` with no arguments, or with a
+command it does not know, prints a `usage` envelope and exits 2. The other
+commands of this scope and of later specs (`triage`, `fix`, …) register on the
+shell and get everything below.
 
 ```
 $ af --version
@@ -164,7 +164,7 @@ network connection and creates no run directory; it writes only under
 
 | Flag | Meaning |
 |---|---|
-| `--label <label>` | The label the result is reported under: the result's `label`. |
+| `--label <label>` | Name the result: the result's `label`, and `labels.json` (below) maps the label to the result's id, on a hit as well as after a run. A label is a lower-case letter and up to 31 lower-case letters, digits, `_` or `-`, and is not spelled like an id (12 hex characters); anything else is a `usage` error before any check runs. |
 | `--hermetic` | Run the checks with a clean environment: a temporary `HOME` that is removed afterwards, whether the run completed, failed or was cancelled, no git configuration and no credential prompt. The toolchains' download caches stay where they are. |
 | `--no-cache` | Run the checks even when a result is stored for this tree, and replace it. |
 
@@ -200,8 +200,9 @@ the checks that ran and `<slug>` the check's name.
 | `done`, exit 0, `passed: false`, warning `no_checks` | No check of the table can be run here, or the table is empty. Nothing ran. |
 | `done`, warning `tree_changed_during_gate` | The tree hash taken after the checks differs from the one taken before. The result is kept under the earlier hash's id, and its `tree` is the earlier hash. |
 | `failed`/`timeout` or `failed`/`cancelled` | `--timeout` ran out, or a signal arrived. The process group of the running check is killed, and nothing is stored. |
+| `usage` | The label is not allowed. Nothing ran. |
 | `failed`/`config` | `.agent-fox/gate.json` cannot be used (see [lang detect](#lang-detect)). |
-| `failed`/`io` | The tree cannot be read, or a log or the result cannot be written. |
+| `failed`/`io` | The tree cannot be read, or a log, the result or `labels.json` cannot be written. |
 
 **The cache.** The key is the SHA-256 of the tree hash, the canonical JSON of
 the table's checks (`name`, `argv` and `kind` of each, with the keys in order
@@ -219,6 +220,54 @@ of one. Only a run that completed is stored.
   not a result of this key. Then the checks run and the result is replaced.
 - A change of one byte in a file of the view makes the next run another key. A
   change confined to ignored files does not.
+
+**Labels.** `.agent-fox/gate/labels.json` is `{"<label>": "<id>"}`, written
+through a temporary file and a rename. The latest result for a label replaces
+the earlier one, and the file is read again by every run, so labels set by
+one run are there for the next. A file that is damaged starts again empty.
+
+### gate compare
+
+```
+af gate compare --before LABEL|ID --after LABEL|ID [--dir DIR] [--timeout DURATION]
+```
+
+Compares two stored gate results check by check, and says whether the second
+is a regression of the first. It runs no check and reads only
+`.agent-fox/gate/`. The default `--timeout` is 30 seconds. Each argument is
+resolved as a label in `labels.json` first, and as a gate id second.
+
+| Flag | Meaning |
+|---|---|
+| `--before <label\|id>` | The result to compare from. Required. |
+| `--after <label\|id>` | The result to compare to. Required. |
+
+The verdict of each check, matched by name, is in this table; `fail`, `error`
+and `timeout` all count as "not pass":
+
+| Before | After | Verdict of the check |
+|---|---|---|
+| pass | pass | `pass` |
+| not pass | pass | `pass_was_already_failing` |
+| pass | not pass | `regressed` |
+| not pass | not pass | `still_failing` |
+
+The verdict of the comparison is the first of `regressed`, `still_failing`,
+`pass_was_already_failing` and `pass` that any check has, so one check fixed
+and another broken is a regression. When either result has no checks nothing
+was measured and the verdict is `unverified`. `landable` is true for `pass`
+and `pass_was_already_failing` only.
+
+The result (its schema is `gate_compare` under `$defs`) holds `before` and
+`after`, each `{id, label, passed}` (the label is the argument when it was a
+label, else the one the result was stored under), `verdict`, `landable` and
+`rows`, `[{name, before, after, verdict}]` in the order of the `--before`
+result (none when the verdict is `unverified`). The status is `done` and the
+exit code 0 for every verdict, `unverified` included. `usage` (exit 2) means
+the comparison could not be made: an argument is missing or names no result
+(the message names the flag and the argument), or the two results were not
+measured by the same checks (the message lists the names that are on one side
+only).
 
 ## The envelope
 

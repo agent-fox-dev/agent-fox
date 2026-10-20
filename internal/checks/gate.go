@@ -90,9 +90,14 @@ type Result struct {
 
 // Run runs the checks of opts.Table that can be run, in order, in dir, and
 // stores the result under .agent-fox/gate/<id>/, unless a result is stored for
-// the tree already. A run that ctx stops stores nothing and returns the
+// the tree already. The label of the options, if any, is recorded for the
+// result in labels.json, a hit included; one that is not allowed is a
+// *UsageError, and nothing runs. A run that ctx stops stores nothing and returns the
 // context's error.
 func Run(ctx context.Context, dir string, opts Options) (Result, error) {
+	if err := ValidateLabel(opts.Label); err != nil {
+		return Result{}, err
+	}
 	tree, err := TreeHash(ctx, dir)
 	if err != nil {
 		return Result{}, err
@@ -106,7 +111,7 @@ func Run(ctx context.Context, dir string, opts Options) (Result, error) {
 	if !opts.NoCache {
 		if res, ok := loadResult(dir, key); ok && measuresTable(res, opts.Table) {
 			res.Cached, res.Label, res.TableSource = true, opts.Label, opts.Table.Source
-			return res, nil
+			return labelled(dir, res)
 		}
 	}
 
@@ -133,6 +138,16 @@ func Run(ctx context.Context, dir string, opts Options) (Result, error) {
 	}
 	if err := storeResult(dir, key, res); err != nil {
 		return Result{}, err
+	}
+	return labelled(dir, res)
+}
+
+// labelled records the label of a result that is stored, if it has one.
+func labelled(dir string, res Result) (Result, error) {
+	if res.Label != "" {
+		if err := recordLabel(dir, res.Label, res.ID); err != nil {
+			return Result{}, err
+		}
 	}
 	return res, nil
 }

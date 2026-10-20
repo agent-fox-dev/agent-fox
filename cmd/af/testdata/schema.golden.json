@@ -420,6 +420,124 @@
     }
   ],
   "$defs": {
+    "gate_compare": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "before",
+        "after",
+        "verdict",
+        "landable",
+        "rows"
+      ],
+      "description": "What two stored gate results say together, check by check.",
+      "properties": {
+        "before": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "label",
+            "passed"
+          ],
+          "description": "The result --before named.",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{12}$"
+            },
+            "label": {
+              "type": "string",
+              "description": "The label the argument was, else the label the result was stored under; empty for none."
+            },
+            "passed": {
+              "type": "boolean"
+            }
+          }
+        },
+        "after": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "label",
+            "passed"
+          ],
+          "description": "The result --after named.",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{12}$"
+            },
+            "label": {
+              "type": "string",
+              "description": "The label the argument was, else the label the result was stored under; empty for none."
+            },
+            "passed": {
+              "type": "boolean"
+            }
+          }
+        },
+        "verdict": {
+          "enum": [
+            "regressed",
+            "still_failing",
+            "pass_was_already_failing",
+            "pass",
+            "unverified"
+          ],
+          "description": "The first of regressed, still_failing, pass_was_already_failing and pass that a row carries; unverified when either result has no checks."
+        },
+        "landable": {
+          "type": "boolean",
+          "description": "True only for pass and pass_was_already_failing."
+        },
+        "rows": {
+          "type": "array",
+          "description": "One row per check, in the order of the --before result; empty when the verdict is unverified.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "before",
+              "after",
+              "verdict"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "before": {
+                "enum": [
+                  "pass",
+                  "fail",
+                  "error",
+                  "timeout"
+                ]
+              },
+              "after": {
+                "enum": [
+                  "pass",
+                  "fail",
+                  "error",
+                  "timeout"
+                ]
+              },
+              "verdict": {
+                "enum": [
+                  "regressed",
+                  "still_failing",
+                  "pass_was_already_failing",
+                  "pass"
+                ],
+                "description": "pass: passed before and after; pass_was_already_failing: did not pass before, passes now; regressed: passed before, does not now; still_failing: passes in neither. fail, error and timeout all count as not passing."
+              }
+            }
+          }
+        }
+      }
+    },
     "gate_run": {
       "type": "object",
       "additionalProperties": false,

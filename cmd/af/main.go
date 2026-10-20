@@ -54,4 +54,5 @@ func resultSchema(name string) json.RawMessage {
 func register(app *toolio.App) {
 	registerLang(app)
 	registerGate(app)
+	registerGateCompare(app)
 }
