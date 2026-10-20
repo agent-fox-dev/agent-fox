@@ -7,6 +7,10 @@ BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 # The identity of the af binary, set with -ldflags -X on cmd/af's variables.
 LDFLAGS    := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildTime=$(BUILD_TIME)
 
+# Where make build writes af. A test that builds the binary sets it, so that
+# tests running side by side do not write the same file.
+BIN_DIR    ?= bin
+
 CONTAINER_REGISTRY ?= quay.io/agentfox
 
 SANDBOX_IMAGE ?= sandbox
@@ -41,7 +45,7 @@ coverage:
 # Build every package, and bin/af
 build:
 	go build ./...
-	go build -ldflags "$(LDFLAGS)" -o bin/af ./cmd/af
+	go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/af ./cmd/af
 
 build-containers: build-sandbox-container
 

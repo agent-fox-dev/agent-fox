@@ -479,7 +479,7 @@
       "done_when": [
         "`make check` passes with no network access"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }
