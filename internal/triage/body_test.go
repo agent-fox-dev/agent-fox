@@ -247,15 +247,20 @@ func TestExtractInvertsRender_TS_08_48(t *testing.T) {
 	}
 	for _, s := range cases {
 		for _, d := range diagnoses {
-			body := Render(d, testRun, s)
+			for _, run := range []string{testRun, "20260101_000000_abcdef", "x y"} {
+				body := Render(d, run, s)
 
-			original, _, warning := Extract(body)
+				original, previous, warning := Extract(body)
 
-			if original != s || warning != "" {
-				t.Fatalf("Extract(Render(d, %q)) = (%q, warning %q), want the original and no warning", s, original, warning)
-			}
-			if again := Render(d, testRun, original); again != body {
-				t.Fatalf("Render(d, Extract(body).original) differs from the body for %q", s)
+				if original != s || warning != "" {
+					t.Fatalf("Extract(Render(d, %q)) = (%q, warning %q), want the original and no warning", s, original, warning)
+				}
+				if again := Render(d, run, original); again != body {
+					t.Fatalf("Render(d, Extract(body).original) differs from the body for %q", s)
+				}
+				if !strings.Contains(previous, d.RootCause) || !strings.Contains(previous, run) {
+					t.Fatalf("the previous diagnosis of %q lacks the root cause or the run: %q", s, previous)
+				}
 			}
 		}
 	}
@@ -276,5 +281,69 @@ func TestAPreviousDiagnosisThatHoldsTheHeadingIsKeptWhole(t *testing.T) {
 	}
 	if !strings.Contains(previous, "and goes on.") || !strings.Contains(previous, "<sub>Diagnosed by agent-fox") {
 		t.Errorf("the previous diagnosis stops at a heading the diagnosis quoted:\n%s", previous)
+	}
+}
+
+// TestABodyThatWasSavedWithCRLFIsStillOurs guards 08-REQ-7.4 and DD15: the editor
+// of a forge saves a body with CRLF line endings, and the body is still ours. Its
+// original is read with LF endings, and rendering it again gives a body that
+// is ours too, and not a diagnosis nested in a report.
+func TestABodyThatWasSavedWithCRLFIsStillOurs(t *testing.T) {
+	const person = "The login button does nothing.\nIt used to work."
+	body := Render(fullDiagnosis(), testRun, person)
+	edited := strings.ReplaceAll(body, "\n", "\r\n")
+
+	original, previous, warning := Extract(edited)
+
+	if original != person || warning != "" {
+		t.Errorf("Extract = (%q, %q, %q), want the report with LF endings and no warning", original, previous, warning)
+	}
+	if !strings.HasPrefix(previous, "## Diagnosis") || strings.Contains(previous, "\r") {
+		t.Errorf("previous = %q", previous)
+	}
+	if again, _, _ := Extract(Render(fullDiagnosis(), testRun, original)); again != person {
+		t.Errorf("a second triage keeps %q", again)
+	}
+}
+
+// TestTextWrittenAfterTheOriginalReportIsNotLostSilently guards DD15 ("losing a
+// person's words is worse than nesting an old diagnosis"): a person who adds a
+// line under the report of a triaged issue is not thrown away; the body is taken
+// whole as the report, with the warning. The framing may differ in white space.
+func TestTextWrittenAfterTheOriginalReportIsNotLostSilently(t *testing.T) {
+	body := Render(fullDiagnosis(), testRun, "the report")
+
+	for name, edited := range map[string]string{
+		"a line after the details": body + "\nEDIT: it also happens on Windows.\n",
+		"a line inside them":       strings.Replace(body, endMark+"\n", endMark+"\nEDIT: more\n", 1),
+	} {
+		original, previous, warning := Extract(edited)
+		if original != edited || previous != "" || warning != WarnOriginalUnparsed {
+			t.Errorf("%s: Extract = (%q, %q, %q), want the whole body and original_report_unparsed", name, original, previous, warning)
+		}
+	}
+	for name, edited := range map[string]string{
+		"no final newline":  strings.TrimSuffix(body, "\n"),
+		"extra white space": body + "\n\n",
+		"a space before":    strings.Replace(body, "\n\n</details>", "\n \n</details>", 1),
+	} {
+		original, _, warning := Extract(edited)
+		if original != "the report" || warning != "" {
+			t.Errorf("%s: Extract = (%q, %q), want the report and no warning", name, original, warning)
+		}
+	}
+}
+
+// TestABrokenMarkerLineIsNotAForeignBody guards 08-REQ-7.5: a first line that starts
+// like the marker and is not the marker is one that someone broke, and is told of.
+func TestABrokenMarkerLineIsNotAForeignBody(t *testing.T) {
+	for _, body := range []string{
+		"<!-- agent-fox:triage v1 run=" + testRun + "\nsome text",
+		"<!-- agent-fox:triage v1 run=" + testRun + " --> trailing\nsome text",
+	} {
+		original, previous, warning := Extract(body)
+		if original != body || previous != "" || warning != WarnOriginalUnparsed {
+			t.Errorf("Extract(%q) = (%q, %q, %q), want the body and original_report_unparsed", body, original, previous, warning)
+		}
 	}
 }

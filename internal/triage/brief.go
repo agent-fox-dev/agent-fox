@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/agent-fox-dev/aflib/issuex"
@@ -190,7 +191,7 @@ func reportParts(r Report) (parts []part, original string, warnings []Warning) {
 		label := map[string]string{
 			KindText:  "Report text, from the command line:",
 			KindStdin: "Report text, from stdin:",
-			KindFile:  "Report text, from the file " + path.Base(filepath.ToSlash(r.Origin)) + ":",
+			KindFile:  "Report text, from the file " + displayName(path.Base(filepath.ToSlash(r.Origin))) + ":",
 		}[r.Kind]
 		if label == "" {
 			label = "Report text:"
@@ -221,6 +222,29 @@ func reportParts(r Report) (parts []part, original string, warnings []Warning) {
 	return parts, original, warnings
 }
 
+// displayName is a name from outside as one line of the provenance, which is not
+// inside a fence: a control character, a line break included, is taken out, and
+// a long name is cut.
+func displayName(name string) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range name {
+		if n == maxDisplayName {
+			b.WriteString("...")
+			break
+		}
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+			r = '?'
+		}
+		b.WriteRune(r)
+		n++
+	}
+	return b.String()
+}
+
+// maxDisplayName is how many characters of a file name the brief shows.
+const maxDisplayName = 100
+
 func login(l string) string {
 	if l == "" {
 		return "an unknown author"
@@ -242,14 +266,15 @@ func reportSection(parts []part, marker string, limit int) (text string, cut boo
 	var b strings.Builder
 	for _, p := range parts {
 		block := fenced(p.provenance, p.content)
-		if b.Len()+len(block) <= limit {
+		if b.Len()+len(block)+1 <= limit { // the newline that follows the block counts
 			b.WriteString(block + "\n")
 			continue
 		}
-		// The room left for the content, after the provenance line and the line
-		// that opens the fence, whose length the cut content cannot exceed.
+		// The room left for the content: what is not the provenance line, the lines
+		// that open and close the fence (whose length the fence of the cut content
+		// cannot exceed), the marker and the line breaks.
 		open, _ := Fence(p.content)
-		room := limit - b.Len() - len(p.provenance) - 1 - len(open) - 1
+		room := limit - b.Len() - len(p.provenance) - 1 - len(open) - 1 - len(marker) - 1 - len(open) - 1
 		if room <= 0 {
 			b.WriteString(strings.TrimLeft(marker, "\n"))
 			return b.String(), true
@@ -316,5 +341,9 @@ func submitRoute(inProcess bool, runID string) string {
 const boundsPrefix = "You have at most "
 
 func boundsLine(b Bounds) string {
-	return fmt.Sprintf("%s%d turns, $%.2f of model cost and %s.\n", boundsPrefix, b.MaxTurns, b.MaxCostUSD, b.Timeout)
+	limit := "no time limit"
+	if b.Timeout > 0 {
+		limit = max(b.Timeout.Round(time.Second), time.Second).String()
+	}
+	return fmt.Sprintf("%s%d turns, $%.2f of model cost and %s.\n", boundsPrefix, b.MaxTurns, b.MaxCostUSD, limit)
 }

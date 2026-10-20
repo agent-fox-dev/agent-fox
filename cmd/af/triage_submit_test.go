@@ -61,7 +61,7 @@ func (e *triageEnv) inProcess(id, payload string) error {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	target := submission.Target{Tree: root.FS(), Write: submission.RootWriter(root), RunID: id}
 	_, err = submission.Submit(context.Background(), target, triage.Kind(e.dir), []byte(payload), time.Now())
 	return err
@@ -103,30 +103,30 @@ func TestTheSameProblemsComeFromEveryCaller_TS_08_31(t *testing.T) {
 	code, env := e.submit(id, payload)
 	inProcess := problemsOf(t, e.inProcess(id, payload))
 
+	// The host's second look: the tree as the landing and the loop build it, and the function they ask.
 	files, err := checks.FileView(context.Background(), e.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, hostProblems := triage.Validate([]byte(payload), triage.Tree{Roots: []string{e.dir}, Files: files, Lines: func(p string) (int, error) {
-		data, err := os.ReadFile(filepath.Join(e.dir, p))
-		return strings.Count(string(data), "\n"), err
-	}})
-	var host []string
-	for _, p := range hostProblems {
-		host = append(host, p.String())
-	}
-
+	hostReason := triage.StaleReason([]byte(payload), triage.Tree{
+		Roots: []string{e.dir}, Files: files,
+		Regular: func(p string) bool { return triage.RegularFile(e.dir, p) }, Lines: triage.HostLines(e.dir),
+	})
 	if code != 1 || env["status"] != "failed" || len(inProcess) != 3 {
 		t.Fatalf("exit code %d, status %v, in-process problems %v", code, env["status"], inProcess)
 	}
-	if !slices.Equal(inProcess, host) {
-		t.Errorf("in-process problems:\n%v\nhost problems:\n%v", inProcess, host)
+	if want := strings.Join(inProcess, "; "); hostReason != want {
+		t.Errorf("in-process problems:\n%v\nhost problems:\n%v", want, hostReason)
 	}
 	message := env["error"].(map[string]any)["message"].(string)
-	for _, p := range host {
-		if !strings.Contains(message, p) {
-			t.Errorf("the message of the command lacks the problem %q:\n%s", p, message)
+	at := 0
+	for _, p := range inProcess {
+		i := strings.Index(message[at:], p)
+		if i < 0 {
+			t.Errorf("the message of the command lacks the problem %q, or has it out of order:\n%s", p, message)
+			break
 		}
+		at += i + len(p)
 	}
 }
 

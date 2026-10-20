@@ -231,3 +231,28 @@ func TestTheTaskBlockIsAdaptedToTheInProcessRoute(t *testing.T) {
 		t.Error("adapting a block that is adapted already changes it")
 	}
 }
+
+// TestAPathInTheWorkspaceOfTheBoxIsAPathOfTheRepository guards 08-REQ-5.4 for the
+// kind of a box: the workspace is another root of the tree, also under the name a
+// link gives it, and a path under neither is refused.
+func TestAPathInTheWorkspaceOfTheBoxIsAPathOfTheRepository(t *testing.T) {
+	dir, target := inProcessTree(t)
+	workspace, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "workspace-link")
+	if err := os.Symlink(workspace, link); err != nil {
+		t.Skipf("no symbolic links here: %v", err)
+	}
+	kind := Kind(dir, link)
+
+	for _, cited := range []string{workspace + "/a.go", link + "/a.go", dir + "/a.go"} {
+		if _, problems := kind.Validate(context.Background(), target.Tree, diagnosisFor(cited, nil)); len(problems) != 0 {
+			t.Errorf("%s: problems = %v, want the path taken as a.go", cited, problems)
+		}
+	}
+	if _, problems := kind.Validate(context.Background(), target.Tree, diagnosisFor(filepath.Join(t.TempDir(), "a.go"), nil)); len(problems) != 1 {
+		t.Errorf("a path under no root: problems = %v, want one", problems)
+	}
+}

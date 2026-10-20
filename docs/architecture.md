@@ -567,7 +567,7 @@ validator, a body format and a landing.
 |---|---|
 | `internal/triage/` | The part with no shell in it: the diagnosis and its validator (`Validate`, which checks every path against the file view and collects every problem), the body (`Render`, `Extract`), the brief (`BuildBrief`), the preflight, the landing on a forge (`Land`), the submission kind (`Kind`) and the tool allowlist. It imports `issuex`, `submission`, `checks`, `repomap`, `agentdir` and the `skills` package, and none of `toolio`, `box` or `brain` itself. |
 | `cmd/af/triage.go` | The five commands on the shell: the loop, `brief`, `run`, `submit` and `land`. It does what needs the shell, the box and the brains: the run directory and its ledger, the forge client, `box.With` and `brain.Execute`, the envelope. |
-| `skills/af-triage/` and `skills/skills.go` | The skill that says how to diagnose. The `skills` package embeds every `af-*` entry (`//go:embed af-*`), and `skills.Triage()` is the body that the brief carries, so the skill a person installs with `make install-skills` and the one the brain reads are the same file. |
+| `skills/af-triage` and `skills/skills.go` | The skill that says how to diagnose. The `skills` package embeds every `af-*` entry (`//go:embed af-*`), and `skills.Triage()` is the body that the brief carries, so the skill a person installs with `make install-skills` and the one the brain reads are the same file. |
 | `internal/triage/fakeforge/` | The GitHub and GitLab server of the tests, over `httptest`. |
 
 **The loop** is a preflight that spends nothing, the brief, a bounded brain run,
@@ -604,7 +604,10 @@ The first line, the headings and the two markers are what is read back. The
 original is what lies between the first begin marker and the newline before the
 last end marker, so `Extract(Render(d, s))` is `s` for every string `s`, a second
 triage replaces the old diagnosis and keeps the first report, and a body that
-`af` did not write is wholly the original. No string of a diagnosis may hold the
+`af` did not write is wholly the original. So is one that starts with the marker
+and has been changed in a way that would lose words (text after the original
+report, a broken first line), with a warning; a body saved with CRLF line endings,
+as a browser does, is read as if it had LF endings. No string of a diagnosis may hold the
 text `<!-- agent-fox:`, which keeps a diagnosis from forging a marker. When the
 body would be longer than the forge allows, the diagnosis goes in one comment and
 the issue is left as it is.

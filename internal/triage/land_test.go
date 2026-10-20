@@ -122,7 +122,7 @@ func (l *landing) land() (LandResult, error) {
 		if err != nil {
 			l.t.Fatal(err)
 		}
-		l.t.Cleanup(func() { client.Close() })
+		l.t.Cleanup(func() { _ = client.Close() })
 		l.params.Forge = client
 	}
 	return Land(context.Background(), l.params)
@@ -395,10 +395,10 @@ func TestATextReportCreatesOneIssueAndLaterLandingsUpdateIt_TS_08_53(t *testing.
 	l.params.Facts.Input = InputFact{Kind: KindText, Origin: "", Fingerprint: sha("the app crashes")}
 	l.params.Facts.Issue = nil
 	l.params.Labels = []string{"triaged", "bug"}
-	var created *issuex.IssueRef
-	l.params.Created = func() (issuex.IssueRef, bool) {
+	var created *IssueInfo
+	l.params.Created = func() (IssueInfo, bool) {
 		if created == nil {
-			return issuex.IssueRef{}, false
+			return IssueInfo{}, false
 		}
 		return *created, true
 	}
@@ -411,7 +411,7 @@ func TestATextReportCreatesOneIssueAndLaterLandingsUpdateIt_TS_08_53(t *testing.
 		}
 		results = append(results, res)
 		if res.Issue != nil {
-			created = &issuex.IssueRef{Repo: issuex.Repo{Owner: "o", Name: "r"}, Number: res.Issue.Number}
+			created = res.Issue
 		}
 	}
 
@@ -588,6 +588,9 @@ func TestADryRunIsPlannedNotAFailure(t *testing.T) {
 			if err != nil || res.Action != ActionPlanned {
 				t.Fatalf("Land = %+v, %v, want planned", res, err)
 			}
+			if len(res.Labels) != 0 {
+				t.Errorf("labels = %v: a dry run adds none, and the plan is in the side effects", res.Labels)
+			}
 			if n := len(l.forge.Writes()); n != 0 {
 				t.Errorf("%d writes reached the forge", n)
 			}
@@ -626,5 +629,177 @@ func TestASubmissionWithAQuestionLandsNothing(t *testing.T) {
 	}
 	if n := len(l.forge.Requests()); n != 0 {
 		t.Errorf("%d requests to the forge, want none: not even a read", n)
+	}
+}
+
+// TestTheCommentFallbackIsPostedOnceWhateverTheNumberOfLandings guards "landing is
+// repeatable" (DD19) for a body that is too long: the comment is there already,
+// and a second landing does not post another. A comment that someone else wrote
+// does not stand in for it.
+func TestTheCommentFallbackIsPostedOnceWhateverTheNumberOfLandings(t *testing.T) {
+	huge := strings.Repeat("x", issuex.GitHubMaxBodyLength)
+	l := newLanding(t, fakeforge.GitHub, huge, diagnosisJSON(t, nil))
+	l.forge.AddIssue(fakeforge.Issue{Number: 7, Title: "Login fails", Body: huge, Comments: []fakeforge.Comment{{Author: "bob", Body: "Works for me."}}})
+
+	var results []LandResult
+	for i := range 3 {
+		res, err := l.land()
+		if err != nil {
+			t.Fatalf("landing %d: %v", i+1, err)
+		}
+		results = append(results, res)
+	}
+
+	comments := l.forge.Issue(7).Comments
+	if len(comments) != 2 || comments[0].Body != "Works for me." || !strings.Contains(comments[1].Body, "## Diagnosis") {
+		t.Fatalf("comments = %+v, want bob's and one diagnosis", comments)
+	}
+	if n := l.forge.Count(fakeforge.OpComment); n != 1 {
+		t.Errorf("%d comment writes, want 1", n)
+	}
+	for i, r := range results {
+		if r.Action != ActionCommented || r.Issue == nil || r.Issue.Number != 7 {
+			t.Errorf("landing %d = %+v, want commented on issue 7", i+1, r)
+		}
+	}
+	if kinds := effectKinds(l.effects); !slices.Equal(kinds, []string{"add_comment"}) {
+		t.Errorf("side effects = %v, want the one write", kinds)
+	}
+}
+
+// TestLandingAgainReportsTheIssueAsTheFirstLandingDid guards the result of a later
+// landing of a report that was no issue: the URL the forge gave, and a host that
+// is the host of that URL when the run recorded none.
+func TestLandingAgainReportsTheIssueAsTheFirstLandingDid(t *testing.T) {
+	l := newLanding(t, fakeforge.GitHub, "the app crashes", diagnosisJSON(t, nil))
+	l.params.Facts.Input = InputFact{Kind: KindText, Fingerprint: sha("the app crashes")}
+	l.params.Facts.Issue = nil
+	l.params.Facts.Target = RepoFact{Repo: "o/r"} // given with --repo: no host
+	var created *IssueInfo
+	l.params.Created = func() (IssueInfo, bool) {
+		if created == nil {
+			return IssueInfo{}, false
+		}
+		return *created, true
+	}
+
+	first, err := l.land()
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded := *first.Issue
+	recorded.Host = "" // the ledger of a run from before the host was reported has none
+	created = &recorded
+	second, err := l.land()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if first.Issue.URL == "" || first.Issue.Host == "" || first.Issue.Host != hostOf(first.Issue.URL) {
+		t.Errorf("first = %+v, want the URL the forge gave and its host", first.Issue)
+	}
+	if *second.Issue != *first.Issue {
+		t.Errorf("second = %+v, want the issue as the first landing reported it, %+v", second.Issue, first.Issue)
+	}
+	if got := artifactURLs(l.artifacts, "issue"); !slices.Equal(got, []string{first.Issue.URL, first.Issue.URL}) {
+		t.Errorf("issue artifacts = %v, want the URL of the issue each time", got)
+	}
+}
+
+func artifactURLs(list []Artifact, kind string) []string {
+	var out []string
+	for _, a := range list {
+		if a.Kind == kind {
+			out = append(out, a.URL)
+		}
+	}
+	return out
+}
+
+// TestTheCheckIsAskedAfterTheQuestionAndBeforeAnyWrite guards 08-REQ-2.1 for the
+// landing of its own: a refusal of the credential stops it before diagnosis.md
+// and before the forge, and a question, which lands nothing, needs no credential.
+func TestTheCheckIsAskedAfterTheQuestionAndBeforeAnyWrite(t *testing.T) {
+	refuse := func(called *int) func(context.Context) *Refusal {
+		return func(context.Context) *Refusal {
+			*called++
+			return &Refusal{Category: CategoryAuth, Message: "needs a credential", FixHintEnv: "GITHUB_TOKEN"}
+		}
+	}
+
+	t.Run("a diagnosis", func(t *testing.T) {
+		l := newLanding(t, fakeforge.GitHub, "the report", diagnosisJSON(t, nil))
+		var called int
+		l.params.Check = refuse(&called)
+
+		_, err := l.land()
+
+		if r := asRefusal(t, err); r.Category != CategoryAuth || r.FixHintEnv != "GITHUB_TOKEN" {
+			t.Errorf("refusal = %+v", r)
+		}
+		if _, ok := l.diagnosisMD(); ok || len(l.forge.Requests()) != 0 || called != 1 {
+			t.Errorf("diagnosis.md written: %v, %d requests, check called %d times; want none, none and once", ok, len(l.forge.Requests()), called)
+		}
+	})
+	t.Run("a question", func(t *testing.T) {
+		l := newLanding(t, fakeforge.GitHub, "the report", diagnosisJSON(t, func(m map[string]any) {
+			m["confidence"] = "suspected"
+			m["question"] = map[string]any{"text": "Which?", "options": []any{"a", "b"}}
+		}))
+		var called int
+		l.params.Check = refuse(&called)
+
+		res, err := l.land()
+
+		if err != nil || res.Question == nil || called != 0 {
+			t.Errorf("Land = %+v, %v; check called %d times, want the question and no check", res, err, called)
+		}
+	})
+	t.Run("--land none", func(t *testing.T) {
+		l := newLanding(t, fakeforge.GitHub, "the report", diagnosisJSON(t, nil))
+		l.params.Mode = LandNone
+		var called int
+		l.params.Check = refuse(&called)
+
+		if _, err := l.land(); err != nil || called != 0 {
+			t.Errorf("err = %v, check called %d times, want none", err, called)
+		}
+	})
+	t.Run("no submission", func(t *testing.T) {
+		l := newLanding(t, fakeforge.GitHub, "the report", nil)
+		var called int
+		l.params.Check = refuse(&called)
+
+		_, err := l.land()
+
+		if r := asRefusal(t, err); r.Category != CategoryNoResult || called != 0 {
+			t.Errorf("refusal = %+v, check called %d times, want no_result and no check", r, called)
+		}
+	})
+}
+
+// TestACommentTheForgeNormalisedIsTheCommentThatWasPosted guards the same: a forge
+// keeps a comment with other line endings and without its last newline, and it is
+// still the diagnosis of the run.
+func TestACommentTheForgeNormalisedIsTheCommentThatWasPosted(t *testing.T) {
+	huge := strings.Repeat("x", issuex.GitHubMaxBodyLength)
+	l := newLanding(t, fakeforge.GitHub, huge, diagnosisJSON(t, nil))
+	d, problems := Validate(diagnosisJSON(t, nil), l.params.Tree)
+	if len(problems) != 0 {
+		t.Fatal(problems)
+	}
+	posted := strings.TrimSpace(strings.ReplaceAll(RenderDiagnosisOnly(d, testRun), "\n", "\r\n"))
+	l.forge.AddIssue(fakeforge.Issue{Number: 7, Title: "Login fails", Body: huge, Comments: []fakeforge.Comment{{Author: "agent-fox", Body: posted}}})
+
+	res, err := l.land()
+
+	if err != nil || res.Action != ActionCommented {
+		t.Fatalf("Land = %+v, %v", res, err)
+	}
+	if n := l.forge.Count(fakeforge.OpComment); n != 0 {
+		t.Errorf("%d comment writes, want none: the comment is there", n)
+	}
+	if sameText("a\nb", "a\nc") {
+		t.Error("two different texts are the same")
 	}
 }

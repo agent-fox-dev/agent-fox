@@ -24,6 +24,7 @@ import (
 type spyBrain struct {
 	brief *brain.Brief
 	runs  int
+	news  int // how many times the registry made it
 	run   func(ctx context.Context, b brain.Brief) (brain.Outcome, error)
 }
 
@@ -49,7 +50,7 @@ func useSpy(t *testing.T, s *spyBrain) {
 		}
 		reg.Register(entry)
 	}
-	reg.Register(brain.Entry{Name: "spy", CostSource: brain.CostNone, New: func(brain.Options) (brain.Brain, error) { return s, nil }})
+	reg.Register(brain.Entry{Name: "spy", CostSource: brain.CostNone, New: func(brain.Options) (brain.Brain, error) { s.news++; return s, nil }})
 	old := triageRegistry
 	triageRegistry = reg
 	t.Cleanup(func() { triageRegistry = old })
@@ -102,17 +103,17 @@ func (e *triageEnv) loop(args ...string) (int, map[string]any) {
 // Verifies: 08-REQ-1.1
 func TestTheCommandsAreRegisteredWithTheirTimeoutsAndFlags_TS_08_1(t *testing.T) {
 	e := newTriageEnv(t, fakeforge.GitHub)
+	common := []string{"--emit-events", "--output", "--timeout"}
 	for _, c := range []struct {
 		path    string
 		timeout string
 		flags   []string
-		absent  []string
 	}{
-		{"triage", "15m0s", []string{"--dir", "--context", "--repo", "--brain", "--sandbox", "--land", "--label", "--dry-run", "--budget", "--max-turns", "--script"}, nil},
-		{"triage brief", "2m0s", []string{"--dir", "--context", "--repo"}, []string{"--dry-run", "--budget", "--run-id"}},
-		{"triage run", "15m0s", []string{"--run-id", "--dir", "--budget", "--max-turns"}, []string{"--context", "--repo"}},
-		{"triage submit", "30s", []string{"--run-id", "--dir"}, []string{"--context", "--repo", "--dry-run"}},
-		{"triage land", "2m0s", []string{"--run-id", "--dir", "--land", "--label", "--repo", "--dry-run"}, []string{"--context"}},
+		{"triage", "15m0s", []string{"--brain", "--budget", "--context", "--dir", "--dry-run", "--label", "--land", "--max-turns", "--repo", "--sandbox", "--script"}},
+		{"triage brief", "2m0s", []string{"--context", "--dir", "--repo"}},
+		{"triage run", "15m0s", []string{"--budget", "--dir", "--max-turns", "--run-id"}},
+		{"triage submit", "30s", []string{"--dir", "--run-id"}},
+		{"triage land", "2m0s", []string{"--dir", "--dry-run", "--label", "--land", "--repo", "--run-id"}},
 	} {
 		t.Run(c.path, func(t *testing.T) {
 			var out strings.Builder
@@ -121,20 +122,36 @@ func TestTheCommandsAreRegisteredWithTheirTimeoutsAndFlags_TS_08_1(t *testing.T)
 			if code != 0 {
 				t.Fatalf("--help: exit code %d\n%s", code, help)
 			}
-			for _, flag := range append([]string{"--timeout", "--output", "--emit-events"}, c.flags...) {
-				if !strings.Contains(help, flag) {
-					t.Errorf("--help does not list %s:\n%s", flag, help)
+			// The flags are those of the Flags section, and exactly those: the usage line may name more.
+			var got []string
+			_, section, _ := strings.Cut(help, "\nFlags:\n")
+			for _, line := range strings.Split(section, "\n") {
+				if name, _, _ := strings.Cut(strings.TrimSpace(line), " "); strings.HasPrefix(name, "--") {
+					got = append(got, name)
 				}
 			}
-			for _, flag := range c.absent {
-				if strings.Contains(help, flag+" ") || strings.Contains(help, flag+"\n") {
-					t.Errorf("--help lists %s, which the command does not take", flag)
-				}
+			want := append(slices.Clone(c.flags), common...)
+			slices.Sort(got)
+			slices.Sort(want)
+			if !slices.Equal(got, want) {
+				t.Errorf("flags = %v, want %v", got, want)
 			}
 			if want := "(default " + c.timeout + ")"; !strings.Contains(help, want) {
 				t.Errorf("--help does not give the default timeout %s:\n%s", want, help)
 			}
 		})
+	}
+
+	// What the commands declare of themselves shows in what they do: the input, the
+	// forge client and the run directory of the loop and of brief.
+	for _, args := range [][]string{{"triage", "brief"}, {"triage", "--brain", "scripted", "--script", script(t, submitStep(diagnosisPayload(nil), "accepted")), "--land", "none"}} {
+		before := len(e.forge.Requests())
+		code, env := e.run("", append(append(slices.Clone(args[:1]), args[1:]...), e.forge.IssueURL(7), "--dir", e.dir)...)
+		input, _ := env["input"].(map[string]any)
+		if code != 0 || env["run_id"] == nil || input["kind"] != "issue" || len(e.forge.Requests()) == before {
+			t.Errorf("%v: exit code %d, run_id %v, input %v, %d new requests: want the issue read through the forge client into a run directory",
+				args, code, env["run_id"], input, len(e.forge.Requests())-before)
+		}
 	}
 
 	var out strings.Builder
@@ -228,6 +245,7 @@ func TestTriageRunsOnADirtyTreeAndChangesNothingInIt_TS_08_5(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, head := git2(t, e.dir, "status", "--porcelain"), git2(t, e.dir, "rev-parse", "HEAD")
+	refs, config := git2(t, e.dir, "for-each-ref"), git2(t, e.dir, "config", "--local", "--list")
 	files := func() []string {
 		var out []string
 		_ = filepath.WalkDir(e.dir, func(path string, d os.DirEntry, err error) error {
@@ -261,6 +279,12 @@ func TestTriageRunsOnADirtyTreeAndChangesNothingInIt_TS_08_5(t *testing.T) {
 			}
 			if got := git2(t, e.dir, "rev-parse", "HEAD"); got != head {
 				t.Errorf("HEAD moved from %s to %s", head, got)
+			}
+			if got := git2(t, e.dir, "for-each-ref"); got != refs {
+				t.Errorf("the refs changed:\n%s\n%s", refs, got)
+			}
+			if got := git2(t, e.dir, "config", "--local", "--list"); got != config {
+				t.Errorf("the git configuration changed:\n%s\n%s", config, got)
 			}
 			if after := files(); !slices.Equal(after, before) {
 				t.Errorf("the files outside .git and .agent-fox changed:\n%v\n%v", before, after)

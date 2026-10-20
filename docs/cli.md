@@ -755,8 +755,9 @@ git write, and creates nothing in the checkout outside `.agent-fox/`.
       `--max-turns` is at least 1, `--land` is `issue` or `none`, and the labels
       are as above. A violation is `usage` and names the flag or the label.
    2. *The input*: the URL of a pull or merge request is `usage` (triage takes an
-      issue). An issue that is closed raises the warning `issue_closed`, and the
-      run goes on.
+      issue), and so is a text, a file or standard input that is not valid UTF-8
+      (a brain and a forge take text). An issue that is closed raises the warning
+      `issue_closed`, and the run goes on.
    3. *The landing* (`--land issue`). With an input that is not an issue and no
       repository to create the issue in, `usage`, naming `--repo` and `--land
       none`. Without `--dry-run`: an unauthenticated forge is `failed`/`auth`
@@ -764,9 +765,11 @@ git write, and creates nothing in the checkout outside `.agent-fox/`.
       credential: set GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN, or pass --dry-run
       or --land none" and `fix_hint.env` `GITLAB_TOKEN` for a GitLab host,
       `GITHUB_TOKEN` otherwise; and the repository must be readable: a missing
-      credential for it is `auth`, a repository that is not found is `forge` and
-      not retryable, a rate limit or a lost connection is `forge` and retryable,
-      and an archived repository is `forge`, "repository is archived". Last, a
+      credential for it, or one the forge refuses (a 401 or a 403 that is not a
+      rate limit), is `auth`, a repository that is not found is `forge` and not
+      retryable, a rate limit or a lost connection is `forge` and retryable, and
+      an archived repository is `forge`, "repository is archived: <repo> takes no
+      new issue or edit". Last, a
       text, file or stdin report that cannot become the body of an issue whole is
       `usage`: the shell cut it, or its length plus 16896 bytes (the most the
       diagnosis and the framing can take) is more than the forge allows in a body
@@ -779,11 +782,15 @@ git write, and creates nothing in the checkout outside `.agent-fox/`.
    [`brain.Execute`](#brains-and-boxes) runs any brief, with these in the
    `Brief`: the read-only tools `read_file`, `list_files`, `find_files`,
    `search_files`, `file_outline`, `find_symbol` and `find_references`, and
-   `code_search` when the box offers it, and the tool that ends the run,
-   `file_diagnosis` (its input is the [diagnosis](#the-diagnosis)); the hook of a
-   read-only run; `--budget` and `--max-turns`; and the time left on `--timeout`.
-   A name the box does not offer is dropped, and no tool that writes or runs is
-   ever offered. A refused call of `file_diagnosis` is the brain's next turn.
+   `code_search` when the box offers it (the tool that ends the run,
+   `file_diagnosis`, whose input is the [diagnosis](#the-diagnosis), is not among
+   them: it is the tool of the submission kind, which the brain adds itself); the
+   hook of a read-only run; `--budget` and `--max-turns`; and the time left on
+   `--timeout`. A name the box does not offer is dropped, and no tool that writes
+   or runs is ever offered. A refused call of `file_diagnosis` is the brain's
+   next turn. A path the diagnosis cites in the form the box knows it by (its
+   workspace, as an error of a tool may show it) is made relative to the
+   repository.
 4. **The landing.** When the brain ends, `rejections.jsonl` is brought out of the
    box into the run directory, and the host reads the submission it accepted and
    checks it against its own tree once more: a file that is gone, or a line that
@@ -818,12 +825,12 @@ The envelope's `usage` is the brain's. The `step` events are `preflight`,
 
 | Field | Meaning |
 |---|---|
-| `issue` | The issue the diagnosis was written to, or would have been in a dry run; `null` when nothing was. |
+| `issue` | The issue the diagnosis was written to, or would have been in a dry run; `null` when nothing was, and in a dry run of a text or file report, which has no issue to name. |
 | `action` | `replaced_body` (the body of the issue was replaced and the original report kept), `commented` (the body would have been too long, so the diagnosis went in one comment and the body was left), `created_issue`, `planned` (a dry run) or `none` (`--land none`, or a question). |
 | `diagnosis` | The submission as `af` normalized it. |
 | `rejected_path_calls` | How many calls of the brain were refused because they cited a path that is no file. |
 | `rejected_submissions` | How many calls were refused in all. Both counts are reported and decide nothing. |
-| `labels` | The labels added, in the order they came, each once. |
+| `labels` | The labels added, in the order they came, each once; none in a dry run, where they are planned (a side effect) and not added. |
 | `original_report_sha256` | The SHA-256 of the original report the body holds. |
 
 **Statuses.** A landing, `--land none`, a dry run and a diagnosis that is
@@ -833,8 +840,8 @@ carries a question is `needs_human` (exit 3; see
 failure of the brain or the box, and a landing write that failed are `failed`
 (exit 1) with `result` null; a refusal of the preflight is `usage` (exit 2) or
 `failed`/`auth` or `forge` (exit 1), as above. A failed envelope still lists the
-artifacts `{kind: "brief"}`, and `{kind: "submission"}` and `{kind: "diagnosis"}`
-when those files exist.
+artifacts `{kind: "brief"}`, `{kind: "submission"}` and `{kind: "diagnosis"}` that
+exist (a run refused by the preflight has no brief).
 
 **`next`.** After a `done` with an `issue` in its result (the issue the diagnosis
 was written to, or would have been in a dry run) whose diagnosis is `confirmed`
@@ -853,7 +860,9 @@ raised again when the report is cut in the brief. No failure category is new.
 
 `af triage brief <input>` resolves the input, makes a run directory and renders
 the brief of a run, for a person to read and for the steps that follow. It calls
-no model and writes nothing to the forge. It takes `--context` (see
+no model and writes nothing to the forge. It refuses what the loop's preflight
+refuses of the input (a pull or merge request, a text that is not UTF-8), warns of
+a closed issue, and takes `--context` (see
 [Questions](#questions-and-answers)) and `--repo`, and the forge client of the
 shell for an issue.
 
@@ -884,6 +893,15 @@ submitted, rejected_path_calls}`, and the status is `done` when a diagnosis was
 accepted; the envelope's `usage` is the brain's. A run with no `brief.md` or no
 `triage.json` is `usage`, "run `af triage brief` first".
 
+It reads the directory as it is, with no copy of it: a box keeps out the files that
+git ignores (a `.env`) and takes the credentials out of `.git/config`, and a
+directory in place does neither, so the brain's tools can read both, and what they
+read goes to the model. The envelope says so with the warning `box_unconfined`.
+Run it in the box that executes it, or where you are content for the model to read
+everything in the directory; the loop works on a copy. It also replaces `brief.md`
+with the brief it ran (the way to submit and the bounds are those of a brain that
+has the tool), which has the prefix `brief` reported.
+
 ### triage submit
 
 `af triage submit --run-id ID` reads a diagnosis on stdin and submits it: it is
@@ -900,7 +918,8 @@ submission and leaves an earlier valid one as it was; it appends one line
 ### triage land
 
 `af triage land --run-id ID` writes the submission of a run to the forge, and can
-be repeated: it writes the same bytes again.
+be repeated: it writes the same bytes again, and a diagnosis that went in a
+comment is not posted a second time.
 
 1. A run with no valid submission, or one that no longer passes the diagnosis
    rules against the files as they are, is `failed`/`no_result`, and nothing is
@@ -926,9 +945,10 @@ be repeated: it writes the same bytes again.
    landed issue is the artifact `{kind: "issue", url, number}`, and `triage.land`
    is recorded.
 
-A failure of a write is `failed`/`auth` without a credential, `forge` and
-retryable after a rate limit or a lost connection, and `forge` and not retryable
-otherwise. With `--dry-run` the writes are planned and not made; the action is
+A failure of a write is `failed`/`auth` without a credential or with one the forge
+refuses (a 401 or a 403 that is not a rate limit), `forge` and retryable after a
+rate limit or a lost connection, and `forge` and not retryable otherwise, a server
+error included. With `--dry-run` the writes are planned and not made; the action is
 `planned`.
 
 `land` builds its own forge client for the repository the run recorded
@@ -988,8 +1008,13 @@ contract that `af fix` reads. The original report is exactly what stands between
 the begin marker and the newline before the end marker, so triaging an issue that
 was triaged already keeps the first report, byte for byte, and replaces the old
 diagnosis. A body that does not start with the triage marker is wholly the
-original; one that does, and whose markers cannot be paired, is wholly the
-original too, with the warning `original_report_unparsed`.
+original. One that does is read with the original between the markers; a body that
+a browser saved with CRLF line endings is read as if it had LF endings, and its
+original has them. One that starts with the marker and is not what `af` wrote (a
+first line that is not the marker, markers that cannot be paired, a heading that is
+missing, or any text after the original report but the close of its details block)
+is wholly the original, with the warning `original_report_unparsed`: a person's
+words are not thrown away.
 
 #### The diagnosis
 
@@ -1011,15 +1036,18 @@ With the confidence `not_reproducible`, or a `question`, `affected_files`,
 `suggested_fix` and `acceptance_criteria` may be empty. A path names a regular
 file of the checkout as the file view of the repository has it (the tracked files
 and the untracked files that are not ignored, less those deleted from the working
-tree); a leading `./` is
-taken off, an absolute path under the checkout is made relative, and `path:12` is
+tree); a leading `./` is taken off, an absolute path under the checkout (or under
+the workspace of the box the brain works in) is made relative, and `path:12` is
 read as the path and the line when no `line` is given. A path that is outside the
-checkout, has `..`, is under `.git/` or `.agent-fox/`, is a directory or is no
-file of the view is a problem that names the path and up to three files with the
-same name. No string may hold a NUL byte or the text `<!-- agent-fox:`, and the
-diagnosis as the body renders it, without the original report, is at most 16384
-bytes. Every problem is collected before the answer, each with the JSON pointer
-of its field (`/affected_files/2/path`).
+checkout, has `..`, is under `.git/` or `.agent-fox/`, is a directory, is a link
+that leads out of the checkout or to something that is no file, is the directory of
+another repository (a submodule, a nested checkout) or is no file of the view is a
+problem that names the path and up to three files with the same name. A string of
+nothing but white space is empty, and a title is one line (no CR and no LF). No
+string may hold a NUL byte or the text `<!-- agent-fox:`, and the diagnosis as the
+body renders it, without the original report, is at most 16384 bytes. Every
+problem is collected before the answer, each with the JSON pointer of its field
+(`/affected_files/2/path`), up to 50, and a last line says how many were left out.
 
 #### Questions and answers
 
@@ -1189,7 +1217,7 @@ outcome, and a run that fails after the command returned prints the envelope.
 |---|---|
 | `usage` | The invocation is wrong. Status `usage`. |
 | `auth` | An issue was not found without a token, so it may be private, or the `agentkit` brain has no credential for its model. `fix_hint.env` names the variable to set (a forge token, or `ANTHROPIC_API_KEY`). |
-| `forge` | The forge could not be reached, refused, or the client could not be built. `retryable` is true after a rate limit, a server error or a lost connection, and false after a refusal. |
+| `forge` | The forge could not be reached, refused, or the client could not be built. `retryable` is true after a rate limit, a server error or a lost connection, and false after a refusal (a write of `triage` that gets a server error is not retryable). |
 | `io` | A file, stdin or the run directory could not be read or written. |
 | `cancelled` | The process was sent SIGINT, SIGTERM or SIGHUP. |
 | `timeout` | `--timeout` ran out, or the time a brief allows ran out with no submission (it counts from the start of the run, so placing the brief is part of it). Not retryable; `fix_hint` is `{flag: "--timeout", suggest: <twice the value>}`. |
@@ -1225,7 +1253,7 @@ A code matches `^[a-z][a-z0-9_]*$`; one that does not is reported under
 | `fix_not_proven` | `revert-check`: the outcome is not `proven` and not `no_changes`, so the change must not close its issue. |
 | `map_outline_skipped` | `map`: the declarations were not read, because the names of the files alone do not fit the budget or the view has more than 5000 files. The map has the names only, or less. |
 | `check_unavailable` | `lang detect`: a check of the gate table names a program that cannot be run on this machine. The check stays in the table with `available: false`; the message names the check. |
-| `box_unconfined` | A box was opened with the `local` provider, once for each box: it has no process or network isolation, because the tools run in this process with its privileges. |
+| `box_unconfined` | A box was opened with the `local` provider, once for each box: it has no process or network isolation, because the tools run in this process with its privileges. Also `triage run`, which reads the directory in place, with no copy of it: the files git ignores and `.git/config` are within reach of the tools. |
 | `box_close_failed` | The box could not be closed, also one that could not be synced and was closed for that. The result of the run is what it was; the message carries the error. |
 | `submission_invalid` | The submission file in the box did not count: it did not parse, is not for this run's kind, run, attempt or payload hash, or the kind refused its payload against the box's tree. The message lists the problems, and the run has no submission. |
 | `submission_claim_mismatch` | A brain says it submitted and there is no valid submission file, or says it did not and there is one. The file decides. |
@@ -1238,8 +1266,8 @@ A code matches `^[a-z][a-z0-9_]*$`; one that does not is reported under
 | `report_changed_during_triage` | `triage`, `triage land`: the body of the issue is not the report the brief had. The report as the issue has it now is the one kept in the body. |
 | `body_too_long` | `triage`, `triage land`: the body with the diagnosis would be longer than the forge allows, so the diagnosis was posted as one comment and the body was left. |
 | `labels_failed` | `triage`, `triage land`: the diagnosis was written and adding the labels failed. The side effect `add_labels` is `failed`. |
-| `original_report_unparsed` | `triage`, `triage land`: a body starts with the triage marker and the markers of its original report cannot be paired, so the whole body is taken as the report. |
-| `rejections_unreadable` | `triage`, `triage land`: `rejections.jsonl` cannot be read, or holds a line that is no refusal, so the refused calls are counted as 0; also when it could not be brought out of the box. |
+| `original_report_unparsed` | `triage`, `triage land`: a body starts with the triage marker and is not what `af` wrote (the markers of its original report cannot be paired, a heading is missing, or text follows the original report), so the whole body is taken as the report. |
+| `rejections_unreadable` | `triage`, `triage submit`, `triage land`: `rejections.jsonl` cannot be read, or holds a line that is not JSON, so the refused calls are counted as 0; also when it could not be brought out of the box. |
 
 ## The positional input
 

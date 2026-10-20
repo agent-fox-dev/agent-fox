@@ -323,7 +323,7 @@ func TestATruncatedOrOversizedReportIsRefusedWithBothNumbers_TS_08_15(t *testing
 				if refusal == nil || refusal.Category != CategoryUsage || !strings.Contains(refusal.Message, "--land none") {
 					t.Fatalf("refusal = %+v, want usage that suggests --land none", refusal)
 				}
-				if !tc.truncated && !(strings.Contains(refusal.Message, fmt.Sprint(tc.length)) && strings.Contains(refusal.Message, fmt.Sprint(tc.limit))) {
+				if !tc.truncated && (!strings.Contains(refusal.Message, fmt.Sprint(tc.length)) || !strings.Contains(refusal.Message, fmt.Sprint(tc.limit))) {
 					t.Errorf("message = %q, want it to give the length %d and the limit %d", refusal.Message, tc.length, tc.limit)
 				}
 			})
@@ -420,7 +420,7 @@ func TestRepositoryFailuresThroughRealClients(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				defer forge.Close()
+				defer func() { _ = forge.Close() }()
 
 				refusal := CheckLandTarget(context.Background(), LandCheck{Forge: forge, Target: target})
 
@@ -451,4 +451,19 @@ func TestRepositoryFailuresThroughRealClients(t *testing.T) {
 			t.Errorf("refusal = %+v, want forge, retryable", refusal)
 		}
 	})
+}
+
+// TestAReportThatIsNoTextIsRefusedBeforeAnythingIsSpent guards 08-REQ-2.1 for
+// input the brief cannot carry: text, a file or stdin that is not valid UTF-8 is
+// a usage failure of the preflight, with the way out.
+func TestAReportThatIsNoTextIsRefusedBeforeAnythingIsSpent(t *testing.T) {
+	for _, kind := range []string{KindText, KindFile, KindStdin} {
+		_, refusal := CheckInput(Report{Kind: kind, Body: "caf\xe9 crashes"})
+		if refusal == nil || refusal.Category != CategoryUsage || !strings.Contains(refusal.Message, "UTF-8") {
+			t.Errorf("%s: refusal = %+v, want usage that names UTF-8", kind, refusal)
+		}
+		if _, refusal := CheckInput(Report{Kind: kind, Body: "café crashes"}); refusal != nil {
+			t.Errorf("%s: valid text was refused: %+v", kind, refusal)
+		}
+	}
 }

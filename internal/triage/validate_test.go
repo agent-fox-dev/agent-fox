@@ -188,6 +188,13 @@ func TestEachBrokenFieldRuleIsOneProblemWithAPointer_TS_08_32(t *testing.T) {
 		})
 	}
 
+}
+
+// TestThePayloadAsAWholeIsChecked_TS_08_32 is the other half of TS-08-32: what is
+// no diagnosis at all, and several broken rules at once.
+// Verifies: 08-REQ-5.2
+func TestThePayloadAsAWholeIsChecked_TS_08_32(t *testing.T) {
+	tree := testTree()
 	t.Run("a payload of 65537 bytes", func(t *testing.T) {
 		big := payloadOf(t, with(func(m map[string]any) { m["root_cause"] = repeat("x", 65537) }))
 		_, problems := Validate(big, tree)
@@ -450,4 +457,142 @@ func equalDiagnosis(a, b Diagnosis) bool {
 	x, _ := json.Marshal(a)
 	y, _ := json.Marshal(b)
 	return string(x) == string(y)
+}
+
+// TestEveryLimitHoldsAtTheLimitAndNoFurther guards 08-REQ-5.2 from both sides: a
+// diagnosis that is exactly at a limit is accepted, and one that is a unit over is
+// refused with the one problem. Lengths of text count in characters where the rule
+// says characters, and in bytes where it says bytes.
+func TestEveryLimitHoldsAtTheLimitAndNoFurther(t *testing.T) {
+	tree := testTree()
+	suspected := func(q map[string]any) func(m map[string]any) {
+		return func(m map[string]any) { m["confidence"], m["question"] = "suspected", q }
+	}
+	for _, tc := range []struct {
+		name    string
+		at      func(m map[string]any)
+		over    func(m map[string]any)
+		pointer string
+	}{
+		{"the title, in characters", func(m map[string]any) { m["title"] = repeat("é", 120) }, func(m map[string]any) { m["title"] = repeat("é", 121) }, "/title"},
+		{"the root cause, in bytes", func(m map[string]any) { m["root_cause"] = repeat("x", 6000) }, func(m map[string]any) { m["root_cause"] = repeat("x", 6001) }, "/root_cause"},
+		{"the suggested fix, in bytes", func(m map[string]any) { m["suggested_fix"] = repeat("x", 6000) }, func(m map[string]any) { m["suggested_fix"] = repeat("x", 6001) }, "/suggested_fix"},
+		{"the affected files", func(m map[string]any) { m["affected_files"] = files(30) }, func(m map[string]any) { m["affected_files"] = files(31) }, "/affected_files"},
+		{"a note", func(m map[string]any) {
+			m["affected_files"] = []any{map[string]any{"path": "main.go", "note": repeat("n", 300)}}
+		}, func(m map[string]any) {
+			m["affected_files"] = []any{map[string]any{"path": "main.go", "note": repeat("n", 301)}}
+		}, "/affected_files/0/note"},
+		{"the criteria", func(m map[string]any) { m["acceptance_criteria"] = criteria(15) }, func(m map[string]any) { m["acceptance_criteria"] = criteria(16) }, "/acceptance_criteria"},
+		{"a criterion", func(m map[string]any) { m["acceptance_criteria"] = []any{repeat("c", 300)} }, func(m map[string]any) { m["acceptance_criteria"] = []any{repeat("c", 301)} }, "/acceptance_criteria/0"},
+		{"the question text", suspected(question(repeat("q", 2000))), suspected(question(repeat("q", 2001))), "/question/text"},
+		{"the options", suspected(question("Which?", "1", "2", "3", "4", "5", "6")), suspected(question("Which?", "1", "2", "3", "4", "5", "6", "7")), "/question/options"},
+		{"an option", suspected(question("Which?", "a", repeat("o", 200))), suspected(question("Which?", "a", repeat("o", 201))), "/question/options/1"},
+		{"a field of a question that is not one", suspected(question("Which?", "a", "b")), suspected(map[string]any{"text": "Which?", "options": []any{"a", "b"}, "hint": "x"}), "/question/hint"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, problems := Validate(payloadOf(t, with(tc.at)), tree); len(problems) != 0 {
+				t.Errorf("at the limit: problems = %v, want none", problems)
+			}
+			if _, problems := Validate(payloadOf(t, with(tc.over)), tree); len(problems) != 1 || problems[0].Pointer != tc.pointer {
+				t.Errorf("over the limit: problems = %v, want exactly one, at %s", problems, tc.pointer)
+			}
+		})
+	}
+
+	t.Run("the payload", func(t *testing.T) {
+		at := payloadOf(t, valid())
+		at = append(at[:len(at)-1], []byte(repeat(" ", 65536-len(at))+"}")...) // padding is white space between tokens
+		if len(at) != 65536 {
+			t.Fatalf("the payload is %d bytes", len(at))
+		}
+		if _, problems := Validate(at, tree); len(problems) != 0 {
+			t.Errorf("a payload of 65536 bytes: problems = %v, want none", problems)
+		}
+		if _, problems := Validate(append(at[:len(at)-1], []byte(" }")...), tree); len(problems) != 1 || problems[0].Pointer != "" {
+			t.Errorf("a payload of 65537 bytes: problems = %v, want one for the whole", problems)
+		}
+	})
+}
+
+// TestARefusalListsAtMostFiftyProblems guards the size of an answer: a payload of
+// nothing but mistakes is not answered with more text than it holds.
+func TestARefusalListsAtMostFiftyProblems(t *testing.T) {
+	_, problems := Validate(payloadOf(t, with(func(m map[string]any) {
+		bad := make([]any, 200)
+		for i := range bad {
+			bad[i] = map[string]any{}
+		}
+		m["affected_files"] = bad[:30]
+		m["acceptance_criteria"] = bad[:15]
+		m["extra"] = bad
+	})), testTree())
+
+	if len(problems) != 51 {
+		t.Fatalf("%d problems, want 50 and a line for the rest", len(problems))
+	}
+	if last := problems[len(problems)-1]; last.Pointer != "" || !strings.HasPrefix(last.Message, "and ") || !strings.Contains(last.Message, "more problems") {
+		t.Errorf("the last problem = %+v, want the line that says how many are left", last)
+	}
+	if _, problems := Validate(payloadOf(t, with(func(m map[string]any) { m["title"] = "" })), testTree()); len(problems) != 1 {
+		t.Errorf("one problem is listed as it is: %v", problems)
+	}
+}
+
+// TestALinkOrANestedRepositoryIsNoFileToCite guards 08-REQ-5.5: the file view lists
+// a link whatever it leads to, and the directory of another repository as a file,
+// and neither is a file a diagnosis may cite.
+func TestALinkOrANestedRepositoryIsNoFileToCite(t *testing.T) {
+	tree := testTree()
+	tree.Files = append(tree.Files, "linkout", "nested")
+	tree.Regular = func(p string) bool { return p != "linkout" && p != "nested" }
+	for _, cited := range []string{"linkout", "./nested", "linkout:3"} {
+		_, problems := Validate(payloadOf(t, with(func(m map[string]any) {
+			m["affected_files"] = []any{map[string]any{"path": cited, "note": "n"}}
+		})), tree)
+
+		if len(problems) != 1 || problems[0].Pointer != "/affected_files/0/path" || !problems[0].Unresolved || !strings.Contains(problems[0].Message, "cite a file") {
+			t.Errorf("%s: problems = %+v, want one unresolved path at /affected_files/0/path", cited, problems)
+		}
+	}
+	if _, problems := Validate(payloadOf(t, valid()), tree); len(problems) != 0 {
+		t.Errorf("the regular files are still cited: %v", problems)
+	}
+}
+
+// TestTheRenderedDiagnosisMayBeExactly16384Bytes guards 08-REQ-5.6 at its edge: the
+// diagnosis as the body renders it is accepted at 16384 bytes and refused at 16385.
+func TestTheRenderedDiagnosisMayBeExactly16384Bytes(t *testing.T) {
+	tree := testTree()
+	notes := make([]any, 20)
+	for i := range notes {
+		notes[i] = map[string]any{"path": "main.go", "note": repeat("n", 300)}
+	}
+	with := func(fix int) []byte {
+		return payloadOf(t, with(func(m map[string]any) {
+			m["root_cause"], m["affected_files"], m["suggested_fix"] = repeat("r", 6000), notes, repeat("f", fix)
+		}))
+	}
+	size := func(fix int) int {
+		d, _ := Validate(with(fix), tree)
+		return renderedSize(d, placeholderRun)
+	}
+	exact := 0
+	for fix := 1; fix <= 6000; fix++ {
+		if size(fix) == MaxRenderedBytes {
+			exact = fix
+			break
+		}
+	}
+	if exact == 0 {
+		t.Fatalf("no suggested fix makes the rendering exactly %d bytes (it is %d at 1 and %d at 6000)", MaxRenderedBytes, size(1), size(6000))
+	}
+
+	if _, problems := Validate(with(exact), tree); len(problems) != 0 {
+		t.Errorf("a rendering of %d bytes: problems = %v, want none", MaxRenderedBytes, problems)
+	}
+	_, problems := Validate(with(exact+1), tree)
+	if len(problems) != 1 || problems[0].Pointer != "" || !strings.Contains(problems[0].Message, "16384") {
+		t.Errorf("a rendering of %d bytes: problems = %v, want one for the whole, naming 16384", MaxRenderedBytes+1, problems)
+	}
 }

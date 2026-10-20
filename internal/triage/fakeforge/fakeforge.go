@@ -215,12 +215,12 @@ func (f *Forge) serve(w http.ResponseWriter, r *http.Request) {
 	if failing {
 		if fl.Hangup {
 			if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
-				conn.Close()
+				_ = conn.Close()
 			}
 			return
 		}
 		w.WriteHeader(fl.Status)
-		fmt.Fprintf(w, `{"message":%q}`, fl.Message)
+		_, _ = fmt.Fprintf(w, `{"message":%q}`, fl.Message)
 		return
 	}
 
@@ -245,7 +245,7 @@ func (f *Forge) serve(w http.ResponseWriter, r *http.Request) {
 		if f.Kind == GitLab {
 			f.writeIssue(w, number, http.StatusOK)
 		} else {
-			fmt.Fprint(w, `[]`)
+			_, _ = fmt.Fprint(w, `[]`)
 		}
 	case OpComment:
 		f.mu.Lock()
@@ -254,7 +254,7 @@ func (f *Forge) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		f.mu.Unlock()
 		w.WriteHeader(http.StatusCreated)
-		fmt.Fprintf(w, `{"id":1,"html_url":%q,"body":"x"}`, fmt.Sprintf("%s/%s/issues/%d#comment-1", f.URL, f.Repo, number))
+		_, _ = fmt.Fprintf(w, `{"id":1,"html_url":%q,"body":"x"}`, fmt.Sprintf("%s/%s/issues/%d#comment-1", f.URL, f.Repo, number))
 	case OpCreate:
 		f.create(w, req.JSON)
 	default:
@@ -342,10 +342,10 @@ func (f *Forge) create(w http.ResponseWriter, body map[string]any) {
 
 func (f *Forge) writeRepo(w http.ResponseWriter) {
 	if f.Kind == GitLab {
-		fmt.Fprintf(w, `{"path_with_namespace":%q,"default_branch":"main","archived":%v,"visibility":"public"}`, f.Repo, f.Archived)
+		_, _ = fmt.Fprintf(w, `{"path_with_namespace":%q,"default_branch":"main","archived":%v,"visibility":"public"}`, f.Repo, f.Archived)
 		return
 	}
-	fmt.Fprintf(w, `{"full_name":%q,"default_branch":"main","archived":%v,"private":false,"permissions":{"push":true,"pull":true}}`, f.Repo, f.Archived)
+	_, _ = fmt.Fprintf(w, `{"full_name":%q,"default_branch":"main","archived":%v,"private":false,"permissions":{"push":true,"pull":true}}`, f.Repo, f.Archived)
 }
 
 func (f *Forge) writeIssue(w http.ResponseWriter, number, status int) {
@@ -358,7 +358,7 @@ func (f *Forge) writeIssue(w http.ResponseWriter, number, status int) {
 	f.mu.Unlock()
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprint(w, `{"message":"Not Found"}`)
+		_, _ = fmt.Fprint(w, `{"message":"Not Found"}`)
 		return
 	}
 	var doc map[string]any

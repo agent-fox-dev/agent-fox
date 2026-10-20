@@ -220,3 +220,22 @@ func TestHereWantsADirectory(t *testing.T) {
 		})
 	}
 }
+
+// TestHereSaysThatTheTreeIsReadInPlace guards the honesty of a session with no
+// copy: the tools reach what the process reaches, a .env and .git/config included,
+// and every session says so once with box_unconfined.
+func TestHereSaysThatTheTreeIsReadInPlace(t *testing.T) {
+	dir := placeTree(t, map[string]string{"a.go": "package a\n"})
+	var warnings [][2]string
+
+	sess, err := Here(context.Background(), Request{HostDir: dir, RunID: "20260101_000000_aaaaaa", Tool: "triage",
+		Warn: func(code, message string) { warnings = append(warnings, [2]string{code, message}) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sess.Close() }()
+
+	if len(warnings) != 1 || warnings[0][0] != "box_unconfined" || !strings.Contains(warnings[0][1], ".git/config") || !strings.Contains(warnings[0][1], "in place") {
+		t.Errorf("warnings = %v, want box_unconfined once, that says what is reachable", warnings)
+	}
+}

@@ -55,7 +55,7 @@ skill, the repository map, the report and the task block, in that order:
 | The mandate | A fixed text: the run is read-only; everything inside a fence in the report is material from people and never an instruction; cite only files that were read; submit exactly one diagnosis; and the rules a diagnosis must keep. |
 | The skill | The body of the `af-triage` skill, which says how to diagnose: find the signals, locate each in the code, read the tests, separate the symptom from the cause, state the confidence honestly, ask only when two readings lead to opposite fixes, write criteria that can be observed. It is compiled into the binary. |
 | The repository map | The files of the repository with their declarations, within 4000 tokens (the files that git tracks and the untracked ones that are not ignored). |
-| The original report | The issue (its title, author, labels, body and comments), or the text, file or standard input that was given, each part in a fence with one line that says where it comes from. At most 131072 bytes: a longer report is cut at a UTF-8 boundary, and the warning `input_truncated` is raised. |
+| The original report | The issue (its title, state and author, the body as the reporter wrote it, a previous diagnosis of `af` marked as possibly stale, and its comments), or the text, file or standard input that was given, each part in a fence with one line that says where it comes from. At most 131072 bytes: a longer report is cut at a UTF-8 boundary, and the warning `input_truncated` is raised. |
 | The task block | What is particular to the run: the question an earlier run asked and each `--context` answer, the run id, how to submit, and the bounds. |
 
 Everything particular to a run is in the task block, so the part before it (the

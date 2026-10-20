@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -97,14 +98,28 @@ type renderedBrief struct {
 	previous bool
 }
 
-// renderBrief renders the brief of the run, writes brief.md, original.md and
-// triage.json, records triage.input and triage.brief, and lists the brief as an
-// artifact. It is the part of a triage run that the loop and `af triage brief`
-// share.
-func renderBrief(r *toolio.Run, inProcess bool, bounds triage.Bounds) (renderedBrief, error) {
+// resolveInput is the report of the run and the facts known of it, and records
+// triage.input: the input is resolved, whatever becomes of the run.
+func resolveInput(r *toolio.Run) (triage.Report, triage.Facts) {
 	report := triageReport(r.Input)
 	facts := triageFacts(r, report)
 	record(r, ledgerInput, facts.Input)
+	return report, facts
+}
+
+// renderBrief renders the brief of the run for the report, writes brief.md,
+// original.md and triage.json, records triage.brief, and lists the brief as an
+// artifact. It is the part of a triage run that the loop and `af triage brief`
+// share, and it refuses what triage does not take (the loop has refused it in its
+// preflight already).
+func renderBrief(r *toolio.Run, report triage.Report, facts triage.Facts, inProcess bool, bounds triage.Bounds) (renderedBrief, error) {
+	warnings, refusal := triage.CheckInput(report)
+	if refusal != nil {
+		return renderedBrief{}, refusalFailure(refusal)
+	}
+	for _, w := range warnings {
+		r.Warn(w.Code, w.Message)
+	}
 
 	var previous *triage.Question
 	if len(r.Context) > 0 {
@@ -172,7 +187,8 @@ func registerTriageBrief(app *toolio.App) {
 // triageBrief renders the brief for a person to read, and for the steps that
 // follow. It calls no model and writes nothing to the forge.
 func triageBrief(r *toolio.Run) (toolio.Outcome, error) {
-	rendered, err := renderBrief(r, false, triage.DefaultBounds)
+	report, facts := resolveInput(r)
+	rendered, err := renderBrief(r, report, facts, false, triage.DefaultBounds)
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
@@ -464,26 +480,17 @@ func hostTree(r *toolio.Run) (triage.Tree, error) {
 	if resolved, err := filepath.EvalSymlinks(r.Dir); err == nil && resolved != r.Dir {
 		roots = append(roots, resolved)
 	}
-	return triage.Tree{Roots: roots, Files: files, Lines: func(p string) (int, error) {
-		data, err := os.ReadFile(filepath.Join(r.Dir, filepath.FromSlash(p)))
-		if err != nil {
-			return 0, err
-		}
-		n := strings.Count(string(data), "\n")
-		if len(data) > 0 && data[len(data)-1] != '\n' {
-			n++
-		}
-		return n, nil
-	}}, nil
+	return triage.Tree{Roots: roots, Files: files, Regular: func(p string) bool { return triage.RegularFile(r.Dir, p) }, Lines: triage.HostLines(r.Dir)}, nil
 }
 
 // createdIssue is the issue an earlier landing of the run created, from its
-// ledger: the last landing that wrote to an issue of a report that was no issue.
-func createdIssue(run *toolio.RunDir) func() (issuex.IssueRef, bool) {
-	return func() (issuex.IssueRef, bool) {
+// ledger, as that landing reported it: the last landing that wrote to an issue of
+// a report that was no issue.
+func createdIssue(run *toolio.RunDir) func() (triage.IssueInfo, bool) {
+	return func() (triage.IssueInfo, bool) {
 		entries, err := run.Ledger()
 		if err != nil {
-			return issuex.IssueRef{}, false
+			return triage.IssueInfo{}, false
 		}
 		for i := len(entries) - 1; i >= 0; i-- {
 			if entries[i].Kind != ledgerLand {
@@ -493,10 +500,10 @@ func createdIssue(run *toolio.RunDir) func() (issuex.IssueRef, bool) {
 				Issue *triage.IssueInfo `json:"issue"`
 			}
 			if json.Unmarshal(entries[i].Data, &land) == nil && land.Issue != nil && land.Issue.Number > 0 {
-				return issuex.IssueRef{Repo: repoOfFacts(triage.RepoFact{Repo: land.Issue.Repo, Host: land.Issue.Host}), Number: land.Issue.Number}, true
+				return *land.Issue, true
 			}
 		}
-		return issuex.IssueRef{}, false
+		return triage.IssueInfo{}, false
 	}
 }
 
@@ -531,21 +538,34 @@ func triageLand(r *toolio.Run, runID, land, repoFlag string, labelFlags []string
 			facts.Target.Repo = given.String()
 		}
 	}
+	if !target.Valid() {
+		// A text or a file report whose run was given no repository: the issue an earlier landing created is in one.
+		if info, ok := createdIssue(run)(); ok {
+			if created, ok := issuex.ParseRepo(info.Repo); ok {
+				target, facts.Target.Repo = created, created.String()
+			}
+		}
+	}
 	tree, err := hostTree(r)
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
 
 	var forge issuex.Client
+	var check func(context.Context) *triage.Refusal
 	if land != triage.LandNone {
+		// A run that has no repository is told so before a client is made for none.
+		if refusal := triage.CheckLandTarget(r.Ctx, triage.LandCheck{Target: target, DryRun: true}); refusal != nil {
+			return toolio.Outcome{}, refusalFailure(refusal)
+		}
 		if forge, err = r.ForgeFor(target); err != nil {
 			return toolio.Outcome{}, err
 		}
-		if refusal := triage.CheckLandTarget(r.Ctx, triage.LandCheck{Forge: forge, Target: target, DryRun: r.DryRun}); refusal != nil {
-			return toolio.Outcome{}, refusalFailure(refusal)
+		check = func(ctx context.Context) *triage.Refusal {
+			return triage.CheckLandTarget(ctx, triage.LandCheck{Forge: forge, Target: target, DryRun: r.DryRun})
 		}
 	}
-	return landRun(r, landing{run: run, facts: facts, tree: tree, forge: forge, mode: land, labels: labels, artifact: listed})
+	return landRun(r, landing{run: run, facts: facts, tree: tree, forge: forge, mode: land, labels: labels, check: check, artifact: listed})
 }
 
 // landing is what a landing of a run is made of.
@@ -556,6 +576,9 @@ type landing struct {
 	forge  issuex.Client
 	mode   string
 	labels []string
+	// check is the target and the credential check of a landing whose caller has
+	// not made it; the loop made it in its preflight.
+	check func(ctx context.Context) *triage.Refusal
 	// artifact lists a file of the run; the files are listed once each.
 	artifact func(toolio.Artifact)
 	// retry is the command that lands the run again; it is suggested when the
@@ -570,8 +593,8 @@ func landRun(r *toolio.Run, l landing) (toolio.Outcome, error) {
 	res, err := triage.Land(r.Ctx, triage.LandParams{
 		RunDir: l.run.Path, RunID: l.run.ID, Facts: l.facts, Forge: l.forge, Mode: l.mode, Labels: l.labels,
 		IsDryRun: func(err error) bool { return errors.Is(err, toolio.ErrDryRun) },
-		Tree:     l.tree, Created: createdIssue(l.run),
-		Record: l.run.Record,
+		Tree:     l.tree, Created: createdIssue(l.run), Check: l.check,
+		Record: func(kind string, data any) error { recordIn(r, l.run, kind, data); return nil },
 		Warn:   r.Warn,
 		Artifact: func(a triage.Artifact) {
 			l.artifact(toolio.Artifact{Kind: a.Kind, Path: a.Path, URL: a.URL, Number: a.Number})
@@ -721,7 +744,8 @@ func registerTriageLoop(app *toolio.App) {
 // submission against the host's tree once more, and lands it.
 func triageLoop(r *toolio.Run, s *brain.Settings, land string, labelFlags []string) (toolio.Outcome, error) {
 	r.Emit("step", triageStep{stepPreflight})
-	labels, entry, err := loopPreflight(r, s, land, labelFlags)
+	report, facts := resolveInput(r)
+	labels, entry, err := loopPreflight(r, report, s, land, labelFlags)
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
@@ -734,7 +758,7 @@ func triageLoop(r *toolio.Run, s *brain.Settings, land string, labelFlags []stri
 
 	r.Emit("step", triageStep{stepBrief})
 	// Every brain of this release runs in this process, and submits through the tool.
-	rendered, err := renderBrief(r, true, triage.Bounds{MaxTurns: s.MaxTurns, MaxCostUSD: s.Budget, Timeout: timeLeft(r)})
+	rendered, err := renderBrief(r, report, facts, true, triage.Bounds{MaxTurns: s.MaxTurns, MaxCostUSD: s.Budget, Timeout: timeLeft(r)})
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
@@ -767,7 +791,7 @@ func triageLoop(r *toolio.Run, s *brain.Settings, land string, labelFlags []stri
 // loopPreflight is every refusal that needs no model, in the order flags, input,
 // landing: nothing is rendered and no brain is made before it passes. It returns
 // the labels, and the entry of the brain the run is for.
-func loopPreflight(r *toolio.Run, s *brain.Settings, land string, labelFlags []string) ([]string, brain.Entry, error) {
+func loopPreflight(r *toolio.Run, report triage.Report, s *brain.Settings, land string, labelFlags []string) ([]string, brain.Entry, error) {
 	if err := s.Validate(); err != nil {
 		return nil, brain.Entry{}, err
 	}
@@ -780,7 +804,7 @@ func loopPreflight(r *toolio.Run, s *brain.Settings, land string, labelFlags []s
 	}
 	pre, refusal := triage.Preflight(r.Ctx, triage.PreflightParams{
 		Flags:     triage.Flags{Budget: s.Budget, MaxTurns: s.MaxTurns, Labels: labelFlags, Land: land},
-		Report:    triageReport(r.Input),
+		Report:    report,
 		Truncated: r.Input.Truncated,
 		LandCheck: triage.LandCheck{Forge: r.Forge, Target: r.Target, DryRun: r.DryRun},
 	})
@@ -829,7 +853,7 @@ func runInBox(r *toolio.Run, s *brain.Settings, entry brain.Entry, b brain.Brain
 		res, err = brain.Execute(r.Ctx, brain.Request{
 			Session: sess, Name: s.Brain, Brain: b, RunDir: r.RunDir, Report: loopReport{r}, Tally: &brain.Tally{},
 			Brief: brain.Brief{
-				RunID: r.RunDir.ID, Attempt: 1, Kind: triage.Kind(r.Dir), Prefix: prefix, Task: task,
+				RunID: r.RunDir.ID, Attempt: 1, Kind: triage.Kind(r.Dir, sess.Spec().Workdir), Prefix: prefix, Task: task,
 				Tools: triage.BoxTools(offered), Hook: brain.HookConfig{RunID: r.RunDir.ID},
 				MaxCostUSD: s.Budget, MaxTurns: s.MaxTurns, Timeout: timeLeft(r),
 			},

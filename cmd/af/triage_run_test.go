@@ -203,3 +203,31 @@ func contains(list []string, s string) bool {
 func TestTheRunSchemaMatchesItsResult(t *testing.T) {
 	checkSchema(t, "triage_run", triageRunResult{})
 }
+
+// TestRunHoldsTheBrainToTheDefaultBounds guards 08-REQ-4.2 for `af triage run`: with
+// no flag the brain is told USD 2 and 100 turns, and given them; with flags, those.
+func TestRunHoldsTheBrainToTheDefaultBounds(t *testing.T) {
+	for name, tc := range map[string]struct {
+		args []string
+		want string
+	}{
+		"the defaults": {nil, "You have at most 100 turns, $2.00 of model cost and "},
+		"the flags":    {[]string{"--budget", "3.5", "--max-turns", "40"}, "You have at most 40 turns, $3.50 of model cost and "},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newTriageEnv(t, fakeforge.GitHub)
+			id := e.briefRun()
+			p := faux.New(call("c1", "file_diagnosis", diagnosisPayload(nil)))
+			fauxBrains(t, p)
+
+			code, env := e.run("", append([]string{"triage", "run", "--run-id", id, "--dir", e.dir}, tc.args...)...)
+
+			if code != 0 {
+				t.Fatalf("exit code %d, error %v", code, env["error"])
+			}
+			if task := userText(p.Requests()[0]); !strings.Contains(task, tc.want) {
+				t.Errorf("the task block does not hold %q:\n%s", tc.want, task[strings.LastIndex(task, "## Task"):])
+			}
+		})
+	}
+}

@@ -48,8 +48,14 @@ func Here(ctx context.Context, req Request) (*Session, error) {
 	}
 	s := &Session{req: req, sb: &inPlace{dir: abs}, tools: set, provider: "here", hostDir: abs, inPlace: true}
 	s.record("box_open", map[string]any{"provider": s.provider})
+	if req.Warn != nil {
+		req.Warn("box_unconfined", inPlaceMessage)
+	}
 	return s, nil
 }
+
+// inPlaceMessage is what box_unconfined says of a tree in place.
+const inPlaceMessage = "the tree is read in place, with no copy of it and no box: the tools reach every file of the directory that this process can, the files git ignores (a .env) and .git/config, which a box keeps out, included"
 
 // inPlace is the sandbox of a session over a directory in place: the directory,
 // and nothing around it.

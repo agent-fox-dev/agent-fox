@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -59,6 +60,19 @@ func TestTheTriageSkillHasItsFrontmatterAndMethod_TS_08_65(t *testing.T) {
 	}
 	if strings.Contains(body, "argument-hint:") {
 		t.Error("the body repeats the frontmatter")
+	}
+	// The method is nine steps, each a numbered line with its title in bold, in this order.
+	last := -1
+	for i, title := range []string{
+		"Find the signals", "Locate each signal in the code", "Read the tests", "Widen once", "Separate the symptom from the cause",
+		"Cite only what you read", "State confidence honestly", "Ask only when two readings lead to opposite fixes", "Write observable acceptance criteria",
+	} {
+		line := fmt.Sprintf("\n%d. **%s.**", i+1, title)
+		at := strings.Index(body, line)
+		if at < 0 || at < last {
+			t.Errorf("the method has no step %q at number %d, in order", title, i+1)
+		}
+		last = at
 	}
 }
 

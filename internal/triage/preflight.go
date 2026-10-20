@@ -106,6 +106,9 @@ func CheckLandFlags(land string, labelFlags []string) ([]string, *Refusal) {
 // warns of an issue that is closed.
 func CheckInput(r Report) ([]Warning, *Refusal) {
 	if r.Kind != KindIssue {
+		if !utf8.ValidString(r.Body) {
+			return nil, usage("the report is not valid UTF-8 text, and a brain and a forge take text: convert it (iconv -f <encoding> -t UTF-8) and run again")
+		}
 		return nil, nil
 	}
 	if r.Ref.IsPullRequest {

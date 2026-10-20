@@ -7,8 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/agent-fox-dev/aflib/issuex"
 
@@ -110,8 +113,14 @@ type LandParams struct {
 	IsDryRun func(error) bool
 	// Tree is what the submission is validated against again.
 	Tree Tree
-	// Created is the issue an earlier landing of this run created, if any.
-	Created func() (issuex.IssueRef, bool)
+	// Created is the issue an earlier landing of this run created, as that landing
+	// reported it, if any.
+	Created func() (IssueInfo, bool)
+	// Check, when it is not nil, is asked before anything is written: it is the
+	// target and the credential of a landing that the caller has not checked
+	// already. It is asked after the submission is found to carry no question,
+	// since a question lands nothing and needs neither.
+	Check func(ctx context.Context) *Refusal
 
 	Record     func(kind string, data any) error
 	Warn       func(code, message string)
@@ -167,7 +176,12 @@ func Land(ctx context.Context, p LandParams) (LandResult, error) {
 		return res, nil
 	}
 
-	original, refusal := p.original(ctx)
+	if p.Check != nil && p.Mode != LandNone {
+		if refusal := p.Check(ctx); refusal != nil {
+			return res, refusal
+		}
+	}
+	original, comments, refusal := p.original(ctx)
 	if refusal != nil {
 		return res, refusal
 	}
@@ -187,7 +201,7 @@ func Land(ctx context.Context, p LandParams) (LandResult, error) {
 	}
 	var err *Refusal
 	if p.Facts.Input.Kind == KindIssue && p.Facts.Issue != nil {
-		err = p.landOnIssue(ctx, d, body, &res)
+		err = p.landOnIssue(ctx, d, body, comments, &res)
 	} else {
 		err = p.landAsNewIssue(ctx, d, body, &res)
 	}
@@ -230,7 +244,7 @@ func (p LandParams) record(res LandResult) {
 	if labels == nil {
 		labels = []string{}
 	}
-	_ = p.Record("triage.land", map[string]any{"action": res.Action, "issue": res.Issue, "labels": labels}) // a ledger that cannot be written is the shell's warning
+	_ = p.Record("triage.land", map[string]any{"action": res.Action, "issue": res.Issue, "labels": labels}) // the callback reports a ledger it cannot write; the landing is done either way
 }
 
 // loadSubmission reads the submission of the run and validates its payload again
@@ -259,13 +273,14 @@ func (p LandParams) loadSubmission() (Diagnosis, *Refusal) {
 // original is the person's original report the body is rendered around. For an
 // issue that is to be written to, it is the report as the issue has it now,
 // with a warning when that is not what the brief had; otherwise it is the
-// report as the brief had it, from original.md.
-func (p LandParams) original(ctx context.Context) (string, *Refusal) {
+// report as the brief had it, from original.md. The comments are those of the
+// issue as it is now, for a landing that has to know whether its own is there.
+func (p LandParams) original(ctx context.Context) (string, []string, *Refusal) {
 	if p.Mode != LandNone && p.Facts.Input.Kind == KindIssue && p.Facts.Issue != nil {
 		ref := p.issueRef()
 		thread, err := p.Forge.ReadIssue(ctx, ref)
 		if err != nil {
-			return "", p.refuse(fmt.Sprintf("read %s", ref.URL()), ref.Repo, err)
+			return "", nil, p.refuse(fmt.Sprintf("read %s", ref.URL()), ref.Repo, err)
 		}
 		current, _, warning := Extract(thread.Issue.Body)
 		if warning != "" {
@@ -274,13 +289,17 @@ func (p LandParams) original(ctx context.Context) (string, *Refusal) {
 		if sha256Hex(current) != p.Facts.OriginalReportSHA256 {
 			p.warn(WarnReportChanged, fmt.Sprintf("the report in %s changed while the run was going; the diagnosis may predate the change, and the current report is kept", ref.URL()))
 		}
-		return current, nil
+		comments := make([]string, len(thread.Comments))
+		for i, c := range thread.Comments {
+			comments[i] = c.Body
+		}
+		return current, comments, nil
 	}
 	data, err := os.ReadFile(filepath.Join(p.RunDir, "original.md"))
 	if err != nil {
-		return "", &Refusal{Category: CategoryIO, Message: fmt.Sprintf("cannot read the original report of run %s: %v", p.RunID, err)}
+		return "", nil, &Refusal{Category: CategoryIO, Message: fmt.Sprintf("cannot read the original report of run %s: %v", p.RunID, err)}
 	}
-	return string(data), nil
+	return string(data), nil, nil
 }
 
 // unparsedMessage is the warning text of a body that starts with the triage
@@ -336,7 +355,7 @@ func (p LandParams) refuse(what string, repo issuex.Repo, err error) *Refusal {
 }
 
 // landOnIssue writes the diagnosis to the issue of the run.
-func (p LandParams) landOnIssue(ctx context.Context, d Diagnosis, body string, res *LandResult) *Refusal {
+func (p LandParams) landOnIssue(ctx context.Context, d Diagnosis, body string, comments []string, res *LandResult) *Refusal {
 	ref := p.issueRef()
 	info := &IssueInfo{Repo: ref.Repo.String(), Host: ref.Repo.Host, Number: ref.Number, URL: p.Facts.Issue.URL}
 
@@ -350,10 +369,13 @@ func (p LandParams) landOnIssue(ctx context.Context, d Diagnosis, body string, r
 		res.Action = ActionReplacedBody
 	} else {
 		p.warn(WarnBodyTooLong, fmt.Sprintf("the body of %s with the diagnosis would be %d bytes, more than the %d the forge takes: the diagnosis is posted as a comment, and the body is left as it is", ref.URL(), len(body), issuex.MaxBodyLength(p.Forge)))
-		planned, err = p.write("add_comment", ref.String(), func() error {
-			_, err := p.Forge.AddComment(ctx, ref, RenderDiagnosisOnly(d, p.RunID))
-			return err
-		})
+		comment := RenderDiagnosisOnly(d, p.RunID)
+		if !slices.ContainsFunc(comments, func(c string) bool { return sameText(c, comment) }) {
+			planned, err = p.write("add_comment", ref.String(), func() error {
+				_, err := p.Forge.AddComment(ctx, ref, comment)
+				return err
+			})
+		} // else a landing of this run posted it already, and landing is repeatable
 		res.Action = ActionCommented
 	}
 	if err != nil {
@@ -376,12 +398,13 @@ func (p LandParams) addLabels(ctx context.Context, ref issuex.IssueRef, res *Lan
 	if len(p.Labels) == 0 {
 		return
 	}
-	_, err := p.write("add_labels", ref.String(), func() error { return p.Forge.AddLabels(ctx, ref, p.Labels) })
-	if err != nil {
+	planned, err := p.write("add_labels", ref.String(), func() error { return p.Forge.AddLabels(ctx, ref, p.Labels) })
+	switch {
+	case err != nil:
 		p.warn(WarnLabelsFailed, fmt.Sprintf("the labels %v could not be added to %s: %v", p.Labels, ref.URL(), err))
-		return
+	case !planned:
+		res.Labels = append([]string(nil), p.Labels...)
 	}
-	res.Labels = append([]string(nil), p.Labels...)
 }
 
 // landAsNewIssue creates an issue for a report that is no issue, in the
@@ -395,10 +418,8 @@ func (p LandParams) landAsNewIssue(ctx context.Context, d Diagnosis, body string
 	}
 
 	if p.Created != nil {
-		if ref, ok := p.Created(); ok {
-			if ref.Repo.Host == "" {
-				ref.Repo.Host = target.Host
-			}
+		if info, ok := p.Created(); ok {
+			ref := issuex.IssueRef{Repo: repoOf(info.Repo, target.Host), Number: info.Number}
 			planned, err := p.write("update_issue", ref.String(), func() error {
 				_, err := p.Forge.UpdateIssue(ctx, ref, issuex.UpdateIssueRequest{Body: body})
 				return err
@@ -407,7 +428,7 @@ func (p LandParams) landAsNewIssue(ctx context.Context, d Diagnosis, body string
 				return p.refuse(fmt.Sprintf("write to %s", ref.String()), ref.Repo, err)
 			}
 			res.Action = ActionReplacedBody
-			res.Issue = &IssueInfo{Repo: ref.Repo.String(), Host: ref.Repo.Host, Number: ref.Number, URL: ref.URL()}
+			res.Issue = &IssueInfo{Repo: info.Repo, Host: firstNonEmpty(info.Host, hostOf(info.URL)), Number: info.Number, URL: info.URL}
 			if planned {
 				res.Action = ActionPlanned
 			} else {
@@ -436,8 +457,32 @@ func (p LandParams) landAsNewIssue(ctx context.Context, d Diagnosis, body string
 		url = created.URL
 	}
 	res.Action = ActionCreatedIssue
-	res.Issue = &IssueInfo{Repo: target.String(), Host: target.Host, Number: created.Number, URL: url}
+	res.Issue = &IssueInfo{Repo: target.String(), Host: firstNonEmpty(target.Host, hostOf(url)), Number: created.Number, URL: url}
 	res.Labels = append([]string(nil), p.Labels...)
 	p.artifact(Artifact{Kind: "issue", URL: url, Number: created.Number})
 	return nil
+}
+
+// sameText says whether two texts are the same to a person: a forge keeps a
+// comment as it was sent, except for the line endings and the white space at
+// its ends.
+func sameText(a, b string) bool {
+	norm := func(s string) string { return strings.TrimSpace(strings.ReplaceAll(s, "\r\n", "\n")) }
+	return norm(a) == norm(b)
+}
+
+// hostOf is the host of a URL, or empty when it is none.
+func hostOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Host
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }

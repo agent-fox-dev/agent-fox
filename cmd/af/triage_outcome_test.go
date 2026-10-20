@@ -244,7 +244,7 @@ func TestTheResultsValidateAgainstTheDeclaredSchemas_TS_08_59(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("exit code %d, error %v", code, env["error"])
 		}
-		check(t, "triage", env, "planned", []string{"x"})
+		check(t, "triage", env, "planned", []string{}) // the label is planned (a side effect), not added
 	})
 	t.Run("land", func(t *testing.T) {
 		e := newTriageEnv(t, fakeforge.GitHub)

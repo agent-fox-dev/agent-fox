@@ -72,17 +72,24 @@ of the kind, because the kind's tool and the tools the box offers are one decisi
 **Test:** `TS-08-1`, `4`, `5`, `8`, `24`, `25`, `28`, `29` (`cmd/af/triage_loop_test.go`),
 `internal/triage/loop_test.go`, `TS-08-26` (`internal/triage/kind_test.go`).
 
-## 5. A credential that the forge refuses is `auth`, also at the repository check (task 4)
+## 5. A credential that the forge refuses is `auth`, at the repository check and at a write (tasks 4 and 5)
 
-**Spec:** 08-REQ-2.7: `IsNoToken` is `auth`, not found is `forge` and not
-retryable, a rate limit or a transport error is `forge` and retryable.
+**Spec:** 08-REQ-2.7 and 08-REQ-8.7: `IsNoToken` is `auth`, not found is `forge` and
+not retryable, a rate limit or a transport error is `forge` and retryable, and any
+other write error is `forge` and not retryable.
 
 **Code:** a 401 or a 403 that is not a rate limit is neither of those. `isUnauthorized`
-(`internal/triage/preflight.go:171`) makes it `auth`, with the token variable of the
+(`internal/triage/preflight.go`) makes it `auth`, with the token variable of the
 forge as the hint, since a token that is wrong is the same trouble for the person as
-one that is missing. The retry of every other failure of a 4xx is `false`.
+one that is missing; `CheckLandTarget` uses it for the repository and `refuse`
+(`internal/triage/land.go`) for a write. The retry of every other failure of a 4xx
+is `false`, and of a 5xx on a write too, as 08-REQ-8.7 says.
 
-**Test:** `TS-08-14` (`internal/triage/preflight_test.go`).
+**Test:** `TS-08-14` (`internal/triage/preflight_test.go`),
+`TestTheRefusalsOfTheLandingCheckAreTheEnvelopesTheySay` and
+`TestAFailedWriteIsRetryableOnlyWhereTheForgeMayRecover`
+(`cmd/af/triage_loop_test.go`, `triage_edges_test.go`). Declared in the `Deviation:`
+trailer of the conformance fix (`auth-for-a-refused-credential`).
 
 ## 6. The resume argv of a question in `af triage land` names `land` (tasks 8 and 10)
 
@@ -141,3 +148,59 @@ the shell ends a cut input. `Makefile` loops `install-skills` and `uninstall-ski
 over `skills/af-*` (08-REQ-10.3), since `skills/` now holds Go files as well.
 `docs/doc.go` makes `docs` a package of its own, so that `TS-08-70` has somewhere to
 live and `make doc` has something to document.
+
+## 11. `Brief.Tools` holds the box tools, and `file_diagnosis` is the kind's (task 9)
+
+**Spec:** 08-REQ-4.1 and R4: the `Brief` has `Tools` set to the triage allowlist, which
+includes `file_diagnosis`.
+
+**Code:** the allowlist is `Allowlist` (`internal/triage/kind.go`), and the loop hands
+the brain `BoxTools` of it: the tools of the box, without the terminating tool. The
+driver adds the terminating tool of `Brief.Kind` itself (`Kind.ToolName`, here
+`file_diagnosis`), and a name in `Tools` that the box does not have is refused. The
+brain is offered the same nine names either way.
+
+**Test:** `TS-08-24` (`cmd/af/triage_loop_test.go`), `TS-08-26` (`internal/triage/kind_test.go`).
+
+## 12. The extraction of the original report refuses more than the spec says (conformance)
+
+**Spec:** 08-REQ-7.3 to 7.5: a body that starts with the marker has its original
+between the first begin marker and the last end marker, and is wholly the original,
+with `original_report_unparsed`, only when the markers cannot be paired.
+
+**Code:** `Extract` (`internal/triage/body.go`) takes the whole body as the original, with
+the warning, in three more cases, since each would lose the words of a person:
+a first line that starts like the marker and is not it, a body whose heading
+`## Original report` is missing, and any text after the end marker but the close of the
+details block (white space aside). A body that a browser saved with CRLF line endings
+is read with LF endings. `Extract(Render(d, s))` is still `s` for every string.
+
+**Test:** `TestABodyThatWasSavedWithCRLFIsStillOurs`, `TestTextWrittenAfterTheOriginalReportIsNotLostSilently`,
+`TestABrokenMarkerLineIsNotAForeignBody`, `TS-08-48` (`internal/triage/body_test.go`). Declared in the
+`Deviation:` trailer of the conformance fix (`extract-refuses-lossy-bodies`).
+
+## 13. The validator is stricter and looser than the rules in a few places (task 2)
+
+**Spec:** R5: "1 to N bytes" for the text fields; "one line" for the title; a path
+resolves when it names a regular file in the file view.
+
+**Code:** a string of nothing but white space is empty (`validate.go`, `checkBytes`), so it is
+refused where a field is required; a title is one line when it has no CR and no LF (a U+2028 or a
+form feed does not break it); a path with a trailing slash (`real/f.go/`) is cleaned and resolves; and
+a file of the view that is a link out of the checkout, or the directory of another
+repository, is refused (`RegularFile`, `internal/triage/hosttree.go`). A refusal lists at most 50
+problems and says how many were left out, which the spec leaves unbounded.
+
+**Test:** `TS-08-32`, `TestEveryLimitHoldsAtTheLimitAndNoFurther`, `TestARefusalListsAtMostFiftyProblems`,
+`TestALinkOrANestedRepositoryIsNoFileToCite` (`internal/triage/validate_test.go`).
+
+## 14. What is not done (conformance)
+
+Three things the review found are not changed, and are listed as unmet in the pull
+request: `af triage "<text>" --repo o/r` in a checkout with no origin and no
+`GITHUB_API_URL` is refused by the shell (`forgeFor`, `internal/toolio/forge.go`) as having no
+repository, since it cannot tell the forge, which is the shell's behaviour for every command
+and not triage's; the `next` entry that lands again does not repeat the `--label` values the loop
+was given, as 08-REQ-9.6 words it; and a report section that is cut after several parts have
+filled it nearly to the cap can still end a few bytes over, since a part that is already in is
+not cut again.

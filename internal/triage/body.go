@@ -101,23 +101,36 @@ func diagnosisPart(d Diagnosis, runID, tail string) string {
 // Extract splits a body into the person's original report and the previous
 // diagnosis, and says whether it could not:
 //
-//   - a body whose first line is not the triage marker is wholly the original;
+//   - a body whose first line does not start with the triage marker is wholly the
+//     original;
 //   - a body that is ours has its original between the first begin marker
 //     followed by a newline and the last newline followed by the end marker, and
 //     its previous diagnosis between the first line and the original-report
-//     heading;
-//   - a body that starts with the marker but whose markers cannot be paired is
-//     wholly the original, with the warning original_report_unparsed: losing a
-//     person's words is worse than nesting an old diagnosis in the report.
+//     heading. A body that a browser saved with CRLF line endings is ours all the
+//     same, and is read with LF endings, so its original has them too;
+//   - a body that starts with the marker but whose first line is not the marker,
+//     or whose markers cannot be paired, or that has anything after the original
+//     but the close of its details block, is wholly the original, with the warning
+//     original_report_unparsed: losing a person's words is worse than nesting an
+//     old diagnosis in the report.
 func Extract(body string) (original, previous, warning string) {
 	first, _, _ := strings.Cut(body, "\n")
-	if !strings.HasPrefix(first, markerPrefix) || !strings.HasSuffix(first, markerSuffix) {
+	if !strings.HasPrefix(first, markerPrefix) {
 		return body, "", ""
+	}
+	if line, ok := strings.CutSuffix(first, "\r"); ok && strings.HasSuffix(line, markerSuffix) {
+		return Extract(strings.ReplaceAll(body, "\r\n", "\n"))
+	}
+	if !strings.HasSuffix(first, markerSuffix) {
+		return body, "", WarnOriginalUnparsed
 	}
 	begin := strings.Index(body, BeginMarker+"\n")
 	end := strings.LastIndex(body, "\n"+EndMarker)
 	if begin < 0 || end < begin+len(BeginMarker)+1 {
 		return body, "", WarnOriginalUnparsed
+	}
+	if strings.TrimSpace(body[end+1+len(EndMarker):]) != "</details>" {
+		return body, "", WarnOriginalUnparsed // something was written after the original report
 	}
 	original = body[begin+len(BeginMarker)+1 : end]
 

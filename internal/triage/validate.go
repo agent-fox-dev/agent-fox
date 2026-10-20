@@ -84,10 +84,18 @@ type Tree struct {
 	// Files is the file view of the tree: slash-separated paths relative to its
 	// root, regular files only.
 	Files []string
+	// Regular says whether a file of the view is a regular file, or a link that
+	// leads to one inside the tree; nil takes every file of the view for one. The
+	// view lists a link, and the directory of another repository, as a file.
+	Regular func(path string) bool
 	// Lines is the number of lines of a file of the view; nil when it cannot be
 	// told, which leaves the upper bound of a line number unchecked.
 	Lines func(path string) (int, error)
 }
+
+// maxProblems is how many problems a refusal lists: a payload made of nothing but
+// mistakes would otherwise be answered with more text than it holds.
+const maxProblems = 50
 
 // Validate checks a payload against the rules of a diagnosis and the tree, and
 // returns the diagnosis in its normalized form (paths cleaned, `path:N` split)
@@ -102,6 +110,9 @@ func Validate(payload []byte, tree Tree) (Diagnosis, []Problem) {
 		}
 		return strings.Compare(a.Message, b.Message)
 	})
+	if n := len(v.problems); n > maxProblems {
+		v.problems = append(v.problems[:maxProblems:maxProblems], Problem{Message: fmt.Sprintf("and %d more problems, which are not listed: correct these first", n-maxProblems)})
+	}
 	return d, v.problems
 }
 
@@ -454,11 +465,17 @@ func (v *validator) resolve(cited string, hasLine bool) (clean string, fromPath 
 		return unresolved("%s is not part of the repository's files", first+"/")
 	}
 	if v.files[p] {
+		if !v.regular(p) {
+			return unresolved("it is a link that leads out of the repository or to something that is no file, or the directory of another repository; cite a file")
+		}
 		return p, 0, false, ""
 	}
 	if !hasLine {
 		if m := colonLine.FindStringSubmatch(p); m != nil && v.files[m[1]] {
 			if n, err := strconv.Atoi(m[2]); err == nil {
+				if !v.regular(m[1]) {
+					return unresolved("%s is a link that leads out of the repository or to something that is no file, or the directory of another repository; cite a file", m[1])
+				}
 				return m[1], n, true, ""
 			}
 		}
@@ -472,6 +489,9 @@ func (v *validator) resolve(cited string, hasLine bool) (clean string, fromPath 
 	}
 	return unresolved("%s", msg)
 }
+
+// regular says whether a file of the view is one a diagnosis may cite.
+func (v *validator) regular(p string) bool { return v.tree.Regular == nil || v.tree.Regular(p) }
 
 // underRoot makes an absolute path relative to the root of the tree it is
 // under.

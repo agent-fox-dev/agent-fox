@@ -72,6 +72,7 @@ func TestLandBuildsItsClientForTheRecordedRepositoryAndClosesIt_TS_08_6(t *testi
 		t.Fatal(err)
 	}
 
+	e.app.Version = "v7.7.7"
 	var options []issuex.Options
 	closes := 0
 	build := e.forge.NewForge("test-token")
@@ -91,7 +92,7 @@ func TestLandBuildsItsClientForTheRecordedRepositoryAndClosesIt_TS_08_6(t *testi
 			t.Fatalf("NewForge was called %d times, want once", len(options))
 		}
 		o := options[0]
-		if o.Repo != (issuex.Repo{Owner: "o", Name: "r", Host: "ghe.example.com"}) || !strings.HasPrefix(o.UserAgent, "af/") || o.Dir != e.dir {
+		if o.Repo != (issuex.Repo{Owner: "o", Name: "r", Host: "ghe.example.com"}) || o.UserAgent != "af/v7.7.7" || o.Dir != e.dir {
 			t.Errorf("options = %+v, want the recorded repository with its host, af/<version> and --dir %s", o, e.dir)
 		}
 		if closes != 1 {

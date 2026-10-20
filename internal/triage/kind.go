@@ -44,7 +44,12 @@ func Kind(hostDir string, extraRoots ...string) submission.Kind {
 	if resolved, err := filepath.EvalSymlinks(hostDir); err == nil && resolved != hostDir {
 		roots = append(roots, resolved)
 	}
-	roots = append(roots, extraRoots...)
+	for _, extra := range extraRoots {
+		roots = append(roots, extra)
+		if resolved, err := filepath.EvalSymlinks(extra); err == nil && resolved != extra {
+			roots = append(roots, resolved)
+		}
+	}
 	return submission.Kind{
 		Name:        KindName,
 		ToolName:    ToolName,
@@ -55,7 +60,7 @@ func Kind(hostDir string, extraRoots ...string) submission.Kind {
 			if err != nil {
 				return nil, []submission.Problem{{Message: "the files of the repository could not be listed to check the paths against: " + err.Error()}}
 			}
-			d, problems := Validate(payload, Tree{Roots: roots, Files: files, Lines: linesIn(tree)})
+			d, problems := Validate(payload, Tree{Roots: roots, Files: files, Regular: func(p string) bool { return RegularFile(hostDir, p) }, Lines: linesIn(tree)})
 			if len(problems) > 0 {
 				return nil, asSubmission(problems)
 			}
@@ -76,12 +81,18 @@ func linesIn(tree fs.FS) func(string) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		n := bytes.Count(data, []byte{'\n'})
-		if len(data) > 0 && data[len(data)-1] != '\n' {
-			n++
-		}
-		return n, nil
+		return countLines(data), nil
 	}
+}
+
+// countLines is the number of lines of a text: its line breaks, and one more for
+// a last line that has none.
+func countLines(data []byte) int {
+	n := bytes.Count(data, []byte{'\n'})
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		n++
+	}
+	return n
 }
 
 // asSubmission is the problems as the submission protocol has them.

@@ -165,7 +165,7 @@ func TestBriefWritesTheRunFilesWithConsistentHashes_TS_08_3(t *testing.T) {
 	if facts.FormatVersion != 1 || facts.Input.Kind != "issue" || facts.Input.Origin != e.forge.IssueURL(7) || facts.Input.Fingerprint != "o/r#7" {
 		t.Errorf("triage.json input = %+v (format %d)", facts.Input, facts.FormatVersion)
 	}
-	if facts.Target.Repo != "o/r" || facts.Issue.Repo != "o/r" || facts.Issue.Number != 7 || facts.Issue.Host != "github.com" || facts.Issue.URL != e.forge.IssueURL(7) {
+	if facts.Target.Repo != "o/r" || facts.Target.Host != "github.com" || facts.Issue.Repo != "o/r" || facts.Issue.Number != 7 || facts.Issue.Host != "github.com" || facts.Issue.URL != e.forge.IssueURL(7) {
 		t.Errorf("triage.json target %+v, issue %+v", facts.Target, facts.Issue)
 	}
 	if string(original) != originalReport {
@@ -224,8 +224,8 @@ func TestBriefPlacesTheEarlierQuestionAndTheAnswer_TS_08_21(t *testing.T) {
 			t.Errorf("previous_question = %v, want false", resultOf(t, env)["previous_question"])
 		}
 		task := taskBlockOf(t, readFile(t, filepath.Join(e.runDir(env), "brief.md")))
-		if !strings.Contains(task, "\nB\n") || strings.Contains(task, "The question you asked") {
-			t.Errorf("the task block should hold the answer alone:\n%s", task)
+		if !strings.Contains(task, "A person's answer:\n```\nB\n```") || strings.Contains(task, "The question you asked") {
+			t.Errorf("the task block should hold the answer alone, as the answer of a person:\n%s", task)
 		}
 	})
 
@@ -365,4 +365,44 @@ func checkSchema(t *testing.T, name string, typ any) {
 func git2(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	return strings.TrimSpace(gitDo(t, dir, args...))
+}
+
+// TestTheOriginalReportIsKeptExactlyAsTheIssueHasIt guards 08-REQ-1.3: original.md
+// holds the bytes of the report, edge white space and line endings included, since
+// the body of the issue is built around them.
+func TestTheOriginalReportIsKeptExactlyAsTheIssueHasIt(t *testing.T) {
+	e := newTriageEnv(t, fakeforge.GitHub)
+	const body = "  line one\r\nline two  \n\n"
+	e.forge.AddIssue(fakeforge.Issue{Number: 9, Title: "Edges", Body: body})
+
+	code, env := e.run("", "triage", "brief", e.forge.IssueURL(9), "--dir", e.dir)
+
+	if code != 0 {
+		t.Fatalf("exit code %d, error %v", code, env["error"])
+	}
+	if got := string(readFile(t, filepath.Join(e.runDir(env), "original.md"))); got != body {
+		t.Errorf("original.md = %q, want %q", got, body)
+	}
+}
+
+// TestABriefThatCutsTheReportSaysSoInTheEnvelope guards 08-REQ-3.4 at the command:
+// the result says the report was cut, and so does a warning that is the brief's
+// own, besides the one the shell raised for the input.
+func TestABriefThatCutsTheReportSaysSoInTheEnvelope(t *testing.T) {
+	e := newTriageEnv(t, fakeforge.GitHub)
+	e.forge.AddIssue(fakeforge.Issue{Number: 12, Title: "Big", Body: strings.Repeat("x", 140000)})
+
+	code, env := e.run("", "triage", "brief", e.forge.IssueURL(12), "--dir", e.dir)
+
+	if code != 0 || resultOf(t, env)["report_truncated"] != true {
+		t.Fatalf("exit code %d, result %v, want report_truncated", code, env["result"])
+	}
+	var own bool
+	for _, w := range env["warnings"].([]any) {
+		m := w.(map[string]any)
+		own = own || (m["code"] == "input_truncated" && strings.Contains(m["message"].(string), "in the brief"))
+	}
+	if !own {
+		t.Errorf("warnings = %v, want input_truncated from the brief", env["warnings"])
+	}
 }
