@@ -51,7 +51,7 @@
       "done_when": [
         "`go test ./internal/gitx/... ./internal/checks/... -count=1` passes"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -96,7 +96,7 @@
         "`go test ./internal/project/... -count=1` passes",
         "Detect on this repository returns go first and exactly [make check]"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -136,7 +136,7 @@
       "done_when": [
         "`go test ./cmd/af/... ./internal/toolio/... -count=1` passes"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -190,7 +190,7 @@
       "done_when": [
         "`go test ./internal/checks/... ./cmd/af/... -count=1` passes"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -238,7 +238,7 @@
       "done_when": [
         "`go test ./internal/checks/... ./cmd/af/... -count=1` passes"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -286,7 +286,7 @@
       "done_when": [
         "`go test ./internal/conform/... ./cmd/af/... -count=1` passes"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -326,7 +326,7 @@
       "done_when": [
         "`go test ./internal/policy/... -count=1` passes"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -372,7 +372,7 @@
       "done_when": [
         "`go test ./internal/policy/... ./cmd/af/... -count=1` passes"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -415,7 +415,7 @@
       "done_when": [
         "`go test ./internal/repomap/... ./cmd/af/... -count=1` passes"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -470,7 +470,7 @@
       "done_when": [
         "`make check` passes offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -501,7 +501,7 @@
       "done_when": [
         "`make check` passes offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     }
   ]

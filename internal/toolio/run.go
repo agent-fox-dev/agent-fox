@@ -48,16 +48,20 @@ func (a *App) execute(sigCtx context.Context, cmd *Command, run *Run, timeout ti
 		done <- commandResult{out, err}
 	}()
 
+	grace := a.grace()
+	if cmd.Grace > 0 {
+		grace = cmd.Grace
+	}
 	var res commandResult
 	select {
 	case res = <-done:
 	case <-ctx.Done():
-		grace := time.NewTimer(a.grace())
-		defer grace.Stop()
+		wait := time.NewTimer(grace)
+		defer wait.Stop()
 		select {
 		case res = <-done:
-		case <-grace.C:
-			return Outcome{}, stopped(sigCtx, ctx, timeout, a.grace(), true)
+		case <-wait.C:
+			return Outcome{}, stopped(sigCtx, ctx, timeout, grace, true)
 		}
 	}
 
@@ -65,7 +69,7 @@ func (a *App) execute(sigCtx context.Context, cmd *Command, run *Run, timeout ti
 	if errors.As(res.err, &panicked) {
 		return res.out, res.err
 	}
-	if f := stopped(sigCtx, ctx, timeout, a.grace(), false); f != nil && (res.err != nil || f.Category == CategoryTimeout) {
+	if f := stopped(sigCtx, ctx, timeout, grace, false); f != nil && (res.err != nil || f.Category == CategoryTimeout) {
 		return Outcome{}, f
 	}
 	return res.out, res.err

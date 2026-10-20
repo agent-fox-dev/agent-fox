@@ -14,11 +14,13 @@ import (
 	"regexp"
 	"sync"
 	"time"
+
+	"github.com/agent-fox-dev/agentfox/internal/agentdir"
 )
 
 const (
 	// agentDir is where af keeps its local state under a checkout.
-	agentDir = ".agent-fox"
+	agentDir = agentdir.Name
 	// runsDir holds the run directories, inside agentDir.
 	runsDir = "run"
 	// runIDAttempts is how many ids are drawn before a collision is a failure.
@@ -84,13 +86,13 @@ func NewRunDir(dir string, now func() time.Time, rnd io.Reader) (*RunDir, error)
 	if failure := checkDir(abs); failure != nil {
 		return nil, failure
 	}
-	agent := filepath.Join(abs, agentDir)
+	agent, err := agentdir.Ensure(abs)
+	if err != nil {
+		return nil, &Failure{Category: CategoryIO, Message: fmt.Sprintf("cannot create %s: %v", filepath.Join(abs, agentDir), err)}
+	}
 	runs := filepath.Join(agent, runsDir)
 	if err := os.MkdirAll(runs, 0o755); err != nil {
 		return nil, &Failure{Category: CategoryIO, Message: fmt.Sprintf("cannot create %s: %v", runs, err)}
-	}
-	if err := ensureGitignore(agent); err != nil {
-		return nil, &Failure{Category: CategoryIO, Message: fmt.Sprintf("cannot create the .gitignore of %s: %v", agent, err)}
 	}
 
 	for range runIDAttempts {
@@ -108,25 +110,6 @@ func NewRunDir(dir string, now func() time.Time, rnd io.Reader) (*RunDir, error)
 		}
 	}
 	return nil, &Failure{Category: CategoryIO, Message: fmt.Sprintf("every one of %d run ids was taken in %s", runIDAttempts, runs)}
-}
-
-// ensureGitignore creates agent/.gitignore, which ignores everything in
-// agent including itself, unless it is there. It is opened exclusively, so
-// that runs starting together neither fail nor overwrite one another, and a
-// file that is there already is left as it is.
-func ensureGitignore(agent string) error {
-	f, err := os.OpenFile(filepath.Join(agent, ".gitignore"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if errors.Is(err, fs.ErrExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	_, werr := f.WriteString("*\n")
-	if cerr := f.Close(); werr == nil {
-		werr = cerr
-	}
-	return werr
 }
 
 // OpenRunDir opens the existing run id under dir, for the commands that

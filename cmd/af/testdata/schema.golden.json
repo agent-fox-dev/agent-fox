@@ -419,5 +419,582 @@
       }
     }
   ],
-  "$defs": {}
+  "$defs": {
+    "gate_compare": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "before",
+        "after",
+        "verdict",
+        "landable",
+        "rows"
+      ],
+      "description": "What two stored gate results say together, check by check.",
+      "properties": {
+        "before": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "label",
+            "passed"
+          ],
+          "description": "The result --before named.",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{12}$"
+            },
+            "label": {
+              "type": "string",
+              "description": "The label the argument was, else the label the result was stored under; empty for none."
+            },
+            "passed": {
+              "type": "boolean"
+            }
+          }
+        },
+        "after": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "label",
+            "passed"
+          ],
+          "description": "The result --after named.",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{12}$"
+            },
+            "label": {
+              "type": "string",
+              "description": "The label the argument was, else the label the result was stored under; empty for none."
+            },
+            "passed": {
+              "type": "boolean"
+            }
+          }
+        },
+        "verdict": {
+          "enum": [
+            "regressed",
+            "still_failing",
+            "pass_was_already_failing",
+            "pass",
+            "unverified"
+          ],
+          "description": "The first of regressed, still_failing, pass_was_already_failing and pass that a row carries; unverified when either result has no checks."
+        },
+        "landable": {
+          "type": "boolean",
+          "description": "True only for pass and pass_was_already_failing."
+        },
+        "rows": {
+          "type": "array",
+          "description": "One row per check, in the order of the --before result; empty when the verdict is unverified.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "before",
+              "after",
+              "verdict"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "before": {
+                "enum": [
+                  "pass",
+                  "fail",
+                  "error",
+                  "timeout"
+                ]
+              },
+              "after": {
+                "enum": [
+                  "pass",
+                  "fail",
+                  "error",
+                  "timeout"
+                ]
+              },
+              "verdict": {
+                "enum": [
+                  "regressed",
+                  "still_failing",
+                  "pass_was_already_failing",
+                  "pass"
+                ],
+                "description": "pass: passed before and after; pass_was_already_failing: did not pass before, passes now; regressed: passed before, does not now; still_failing: passes in neither. fail, error and timeout all count as not passing."
+              }
+            }
+          }
+        }
+      }
+    },
+    "gate_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "tree",
+        "table_source",
+        "hermetic",
+        "label",
+        "cached",
+        "passed",
+        "checks",
+        "skipped"
+      ],
+      "description": "What the checks of the gate said about a tree, run now or stored from an earlier run.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{12}$",
+          "description": "The first 12 hex characters of the SHA-256 of the tree hash, the checks and the runner mode. The result is stored in .agent-fox/gate/<id>/."
+        },
+        "tree": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "The tree hash the checks ran on."
+        },
+        "table_source": {
+          "enum": [
+            "file",
+            "detected"
+          ],
+          "description": "Where the table of checks came from."
+        },
+        "hermetic": {
+          "type": "boolean",
+          "description": "Whether the checks ran with a clean HOME and no git configuration."
+        },
+        "label": {
+          "type": "string",
+          "description": "The label this result was asked for under; empty when there was none."
+        },
+        "cached": {
+          "type": "boolean",
+          "description": "Whether the result was stored and no check ran."
+        },
+        "passed": {
+          "type": "boolean",
+          "description": "True only when at least one check ran and every check that ran passed."
+        },
+        "checks": {
+          "type": "array",
+          "description": "The checks that ran, in table order.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "status",
+              "exit_code",
+              "duration_ms",
+              "log",
+              "tail"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "pass",
+                  "fail",
+                  "error",
+                  "timeout"
+                ],
+                "description": "pass: exit 0; fail: another exit code; error: the program could not start; timeout: the check outlived its deadline and was stopped."
+              },
+              "exit_code": {
+                "type": "integer",
+                "description": "-1 when the check has none: it did not start, or was stopped."
+              },
+              "duration_ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "log": {
+                "type": "string",
+                "description": "The full output of the check, relative to --dir."
+              },
+              "tail": {
+                "type": "string",
+                "description": "The last 40 lines of the output, at most 4096 bytes."
+              }
+            }
+          }
+        },
+        "skipped": {
+          "type": "array",
+          "description": "The checks that did not run.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "reason"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string",
+                "description": "unavailable: the program cannot be run on this machine."
+              }
+            }
+          }
+        }
+      }
+    },
+    "guard_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decision",
+        "rule",
+        "reason",
+        "tool",
+        "segment"
+      ],
+      "description": "Whether a brain may make a tool call.",
+      "properties": {
+        "decision": {
+          "enum": [
+            "allow",
+            "deny"
+          ]
+        },
+        "rule": {
+          "enum": [
+            "",
+            "unparseable",
+            "hands_guard",
+            "git_mutation",
+            "suite_command",
+            "af_command",
+            "program_not_allowed",
+            "protected_path",
+            "outside_dir"
+          ],
+          "description": "The rule that denied the call; empty for an allow."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Why, in words a model can act on; empty for an allow."
+        },
+        "tool": {
+          "type": "string",
+          "description": "The tool the call was for."
+        },
+        "segment": {
+          "type": "string",
+          "description": "The part of the call that decided it: the command, or the path; empty for an allow."
+        }
+      }
+    },
+    "lang_detect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "languages",
+        "gate",
+        "suite",
+        "programs"
+      ],
+      "description": "What a repository is written in and how it is checked.",
+      "properties": {
+        "languages": {
+          "type": "array",
+          "description": "The languages found in the file view, most files first and the name breaking a tie.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "files"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "files": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "manifest": {
+                "type": "string",
+                "description": "The file at the root that marks the project, when there is one."
+              }
+            }
+          }
+        },
+        "gate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "checks"
+          ],
+          "description": "The effective gate table.",
+          "properties": {
+            "source": {
+              "enum": [
+                "file",
+                "detected"
+              ],
+              "description": "file: .agent-fox/gate.json; detected: the repository's own files."
+            },
+            "checks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "argv",
+                  "kind",
+                  "source",
+                  "available"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "argv": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "The command, with no shell."
+                  },
+                  "kind": {
+                    "enum": [
+                      "lint",
+                      "test",
+                      "check"
+                    ],
+                    "description": "check is lint and test together."
+                  },
+                  "source": {
+                    "type": "string",
+                    "description": "Where the check came from, for example Makefile:check."
+                  },
+                  "available": {
+                    "type": "boolean",
+                    "description": "Whether argv[0] can be run on this machine. It never changes which checks are selected."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "suite": {
+          "type": "array",
+          "description": "The command forms that count as the full test suite.",
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "programs": {
+          "type": "array",
+          "description": "The programs a gate may run.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "map": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "map",
+        "tokens",
+        "estimated_tokens",
+        "level",
+        "files_total",
+        "files_outlined",
+        "truncated"
+      ],
+      "description": "A map of the repository that fits a token budget.",
+      "properties": {
+        "map": {
+          "type": "string",
+          "description": "The map: each directory as path/ (the root as ./), each file below it indented two spaces, and its declarations after it as <kind> <name> L<line>, joined by ·."
+        },
+        "tokens": {
+          "type": "integer",
+          "minimum": 200,
+          "maximum": 100000,
+          "description": "The budget."
+        },
+        "estimated_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The size of the map in tokens, estimated as its bytes divided by 4, rounded up. At most the budget."
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6,
+          "description": "The first level of the ladder whose output fits the budget: 1 every declaration; 2 none for test files; 3 the declarations of other files capped at 20, 10, 5, 2 or 1, with … +N more; 4 file names only; 5 directories only, as path/ (N files); 6 directories cut off at the budget, then … N more directories."
+        },
+        "files_total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The files in the file view."
+        },
+        "files_outlined": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The files whose declarations were read; 0 when the outliner was skipped."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True for any level above 1."
+        }
+      }
+    },
+    "revert-check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outcome",
+        "reason",
+        "closes",
+        "since",
+        "test_files",
+        "reverted_files",
+        "after",
+        "reverted",
+        "restored"
+      ],
+      "description": "Whether the tests of a change fail without the rest of the change.",
+      "properties": {
+        "outcome": {
+          "enum": [
+            "proven",
+            "not_proven",
+            "inconclusive",
+            "no_changes",
+            "no_code_changes",
+            "no_test_changes"
+          ],
+          "description": "proven: a test check fails on the tree with the non-test changes reverted. not_proven: they all pass. inconclusive: the tests could not be measured. The others: nothing to measure."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Why, as a code: for example tests_fail_without_the_change, after_not_green or no_test_check."
+        },
+        "closes": {
+          "type": "boolean",
+          "description": "True only for proven."
+        },
+        "since": {
+          "type": "string",
+          "description": "The commit --since resolved to."
+        },
+        "test_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The changed paths that are tests; they stay as they are."
+        },
+        "reverted_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The changed paths that are not tests and were set back to the commit while the tests ran."
+        },
+        "after": {
+          "type": "string",
+          "description": "The id of the gate result for the current tree; empty when the tree was not measured."
+        },
+        "reverted": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "passed",
+            "checks"
+          ],
+          "description": "The gate result of the reverted tree; null when nothing was reverted.",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{12}$"
+            },
+            "passed": {
+              "type": "boolean"
+            },
+            "checks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "status",
+                  "exit_code",
+                  "duration_ms",
+                  "log",
+                  "tail"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "enum": [
+                      "pass",
+                      "fail",
+                      "error",
+                      "timeout"
+                    ]
+                  },
+                  "exit_code": {
+                    "type": "integer"
+                  },
+                  "duration_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "log": {
+                    "type": "string"
+                  },
+                  "tail": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "restored": {
+          "type": "boolean",
+          "description": "True when the tree and the index are as they were: always, for a result that is not a failure."
+        }
+      }
+    }
+  }
 }

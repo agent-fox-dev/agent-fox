@@ -8,11 +8,13 @@ exit codes, coded warnings, a stop on a question that is resumed with
 `--context`, a `--dry-run` that cannot write to the forge, a fetchable
 schema, and a git-ignored run directory.
 
-**This release registers no work command.** The binary answers `--version`,
-`--schema` and `help`; `af` with no arguments, or with a command it does not
-know, prints a `usage` envelope and exits 2. The commands of later specs
-(`triage`, `fix`, `gate run`, …) register on the shell and get everything
-below.
+**This release registers six work commands, [`lang detect`](#lang-detect),
+[`gate run`](#gate-run), [`gate compare`](#gate-compare),
+[`revert-check`](#revert-check), [`guard check`](#guard-check) and
+[`map`](#map).** The binary also answers `--version`, `--schema` and `help`; `af` with no arguments, or with a command it does not
+know, prints a `usage` envelope and exits 2. The other commands of this scope
+and of later specs (`triage`, `fix`, …) register on the shell and get
+everything below.
 
 ```
 $ af --version
@@ -75,6 +77,510 @@ flag:
 | `--dry-run` | Send no write request to the forge. See [--dry-run](#--dry-run). |
 | `--repo <owner/repo>` | The repository to work on. |
 | `--timeout <duration>` | Stop the command after this long, such as `90s` or `15m`; `0` means no limit. The command declares the default. |
+
+## Commands
+
+### lang detect
+
+```
+af lang detect [--dir DIR] [--write] [--timeout DURATION]
+```
+
+Reports what the repository at `--dir` is written in and how it is checked.
+It reads files. In a git work tree it runs `git rev-parse` and `git ls-files`
+to list them and nothing else. It builds no forge client, calls no model, opens
+no network connection and creates no run directory, and without `--write` it
+writes nothing at all. The default `--timeout` is 1 minute.
+
+| Flag | Meaning |
+|---|---|
+| `--write` | Store the freshly detected gate table in `.agent-fox/gate.json` (see [configuration](configuration.md)). Any `gate.json` there now is ignored, one that does not parse included, and replaced. The file is written through a temporary file and a rename, and is an artifact of kind `gate_file`. |
+
+The result (its schema is `lang_detect` under `$defs`) holds:
+
+| Field | Meaning |
+|---|---|
+| `languages` | `[{name, files, manifest?}]`: each language with its file count, most files first and the name breaking a tie. The files are the file view (git's tracked and untracked-not-ignored files in a work tree, a directory walk elsewhere, never `.git/` or `.agent-fox/`), classified by extension as `go`, `python`, `javascript`, `typescript`, `rust`, `java`, `kotlin`, `ruby`, `c`, `c++`, `c#`, `php`, `scala`, `lua` or `bash`. `manifest` is the file at the root that marks the project, when there is one. Empty for an empty directory. |
+| `gate` | `{source, checks}`: the effective gate table. `source` is `file` when `.agent-fox/gate.json` gave it and `detected` otherwise. Each check is `{name, argv, kind, source, available}`: `argv` is the command with no shell; `kind` is `lint`, `test` or `check` (both); `source` is where it came from (`Makefile:check`, `go.mod`, `gate.json`); `available` says whether `argv[0]` can be run on this machine. |
+| `suite` | The command forms that count as the full test suite: the gate's checks, `make check` and `make test` where the Makefile has those targets, and the forms of each language. |
+| `programs` | The programs a gate may run: the first word of each check, the toolchain of each language found, and the first word of each check a manifest at the root gives, whether or not there are files of its language (`cargo` for a `Cargo.toml` with no `.rs` file). |
+
+Without a `gate.json` the table is detected from the files at the root only,
+in this order, and the first rule that gives a check decides:
+
+1. A `GNUmakefile`, `makefile` or `Makefile` with a `check` target gives
+   `make check`.
+2. Otherwise a Makefile with a `test` target gives `make lint` (when it has
+   that target too) and `make test`.
+3. Otherwise each manifest present adds its checks, in the order Go, Python,
+   Node, Rust, Java: `go vet ./...` and `go test ./...` for `go.mod`;
+   `pytest` (when `pytest.ini`, a root `conftest.py` or the name `pytest` in
+   `pyproject.toml`, `setup.cfg` or a `requirements*.txt` shows it) or
+   `python -m unittest discover` for a Python manifest, behind `uv run` with
+   `uv.lock` or `poetry run` with `poetry.lock`, and `ruff check .` when ruff
+   is configured; `<pm> test` (unless it is npm's placeholder) and `<pm> run
+   lint` for the scripts of `package.json`, with `pnpm`, `yarn` or `bun` by
+   lockfile and `npm` otherwise; `cargo test` for `Cargo.toml`;
+   `./mvnw test` or `mvn -q test` for `pom.xml` and `./gradlew test` or
+   `gradle test` for `build.gradle(.kts)`, the wrapper when it exists.
+
+Which checks are selected, and their order and argv, depend on the file view
+and on nothing else of the machine: not on which programs are on `PATH`. Only
+`available` does. (The file view is git's list when `git` can be run in a work
+tree and a directory walk when it cannot, so a machine without `git` sees the
+ignored files too, and may select other checks.)
+
+| Outcome | When |
+|---|---|
+| `done` | Always, when the repository could be read. A program that is not available is a warning, `check_unavailable`, once per check. |
+| `failed`/`config` | `.agent-fox/gate.json` cannot be used: it cannot be read, does not parse, has a field that is not described in [configuration](configuration.md#gatejson), is followed by more than the one document, names a version other than 1, or holds a check that cannot run (no `argv`, a repeated `name`, a `kind` that is not `lint`, `test` or `check`). The message names the file, and the Makefile is not used as a fallback. |
+| `failed`/`io` | `--dir` cannot be read or is not a directory, or `gate.json` cannot be written. |
+
+On this repository:
+
+```json
+{
+  "languages": [{"name": "go", "files": 57, "manifest": "go.mod"}],
+  "gate": {
+    "source": "detected",
+    "checks": [
+      {"name": "make check", "argv": ["make", "check"], "kind": "check", "source": "Makefile:check", "available": true}
+    ]
+  },
+  "suite": [["make", "check"], ["make", "test"], ["go", "vet", "./..."], ["go", "test", "./..."]],
+  "programs": ["make", "go", "gofmt"]
+}
+```
+
+(The result is indented and the arrays are spread over lines in the real
+output; the count of Go files is the repository's at the time.)
+
+### gate run
+
+```
+af gate run [--dir DIR] [--label LABEL] [--hermetic] [--no-cache] [--timeout DURATION]
+```
+
+Runs the checks of the gate table (the `gate` of [lang detect](#lang-detect))
+on the tree in `--dir` and reports what they said, or returns the result
+stored for that tree. It builds no forge client, calls no model, opens no
+network connection and creates no run directory; it writes only under
+`.agent-fox/` (making the directory and its `.gitignore` first, so that
+nothing it writes shows in `git status`), and with `--hermetic` in a temporary
+home in the system's temporary directory. The default `--timeout` is 30
+minutes.
+
+| Flag | Meaning |
+|---|---|
+| `--label <label>` | Name the result: the result's `label`, and `labels.json` (below) maps the label to the result's id, on a hit as well as after a run. A label is a lower-case letter and up to 31 lower-case letters, digits, `_` or `-`, and is not spelled like an id (12 hex characters); anything else is a `usage` error before any check runs. |
+| `--hermetic` | Run the checks with a clean environment: a temporary `HOME` that is removed afterwards, whether the run completed, failed or was cancelled (a read-only directory in it, such as Go's module cache, included), no git configuration and no credential prompt. A download cache that already exists in the real home (Go's, Cargo's, npm's, uv's and pip's) is used where it is; one that does not exist is made in the temporary home and goes with it. |
+| `--no-cache` | Run the checks even when a result is stored for this tree, and replace it. |
+
+**How the checks run.** The checks that can be run (`available`) run one
+after the other, in table order, in `--dir`. They run with the credential
+variables of the environment stripped, as the hands' `ReducedEnv` strips them
+(the variables of the model vendors and clouds by prefix, such as `ANTHROPIC_`,
+`OPENAI_`, `AWS_`, `GOOGLE_` and `AGENTKIT_`, and anything that ends in
+`_TOKEN`, `_SECRET`, `_KEY`, `_PASSWORD`, `_PASS`, `_PWD`, `_PAT`, `_AUTH` or
+`_CREDENTIALS`; `PATH`, `HOME`, `LANG`, `TMPDIR`, `TERM`, `AWS_PROFILE`,
+`AWS_REGION`, `AWS_DEFAULT_REGION` and `GOOGLE_CLOUD_PROJECT` stay), because a
+suite is repository code. A check that is not available is skipped, not run, and is
+listed in `skipped` with the reason `unavailable`. Each check has 20 minutes;
+one that takes longer is stopped, with everything it started, and has the
+status `timeout`, and the checks after it still run. The output of each check,
+standard output and standard error together, is written in full to
+`.agent-fox/gate/<id>/NN-<slug>.log`, with `NN` the two-digit position among
+the checks that ran and `<slug>` the check's name. The logs are written when
+the run is complete, just before its result: a run that is stopped writes none,
+and the logs of a stored result that it would have replaced stay as they were.
+
+**The result** (its schema is `gate_run` under `$defs`):
+
+| Field | Meaning |
+|---|---|
+| `id` | The first 12 hex characters of the cache key (below). The result is stored in `.agent-fox/gate/<id>/`. |
+| `tree` | The hash of the tree the checks ran on: a SHA-256 over the file view in order, each file as its kind, its executable bit, its path and the SHA-256 of its content (a symlink as its target, any other file as its type, an unreadable file as a fixed marker). It depends on the content of the files in the view and on nothing else: not on `HEAD`, not on where the checkout is, not on ignored files. A nested repository or a submodule is one entry, a directory, and what is in it does not count. The view is git's in a work tree and a walk elsewhere (see [lang detect](#lang-detect)), so the same files hash alike only when they are listed the same way: a tree that is hashed in a box without `git` and outside it with `git` is two trees. |
+| `table_source` | `file` or `detected`: where the table came from. |
+| `hermetic` | Whether the checks ran with `--hermetic`. |
+| `label` | The label asked for; `""` for none. |
+| `cached` | True when the result was stored and no check ran. |
+| `passed` | True only when at least one check ran and every check that ran passed. |
+| `checks` | `[{name, status, exit_code, duration_ms, log, tail}]` for the checks that ran. `status` is `pass` (exit code 0), `fail` (another exit code), `error` (the program could not start; `exit_code` is `-1` and the log says why) or `timeout` (`exit_code` is `-1`). `log` is relative to `--dir`. `tail` is the last 40 lines of the output, at most 4096 bytes. |
+| `skipped` | `[{name, reason}]` for the checks that did not run. |
+
+| Outcome | When |
+|---|---|
+| `done`, exit 0, `passed: false` | A check failed, errored or timed out. A red gate is a measured fact, not a failure of `af`. |
+| `done`, exit 0, `passed: false`, warning `no_checks` | No check of the table can be run here, or the table is empty. Nothing ran. |
+| `done`, warning `tree_changed_during_gate` | The tree hash taken after the checks differs from the one taken before. The result is kept under the earlier hash's id, and its `tree` is the earlier hash. |
+| `failed`/`timeout` or `failed`/`cancelled` | `--timeout` ran out, or a signal arrived. The process group of the running check is killed, and neither the logs nor the result are stored. |
+| `usage` | The label is not allowed. Nothing ran. |
+| `failed`/`config` | `.agent-fox/gate.json` cannot be used (see [lang detect](#lang-detect)). |
+| `failed`/`io` | The tree cannot be read, or a log, the result or `labels.json` cannot be written. |
+
+**The cache.** The key is the SHA-256 of the tree hash, the canonical JSON of
+the table's checks (`name`, `argv` and `kind` of each, with the keys in order
+and no whitespace, and not `source` or `available`, which are not about what
+is measured) and the runner mode, `reduced` or `hermetic`. The same tree and
+the same table give the same key on every machine, and so a gate that ran in
+a box is a hit for the gate that runs outside it. `result.json` is written
+after the logs, through a temporary file and a rename, so that runs that start
+together without a lock leave the last writer's complete file and never half
+of one. Only a run that completed is stored.
+
+- A stored result for the key is returned with `cached: true` and no check
+  runs, unless `--no-cache` is given, or the result skipped a check that can
+  be run here (it was made where its program was missing), or `result.json` is
+  not a result of this key. Then the checks run and the result is replaced.
+- A change of one byte in a file of the view makes the next run another key. A
+  change confined to ignored files does not.
+
+**Labels.** `.agent-fox/gate/labels.json` is `{"<label>": "<id>"}`, written
+through a temporary file and a rename. The latest result for a label replaces
+the earlier one, and the file is read again by every run, so labels set by
+one run are there for the next. Runs that start together take turns at it: a
+lock file, `labels.json.lock`, is held for the time a read and a write take, so
+that neither loses the other's label. A lock older than ten seconds was left by
+a process that was killed and is taken over, and a run that cannot get the lock
+in five seconds goes on without it: a label is worth a short wait and never a
+failed run. A file that is damaged starts again empty. `gate/<id>/` is safe to
+delete, but a label that names a deleted id makes `gate compare` fail with
+`usage` until the label is set again.
+
+### gate compare
+
+```
+af gate compare --before LABEL|ID --after LABEL|ID [--dir DIR] [--timeout DURATION]
+```
+
+Compares two stored gate results check by check, and says whether the second
+is a regression of the first. It runs no check and reads only
+`.agent-fox/gate/`. The default `--timeout` is 30 seconds. Each argument is
+resolved as a label in `labels.json` first, and as a gate id second.
+
+| Flag | Meaning |
+|---|---|
+| `--before <label\|id>` | The result to compare from. Required. |
+| `--after <label\|id>` | The result to compare to. Required. |
+
+The verdict of each check, matched by name, is in this table; `fail`, `error`
+and `timeout` all count as "not pass":
+
+| Before | After | Verdict of the check |
+|---|---|---|
+| pass | pass | `pass` |
+| not pass | pass | `pass_was_already_failing` |
+| pass | not pass | `regressed` |
+| not pass | not pass | `still_failing` |
+
+The verdict of the comparison is the first of `regressed`, `still_failing`,
+`pass_was_already_failing` and `pass` that any check has, so one check fixed
+and another broken is a regression. When either result has no checks nothing
+was measured and the verdict is `unverified`. `landable` is true for `pass`
+and `pass_was_already_failing` only.
+
+The result (its schema is `gate_compare` under `$defs`) holds `before` and
+`after`, each `{id, label, passed}` (the label is the argument when it was a
+label, else a label in `labels.json` that names the result, the first by name,
+or `""` if none does), `verdict`, `landable` and
+`rows`, `[{name, before, after, verdict}]` in the order of the `--before`
+result (none when the verdict is `unverified`). The status is `done` and the
+exit code 0 for every verdict, `unverified` included. `usage` (exit 2) means
+the comparison could not be made: an argument is missing or names no result
+(the message names the flag and the argument), or the two results were not
+measured by the same checks (the message lists the names that are on one side
+only).
+
+### revert-check
+
+```
+af revert-check --since REF [--dir DIR] [--timeout DURATION]
+```
+
+Answers one question: do the tests of a change fail without the rest of the
+change? It lists what differs from `REF`, sets the paths that are not tests
+back to what `REF` has, runs the tests, and puts every path back as it was.
+It calls no model and opens no network connection, and it creates no run
+directory. The default `--timeout` is 30 minutes.
+
+| Flag | Meaning |
+|---|---|
+| `--since <ref>` | The commit the change starts from: a ref or a hash. Required. |
+
+`--dir` must be the top level of a git work tree and `--since` must resolve to
+a commit; otherwise the status is `usage` (exit 2), the message names the
+argument, and nothing was touched.
+
+**What it does,** in this order, stopping at the first step that settles the
+outcome:
+
+1. It refuses, as `failed`/`restore`, if a directory exists under
+   `.agent-fox/revert/`: an earlier check was killed, or another is working on
+   the checkout, and nothing is overwritten. The message names the directory.
+2. It lists the changed paths: those that differ from `REF`, staged or not,
+   and the untracked files that are not ignored, byte for byte (a rename is
+   its two paths). Af's own listing does not write the index, not even
+   with git's refresh of its stat data: it runs against a copy of it. Each path is a
+   *test path* or not: Go `_test.go` or `testdata/`; Python `test_*.py`,
+   `*_test.py` or `conftest.py`; JavaScript and TypeScript `*.test.*`,
+   `*.spec.*` or `__tests__/`; Java `src/test/`, `*Test.java`, `*Tests.java`
+   or `*IT.java`; Ruby `*_spec.rb` or `*_test.rb`; and anything below a
+   directory called `test`, `tests` or `spec`.
+3. It returns the outcome of a case with nothing to measure, and changes no
+   file: `no_changes` (nothing differs), `no_code_changes` (only tests do),
+   `no_test_changes` (no test does) or `inconclusive` with the reason
+   `no_test_check` (the gate table has no check of kind `test` or `check`).
+4. It takes the full table's result for the current tree from the gate cache,
+   or runs it and caches it (see [gate run](#gate-run)); `after` is its id.
+   If a `test` or `check` check did not pass, the outcome is `inconclusive`
+   with the reason `after_not_green`; if none could be run here, with
+   `test_check_unavailable`. Nothing is reverted.
+5. It backs up, reverts, tests and restores. The backup is
+   `.agent-fox/revert/<id>/`, a directory this check made and no other did
+   (`<id>` is 12 random hex characters; the directory is the claim on the
+   checkout, and a check that finds another claim beside its own backs off and
+   takes away only its own): `files/` holds a copy of every file it will
+   change, `manifest.json` says what each path was (a file with its mode and
+   modification time, a link with its target, or absent), and `index` is the
+   index as it was. Then, without touching the index, each non-test path that
+   the commit has gets the commit's content and mode (read with `git cat-file`
+   from the blob `git ls-tree` names), and each one it does not have is moved
+   aside; test paths stay as they are. The table of checks is found again on the
+   reverted tree: if its `test` and `check` checks are not the ones that were
+   measured (a Makefile the change added is not there to run), the outcome is
+   `inconclusive` with the reason `table_changed_by_revert`, because a check
+   that cannot run says nothing about the tests. Otherwise only the checks of
+   kind `test` and `check` run on that tree, through the gate engine, cached by
+   the reverted tree's hash.
+6. It restores every path from the backup, with a context that nothing
+   cancels, so that a signal, `--timeout` or a panic during the tests still
+   puts the tree back. A path that something changed while the checks ran, and
+   that is not what the revert put there, is not overwritten: what it held is
+   kept in the backup under `changed/` and the command fails with
+   `failed`/`restore`, naming it. A check that ran git or a build may have
+   refreshed and rewritten `.git/index` with the same entries and other
+   bytes; the bytes of the index as it was are written back, through
+   `.git/index.lock` as git writes it. The command then checks that the tree
+   hash equals the one taken before the revert and that `.git/index` is byte
+   for byte the same, and removes the backup.
+
+The checks run on the real index, not on a copy: a `git status` or a build in a
+check may rewrite it, and the restore puts it back as it was. A restore is
+given ten minutes after a signal or the deadline (the shell's own grace is 10
+seconds, and this command asks for more), and the signals are SIGINT, SIGTERM
+and SIGHUP. A process that is killed with SIGKILL, or that is abandoned after
+that, leaves the backup, and the next check refuses until someone has looked
+at it.
+
+A directory (a nested repository) or a path where the commit has a directory
+or a submodule is not reverted. The checks must not leave files of their own
+in the tree outside the ignored paths: a file made while the reverted tree is
+tested changes the tree hash, and is a restore failure although every
+reverted path is back.
+
+**The result** (its schema is `revert_check` under `$defs`):
+
+| Field | Meaning |
+|---|---|
+| `outcome` | `proven`, `not_proven`, `inconclusive`, `no_changes`, `no_code_changes` or `no_test_changes`. |
+| `reason` | Why, as a code. For `proven`: `tests_fail_without_the_change`. For `not_proven`: `tests_pass_without_the_change`. For `inconclusive`: `no_test_check`, `after_not_green`, `test_check_unavailable`, `reverted_check_error` (a check could not start on the reverted tree, so it measured nothing), `table_changed_by_revert` (the reverted tree has other test checks than the ones that were measured) or `nothing_to_revert`. For the others: `no_paths_changed`, `only_test_files_changed` or `no_test_files_changed`. |
+| `closes` | True only for `proven`: a check of kind `test` or `check` failed or timed out on the reverted tree. |
+| `since` | The commit `--since` resolved to, in full. |
+| `test_files` | The changed test paths. |
+| `reverted_files` | The paths that were set back to the commit; empty when nothing was reverted. |
+| `after` | The id of the gate result for the current tree; `""` when it was not measured. |
+| `reverted` | `{id, passed, checks}`, the gate result of the reverted tree, as in [gate run](#gate-run); null when nothing was reverted. |
+| `restored` | True when the tree and the index are as they were, which is so for every result: a tree that could not be put back is `failed`/`restore` and has no result. |
+
+| Outcome | When |
+|---|---|
+| `done`, exit 0 | Every outcome above, `not_proven` and `inconclusive` included. Every outcome except `proven` and `no_changes` also raises the warning `fix_not_proven`. |
+| `usage` | `--dir` is not the top level of a work tree, or `--since` is missing or is not a commit. |
+| `failed`/`restore` | A backup from an earlier check is there or another check is working, the tree could not be put back or came back as another tree, or a path was changed while the checks ran and its content is kept. The backup is kept in `.agent-fox/revert/<id>/`, the message names it, and nothing further is reverted. |
+| `failed`/`git` | git could not be run, or failed. |
+| `failed`/`config` | `.agent-fox/gate.json` cannot be used. |
+| `failed`/`timeout`, `failed`/`cancelled` | `--timeout` ran out or a signal arrived. The tree has been put back first, within the ten minutes the command is given for it; if that takes longer the shell abandons the command (see [--timeout and signals](#--timeout-and-signals)) and the backup stays. |
+| `failed`/`io` | A file could not be read or written. |
+
+### guard check
+
+```
+af guard check [--dir DIR] [--policy FILE] [--host claude] [--timeout DURATION]  < payload.json
+```
+
+Decides whether a brain may make one tool call, from a JSON payload on stdin.
+The same decision is made for the envelope, for a host's hook and, in
+process, for the loop (`policy.DecideAt`). It reads and decides; it changes
+nothing, calls no model and opens no network connection, and creates no run
+directory. The default `--timeout` is 10 seconds.
+
+| Flag | Meaning |
+|---|---|
+| `--policy <file>` | The policy to use instead of `.agent-fox/guard.json`; see [configuration](configuration.md#guardjson). The file must exist. |
+| `--host claude` | Answer in the format of Claude Code's `PreToolUse` hook instead of the envelope. |
+
+**The payload** is one JSON document of at most 1 MiB. It is read as it is, not
+as the positional input of other commands (`input.kind` is `none`): it is not
+trimmed or cut at 128 KiB. Two shapes are read:
+
+- a Claude Code hook payload, `{"hook_event_name", "tool_name", "tool_input",
+  "cwd", …}`; the other fields are ignored;
+- af's neutral form, `{"tool": "...", "input": {...}}`.
+
+A payload whose `hook_event_name` is there and is not `PreToolUse` is allowed
+with no opinion; an empty or blank name names no other event, and the call is
+judged. `cwd` is the directory the session is in: a relative path
+means what it means there, and in `--dir` (the checkout) as well.
+
+**The decision** covers the calls to three kinds of tool:
+
+- *Shell tools* (`Bash`, and the hands' `execute`). The command is read as a
+  shell would read it, and every command it runs is judged: those joined by
+  `&&`, `||`, `;`, `|`, `&` and newlines, those in groups, in `$(…)`,
+  backticks (whose body is unescaped as the shell does before it is read) and
+  `<(…)`, in `$((…))`, `$[…]` and `((…))` where they hold substitutions, in
+  heredoc bodies that expand them, and in the script of `sh|bash|zsh -c '…'`
+  (whatever options come before the script, `--rcfile` and `-o` with their
+  values included), `eval`, `trap` and the commands `find` executes with
+  `-exec`. Words are read as the shell passes them: `$'git'`, `$"git"`,
+  `g\it`, `{git,push}` and `git${IFS}push` are `git` and `push`, and the case
+  of a program's name does not matter (`GIT`). Assignments (`FOO=1 cmd`), the
+  wrappers `env` (and the command line its `-S` splits), `time`, `timeout`,
+  `nice`, `nohup`, `command`, `builtin`, `exec` and `xargs`, `function NAME` and
+  `coproc`, and the keywords that start a command are skipped to find the
+  program. The rules apply in this order to each command, and the first
+  denial wins, except that the hands' guard looks at the whole line before any
+  of them.
+- *Tools that write a file* (`Write`, `Edit`, `MultiEdit`, `NotebookEdit`, and
+  the hands' `write_file` and `edit_file`; the path is `file_path`,
+  `notebook_path` or `path`, whichever is the tool's own). A path under a
+  protected path is denied (`protected_path`), and so is one outside `--dir`
+  that is not under the system temporary directory (`outside_dir`). A call
+  that names no path is denied (`unparseable`).
+- *Every other tool* is allowed, with no rule: the host's own tool allowlist
+  decides which tools exist.
+
+| Rule | Denies |
+|---|---|
+| `unparseable` | A command with unbalanced quotes, an unterminated `$(`, `${` or `$[`, nested more than 64 deep, a brace expansion that makes more than 4096 words, longer than 64 KiB (the hands' guard takes time that grows with the square of the length, so a longer line is not read; write long content with a tool that writes files), or a shell call that has no command; and a shell that reads its commands from its input (`echo git push \| sh`, `sh <<< '…'`, `bash -s`, `bash` alone, `source <(…)`), which runs what cannot be read before it runs. |
+| `hands_guard` | What the hands' guard refuses, with its reason: an assignment of a variable that changes which program runs or what is loaded into it (`PATH`, `LD_PRELOAD`, `BASH_ENV`, …), a line it cannot read, and a line that runs no program. It can only deny. |
+| `git_mutation` | `git` with any subcommand but `status`, `log`, `diff`, `show`, `blame`, `ls-files`, `ls-tree`, `rev-parse`, `rev-list`, `grep`, `describe`, `cat-file`, `shortlog`, `merge-base`, `name-rev`, `for-each-ref` and `show-ref`; `branch` and `remote` only to list; a global `-c`, `--config-env` or `--exec-path=`; configuration from the environment that makes git run a program (`GIT_CONFIG_*`, `GIT_EXTERNAL_DIFF`, `GIT_EXEC_PATH`, `GIT_ASKPASS`, `GIT_SSH`, `GIT_SSH_COMMAND`, `GIT_PROXY_COMMAND`, `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR` and `GIT_TEMPLATE_DIR`, in front of the command, given to `env` or exported by an earlier command of the line); and `git grep` with `-O` or `--open-files-in-pager`. The reason says that af makes every commit, branch and push. |
+| `suite_command` | A command equal to a suite form once every token that starts with `-`, the value of an option that takes one as its next word (`go test -timeout 5m ./...`, `make -j 4 check`, `make -f Makefile check`: the options of `go`, `make`, `cargo` and `pytest` that the code lists) and every `NAME=value` word (`make check V=1`) is removed from both, and `$(go list ./...)` is `./...`: `make check`, `make -j4 check`, `go test ./...` and `go test -count=1 ./...` are the suite, `go test ./internal/x -run TestY` is not. The reason says to run `af gate run`, which caches the result by tree hash so that the landing reuses it, and that targeted runs are allowed. A flag that selects tests without a word of its own (`mvn -q test -Dtest=X`) is not told from the suite. |
+| `af_command` | Any `af` command but `lang detect`, `gate run`, `gate compare`, `revert-check`, `map`, `guard check`, `triage brief`, `triage submit`, `fix brief`, `fix submit`, `--version` and `--schema`: the rest belongs to the loop. |
+| `program_not_allowed` | With `allow_programs` set, a program that is not on it, as it is written (`/usr/bin/ls` is not `ls`); `af` and `git` are always allowed, by their name and by an absolute path (`./git` is a file of the checkout), and so are the builtins that start no program (`cd`, `true`, `[`, `test`, `echo`, `printf`, `read`, `export`, `set`, `for`, `case`, `eval`, `trap` and the like), whose own commands are judged in turn. |
+| `protected_path` | A write into a protected path through an output redirection; through an argument of `rm`, `rmdir`, `unlink`, `shred`, `mv`, `cp`, `install`, `rsync`, `tee`, `touch`, `mkdir`, `mkfifo`, `truncate`, `chmod`, `chown`, `chgrp`, `patch`, `ln` (every operand: a link to a protected path is a way to write there), `sed -i` or `perl -i`, `dd of=`, or `find -delete` and `-fprint`; and through an option that names the file a command writes (`-o`, `--output`, `--out`, `--outfile`, `--output-file`, `--emit-events`, `-coverprofile` and the other profiles of `go test`), such as `git diff --output=.specs/x` or `af map --output .specs/x`. A path is resolved against `--dir` (and against the directory of the session and of any `cd` before it in the command), with its links followed, so that a link to a protected directory and another spelling of the checkout are the protected path; its case does not matter, because the file system of a Mac has `.SPECS` where it has `.specs`; and it may start with `~`, `$HOME` or `$PWD`, or have a glob in a component (`.spe?s`, `.sp*`), which is matched against the protected names as the shell would (a glob does not match a name that starts with a dot unless it starts with one). Entries of `protected_paths` are cleaned before they are matched: `./docs/`, `docs//` and `a/../docs` protect `docs`. `rm`, `mv` and `find -delete` also refuse a directory above a protected path, such as `rm -rf .` and `find . -delete`; a `find` with a test before `-delete` does not count as removing its roots. |
+| `outside_dir` | A write tool call to a path outside `--dir` and the system temporary directory. |
+
+The policy is prevention, not a boundary. It reads the command and does not
+run it: a program named by a variable (except `$IFS`, which splits at once), a
+shell function or an alias that is named like a program, a script a command
+writes and then runs, a program that runs others (`ssh`, `sudo`, `watch`), a
+variable that was set earlier in the line and used later in a path, and what
+an interpreter writes (`python -c`, `awk`) are out of its sight, and the tool
+`run_command` (which takes an argument list) is not a shell tool here. A line
+that the hands' guard cannot read (an assignment on its own, a function
+definition, `((i++))`, which run no program) is denied, as well as one that is
+dangerous. The gate and the box are what holds.
+
+**Without `--host`** the answer is the envelope: `done` and exit 0 for an
+allow and for a deny, with the result (its schema is `guard_check` under
+`$defs`) `{decision, rule, reason, tool, segment}`. `rule`, `reason` and
+`segment` are empty for an allow. A payload that is malformed, empty or over 1
+MiB is `usage` (exit 2); a policy file that cannot be used is `failed`/`config`
+(exit 1). Neither emits a decision.
+
+**With `--host claude`** stdout is the document Claude Code reads, and nothing
+else, and the exit code is 0 for every answer:
+
+```json
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"…"}}
+```
+
+for a deny, and `{}` for an allow. `{}` is no opinion: the host's own
+permission settings still apply. The hook never prints `permissionDecision:
+"allow"`, which would bypass them. Neither document ends in a newline. Every
+error is answered as a deny that carries it, so that a hook that cannot decide
+does not let the call through: a payload that is malformed, empty or over 1
+MiB, a policy that does not parse, a panic of the policy engine, and a hook
+that does not decide within 80% of `--timeout` (the shell throws away what a
+command returns after its deadline, and reports a failure that the host does
+not act on). Only a wrong invocation (an unknown flag, an unknown `--host`, a
+`--timeout` that is not a duration) is still an envelope with exit 2, which the
+host treats as blocking. A `--timeout` too short for the command to finish in
+(`1ns`) is an envelope with `failed`/`timeout` and exit 1, which the host does
+not act on, so a hook leaves it at the default.
+
+Without `.agent-fox/guard.json` or `--policy`, every call detects the
+repository to find the suite (the work of [lang detect](#lang-detect)); a loop
+that calls the hook often writes `guard.json` once.
+
+### map
+
+```
+af map [--dir DIR] [--tokens N] [--timeout DURATION]
+```
+
+Renders a map of the repository that fits a token budget, for a brief to carry:
+the directories, the files in them and, as far as the budget allows, the
+declarations in the files. It reads files and runs nothing, calls no model,
+opens no network connection, creates no run directory and writes nothing. The
+default `--timeout` is 2 minutes.
+
+| Flag | Meaning |
+|---|---|
+| `--tokens <n>` | The budget, in tokens, estimated as the bytes of the map divided by 4, rounded up. From 200 to 100000, default 4000; any other value is a `usage` error (exit 2) that names the range. |
+
+The map is of the file view of `--dir` (see [lang detect](#lang-detect)). Each
+directory that has files is a header, `path/` (the root is `./`), in path
+order: the root first, a directory before its subdirectories, and the files of
+each by name. A file is indented two spaces, and its declarations follow it,
+each as `<kind> <name> L<line>` and joined by ` · `:
+
+```
+./
+  README.md
+  main.go: func main L3 · type Server L5
+pkg/
+  util.go: func Helper L3
+  util_test.go: func TestHelper L3
+```
+
+The declarations come from the hands' outline: Go files always, and the other
+languages it knows (Python, JavaScript, TypeScript, Rust, Java, Kotlin, C#, Ruby,
+C, C++, PHP, Scala, Lua and shell) when the binary is built with cgo, as `make
+build` does by default. A kind is `func`, `method`, `type`, `class`,
+`interface`, `enum`, `trait`, `const`, `var`, `module` or `macro`, and a method
+is named with its type (`Server.Close`). A file the outline cannot read is
+listed by name only and is not counted in `files_outlined`: a language it does
+not know, a binary file, one it cannot parse, and one over 1 MiB, which is not
+offered to it. A control character in a name is written as `?`, and bytes that
+are not text (not valid UTF-8) as the replacement character U+FFFD, so that the
+map is the same text once it has been encoded in the envelope.
+
+The map is the first level of this ladder whose output fits the budget:
+
+| Level | What the map holds |
+|---|---|
+| 1 | Every file, with every declaration. |
+| 2 | The same, but a test file (see [revert-check](#revert-check)) has no declarations. |
+| 3 | A test file has none, and any other file has its first 20, 10, 5, 2 or 1 declarations, the first of these caps that fits, followed by `· … +N more`. |
+| 4 | Every file by name only. |
+| 5 | Directories only, each as `path/ (N files)`, N being the files directly in it. |
+| 6 | As many of those lines as fit, and then `… N more directories`. |
+
+The outliner is not called at all when the names alone do not fit the budget
+(level 4 is too large) or the view has more than 5000 files. The warning
+`map_outline_skipped` says so, `files_outlined` is 0, and the map is level 4 or
+a later one.
+
+**The result** (its schema is `map` under `$defs`) holds `map` (the text),
+`tokens` (the budget), `estimated_tokens` (the size of the map, never more than
+the budget), `level`, `files_total`, `files_outlined` (the files whose
+declarations were read, which the map shows only at levels 1 to 3: from level 4
+on it holds none, and the number is still the files that were read) and
+`truncated` (true for any level above 1). The same tree and the same budget give the same bytes, in
+whatever order the files are read: a brief that carries the map can rely on it
+being the same on every attempt. The status is `done`.
 
 ## The envelope
 
@@ -194,6 +700,16 @@ stack goes to stderr and, when there is a run directory, to
 no question, a question with another status, more than 26 options) is a
 command bug and is reported as `failed`/`internal`.
 
+Two things are for the one command whose caller is a host that reads another
+format than the envelope (`af guard check --host claude`), and no other
+command uses them. A command registered with `RawStdin` is given the
+process's stdin, unread, as `Run.Stdin`; a command without it gets `nil` and
+reads nothing. An outcome with a `Document` and the status `done` has the
+document written to stdout in place of the envelope, and the exit code is
+`done`'s, 0; the envelope is still made, and still written to `--output` and
+to the run directory. A document with any other status is an inconsistent
+outcome, and a run that fails after the command returned prints the envelope.
+
 ## Error categories
 
 | `error.category` | Used for |
@@ -202,9 +718,12 @@ command bug and is reported as `failed`/`internal`.
 | `auth` | An issue was not found without a token, so it may be private. `fix_hint.env` names the token to set. |
 | `forge` | The forge could not be reached, refused, or the client could not be built. `retryable` is true after a rate limit, a server error or a lost connection, and false after a refusal. |
 | `io` | A file, stdin or the run directory could not be read or written. |
-| `cancelled` | The process was sent SIGINT or SIGTERM. |
+| `cancelled` | The process was sent SIGINT, SIGTERM or SIGHUP. |
 | `timeout` | `--timeout` ran out. Not retryable; `fix_hint` is `{flag: "--timeout", suggest: <twice the value>}`. |
 | `internal` | A bug: a plain error, a panic, an inconsistent outcome, a result that is not JSON. |
+| `config` | A configuration file `af` reads cannot be used, for example a `.agent-fox/gate.json` that does not parse. The message names the file. |
+| `restore` | A tree that a command changed in order to measure it could not be put back, or a leftover of an earlier measurement stands in the way. The message names the directory that holds what is left. |
+| `git` | git failed in a way the command cannot work around. |
 
 Later specs add categories of their own to this list.
 
@@ -223,6 +742,11 @@ A code matches `^[a-z][a-z0-9_]*$`; one that does not is reported under
 | `output_unwritable` | The file named by `--output` could not be written. |
 | `events_unwritable` | An event could not be written to the run directory or to `--emit-events`. Raised once. |
 | `invalid_warning_code` | A command raised a warning whose code does not match the pattern; the message begins with the code it gave. |
+| `no_checks` | `gate run`: no check of the gate table can be run here, or the table has none. Nothing ran and `passed` is false. |
+| `tree_changed_during_gate` | `gate run`: the checks changed the tree. The result is kept under the hash of the tree they ran on. |
+| `fix_not_proven` | `revert-check`: the outcome is not `proven` and not `no_changes`, so the change must not close its issue. |
+| `map_outline_skipped` | `map`: the declarations were not read, because the names of the files alone do not fit the budget or the view has more than 5000 files. The map has the names only, or less. |
+| `check_unavailable` | `lang detect`: a check of the gate table names a program that cannot be run on this machine. The check stays in the table with `available: false`; the message names the check. |
 
 ## The positional input
 
@@ -310,13 +834,15 @@ commits or pushes honours the flag itself.
 A command that opts into `--timeout` runs under that deadline; the deadline
 covers the command, not the reading of its input. When it runs out, the
 command's context is cancelled, and the envelope is `failed`/`timeout`
-whatever the command returns after that. SIGINT and SIGTERM cancel the
-command's context in the same way; if the command then returns an error the
-envelope is `failed`/`cancelled`, and a command that returns an outcome has
-finished its job, so its outcome stands. A command that has not returned 10
-seconds after being cancelled, by a signal or by its deadline, is abandoned:
-the shell prints `failed`/`cancelled` or `failed`/`timeout` itself and exits
-1. A second signal during those 10 seconds is ignored.
+whatever the command returns after that. SIGINT, SIGTERM and SIGHUP (a closed
+terminal) cancel the command's context in the same way; if the command then
+returns an error the envelope is `failed`/`cancelled`, and a command that
+returns an outcome has finished its job, so its outcome stands. A command that
+has not returned 10 seconds after being cancelled, by a signal or by its
+deadline, is abandoned: the shell prints `failed`/`cancelled` or
+`failed`/`timeout` itself and exits 1. A second signal during those 10 seconds
+is ignored. A command that has something to put back may ask for longer
+(`Command.Grace`): `revert-check` asks for 10 minutes.
 
 ## --schema
 

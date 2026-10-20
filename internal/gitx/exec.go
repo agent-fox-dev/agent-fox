@@ -8,9 +8,11 @@
 package gitx
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -66,13 +68,55 @@ func run(ctx context.Context, dir string, argv, env []string, stdin ...string) (
 	if len(stdin) > 0 {
 		cmd.Stdin = strings.NewReader(strings.Join(stdin, ""))
 	}
-	out, err := cmd.CombinedOutput()
+	out, err := output(ctx, cmd)
 	if err != nil {
 		var ee *exec.ExitError
-		if errors.As(err, &ee) {
+		switch {
+		case errors.As(err, &ee):
 			return string(out), ee.ExitCode(), nil
+		case errors.Is(err, exec.ErrWaitDelay):
+			// The command exited 0, and something it started still holds its
+			// output: it succeeded, and what it printed is all there is.
+			return string(out), 0, nil
 		}
 		return string(out), -1, fmt.Errorf("running %s: %w", argv[0], err)
 	}
 	return string(out), 0, nil
+}
+
+// stdoutOnlyKey is the context value that asks a runner for stdout only.
+type stdoutOnlyKey struct{}
+
+// StdoutOnly asks the runners of this package, through the context, to return
+// only what the command printed on stdout when it succeeds, and the text of
+// its failure (stderr, then stdout) when it does not. A parser of git's output
+// asks for it: git writes warnings to stderr and exits 0, and combined with a
+// listing they become a part of a name, or hide the name they stand before.
+// A runner that is not one of this package's ignores the request.
+func StdoutOnly(ctx context.Context) context.Context {
+	return context.WithValue(ctx, stdoutOnlyKey{}, true)
+}
+
+// output runs cmd and returns its output, combined unless ctx asks for stdout
+// only.
+func output(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
+	if ctx.Value(stdoutOnlyKey{}) == nil {
+		return cmd.CombinedOutput()
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	err := cmd.Run()
+	if err != nil && stderr.Len() > 0 {
+		return append(stderr.Bytes(), stdout.Bytes()...), err
+	}
+	return stdout.Bytes(), err
+}
+
+// EnvRunner is ExecRunner with extra variables, each "name=value", added to
+// the environment of every command. It is how a command is pointed at
+// another index (GIT_INDEX_FILE) so that what git refreshes is a copy.
+func EnvRunner(extra ...string) Runner {
+	return func(ctx context.Context, dir string, argv []string, stdin ...string) (string, int, error) {
+		return run(ctx, dir, argv, append(os.Environ(), extra...), stdin...)
+	}
 }
