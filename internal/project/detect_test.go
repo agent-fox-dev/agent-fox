@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -527,5 +528,32 @@ func TestIsTestPath_TS_06_39(t *testing.T) {
 		if IsTestPath(p) {
 			t.Errorf("IsTestPath(%q) = true, want false", p)
 		}
+	}
+}
+
+// TestDetectFreshIgnoresTheGateFile guards 06-REQ-2.8: the table that
+// af lang detect --write stores comes from the repository's files whatever
+// gate.json says, even when it cannot be read.
+func TestDetectFreshIgnoresTheGateFile(t *testing.T) {
+	files := map[string]string{"Makefile": "check:\n\ttrue\n"}
+	for name, gate := range map[string]string{
+		"none":      "",
+		"another":   `{"version":1,"checks":[{"name":"ci","argv":["./ci.sh"]}]}`,
+		"not JSON":  `{not json`,
+		"a version": `{"version":9,"checks":[]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			content := maps.Clone(files)
+			if gate != "" {
+				content[".agent-fox/gate.json"] = gate
+			}
+			dir, list := fixture(t, content)
+
+			d := DetectFresh(dir, list)
+
+			if d.Gate.Source != SourceDetected || !reflect.DeepEqual(argvs(d), [][]string{{"make", "check"}}) {
+				t.Errorf("gate = %+v, want the detected make check", d.Gate)
+			}
+		})
 	}
 }

@@ -70,8 +70,8 @@ type fileCheck struct {
 	Available json.RawMessage `json:"available,omitempty"`
 }
 
-// gatePath is where dir keeps its gate.json.
-func gatePath(dir string) string {
+// GatePath is where dir keeps its gate.json.
+func GatePath(dir string) string {
 	return filepath.Join(dir, agentdir.Name, gateFileName)
 }
 
@@ -79,7 +79,7 @@ func gatePath(dir string) string {
 // is none; a file that cannot be used is an error wrapping ErrGateConfig that
 // names it.
 func readGateFile(dir string) (checks []Check, found bool, err error) {
-	path := gatePath(dir)
+	path := GatePath(dir)
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 		return nil, false, nil
@@ -188,7 +188,7 @@ func WriteGateFile(dir string, checks []Check) error {
 	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp.Name(), gatePath(dir)); err != nil {
+	if err := os.Rename(tmp.Name(), GatePath(dir)); err != nil {
 		return err
 	}
 	committed = true

@@ -1,8 +1,9 @@
 # Configuration
 
-`af` has no configuration file. What it reads from the environment, it reads
+`af` needs no configuration. What it reads from the environment, it reads
 through `issuex`, the forge client of
-[aflib](https://github.com/agent-fox-dev/aflib); everything else is a flag (see
+[aflib](https://github.com/agent-fox-dev/aflib); the checks of the gate can be
+pinned in [`.agent-fox/gate.json`](#gatejson); everything else is a flag (see
 [cli.md](cli.md)).
 
 ## Environment variables
@@ -37,8 +38,44 @@ API URL is set. A request to any other host carries no token.
 
 `af` keeps its local state under the checkout it works in (`--dir`), in
 `.agent-fox/`. It holds `.gitignore`, which ignores the whole directory
-without touching the repository's own `.gitignore`, and `run/<id>/`, one
+without touching the repository's own `.gitignore`, `gate.json` (below), and `run/<id>/`, one
 directory per invocation of a command that has one: the envelope, the event
 stream, the ledger, and a report or a panic's stack. Delete a run directory
 when it is no use; nothing refers to one except the commands that carry a run
 on. The layout is in [cli.md](cli.md#the-run-directory).
+
+### gate.json
+
+`.agent-fox/gate.json` pins the table of checks that the gate runs, so that
+the table is the one that was measured and not whatever the files say today.
+`af lang detect --write` writes it from the repository's own files; a person
+or a loop may write it by hand.
+
+```json
+{
+  "version": 1,
+  "checks": [
+    {"name": "make check", "argv": ["make", "check"], "kind": "check", "source": "Makefile:check"}
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `version` | Must be `1`. |
+| `checks[].argv` | The command, with no shell. Required, and its first word is the program. |
+| `checks[].name` | What the check is called; unique in the file. Default: `argv` joined by spaces. |
+| `checks[].kind` | `lint`, `test` or `check` (both). Default `check`. |
+| `checks[].source` | Where the check came from. Default `gate.json`. |
+
+`available` is accepted in a check and ignored: whether a program can be run
+is a fact about the machine, worked out on every read and never stored. Any
+other field is an error.
+
+**Precedence.** The table is `gate.json` when that file exists. Otherwise it
+is detected from the files at the root: a Makefile with a `check` target, else
+a Makefile with a `test` target (and `lint` if it has one), else the language
+manifests (see [cli.md](cli.md#lang-detect)). A `gate.json` that does not
+parse, names another version or holds a check that cannot run is
+`failed`/`config`, naming the file; detection does not fall back to the
+Makefile.

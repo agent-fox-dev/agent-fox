@@ -81,6 +81,10 @@ type Command struct {
 	// Input says whether the first positional argument is an input to
 	// resolve.
 	Input InputMode
+	// RawStdin gives the command stdin, unread, as Run.Stdin. It is for a
+	// command that takes no input of its own; a command with an Input that
+	// reads stdin ("-") shares it.
+	RawStdin bool
 	// UsesForge gives the command a forge client, Run.Forge, and --dir.
 	UsesForge bool
 	// UsesRunDir gives the command a run directory, Run.RunDir, and --dir.
@@ -116,6 +120,9 @@ type Run struct {
 	Args []string
 	// Input is the resolved input; Kind none for a command without one.
 	Input Input
+	// Stdin is the process's stdin for a command with RawStdin; nil for any
+	// other.
+	Stdin io.Reader
 	// Dir is --dir, made absolute; empty for a command without the flag.
 	Dir string
 	// Context holds the --context values, verbatim and in order.
@@ -136,6 +143,9 @@ type Run struct {
 	Stderr io.Writer
 
 	events *eventStream
+	// document is the Document of the outcome, which stdout gets in place of
+	// the envelope.
+	document []byte
 
 	mu          sync.Mutex
 	warnings    []Warning
@@ -350,6 +360,9 @@ func (inv *invocation) prepare(ctx context.Context, stdin io.Reader) error {
 		inv.closeForge = func() { _ = client.Close() }
 	}
 
+	if cmd.RawStdin {
+		run.Stdin = stdin
+	}
 	if cmd.Input != InputNone {
 		in, err := resolveInput(ctx, cmd.Input, run.Args, stdin, run.Forge)
 		if err != nil {
@@ -467,6 +480,11 @@ func (inv *invocation) publish() int {
 		}
 	}
 
+	// A command's own document replaces the envelope on stdout, but only
+	// while the run is done: whatever failed it since gets the envelope.
+	if inv.run != nil && len(inv.run.document) > 0 && env.Status == StatusDone {
+		data = inv.run.document
+	}
 	// A broken stdout changes nothing: the exit code is the status's.
 	_, _ = inv.stdout.Write(data)
 	return env.ExitCode
@@ -643,6 +661,7 @@ func (a *App) settle(env *Envelope, r *Run, out Outcome, err error, stderr io.Wr
 	env.Status = out.Status
 	env.Summary = out.Summary
 	env.Result = out.Result
+	r.document = out.Document
 	if out.Status == StatusNeedsHuman {
 		env.NeedsHuman = newNeedsHuman(out.NeedsHuman, r.Argv)
 	}
@@ -677,6 +696,9 @@ func panicOf(err error) *panicError {
 // checkOutcome returns what is wrong with an outcome, or "". An outcome that
 // is inconsistent is a bug in the command.
 func checkOutcome(o Outcome) string {
+	if len(o.Document) > 0 && o.Status != StatusDone {
+		return fmt.Sprintf("a document with status %s", o.Status)
+	}
 	switch o.Status {
 	case StatusDone, StatusUnverified:
 		if o.NeedsHuman != nil {

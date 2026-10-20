@@ -101,16 +101,18 @@ func TestMakeBuildWritesBinary_TS_05_7(t *testing.T) {
 		t.Errorf("af --version = %+v, want af, 9.9.9-test, and the Makefile's commit and build time", version)
 	}
 
-	// cmd/af is wiring: one file, which hands the process to App.Main.
-	files, _ := filepath.Glob(filepath.Join(repoRoot, "cmd", "af", "*.go"))
-	var sources []string
-	for _, f := range files {
-		if !strings.HasSuffix(f, "_test.go") {
-			sources = append(sources, f)
-		}
+	// cmd/af is wiring: main.go hands the process to App.Main, and it is the
+	// only file that ends the process. Spec 06 adds the files that register
+	// the commands (docs/errata/05_cmd_af_files.md).
+	if !strings.Contains(readRepoFile(t, "cmd/af/main.go"), "os.Exit(newApp().Main(") {
+		t.Error("cmd/af/main.go does not exit with App.Main's return value")
 	}
-	if len(sources) != 1 || !strings.Contains(readRepoFile(t, "cmd/af/main.go"), "os.Exit(newApp().Main(") {
-		t.Errorf("cmd/af holds %v; want main.go alone, exiting with App.Main's return value", sources)
+	files, _ := filepath.Glob(filepath.Join(repoRoot, "cmd", "af", "*.go"))
+	for _, f := range files {
+		if name := filepath.Base(f); name != "main.go" && !strings.HasSuffix(name, "_test.go") &&
+			strings.Contains(readRepoFile(t, "cmd/af/"+name), "os.Exit(") {
+			t.Errorf("cmd/af/%s ends the process; only main.go may, with App.Main's return value", name)
+		}
 	}
 }
 
@@ -139,7 +141,7 @@ func TestDocumentationNamesWhatTheShellDefines_TS_05_72(t *testing.T) {
 		}
 	}
 	var terms []string
-	for _, category := range []string{CategoryUsage, CategoryAuth, CategoryForge, CategoryIO, CategoryCancelled, CategoryTimeout, CategoryInternal} {
+	for _, category := range []string{CategoryUsage, CategoryAuth, CategoryForge, CategoryIO, CategoryCancelled, CategoryTimeout, CategoryInternal, CategoryConfig, CategoryRestore, CategoryGit} {
 		terms = append(terms, "`"+category+"`")
 	}
 	for _, code := range WarningCodes {

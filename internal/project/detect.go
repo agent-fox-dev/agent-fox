@@ -113,16 +113,28 @@ func (r repo) read(name string) string {
 // error wrapping ErrGateConfig, and detection does not fall back to anything
 // else.
 func Detect(dir string, files []string) (Detection, error) {
+	checks, found, err := readGateFile(dir)
+	if err != nil {
+		return Detection{}, err
+	}
+	return assemble(dir, files, checks, found), nil
+}
+
+// DetectFresh is Detect without the gate.json: the table that the repository's
+// own files give, which is what af lang detect --write stores.
+func DetectFresh(dir string, files []string) Detection {
+	return assemble(dir, files, nil, false)
+}
+
+// assemble is the detection, with the checks of the gate.json if there is one.
+func assemble(dir string, files []string, fileChecks []Check, fromFile bool) Detection {
 	r := newRepo(dir, files)
 	mk := readMakefile(r)
 	derived := languageChecks(r)
 
 	gate := Table{Source: SourceDetected}
-	fileChecks, found, err := readGateFile(dir)
 	switch {
-	case err != nil:
-		return Detection{}, err
-	case found:
+	case fromFile:
 		gate = Table{Source: SourceFile, Checks: fileChecks}
 	case len(mk.gateChecks()) > 0:
 		gate.Checks = mk.gateChecks()
@@ -142,7 +154,7 @@ func Detect(dir string, files []string) (Detection, error) {
 		Gate:      gate,
 		Suite:     suiteForms(gate.Checks, mk, derived),
 		Programs:  toolchainPrograms(gate.Checks, langs, derived),
-	}, nil
+	}
 }
 
 // countLanguages counts the files of each language by extension, most files

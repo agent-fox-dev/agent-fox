@@ -8,11 +8,11 @@ exit codes, coded warnings, a stop on a question that is resumed with
 `--context`, a `--dry-run` that cannot write to the forge, a fetchable
 schema, and a git-ignored run directory.
 
-**This release registers no work command.** The binary answers `--version`,
-`--schema` and `help`; `af` with no arguments, or with a command it does not
-know, prints a `usage` envelope and exits 2. The commands of later specs
-(`triage`, `fix`, `gate run`, …) register on the shell and get everything
-below.
+**This release registers one work command, [`lang detect`](#lang-detect).**
+The binary also answers `--version`, `--schema` and `help`; `af` with no
+arguments, or with a command it does not know, prints a `usage` envelope and
+exits 2. The other commands of this scope and of later specs (`gate run`,
+`triage`, `fix`, …) register on the shell and get everything below.
 
 ```
 $ af --version
@@ -75,6 +75,79 @@ flag:
 | `--dry-run` | Send no write request to the forge. See [--dry-run](#--dry-run). |
 | `--repo <owner/repo>` | The repository to work on. |
 | `--timeout <duration>` | Stop the command after this long, such as `90s` or `15m`; `0` means no limit. The command declares the default. |
+
+## Commands
+
+### lang detect
+
+```
+af lang detect [--dir DIR] [--write] [--timeout DURATION]
+```
+
+Reports what the repository at `--dir` is written in and how it is checked.
+It reads files and runs nothing. It builds no forge client, calls no model,
+opens no network connection and creates no run directory, and without
+`--write` it writes nothing at all. The default `--timeout` is 1 minute.
+
+| Flag | Meaning |
+|---|---|
+| `--write` | Store the freshly detected gate table in `.agent-fox/gate.json` (see [configuration](configuration.md)). Any `gate.json` there now is ignored, one that does not parse included, and replaced. The file is written through a temporary file and a rename, and is an artifact of kind `gate_file`. |
+
+The result (its schema is `lang_detect` under `$defs`) holds:
+
+| Field | Meaning |
+|---|---|
+| `languages` | `[{name, files, manifest?}]`: each language with its file count, most files first and the name breaking a tie. The files are the file view (git's tracked and untracked-not-ignored files in a work tree, a directory walk elsewhere, never `.git/` or `.agent-fox/`), classified by extension as `go`, `python`, `javascript`, `typescript`, `rust`, `java`, `kotlin`, `ruby`, `c`, `c++`, `c#`, `php`, `scala`, `lua` or `bash`. `manifest` is the file at the root that marks the project, when there is one. Empty for an empty directory. |
+| `gate` | `{source, checks}`: the effective gate table. `source` is `file` when `.agent-fox/gate.json` gave it and `detected` otherwise. Each check is `{name, argv, kind, source, available}`: `argv` is the command with no shell; `kind` is `lint`, `test` or `check` (both); `source` is where it came from (`Makefile:check`, `go.mod`, `gate.json`); `available` says whether `argv[0]` can be run on this machine. |
+| `suite` | The command forms that count as the full test suite: the gate's checks, `make check` and `make test` where the Makefile has those targets, and the forms of each language. |
+| `programs` | The programs a gate may run: the first word of each check, and the toolchain of each language found. |
+
+Without a `gate.json` the table is detected from the files at the root only,
+in this order, and the first rule that gives a check decides:
+
+1. A `GNUmakefile`, `makefile` or `Makefile` with a `check` target gives
+   `make check`.
+2. Otherwise a Makefile with a `test` target gives `make lint` (when it has
+   that target too) and `make test`.
+3. Otherwise each manifest present adds its checks, in the order Go, Python,
+   Node, Rust, Java: `go vet ./...` and `go test ./...` for `go.mod`;
+   `pytest` (when `pytest.ini`, a root `conftest.py` or the name `pytest` in
+   `pyproject.toml`, `setup.cfg` or a `requirements*.txt` shows it) or
+   `python -m unittest discover` for a Python manifest, behind `uv run` with
+   `uv.lock` or `poetry run` with `poetry.lock`, and `ruff check .` when ruff
+   is configured; `<pm> test` (unless it is npm's placeholder) and `<pm> run
+   lint` for the scripts of `package.json`, with `pnpm`, `yarn` or `bun` by
+   lockfile and `npm` otherwise; `cargo test` for `Cargo.toml`;
+   `./mvnw test` or `mvn -q test` for `pom.xml` and `./gradlew test` or
+   `gradle test` for `build.gradle(.kts)`, the wrapper when it exists.
+
+Which checks are selected, and their order and argv, depend on the files and
+on nothing else: not on `PATH`, not on the machine. Only `available` does.
+
+| Outcome | When |
+|---|---|
+| `done` | Always, when the repository could be read. A program that is not available is a warning, `check_unavailable`, once per check. |
+| `failed`/`config` | `.agent-fox/gate.json` does not parse, names a version other than 1, or holds a check that cannot run (no `argv`, a repeated `name`, a `kind` that is not `lint`, `test` or `check`). The message names the file, and the Makefile is not used as a fallback. |
+| `failed`/`io` | The directory cannot be read, or `gate.json` cannot be written. |
+
+On this repository:
+
+```json
+{
+  "languages": [{"name": "go", "files": 57, "manifest": "go.mod"}],
+  "gate": {
+    "source": "detected",
+    "checks": [
+      {"name": "make check", "argv": ["make", "check"], "kind": "check", "source": "Makefile:check", "available": true}
+    ]
+  },
+  "suite": [["make", "check"], ["make", "test"], ["go", "vet", "./..."], ["go", "test", "./..."]],
+  "programs": ["make", "go", "gofmt"]
+}
+```
+
+(The result is indented and the arrays are spread over lines in the real
+output; the count of Go files is the repository's at the time.)
 
 ## The envelope
 
@@ -194,6 +267,16 @@ stack goes to stderr and, when there is a run directory, to
 no question, a question with another status, more than 26 options) is a
 command bug and is reported as `failed`/`internal`.
 
+Two things are for the one command whose caller is a host that reads another
+format than the envelope (`af guard check --host claude`), and no other
+command uses them. A command registered with `RawStdin` is given the
+process's stdin, unread, as `Run.Stdin`; a command without it gets `nil` and
+reads nothing. An outcome with a `Document` and the status `done` has the
+document written to stdout in place of the envelope, and the exit code is
+`done`'s, 0; the envelope is still made, and still written to `--output` and
+to the run directory. A document with any other status is an inconsistent
+outcome, and a run that fails after the command returned prints the envelope.
+
 ## Error categories
 
 | `error.category` | Used for |
@@ -205,6 +288,9 @@ command bug and is reported as `failed`/`internal`.
 | `cancelled` | The process was sent SIGINT or SIGTERM. |
 | `timeout` | `--timeout` ran out. Not retryable; `fix_hint` is `{flag: "--timeout", suggest: <twice the value>}`. |
 | `internal` | A bug: a plain error, a panic, an inconsistent outcome, a result that is not JSON. |
+| `config` | A configuration file `af` reads cannot be used, for example a `.agent-fox/gate.json` that does not parse. The message names the file. |
+| `restore` | A tree that a command changed in order to measure it could not be put back, or a leftover of an earlier measurement stands in the way. The message names the directory that holds what is left. |
+| `git` | git failed in a way the command cannot work around. |
 
 Later specs add categories of their own to this list.
 
@@ -223,6 +309,7 @@ A code matches `^[a-z][a-z0-9_]*$`; one that does not is reported under
 | `output_unwritable` | The file named by `--output` could not be written. |
 | `events_unwritable` | An event could not be written to the run directory or to `--emit-events`. Raised once. |
 | `invalid_warning_code` | A command raised a warning whose code does not match the pattern; the message begins with the code it gave. |
+| `check_unavailable` | `lang detect`: a check of the gate table names a program that cannot be run on this machine. The check stays in the table with `available: false`; the message names the check. |
 
 ## The positional input
 

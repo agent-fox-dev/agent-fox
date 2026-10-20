@@ -1,0 +1,56 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["languages", "gate", "suite", "programs"],
+  "description": "What a repository is written in and how it is checked.",
+  "properties": {
+    "languages": {
+      "type": "array",
+      "description": "The languages found in the file view, most files first and the name breaking a tie.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "files"],
+        "properties": {
+          "name": { "type": "string" },
+          "files": { "type": "integer", "minimum": 1 },
+          "manifest": { "type": "string", "description": "The file at the root that marks the project, when there is one." }
+        }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "checks"],
+      "description": "The effective gate table.",
+      "properties": {
+        "source": { "enum": ["file", "detected"], "description": "file: .agent-fox/gate.json; detected: the repository's own files." },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "argv", "kind", "source", "available"],
+            "properties": {
+              "name": { "type": "string" },
+              "argv": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "The command, with no shell." },
+              "kind": { "enum": ["lint", "test", "check"], "description": "check is lint and test together." },
+              "source": { "type": "string", "description": "Where the check came from, for example Makefile:check." },
+              "available": { "type": "boolean", "description": "Whether argv[0] can be run on this machine. It never changes which checks are selected." }
+            }
+          }
+        }
+      }
+    },
+    "suite": {
+      "type": "array",
+      "description": "The command forms that count as the full test suite.",
+      "items": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+    },
+    "programs": {
+      "type": "array",
+      "description": "The programs a gate may run.",
+      "items": { "type": "string" }
+    }
+  }
+}

@@ -10,6 +10,13 @@ const (
 	CategoryCancelled = "cancelled"
 	CategoryTimeout   = "timeout"
 	CategoryInternal  = "internal"
+	// CategoryConfig: a configuration file af reads cannot be used.
+	CategoryConfig = "config"
+	// CategoryRestore: a tree af changed for a measurement could not be put
+	// back, or a leftover of an earlier measurement stands in the way.
+	CategoryRestore = "restore"
+	// CategoryGit: git failed in a way the command cannot work around.
+	CategoryGit = "git"
 )
 
 // Failure is the error a command returns to set the envelope's error object.
@@ -31,6 +38,11 @@ type Outcome struct {
 	Summary    string
 	Result     any
 	NeedsHuman *Question
+	// Document, when it is not empty, is what stdout gets in place of the
+	// envelope. It is for the one command whose caller is a host that reads
+	// another format; the status must be done. The envelope is still made,
+	// and is still written to --output and to the run directory.
+	Document []byte
 }
 
 // Question is what a needs_human outcome asks. The shell letters the options
