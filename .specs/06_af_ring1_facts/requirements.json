@@ -1,0 +1,831 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "06",
+  "spec_name": "af_ring1_facts",
+  "schema_version": 2,
+  "introduction": "The ring-1 fact commands of `af` — `lang detect`, `gate run`, `gate compare`, `revert-check`, `guard check` and `map` — measure what a repository is written in and how it is checked, what its checks measured on a tree (cached by tree hash), how two measurements compare, whether a change's tests prove the change, whether a brain may make a tool call, and what the code looks like within a token budget. Each is a repeatable command on the spec-05 `toolio` shell that writes nothing outside the git-ignored `.agent-fox/` directory, and each is backed by a Go package (`internal/project`, `internal/checks`, `internal/conform`, `internal/policy`, `internal/repomap`) that later loops call in-process.",
+  "glossary": {
+    "Outliner": "The `repomap.Outliner` interface returning a file's declarations as kind, name and start line; implemented by one adapter over the hands' outline and by a fake in tests.",
+    "file view": "The sorted, slash-separated, `--dir`-relative list of files shared by the tree hash, language detection and the map: git's tracked plus untracked-not-ignored files (read NUL-separated, deleted files dropped) in a work tree, or a standard-library walk with fixed skip directories outside one; `.git/` and `.agent-fox/` are always excluded.",
+    "gate id": "The first 12 hex characters of the cache key SHA-256(tree hash, canonical JSON of the gate table, runner mode); names the directory `.agent-fox/gate/<id>/`.",
+    "gate program": "A program name the guard and the agentkit brain may allow: each check's argv[0] plus each detected language's toolchain programs.",
+    "gate table": "The ordered list of checks (`name`, `argv`, `kind` lint|test|check, `source`, `available`) that `af gate run` executes, taken from `.agent-fox/gate.json` (table_source `file`) or detected from root-level files (table_source `detected`).",
+    "hands": "The agentkit-go library (`github.com/agent-fox-dev/agentkit-go`) providing `tools.ReducedEnv`, `guard.Check` and the tree-sitter outline; its source is outside this repository.",
+    "label": "A free-form name matching `^[a-z][a-z0-9_-]{0,31}$` (e.g. `baseline`, `after`) mapped to the latest gate id in `.agent-fox/gate/labels.json`.",
+    "ladder level": "One of the six reduction levels of `af map`, from every file with every declaration (1) down to directories cut off at the budget (6).",
+    "protected path": "A path prefix the guard refuses writes into; defaults `.git/`, `.agent-fox/`, `.specs/`, `.github/workflows/`, `.gitlab-ci.yml`.",
+    "revert backup": "The directory `.agent-fox/revert/<id>/` holding copies of the non-test changed paths and a manifest while `af revert-check` has them reverted.",
+    "suite form": "A command argv the guard treats as the full test suite: the gate's checks, `make check`/`make test` when those targets exist, and each detected language's full-suite form.",
+    "test path": "A path classified as a test by the fixed convention table of R6 (e.g. `_test.go`, `test_*.py`, `*.spec.*`, `src/test/`, a `test`/`tests`/`spec` directory segment).",
+    "tree hash": "SHA-256 over the file view's entries in order (kind, exec bit, path and content hash for regular files; target for symlinks; type for other files; an `unreadable` marker for unreadable files). Independent of HEAD.",
+    "verdict": "The comparison of two gate results: `pass`, `pass_was_already_failing`, `regressed`, `still_failing` or `unverified`."
+  },
+  "requirements": [
+    {
+      "id": "06-REQ-1",
+      "title": "File view and tree hash",
+      "rationale": "The cache, the language counts and the map must agree on what the repository is, and the same content must hash the same inside and outside the box.",
+      "criteria": [
+        {
+          "id": "06-REQ-1.1",
+          "pattern": "event_driven",
+          "condition": "the file view is built for a `--dir` inside a git work tree",
+          "system": "checks package",
+          "action": "list tracked files plus untracked files that are not ignored, read with `git ls-files -z --cached --others --exclude-standard` through a new NUL-separated `gitx` list method, and drop files that no longer exist in the working tree",
+          "contract": "a file named with a space and a non-ASCII character appears unquoted; an ignored file and a deleted tracked file are absent"
+        },
+        {
+          "id": "06-REQ-1.2",
+          "pattern": "event_driven",
+          "condition": "the file view is built for a `--dir` that is not inside a git work tree",
+          "system": "checks package",
+          "action": "walk `--dir` with the standard library, skipping directories named `.git`, `.hg`, `.svn`, `node_modules`, `vendor`, `target`, `dist`, `build`, `__pycache__`, `.venv` and `venv`",
+          "contract": "no path in the view has one of those names as a directory segment"
+        },
+        {
+          "id": "06-REQ-1.3",
+          "pattern": "ubiquitous",
+          "system": "checks package",
+          "action": "exclude `.git/` and `.agent-fox/` from both forms of the file view and return paths slash-separated, relative to `--dir`, sorted in byte order"
+        },
+        {
+          "id": "06-REQ-1.4",
+          "pattern": "ubiquitous",
+          "system": "checks package",
+          "action": "compute the tree hash as SHA-256 over the file view's entries in order, where a regular file contributes its kind, executable bit, path and content SHA-256, a symlink its target without following it, and any other file type its type",
+          "contract": "a 64-character lowercase hex string"
+        },
+        {
+          "id": "06-REQ-1.5",
+          "pattern": "ubiquitous",
+          "system": "checks package",
+          "action": "for any two directories whose file views hold the same paths, contents, executable bits and symlink targets, produce the same tree hash regardless of the commit HEAD points at, the absolute location of the directory or the content of ignored files, and for any one-byte change to a file in the view produce a different tree hash"
+        },
+        {
+          "id": "06-REQ-1.6",
+          "pattern": "unwanted",
+          "condition": "a file in the view cannot be read",
+          "system": "checks package",
+          "action": "hash a fixed `unreadable` marker in that entry's place and continue",
+          "contract": "the tree hash is returned with a nil error"
+        },
+        {
+          "id": "06-REQ-1.7",
+          "pattern": "event_driven",
+          "condition": "a tree hash is about to be computed",
+          "system": "checks package",
+          "action": "create `<dir>/.agent-fox/` and its `.gitignore` when either is missing, reusing the spec-05 `.gitignore` content",
+          "contract": "after the call `<dir>/.agent-fox/.gitignore` exists and `git status --porcelain` lists nothing under `.agent-fox/`"
+        },
+        {
+          "id": "06-REQ-1.8",
+          "pattern": "ubiquitous",
+          "system": "gitx package",
+          "action": "provide a NUL-separated changed-path method that returns the paths differing from a ref (`git diff -z --name-only <ref>`) plus untracked, non-ignored files (`git ls-files -z --others --exclude-standard`), de-duplicated and sorted",
+          "contract": "paths with spaces, leading or trailing spaces, or non-ASCII characters are returned byte-exact"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-2",
+      "title": "af lang detect and the gate table",
+      "rationale": "The guard, the gate and the brain need one deterministic answer to what the repository is written in and how it is checked.",
+      "criteria": [
+        {
+          "id": "06-REQ-2.1",
+          "pattern": "event_driven",
+          "condition": "`af lang detect [--dir D]` runs",
+          "system": "project package",
+          "action": "report `languages`, each with its file count from the file view classified by extension over the outline's languages (Go, Python, JavaScript, TypeScript, Rust, Java, Kotlin, Ruby, C, C++, C#, PHP, Scala, Lua, Bash), ordered by count descending then name, each carrying its root marker manifest when one exists, together with `gate`, `suite` and `programs`",
+          "contract": "status `done`, exit 0; on an empty directory `languages` is empty and `gate.checks` is empty"
+        },
+        {
+          "id": "06-REQ-2.2",
+          "pattern": "event_driven",
+          "condition": "`<dir>/.agent-fox/gate.json` exists and parses as `{\"version\": 1, \"checks\": [...]}`",
+          "system": "project package",
+          "action": "use its checks as the effective gate table",
+          "contract": "`gate.source` is `file`"
+        },
+        {
+          "id": "06-REQ-2.3",
+          "pattern": "event_driven",
+          "condition": "no `gate.json` exists",
+          "system": "project package",
+          "action": "detect the table from root-level files only: a `GNUmakefile`, `makefile` or `Makefile` with a `check` target gives `[make check]` (kind `check`); otherwise a Makefile with a `test` target gives `make lint` (kind `lint`, only when that target exists) then `make test` (kind `test`); otherwise each language manifest adds its checks in the order Go, Python, JavaScript/TypeScript, Rust, Java, and other languages add none",
+          "contract": "`gate.source` is `detected`; every check has `name`, shell-free `argv`, `kind`, `source` (e.g. `Makefile:check`) and `available`; on this repository languages[0] is `go` and the checks are exactly `[make check]`"
+        },
+        {
+          "id": "06-REQ-2.4",
+          "pattern": "ubiquitous",
+          "system": "project package",
+          "action": "derive language checks as: Go (`go.mod`) `go vet ./...` (lint) and `go test ./...` (test); Python (`pyproject.toml`, `setup.py`, `setup.cfg`, `pytest.ini`, `tox.ini`) `pytest` when a pytest signal exists (`pytest.ini`, a root `conftest.py`, `[tool.pytest`, or `pytest` named in pyproject, setup.cfg or requirements files) else `python -m unittest discover`, prefixed `uv run` with `uv.lock` or `poetry run` with `poetry.lock`, plus `ruff check .` (lint) when ruff is configured; Node (`package.json`) `<pm> test` when `scripts.test` exists and is not npm's placeholder and `<pm> run lint` when `scripts.lint` exists, with `<pm>` `pnpm`, `yarn` or `bun` by lockfile else `npm`; Rust (`Cargo.toml`) `cargo test`; Java `./mvnw test` or `mvn -q test` for `pom.xml` and `./gradlew test` or `gradle test` for `build.gradle(.kts)`, the wrapper form chosen when the wrapper file exists",
+          "contract": "fixtures for a Go module, a pnpm Node package, a uv Python project, a Cargo crate and a Maven project each yield exactly the listed checks"
+        },
+        {
+          "id": "06-REQ-2.5",
+          "pattern": "ubiquitous",
+          "system": "project package",
+          "action": "report `suite` as the gate checks' argv plus `make check` and `make test` when those targets exist plus each detected language's full-suite form, and `programs` as the checks' argv[0] plus each detected language's toolchain programs, both de-duplicated in first-seen order",
+          "contract": "on this repository `suite` contains `make check`, `make test`, `go vet ./...` and `go test ./...`, and `programs` contains `make` and `go`"
+        },
+        {
+          "id": "06-REQ-2.6",
+          "pattern": "unwanted",
+          "condition": "`<dir>/.agent-fox/gate.json` exists but does not parse or names a version other than 1",
+          "system": "project package",
+          "action": "fail without falling back to detection",
+          "contract": "status `failed`, exit 1, error.category `config`, error.message names the gate.json path"
+        },
+        {
+          "id": "06-REQ-2.7",
+          "pattern": "unwanted",
+          "condition": "a selected check's argv[0] does not resolve on PATH",
+          "system": "project package",
+          "action": "keep the check in the table with `available: false` and emit the coded warning `check_unavailable` naming it, so that for any PATH the selected checks, their order and their argv are identical",
+          "contract": "status `done`; warning code `check_unavailable`"
+        },
+        {
+          "id": "06-REQ-2.8",
+          "pattern": "optional",
+          "condition": "`--write` is given",
+          "system": "project package",
+          "action": "write the freshly detected table, ignoring any existing gate.json, to `<dir>/.agent-fox/gate.json` as `{\"version\": 1, \"checks\": [...]}` via a temporary file and rename",
+          "contract": "a subsequent `af lang detect` reports `gate.source` `file` with the same checks"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-3",
+      "title": "af gate run",
+      "rationale": "A red gate is a measured fact the loop decides from, so the gate must run each check credential-free and record exactly what happened.",
+      "criteria": [
+        {
+          "id": "06-REQ-3.1",
+          "pattern": "event_driven",
+          "condition": "`af gate run [--dir D]` runs without a cache hit",
+          "system": "checks package",
+          "action": "run the effective table's available checks in table order in `--dir` under `gitx.ReducedEnvRunner`, writing each check's full combined output to `.agent-fox/gate/<id>/NN-<slug>.log` with NN the two-digit 1-based check index",
+          "contract": "one log file per executed check; unavailable checks appear in `skipped` with reason `unavailable`"
+        },
+        {
+          "id": "06-REQ-3.2",
+          "pattern": "optional",
+          "condition": "`--hermetic` is given",
+          "system": "checks package",
+          "action": "run the checks under `gitx.HermeticRunner` with a freshly created temporary HOME and remove that HOME after the run, whether the run completed, failed or was cancelled",
+          "contract": "result `hermetic: true`; the temporary HOME directory does not exist after the command returns"
+        },
+        {
+          "id": "06-REQ-3.3",
+          "pattern": "ubiquitous",
+          "system": "checks package",
+          "action": "record for each executed check `status` (`pass` on exit 0, `fail` on non-zero exit, `error` when the program could not start, `timeout` when the check's context expired), `exit_code`, `duration_ms`, `log` relative to `--dir`, and `tail` holding the last 40 lines of output capped at 4096 bytes",
+          "contract": "each entry of `checks` carries status, exit_code (-1 for `error`), duration_ms, log and tail; a missing program yields status `error`, a check exceeding its deadline yields `timeout`"
+        },
+        {
+          "id": "06-REQ-3.4",
+          "pattern": "ubiquitous",
+          "system": "checks package",
+          "action": "return a result holding `id`, `tree`, `table_source`, `hermetic`, `label`, `cached`, `passed`, `checks` and `skipped` (each with a reason), where `passed` is true only when at least one check ran and every executed check has status `pass`"
+        },
+        {
+          "id": "06-REQ-3.5",
+          "pattern": "event_driven",
+          "condition": "one or more checks end with status `fail`, `error` or `timeout`",
+          "system": "af gate run",
+          "action": "report the red gate as a measured fact",
+          "contract": "status `done`, exit 0, `passed: false`"
+        },
+        {
+          "id": "06-REQ-3.6",
+          "pattern": "event_driven",
+          "condition": "the effective table has no available check",
+          "system": "af gate run",
+          "action": "run nothing and return a result with an empty `checks` list",
+          "contract": "status `done`, exit 0, `passed: false`, coded warning `no_checks`"
+        },
+        {
+          "id": "06-REQ-3.7",
+          "pattern": "unwanted",
+          "condition": "the tree hash taken after the checks differs from the one taken before them",
+          "system": "checks package",
+          "action": "keep and store the result under the earlier hash's id",
+          "contract": "status `done`; coded warning `tree_changed_during_gate`; `tree` equals the pre-run hash"
+        },
+        {
+          "id": "06-REQ-3.8",
+          "pattern": "unwanted",
+          "condition": "the command's own `--timeout` expires or a signal cancels the run",
+          "system": "checks package",
+          "action": "stop the running check's whole process group, store no `result.json`, and return the cancellation error to the shell",
+          "contract": "status `failed`, exit 1; `.agent-fox/gate/<id>/result.json` does not exist afterwards"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-4",
+      "title": "Gate cache and labels",
+      "rationale": "A gate the brain ran inside the box must be a cache hit for the landing gate, and the loop must address results by role.",
+      "criteria": [
+        {
+          "id": "06-REQ-4.1",
+          "pattern": "ubiquitous",
+          "system": "checks package",
+          "action": "compute the cache key as SHA-256 over the tree hash, the canonical JSON of the gate table and the runner mode (`reduced` or `hermetic`), and use the key's first 12 hex characters as the result `id` and the directory `.agent-fox/gate/<id>/`"
+        },
+        {
+          "id": "06-REQ-4.2",
+          "pattern": "event_driven",
+          "condition": "`af gate run` runs, `.agent-fox/gate/<id>/result.json` exists for the current key and `--no-cache` is absent",
+          "system": "checks package",
+          "action": "return the stored result with `cached: true` and execute no check",
+          "contract": "a counter script used as a check is incremented once across two runs on an unchanged tree; the second envelope has `cached: true`"
+        },
+        {
+          "id": "06-REQ-4.3",
+          "pattern": "ubiquitous",
+          "system": "checks package",
+          "action": "for any tree, make the next `af gate run` execute the checks again after any one-byte change to a file in the file view, and serve a cache hit after any change confined to ignored files"
+        },
+        {
+          "id": "06-REQ-4.4",
+          "pattern": "optional",
+          "condition": "`--no-cache` is given",
+          "system": "checks package",
+          "action": "run the checks and replace the stored result",
+          "contract": "`cached: false`; result.json reflects the new run"
+        },
+        {
+          "id": "06-REQ-4.5",
+          "pattern": "ubiquitous",
+          "system": "checks package",
+          "action": "store only completed results, writing `result.json` after all its logs via a temporary file in the same directory followed by rename, so that concurrent runs without locking leave the last writer's complete file and never a partial one"
+        },
+        {
+          "id": "06-REQ-4.6",
+          "pattern": "event_driven",
+          "condition": "`--label L` is given with a valid label",
+          "system": "checks package",
+          "action": "record L mapped to the result id in `.agent-fox/gate/labels.json`, written via temporary file and rename, on a cache hit as well as a miss, replacing any earlier id for L",
+          "contract": "`label` in the result equals L; labels.json maps L to the latest id"
+        },
+        {
+          "id": "06-REQ-4.7",
+          "pattern": "unwanted",
+          "condition": "`--label` does not match `^[a-z][a-z0-9_-]{0,31}$` or is exactly 12 lowercase hex characters",
+          "system": "af gate run",
+          "action": "reject the invocation before running any check",
+          "contract": "status `usage`, exit 2; labels.json unchanged"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-5",
+      "title": "af gate compare",
+      "rationale": "Landing and Closes-versus-Refs are decided from a measured verdict, computed per check so one fixed and one broken check reads as a regression.",
+      "criteria": [
+        {
+          "id": "06-REQ-5.1",
+          "pattern": "event_driven",
+          "condition": "`af gate compare --before B --after A [--dir D]` runs",
+          "system": "checks package",
+          "action": "resolve each argument as a label in labels.json first and then as a gate id, load both stored results, and compute a per-check verdict matched by check name: pass→pass `pass`, not pass→pass `pass_was_already_failing`, pass→not pass `regressed`, not pass→not pass `still_failing`, where `fail`, `error` and `timeout` count as not pass",
+          "contract": "one row per check name with before status, after status and verdict"
+        },
+        {
+          "id": "06-REQ-5.2",
+          "pattern": "ubiquitous",
+          "system": "checks package",
+          "action": "set the overall `verdict` to the first of `regressed`, `still_failing`, `pass_was_already_failing`, `pass` that any row carries, and `landable` to true only for `pass` and `pass_was_already_failing`"
+        },
+        {
+          "id": "06-REQ-5.3",
+          "pattern": "event_driven",
+          "condition": "either result has no checks",
+          "system": "checks package",
+          "action": "set the verdict to `unverified`",
+          "contract": "`verdict: unverified`, `landable: false`"
+        },
+        {
+          "id": "06-REQ-5.4",
+          "pattern": "ubiquitous",
+          "system": "af gate compare",
+          "action": "return a result carrying both results' `id`, `label` and `passed`, the overall `verdict`, `landable` and the per-check rows, with status `done` for every verdict",
+          "contract": "exit 0 for each of the five verdicts"
+        },
+        {
+          "id": "06-REQ-5.5",
+          "pattern": "unwanted",
+          "condition": "`--before` or `--after` is missing, or resolves to neither a known label nor a stored id",
+          "system": "af gate compare",
+          "action": "refuse to compare",
+          "contract": "status `usage`, exit 2; error.message names the missing or unresolved argument"
+        },
+        {
+          "id": "06-REQ-5.6",
+          "pattern": "unwanted",
+          "condition": "the two results' sets of check names differ",
+          "system": "af gate compare",
+          "action": "refuse to compare",
+          "contract": "status `usage`, exit 2; error.message lists the check names present on only one side"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-6",
+      "title": "af revert-check",
+      "rationale": "A fix closes an issue only when its tests are shown to fail without the rest of the change, and the measurement must never cost the caller their tree.",
+      "criteria": [
+        {
+          "id": "06-REQ-6.1",
+          "pattern": "unwanted",
+          "condition": "`--dir` is not the top level of a git work tree, or `--since` is missing or does not resolve to a commit",
+          "system": "af revert-check",
+          "action": "refuse before touching any file",
+          "contract": "status `usage`, exit 2; error.message names the wrong argument"
+        },
+        {
+          "id": "06-REQ-6.2",
+          "pattern": "ubiquitous",
+          "system": "project package",
+          "action": "classify a path as a test path when it matches Go `_test.go` or `testdata/`, Python `test_*.py`, `*_test.py` or `conftest.py`, JavaScript/TypeScript `*.test.*`, `*.spec.*` or `__tests__/`, Java `src/test/`, `*Test.java`, `*Tests.java` or `*IT.java`, Ruby `*_spec.rb` or `*_test.rb`, or has a `test`, `tests` or `spec` directory segment"
+        },
+        {
+          "id": "06-REQ-6.3",
+          "pattern": "event_driven",
+          "condition": "`af revert-check --since R` lists the changed paths (NUL-separated, untracked included) and nothing can be measured",
+          "system": "conform package",
+          "action": "return without modifying any file the outcome `no_changes` when no path changed, `no_code_changes` when only test paths changed, `no_test_changes` when no test path changed, or `inconclusive` when the table has no check of kind `test` or `check`",
+          "contract": "status `done`, exit 0; `restored: true`; warning `fix_not_proven` for every outcome except `no_changes`"
+        },
+        {
+          "id": "06-REQ-6.4",
+          "pattern": "event_driven",
+          "condition": "changed test and non-test paths exist and the table has a `test` or `check` check",
+          "system": "conform package",
+          "action": "take the full table's result for the current tree from the gate cache or run and cache it, and when any of its `test` or `check` checks did not pass return outcome `inconclusive` with reason `after_not_green` without reverting",
+          "contract": "status `done`; `after` holds the gate id; warning `fix_not_proven`"
+        },
+        {
+          "id": "06-REQ-6.5",
+          "pattern": "event_driven",
+          "condition": "the current tree's `test` and `check` checks passed",
+          "system": "conform package",
+          "action": "copy every existing non-test changed path into `.agent-fox/revert/<id>/` with a manifest, then without touching the index give each non-test path present at R the ref's content and mode (read via `git show` and `git ls-tree -z`), move aside each non-test path absent at R, leave test paths as they are, and run only the `test` and `check` checks through the gate engine cached by the reverted tree's hash",
+          "contract": "`reverted_files` lists the reverted paths; `test_files` lists the test paths"
+        },
+        {
+          "id": "06-REQ-6.6",
+          "pattern": "ubiquitous",
+          "system": "conform package",
+          "action": "set outcome `proven` when any reverted-tree check fails and `not_proven` when all pass, set `closes` true only for `proven`, emit warning `fix_not_proven` for every outcome other than `proven` and `no_changes`, and return `outcome`, `reason`, `closes`, `since` (resolved to a full hash), `test_files`, `reverted_files`, `after`, the reverted gate result (`id`, `passed`, `checks`) and `restored`",
+          "contract": "status `done`, exit 0 for both `proven` and `not_proven`"
+        },
+        {
+          "id": "06-REQ-6.7",
+          "pattern": "ubiquitous",
+          "system": "conform package",
+          "action": "after reverting, restore every reverted and moved-aside path from the backup using a context that is not cancelled, verify that the tree hash equals the hash taken before the revert and that the index is byte-identical to its pre-revert state, then remove the backup directory, in every outcome including cancellation by signal or `--timeout` mid-run",
+          "contract": "after the command returns the tree hash and the `.git/index` bytes equal their values before the command; `restored: true`"
+        },
+        {
+          "id": "06-REQ-6.8",
+          "pattern": "unwanted",
+          "condition": "the restore fails, the restored tree hash differs from the pre-revert hash, or a directory under `.agent-fox/revert/` already exists when the command starts",
+          "system": "conform package",
+          "action": "stop, keep every backup directory in place and revert nothing further",
+          "contract": "status `failed`, exit 1, error.category `restore`; error.message names the backup directory"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-7",
+      "title": "Guard decisions on shell commands",
+      "rationale": "A brain must not run the suite the gate caches, mutate git or call loop commands, and the rules this scope tests must not depend on the unread hands' guard semantics.",
+      "criteria": [
+        {
+          "id": "06-REQ-7.1",
+          "pattern": "event_driven",
+          "condition": "a shell tool call (Claude Code `Bash` or the hands' `execute`) is decided",
+          "system": "policy package",
+          "action": "tokenize the command with a standard-library POSIX-quoting tokenizer, split it into segments on `&&`, `||`, `;`, `|`, `&` and newlines, inspect the contents of `$(…)`, backticks and `sh|bash|zsh -c '…'` as further segments, skip leading `VAR=value` assignments and the wrappers `env`, `time`, `timeout`, `nice`, `nohup`, `command` and `exec` to find each segment's program, and evaluate rules 1–7 in order per segment with the first deny winning",
+          "contract": "a decision `allow` or `deny` with `rule`, `segment` and `reason`"
+        },
+        {
+          "id": "06-REQ-7.2",
+          "pattern": "unwanted",
+          "condition": "the command cannot be parsed, for example it has unbalanced quotes or an unterminated `$(`",
+          "system": "policy package",
+          "action": "deny the call",
+          "contract": "decision `deny`, rule `unparseable`"
+        },
+        {
+          "id": "06-REQ-7.3",
+          "pattern": "event_driven",
+          "condition": "the hands' `guard.Check`, called through one adapter as a deny-only first layer, refuses the command",
+          "system": "policy package",
+          "action": "deny the call and pass the hands' reason through; an allow from the hands never overrides a later rule",
+          "contract": "decision `deny`, rule `hands_guard`, reason equal to the hands' reason"
+        },
+        {
+          "id": "06-REQ-7.4",
+          "pattern": "event_driven",
+          "condition": "a segment's program is `git`",
+          "system": "policy package",
+          "action": "allow only the subcommands `status`, `log`, `diff`, `show`, `blame`, `ls-files`, `ls-tree`, `rev-parse`, `rev-list`, `grep`, `describe`, `cat-file`, `shortlog`, `merge-base`, `name-rev`, `for-each-ref` and `show-ref`, plus `branch` and `remote` in their listing forms only, and deny any other subcommand or a global `-c` with a reason saying that `af` makes every commit, branch and push",
+          "contract": "`git diff` allowed; `git commit` and `git push` denied with rule `git_mutation`"
+        },
+        {
+          "id": "06-REQ-7.5",
+          "pattern": "event_driven",
+          "condition": "a segment equals a suite form once every token starting with `-` is removed from both",
+          "system": "policy package",
+          "action": "deny the segment with a reason that names the command, says to run `af gate run` instead because it caches the result by tree hash and the landing reuses it, and says that targeted runs are allowed",
+          "contract": "rule `suite_command`; `make check`, `go test ./...` and `go test -count=1 ./...` denied; `go test ./internal/x -run TestY` allowed"
+        },
+        {
+          "id": "06-REQ-7.6",
+          "pattern": "event_driven",
+          "condition": "a segment's program is `af`",
+          "system": "policy package",
+          "action": "allow only `lang detect`, `gate run`, `gate compare`, `revert-check`, `map`, `guard check`, `triage brief`, `triage submit`, `fix brief`, `fix submit`, `--version` and `--schema`, and deny any other `af` command as belonging to the loop",
+          "contract": "`af gate run` allowed; `af fix land` denied with rule `af_command`"
+        },
+        {
+          "id": "06-REQ-7.7",
+          "pattern": "state_driven",
+          "condition": "the policy's `allow_programs` is not empty",
+          "system": "policy package",
+          "action": "deny a segment whose program is outside `allow_programs`, with `af` and `git` always permitted",
+          "contract": "decision `deny`, rule `program_not_allowed`"
+        },
+        {
+          "id": "06-REQ-7.8",
+          "pattern": "event_driven",
+          "condition": "a segment writes into a protected path through an output redirection target or through an argument written by `rm`, `mv`, `cp`, `tee`, `touch`, `mkdir`, `truncate`, `ln`, `chmod` or `sed -i`, resolved against `--dir`",
+          "system": "policy package",
+          "action": "deny the segment",
+          "contract": "decision `deny`, rule `protected_path`"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-8",
+      "title": "Guard policy source, write tools and af guard check I/O",
+      "rationale": "The same decision must reach the envelope caller, the Claude Code hook and the in-process interceptor, and the hook must fail closed.",
+      "criteria": [
+        {
+          "id": "06-REQ-8.1",
+          "pattern": "ubiquitous",
+          "system": "policy package",
+          "action": "load the policy from the first that exists of `--policy <path>`, `<dir>/.agent-fox/guard.json` (`{\"version\": 1, \"suite\": [[...]], \"protected_paths\": [...], \"allow_programs\": [...]}`), and defaults derived from R2 on `--dir`, filling each missing key with its default: `suite` from R2's suite, `protected_paths` `.git/`, `.agent-fox/`, `.specs/`, `.github/workflows/`, `.gitlab-ci.yml`, and `allow_programs` empty"
+        },
+        {
+          "id": "06-REQ-8.2",
+          "pattern": "event_driven",
+          "condition": "a write tool call (`Write`, `Edit`, `MultiEdit`, `NotebookEdit`, the hands' `write_file` or `edit_file`) is decided",
+          "system": "policy package",
+          "action": "resolve its path against `--dir` and deny it when the path is under a protected path, or when it is outside `--dir` and not under the system temporary directory",
+          "contract": "a `Write` to `.specs/x.md` is denied with rule `protected_path`; a write to `/etc/x` is denied with rule `outside_dir`"
+        },
+        {
+          "id": "06-REQ-8.3",
+          "pattern": "ubiquitous",
+          "system": "policy package",
+          "action": "allow every tool call that is neither a shell nor a write tool, and expose the decision function as a plain Go API returning `decision` (`allow`|`deny`), `rule` (one of `unparseable`, `hands_guard`, `git_mutation`, `suite_command`, `af_command`, `program_not_allowed`, `protected_path`, `outside_dir`, empty on allow), the deciding `segment` and a `reason`",
+          "contract": "an unknown tool name such as `Read` yields decision `allow` with an empty rule; every deny carries a non-empty rule, segment and reason"
+        },
+        {
+          "id": "06-REQ-8.4",
+          "pattern": "event_driven",
+          "condition": "`af guard check` reads its stdin",
+          "system": "af guard check",
+          "action": "read at most 1 MiB of raw stdin and accept either a Claude Code hook payload (`hook_event_name`, `tool_name`, `tool_input`, `cwd`) or the neutral form `{\"tool\": \"...\", \"input\": {...}}`, allowing with no opinion a payload whose `hook_event_name` is present and is not `PreToolUse`",
+          "contract": "the same payload yields the same decision in envelope and `--host claude` form"
+        },
+        {
+          "id": "06-REQ-8.5",
+          "pattern": "state_driven",
+          "condition": "`--host` is not given",
+          "system": "af guard check",
+          "action": "print the envelope with `result` holding `decision`, `rule`, `reason`, `tool` and `segment`",
+          "contract": "status `done`, exit 0 for both allow and deny"
+        },
+        {
+          "id": "06-REQ-8.6",
+          "pattern": "unwanted",
+          "condition": "`--host` is not given and the payload is malformed, exceeds 1 MiB, or the policy file does not parse",
+          "system": "af guard check",
+          "action": "decide nothing",
+          "contract": "malformed or oversized payload: status `usage`, exit 2; unparseable policy: status `failed`, exit 1, error.category `config`"
+        },
+        {
+          "id": "06-REQ-8.7",
+          "pattern": "optional",
+          "condition": "`--host claude` is given",
+          "system": "af guard check",
+          "action": "print instead of the envelope `{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"<reason>\"}}` for a deny and `{}` for an allow, never emitting `permissionDecision: allow`",
+          "contract": "exit 0; stdout is a single JSON document"
+        },
+        {
+          "id": "06-REQ-8.8",
+          "pattern": "unwanted",
+          "condition": "`--host claude` is given and an internal error occurs (malformed or oversized payload, unparseable policy, or a panic)",
+          "system": "af guard check",
+          "action": "answer with a deny whose reason carries the error",
+          "contract": "exit 0; stdout `permissionDecision` is `deny`"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-9",
+      "title": "af map",
+      "rationale": "A brief's run-constant prefix needs a deterministic repository map that never exceeds its token budget.",
+      "criteria": [
+        {
+          "id": "06-REQ-9.1",
+          "pattern": "event_driven",
+          "condition": "`af map [--dir D] [--tokens N]` runs",
+          "system": "repomap package",
+          "action": "render the file view in path order with each directory as a `path/` header (root `./`), each file indented two spaces, and each file's declarations after it as `<kind> <name> L<line>` joined by ` · `, estimating tokens as the byte count divided by 4 rounded up, with N defaulting to 4000",
+          "contract": "status `done`, exit 0"
+        },
+        {
+          "id": "06-REQ-9.2",
+          "pattern": "unwanted",
+          "condition": "`--tokens` is below 200 or above 100000",
+          "system": "af map",
+          "action": "refuse to render",
+          "contract": "status `usage`, exit 2"
+        },
+        {
+          "id": "06-REQ-9.3",
+          "pattern": "ubiquitous",
+          "system": "repomap package",
+          "action": "take declarations from an `Outliner` interface implemented by one adapter over the hands' outline, and list by name only any file the outliner rejects (unsupported language, parse error, or larger than 1 MiB)",
+          "contract": "a rejected file appears in `map` by name only and is not counted in `files_outlined`; the command still returns status `done`"
+        },
+        {
+          "id": "06-REQ-9.4",
+          "pattern": "ubiquitous",
+          "system": "repomap package",
+          "action": "emit the first ladder level whose output fits the budget: 1 every file with every declaration; 2 test files without declarations; 3 other files' declarations capped at K (20, 10, 5, 2, 1) with `… +N more`; 4 every file by name only; 5 directories only as `path/ (N files)`; 6 directories cut off at the budget followed by `… N more directories`",
+          "contract": "`level` equals the emitted ladder level"
+        },
+        {
+          "id": "06-REQ-9.5",
+          "pattern": "ubiquitous",
+          "system": "repomap package",
+          "action": "for any file view, outliner output and budget N in [200, 100000], produce output whose estimated tokens are at most N, and produce byte-identical output for the same tree and budget"
+        },
+        {
+          "id": "06-REQ-9.6",
+          "pattern": "event_driven",
+          "condition": "the name-only rendering already exceeds the budget or the file view holds more than 5000 files",
+          "system": "repomap package",
+          "action": "skip calling the outliner",
+          "contract": "coded warning `map_outline_skipped`; `files_outlined: 0`"
+        },
+        {
+          "id": "06-REQ-9.7",
+          "pattern": "ubiquitous",
+          "system": "af map",
+          "action": "return a result holding `map`, `tokens` (the budget), `estimated_tokens`, `level`, `files_total`, `files_outlined` and `truncated` (true for any level above 1)"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-10",
+      "title": "Shell wiring, offline operation, schemas and docs",
+      "rationale": "The six commands inherit the spec-05 contract, stay usable in-process by later loops, and ship documented and tested offline.",
+      "criteria": [
+        {
+          "id": "06-REQ-10.1",
+          "pattern": "ubiquitous",
+          "system": "af binary",
+          "action": "register `lang detect`, `gate run`, `gate compare`, `revert-check`, `guard check` and `map` on the spec-05 `toolio` shell in `cmd/af`, using its envelope, exit codes, coded warnings, `--dir` and `--timeout`, with default timeouts of 1 minute, 30 minutes, 30 seconds, 30 minutes, 10 seconds and 2 minutes respectively",
+          "contract": "each command's `--help` lists its flags; each envelope's `tool` equals its command path"
+        },
+        {
+          "id": "06-REQ-10.2",
+          "pattern": "ubiquitous",
+          "system": "af binary",
+          "action": "build no forge client, call no model and open no network connection in any of the six commands, and create no run directory",
+          "contract": "no `.agent-fox/run/` directory is created by any of the six commands"
+        },
+        {
+          "id": "06-REQ-10.3",
+          "pattern": "ubiquitous",
+          "system": "internal packages",
+          "action": "keep `internal/project`, `internal/checks`, `internal/conform`, `internal/policy` and `internal/repomap` free of any import of `internal/toolio`, returning plain Go results and errors and never calling `os.Exit` or panicking on bad input"
+        },
+        {
+          "id": "06-REQ-10.4",
+          "pattern": "ubiquitous",
+          "system": "af binary",
+          "action": "embed a result JSON schema for each of the six commands, include it in `af --schema`, regenerate the committed `--schema` golden once while keeping the envelope schema version unchanged, and fail a test when a schema's top-level properties and the JSON fields of the command's Go result type differ",
+          "contract": "`af --schema` output equals the committed golden"
+        },
+        {
+          "id": "06-REQ-10.5",
+          "pattern": "optional",
+          "condition": "the spec-05 `toolio` shell lacks raw stdin access for a command without positional input, or a way for a command to supply its own stdout document",
+          "system": "toolio shell",
+          "action": "add the smallest extension providing each missing capability, used only by `af guard check --host claude`",
+          "contract": "every other command's output remains an envelope"
+        },
+        {
+          "id": "06-REQ-10.6",
+          "pattern": "unwanted",
+          "condition": "a command fails for a reason other than usage",
+          "system": "af binary",
+          "action": "report it with one of the failure categories `config`, `restore`, `git` or `io`, extending the spec-05 category set when it is closed",
+          "contract": "status `failed`, exit 1, error.category in {config, restore, git, io}"
+        },
+        {
+          "id": "06-REQ-10.7",
+          "pattern": "ubiquitous",
+          "system": "test suite",
+          "action": "test every criterion of this spec offline within `make check`, using temporary git repositories built like `gitx`'s `newRepo` and skipped when git is missing, gate checks that are small scripts or `go` invocations with a counter file, a fake `Outliner`, and payload fixtures for both payload forms",
+          "contract": "`make check` passes with no network and no credentials"
+        },
+        {
+          "id": "06-REQ-10.8",
+          "pattern": "ubiquitous",
+          "system": "documentation",
+          "action": "after running `make doc`, describe the commands, flags, results, rules and warning codes in `docs/cli.md`, the `gate.json` and `guard.json` formats and precedence in `docs/configuration.md`, that these commands call no model in `docs/model-usage.md`, the new packages and the `.agent-fox/gate/` and `.agent-fox/revert/` layout in `docs/architecture.md` and `docs/development.md` (created if absent), and the package table in `README.md`",
+          "contract": "no TODO or TBD text in those files"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "06-PATH-1",
+      "title": "A person detects languages and the gate table of a repository",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "runs `af lang detect --dir repo --write`"
+        },
+        {
+          "actor": "toolio shell",
+          "action": "parses flags, applies the 1-minute timeout and dispatches to the lang detect command"
+        },
+        {
+          "actor": "project package",
+          "action": "builds the file view, counts languages and detects the gate table from the root Makefile or manifests"
+        },
+        {
+          "actor": "project package",
+          "action": "writes `.agent-fox/gate.json` atomically"
+        },
+        {
+          "actor": "toolio shell",
+          "action": "prints a `done` envelope with languages, gate, suite and programs and exits 0"
+        }
+      ]
+    },
+    {
+      "id": "06-PATH-2",
+      "title": "The loop runs the gate twice under labels, hits the cache, and compares",
+      "steps": [
+        {
+          "actor": "loop",
+          "action": "runs `af gate run --label baseline` on a tree with a red counter-script check"
+        },
+        {
+          "actor": "checks package",
+          "action": "computes the tree hash and cache key, runs the check under ReducedEnvRunner, writes its log and stores result.json and labels.json atomically"
+        },
+        {
+          "actor": "loop",
+          "action": "fixes the file and runs `af gate run --label after`, then repeats it on the unchanged tree"
+        },
+        {
+          "actor": "checks package",
+          "action": "returns the stored result with `cached: true` without executing the counter script again"
+        },
+        {
+          "actor": "loop",
+          "action": "runs `af gate compare --before baseline --after after`"
+        },
+        {
+          "actor": "checks package",
+          "action": "resolves both labels and prints a `done` envelope with verdict `pass_was_already_failing` and `landable: true`"
+        }
+      ]
+    },
+    {
+      "id": "06-PATH-3",
+      "title": "The loop proves a fix with the revert check and gets the tree back",
+      "steps": [
+        {
+          "actor": "loop",
+          "action": "runs `af revert-check --since <base>` in a repository whose change adds a fix and a test that fails without it"
+        },
+        {
+          "actor": "conform package",
+          "action": "lists changed paths NUL-separated, classifies test paths and measures the current tree green through the gate cache"
+        },
+        {
+          "actor": "conform package",
+          "action": "backs up and reverts the non-test paths without touching the index, then runs the test checks on the reverted tree"
+        },
+        {
+          "actor": "conform package",
+          "action": "restores from the backup, verifies the tree hash and index are unchanged, and removes `.agent-fox/revert/<id>/`"
+        },
+        {
+          "actor": "toolio shell",
+          "action": "prints a `done` envelope with outcome `proven`, `closes: true` and `restored: true`"
+        }
+      ]
+    },
+    {
+      "id": "06-PATH-4",
+      "title": "Claude Code's PreToolUse hook asks the guard about a suite command",
+      "steps": [
+        {
+          "actor": "Claude Code",
+          "action": "pipes a PreToolUse payload with tool `Bash` and command `go test ./...` to `af guard check --host claude`"
+        },
+        {
+          "actor": "af guard check",
+          "action": "reads the raw stdin payload and loads the policy from guard.json or detection defaults"
+        },
+        {
+          "actor": "policy package",
+          "action": "tokenizes the command, applies the hands' guard adapter and the af rules, and denies with rule `suite_command`"
+        },
+        {
+          "actor": "af guard check",
+          "action": "prints the hookSpecificOutput deny document naming `af gate run` and exits 0"
+        }
+      ]
+    },
+    {
+      "id": "06-PATH-5",
+      "title": "A brain fetches a budgeted repository map",
+      "steps": [
+        {
+          "actor": "brain",
+          "action": "runs `af map --tokens 400`"
+        },
+        {
+          "actor": "repomap package",
+          "action": "builds the file view and asks the Outliner for each file's declarations"
+        },
+        {
+          "actor": "repomap package",
+          "action": "walks the reduction ladder and selects the first level within 400 estimated tokens"
+        },
+        {
+          "actor": "toolio shell",
+          "action": "prints a `done` envelope with the map text, its level and estimated tokens"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "github.com/agent-fox-dev/agentkit-go",
+      "version": "replace ../agentkit-go (unpinned local)",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "ReducedEnv",
+          "import_path": "github.com/agent-fox-dev/agentkit-go/tools",
+          "signature": "func ReducedEnv(base []string) []string",
+          "notes": "Called as ReducedEnv(nil) in internal/gitx/exec.go and hermetic.go; parameter type not read. Used only indirectly via gitx runners."
+        },
+        {
+          "name": "Check",
+          "import_path": "github.com/agent-fox-dev/agentkit-go/guard",
+          "signature": "Check(command string) (refusal reason, refused) — exact shape unread",
+          "notes": "Bound in one adapter file in internal/policy as a deny-only first layer."
+        },
+        {
+          "name": "outline / file_outline tool",
+          "import_path": "github.com/agent-fox-dev/agentkit-go (path unknown); fallback tools.For(workspace)",
+          "signature": "returns a file's declarations as (kind, name, start line); file_outline tool input {path, include_private}",
+          "notes": "Bound in one adapter behind repomap.Outliner."
+        }
+      ]
+    },
+    {
+      "package": "Claude Code CLI PreToolUse hook protocol",
+      "version": "documented external contract",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "PreToolUse payload and response",
+          "import_path": "stdin/stdout JSON",
+          "signature": "stdin {session_id, transcript_path, cwd, hook_event_name, tool_name, tool_input}; stdout {\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\"|\"deny\"|\"ask\",\"permissionDecisionReason\":string}}",
+          "notes": "Bash input has `command`; Write/Edit/MultiEdit have `file_path`; NotebookEdit has `notebook_path`. `allow` bypasses permission prompts, so af never emits it."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,508 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "06",
+  "spec_name": "af_ring1_facts",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/gitx/... ./internal/project/... ./internal/checks/... ./internal/conform/... ./internal/policy/... ./internal/repomap/... ./cmd/af/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "05",
+      "reason": "Commands are registered on its toolio shell (envelope, exit codes, coded warnings, --dir, --timeout, --schema golden) and use its .agent-fox/ directory and .gitignore content; this spec may extend toolio with raw stdin and a command-supplied stdout document."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Add NUL-separated gitx listings, the shared file view and the tree hash",
+      "criteria": [
+        "06-REQ-1"
+      ],
+      "tests": [
+        "TS-06-1",
+        "TS-06-2",
+        "TS-06-3",
+        "TS-06-4",
+        "TS-06-5",
+        "TS-06-6",
+        "TS-06-7",
+        "TS-06-8"
+      ],
+      "steps": [
+        "Write TS-06-1..8 first (package checks and gitx tests; copy gitx's newRepo helper per package and skip when git is missing) and confirm they fail",
+        "In internal/gitx/git.go add (*Git).ListFiles(ctx) using `ls-files -z --cached --others --exclude-standard` and (*Git).ChangedPaths(ctx, since) using `diff -z --name-only since` plus `ls-files -z --others --exclude-standard`; split on NUL, never trim, de-duplicate and sort byte-wise",
+        "Create internal/checks/view.go: FileView(ctx, dir) uses gitx.IsRepo; in a work tree take ListFiles, Lstat each and drop missing files; outside it walk with filepath.WalkDir skipping .git, .hg, .svn, node_modules, vendor, target, dist, build, __pycache__, .venv, venv at any depth; always drop .git/ and .agent-fox/; return slash-separated relative sorted paths",
+        "Create internal/checks/treehash.go: TreeHash(ctx, dir) = SHA-256 over entries in order (kind, exec bit, path, content SHA-256 for regular files; Readlink target for symlinks without following; type name for other file types without opening them; fixed `unreadable` marker on open/read error with nil error); return 64-char lowercase hex",
+        "Create the .agent-fox/ directory and its .gitignore before hashing (EnsureAgentFoxDir); reuse the spec-05 .gitignore content/constant by factoring it out of the run-directory constructor into a shared function if it is only reachable there",
+        "Do not import internal/toolio; return plain errors wrapped with fmt.Errorf %w"
+      ],
+      "touches": [
+        "internal/gitx/git.go",
+        "internal/gitx/list_test.go",
+        "internal/checks/view.go",
+        "internal/checks/treehash.go",
+        "internal/checks/view_test.go",
+        "internal/checks/treehash_test.go"
+      ],
+      "done_when": [
+        "`go test ./internal/gitx/... ./internal/checks/... -count=1` passes"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Detect languages, the gate table, suite forms, programs and test paths",
+      "criteria": [
+        "06-REQ-2",
+        "06-REQ-6.2"
+      ],
+      "tests": [
+        "TS-06-9",
+        "TS-06-10",
+        "TS-06-11",
+        "TS-06-12",
+        "TS-06-13",
+        "TS-06-14",
+        "TS-06-16",
+        "TS-06-39"
+      ],
+      "steps": [
+        "Write TS-06-9..14, 16 and 39 first (fixture directories built in t.TempDir) and confirm they fail",
+        "Create internal/project with types Language{Name, Files, Manifest}, Check{Name, Argv, Kind, Source, Available}, Table{Source, Checks} and Detection{Languages, Gate, Suite, Programs} whose JSON tags match the spec results",
+        "Classify languages by extension over Go, Python, JavaScript, TypeScript, Rust, Java, Kotlin, Ruby, C, C++, C#, PHP, Scala, Lua, Bash; count from a file list passed in (internal/project takes []string so it does not import checks); order by count desc then name; attach the root manifest",
+        "Parse Makefile targets (GNUmakefile, makefile, Makefile): lines not starting with a tab matching `^([A-Za-z0-9][A-Za-z0-9_. -]*?)\\s*:([^=]|$)`, excluding `:=` assignments and .PHONY, several targets before the colon; implement precedence gate.json > Makefile check > Makefile lint+test > language manifests in Go, Python, Node, Rust, Java order using the exact check tables of the spec (pytest signals, uv/poetry prefix, ruff, pm by lockfile, npm placeholder script, mvnw/gradlew wrapper choice)",
+        "Set Available via exec.LookPath only; never filter checks by availability so the table is PATH-independent (the warning is emitted by the command)",
+        "Compute Suite (gate argv, then make check/make test when targets exist, then per-language full-suite forms) and Programs (argv[0] of checks then toolchain programs), de-duplicated in first-seen order",
+        "Implement LoadGateFile returning a typed config error (ErrGateConfig naming the path) for unparseable JSON or version != 1, with no fallback; implement WriteGateFile via temp file + rename; implement IsTestPath with the R6 convention table (Go, Python, JS/TS, Java, Ruby, test/tests/spec segment)",
+        "Test IsTestPath positives and negatives from TS-06-39 and the PATH property in TS-06-16 by varying PATH"
+      ],
+      "touches": [
+        "internal/project/detect.go",
+        "internal/project/gate.go",
+        "internal/project/makefile.go",
+        "internal/project/testpath.go",
+        "internal/project/detect_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "done_when": [
+        "`go test ./internal/project/... -count=1` passes",
+        "Detect on this repository returns go first and exactly [make check]"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Wire `af lang detect`, extend toolio for stdin/stdout document and failure categories",
+      "criteria": [
+        "06-REQ-2.6",
+        "06-REQ-2.7",
+        "06-REQ-2.8",
+        "06-REQ-10.5",
+        "06-REQ-10.6"
+      ],
+      "tests": [
+        "TS-06-15",
+        "TS-06-17",
+        "TS-06-18"
+      ],
+      "steps": [
+        "Read the real spec-05 internal/toolio and cmd/af API before wiring; use its actual names",
+        "Write TS-06-15, 17 and 18 as binary-level tests (build af or call the shell's Main in-process) and confirm they fail",
+        "Extend toolio only where missing: raw stdin access (Run.Stdin) for a command with no positional input, a way for one command to supply its own stdout document and exit 0, and the failure categories config, restore, git and io if the category set is closed",
+        "Create cmd/af/lang.go registering `lang detect` with flags --write, default timeout 1m; it builds the file view via checks.FileView, calls project.Detect and --write, returns the result struct and emits warning check_unavailable per unavailable check; map the project config error to failure category config",
+        "Create a small helper in cmd/af to embed a result schema (go:embed schemas/*.json) and register it with the command; add schemas/lang_detect.json",
+        "Do not build a forge client or a run directory"
+      ],
+      "touches": [
+        "internal/toolio",
+        "cmd/af/main.go",
+        "cmd/af/lang.go",
+        "cmd/af/schemas/lang_detect.json",
+        "cmd/af/lang_test.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "done_when": [
+        "`go test ./cmd/af/... ./internal/toolio/... -count=1` passes"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Run the gate: checks engine, logs, result, cache key and `af gate run`",
+      "criteria": [
+        "06-REQ-3",
+        "06-REQ-4.1",
+        "06-REQ-4.2",
+        "06-REQ-4.4",
+        "06-REQ-4.5"
+      ],
+      "tests": [
+        "TS-06-19",
+        "TS-06-20",
+        "TS-06-21",
+        "TS-06-22",
+        "TS-06-23",
+        "TS-06-24",
+        "TS-06-25",
+        "TS-06-26",
+        "TS-06-28",
+        "TS-06-29"
+      ],
+      "steps": [
+        "Write the tests first; gate checks are small shell scripts or go invocations appending to an ignored counter file; confirm they fail",
+        "Create internal/checks/gate.go: Run(ctx, dir, Options{Hermetic, NoCache, Label, Table}) returning Result{ID, Tree, TableSource, Hermetic, Label, Cached, Passed, Checks, Skipped} with CheckResult{Name, Status, ExitCode, DurationMS, Log, Tail}",
+        "Compute the key = SHA-256(tree hash + canonical JSON of the table with sorted keys + `reduced`|`hermetic`); id is first 12 hex; directory .agent-fox/gate/<id>/",
+        "On cache hit (result.json exists, no NoCache) return it with Cached true; otherwise run only available checks in order under gitx.ReducedEnvRunner, or gitx.HermeticRunner(tmpHome) with a temp HOME removed by defer in every outcome",
+        "Write each check's full combined output to NN-<slug>.log (two-digit 1-based index) before result.json; status pass/fail/error (exit -1, program could not start)/timeout (per-check context deadline, injectable for tests); tail = last 40 lines capped at 4096 bytes",
+        "Passed is true only when at least one check ran and all executed passed; unavailable checks go to Skipped with reason `unavailable`",
+        "Retake the tree hash after the run; if different keep the earlier hash/id and flag TreeChanged so the command warns tree_changed_during_gate",
+        "If the parent ctx is cancelled return the ctx error and store nothing; write result.json atomically (temp file in same dir + rename)",
+        "Create cmd/af/gate.go registering `gate run` (--label, --hermetic, --no-cache, default timeout 30m): a red gate or empty table is done/exit 0, warnings no_checks and tree_changed_during_gate and check_unavailable-free; cancellation fails the command; add schemas/gate_run.json",
+        "Label handling is in the next task; accept the flag and pass it through"
+      ],
+      "touches": [
+        "internal/checks/gate.go",
+        "internal/checks/cache.go",
+        "internal/checks/gate_test.go",
+        "cmd/af/gate.go",
+        "cmd/af/schemas/gate_run.json",
+        "cmd/af/gate_test.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3
+      ],
+      "done_when": [
+        "`go test ./internal/checks/... ./cmd/af/... -count=1` passes"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Add gate labels, cache properties and `af gate compare`",
+      "criteria": [
+        "06-REQ-4.3",
+        "06-REQ-4.6",
+        "06-REQ-4.7",
+        "06-REQ-5"
+      ],
+      "tests": [
+        "TS-06-27",
+        "TS-06-30",
+        "TS-06-31",
+        "TS-06-32",
+        "TS-06-33",
+        "TS-06-34",
+        "TS-06-35",
+        "TS-06-36",
+        "TS-06-37"
+      ],
+      "steps": [
+        "Write the tests first and confirm they fail",
+        "In internal/checks/labels.go validate labels with `^[a-z][a-z0-9_-]{0,31}$` and reject exactly-12-lowercase-hex labels; return a typed usage error before any check runs; record label→id in .agent-fox/gate/labels.json via temp file + rename on a hit as well as a miss, latest wins",
+        "Set Result.Label on the result returned to the caller",
+        "In internal/checks/compare.go implement Compare(dir, before, after) resolving each as a label first then as a gate id, loading result.json, matching checks by name; per-check verdict table (fail/error/timeout count as not pass); overall verdict by priority regressed > still_failing > pass_was_already_failing > pass; unverified when either side has no checks; landable only for pass and pass_was_already_failing",
+        "Return typed usage errors naming a missing --before/--after, an unresolved argument, and the check names present on only one side",
+        "Create cmd/af/gate_compare.go registering `gate compare` (--before, --after, default timeout 30s) returning before{id,label,passed}, after{...}, verdict, landable and rows with status done for every verdict; add schemas/gate_compare.json; map label errors from gate run to usage",
+        "Property test TS-06-27: generated repos and mutations (one-byte change to a viewed file vs edits to ignored files) check Cached equals mutation kind is ignored"
+      ],
+      "touches": [
+        "internal/checks/labels.go",
+        "internal/checks/compare.go",
+        "internal/checks/compare_test.go",
+        "cmd/af/gate.go",
+        "cmd/af/gate_compare.go",
+        "cmd/af/schemas/gate_compare.json",
+        "cmd/af/gate_compare_test.go"
+      ],
+      "depends_on": [
+        4
+      ],
+      "done_when": [
+        "`go test ./internal/checks/... ./cmd/af/... -count=1` passes"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Implement `af revert-check` with backup, index-safe revert and uncancellable restore",
+      "criteria": [
+        "06-REQ-6",
+        "06-REQ-10.6"
+      ],
+      "tests": [
+        "TS-06-38",
+        "TS-06-40",
+        "TS-06-41",
+        "TS-06-42",
+        "TS-06-43",
+        "TS-06-44",
+        "TS-06-45",
+        "TS-06-46",
+        "TS-06-74"
+      ],
+      "steps": [
+        "Write the tests first (repos built like newRepo; script test checks recording observations into an ignored file) and confirm they fail",
+        "Create internal/conform/revert.go: Check(ctx, dir, since, deps) validating that dir is the work-tree top level (`rev-parse --show-toplevel`) and since resolves to a commit (`rev-parse --verify since^{commit}`) as typed usage errors naming --dir/--since",
+        "Refuse with a restore error naming the directory if any directory exists under .agent-fox/revert/ at start",
+        "List changed paths via gitx.ChangedPaths, classify with project.IsTestPath; return no_changes, no_code_changes, no_test_changes, inconclusive (no test/check kind check) without touching files",
+        "Take the full gate result for the current tree via checks.Run (cache); if any test/check check did not pass return inconclusive with reason after_not_green and the `after` id",
+        "Back up existing non-test changed paths into .agent-fox/revert/<id>/ with a manifest (include the file mode); record the .git/index bytes and tree hash; revert without touching the index: content via `git show ref:path` and mode via `git ls-tree -z ref -- path` (100755 → 0755) written to the work tree, paths absent at ref moved aside; leave test paths",
+        "Run only test/check kind checks on the reverted tree through checks.Run with a table filtered to those kinds (cached by reverted tree hash); proven when any fails, not_proven when all pass",
+        "Restore in a defer with context.WithoutCancel, verify tree hash equals the pre-revert hash and the index bytes are identical, then remove the backup; on any restore error or mismatch keep the backup and return a restore error naming its directory; cancellation still restores and then returns the ctx error",
+        "Create cmd/af/revert_check.go registering `revert-check` (--since, default timeout 30m) returning outcome, reason, closes, since (40-char hash), test_files, reverted_files, after, reverted{id,passed,checks}, restored; add warning fix_not_proven for every outcome except proven and no_changes; map errors: usage, restore, git; add schemas/revert_check.json",
+        "TS-06-74 covers failure categories config, restore, git, io across commands"
+      ],
+      "touches": [
+        "internal/conform/revert.go",
+        "internal/conform/revert_test.go",
+        "cmd/af/revert_check.go",
+        "cmd/af/schemas/revert_check.json",
+        "cmd/af/revert_check_test.go"
+      ],
+      "depends_on": [
+        2,
+        4
+      ],
+      "done_when": [
+        "`go test ./internal/conform/... ./cmd/af/... -count=1` passes"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Build the policy engine: tokenizer, segments and shell rules",
+      "criteria": [
+        "06-REQ-7"
+      ],
+      "tests": [
+        "TS-06-47",
+        "TS-06-48",
+        "TS-06-49",
+        "TS-06-50",
+        "TS-06-51",
+        "TS-06-52",
+        "TS-06-53",
+        "TS-06-54"
+      ],
+      "steps": [
+        "Write the tests first and confirm they fail",
+        "Create internal/policy/tokenize.go: standard-library POSIX tokenizer (single/double quotes, backslash escapes), splitting on &&, ||, ;, |, &, newline and detecting redirection targets; extract nested contents of $(…), backticks and sh|bash|zsh -c '…' as further segments; return an unparseable error for unbalanced quotes or an unterminated $(",
+        "Create internal/policy/handsguard.go as the single adapter over agentkit-go guard.Check (unverified API: read ../agentkit-go if reachable, otherwise bind to the signature the PRD gives); expose it as a replaceable package variable so tests can stub it",
+        "Create internal/policy/policy.go with Policy{Suite [][]string, ProtectedPaths, AllowPrograms}, Decision{Decision, Rule, Segment, Reason} and Decide(policy, dir, tool, input); skip VAR=value assignments and wrappers env, time, timeout, nice, nohup, command, exec to find the program; evaluate per segment in order: unparseable, hands_guard (deny-only, reason passed through), git_mutation (17 read-only subcommands, branch/remote listing forms only, global -c denied, reason says af makes every commit, branch and push), suite_command (equality after removing tokens starting with `-` from both; reason names the command, af gate run, tree hash caching, targeted runs allowed), af_command (allowlist of the 12 forms), program_not_allowed (when allow_programs non-empty, af and git always permitted), protected_path (redirection targets and args of rm, mv, cp, tee, touch, mkdir, truncate, ln, chmod, sed -i resolved against dir with filepath.Clean)",
+        "First deny wins across segments; every deny carries a non-empty rule, segment and reason",
+        "Do not import internal/toolio and do not call os.Exit"
+      ],
+      "touches": [
+        "internal/policy/tokenize.go",
+        "internal/policy/handsguard.go",
+        "internal/policy/policy.go",
+        "internal/policy/policy_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "done_when": [
+        "`go test ./internal/policy/... -count=1` passes"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Load policies, decide write tools and wire `af guard check`",
+      "criteria": [
+        "06-REQ-8"
+      ],
+      "tests": [
+        "TS-06-55",
+        "TS-06-56",
+        "TS-06-57",
+        "TS-06-58",
+        "TS-06-59",
+        "TS-06-60",
+        "TS-06-61",
+        "TS-06-62",
+        "TS-06-73"
+      ],
+      "steps": [
+        "Write the tests first (subprocess tests for --host claude using the built binary or in-process Main with captured stdout) and confirm they fail",
+        "In internal/policy/load.go implement LoadPolicy(ctx, dir, policyPath): --policy file, else <dir>/.agent-fox/guard.json ({version:1, suite, protected_paths, allow_programs}, missing keys defaulted), else defaults from project.Detect on dir with protected paths .git/, .agent-fox/, .specs/, .github/workflows/, .gitlab-ci.yml and empty allow_programs; a file that does not parse is a typed config error naming the path",
+        "Add write-tool handling in Decide for Write, Edit, MultiEdit, NotebookEdit, write_file, edit_file reading file_path, notebook_path or path, resolving relative paths against dir; deny protected_path when under a protected path, outside_dir when outside dir and not under os.TempDir(); allow every other tool with empty rule",
+        "Create cmd/af/guard.go registering `guard check` (--policy, --host, default timeout 10s) reading at most 1 MiB of raw stdin through the toolio extension from task 3; accept the Claude payload (hook_event_name, tool_name, tool_input, cwd) and neutral form {tool, input}; a present hook_event_name other than PreToolUse is allowed with no opinion",
+        "Without --host print the envelope (result: decision, rule, reason, tool, segment; done/exit 0 for allow and deny); malformed or oversized payload is usage; unparseable policy is failed/config",
+        "With --host claude print via the command-supplied stdout document: deny → {\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":...}}, allow → {}; exit 0 always; wrap the decision in recover and answer any internal error or panic (provide a test hook) as a deny carrying the error; never emit permissionDecision allow",
+        "Add schemas/guard_check.json"
+      ],
+      "touches": [
+        "internal/policy/load.go",
+        "internal/policy/policy.go",
+        "internal/policy/load_test.go",
+        "cmd/af/guard.go",
+        "cmd/af/schemas/guard_check.json",
+        "cmd/af/guard_test.go"
+      ],
+      "depends_on": [
+        2,
+        3,
+        7
+      ],
+      "done_when": [
+        "`go test ./internal/policy/... ./cmd/af/... -count=1` passes"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "Render the budgeted repository map and wire `af map`",
+      "criteria": [
+        "06-REQ-9"
+      ],
+      "tests": [
+        "TS-06-63",
+        "TS-06-64",
+        "TS-06-65",
+        "TS-06-66",
+        "TS-06-67",
+        "TS-06-68"
+      ],
+      "steps": [
+        "Write the tests first with a fake Outliner and confirm they fail",
+        "Create internal/repomap with the Outliner interface (Outline(ctx, path) ([]Decl{Kind, Name, Line}, error)) and Build(ctx, files, outliner, tokens) returning Result{Map, Tokens, EstimatedTokens, Level, FilesTotal, FilesOutlined, Truncated} plus warning codes",
+        "Render directories as `path/` headers (root `./`) in path order, files indented two spaces, declarations `<kind> <name> L<line>` joined by ` · `; estimate tokens as ceil(bytes/4)",
+        "Walk the ladder: 1 all declarations, 2 test files (project.IsTestPath) without declarations, 3 other files capped at K=20,10,5,2,1 with `… +N more`, 4 names only, 5 directories `path/ (N files)`, 6 directories cut at budget plus `… N more directories`; guarantee the output never exceeds the budget and is byte-deterministic",
+        "Skip the outliner entirely (warning map_outline_skipped, files_outlined 0) when the level-4 rendering already exceeds the budget or the file view holds more than 5000 files; list files the outliner rejects or over 1 MiB by name only without calling it",
+        "Create internal/repomap/handsoutline.go as the one adapter over the hands' outline (unverified: read ../agentkit-go if reachable, else call the file_outline tool through tools.For(workspace))",
+        "Create cmd/af/map.go registering `map` (--tokens default 4000, range 200..100000 else usage, default timeout 2m) using checks.FileView, and add schemas/map.json"
+      ],
+      "touches": [
+        "internal/repomap/map.go",
+        "internal/repomap/handsoutline.go",
+        "internal/repomap/map_test.go",
+        "cmd/af/map.go",
+        "cmd/af/schemas/map.json",
+        "cmd/af/map_test.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3
+      ],
+      "done_when": [
+        "`go test ./internal/repomap/... ./cmd/af/... -count=1` passes"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 10,
+      "kind": "implement",
+      "title": "Finish shell wiring checks, schemas golden, offline guarantees and documentation",
+      "criteria": [
+        "06-REQ-10.1",
+        "06-REQ-10.2",
+        "06-REQ-10.3",
+        "06-REQ-10.4",
+        "06-REQ-10.7",
+        "06-REQ-10.8"
+      ],
+      "tests": [
+        "TS-06-69",
+        "TS-06-70",
+        "TS-06-71",
+        "TS-06-72",
+        "TS-06-75",
+        "TS-06-76"
+      ],
+      "steps": [
+        "Write the tests first and confirm they fail",
+        "Confirm all six commands are registered in cmd/af with default timeouts 1m, 30m, 30s, 30m, 10s, 2m and that --help lists each flag",
+        "Add a reflection test per command comparing the embedded schema's top-level properties with the JSON field names of the Go result struct, including a deliberately renamed field in a test copy; verify each schema appears in `af --schema`",
+        "Regenerate the --schema golden once with the repository's golden update mechanism (check the spec-05 test for the flag) and keep the envelope schema version unchanged",
+        "Add a go/parser test that internal/project, checks, conform, policy and repomap never import internal/toolio and non-test files never call os.Exit or log.Fatal",
+        "Add an offline test: loopback listener with proxy variables, run every command, assert zero connections and no .agent-fox/run directory; scan new test files for non-loopback dials and credential variable reads",
+        "Run `make doc` first, then update docs/cli.md (commands, flags, results, rules, warning codes check_unavailable, no_checks, tree_changed_during_gate, fix_not_proven, map_outline_skipped), docs/configuration.md (gate.json, guard.json, precedence), docs/model-usage.md (no model calls), docs/architecture.md and docs/development.md (create if absent; five packages and .agent-fox/gate/ and .agent-fox/revert/ layout) and the README.md package table; no TODO or TBD",
+        "Run make check"
+      ],
+      "touches": [
+        "cmd/af",
+        "docs/cli.md",
+        "docs/configuration.md",
+        "docs/model-usage.md",
+        "docs/architecture.md",
+        "docs/development.md",
+        "README.md",
+        "docs/generated"
+      ],
+      "depends_on": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "done_when": [
+        "`make check` passes offline"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 11,
+      "kind": "integration",
+      "title": "Verify the five ring-1 execution paths end to end",
+      "tests": [
+        "TS-06-77",
+        "TS-06-78",
+        "TS-06-79",
+        "TS-06-80",
+        "TS-06-81"
+      ],
+      "steps": [
+        "Write TS-06-77..81 as smoke tests against the built af binary with real git repositories and confirm they pass",
+        "Trace 06-PATH-1..5 from the toolio shell through cmd/af into internal/project, checks, conform, policy and repomap; confirm each step calls the next and no stub remains",
+        "For every criterion with a contract (gate result, labels.json, compare verdict, revert outcome, guard decision, map level), confirm the producer's result is consumed by a caller in production code, not only by tests",
+        "Confirm spec-05's shell entry point (toolio Main and cmd/af main) calls the registration of all six commands in production code",
+        "Search every file named in all tasks' touches for panic(\"not implemented\"), TODO, NotImplementedError and a bare `return nil` on a non-trivial path and remove them",
+        "Run make check and confirm the --schema golden and docs are current"
+      ],
+      "touches": [
+        "cmd/af/smoke_test.go"
+      ],
+      "depends_on": [
+        10
+      ],
+      "done_when": [
+        "`make check` passes offline"
+      ],
+      "state": "pending",
+      "optional": false
+    }
+  ]
+}

@@ -1,0 +1,485 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "05",
+  "spec_name": "af_cli_envelope",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/toolio/... ./cmd/af/... -count=1"
+  },
+  "dependencies": [],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Envelope model, outcome/failure mapping, needs_human conversion and panic recovery",
+      "criteria": [
+        "05-REQ-2.1",
+        "05-REQ-2.2",
+        "05-REQ-2.3",
+        "05-REQ-2.4",
+        "05-REQ-2.7",
+        "05-REQ-3.1",
+        "05-REQ-3.2",
+        "05-REQ-3.3",
+        "05-REQ-3.4",
+        "05-REQ-3.7",
+        "05-REQ-5.1",
+        "05-REQ-5.2",
+        "05-REQ-5.5"
+      ],
+      "tests": [
+        "TS-05-9",
+        "TS-05-10",
+        "TS-05-11",
+        "TS-05-12",
+        "TS-05-15",
+        "TS-05-16",
+        "TS-05-17",
+        "TS-05-18",
+        "TS-05-19",
+        "TS-05-22"
+      ],
+      "steps": [
+        "Write the listed tests in internal/toolio (package toolio, test commands registered on an App with in-memory buffers) and confirm they fail",
+        "Create internal/toolio/envelope.go: Envelope struct with the PRD §2 fields in order and JSON tags, SchemaVersion=\"4.0.0\", sub-structs (Input, NeedsHuman{Question,Options,Resume}, ErrorInfo, FixHint with omitempty flag/env/var/suggest, Warning, Artifact, SideEffect, Next, Usage), Status constants and ExitCode(Status) int; normalise nil slices to [] before marshalling",
+        "Create internal/toolio/failure.go: Failure{Category,Message,Retryable,FixHint} implementing error, the seven Category* constants (usage, auth, forge, io, cancelled, timeout, internal), and Outcome{Status,Summary,Result,NeedsHuman}",
+        "Create internal/toolio/app.go: App{Name,Version,Commit,BuildTime,NewForge,Now,Rand}, Command{Path,Summary,Usage,Flags,Run,...opt-in fields} and Run{Ctx,Tool,Argv,Dir,Input,Forge,Target,DryRun,Context,RunDir,Stderr} with Warn/Artifact/SideEffect/Next/Emit/SetUsage, App.Register and a minimal App.Main(ctx,args,stdin,stdout,stderr) int that matches a registered path exactly, parses a flag.FlagSet (ContinueOnError, output discarded) and calls the command (T2 refines dispatch and parsing)",
+        "Implement finish(): map outcome/error to status, error object, exit code (Failure usage->usage/2, other Failure->failed/1, plain error->failed/internal, retryable false), copy summary/result, default usage {brain \"\",cost_usd 0,cost_source none,0,0,0}, started_at/finished_at RFC 3339 UTC with milliseconds from App.Now, integer duration_ms",
+        "Implement needs_human conversion: options lettered A.. in order (max 26), options always [] not null, resume {argv: received args with argv[0] replaced by \"af\", flag \"--context\"}; reject needs_human with empty question, a question on another status, or >26 options as failed/internal with needs_human null",
+        "Recover panics in the command call: failed/internal envelope, stack written to stderr (and to <run_dir>/panic.txt when Run.RunDir is set, wired fully in the run directory task); stdout still holds exactly one envelope",
+        "Write the envelope with json.MarshalIndent (two spaces) plus one newline; ignore a stdout write error and return the status's exit code from Main"
+      ],
+      "touches": [
+        "internal/toolio/envelope.go",
+        "internal/toolio/failure.go",
+        "internal/toolio/app.go",
+        "internal/toolio/app_test.go",
+        "internal/toolio/envelope_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Command dispatch, flag parsing, help, version and --context",
+      "criteria": [
+        "05-REQ-1.1",
+        "05-REQ-1.2",
+        "05-REQ-1.3",
+        "05-REQ-1.4",
+        "05-REQ-1.5",
+        "05-REQ-1.6",
+        "05-REQ-5.3",
+        "05-REQ-5.4"
+      ],
+      "tests": [
+        "TS-05-1",
+        "TS-05-2",
+        "TS-05-3",
+        "TS-05-4",
+        "TS-05-5",
+        "TS-05-6",
+        "TS-05-30",
+        "TS-05-31",
+        "TS-05-32",
+        "TS-05-33"
+      ],
+      "steps": [
+        "Write the listed tests and confirm they fail",
+        "Dispatch: choose the longest registered command path matching the leading non-flag arguments; tool is that path; no args or an unknown first word gives a usage envelope with tool \"af\" and error.message listing every registered path (exit 2)",
+        "Per-command flag.FlagSet with ContinueOnError and io.Discard output; implement interspersed flags (flags before or after the positional), \"--\" ending flag parsing; a parse error or an extra positional (one allowed unless the command declares otherwise) becomes a usage envelope naming the flag/argument with nothing written to stderr",
+        "Register the global flags every command accepts: --output and --emit-events (stored on Run for later tasks), and opt-in flags only when the command declares them: --dir, --context (repeatable, values verbatim and ordered into Run.Context; an empty value is a usage error), --dry-run, --timeout, --repo (the flag registration only; behaviour comes in later tasks)",
+        "Plain-text help: -h, --help, `af help` and `af help <command>` print the command list or one command's synopsis and flags on stdout, exit 0, non-JSON",
+        "--version: print {name,version,commit,build_time,go_version} in that key order from App.Version/Commit/BuildTime, falling back to runtime/debug.ReadBuildInfo (main module version, vcs.revision, vcs.time), then version \"dev\" with empty commit/build_time; exit 0",
+        "Verify resume.argv keeps existing --context values so re-running it with `--context B` appended yields Run.Context [A,B] (TS-05-30) and that inconsistent outcomes are rejected (TS-05-33)"
+      ],
+      "touches": [
+        "internal/toolio/app.go",
+        "internal/toolio/flags.go",
+        "internal/toolio/help.go",
+        "internal/toolio/version.go",
+        "internal/toolio/dispatch_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Summary normalisation, warnings, signals, timeouts and the needs_human envelope",
+      "criteria": [
+        "05-REQ-3.5",
+        "05-REQ-3.6",
+        "05-REQ-4.1",
+        "05-REQ-4.2",
+        "05-REQ-4.3",
+        "05-REQ-4.4",
+        "05-REQ-4.5"
+      ],
+      "tests": [
+        "TS-05-20",
+        "TS-05-21",
+        "TS-05-24",
+        "TS-05-25",
+        "TS-05-26",
+        "TS-05-27",
+        "TS-05-28",
+        "TS-05-29"
+      ],
+      "steps": [
+        "Write the listed tests and confirm they fail",
+        "Collapse any summary to one line (replace \\n and \\r with spaces) and fill a non-empty one-line summary whenever the shell sets the status (usage, internal, cancelled, timeout)",
+        "Run.Warn: dedupe on exact (code, message), keep first-raised order, never change the status",
+        "Install signal.NotifyContext for SIGINT and SIGTERM in Main; run the command in a goroutine; when the command returns an error after cancellation report failed/cancelled; if it has not returned 10 seconds after the signal, stop waiting and print failed/cancelled, exit 1 (make the grace period an App field so tests can shorten non-signal paths, but TS-05-25 uses the real 10s)",
+        "Opt-in --timeout flag: parse as time.Duration, negative or unparsable is a usage error before the command runs, use Command.DefaultTimeout when absent, 0 means no deadline, otherwise context.WithTimeout",
+        "On deadline expiry report failed/timeout, retryable false, fix_hint {flag \"--timeout\", suggest: twice the duration via time.Duration.String()}",
+        "Confirm a command that did not opt into --timeout rejects the flag as unknown (usage envelope)",
+        "Check the needs_human envelope for options A,B and the empty-options [] case (TS-05-29)"
+      ],
+      "touches": [
+        "internal/toolio/app.go",
+        "internal/toolio/run.go",
+        "internal/toolio/lifecycle_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Positional input classification, truncation and the none/file/text/stdin forms",
+      "criteria": [
+        "05-REQ-6.1",
+        "05-REQ-6.3",
+        "05-REQ-6.4",
+        "05-REQ-6.5",
+        "05-REQ-6.6",
+        "05-REQ-6.7",
+        "05-REQ-6.8",
+        "05-REQ-7.2",
+        "05-REQ-7.3"
+      ],
+      "tests": [
+        "TS-05-34",
+        "TS-05-36",
+        "TS-05-37",
+        "TS-05-38",
+        "TS-05-39",
+        "TS-05-40",
+        "TS-05-41",
+        "TS-05-42",
+        "TS-05-44",
+        "TS-05-45"
+      ],
+      "steps": [
+        "Write the listed tests (TS-05-45 as a property test using testing/quick or a seeded generator) and confirm they fail",
+        "Create internal/toolio/input.go: SourceKind constants issue/file/text/stdin/none (KindIssue=\"issue\"), Input{Kind,Origin,Body,Truncated,Issue *issuex.IssueRef,Thread *issuex.IssueThread}, and Resolve(ctx,arg,stdin,forge) (Input,error)",
+        "Classify in order: \"-\" reads stdin to EOF; issuex.ParseIssueURL accepts (kind issue; the thread read itself lands in the issue-reading task, leave a hook the forge task fills); http:// or https:// non-issue URL is a usage Failure naming the accepted GitHub issue/pull and GitLab issue/merge-request forms with fix_hint naming GITHUB_API_URL and GITLAB_API_URL; an existing regular file relative to the process cwd (kind file, origin absolute path; NUL in the first 8 KiB gives usage \"not a text file\"; a directory gives usage; an unreadable file gives failed/io); otherwise text trimmed",
+        "Missing positional on a command requiring input, or a body empty after trimming, is a usage error before the command runs",
+        "Truncate(body) cuts at the last UTF-8 boundary at or below 131072 bytes and appends \"\\n[... input truncated at 131072 bytes ...]\\n\"; set Input.Truncated and raise warning input_truncated; identity at or below the limit",
+        "Wire Command.Input (none/optional/required) into Main so Run.Input is set and the envelope input is {kind,origin,truncated} or {kind none, origin \"\", truncated false}",
+        "Do not read stdin or touch the filesystem for a command that declares no input"
+      ],
+      "touches": [
+        "internal/toolio/input.go",
+        "internal/toolio/app.go",
+        "internal/toolio/input_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Forge client construction, --repo handling and client lifecycle",
+      "criteria": [
+        "05-REQ-8.1",
+        "05-REQ-8.2",
+        "05-REQ-8.3",
+        "05-REQ-8.4",
+        "05-REQ-8.5"
+      ],
+      "tests": [
+        "TS-05-51",
+        "TS-05-52",
+        "TS-05-53",
+        "TS-05-54",
+        "TS-05-55"
+      ],
+      "steps": [
+        "Write the listed tests with an App.NewForge stub that records issuex.Options and returns a counting client, and confirm they fail",
+        "Default App.NewForge to issuex.NewWithOptions; build a client only for commands declaring UsesForge",
+        "Choose options: issue URL input gives Options{Repo: ref.Repo}; else with an opted-in --repo, parse via issuex.ParseRepo (invalid is a usage error) and use Options{Repo: parsed}; else Options{}; always set UserAgent \"af/<version>\" and Dir to the absolute --dir",
+        "If --repo and an issue URL name different repositories return a usage error before the command runs",
+        "If NewForge fails with issuex.ErrAmbiguousForge or ErrUnsupportedForge: for an issue URL input return a usage Failure carrying issuex's message with fix_hint {env GITHUB_API_URL}; otherwise hand the command issuex.NewNoOp() and an invalid Run.Target and still run it",
+        "Set Run.Target to the resolved repository (ref.Repo, parsed --repo, or client-detected where available)",
+        "Close the client exactly once when the command returns, errors or panics, before the envelope is written to stdout (defer inside the execution wrapper)",
+        "Ensure Run.Forge is nil and NewForge is not called for non-forge commands"
+      ],
+      "touches": [
+        "internal/toolio/app.go",
+        "internal/toolio/forge.go",
+        "internal/toolio/forge_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "DryRunForge decorator and --dry-run wiring",
+      "criteria": [
+        "05-REQ-8.6",
+        "05-REQ-8.7",
+        "05-REQ-8.8"
+      ],
+      "tests": [
+        "TS-05-56",
+        "TS-05-57",
+        "TS-05-58",
+        "TS-05-59"
+      ],
+      "steps": [
+        "Write the listed tests against httptest GitHub and GitLab servers (issuex.NewGitHub/NewGitLab with BaseURL and Token) counting requests by method, and confirm they fail",
+        "Create internal/toolio/dryrun.go: ErrDryRun sentinel and DryRunForge(inner issuex.Client) issuex.Client implementing every Client method",
+        "Pass through Authenticated, Close, GetRepository, ReadIssue, ListIssues, ListComments, ReadPullRequest, ReadChangedFiles, GetPRState, GetCIChecks, GetPRReviews; implement MaxBodyLength() int returning issuex.MaxBodyLength(inner)",
+        "For CreateIssue, UpdateIssue, CloseIssue, AddComment, AddLabels, RemoveLabel, CreateLabel, CreatePullRequest, PostReviewComment, MergePullRequest, ClosePullRequest send nothing, return an error wrapping ErrDryRun (fmt.Errorf with %w) and record {kind: snake_case method, target: IssueRef.String() or Repo.String(), state: planned} through a callback to Run.SideEffect, in call order",
+        "In the shell: when a command opts into --dry-run and it is given set Run.DryRun and hand it DryRunForge(inner); otherwise Run.DryRun false and the inner client; a command not opting in rejects --dry-run as an unknown flag",
+        "Make the decorator's recorder append to envelope side_effects; add compile-time assertion that the decorator implements issuex.Client and issuex.BodyLimiter"
+      ],
+      "touches": [
+        "internal/toolio/dryrun.go",
+        "internal/toolio/app.go",
+        "internal/toolio/dryrun_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Issue and pull request input: RenderThread, thread reading and read errors",
+      "criteria": [
+        "05-REQ-6.2",
+        "05-REQ-7.1",
+        "05-REQ-7.4",
+        "05-REQ-7.5",
+        "05-REQ-7.6",
+        "05-REQ-7.7",
+        "05-REQ-7.8"
+      ],
+      "tests": [
+        "TS-05-35",
+        "TS-05-43",
+        "TS-05-46",
+        "TS-05-47",
+        "TS-05-48",
+        "TS-05-49",
+        "TS-05-50"
+      ],
+      "steps": [
+        "Write the listed tests against httptest GitHub/GitLab forges (set GITHUB_API_URL/GITLAB_API_URL with t.Setenv, clear token variables) and confirm they fail",
+        "Implement RenderThread(ref issuex.IssueRef, t issuex.IssueThread) string: heading `<GitHub|GitLab|Forge> <issue|pull request> <ref> (state: <state>)` (host containing gitlab gives GitLab, containing github or empty gives GitHub, else Forge), Title:, Author:, Labels: (omitted when none), trimmed body, each comment as \"\\n--- comment by <login> ---\\n<body>\\n\", and \"\\n[... further comments not read ...]\\n\" when truncated",
+        "In Resolve, for an issue URL read the thread with the run's forge client via ReadIssue; set Input.Issue (IsPullRequest true when the URL or thread.Issue.IsPR says so), Input.Thread, Origin=IssueRef.URL(), Body=RenderThread before truncation",
+        "Set input.truncated and warn input_truncated when thread.Truncated; warn comments_unreadable when thread.CommentsErr is set and continue",
+        "Map read errors: IsNotFound with an unauthenticated client gives failed/auth (message says the issue may be private naming GITHUB_TOKEN, GH_TOKEN or GITLAB_TOKEN, fix_hint env GITLAB_TOKEN for a GitLab host else GITHUB_TOKEN); IsNotFound authenticated gives failed/forge not retryable; rate limit or any other transport error gives failed/forge retryable true",
+        "Ensure the forge client is built before input resolution for an issue URL (order: parse arg, build forge, read thread) and that the cancelled-context case stays cancelled, not forge"
+      ],
+      "touches": [
+        "internal/toolio/input.go",
+        "internal/toolio/render.go",
+        "internal/toolio/app.go",
+        "internal/toolio/issue_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Run directory, git-ignore file, OpenRunDir and the ledger",
+      "criteria": [
+        "05-REQ-9.1",
+        "05-REQ-9.2",
+        "05-REQ-9.3",
+        "05-REQ-9.4",
+        "05-REQ-9.5",
+        "05-REQ-9.6"
+      ],
+      "tests": [
+        "TS-05-60",
+        "TS-05-61",
+        "TS-05-62",
+        "TS-05-63",
+        "TS-05-64",
+        "TS-05-65"
+      ],
+      "steps": [
+        "Write the listed tests (TS-05-63 uses a real git repo and the git binary, t.Skip when git is absent; TS-05-65 is a property test) and confirm they fail",
+        "Create internal/toolio/rundir.go: RunDir{ID,Path} with NewRunDir(dir, now, rand) creating <abs dir>/.agent-fox/run/<id>/ where id is YYYYMMDD_HHMMSS_<6 lowercase hex> from UTC time and App.Rand; on an existing directory draw a new suffix, 5 attempts in total, then failed/io",
+        "Create <dir>/.agent-fox/.gitignore with \"*\\n\" via os.OpenFile with O_EXCL, treating os.IsExist as success (never overwrite, never touch the repository .gitignore)",
+        "OpenRunDir(dir, id): validate id against ^[0-9]{8}_[0-9]{6}_[0-9a-f]{6}$ (guards against traversal) and existence, otherwise a usage *Failure without touching the filesystem outside .agent-fox/run",
+        "Record(kind, data) appends {seq,ts,kind,data} lines to ledger.jsonl with seq 1..n; Ledger() reads them back in order; WriteReport(text) writes report.md",
+        "In Main: for commands declaring UsesRunDir, validate --dir exists and is a directory (usage error otherwise, before creating anything), create the run dir (also under --dry-run) before Run is called, set Run.RunDir, envelope run_id (null otherwise) and artifacts {run_dir,path} and {report,path} when WriteReport was called; paths absolute",
+        "Wire panic.txt for the panic path from task 1 now that a run directory exists",
+        "Confirm the shell itself records nothing in the ledger"
+      ],
+      "touches": [
+        "internal/toolio/rundir.go",
+        "internal/toolio/app.go",
+        "internal/toolio/rundir_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "Envelope copies, event stream and shell warning codes",
+      "criteria": [
+        "05-REQ-2.5",
+        "05-REQ-2.6",
+        "05-REQ-9.7",
+        "05-REQ-9.8",
+        "05-REQ-3.8"
+      ],
+      "tests": [
+        "TS-05-13",
+        "TS-05-14",
+        "TS-05-23",
+        "TS-05-66",
+        "TS-05-67"
+      ],
+      "steps": [
+        "Write the listed tests and confirm they fail",
+        "Add the --output <path> and --emit-events <path> flags to every command's flag set",
+        "Create internal/toolio/events.go: event writer producing JSON lines {seq,ts,run_id,type,data} with seq from 1 and flush per line, writing to <run_dir>/events.jsonl and appending (O_APPEND|O_CREATE) to --emit-events; Run.Emit(type, data) for command events",
+        "Emit run_start {tool, argv, input_kind} first, one `warning` event per warning, and run_end {status, exit_code, duration_ms} last; when an event write fails raise warning events_unwritable exactly once and continue",
+        "Before printing, marshal the final envelope once and write identical bytes to <run_dir>/envelope.json and the --output path; failures add envelope_unwritable / output_unwritable warnings to the stdout envelope without changing status (re-marshal after adding warnings, then write the copies so all three stay byte-identical)",
+        "Define the warning codes as exported constants and check every code matches ^[a-z][a-z0-9_]*$ (TS-05-23 triggers input_truncated, comments_unreadable and the three unwritable codes)",
+        "A command without a run directory still honours --output and --emit-events"
+      ],
+      "touches": [
+        "internal/toolio/events.go",
+        "internal/toolio/app.go",
+        "internal/toolio/warnings.go",
+        "internal/toolio/events_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 10,
+      "kind": "implement",
+      "title": "Schema, short-circuit precedence, cmd/af wiring and golden files",
+      "criteria": [
+        "05-REQ-1.8",
+        "05-REQ-10.1",
+        "05-REQ-10.2",
+        "05-REQ-10.3",
+        "05-REQ-10.4"
+      ],
+      "tests": [
+        "TS-05-8",
+        "TS-05-68",
+        "TS-05-69",
+        "TS-05-70",
+        "TS-05-71"
+      ],
+      "steps": [
+        "Write the listed tests (golden comparison with a -update flag defined in each test package via flag.Bool) and confirm they fail",
+        "Create internal/toolio/schema/envelope.schema.json (draft 2020-12): every §2 field, schema_version const \"4.0.0\", required listing all fields in envelope order, result open, plus the $defs placeholder",
+        "Embed it with //go:embed in internal/toolio/schema.go; Command.ResultSchema json.RawMessage; `af --schema` prints the base schema with each registered command's result schema under $defs keyed by the path with spaces replaced by \"_\"; `af <command> --schema` narrows tool to const the path and result to null-or-the command's schema",
+        "Make --schema, --version and --help/-h take precedence anywhere on the command line, before input resolution, forge construction, stdin reads or run-directory creation (no .agent-fox directory, NewForge not called)",
+        "Create cmd/af/main.go: package main with var version, commit, buildTime string for ldflags, building toolio.App with them, registering no commands in this scope, and os.Exit(app.Main(ctx, os.Args, os.Stdin, os.Stdout, os.Stderr)); factor registration into a function testable without a subprocess",
+        "Write internal/toolio/testdata/schema.golden.json (no commands) and cmd/af/testdata/schema.golden.json (real registrations) by running the tests with -update, and commit them",
+        "Add the drift test: read Envelope's json tags by reflection and compare with the schema's required list in names and order, including a mutated-copy check that the comparison fails"
+      ],
+      "touches": [
+        "internal/toolio/schema/envelope.schema.json",
+        "internal/toolio/schema.go",
+        "internal/toolio/app.go",
+        "internal/toolio/schema_test.go",
+        "internal/toolio/testdata/schema.golden.json",
+        "cmd/af/main.go",
+        "cmd/af/schema_test.go",
+        "cmd/af/testdata/schema.golden.json"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 11,
+      "kind": "implement",
+      "title": "make build writing bin/af, documentation and make doc",
+      "criteria": [
+        "05-REQ-1.7",
+        "05-REQ-10.5",
+        "05-REQ-10.6"
+      ],
+      "tests": [
+        "TS-05-7",
+        "TS-05-72",
+        "TS-05-73"
+      ],
+      "steps": [
+        "Write the listed tests (TS-05-7 runs make build VERSION=9.9.9-test and bin/af --version, skipped when make is unavailable; TS-05-72 reads the doc files; TS-05-73 runs make lint and scans test sources for non-loopback URLs) and confirm they fail",
+        "Edit Makefile: keep `go build ./...` and add `go build -ldflags \"-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildTime=$(BUILD_TIME)\" -o bin/af ./cmd/af` to the build target; do not edit .gitignore (bin/ already ignored)",
+        "Create docs/cli.md: af and global flags, the envelope field by field, the status and exit-code table (done 0, failed 1, usage 2, needs_human 3, unverified 4), the seven error categories, the warning codes input_truncated, comments_unreadable, envelope_unwritable, output_unwritable, events_unwritable, needs_human and --context, --dry-run, --schema/--version/help, run directory layout",
+        "Create docs/configuration.md (GITHUB_TOKEN, GH_TOKEN, GITLAB_TOKEN, GITHUB_API_URL, GITLAB_API_URL and the .agent-fox directory) and docs/model-usage.md (af runs no model and reads no vendor key in this release)",
+        "Update docs/architecture.md: fill the run directory layout and ledger file formats item and remove the claim that docs/cli.md already exists; update README.md with cmd/af/, internal/toolio/ and bin/af",
+        "Run `make doc` and commit docs/generated/ including docs/generated/cmd/af.txt, then run make check"
+      ],
+      "touches": [
+        "Makefile",
+        "docs/cli.md",
+        "docs/configuration.md",
+        "docs/model-usage.md",
+        "docs/architecture.md",
+        "README.md",
+        "docs/generated/cmd/af.txt",
+        "internal/toolio/docs_test.go"
+      ],
+      "done_when": [
+        "`make build` produces bin/af and `bin/af --version` reports the Makefile VERSION",
+        "`make check` passes offline"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 12,
+      "kind": "integration",
+      "title": "Verify every execution path end to end through the real binary and shell",
+      "tests": [
+        "TS-05-74",
+        "TS-05-75",
+        "TS-05-76",
+        "TS-05-77",
+        "TS-05-78"
+      ],
+      "steps": [
+        "Write the five smoke tests (cmd/af/smoke_test.go builds the binary with make build or go build -ldflags and executes it as a subprocess; internal/toolio/smoke_test.go drives App.Main with httptest forges, a temporary git checkout and a test command registered in the test) and confirm they pass",
+        "Trace 05-PATH-1 from cmd/af main through App.Main to the version and schema output; confirm each step calls the next and no stub remains",
+        "Trace 05-PATH-2 (resolver, forge construction, DryRunForge, run directory, events, envelope copies), 05-PATH-3 (needs_human resume with --context), 05-PATH-4 (unknown command) and 05-PATH-5 (unauthenticated GitLab merge request 404 giving failed/auth with GITLAB_TOKEN hint) through the real code",
+        "For each criterion with a contract confirm the producer's result is consumed by production code, not only by tests: Failure categories into the envelope, ErrDryRun side effects into side_effects, RunDir paths into artifacts, resume argv into needs_human, warnings into the envelope and events",
+        "Search every file in the tasks' touches (internal/toolio, cmd/af) for panic(\"not implemented\"), TODO, and bare `return nil` on non-trivial paths, and remove any that remain",
+        "Confirm cmd/af/main.go calls toolio.App.Main from production code and that the real binary's --schema equals cmd/af/testdata/schema.golden.json",
+        "Run make check offline and confirm docs/generated is current"
+      ],
+      "touches": [
+        "cmd/af/smoke_test.go",
+        "internal/toolio/smoke_test.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "done_when": [
+        "`make check` passes with no network access"
+      ],
+      "state": "pending"
+    }
+  ]
+}

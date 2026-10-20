@@ -1,0 +1,758 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "10",
+  "spec_name": "af_boxes_claude",
+  "schema_version": 2,
+  "introduction": "This spec adds the `landlock`, `podman` and `none` box providers beside `local`, and adds a headless `claude` brain behind the existing `Brain` interface. With them, `af triage` and `af fix` can put the brain's tree in a real box on a developer's machine, or knowingly in no box. Under every provider, `.git` never leaves the host, the commit that counts is made on the host from facts `af` measured, and the model vendor's key is the only credential that reaches the brain.",
+  "glossary": {
+    "Landlock ABI": "The Linux Landlock version that the `landlock_create_ruleset` version query reports. ABI 4 is the first with network rules.",
+    "borrowed hands": "The `--borrowed-hands` mode, where the agentkit driver runs on the host and drives the box's tools instead of running inside the box.",
+    "foreign commit": "A commit that appears on the checkout's history while the brain runs under `none` and that `af` did not make.",
+    "in-place session": "The `*box.Session` that the `none` provider returns. The developer's checkout is the tree, so nothing is synced or exported, and `InPlace()` reports true.",
+    "isolating provider": "A box provider that confines the brain: `landlock` and `podman`. `local` and `none` are not isolating.",
+    "placement": "Where a brain runs for one run: `host` (af's process, over the box's tools), `box` (a process inside the box), or `checkout` (a process on the host checkout under `none`).",
+    "probe": "A once-per-session check, before the first process-brain run, that the `af` binary runs, the `claude` binary runs where it is needed, and `HOME` is set and writable inside the box.",
+    "process brain": "A brain that runs as a separate process through `Session.Exec`: `claude` under every provider, and `agentkit` inside `landlock` or `podman` without `--borrowed-hands`.",
+    "tools image": "`quay.io/agentfox/tools`, which is the sandbox image plus `af` and Claude Code. It is built from `containers/tools/Containerfile` and is the default `podman` image."
+  },
+  "requirements": [
+    {
+      "id": "10-REQ-1",
+      "title": "Choosing the box",
+      "rationale": "An unconfined default would quietly remove the boundary that keeps credentials away from the brain, so the default must be a real box and must never fall back silently.",
+      "criteria": [
+        {
+          "id": "10-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "box registry",
+          "action": "register the providers `landlock`, `podman`, `local` and `none`, and have each declare whether it isolates (true only for `landlock` and `podman`) and whether it works in place (true only for `none`)"
+        },
+        {
+          "id": "10-REQ-1.2",
+          "pattern": "unwanted",
+          "condition": "`--sandbox` names a value other than `landlock`, `podman`, `local` or `none`",
+          "system": "brain.Flags",
+          "action": "reject the invocation before any box opens",
+          "contract": "status failed with category `usage`; the message lists all four provider names"
+        },
+        {
+          "id": "10-REQ-1.3",
+          "pattern": "event_driven",
+          "condition": "a run starts without `--sandbox`",
+          "system": "brain.Flags",
+          "action": "select the provider from `AF_SANDBOX` when it is set, else `landlock` when `runtime.GOOS` is `linux`, else `podman`",
+          "contract": "the selected provider name is the one recorded in the `box_open` ledger entry"
+        },
+        {
+          "id": "10-REQ-1.4",
+          "pattern": "unwanted",
+          "condition": "`AF_SANDBOX` is set to a value that is not one of the four provider names",
+          "system": "brain.Flags",
+          "action": "reject the invocation before any box opens",
+          "contract": "status failed with category `usage`; the message names `AF_SANDBOX` and lists the four provider names"
+        },
+        {
+          "id": "10-REQ-1.5",
+          "pattern": "unwanted",
+          "condition": "the default-selected provider fails to open",
+          "system": "box.Open",
+          "action": "return the provider's failure without falling back to `local` or `none`",
+          "contract": "status failed/`sandbox` whose `fix_hint` names `--sandbox` and `AF_SANDBOX`; no brain process is started"
+        },
+        {
+          "id": "10-REQ-1.6",
+          "pattern": "event_driven",
+          "condition": "a run opens a `local` or `none` box",
+          "system": "box.Open",
+          "action": "raise the warning `box_unconfined` exactly once per run, where under `none` the message says that the brain works on the checkout itself and that the hook is the only guard",
+          "contract": "exactly one `box_unconfined` entry in the result's warnings"
+        },
+        {
+          "id": "10-REQ-1.7",
+          "pattern": "unwanted",
+          "condition": "`--borrowed-hands` is given with a brain other than `agentkit`",
+          "system": "brain.Flags",
+          "action": "reject the invocation before any box opens",
+          "contract": "status failed with category `usage`; the message names `--borrowed-hands` and `agentkit`"
+        }
+      ]
+    },
+    {
+      "id": "10-REQ-2",
+      "title": "The box spec for a run",
+      "rationale": "A single function from brain, provider, borrowed-hands mode and tools to the box request makes the rule that only the vendor key crosses into the box testable in one place.",
+      "criteria": [
+        {
+          "id": "10-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "box spec function",
+          "action": "compute the placement from the brain entry, the provider, `--borrowed-hands` and `Brief.Tools`: `host` for `scripted`, and for `agentkit` under `local`, under `none` or with `--borrowed-hands`; `box` for `claude` under `local`, `landlock` and `podman`, and for `agentkit` under `landlock` and `podman` without `--borrowed-hands`; `checkout` for `claude` under `none`",
+          "contract": "the triage and fix loops open their box with the request this function returns"
+        },
+        {
+          "id": "10-REQ-2.2",
+          "pattern": "ubiquitous",
+          "system": "box spec function",
+          "action": "for any combination of brain, provider and `--borrowed-hands`, set `Spec.Env` to exactly the host values of the credential names for the placement: an empty map for `host`, and only `ANTHROPIC_API_KEY` for `box` and `checkout`, with no other host variable passed into the box by any other route",
+          "contract": "with `GITHUB_TOKEN`, `GH_TOKEN`, `GITLAB_TOKEN` and `ANTHROPIC_API_KEY` set on the host, `Spec.Env` for `claude` is `{ANTHROPIC_API_KEY}`, and for `scripted` and `agentkit --borrowed-hands` it is empty"
+        },
+        {
+          "id": "10-REQ-2.3",
+          "pattern": "ubiquitous",
+          "system": "box spec function",
+          "action": "set the network to `none` when the placement is `host` and `Brief.Tools` holds no `execute` tool, and to `open` otherwise, and record it as `host` under `local` and `none`, where nothing is enforced",
+          "contract": "`Spec.Network` is one of `none`, `open` or `host`"
+        },
+        {
+          "id": "10-REQ-2.4",
+          "pattern": "ubiquitous",
+          "system": "box spec function",
+          "action": "for `podman`, set `Spec.Image` to `AF_SANDBOX_IMAGE` when it is set and to `quay.io/agentfox/tools:latest` otherwise, and leave the image empty for the other providers"
+        },
+        {
+          "id": "10-REQ-2.5",
+          "pattern": "ubiquitous",
+          "system": "box spec function",
+          "action": "set the TTL to the time left on the command's deadline plus 10 minutes, set `RequireLandlock` for `landlock`, and set the labels as spec 07 does"
+        },
+        {
+          "id": "10-REQ-2.6",
+          "pattern": "event_driven",
+          "condition": "a box opens for a run",
+          "system": "box.Open",
+          "action": "record the ledger entry `box_open` with the fields `image`, `network` and `placement` added",
+          "contract": "the `af fix` result carries `box: {provider, image, network}`, and the regenerated `fix` schema golden includes it"
+        }
+      ]
+    },
+    {
+      "id": "10-REQ-3",
+      "title": "The landlock provider",
+      "rationale": "A box that cannot confine the network when asked for `none` would break the borrowed-hands guarantee, so `landlock` requires ABI 4 and fails closed.",
+      "criteria": [
+        {
+          "id": "10-REQ-3.1",
+          "pattern": "unwanted",
+          "condition": "`landlock` is selected on an OS other than Linux",
+          "system": "landlock provider",
+          "action": "refuse before any sandbox is created",
+          "contract": "status failed/`sandbox`, `retryable: false`, message `landlock needs Linux`, `fix_hint {flag: \"--sandbox\", suggest: \"podman\"}`"
+        },
+        {
+          "id": "10-REQ-3.2",
+          "pattern": "event_driven",
+          "condition": "`landlock` is selected on Linux",
+          "system": "landlock provider",
+          "action": "read the Landlock ABI with the `landlock_create_ruleset` version query (syscall 444, flag 1), behind a package-level function variable that tests can replace",
+          "contract": "the ABI integer, or a value meaning that Landlock is absent"
+        },
+        {
+          "id": "10-REQ-3.3",
+          "pattern": "unwanted",
+          "condition": "the Landlock ABI is below 4 or Landlock is absent",
+          "system": "landlock provider",
+          "action": "refuse before any sandbox is created",
+          "contract": "status failed/`sandbox`, `retryable: false`; the message names the ABI found and the ABI 4 needed; `fix_hint {flag: \"--sandbox\", suggest: \"podman\"}`"
+        },
+        {
+          "id": "10-REQ-3.4",
+          "pattern": "event_driven",
+          "condition": "the Landlock ABI is 4 or higher",
+          "system": "landlock provider",
+          "action": "create the sandbox through agentkit's `landlock` provider with the spec from 10-REQ-2, and follow spec 07's contract: sync in with `.git`, export without it, and fail an export that carries `.git`",
+          "contract": "a `*box.Session` whose `InPlace()` is false; an export that contains `.git` returns a `sandbox` failure"
+        }
+      ]
+    },
+    {
+      "id": "10-REQ-4",
+      "title": "The podman provider and the tools image",
+      "rationale": "Without a recipe for the image in the repository, `podman` with `claude` has nothing to run, and an engine or image failure needs a clear, actionable message.",
+      "criteria": [
+        {
+          "id": "10-REQ-4.1",
+          "pattern": "unwanted",
+          "condition": "the podman engine cannot be reached",
+          "system": "podman provider",
+          "action": "refuse before any brain runs",
+          "contract": "status failed/`sandbox`, `retryable: false`; the message carries the provider's error and, on an OS other than Linux, mentions `podman machine start`; the `fix_hint` names `--sandbox`"
+        },
+        {
+          "id": "10-REQ-4.2",
+          "pattern": "unwanted",
+          "condition": "the image is missing and cannot be pulled",
+          "system": "podman provider",
+          "action": "refuse before any brain runs",
+          "contract": "status failed/`sandbox`, `retryable: true`; the message names the image and `AF_SANDBOX_IMAGE`"
+        },
+        {
+          "id": "10-REQ-4.3",
+          "pattern": "unwanted",
+          "condition": "the image's `af --version` differs from the running binary in `version` or `commit`",
+          "system": "podman provider",
+          "action": "raise the warning `box_af_version_mismatch` and continue the run, with the host re-validating every submission",
+          "contract": "one `box_af_version_mismatch` entry in the warnings; the run status is not changed by the mismatch"
+        },
+        {
+          "id": "10-REQ-4.4",
+          "pattern": "ubiquitous",
+          "system": "containers/tools/Containerfile",
+          "action": "build from `ARG BASE_IMAGE` (default `quay.io/agentfox/sandbox:latest`); build `af` from the repository context, with agentkit-go cloned at `ARG AGENTKIT_REF` into the path the `replace` directive expects; install Claude Code at `ARG CLAUDE_CODE_VERSION`; and keep `WORKDIR /workspace` and `USER 1001:0`"
+        },
+        {
+          "id": "10-REQ-4.5",
+          "pattern": "event_driven",
+          "condition": "`make build-tools-container` runs",
+          "system": "Makefile",
+          "action": "build the tools image tagged `$(CONTAINER_REGISTRY)/tools:$(VERSION)` and `$(CONTAINER_REGISTRY)/tools:latest`, with `build-containers` building it after the sandbox image"
+        }
+      ]
+    },
+    {
+      "id": "10-REQ-5",
+      "title": "The none provider's in-place session",
+      "rationale": "Making `none` an in-place `Session` instead of a nil box keeps one code path for every brain and both loops.",
+      "criteria": [
+        {
+          "id": "10-REQ-5.1",
+          "pattern": "event_driven",
+          "condition": "`box.Open` is called with `none` on a directory that passes spec 07's top-level check",
+          "system": "box.Open",
+          "action": "return a session whose `InPlace()` is true, whose `Root()` is the checkout's path, and whose `Spec()` has network `host` and `Env` as in 10-REQ-2; every other provider's session reports `InPlace()` false and a `Root()` equal to the workspace root as seen inside the box",
+          "contract": "a `*box.Session` with the stated `InPlace`, `Root` and `Spec` values"
+        },
+        {
+          "id": "10-REQ-5.2",
+          "pattern": "state_driven",
+          "condition": "a session is in place",
+          "system": "box.Session",
+          "action": "serve `Tools()` as the hands' tool set over the checkout itself, and serve `FS(ctx)` as a read-only view of the checkout through `os.OpenRoot`",
+          "contract": "a write through the `FS` view fails"
+        },
+        {
+          "id": "10-REQ-5.3",
+          "pattern": "state_driven",
+          "condition": "a session is in place",
+          "system": "box.Session",
+          "action": "accept `WriteFile` only for paths under `.agent-fox/`, write atomically on the host, and leave an existing `.agent-fox/.gitignore` unchanged",
+          "contract": "a path outside `.agent-fox/` returns spec 07's error and writes nothing"
+        },
+        {
+          "id": "10-REQ-5.4",
+          "pattern": "state_driven",
+          "condition": "a session is in place",
+          "system": "box.Session",
+          "action": "have `Sync` record `box_sync {head}` and copy nothing, and have `Close` record `box_close`",
+          "contract": "ledger entries `box_sync` and `box_close`; no files are copied"
+        },
+        {
+          "id": "10-REQ-5.5",
+          "pattern": "unwanted",
+          "condition": "`Export` is called on an in-place session",
+          "system": "box.Session",
+          "action": "return an internal error without copying any file",
+          "contract": "an error with the message `in place: nothing to export`"
+        },
+        {
+          "id": "10-REQ-5.6",
+          "pattern": "event_driven",
+          "condition": "`brain.Execute` runs an attempt over an in-place session",
+          "system": "brain.Execute",
+          "action": "keep the bytes of the last host-accepted `<run_dir>/submission.json`, if there is one, before the brain runs, and rewrite the file with the same bytes when this attempt's submission is accepted"
+        },
+        {
+          "id": "10-REQ-5.7",
+          "pattern": "unwanted",
+          "condition": "an attempt's submission under an in-place session is not accepted",
+          "system": "brain.Execute",
+          "action": "move the file to `submission.rejected.<attempt>.json` when it differs from the kept bytes, then restore the kept bytes, or leave no file when none were kept",
+          "contract": "`<run_dir>/submission.json` holds the previously accepted bytes or does not exist"
+        },
+        {
+          "id": "10-REQ-5.8",
+          "pattern": "ubiquitous",
+          "system": "brain.Execute",
+          "action": "for any sequence of accepted and rejected attempts under an in-place session, leave `<run_dir>/submission.json` holding only a submission the host accepted, as under `local`"
+        }
+      ]
+    },
+    {
+      "id": "10-REQ-6",
+      "title": "The host-side commit under each provider",
+      "rationale": "The commit that counts must be made on the host from measured facts, and under `none` that means neutralising commits the brain made on the checkout itself.",
+      "criteria": [
+        {
+          "id": "10-REQ-6.1",
+          "pattern": "state_driven",
+          "condition": "the provider is `landlock`, `podman` or `local`",
+          "system": "fix apply step",
+          "action": "read the tree through `Session.Export` without change, so that a modified file, a new file, a deleted file and an executable-bit change made inside the box all arrive in `af`'s single commit with the `Agent-Fox-Run:` trailer, a commit made inside the box is not on the branch, and files the box's user wrote are owned by the host user after apply"
+        },
+        {
+          "id": "10-REQ-6.2",
+          "pattern": "state_driven",
+          "condition": "the session is in place",
+          "system": "fix apply step",
+          "action": "skip export and apply, and run the protected-path revert directly on the checkout",
+          "contract": "`Export` is never called; `af fix --brain scripted --sandbox none` lands `fix/<N>-<slug>` with one commit carrying the `Agent-Fox-Run:` trailer"
+        },
+        {
+          "id": "10-REQ-6.3",
+          "pattern": "event_driven",
+          "condition": "a brain run is about to start over an in-place session",
+          "system": "fix loop",
+          "action": "record HEAD as a full commit hash, through a new `(*gitx.Git).RevParse`, together with the checked-out branch"
+        },
+        {
+          "id": "10-REQ-6.4",
+          "pattern": "event_driven",
+          "condition": "a brain run over an in-place session ends and the branch and full HEAD equal the recorded ones",
+          "system": "fix loop",
+          "action": "continue to measuring without touching git"
+        },
+        {
+          "id": "10-REQ-6.5",
+          "pattern": "complex_event",
+          "condition": "a brain run over an in-place session ends with HEAD moved",
+          "guard": "the branch is unchanged and the recorded HEAD is an ancestor of the current HEAD, checked through a new `(*gitx.Git).IsAncestor` where exit code 1 means false",
+          "system": "fix loop",
+          "action": "run `git reset --soft <recorded>`, raise the warning `foreign_commits_reset {count}`, record it in the ledger, then measure and commit the change as usual",
+          "contract": "the foreign commits are gone from the branch, their change is inside `af`'s commit, and one `foreign_commits_reset` warning is raised"
+        },
+        {
+          "id": "10-REQ-6.6",
+          "pattern": "unwanted",
+          "condition": "after a brain run over an in-place session, the branch differs, HEAD is detached, or the recorded HEAD is not an ancestor of the current HEAD",
+          "system": "fix loop",
+          "action": "stop without touching the tree, and without landing or parking anything",
+          "contract": "status failed/`git`, `retryable: false`; the message names the recorded and current branch and HEAD"
+        }
+      ]
+    },
+    {
+      "id": "10-REQ-7",
+      "title": "Running a brain as a process",
+      "rationale": "Process brains need one execution contract that keeps every host variable except the vendor key out, under every provider.",
+      "criteria": [
+        {
+          "id": "10-REQ-7.1",
+          "pattern": "ubiquitous",
+          "system": "box.Session",
+          "action": "provide `Exec(ctx, command, timeout)`, which runs the command through the box's `execute` tool at `Root()` for box providers, and with `sh -c` on the host at the checkout for `none`, through a new exported `gitx` runner that takes an explicit environment, kills the process group, and starts from `tools.ReducedEnv(nil)` plus `Spec.Env`",
+          "contract": "the exit code and the output capped in size; a non-zero exit is returned as a code, not as an error"
+        },
+        {
+          "id": "10-REQ-7.2",
+          "pattern": "event_driven",
+          "condition": "the first process-brain run of a session is about to start",
+          "system": "process runner",
+          "action": "probe once per session: run `<af> --version`, run `<claude> --version` for `claude`, and check that `HOME` is set and writable",
+          "contract": "one ledger entry `box_probe {binary, ok, version}` per probe"
+        },
+        {
+          "id": "10-REQ-7.3",
+          "pattern": "unwanted",
+          "condition": "any probe fails",
+          "system": "process runner",
+          "action": "stop before the brain starts",
+          "contract": "status failed/`sandbox`, `retryable: false`; the message names the binary, the provider and the image"
+        },
+        {
+          "id": "10-REQ-7.4",
+          "pattern": "ubiquitous",
+          "system": "process runner",
+          "action": "under `local`, `landlock` and `none`, resolve `af` to the running executable's absolute path (overridable through `Options.AFPath`) with its directory first on `PATH`, and resolve `claude` with `exec.LookPath` on the host; under `podman`, call both by name from the image's `PATH`"
+        },
+        {
+          "id": "10-REQ-7.5",
+          "pattern": "ubiquitous",
+          "system": "process runner",
+          "action": "start the command under `env -i` with only `PATH`, `HOME`, those of `LANG`, `LC_ALL`, `TZ`, `TMPDIR`, `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` (in either case), `SSL_CERT_FILE`, `SSL_CERT_DIR` and `NODE_EXTRA_CA_CERTS` that are set, and the `Spec.Env` credential names referenced as shell parameters; put non-secret settings such as `AF_MODEL` inline, and single-quote every argument",
+          "contract": "no credential value appears in the command text or the ledger"
+        },
+        {
+          "id": "10-REQ-7.6",
+          "pattern": "ubiquitous",
+          "system": "process runner",
+          "action": "for any host environment in which `GITHUB_TOKEN`, `GH_TOKEN`, `GITLAB_TOKEN` and `ANTHROPIC_API_KEY` are set, start the process under `local` and under `none` so that it sees `ANTHROPIC_API_KEY` and none of the three forge-token variables"
+        },
+        {
+          "id": "10-REQ-7.7",
+          "pattern": "event_driven",
+          "condition": "a process brain runs",
+          "system": "process runner",
+          "action": "feed the placed `brief.md` on stdin, redirect stdout and stderr through `af`'s own command line to `.agent-fox/run/<id>/<brain>.<attempt>.json` and `.stderr`, and after the process exits copy both through `Session.FS` to the host run directory (the JSON up to 1 MiB, the last 64 KiB of stderr), with neither file deciding whether a submission exists",
+          "contract": "one artifact `{kind: \"brain_output\", path}` per copied file"
+        },
+        {
+          "id": "10-REQ-7.8",
+          "pattern": "unwanted",
+          "condition": "the exec timeout, which is `Brief.Timeout` or else the time left on the context, expires",
+          "system": "process runner",
+          "action": "kill the process and its group",
+          "contract": "a ledger entry `brain_process {brain, exit_code, duration_ms}`, recorded for every run whether it completes or times out"
+        }
+      ]
+    },
+    {
+      "id": "10-REQ-8",
+      "title": "The claude brain's construction, files and command line",
+      "rationale": "Claude Code runs headless with its own hands, so its allowlist, hook and command line are where the guard rules are enforced.",
+      "criteria": [
+        {
+          "id": "10-REQ-8.1",
+          "pattern": "ubiquitous",
+          "system": "brain.Registry",
+          "action": "register `claude` with cost source `reported` and the command submission route, so that the agent briefs render `af <agent> submit --run-id <id>` for it"
+        },
+        {
+          "id": "10-REQ-8.2",
+          "pattern": "unwanted",
+          "condition": "`claude` is constructed, `ANTHROPIC_API_KEY` is unset, and the provider is not `none`",
+          "system": "claude brain",
+          "action": "fail construction before any box opens",
+          "contract": "status failed/`auth` with `fix_hint {env: \"ANTHROPIC_API_KEY\"}`"
+        },
+        {
+          "id": "10-REQ-8.3",
+          "pattern": "unwanted",
+          "condition": "`claude` is constructed under `local`, `landlock` or `none` and is not on the host `PATH`",
+          "system": "claude brain",
+          "action": "fail construction before any box opens",
+          "contract": "status failed/`brain`, `retryable: false`, with a message naming `claude`"
+        },
+        {
+          "id": "10-REQ-8.4",
+          "pattern": "event_driven",
+          "condition": "a `claude` attempt is prepared",
+          "system": "claude brain",
+          "action": "place through `WriteFile`, with host copies in the run directory: `guard.json` in spec 06's format (version 1, `protected_paths` and `allow_programs` from `Brief.Hook`, `suite` omitted), and `claude-settings.json` with one `hooks.PreToolUse` entry matching `*` whose command is `<af> guard check --host claude --dir <root> --policy <root>/.agent-fox/run/<id>/guard.json`, with a 30 s timeout",
+          "contract": "the files `.agent-fox/run/<id>/guard.json` and `.agent-fox/run/<id>/claude-settings.json` exist in the box, with copies in the host run directory"
+        },
+        {
+          "id": "10-REQ-8.5",
+          "pattern": "ubiquitous",
+          "system": "claude brain",
+          "action": "run `<claude> -p --output-format json --max-turns <MaxTurns> --permission-mode dontAsk --settings <settings> --strict-mcp-config --allowedTools <…> --disallowedTools <…> --append-system-prompt <note> [--model <AF_MODEL>]` with `brief.md` on stdin, where the note is a fixed text saying that the run is headless, that the only deliverable is one submission through the command the brief names, that it must never commit, push or write to the forge, and that a refusal is the next turn"
+        },
+        {
+          "id": "10-REQ-8.6",
+          "pattern": "ubiquitous",
+          "system": "claude brain",
+          "action": "map box tools to Claude Code tools from one table (`read_file`→`Read`, `list_files`→`LS`,`Glob`, `find_files`→`Glob`, `search_files`→`Grep`, `write_file`→`Write`, `edit_file`→`Edit`,`MultiEdit`, `execute`→`Bash`); drop navigation tools that have no equivalent and record each drop in the ledger; always allow `Bash(af <agent> submit:*)`; always disallow `WebFetch` and `WebSearch`; and disallow `Write`, `Edit`, `MultiEdit` and `NotebookEdit` when `Brief.Tools` has no writer"
+        },
+        {
+          "id": "10-REQ-8.7",
+          "pattern": "event_driven",
+          "condition": "the `PreToolUse` command from `claude-settings.json` is run with a Claude Code payload",
+          "system": "af guard check",
+          "action": "answer a deny that names `af gate run` for a `Bash` call of `go test ./...`, a deny for a `Write` to `.agent-fox/run/<id>/submission.json`, and `{}` for a `Bash` call of `git diff`",
+          "contract": "stdout is a `permissionDecision: \"deny\"` document or `{}`; exit code 0"
+        }
+      ]
+    },
+    {
+      "id": "10-REQ-9",
+      "title": "Process-brain outcomes and agentkit inside a box",
+      "rationale": "A process brain's cost and claim come from its own output, and agentkit must run inside isolating boxes by default to exercise the placement the service needs.",
+      "criteria": [
+        {
+          "id": "10-REQ-9.1",
+          "pattern": "event_driven",
+          "condition": "a `claude` process exits with a parseable output JSON",
+          "system": "claude brain",
+          "action": "set the outcome's `CostUSD` from `total_cost_usd` (else `cost_usd`), `Turns` from `num_turns`, `InputTokens` from the sum of `usage.input_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens`, `OutputTokens` from `usage.output_tokens`, and `StopReason` from `subtype` (`success`→`ended`, `error_max_turns`→`turns`, any subtype containing `budget`→`budget`, anything else→`error`); set `Submitted` to whether the box's `submission.json` carries this attempt's nonce, and leave `Transcript` empty",
+          "contract": "a ledger entry `claude_result {subtype, is_error, num_turns, total_cost_usd, usage, session_id}`; the result's `usage.cost_source` is `reported`"
+        },
+        {
+          "id": "10-REQ-9.2",
+          "pattern": "unwanted",
+          "condition": "a process brain's output file is missing or cannot be parsed",
+          "system": "process brain",
+          "action": "report cost 0 and continue to the submission decision",
+          "contract": "`usage.cost_source: none` and one warning `brain_usage_unavailable`"
+        },
+        {
+          "id": "10-REQ-9.3",
+          "pattern": "unwanted",
+          "condition": "a `claude` process exits non-zero and there is no valid submission",
+          "system": "claude brain",
+          "action": "return an error from `Run`",
+          "contract": "the error carries the last 2 KiB of stderr"
+        },
+        {
+          "id": "10-REQ-9.4",
+          "pattern": "unwanted",
+          "condition": "`claude` reports a cost above `MaxCostUSD`",
+          "system": "claude brain",
+          "action": "raise the warning `budget_exceeded`, and set `StopReason` to `budget` when nothing was submitted",
+          "contract": "one `budget_exceeded` warning"
+        },
+        {
+          "id": "10-REQ-9.5",
+          "pattern": "state_driven",
+          "condition": "the provider is `landlock` or `podman` and `--borrowed-hands` is not given",
+          "system": "agentkit brain",
+          "action": "run through the process runner as `<af> <agent> run --run-id <id> --dir <root> --budget … --max-turns … --timeout …`, with `AF_MODEL` inline and `Spec.Env` set to `{ANTHROPIC_API_KEY}`, failing construction when the key is unset",
+          "contract": "a missing key gives status failed/`auth` before any box opens"
+        },
+        {
+          "id": "10-REQ-9.6",
+          "pattern": "event_driven",
+          "condition": "`brain.Execute` places the run files",
+          "system": "brain.Execute",
+          "action": "add `prefix_bytes`, the byte length of `Brief.Prefix`, to `run.json`, so that `af triage run` and `af fix run` take `brief.md` and `prefix_bytes` from `run.json` when their run-state file is absent",
+          "contract": "the submit core ignores fields it does not use"
+        },
+        {
+          "id": "10-REQ-9.7",
+          "pattern": "event_driven",
+          "condition": "an in-box `agentkit` process exits and its envelope at `.agent-fox/run/<id>/agentkit.<attempt>.json` parses",
+          "system": "agentkit brain",
+          "action": "take cost, tokens and turns from `usage` with `cost_source: measured`, and the claim from `result.submitted`; map a failure in category `budget` to `budget` or `turns` according to its `fix_hint` flag, and any other failure to `error`",
+          "contract": "an `Outcome` with `CostSource` `measured` and `StopReason` one of `ended`, `budget`, `turns` or `error`"
+        },
+        {
+          "id": "10-REQ-9.8",
+          "pattern": "optional",
+          "condition": "`--borrowed-hands` is given with `agentkit`, or the provider is `local` or `none`",
+          "system": "agentkit brain",
+          "action": "keep spec 07's host placement over `Session.Tools()`, with `Spec.Env` empty"
+        }
+      ]
+    },
+    {
+      "id": "10-REQ-10",
+      "title": "Tests and documentation",
+      "rationale": "`make check` must stay offline and free even on a machine with a key, an engine or a recent kernel, while real boxes and real Claude stay testable on demand.",
+      "criteria": [
+        {
+          "id": "10-REQ-10.1",
+          "pattern": "event_driven",
+          "condition": "`af triage <issue URL> --sandbox local` runs against an `httptest` GitHub with `--brain scripted`, `--brain agentkit` on `faux`, and `--brain claude` with a fake `claude` first on `PATH`",
+          "system": "af triage",
+          "action": "leave the same normalised diagnosis bytes in `<run_dir>/submission.json` for all three brains",
+          "contract": "the claude run reports `usage.cost_source: reported` with the cost and turns the fake wrote"
+        },
+        {
+          "id": "10-REQ-10.2",
+          "pattern": "ubiquitous",
+          "system": "test suite",
+          "action": "pass `make check` offline, with no `ANTHROPIC_API_KEY`, no container engine and no network, and pass `--sandbox local` in every test of `cmd/af` and `internal/*` that relied on the old `local` default",
+          "contract": "`make check` exits 0"
+        },
+        {
+          "id": "10-REQ-10.3",
+          "pattern": "optional",
+          "condition": "`AF_TEST_LANDLOCK`, `AF_TEST_PODMAN` or `AF_TEST_CLAUDE` is set and its prerequisite is present (Linux with Landlock ABI 4 or newer; a reachable engine and the image; `ANTHROPIC_API_KEY` set and `claude` on `PATH`)",
+          "system": "opt-in tests",
+          "action": "run spec 07's box invariant tests under that provider, `af fix` end to end with `scripted` and 10-REQ-6.1's set of changes under `landlock` and `podman`, and the contract row with the real `claude` under `local`, and under `podman` when both variables are set"
+        },
+        {
+          "id": "10-REQ-10.4",
+          "pattern": "unwanted",
+          "condition": "an opt-in variable is unset or its prerequisite is absent",
+          "system": "opt-in tests",
+          "action": "call `t.Skip` with a reason that names the missing variable or prerequisite",
+          "contract": "the test is reported as skipped, never as failed"
+        },
+        {
+          "id": "10-REQ-10.5",
+          "pattern": "ubiquitous",
+          "system": "documentation",
+          "action": "after `make doc` runs, document: in `docs/cli.md`, the `--sandbox` values and default, `--borrowed-hands`, `--brain claude`, the warnings `foreign_commits_reset`, `box_af_version_mismatch`, `brain_usage_unavailable`, `budget_exceeded` and `box_unconfined` under `none`, and the `fix` result's `box`; in `docs/configuration.md` and `docs/model-usage.md`, `AF_SANDBOX`, `AF_SANDBOX_IMAGE`, which credential enters which box, `AF_MODEL` mapped to `--model`, claude's reported cost checked after the run, and the network per placement; in `docs/architecture.md`, the host settings and `Spec` per brain, the tools image and the placement table; in `docs/development.md`, the opt-in variables and the fake-`claude` script format; and in `README.md`, `containers/tools/`"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "10-PATH-1",
+      "title": "A developer triages an issue with the claude brain in a local box",
+      "steps": [
+        {
+          "actor": "developer",
+          "action": "runs `af triage <issue URL> --brain claude --sandbox local`"
+        },
+        {
+          "actor": "brain.Flags",
+          "action": "selects `local` and raises `box_unconfined` once"
+        },
+        {
+          "actor": "claude brain",
+          "action": "checks `ANTHROPIC_API_KEY` and `claude` on `PATH` at construction"
+        },
+        {
+          "actor": "box spec function",
+          "action": "computes placement `box`, `Spec.Env {ANTHROPIC_API_KEY}` and network `host`, and the local box opens with `box_open {image, network, placement}`"
+        },
+        {
+          "actor": "brain.Execute",
+          "action": "places `brief.md`, `run.json` with `prefix_bytes`, `guard.json` and `claude-settings.json`"
+        },
+        {
+          "actor": "process runner",
+          "action": "probes `af` and `claude`, then runs `claude -p …` under `env -i` with `brief.md` on stdin, redirecting output into the run directory"
+        },
+        {
+          "actor": "claude process",
+          "action": "calls tools that the `af guard check` hook allows or denies, and submits through `af triage submit --run-id <id>`"
+        },
+        {
+          "actor": "brain.Execute",
+          "action": "decides the submission from the box file and copies the output JSON and stderr to the host as `brain_output` artifacts"
+        },
+        {
+          "actor": "af triage",
+          "action": "writes the accepted diagnosis to `<run_dir>/submission.json` and reports `usage.cost_source: reported` with the cost and turns read from claude's output"
+        }
+      ]
+    },
+    {
+      "id": "10-PATH-2",
+      "title": "A developer fixes an issue in place with --sandbox none and a foreign commit is folded in",
+      "steps": [
+        {
+          "actor": "developer",
+          "action": "runs `af fix <issue URL> --brain scripted --sandbox none`"
+        },
+        {
+          "actor": "box.Open",
+          "action": "returns an in-place session over the checkout and raises `box_unconfined` saying the hook is the only guard"
+        },
+        {
+          "actor": "fix loop",
+          "action": "records the full HEAD hash and the checked-out branch before the brain runs"
+        },
+        {
+          "actor": "scripted brain",
+          "action": "edits the checkout, a commit lands on the same branch, and the brain submits"
+        },
+        {
+          "actor": "fix loop",
+          "action": "finds the recorded HEAD is an ancestor on the same branch, runs `git reset --soft <recorded>`, and raises `foreign_commits_reset {count}`"
+        },
+        {
+          "actor": "fix apply step",
+          "action": "skips `Export`, and runs the protected-path revert and the gate on the checkout"
+        },
+        {
+          "actor": "fix loop",
+          "action": "lands `fix/<N>-<slug>` with one commit carrying the `Agent-Fox-Run:` trailer that contains the foreign change"
+        }
+      ]
+    },
+    {
+      "id": "10-PATH-3",
+      "title": "A developer fixes an issue inside an isolating box",
+      "steps": [
+        {
+          "actor": "developer",
+          "action": "runs `af fix <issue URL> --brain scripted --sandbox landlock` on Linux (or `--sandbox podman`)"
+        },
+        {
+          "actor": "landlock provider",
+          "action": "queries the Landlock ABI, finds 4 or newer, and creates the sandbox with the spec from 10-REQ-2, syncing the tree in with `.git`"
+        },
+        {
+          "actor": "scripted brain",
+          "action": "modifies, adds and deletes files, flips an executable bit, and commits inside the box"
+        },
+        {
+          "actor": "fix apply step",
+          "action": "exports the tree without `.git` and applies it to the host checkout"
+        },
+        {
+          "actor": "fix loop",
+          "action": "lands one commit with the `Agent-Fox-Run:` trailer that holds all four changes and not the in-box commit, with files owned by the host user"
+        }
+      ]
+    },
+    {
+      "id": "10-PATH-4",
+      "title": "The default box cannot open and af refuses to fall back",
+      "steps": [
+        {
+          "actor": "developer",
+          "action": "runs `af fix <issue URL>` without `--sandbox` or `AF_SANDBOX` on a non-Linux host whose podman engine is down"
+        },
+        {
+          "actor": "brain.Flags",
+          "action": "selects `podman` as the default"
+        },
+        {
+          "actor": "podman provider",
+          "action": "fails to reach the engine"
+        },
+        {
+          "actor": "af fix",
+          "action": "emits status failed/`sandbox`, `retryable: false`, whose message mentions `podman machine start` and whose `fix_hint` names `--sandbox` and `AF_SANDBOX`, with no brain started and no fallback to `local` or `none`"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "github.com/agent-fox-dev/agentfox/internal/gitx",
+      "version": "in-repo",
+      "verified": true,
+      "symbols": [
+        {
+          "name": "Runner",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "type Runner func(ctx context.Context, dir string, argv []string, stdin ...string) (string, int, error)",
+          "notes": "exec.go:28; a non-zero exit is returned as the code with a nil error"
+        },
+        {
+          "name": "New",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func New(dir string, r Runner) *Git",
+          "notes": "git.go:18"
+        },
+        {
+          "name": "(*Git).Head",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) Head(ctx context.Context) (string, error)",
+          "notes": "returns the short hash; this spec adds RevParse for the full hash"
+        },
+        {
+          "name": "(*Git).CurrentBranch",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) CurrentBranch(ctx context.Context) (string, error)",
+          "notes": "returns \"HEAD\" when detached"
+        },
+        {
+          "name": "(*Git).ResetSoft",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) ResetSoft(ctx context.Context, ref string) error",
+          "notes": "git.go:348"
+        }
+      ]
+    },
+    {
+      "package": "github.com/agent-fox-dev/agentkit-go",
+      "version": "v0.0.0 (replaced by ../agentkit-go)",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "ReducedEnv",
+          "import_path": "github.com/agent-fox-dev/agentkit-go/tools",
+          "signature": "func ReducedEnv(extra []string) []string",
+          "notes": "strips the vendor keys and *_TOKEN, *_SECRET, *_API_KEY and *_PASSWORD; only call sites are readable"
+        },
+        {
+          "name": "Open",
+          "import_path": "github.com/agent-fox-dev/agentkit-go/sandbox",
+          "signature": "func Open(name string) (Provider, error)",
+          "notes": "used for \"landlock\" and \"podman\"; kept behind spec 07's adapter file"
+        },
+        {
+          "name": "Spec",
+          "import_path": "github.com/agent-fox-dev/agentkit-go/sandbox",
+          "signature": "type Spec struct { Image string; Env map[string]string; Network ...; TTL time.Duration; Labels map[string]string; RequireLandlock bool }",
+          "notes": "assumed from the PRD"
+        }
+      ]
+    }
+  ]
+}

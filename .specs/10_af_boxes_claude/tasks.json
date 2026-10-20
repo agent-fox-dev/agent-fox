@@ -1,0 +1,584 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "10",
+  "spec_name": "af_boxes_claude",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/box/... ./internal/brain/... ./internal/gitx/... ./internal/fix/... ./internal/triage/... ./cmd/af/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "05",
+      "reason": "uses coded warnings, the usage block with cost_source reported, *toolio.Failure with fix_hint, Run.Warn and Artifact, and the --schema golden that the fix result's box changes"
+    },
+    {
+      "spec": "06",
+      "reason": "the claude settings hook runs af guard check --host claude --policy, using the guard.json format and the policy that allows af <agent> submit and denies mutating git"
+    },
+    {
+      "spec": "07",
+      "reason": "extends internal/box (registry, Session, Open), internal/brain (Registry, Flags, Execute, contract test), the box_open ledger entry and run.json"
+    },
+    {
+      "spec": "08",
+      "reason": "the triage loop opens its box with the new spec function, af triage run falls back to run.json, and the claude brain needs the command submission route"
+    },
+    {
+      "spec": "09",
+      "reason": "the fix apply step branches on InPlace(), gains the foreign-commit check and the result's box; af fix run falls back to run.json"
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Register landlock, podman, local and none and resolve --sandbox, AF_SANDBOX and --borrowed-hands",
+      "criteria": [
+        "10-REQ-1.1",
+        "10-REQ-1.2",
+        "10-REQ-1.3",
+        "10-REQ-1.4",
+        "10-REQ-1.7"
+      ],
+      "tests": [
+        "TS-10-1",
+        "TS-10-2",
+        "TS-10-3",
+        "TS-10-4",
+        "TS-10-7"
+      ],
+      "steps": [
+        "Write TS-10-1, 2, 3, 4 and 7 first and confirm they fail",
+        "In internal/box/registry.go add provider descriptors for landlock, podman and none beside local, each with Isolates (true for landlock and podman) and InPlace (true for none) properties; the unknown-name usage Failure lists all four names",
+        "Add stub provider factories for landlock, podman and none that return a not-yet-wired sandbox failure (replaced by later tasks); do not use panic",
+        "In internal/brain/flags.go make --sandbox accept the four names; an unknown value is failed/usage listing all four",
+        "Add AF_SANDBOX lookup through Options.Getenv; an invalid value is failed/usage naming AF_SANDBOX and listing the four names",
+        "Default provider is landlock when the injectable goos variable (default runtime.GOOS) is linux, otherwise podman; --sandbox beats AF_SANDBOX",
+        "Add the --borrowed-hands flag to brain.Flags; with any brain other than agentkit it is failed/usage naming --borrowed-hands and agentkit; carry the value in the resolved flags and brain.Options.BorrowedHands",
+        "Resolution never opens a box and never falls back to local or none"
+      ],
+      "touches": [
+        "internal/box/registry.go",
+        "internal/box/registry_test.go",
+        "internal/brain/flags.go",
+        "internal/brain/flags_test.go",
+        "internal/brain/registry.go"
+      ],
+      "done_when": [
+        "`make lint` and `make test` pass offline"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Compute the box request from brain, provider, borrowed-hands and tools",
+      "criteria": [
+        "10-REQ-2.1",
+        "10-REQ-2.2",
+        "10-REQ-2.3",
+        "10-REQ-2.4",
+        "10-REQ-2.5"
+      ],
+      "tests": [
+        "TS-10-8",
+        "TS-10-9",
+        "TS-10-10",
+        "TS-10-11",
+        "TS-10-12",
+        "TS-10-13"
+      ],
+      "steps": [
+        "Write TS-10-8 to 13 first (table tests plus property tests with testing/quick or a seeded generator) and confirm they fail",
+        "Add Placement type (host, box, checkout) and extend the brain Entry with a method returning the credential names for a placement, replacing the static BoxEnv",
+        "Add internal/brain/boxspec.go with one function BoxRequest(entry, provider, borrowedHands, tools, getenv, deadline) returning a box.Request",
+        "Placement rules: host for scripted and for agentkit under local, none or with borrowed hands; box for claude under local, landlock, podman and agentkit under landlock/podman without borrowed hands; checkout for claude under none",
+        "Env is exactly the host values of the placement's credential names (empty for host; ANTHROPIC_API_KEY, only when set, for box and checkout); no other host variable reaches any field",
+        "Network: none for host placement with no execute tool, open otherwise, recorded as host under local and none",
+        "Image: AF_SANDBOX_IMAGE else quay.io/agentfox/tools:latest for podman only; TTL is time to the context deadline plus 10 minutes; RequireLandlock for landlock; labels as spec 07",
+        "Add Image, Network, Placement and RequireLandlock fields to box.Request and thread them to the agentkit adapter file"
+      ],
+      "touches": [
+        "internal/brain/boxspec.go",
+        "internal/brain/boxspec_test.go",
+        "internal/brain/registry.go",
+        "internal/box/open.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "done_when": [
+        "`make lint` and `make test` pass offline"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Implement the landlock provider with an ABI 4 check that fails closed",
+      "criteria": [
+        "10-REQ-3"
+      ],
+      "tests": [
+        "TS-10-15",
+        "TS-10-16",
+        "TS-10-17",
+        "TS-10-18"
+      ],
+      "steps": [
+        "Write TS-10-15 to 18 first and confirm they fail",
+        "Add internal/box/landlock_linux.go with LandlockABI as a package-level func variable doing syscall.Syscall(444, 0, 0, 1) and returning the ABI or -1 when absent; add landlock_other.go returning -1 for non-Linux builds",
+        "Add an injectable goos variable in internal/box for the provider check",
+        "In internal/box/landlock.go refuse before any sandbox is created: non-Linux gives failed/sandbox, retryable false, message 'landlock needs Linux', fix_hint {flag:'--sandbox', suggest:'podman'}",
+        "On Linux call the ABI function once; ABI below 4 or absent gives failed/sandbox, retryable false, with a message naming the ABI found (number or absent) and ABI 4 needed, same fix_hint",
+        "With ABI >=4 create the sandbox through the agentkit adapter file with sandbox name landlock and the request's spec (RequireLandlock true); the session reports InPlace false and keeps spec 07 sync-with-.git, export-without-.git and the failure for an export carrying .git",
+        "Replace the stub landlock factory from task 1; keep all agentkit sandbox symbols inside the single adapter file and record an erratum note in the file comment if a signature differs"
+      ],
+      "touches": [
+        "internal/box/landlock.go",
+        "internal/box/landlock_linux.go",
+        "internal/box/landlock_other.go",
+        "internal/box/landlock_test.go",
+        "internal/box/agentkit_adapter.go"
+      ],
+      "depends_on": [
+        1,
+        2
+      ],
+      "done_when": [
+        "`make lint` and `make test` pass offline on this OS"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Implement the podman provider failures, restore the tools image and add the Makefile targets",
+      "criteria": [
+        "10-REQ-1.5",
+        "10-REQ-4.1",
+        "10-REQ-4.2",
+        "10-REQ-4.4",
+        "10-REQ-4.5"
+      ],
+      "tests": [
+        "TS-10-5",
+        "TS-10-19",
+        "TS-10-20",
+        "TS-10-22",
+        "TS-10-23"
+      ],
+      "steps": [
+        "Write TS-10-5, 19, 20, 22 and 23 first and confirm they fail",
+        "In internal/box/podman.go open the sandbox through the agentkit adapter with sandbox name podman and the request's spec (image, network, env, TTL)",
+        "Map an unreachable engine to failed/sandbox, retryable false, message carrying the provider's error, adding 'podman machine start' when the injectable goos is not linux, and a fix_hint naming --sandbox",
+        "Map a missing image that cannot be pulled to failed/sandbox, retryable true, message naming the image and AF_SANDBOX_IMAGE",
+        "When the provider was selected by default, add AF_SANDBOX to the fix_hint of any provider open failure (hint names --sandbox and AF_SANDBOX); box.Open never falls back to local or none",
+        "Replace the stub podman factory from task 1",
+        "Create containers/tools/Containerfile: ARG BASE_IMAGE default quay.io/agentfox/sandbox:latest, ARG AGENTKIT_REF, ARG CLAUDE_CODE_VERSION; build af from the repository context with agentkit-go cloned into the path of the go.mod replace directive (../agentkit-go relative to the build dir); install Claude Code at CLAUDE_CODE_VERSION; WORKDIR /workspace and USER 1001:0 (copy the clone pattern of containers/sandbox/Containerfile)",
+        "Add the Makefile target build-tools-container tagging $(CONTAINER_REGISTRY)/tools:$(VERSION) and :latest, and make build-containers build it after the sandbox image",
+        "TS-10-22 and TS-10-23 read the Containerfile text and run `make -n`; skip TS-10-23 with a reason when make is missing"
+      ],
+      "touches": [
+        "internal/box/podman.go",
+        "internal/box/podman_test.go",
+        "internal/box/agentkit_adapter.go",
+        "containers/tools/Containerfile",
+        "containers/tools_test.go",
+        "Makefile"
+      ],
+      "depends_on": [
+        1,
+        2
+      ],
+      "done_when": [
+        "`make -n build-containers` prints the sandbox build before the tools build"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Implement the none provider's in-place session",
+      "criteria": [
+        "10-REQ-1.6",
+        "10-REQ-5.1",
+        "10-REQ-5.2",
+        "10-REQ-5.3",
+        "10-REQ-5.4",
+        "10-REQ-5.5"
+      ],
+      "tests": [
+        "TS-10-24",
+        "TS-10-25",
+        "TS-10-26",
+        "TS-10-27",
+        "TS-10-28",
+        "TS-10-6"
+      ],
+      "steps": [
+        "Write TS-10-24 to 28 and TS-10-6 first and confirm they fail",
+        "Add InPlace() and Root() to *box.Session: InPlace is false for every provider but none; Root is the checkout path for none and the workspace root as seen inside the box for the others",
+        "In internal/box/none.go keep spec 07's top-level check, then return an in-place session; Tools() is the hands' tool set over the checkout (agentkit tools.For over workspace.Open, kept in the adapter file); Spec() has network host and the Env from 10-REQ-2",
+        "FS(ctx) is a read-only view built with os.OpenRoot over the checkout; a write through it fails",
+        "WriteFile accepts only paths under .agent-fox/ (spec 07's error otherwise), writes atomically on the host with a temp file and rename, and never overwrites an existing .agent-fox/.gitignore",
+        "Sync records box_sync {head} and copies nothing; Close records box_close and stays idempotent",
+        "Export returns an internal Failure 'in place: nothing to export' and creates no af-export directory",
+        "Raise box_unconfined exactly once per run for local and none; under none the message says the brain works on the checkout itself and that the hook is the only guard",
+        "Replace the stub none factory from task 1"
+      ],
+      "touches": [
+        "internal/box/none.go",
+        "internal/box/none_test.go",
+        "internal/box/session.go",
+        "internal/box/open.go",
+        "internal/box/fs.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "done_when": [
+        "`make lint` and `make test` pass offline"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Keep submission.json host-accepted under in-place sessions and add prefix_bytes to run.json",
+      "criteria": [
+        "10-REQ-5.6",
+        "10-REQ-5.7",
+        "10-REQ-5.8",
+        "10-REQ-9.6"
+      ],
+      "tests": [
+        "TS-10-29",
+        "TS-10-30",
+        "TS-10-31",
+        "TS-10-58"
+      ],
+      "steps": [
+        "Write TS-10-29, 30, 31 and 58 first and confirm they fail",
+        "In internal/brain/execute.go, when Session.InPlace(), read and keep the bytes of <run_dir>/submission.json (if any) before the brain runs",
+        "If this attempt's submission is accepted, rewrite <run_dir>/submission.json with exactly the accepted bytes",
+        "If not accepted, move the file to submission.rejected.<attempt>.json only when it differs from the kept bytes, then restore the kept bytes or leave no file; an identical rewrite creates no rejected file",
+        "Add a property test with a seeded sequence generator of accept, reject-invalid, reject-wrong-nonce and no-file attempts asserting the file is absent or equals the latest accepted bytes and equals the behaviour under local",
+        "Add prefix_bytes (byte length of Brief.Prefix) to run.json in Execute; the submit core ignores unknown fields",
+        "In cmd/af triage run and fix run take brief.md and prefix_bytes from run.json when triage.json / the fix run-state file is absent; nothing else is read from the host run directory",
+        "TS-10-58 starts both run commands over a directory with brief.md and run.json only and asserts they read prefix_bytes"
+      ],
+      "touches": [
+        "internal/brain/execute.go",
+        "internal/brain/decide.go",
+        "internal/brain/execute_test.go",
+        "cmd/af/triage.go",
+        "cmd/af/fix.go",
+        "internal/triage/runfiles.go",
+        "internal/fix/state.go"
+      ],
+      "depends_on": [
+        5
+      ],
+      "done_when": [
+        "`make lint` and `make test` pass offline"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Add Session.Exec and the process runner with probe, env allowlist and timeout",
+      "criteria": [
+        "10-REQ-7.1",
+        "10-REQ-7.2",
+        "10-REQ-7.3",
+        "10-REQ-7.4",
+        "10-REQ-7.5",
+        "10-REQ-7.8",
+        "10-REQ-4.3"
+      ],
+      "tests": [
+        "TS-10-21",
+        "TS-10-38",
+        "TS-10-39",
+        "TS-10-40",
+        "TS-10-41",
+        "TS-10-42",
+        "TS-10-45"
+      ],
+      "steps": [
+        "Write TS-10-21, 38, 39, 40, 41, 42 and 45 first and confirm they fail",
+        "In internal/gitx/exec.go add exported EnvRunner(env []string) Runner calling the unexported run with an explicit environment (process group, kill on cancel, 2 s WaitDelay)",
+        "Add Session.Exec(ctx, command, timeout) returning (exitCode, output, error) with output capped; box providers run through the execute tool at Root(); none runs sh -c at the checkout through gitx.EnvRunner with base env tools.ReducedEnv(nil) plus Spec.Env; non-zero exit is a code, not an error",
+        "Create internal/brain/process.go: a process runner that builds `env -i` commands with PATH, HOME, the set allowlisted vars (LANG, LC_ALL, TZ, TMPDIR, HTTPS_PROXY, HTTP_PROXY, NO_PROXY in either case, SSL_CERT_FILE, SSL_CERT_DIR, NODE_EXTRA_CA_CERTS) and Spec.Env names referenced as \"$NAME\", non-secret settings inline, every argument single-quoted; no secret value in command text or ledger",
+        "Resolve binaries: under local, landlock and none af is os.Executable() or Options.AFPath with its directory first on PATH and claude is exec.LookPath; under podman both are called by name with the box's PATH",
+        "Probe once per session before the first process-brain run: <af> --version, <claude> --version for claude, and HOME set and writable; record box_probe {binary, ok, version}; a failure is failed/sandbox, retryable false, naming the binary, provider and image, and the brain never starts",
+        "Raise box_af_version_mismatch once when the probed af version or commit differs from the running binary; the run continues",
+        "Run with timeout Brief.Timeout or the time left on the context; on expiry kill the process and its group; always record brain_process {brain, exit_code, duration_ms}",
+        "Use a small fake-process helper executable in TestMain for these tests"
+      ],
+      "touches": [
+        "internal/gitx/exec.go",
+        "internal/gitx/exec_test.go",
+        "internal/box/exec.go",
+        "internal/box/session.go",
+        "internal/brain/process.go",
+        "internal/brain/process_test.go"
+      ],
+      "depends_on": [
+        5,
+        6
+      ],
+      "done_when": [
+        "`make lint` and `make test` pass offline"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Add the claude brain: construction, guard files, command line, tool table and hook wiring",
+      "criteria": [
+        "10-REQ-8",
+        "10-REQ-7.6",
+        "10-REQ-7.7"
+      ],
+      "tests": [
+        "TS-10-43",
+        "TS-10-44",
+        "TS-10-46",
+        "TS-10-47",
+        "TS-10-48",
+        "TS-10-49",
+        "TS-10-50",
+        "TS-10-51",
+        "TS-10-52"
+      ],
+      "steps": [
+        "Write TS-10-43, 44, 46 to 52 first and confirm they fail",
+        "Build the fake claude test executable in internal/brain/testdata or TestMain, driven by a JSON script: records argv, env, stdin and the settings file, runs the settings hook command with given payloads and records answers, runs `af <agent> submit` with given payloads (af built in TestMain), writes an output JSON and optional stderr/exit code",
+        "Register claude in the brain registry with cost source reported and the command submission route (triage and fix briefs render `af <agent> submit --run-id <id>`, not file_diagnosis); check how spec 08 decides in-process routes by entry, not by name",
+        "Construction before any box opens: without ANTHROPIC_API_KEY and provider not none give failed/auth with fix_hint {env:ANTHROPIC_API_KEY}; under local, landlock and none require claude via exec.LookPath else failed/brain, retryable false, naming claude; podman needs neither on the host",
+        "Per attempt write guard.json (version 1, protected_paths and allow_programs from Brief.Hook, no suite) and claude-settings.json (one hooks.PreToolUse entry, matcher *, command `<af> guard check --host claude --dir <root> --policy <root>/.agent-fox/run/<id>/guard.json`, timeout 30) through WriteFile with host copies in the run directory",
+        "Define the single tool mapping table (read_file→Read, list_files→LS,Glob, find_files→Glob, search_files→Grep, write_file→Write, edit_file→Edit,MultiEdit, execute→Bash); drop unmapped navigation tools and record each drop; always allow Bash(af <agent> submit:*); always disallow WebFetch and WebSearch; disallow Write, Edit, MultiEdit and NotebookEdit when Brief.Tools has no writer",
+        "Build the command `<claude> -p --output-format json --max-turns N --permission-mode dontAsk --settings <settings> --strict-mcp-config --allowedTools … --disallowedTools … --append-system-prompt <fixed note> [--model AF_MODEL]` with brief.md on stdin through the process runner",
+        "In the process runner redirect stdout/stderr to .agent-fox/run/<id>/<brain>.<attempt>.json and .stderr, copy through Session.FS to the host run dir (JSON up to 1 MiB, last 64 KiB stderr) and register brain_output artifacts; neither file decides the submission",
+        "Property-test the mapping over all subsets of the seven tools; TS-10-43 runs the fake claude under local and none for generated host environments"
+      ],
+      "touches": [
+        "internal/brain/claude.go",
+        "internal/brain/claude_tools.go",
+        "internal/brain/claude_test.go",
+        "internal/brain/fakeclaude_test.go",
+        "internal/brain/registry.go",
+        "internal/brain/process.go",
+        "internal/triage/brief.go",
+        "internal/fix/brief.go"
+      ],
+      "depends_on": [
+        2,
+        7
+      ],
+      "done_when": [
+        "`make lint` and `make test` pass offline"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "Map process-brain outcomes and run agentkit inside landlock and podman",
+      "criteria": [
+        "10-REQ-9.1",
+        "10-REQ-9.2",
+        "10-REQ-9.3",
+        "10-REQ-9.4",
+        "10-REQ-9.5",
+        "10-REQ-9.7",
+        "10-REQ-9.8"
+      ],
+      "tests": [
+        "TS-10-53",
+        "TS-10-54",
+        "TS-10-55",
+        "TS-10-56",
+        "TS-10-57",
+        "TS-10-59",
+        "TS-10-60"
+      ],
+      "steps": [
+        "Write TS-10-53 to 57, 59 and 60 first and confirm they fail",
+        "In claude.go parse the output JSON: CostUSD from total_cost_usd else cost_usd, Turns from num_turns, InputTokens as the sum of input, cache_creation and cache_read tokens, OutputTokens from usage.output_tokens, StopReason from subtype (success→ended, error_max_turns→turns, contains budget→budget, else error), Submitted from the box submission.json carrying this attempt's nonce, Transcript empty; record claude_result {subtype, is_error, num_turns, total_cost_usd, usage, session_id}; usage.cost_source is reported",
+        "A missing or unparseable output file gives cost 0, cost_source none and one brain_usage_unavailable warning; the submission decision still proceeds",
+        "A non-zero exit with no valid submission makes Run return an error carrying the last 2 KiB of stderr; with a valid submission no error",
+        "A reported cost above MaxCostUSD raises budget_exceeded and sets StopReason budget only when nothing was submitted",
+        "In internal/brain/agentkit_process.go run agentkit under landlock and podman without --borrowed-hands as `<af> <agent> run --run-id <id> --dir <root> --budget … --max-turns … --timeout …` through the process runner with AF_MODEL inline and Spec.Env {ANTHROPIC_API_KEY}; construction without the key is failed/auth before any box opens",
+        "Parse the envelope .agent-fox/run/<id>/agentkit.<attempt>.json: usage gives cost, tokens and turns with CostSource measured; result.submitted is the claim; a budget-category failure maps to budget or turns by its fix_hint flag (--budget / --max-turns); any other failure is error; unparseable follows the unavailable rule",
+        "Keep spec 07's host placement over Session.Tools() with empty Spec.Env under local, none and --borrowed-hands, with no Session.Exec calls",
+        "Test with a recording test provider and a fake af executable"
+      ],
+      "touches": [
+        "internal/brain/claude.go",
+        "internal/brain/agentkit_process.go",
+        "internal/brain/agentkit_adapter.go",
+        "internal/brain/outcome_test.go",
+        "internal/brain/agentkit_process_test.go"
+      ],
+      "depends_on": [
+        8
+      ],
+      "done_when": [
+        "`make lint` and `make test` pass offline"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 10,
+      "kind": "implement",
+      "title": "Apply fixes under every provider, with the none foreign-commit check and box in the fix result",
+      "criteria": [
+        "10-REQ-6",
+        "10-REQ-2.6"
+      ],
+      "tests": [
+        "TS-10-14",
+        "TS-10-32",
+        "TS-10-33",
+        "TS-10-34",
+        "TS-10-35",
+        "TS-10-36",
+        "TS-10-37"
+      ],
+      "steps": [
+        "Write TS-10-14 and TS-10-32 to 37 first and confirm they fail",
+        "Add (*gitx.Git).RevParse(ctx, ref) (full hash via rev-parse --verify ref^{commit}) and IsAncestor(ctx, a, b) (merge-base --is-ancestor, exit code 1 means false) with tests in internal/gitx using newRepo",
+        "Record the ledger entry box_open with image, network and placement added, and have the fix loop open its box with brain.BoxRequest",
+        "Add box {provider, image, network} to the af fix result and regenerate the cmd/af/schemas/fix.json golden",
+        "In internal/fix/apply.go branch on Session.InPlace(): skip Export and apply, and run the protected-path revert directly on the checkout; for other providers keep the Export path unchanged",
+        "Before each brain run over an in-place session record the full HEAD (RevParse) and the checked-out branch",
+        "After the run and before measuring: unchanged continues without touching git; same branch with recorded HEAD an ancestor runs ResetSoft(recorded), raises foreign_commits_reset {count} and records it in the ledger; anything else is failed/git, retryable false, naming the recorded and current branch and HEAD, leaving the tree and refs untouched and landing or parking nothing",
+        "Use stub brains that commit, switch branch, detach HEAD, or rewrite history to test the three outcomes; count Export calls with a wrapper",
+        "TS-10-32 asserts one trailer commit under local with edit, addition, deletion and executable-bit change, the in-box commit absent and host-owned files"
+      ],
+      "touches": [
+        "internal/gitx/git.go",
+        "internal/gitx/git_test.go",
+        "internal/fix/apply.go",
+        "internal/fix/loop.go",
+        "internal/fix/foreign.go",
+        "internal/fix/foreign_test.go",
+        "internal/box/open.go",
+        "cmd/af/schemas/fix.json",
+        "cmd/af/fix.go"
+      ],
+      "depends_on": [
+        2,
+        5,
+        6
+      ],
+      "done_when": [
+        "`make lint` and `make test` pass offline"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 11,
+      "kind": "implement",
+      "title": "Wire triage to the new boxes, pass --sandbox local in legacy tests, add opt-in tests and docs",
+      "criteria": [
+        "10-REQ-10"
+      ],
+      "tests": [
+        "TS-10-61",
+        "TS-10-62",
+        "TS-10-63",
+        "TS-10-64",
+        "TS-10-65"
+      ],
+      "steps": [
+        "Write TS-10-61 to 65 first and confirm they fail",
+        "Make the triage loop open its box with brain.BoxRequest and route --sandbox, AF_SANDBOX and --borrowed-hands from brain.Flags in cmd/af/triage.go and cmd/af/fix.go",
+        "Add --sandbox local to every triage and fix invocation in cmd/af and internal tests that relied on the old local default; add a go/parser scan test for TS-10-62",
+        "Add the contract-table row for claude in internal/brain/contract_test.go and implement TS-10-61: af triage against an httptest GitHub with scripted, agentkit on faux and fake claude (cost 0.42, 5 turns) leaves identical normalised submission.json bytes and claude reports usage.cost_source reported",
+        "Add opt-in gate helpers (AF_TEST_LANDLOCK with Linux and ABI 4, AF_TEST_PODMAN with `podman info` exit 0 and the image, AF_TEST_CLAUDE with ANTHROPIC_API_KEY and claude on PATH) that call t.Skip with a reason naming the missing variable or prerequisite",
+        "Add the opt-in tests: spec 07's box invariant tests per provider, af fix end to end with scripted under landlock and podman, and the real claude contract row under local and under podman",
+        "Run `make doc` first, then update docs/cli.md (--sandbox values and default, --borrowed-hands, --brain claude, the four warnings, box_unconfined under none, fix result box), docs/configuration.md and docs/model-usage.md (AF_SANDBOX, AF_SANDBOX_IMAGE, credential per box, AF_MODEL to --model, claude's after-run cost, network per placement), docs/architecture.md (placement table, host settings and Spec per brain, tools image), docs/development.md (opt-in variables, fake-claude script format) and README.md (containers/tools/); create missing docs with real content",
+        "Add a docs test that reads these files for TS-10-65",
+        "Run `make check` and confirm it passes offline with no key, engine or network"
+      ],
+      "touches": [
+        "cmd/af/triage.go",
+        "cmd/af/fix.go",
+        "internal/triage/loop.go",
+        "internal/brain/contract_test.go",
+        "internal/brain/optin_test.go",
+        "cmd/af/sandbox_scan_test.go",
+        "docs/cli.md",
+        "docs/configuration.md",
+        "docs/model-usage.md",
+        "docs/architecture.md",
+        "docs/development.md",
+        "README.md"
+      ],
+      "depends_on": [
+        1,
+        3,
+        4,
+        8,
+        9,
+        10
+      ],
+      "done_when": [
+        "`make check` passes offline"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 12,
+      "kind": "integration",
+      "title": "Verify the claude, none, landlock and default-failure paths end to end",
+      "tests": [
+        "TS-10-66",
+        "TS-10-67",
+        "TS-10-68",
+        "TS-10-69"
+      ],
+      "steps": [
+        "Write TS-10-66 to 69 against the real af binary built in TestMain; TS-10-68 skips with a reason unless AF_TEST_LANDLOCK=1 and ABI 4 is present",
+        "Trace 10-PATH-1 through cmd/af triage, brain.Flags, the local provider, brain.Execute, the process runner, the claude brain, af guard check and af triage submit; confirm each step calls the next and no stub remains",
+        "Trace 10-PATH-2 through cmd/af fix, the none in-place session, the foreign-commit check, the apply step skip and the landing commit; confirm Export is never called",
+        "Trace 10-PATH-3 and 10-PATH-4 through the landlock and podman providers and the default selection failure mapping to the result envelope",
+        "For every criterion with a contract confirm its producer's result is consumed by a caller in production code (BoxRequest by both loops, InPlace by the apply step, ABI function by the landlock provider, claude_result by the usage block), not only by tests",
+        "Confirm the entry points owned by other specs (cmd/af triage, cmd/af fix, af guard check, af <agent> submit, af triage run, af fix run) are called from production code",
+        "Grep every file in the touches of tasks 1 to 11 for panic(\"not implemented\"), TODO, NotImplementedError and bare `return nil` on non-trivial paths and remove any that remain, including the stub factories from task 1",
+        "Run `make check` and confirm it passes offline"
+      ],
+      "touches": [
+        "cmd/af/smoke_boxes_test.go"
+      ],
+      "depends_on": [
+        11
+      ],
+      "done_when": [
+        "`make check` passes offline",
+        "no stub marker remains in any touched file"
+      ],
+      "state": "pending",
+      "optional": false
+    }
+  ]
+}

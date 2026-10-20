@@ -1,0 +1,939 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "08",
+  "spec_name": "af_triage",
+  "schema_version": 2,
+  "introduction": "The af triage scope gives `af` its triage agent: `af triage <issue|file|text|->` renders a brief, runs a read-only brain that hands back exactly one cited diagnosis through `file_diagnosis` or `af triage submit`, validates every cited path against the workspace's file view, and lands the diagnosis on the forge itself, replacing an issue's body while keeping the reporter's original words verbatim, or creating a new issue for a report that did not come from one. Logic lives in `internal/triage`, wiring in `cmd/af/triage.go`, and the subcommands `brief`, `run`, `submit` and `land` expose the same steps one at a time.",
+  "glossary": {
+    "--run-id": "The flag naming an existing run for `af triage run`, `submit` and `land`. PRD 08 wrote `--run`; spec 07's submit command factory fixes `--run-id`, and per PRD 08 DD35 that name wins.",
+    "diagnosis": "The single JSON object a triage brain submits: title, severity, confidence, root_cause, affected_files, suggested_fix, acceptance_criteria and an optional question.",
+    "file view": "`checks.FileView(ctx, dir)` from spec 06: git's sorted, slash-separated list of tracked and untracked non-ignored files, without `.git/` and `.agent-fox/`.",
+    "file_diagnosis": "The terminating tool offered to an in-process brain; its input schema is the diagnosis schema and it calls spec 07's in-process submit with the triage submission kind.",
+    "input fingerprint": "The issue ref string (`owner/repo#N`) for an issue input, else the hex SHA-256 of the input body; used to find an earlier question on resume.",
+    "original report": "The person's report bytes: the raw issue body (Thread.Issue.Body) when the issue was never triaged, the bytes between the original-report markers when it was, or the input body for text, file and stdin input. Stored as original.md.",
+    "original-report markers": "The HTML comments `<!-- agent-fox:original-report:begin -->` and `<!-- agent-fox:original-report:end -->` that enclose the original report inside a rendered body.",
+    "prefix": "The run-constant first part of the brief (mandate, skill body, repository map, report); byte-identical across runs over the same binary, tree and input.",
+    "rejected path call": "A refused submit call whose problems include at least one unresolved path, counted from rejections.jsonl.",
+    "task block": "The run-specific tail of the brief: earlier question and --context answers, run id, submission route and bounds.",
+    "triage allowlist": "The tool names a triage brain may call: the hands' read-only tools that are offered, plus file_diagnosis; never a tool that writes or executes.",
+    "triage loop": "The command `af triage <input>`: preflight, brief, brain run and landing in one process.",
+    "triage marker": "The first line `<!-- agent-fox:triage v1 run=<run_id> -->` of a body rendered by af triage.",
+    "triage.json": "The run-facts file written by the loop and `af triage brief`: format version 1, input kind/origin/fingerprint, target repository, issue ref, original report SHA-256 and the prefix's byte length and SHA-256."
+  },
+  "requirements": [
+    {
+      "id": "08-REQ-1",
+      "title": "The triage commands, their run files and the landing client",
+      "rationale": "Five commands share one run directory so a person, a box and later the service can drive the same steps one at a time.",
+      "criteria": [
+        {
+          "id": "08-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "cmd/af",
+          "action": "register the commands `triage`, `triage brief`, `triage run`, `triage submit` and `triage land` on the toolio shell with default timeouts of 15 minutes, 2 minutes, 15 minutes, 30 seconds and 2 minutes respectively, the loop and `brief` declaring the positional input, the forge client, `--repo`, `--context` and a new run directory, and `run`, `submit` and `land` taking `--run-id` and `--dir` (default `.`)",
+          "contract": "each registered Command's Path and DefaultTimeout match; `af triage brief --help` lists --dir, --context and --repo"
+        },
+        {
+          "id": "08-REQ-1.2",
+          "pattern": "unwanted",
+          "condition": "`af triage run`, `submit` or `land` is given a missing, malformed or unknown `--run-id`",
+          "system": "cmd/af triage",
+          "action": "open nothing through toolio.OpenRunDir, write no file and send no forge request",
+          "contract": "envelope status failed, category usage, exit code 2"
+        },
+        {
+          "id": "08-REQ-1.3",
+          "pattern": "event_driven",
+          "condition": "the triage loop or `af triage brief` renders a brief",
+          "system": "internal/triage",
+          "action": "write `brief.md` (the rendered document), `original.md` (the original report bytes) and `triage.json` {format_version: 1, input {kind, origin, fingerprint}, target, issue, original_report_sha256, prefix {bytes, sha256}} into the run directory",
+          "contract": "the three files exist; sha256(original.md) equals original_report_sha256 and prefix.sha256 equals the SHA-256 of brief.md's first prefix.bytes bytes"
+        },
+        {
+          "id": "08-REQ-1.4",
+          "pattern": "ubiquitous",
+          "system": "cmd/af triage",
+          "action": "append ledger records through RunDir.Record with kind `triage.input` when the input is resolved, `triage.brief` when the brief is written, `triage.submission` when a diagnosis is accepted, `triage.question` when a submission carries a question and `triage.land` when landing ends",
+          "contract": "ledger.jsonl holds each kind exactly at the step named, in that order for a full loop"
+        },
+        {
+          "id": "08-REQ-1.5",
+          "pattern": "ubiquitous",
+          "system": "cmd/af triage",
+          "action": "run on a dirty working tree without refusing, never run a git write and create no file in the checkout outside `.agent-fox/`",
+          "contract": "`git status --porcelain` and HEAD are identical before and after any triage command, with an uncommitted change present"
+        },
+        {
+          "id": "08-REQ-1.6",
+          "pattern": "event_driven",
+          "condition": "`af triage land` needs a forge client for the repository recorded in triage.json",
+          "system": "internal/toolio",
+          "action": "build the client through a toolio function for a repository learned at run time, including its host, with the same App.NewForge construction, UserAgent \"af/<version>\", Dir set to --dir, DryRunForge decoration under --dry-run and close on return as the shell's own client",
+          "contract": "App.NewForge receives issuex.Options{Repo: <recorded repo with host>, UserAgent: \"af/<version>\", Dir: <--dir>}; the client is closed when the command returns"
+        },
+        {
+          "id": "08-REQ-1.7",
+          "pattern": "unwanted",
+          "condition": "`af triage land` is given `--repo` naming a repository other than the one recorded in triage.json",
+          "system": "cmd/af triage land",
+          "action": "build no forge client and write nothing",
+          "contract": "envelope status failed, category usage, exit code 2, message naming both repositories"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-2",
+      "title": "Preflight refusals before any spend",
+      "rationale": "Every refusal that can be decided without a model must happen before the brief is rendered and before a brain costs money.",
+      "criteria": [
+        {
+          "id": "08-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "triage loop",
+          "action": "run the preflight checks in the order flags, input, landing, before rendering a brief or constructing a brain, and on any refusal render no brief, call no brain and send no forge write; `af triage land` repeats the target and credential checks before its first write",
+          "contract": "a refused run leaves no brief.md, the faux provider receives no request and the httptest forge records zero write requests"
+        },
+        {
+          "id": "08-REQ-2.2",
+          "pattern": "unwanted",
+          "condition": "a `--label` value is empty, longer than 50 characters, contains a comma or has leading or trailing spaces, more than 10 distinct labels are given, or `--label` is combined with `--land none`",
+          "system": "triage loop",
+          "action": "refuse the run, naming the offending label or flag",
+          "contract": "envelope status failed, category usage, exit code 2"
+        },
+        {
+          "id": "08-REQ-2.3",
+          "pattern": "unwanted",
+          "condition": "the input is an issue ref with IsPullRequest set",
+          "system": "triage loop",
+          "action": "refuse the run, stating that triage takes an issue and not a pull or merge request",
+          "contract": "envelope status failed, category usage, exit code 2"
+        },
+        {
+          "id": "08-REQ-2.4",
+          "pattern": "event_driven",
+          "condition": "the input issue's state is closed",
+          "system": "triage loop",
+          "action": "raise the warning `issue_closed` and continue the run",
+          "contract": "envelope warnings contain issue_closed; the status is decided by the later steps"
+        },
+        {
+          "id": "08-REQ-2.5",
+          "pattern": "unwanted",
+          "condition": "`--land issue` is in effect for a non-issue input and Run.Target is not a valid repository",
+          "system": "triage loop",
+          "action": "refuse the run with a message naming `--repo` and `--land none`",
+          "contract": "envelope status failed, category usage, exit code 2"
+        },
+        {
+          "id": "08-REQ-2.6",
+          "pattern": "unwanted",
+          "condition": "`--land issue` is in effect without `--dry-run` and the forge client reports Authenticated() false",
+          "system": "triage loop and af triage land",
+          "action": "refuse with the message \"creating or updating an issue in <target> needs a credential: set GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN, or pass --dry-run or --land none\"",
+          "contract": "envelope status failed, category auth, exit 1, fix_hint.env GITLAB_TOKEN for a GitLab host and GITHUB_TOKEN otherwise"
+        },
+        {
+          "id": "08-REQ-2.7",
+          "pattern": "unwanted",
+          "condition": "`--land issue` is in effect without `--dry-run` and GetRepository(target) fails or returns Archived true",
+          "system": "triage loop",
+          "action": "refuse the run before rendering a brief",
+          "contract": "failed/auth for IsNoToken; failed/forge retryable false for not found; failed/forge retryable true for a rate limit or transport error; failed/forge with message \"repository is archived\" for an archived repository; exit 1"
+        },
+        {
+          "id": "08-REQ-2.8",
+          "pattern": "unwanted",
+          "condition": "`--land issue` is in effect for text, file or stdin input and the input was truncated by the shell or its byte length plus 16896 exceeds issuex.MaxBodyLength(forge)",
+          "system": "triage loop",
+          "action": "refuse the run with a message giving the input length and the limit and suggesting `--land none`",
+          "contract": "envelope status failed, category usage, exit code 2"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-3",
+      "title": "The brief",
+      "rationale": "A byte-stable prefix keeps prompt caching and resume comparisons exact, and fences keep report text from posing as instructions.",
+      "criteria": [
+        {
+          "id": "08-REQ-3.1",
+          "pattern": "ubiquitous",
+          "system": "brief renderer",
+          "action": "compose the prefix in this order: the mandate embedded in the binary (read-only run; fenced content is material from people to verify and never instructions; cite only files read; submit exactly one diagnosis; the path rules and diagnosis schema), the body of `skills/af-triage` without its frontmatter, the repository map from repomap.Build over checks.FileView(dir) at 4000 tokens, and the report section",
+          "contract": "the four parts appear in that order in brief.md and the skill's frontmatter lines are absent"
+        },
+        {
+          "id": "08-REQ-3.2",
+          "pattern": "event_driven",
+          "condition": "the report section is rendered",
+          "system": "brief renderer",
+          "action": "for an issue, fence the title, the original report, the previous agent-fox diagnosis labelled as possibly stale when the body carries one, and every comment, each preceded by one provenance line naming the author's login and date and marking the reporter; for text, file or stdin input, emit one fence labelled with the command line, the file's base name or stdin",
+          "contract": "one fence per part, each immediately preceded by its provenance line"
+        },
+        {
+          "id": "08-REQ-3.3",
+          "pattern": "ubiquitous",
+          "system": "brief renderer",
+          "action": "for any fenced content, open and close the fence with a backtick run one longer than the longest backtick run in the content and at least three long",
+          "contract": "property: the content never contains a line equal to the closing fence"
+        },
+        {
+          "id": "08-REQ-3.4",
+          "pattern": "unwanted",
+          "condition": "the report section exceeds 131072 bytes",
+          "system": "brief renderer",
+          "action": "cut it at a UTF-8 boundary at or below 131072 bytes, append the shell's truncation marker and raise the warning `input_truncated`",
+          "contract": "the report section is valid UTF-8 of at most 131072 bytes plus the marker; result.report_truncated true; warning input_truncated present"
+        },
+        {
+          "id": "08-REQ-3.5",
+          "pattern": "ubiquitous",
+          "system": "brief renderer",
+          "action": "for any two briefs rendered by the same binary over the same tree content and the same issue thread or input text, produce byte-identical prefixes holding no run id, run-directory path, --context value, brain name or bound",
+          "contract": "property: equal prefix_sha256 across runs differing only in run id, --context, --brain and bounds"
+        },
+        {
+          "id": "08-REQ-3.6",
+          "pattern": "event_driven",
+          "condition": "one or more `--context` values are given",
+          "system": "brief renderer",
+          "action": "place in the task block the question and options of the newest earlier triage run under `<dir>/.agent-fox/run/` with the same input fingerprint whose ledger has a `triage.question` record, when one exists, followed by each `--context` value in order, fenced and labelled as a person's answer",
+          "contract": "result.previous_question true when an earlier question was found and false otherwise, the answers then standing alone"
+        },
+        {
+          "id": "08-REQ-3.7",
+          "pattern": "ubiquitous",
+          "system": "brief renderer",
+          "action": "end the task block with the run id, the submission route (the `file_diagnosis` tool for an in-process brain, otherwise `af triage submit --run-id <id>` with the JSON on stdin, the form `af triage brief` always renders) and a reminder of the turn, cost and time bounds",
+          "contract": "the task block contains the run id and exactly one submission route"
+        },
+        {
+          "id": "08-REQ-3.8",
+          "pattern": "event_driven",
+          "condition": "`af triage brief <input>` runs",
+          "system": "af triage brief",
+          "action": "write the run files, record `triage.input` and `triage.brief`, call no model and send no forge write",
+          "contract": "status done, exit 0, result {brief, prefix_bytes, prefix_sha256, document_bytes, estimated_tokens, map {level, truncated}, report_truncated, previous_question}, artifact {kind: \"brief\", path}, two next entries for `af triage submit` and `af triage land`; zero forge write requests"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-4",
+      "title": "The brain run and its bounds",
+      "rationale": "The brain only reads and submits, so its tools, bounds and read-back are fixed by af and not by the brain.",
+      "criteria": [
+        {
+          "id": "08-REQ-4.1",
+          "pattern": "event_driven",
+          "condition": "the triage loop has passed preflight and rendered the brief",
+          "system": "triage loop",
+          "action": "run spec 07's brain.Execute with the selected `--brain` (default `agentkit`) and `--sandbox`, handing it a brain.Brief with Prefix and Task from the brief, Tools set to the triage allowlist, Hook set to spec 07's read-only default, MaxCostUSD from `--budget`, MaxTurns from `--max-turns` and Timeout set to the time left on the deadline",
+          "contract": "the Brief seen by the brain has Prefix equal to the brief's prefix bytes and Document() equal to brief.md"
+        },
+        {
+          "id": "08-REQ-4.2",
+          "pattern": "optional",
+          "condition": "`--budget`, `--max-turns` or `--timeout` is omitted on the loop or `af triage run`",
+          "system": "triage loop",
+          "action": "use USD 2, 100 turns and 15 minutes respectively",
+          "contract": "Brief.MaxCostUSD 2, Brief.MaxTurns 100, shell timeout 15m"
+        },
+        {
+          "id": "08-REQ-4.3",
+          "pattern": "ubiquitous",
+          "system": "triage allowlist",
+          "action": "name, in one place, `read_file`, `list_files`, `find_files`, `search_files`, `file_outline`, `find_symbol`, `find_references`, `code_search` only when the hands' toolset over the tree offers it, and `file_diagnosis`, dropping any name the hands do not offer and never including a tool that writes or executes",
+          "contract": "the resolved allowlist is a subset of those nine names and contains file_diagnosis"
+        },
+        {
+          "id": "08-REQ-4.4",
+          "pattern": "ubiquitous",
+          "system": "triage submission kind",
+          "action": "define a submission.Kind with ToolName `file_diagnosis`, Schema equal to the diagnosis JSON Schema and Validate equal to the diagnosis validator, so `file_diagnosis` submits through spec 07's in-process submit",
+          "contract": "an in-process `file_diagnosis` call with a valid diagnosis writes `.agent-fox/run/<id>/submission.json` in the brain's tree"
+        },
+        {
+          "id": "08-REQ-4.5",
+          "pattern": "event_driven",
+          "condition": "the brain run ends",
+          "system": "triage loop",
+          "action": "read back `submission.json` and `rejections.jsonl` from the brain's tree into the run directory and re-validate the submission with the diagnosis validator against the host's tree",
+          "contract": "<run_dir>/submission.json and <run_dir>/rejections.jsonl hold the brain's files; a submission that fails host re-validation is treated as absent"
+        },
+        {
+          "id": "08-REQ-4.6",
+          "pattern": "unwanted",
+          "condition": "no valid submission exists after the brain run, or the budget or turn bound was spent first",
+          "system": "triage loop",
+          "action": "land nothing and send no forge write",
+          "contract": "spec 07's failure (failed/no_result, or failed/budget with fix_hint {flag: \"--budget\" or \"--max-turns\", suggest: twice the value}), exit 1, result null, artifacts listing the brief"
+        },
+        {
+          "id": "08-REQ-4.7",
+          "pattern": "event_driven",
+          "condition": "`af triage run --run-id <id>` runs",
+          "system": "af triage run",
+          "action": "run the agentkit brain in this process over `--dir` without a box, using the run's brief.md, with `file_diagnosis` submitting in-process into the run directory under `--dir`",
+          "contract": "status done when a submission was accepted, result {run_id, submitted, rejected_path_calls}, envelope usage from spec 07"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-5",
+      "title": "The diagnosis and its validation",
+      "rationale": "One strict validator over the file view turns every misnamed field or uncited path into the brain's next turn instead of a bad landing.",
+      "criteria": [
+        {
+          "id": "08-REQ-5.1",
+          "pattern": "ubiquitous",
+          "system": "diagnosis validator",
+          "action": "be one Go function used by `af triage submit`, the in-process submit and the host re-validation, checking against the file view of the tree it runs on (`--dir` for submit, the box's tree or the host checkout otherwise)",
+          "contract": "the same payload and tree give the same problems through every caller"
+        },
+        {
+          "id": "08-REQ-5.2",
+          "pattern": "unwanted",
+          "condition": "the payload exceeds 65536 bytes, is not one JSON object, has an unknown field, or breaks a field rule: title missing or not one line of 1 to 120 characters; severity not critical|high|medium|low; confidence not confirmed|probable|suspected|not_reproducible; root_cause outside 1 to 6000 bytes; affected_files outside 1 to 30 items of {path, line?, note} with note at most 300 bytes and line at least 1 and at most the file's line count; suggested_fix outside 1 to 6000 bytes; acceptance_criteria outside 1 to 15 strings of 1 to 300 bytes; question.text outside 1 to 2000 bytes or question.options neither empty nor 2 to 6 items of 1 to 200 bytes; or a question with confidence confirmed or probable",
+          "system": "diagnosis validator",
+          "action": "report one problem per broken rule",
+          "contract": "each problem names its field as a JSON pointer, for example /severity or /affected_files/2/line"
+        },
+        {
+          "id": "08-REQ-5.3",
+          "pattern": "event_driven",
+          "condition": "confidence is `not_reproducible` or a question is present",
+          "system": "diagnosis validator",
+          "action": "accept empty affected_files, suggested_fix and acceptance_criteria while applying every other rule",
+          "contract": "a not_reproducible diagnosis with empty lists and otherwise valid fields has zero problems"
+        },
+        {
+          "id": "08-REQ-5.4",
+          "pattern": "event_driven",
+          "condition": "an affected_files path is checked",
+          "system": "diagnosis validator",
+          "action": "strip a leading `./`, make an absolute path under the tree relative to it, convert to slash separators, and when the result does not resolve, line is absent and the path ends in `:<digits>`, retry with the part before the colon and take the digits as line",
+          "contract": "`./a/b.go`, `<tree>/a/b.go` and `a/b.go:12` all resolve to `a/b.go`, the last with line 12"
+        },
+        {
+          "id": "08-REQ-5.5",
+          "pattern": "unwanted",
+          "condition": "a path, after normalization, is absolute outside the tree, contains `..`, is under `.git/` or `.agent-fox/`, is a directory, or is not a regular file in the file view",
+          "system": "diagnosis validator",
+          "action": "report the path as unresolved",
+          "contract": "problem at /affected_files/<i>/path naming the path and up to three existing file-view paths with the same base name"
+        },
+        {
+          "id": "08-REQ-5.6",
+          "pattern": "unwanted",
+          "condition": "any string in the payload contains a NUL byte or the text `<!-- agent-fox:`, or the rendered diagnosis without the original-report section exceeds 16384 bytes",
+          "system": "diagnosis validator",
+          "action": "report the offending field or the rendered size",
+          "contract": "problem naming the JSON pointer of the string, or the rendered byte count and the 16384 limit"
+        },
+        {
+          "id": "08-REQ-5.7",
+          "pattern": "unwanted",
+          "condition": "validation finds one or more problems",
+          "system": "af triage submit and in-process submit",
+          "action": "collect every problem before answering, write no submission and leave an earlier valid submission byte-identical",
+          "contract": "spec 07's refusal: failed/submission retryable true with every problem for the CLI, every problem as the tool's error result in-process"
+        },
+        {
+          "id": "08-REQ-5.8",
+          "pattern": "event_driven",
+          "condition": "a diagnosis is accepted",
+          "system": "af triage submit",
+          "action": "store the normalized form, with paths cleaned and `path:N` split into path and line, and record `triage.submission`",
+          "contract": "status done, exit 0, result {run_id, accepted: true, submission: <path>, rejected_path_calls}"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-6",
+      "title": "Rejected path calls",
+      "rationale": "A refused submit writes no submission, so the tally of refusals needs its own file that crosses the box the same way.",
+      "criteria": [
+        {
+          "id": "08-REQ-6.1",
+          "pattern": "event_driven",
+          "condition": "a submit call is refused, through the CLI or in-process",
+          "system": "triage submission kind",
+          "action": "append one JSON line {ts, problems, unresolved_paths} to `rejections.jsonl` in the same run directory that submission.json would be written to",
+          "contract": "rejections.jsonl gains exactly one line per refused call"
+        },
+        {
+          "id": "08-REQ-6.2",
+          "pattern": "ubiquitous",
+          "system": "triage result",
+          "action": "report rejected_path_calls as the number of rejections.jsonl lines with at least one unresolved path and rejected_submissions as the number of lines, both 0 when the file is absent",
+          "contract": "a run with one refusal citing a missing path and one refusal citing only a bad severity reports rejected_path_calls 1 and rejected_submissions 2"
+        },
+        {
+          "id": "08-REQ-6.3",
+          "pattern": "unwanted",
+          "condition": "rejections.jsonl is unreadable or holds a malformed line",
+          "system": "triage result",
+          "action": "report both counts as 0 and raise the warning `rejections_unreadable`",
+          "contract": "rejected_path_calls 0, rejected_submissions 0, warning rejections_unreadable"
+        },
+        {
+          "id": "08-REQ-6.4",
+          "pattern": "ubiquitous",
+          "system": "triage landing",
+          "action": "never use the rejection counts to decide whether or how to land",
+          "contract": "the same submission lands with the same action and body for any rejections.jsonl content"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-7",
+      "title": "The issue body format",
+      "rationale": "The body is the contract af_fix reads, and the person's original words must survive every repeated triage byte for byte.",
+      "criteria": [
+        {
+          "id": "08-REQ-7.1",
+          "pattern": "ubiquitous",
+          "system": "body renderer",
+          "action": "render deterministically, in order, the triage marker line, `## Diagnosis` with `**Severity:** <severity> · **Confidence:** <confidence>` and the root cause, `## Affected files` with lines `` - `<path>:<line>` — <note> `` (`` `<path>` `` without a line), `## Suggested fix`, `## Acceptance Criteria` with `- [ ] <criterion>` lines, `## Question` with the text and options lettered `A. `, `B. `, …, the `<sub>` attribution line naming the run id, and `## Original report` with a `<details>` block holding the original between the original-report markers, omitting every empty section except `## Diagnosis` and `## Original report`",
+          "contract": "the same diagnosis, run id and original give identical bytes; golden files for a full and a not_reproducible diagnosis match"
+        },
+        {
+          "id": "08-REQ-7.2",
+          "pattern": "ubiquitous",
+          "system": "body renderer",
+          "action": "place the original exactly between the begin marker followed by `\\n` and `\\n` followed by the end marker, adding no other bytes",
+          "contract": "the bytes between `<begin>\\n` and `\\n<end>` equal the original"
+        },
+        {
+          "id": "08-REQ-7.3",
+          "pattern": "event_driven",
+          "condition": "an original is extracted from a body whose first line is not a triage marker",
+          "system": "body extractor",
+          "action": "take the whole body as the original, with no previous diagnosis",
+          "contract": "Extract returns (body, \"\", no warning)"
+        },
+        {
+          "id": "08-REQ-7.4",
+          "pattern": "event_driven",
+          "condition": "an original is extracted from a body whose first line is a triage marker and whose markers pair",
+          "system": "body extractor",
+          "action": "take as the original the bytes between the first begin marker followed by `\\n` and the last `\\n` followed by the end marker, and as the previous diagnosis everything between the first line and `## Original report`",
+          "contract": "Extract returns (original, previous diagnosis, no warning)"
+        },
+        {
+          "id": "08-REQ-7.5",
+          "pattern": "unwanted",
+          "condition": "a body starts with a triage marker but its original-report markers cannot be paired",
+          "system": "body extractor",
+          "action": "take the whole body as the original and raise the warning `original_report_unparsed`",
+          "contract": "Extract returns (body, \"\", warning original_report_unparsed)"
+        },
+        {
+          "id": "08-REQ-7.6",
+          "pattern": "ubiquitous",
+          "system": "body renderer and extractor",
+          "action": "for any string s and any valid diagnosis d, return s byte for byte when extracting from render(d, s), so that rendering after re-extraction yields the same body",
+          "contract": "property: Extract(Render(d, s)).original == s and Render(d, Extract(Render(d, s)).original) == Render(d, s), including s that contains marker-like text"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-8",
+      "title": "Landing",
+      "rationale": "af makes every forge write itself, safely enough that `af triage land` can be retried after a failed write.",
+      "criteria": [
+        {
+          "id": "08-REQ-8.1",
+          "pattern": "unwanted",
+          "condition": "the run's submission is missing or fails re-validation when landing starts",
+          "system": "triage landing",
+          "action": "write no diagnosis.md and send no forge write",
+          "contract": "envelope status failed, category no_result, exit 1, result null"
+        },
+        {
+          "id": "08-REQ-8.2",
+          "pattern": "event_driven",
+          "condition": "landing starts with a valid submission that carries no question",
+          "system": "triage landing",
+          "action": "write the rendered body to `diagnosis.md` and add the artifact {kind: \"diagnosis\", path} before any forge write; with `--land none`, stop there without requiring a forge token",
+          "contract": "with --land none: status done, exit 0, action none, zero forge requests even with no token set"
+        },
+        {
+          "id": "08-REQ-8.3",
+          "pattern": "complex_event",
+          "condition": "`--land issue` is in effect",
+          "guard": "the input is an issue and the rendered body fits issuex.MaxBodyLength(forge)",
+          "system": "triage landing",
+          "action": "re-read the issue, extract the current original (raising `report_changed_during_triage` and keeping the current one when it differs from the triage.json snapshot), render the body, call UpdateIssue with only Body set, then AddLabels with the `--label` values",
+          "contract": "exactly one body write (PATCH on GitHub, PUT description on GitLab) with no title field, action replaced_body; the bytes between the markers equal the current original"
+        },
+        {
+          "id": "08-REQ-8.4",
+          "pattern": "unwanted",
+          "condition": "the rendered body for an issue input exceeds issuex.MaxBodyLength(forge)",
+          "system": "triage landing",
+          "action": "post the diagnosis without the original-report section as one comment with AddComment, leave the body untouched, raise the warning `body_too_long`, then AddLabels",
+          "contract": "action commented; zero UpdateIssue requests; one add_comment side effect"
+        },
+        {
+          "id": "08-REQ-8.5",
+          "pattern": "complex_event",
+          "condition": "`--land issue` is in effect",
+          "guard": "the input is text, a file or stdin",
+          "system": "triage landing",
+          "action": "call CreateIssue in the target recorded in triage.json with the submission's title, the rendered body and the `--label` values, or, when the ledger already records a created issue for this run, call UpdateIssue on that issue's body instead of creating another",
+          "contract": "action created_issue; across repeated `af triage land --run-id <id>` the forge records exactly one create request"
+        },
+        {
+          "id": "08-REQ-8.6",
+          "pattern": "ubiquitous",
+          "system": "triage landing",
+          "action": "add a side effect (update_issue, add_comment, create_issue or add_labels) with its target and state for each write, add the artifact {kind: \"issue\", url, number} for a landed issue, and record `triage.land` with the action",
+          "contract": "side_effects list one entry per write; artifacts include the issue; ledger holds triage.land"
+        },
+        {
+          "id": "08-REQ-8.7",
+          "pattern": "unwanted",
+          "condition": "a landing write fails",
+          "system": "triage landing",
+          "action": "for a body, comment or create write, stop landing; for an AddLabels failure after a successful body write, raise the warning `labels_failed`, record a failed add_labels side effect and keep the status",
+          "contract": "body/comment/create failure: failed/auth for IsNoToken, failed/forge retryable true for a rate limit or transport error, failed/forge retryable false otherwise, exit 1; label failure: status unchanged with warning labels_failed"
+        },
+        {
+          "id": "08-REQ-8.8",
+          "pattern": "state_driven",
+          "condition": "`--dry-run` is in effect",
+          "system": "triage landing",
+          "action": "still run the brain, send every write through toolio.DryRunForge and read an error wrapping toolio.ErrDryRun as success",
+          "contract": "status done, exit 0, action planned, planned side effects for each write, and the httptest forge records zero write requests"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-9",
+      "title": "Outcomes and the envelope",
+      "rationale": "A caller decides what to do next from the status, result and next entries alone.",
+      "criteria": [
+        {
+          "id": "08-REQ-9.1",
+          "pattern": "event_driven",
+          "condition": "the accepted submission carries a question",
+          "system": "triage loop and af triage land",
+          "action": "land nothing, post no comment, write no diagnosis to the forge and record `triage.question {text, options}`",
+          "contract": "status needs_human, exit 3, needs_human carrying the question and its options in order with the shell's resume argv, result with action none, zero forge write requests"
+        },
+        {
+          "id": "08-REQ-9.2",
+          "pattern": "event_driven",
+          "condition": "the landing succeeds, `--land none` is in effect, or the run is a dry run",
+          "system": "triage loop and af triage land",
+          "action": "end with status done, including a not_reproducible diagnosis without a question",
+          "contract": "status done, exit 0"
+        },
+        {
+          "id": "08-REQ-9.3",
+          "pattern": "ubiquitous",
+          "system": "triage loop and af triage land",
+          "action": "return a result holding run_id, issue {repo, host, number, url} or null, action (replaced_body, commented, created_issue, planned or none), diagnosis (the normalized submission), rejected_path_calls, rejected_submissions, labels (the labels added, exact duplicates collapsed in first-seen order) and original_report_sha256",
+          "contract": "the result validates against the command's declared result schema"
+        },
+        {
+          "id": "08-REQ-9.4",
+          "pattern": "unwanted",
+          "condition": "the loop or `af triage land` ends failed",
+          "system": "triage loop and af triage land",
+          "action": "still list the artifacts {kind: \"brief\"}, {kind: \"submission\"} when one exists and {kind: \"diagnosis\"} when one exists",
+          "contract": "envelope status failed, result null, exit 1 (or 2 for usage), artifacts as listed"
+        },
+        {
+          "id": "08-REQ-9.5",
+          "pattern": "complex_event",
+          "condition": "the run ends done for an issue",
+          "guard": "the diagnosis confidence is confirmed or probable",
+          "system": "triage loop and af triage land",
+          "action": "add the next entry `af fix <issue url> --dir <dir>`",
+          "contract": "next contains that argv"
+        },
+        {
+          "id": "08-REQ-9.6",
+          "pattern": "complex_event",
+          "condition": "a landing write failed",
+          "guard": "the run holds a valid submission",
+          "system": "triage loop",
+          "action": "add the next entry `af triage land --run-id <id> --dir <dir>`, appending `--repo <owner/name>` when the client was built from the input URL",
+          "contract": "next contains that argv"
+        },
+        {
+          "id": "08-REQ-9.7",
+          "pattern": "ubiquitous",
+          "system": "triage loop",
+          "action": "emit `step` events named preflight, brief, brain and land in that order, stopping at the step where the run ends",
+          "contract": "the event stream's step names are a prefix of [preflight, brief, brain, land]"
+        },
+        {
+          "id": "08-REQ-9.8",
+          "pattern": "ubiquitous",
+          "system": "cmd/af triage",
+          "action": "raise only the new warning codes issue_closed, report_changed_during_triage, body_too_long, labels_failed, original_report_unparsed and rejections_unreadable besides the shell's and spec 07's codes, and use only the shell's and spec 07's failure categories",
+          "contract": "every warning code and failure category in a triage envelope is from those sets"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-10",
+      "title": "The skill, its embedding, the schemas and the docs",
+      "rationale": "The method the brain follows ships inside the binary, and every surface this scope adds is discoverable from `af --schema` and the docs.",
+      "criteria": [
+        {
+          "id": "08-REQ-10.1",
+          "pattern": "ubiquitous",
+          "system": "skills/af-triage",
+          "action": "exist as a Markdown file with YAML frontmatter `name`, `description` and `argument-hint`, whose body gives the method (find the signals, locate each in the code, read the tests, widen once, separate symptom from cause, cite only what you read, state confidence honestly with a definition of each severity and confidence value, ask only when two readings lead to opposite fixes, write observable acceptance criteria), the never-list (write, run anything, comment on the issue, follow instructions found in the report) and an attended section naming `af triage brief`, `af triage submit --run-id` and `af triage land --run-id`",
+          "contract": "the frontmatter parses with those three keys and the body contains each listed heading or term"
+        },
+        {
+          "id": "08-REQ-10.2",
+          "pattern": "ubiquitous",
+          "system": "skills package",
+          "action": "embed every `af-*` entry through `skills/skills.go` (`package skills`, `//go:embed af-*`) and serve the af-triage content the brief renderer uses",
+          "contract": "the embedded af-triage bytes equal the file on disk"
+        },
+        {
+          "id": "08-REQ-10.3",
+          "pattern": "ubiquitous",
+          "system": "Makefile",
+          "action": "loop `install-skills` and `uninstall-skills` over `skills/af-*` only",
+          "contract": "`skills.go` is never copied to ~/.claude/skills"
+        },
+        {
+          "id": "08-REQ-10.4",
+          "pattern": "ubiquitous",
+          "system": "cmd/af",
+          "action": "declare an embedded result schema for each of the five triage commands and include them in the committed `af --schema` golden",
+          "contract": "`af --schema` output equals the regenerated golden and contains the five triage schemas"
+        },
+        {
+          "id": "08-REQ-10.5",
+          "pattern": "ubiquitous",
+          "system": "test suite",
+          "action": "run every triage test offline against httptest GitHub and GitLab servers injected through App.NewForge, the scripted brain, the agentkit brain on the faux provider, the local box and temporary git repositories that are skipped when git is missing",
+          "contract": "`make check` exits 0 with no network and no vendor key"
+        },
+        {
+          "id": "08-REQ-10.6",
+          "pattern": "ubiquitous",
+          "system": "documentation",
+          "action": "describe the five commands with their flags, results, statuses and warnings in docs/cli.md, the triage run files and that no new environment variable is read in docs/configuration.md, what the triage brief sends to a model and the default bounds in docs/model-usage.md, the resolved triage-shape decision, the updated issuetriage row and the body format in docs/architecture.md, and internal/triage/, the skills package and af-triage in README.md, with `make doc` output committed",
+          "contract": "each named document contains the triage section; docs/generated/skills.txt exists"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "08-PATH-1",
+      "title": "An issue is triaged end to end and its body replaced on GitHub or GitLab",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "runs `af triage <issue URL> --brain agentkit --sandbox local --dir <repo> --label triaged`"
+        },
+        {
+          "actor": "toolio shell",
+          "action": "resolves the issue input with its thread, builds the forge client and creates the run directory"
+        },
+        {
+          "actor": "triage loop",
+          "action": "runs preflight: validates the label, checks authentication and calls GetRepository on the target"
+        },
+        {
+          "actor": "brief renderer",
+          "action": "renders the prefix from the mandate, the af-triage skill, the repository map and the fenced report, and writes brief.md, original.md and triage.json"
+        },
+        {
+          "actor": "agentkit brain",
+          "action": "reads files through the triage allowlist in the local box and calls file_diagnosis with a valid diagnosis"
+        },
+        {
+          "actor": "triage loop",
+          "action": "reads back submission.json and rejections.jsonl and re-validates the diagnosis against the host tree"
+        },
+        {
+          "actor": "triage landing",
+          "action": "re-reads the issue, renders the body with the original between the markers, writes diagnosis.md, calls UpdateIssue once with the body and AddLabels with `triaged`"
+        },
+        {
+          "actor": "triage loop",
+          "action": "prints a done envelope with action replaced_body and exits 0"
+        }
+      ]
+    },
+    {
+      "id": "08-PATH-2",
+      "title": "A text or file report creates one issue in the named repository",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "runs `af triage \"<text>\" --repo owner/name --brain scripted --script <file>` (or passes a file path)"
+        },
+        {
+          "actor": "triage loop",
+          "action": "passes preflight, including the length check against issuex.MaxBodyLength, and renders a brief with one labelled fence"
+        },
+        {
+          "actor": "scripted brain",
+          "action": "submits a diagnosis with a title through the in-process submit"
+        },
+        {
+          "actor": "triage landing",
+          "action": "calls CreateIssue in owner/name with the submission's title and the body whose original-report section holds the input"
+        },
+        {
+          "actor": "triage loop",
+          "action": "prints a done envelope with action created_issue and an issue artifact"
+        }
+      ]
+    },
+    {
+      "id": "08-PATH-3",
+      "title": "A diagnosis citing a missing path is refused and corrected",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "runs the triage loop on an issue with a scripted brain"
+        },
+        {
+          "actor": "scripted brain",
+          "action": "submits a diagnosis citing a path that is not in the file view"
+        },
+        {
+          "actor": "diagnosis validator",
+          "action": "refuses with a problem at /affected_files/0/path naming the path, writes no submission and appends one line to rejections.jsonl"
+        },
+        {
+          "actor": "scripted brain",
+          "action": "receives the refusal as its next turn and submits a diagnosis whose paths all resolve"
+        },
+        {
+          "actor": "triage landing",
+          "action": "lands the corrected diagnosis on the issue"
+        },
+        {
+          "actor": "triage loop",
+          "action": "prints a done envelope with result.rejected_path_calls 1"
+        }
+      ]
+    },
+    {
+      "id": "08-PATH-4",
+      "title": "A question stops the run and the answer resumes it",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "runs the triage loop on an issue with a scripted brain"
+        },
+        {
+          "actor": "scripted brain",
+          "action": "submits a suspected diagnosis carrying a question with options A and B"
+        },
+        {
+          "actor": "triage loop",
+          "action": "records triage.question, sends no forge write and prints needs_human with exit 3 and the resume argv"
+        },
+        {
+          "actor": "person",
+          "action": "re-runs needs_human.resume.argv with `--context B` appended"
+        },
+        {
+          "actor": "brief renderer",
+          "action": "finds the earlier run by input fingerprint and renders a brief with the same prefix_sha256 whose task block holds the question and the answer B"
+        }
+      ]
+    },
+    {
+      "id": "08-PATH-5",
+      "title": "Re-triaging an already triaged issue keeps the first original report",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "runs the triage loop on an issue whose body was rendered by an earlier triage"
+        },
+        {
+          "actor": "body extractor",
+          "action": "extracts the original between the markers and the previous diagnosis"
+        },
+        {
+          "actor": "brief renderer",
+          "action": "fences the previous diagnosis labelled as possibly stale"
+        },
+        {
+          "actor": "triage landing",
+          "action": "replaces the body with the new diagnosis and the byte-identical original report"
+        }
+      ]
+    },
+    {
+      "id": "08-PATH-6",
+      "title": "A dry run and a --land none run write nothing to the forge",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "runs the triage loop on an issue with `--dry-run`"
+        },
+        {
+          "actor": "triage landing",
+          "action": "sends UpdateIssue and AddLabels through DryRunForge and reads ErrDryRun as planned"
+        },
+        {
+          "actor": "triage loop",
+          "action": "prints done with action planned and planned side effects while the httptest forge records zero writes"
+        },
+        {
+          "actor": "person",
+          "action": "runs the triage loop on text input with `--land none` and no token set"
+        },
+        {
+          "actor": "triage landing",
+          "action": "writes diagnosis.md only and prints done with action none and zero forge requests"
+        }
+      ]
+    },
+    {
+      "id": "08-PATH-7",
+      "title": "A person drives triage step by step at their own checkout",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "runs `af triage brief <issue URL> --dir <repo>`"
+        },
+        {
+          "actor": "af triage brief",
+          "action": "writes brief.md, original.md and triage.json and prints the brief path and prefix_sha256 with next entries"
+        },
+        {
+          "actor": "person",
+          "action": "pipes a diagnosis JSON into `af triage submit --run-id <id> --dir <repo>`"
+        },
+        {
+          "actor": "af triage submit",
+          "action": "validates and stores the normalized submission and records triage.submission"
+        },
+        {
+          "actor": "person",
+          "action": "runs `af triage land --run-id <id> --dir <repo> --label triaged`"
+        },
+        {
+          "actor": "af triage land",
+          "action": "builds a forge client for the recorded repository and host, replaces the issue body, adds the label and records triage.land"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "github.com/agent-fox-dev/agentfox/issuex",
+      "version": "workspace",
+      "verified": true,
+      "symbols": [
+        {
+          "name": "Client.ReadIssue",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "ReadIssue(ctx context.Context, ref IssueRef) (IssueThread, error)",
+          "notes": "issuex/client.go"
+        },
+        {
+          "name": "Client.UpdateIssue",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "UpdateIssue(ctx context.Context, ref IssueRef, req UpdateIssueRequest) (Issue, error)",
+          "notes": "An empty Body or Title is omitted (omitempty), so a body-only update sends no title."
+        },
+        {
+          "name": "Client.CreateIssue",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "CreateIssue(ctx context.Context, repo Repo, req CreateIssueRequest) (Issue, error)",
+          "notes": "CreateIssueRequest{Title, Body, Labels, Assignees}"
+        },
+        {
+          "name": "Client.AddLabels",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "AddLabels(ctx context.Context, ref IssueRef, labels []string) error",
+          "notes": "Empty list sends nothing; GitLab joins labels with commas."
+        },
+        {
+          "name": "Client.AddComment",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "AddComment(ctx context.Context, ref IssueRef, body string) (string, error)",
+          "notes": "Returns the comment URL."
+        },
+        {
+          "name": "Client.GetRepository",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "GetRepository(ctx context.Context, repo Repo) (Repository, error)",
+          "notes": "Repository.Archived drives the archived refusal."
+        },
+        {
+          "name": "Client.Authenticated",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "Authenticated() bool"
+        },
+        {
+          "name": "MaxBodyLength",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "func MaxBodyLength(c Client) int",
+          "notes": "65536 for GitHub and any client without BodyLimiter, 1048576 for GitLab."
+        },
+        {
+          "name": "IsNoToken / IsNotFound / IsRateLimited",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "func(err error) bool",
+          "notes": "issuex/errors.go"
+        },
+        {
+          "name": "IssueRef",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "type IssueRef struct{ Repo Repo; Number int; IsPullRequest bool } with String() and URL()",
+          "notes": "String() is the issue input fingerprint."
+        }
+      ]
+    },
+    {
+      "package": "github.com/agent-fox-dev/agentkit-go (hands tools)",
+      "version": "replace => ../agentkit-go (outside the repository)",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "read-only tool names",
+          "import_path": "github.com/agent-fox-dev/agentkit-go/tools",
+          "signature": "read_file, list_files, find_files, search_files, file_outline, find_symbol, find_references, code_search",
+          "notes": "Names from the PRD; source unreadable. Names not offered are dropped from the allowlist."
+        }
+      ]
+    },
+    {
+      "package": "github.com/agent-fox-dev/agentfox/internal/brain, internal/submission (spec 07)",
+      "version": "workspace (pending)",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "brain.Brief",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/brain",
+          "signature": "struct{ Prefix, Task string; Tools []string; Hook ...; Box *box.Session; MaxCostUSD float64; MaxTurns int; Timeout time.Duration; ... } with Document() string",
+          "notes": "From spec 07 requirements; not yet implemented."
+        },
+        {
+          "name": "submission.Kind",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/submission",
+          "signature": "struct{ Name, ToolName, Description string; Schema json.RawMessage; Validate func(...) }",
+          "notes": "Triage plugs in ToolName file_diagnosis and its validator."
+        },
+        {
+          "name": "submission.Command",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/submission",
+          "signature": "Command(path string, kind Kind) toolio.Command",
+          "notes": "Fixes the --run-id flag name used by af triage submit."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,933 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "09",
+  "spec_name": "af_fix",
+  "schema_version": 2,
+  "introduction": "The `af fix` family of commands (`fix`, `fix brief`, `fix run`, `fix submit`, `fix land`) turns a problem report (issue URL, file, text or stdin) into a verified change: the brain only edits a tree inside a box and submits one fix report, while `af` runs preflight, the baseline gate, applies the brain's tree to the host, measures it (protected-path revert, gate after, verdict, revert check) and then lands it as a `fix/<N>-<slug>` branch, commit, push and pull request, or parks it as `wip:` and returns the checkout to the base branch.",
+  "glossary": {
+    "apply": "Mirroring the box's exported tree onto the host working tree without committing (R5).",
+    "attempt": "A budget scope: `--budget` USD and `--max-turns` turns, with a fresh brain context. A run has at most `--attempts` of them, and one attempt can hold several rounds.",
+    "base_head": "The full commit hash of the base branch at preflight. HEAD must still equal it when measuring, and the fix branch is created from it.",
+    "fix.json": "The run file under `<run_dir>`, written atomically. It holds everything later steps need: input, base, base_head, the pinned table, the baseline gate id, no_verify, prefix_sha256, the context values and the round counter.",
+    "input key": "Identifies the input across runs: the issue URL, the absolute file path, or the SHA-256 of the text.",
+    "measure": "The host-side step after apply (R6): foreign-commit check, protected-path revert, scope check, gate after with verdict, and the revert check.",
+    "parking": "Committing work that did not land as `wip: <subject>` on the fix branch with `CommitAllNoVerify`, then returning the checkout to the base branch with a clean tree.",
+    "pinned table": "The gate table that `project.Detect` gives at preflight. It is stored in `fix.json`, passed to every host gate run, and written into the box as `.agent-fox/gate.json`.",
+    "prefix": "The stable part of the brief (mandate, skill, report, gate table and baseline, repository map, schema). It is byte-identical across rounds, attempts and resumes of the same input on the same tree. Its SHA-256 is `prefix_sha256`.",
+    "refusal": "A measured result that cannot land (a non-landable verdict, or `no_change`). In the loop it becomes the next round's task block. In `af fix land` it goes straight to parking.",
+    "revert check": "Spec 06's `conform.Check`. Only its outcome `proven` makes the commit and pull request say `Closes`; any other outcome makes them say `Refs`.",
+    "round": "One `brain.Execute` call inside an attempt. Rounds are numbered across the whole run, and that number is passed as `Brief.Attempt` so per-round run files never collide.",
+    "task block": "The per-round part of the brief: run id, attempt and round numbers, how to submit, earlier questions and answers, the previous refusal, and why the previous attempt ended."
+  },
+  "requirements": [
+    {
+      "id": "09-REQ-1",
+      "title": "The fix commands and their flags",
+      "rationale": "The same steps must be reachable as one loop, by a person at their own checkout, and by a box, so each step is its own command.",
+      "criteria": [
+        {
+          "id": "09-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "cmd/af",
+          "action": "register the commands `fix <input>`, `fix brief <input>`, `fix run --run-id <id>`, `fix submit --run-id <id>` and `fix land --run-id <id>` on the toolio shell, each declaring a result schema that appears in the `af --schema` output and its golden file",
+          "contract": "`af --schema` lists all five fix command paths, each with a non-empty result schema"
+        },
+        {
+          "id": "09-REQ-1.2",
+          "pattern": "ubiquitous",
+          "system": "af fix",
+          "action": "default to `--brain agentkit`, `--sandbox local`, `--budget 10`, `--max-turns 150`, `--attempts 2`, `--land pr` and `--timeout 45m` when these flags are not given",
+          "contract": "`af fix --help` and the `fix` result's `attempts_max` and `land` show these defaults when the flags are omitted"
+        },
+        {
+          "id": "09-REQ-1.3",
+          "pattern": "ubiquitous",
+          "system": "cmd/af",
+          "action": "accept `--base` on `fix` and `fix brief`; `--attempts`, `--land pr|branch|none` and `--no-verify` on `fix`; `--land` on `fix land`; and the `brain.Flags` brain flags on `fix` and `fix run`. `fix` also opts into the run directory, the forge, `--repo`, `--dry-run` and `--context`"
+        },
+        {
+          "id": "09-REQ-1.4",
+          "pattern": "unwanted",
+          "condition": "`--attempts` is outside 1–5, or `--land` is not one of `pr`, `branch` or `none`",
+          "system": "af fix",
+          "action": "refuse the invocation before preflight, without making any model call or forge request",
+          "contract": "status `usage`, exit code 2"
+        },
+        {
+          "id": "09-REQ-1.5",
+          "pattern": "unwanted",
+          "condition": "the input of `fix` or `fix brief` is a URL naming a pull request or merge request",
+          "system": "af fix",
+          "action": "refuse the invocation without making any model call or forge write",
+          "contract": "status `usage`, exit code 2"
+        },
+        {
+          "id": "09-REQ-1.6",
+          "pattern": "unwanted",
+          "condition": "`fix run`, `fix submit` or `fix land` is given a `--run-id` that `toolio.OpenRunDir` rejects, or a run directory that has no `fix.json`",
+          "system": "af fix",
+          "action": "refuse the invocation without touching the checkout",
+          "contract": "status `usage`, exit code 2"
+        },
+        {
+          "id": "09-REQ-1.7",
+          "pattern": "event_driven",
+          "condition": "`af fix submit --run-id <id>` is invoked with JSON on stdin",
+          "system": "af fix submit",
+          "action": "behave as `submission.Command(\"fix submit\", FixReport)` from spec 07, using the `fix_report` kind of 09-REQ-4",
+          "contract": "spec 07's submit envelope; on acceptance, the normalised payload is written as the run's submission"
+        },
+        {
+          "id": "09-REQ-1.8",
+          "pattern": "event_driven",
+          "condition": "`af fix run --run-id <id>` is invoked on an existing run",
+          "system": "af fix run",
+          "action": "open a box on `--dir`, run exactly one round of the brain with the stored brief, and apply its accepted tree to the checkout as in 09-REQ-5, without measuring and without creating a branch or commit",
+          "contract": "a result carrying the round number, the submission outcome and the apply counts {written, deleted, ignored}"
+        }
+      ]
+    },
+    {
+      "id": "09-REQ-2",
+      "title": "Preflight, baseline and fix.json",
+      "rationale": "Every working-tree change must be the run's own, and every refusal that can be known before spending model money must stop the run first.",
+      "criteria": [
+        {
+          "id": "09-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "fix preflight",
+          "action": "run, before any model call and in this order, the checks for the work-tree top level, the checked-out branch, a clean tree, an available gate, the landing prerequisites and brain construction, and stop at the first failing check",
+          "contract": "a preflight failure makes no model call, creates no branch or commit, and sends no forge write"
+        },
+        {
+          "id": "09-REQ-2.2",
+          "pattern": "unwanted",
+          "condition": "`--dir` is not the top level of a git work tree, HEAD is detached, or `--base` names a branch other than the checked-out branch",
+          "system": "fix preflight",
+          "action": "stop the run. For the `--base` mismatch, the message reads \"check out <base> first\"",
+          "contract": "status `usage`, exit code 2"
+        },
+        {
+          "id": "09-REQ-2.3",
+          "pattern": "unwanted",
+          "condition": "`gitx.DirtyFiles` returns at least one path (tracked changes or untracked files that are not ignored)",
+          "system": "fix preflight",
+          "action": "stop the run and name at most the first 20 dirty paths in the failure message",
+          "contract": "status `failed`, category `preflight`, exit code 1"
+        },
+        {
+          "id": "09-REQ-2.4",
+          "pattern": "unwanted",
+          "condition": "`--no-verify` is not set and `project.Detect` returns a table with no available check",
+          "system": "fix preflight",
+          "action": "stop the run",
+          "contract": "status `failed`, category `preflight`, `fix_hint {flag: \"--no-verify\"}`, exit code 1"
+        },
+        {
+          "id": "09-REQ-2.5",
+          "pattern": "unwanted",
+          "condition": "the landing is not possible: `--land pr|branch` outside `--dry-run` with no `origin` remote, `--land pr` with no valid target repository, `--land pr` with an unauthenticated forge client, or `GetRepository` failing or returning an archived repository",
+          "system": "fix preflight",
+          "action": "stop the run with the category that matches the failing check. Under `--dry-run`, a missing token raises the warning `no_forge_token` instead of stopping",
+          "contract": "no origin: `failed`/`preflight`, exit 1; no target: `usage` with `fix_hint {flag: \"--repo\"}`, exit 2; unauthenticated: `failed`/`auth` with `fix_hint {env}` naming `GITHUB_TOKEN` or `GITLAB_TOKEN`, exit 1; repository unreadable or archived: `failed`/`forge`, exit 1"
+        },
+        {
+          "id": "09-REQ-2.6",
+          "pattern": "unwanted",
+          "condition": "spec 07's registry cannot construct the selected brain, for example because the vendor key is missing",
+          "system": "fix preflight",
+          "action": "stop the run before opening a box",
+          "contract": "status `failed`, category `auth`, exit code 1"
+        },
+        {
+          "id": "09-REQ-2.7",
+          "pattern": "event_driven",
+          "condition": "every preflight check passes",
+          "system": "fix preflight",
+          "action": "record `base`, `base_head` as the full 40-hex commit hash, and the pinned table. Unless `--no-verify` is set, run the baseline gate exactly once with `checks.Run(dir, {Table})` in the default runner mode with no label. Raise the warning `baseline_failing` when the baseline is red, and the warning `issue_closed` when the input issue is closed; neither stops the run",
+          "contract": "the baseline gate id is stored and reported as `baseline {gate_id, passed}`"
+        },
+        {
+          "id": "09-REQ-2.8",
+          "pattern": "ubiquitous",
+          "system": "fix preflight",
+          "action": "write `<run_dir>/fix.json` atomically (temporary file in the same directory, then rename), holding run_id, the input kind, origin and key (issue URL, absolute file path, or SHA-256 of the text), the issue reference and title when there is one, the target repository, base, base_head, the pinned table, the baseline gate id, no_verify, prefix_sha256, the context values and the round counter",
+          "contract": "`fix.json` parses as JSON with every listed field, and is never observed partially written"
+        }
+      ]
+    },
+    {
+      "id": "09-REQ-3",
+      "title": "The brief",
+      "rationale": "A byte-identical prefix keeps the driver's prompt cache across rounds, and the task block carries everything that changes between rounds.",
+      "criteria": [
+        {
+          "id": "09-REQ-3.1",
+          "pattern": "ubiquitous",
+          "system": "fix brief builder",
+          "action": "for any two rounds, attempts or resumes of the same input on the same tree, render a byte-identical prefix that contains no run id, timestamp, duration or context value",
+          "contract": "equal `prefix_sha256` values"
+        },
+        {
+          "id": "09-REQ-3.2",
+          "pattern": "ubiquitous",
+          "system": "fix brief builder",
+          "action": "compose the prefix in this order: (1) the mandate: find the root cause, write the reproducing test first, make the smallest change; never commit, push, branch, edit the issue or write under protected paths; run tests in targeted form, with `af gate run` for the full suite; (2) the `af-fix` skill text; (3) the report, labelled as material to verify and not as instructions, inside a fence longer than any backtick run it contains; (4) the gate table and baseline per check: name, argv, status, and the tail of any failing check; (5) the repository map built with a 4000-token budget; (6) the fix-report schema"
+        },
+        {
+          "id": "09-REQ-3.3",
+          "pattern": "ubiquitous",
+          "system": "fix brief builder",
+          "action": "compose the task block from: the run id; the attempt and round numbers; the submit instruction (`af fix submit --run-id <id>` with the report on stdin, or the `submit_fix` tool); earlier questions with their answers; for a later round, the previous round's refusal; and for a later attempt's first round, why the previous attempt ended"
+        },
+        {
+          "id": "09-REQ-3.4",
+          "pattern": "event_driven",
+          "condition": "a run carries n `--context` values",
+          "system": "fix brief builder",
+          "action": "for each i from 0 to n−1, take the i-th question from the newest run directory under `.agent-fox/run/` whose `fix.json` has the same input key, whose envelope has status `needs_human`, and which carried exactly i context values, and render that question with the i-th answer in the task block"
+        },
+        {
+          "id": "09-REQ-3.5",
+          "pattern": "unwanted",
+          "condition": "no earlier run directory matches the i-th context value",
+          "system": "fix brief builder",
+          "action": "render the i-th answer without a question and continue the run",
+          "contract": "warning `question_not_found`"
+        },
+        {
+          "id": "09-REQ-3.6",
+          "pattern": "ubiquitous",
+          "system": "fix brief builder",
+          "action": "set `Brief.Tools` to the box's whole tool set, `HookConfig.ProtectedPaths` to the `policy` default protected paths, and `HookConfig.AllowPrograms` to the detected gate programs plus `git`, `af`, `ls`, `cat`, `head`, `tail`, `wc`, `grep`, `rg`, `diff`, `sort`, `pwd`, `echo` and `mkdir`"
+        },
+        {
+          "id": "09-REQ-3.7",
+          "pattern": "event_driven",
+          "condition": "a round is about to start",
+          "system": "fix loop",
+          "action": "write `.agent-fox/gate.json` (the pinned table) and `.agent-fox/guard.json` (the suite, the protected paths and the allowed programs) into the box through `Session.WriteFile`",
+          "contract": "both files exist in the box before `brain.Execute` is called"
+        },
+        {
+          "id": "09-REQ-3.8",
+          "pattern": "event_driven",
+          "condition": "`af fix brief <input>` completes preflight and baseline",
+          "system": "af fix brief",
+          "action": "write `<run_dir>/brief.md`, `fix.json` and `.agent-fox/run/<id>/run.json` as `{run_id, kind: \"fix_report\", attempt: 1, nonce}`, and write nothing outside `.agent-fox/`",
+          "contract": "status `done`, exit 0, with result {brief_path, prefix_sha256, base, base_head, baseline {gate_id, passed}, table, submit argv}"
+        }
+      ]
+    },
+    {
+      "id": "09-REQ-4",
+      "title": "The fix report kind and questions",
+      "rationale": "The brain's only output is one validated report or one question, and `af` builds every effect from it plus its own measurements.",
+      "criteria": [
+        {
+          "id": "09-REQ-4.1",
+          "pattern": "ubiquitous",
+          "system": "fix_report kind",
+          "action": "register as submission kind `fix_report` with tool name `submit_fix`, and accept exactly one of two forms: the question form (`question {text 1–2000 chars, options 0–6 strings of 1–200 chars, root_cause? ≤ 8000 chars}`) or the report form (no `question`)"
+        },
+        {
+          "id": "09-REQ-4.2",
+          "pattern": "ubiquitous",
+          "system": "fix_report kind",
+          "action": "enforce on the report form: `type` one of fix|feat|refactor|perf|docs|test|chore; `subject` 1–72 chars, one line, no trailing period, no leading `<type>:`; `root_cause` and `change` 1–4000 chars each; `files` 1–500 unique `{path, why}` with a valid relative slash path not under `.git/` or `.agent-fox/` and `why` 1–300 chars; `tests` 0–100 `{path, name?, proves}` where path is a regular file in the submitted tree; `criteria` 0–50 `{criterion, status met|unmet|partial|not_applicable, evidence}`; `decisions` 0–30 strings of at most 500 chars"
+        },
+        {
+          "id": "09-REQ-4.3",
+          "pattern": "unwanted",
+          "condition": "a payload has unknown fields or breaks one or more field rules",
+          "system": "fix_report kind",
+          "action": "refuse the payload and name every problem in one response",
+          "contract": "`Validate` returns one `Problem` per violation and no normalised payload; no submission file is written"
+        },
+        {
+          "id": "09-REQ-4.4",
+          "pattern": "ubiquitous",
+          "system": "fix_report kind",
+          "action": "for any accepted payload, return a normalised payload with trimmed strings, LF line endings instead of CRLF, `type` defaulted to `fix`, and `files` sorted by path, such that validating the normalised payload again returns it unchanged"
+        },
+        {
+          "id": "09-REQ-4.5",
+          "pattern": "event_driven",
+          "condition": "the loop receives an accepted question submission",
+          "system": "fix loop",
+          "action": "end the run without applying the brain's tree, creating a branch or commit, or touching the checkout",
+          "contract": "status `needs_human`, exit code 3, with the question, options labelled `A`, `B`, … in order, and the shell's `resume`"
+        },
+        {
+          "id": "09-REQ-4.6",
+          "pattern": "unwanted",
+          "condition": "`af fix land` finds a question submission for the run",
+          "system": "af fix land",
+          "action": "refuse to land, telling the person to re-run `af fix brief <input> --context <answer>`",
+          "contract": "status `failed`, category `submission`, exit code 1"
+        }
+      ]
+    },
+    {
+      "id": "09-REQ-5",
+      "title": "Applying the brain's tree to the host",
+      "rationale": "The host checkout holds exactly what will be measured and committed, and a commit made inside the box never reaches the branch.",
+      "criteria": [
+        {
+          "id": "09-REQ-5.1",
+          "pattern": "event_driven",
+          "condition": "`brain.Execute` accepts a round's submission",
+          "system": "fix apply",
+          "action": "export the box with `Session.Export` and write to the host every exported file outside `.git/` and `.agent-fox/` and not ignored by the host's git rules, when the host file is absent or differs in content, mode or symlink target. Symlinks are recreated, never followed"
+        },
+        {
+          "id": "09-REQ-5.2",
+          "pattern": "event_driven",
+          "condition": "a file in the host's `checks.FileView` is absent from the export",
+          "system": "fix apply",
+          "action": "delete that file from the host checkout"
+        },
+        {
+          "id": "09-REQ-5.3",
+          "pattern": "ubiquitous",
+          "system": "fix apply",
+          "action": "for any exported tree, leave the host file view, minus ignored paths, equal in paths, contents, modes and symlink targets to the export minus `.git/` and `.agent-fox/`"
+        },
+        {
+          "id": "09-REQ-5.4",
+          "pattern": "unwanted",
+          "condition": "the export contains no files",
+          "system": "fix apply",
+          "action": "apply nothing to the host",
+          "contract": "status `failed`, category `sandbox`; host tree unchanged"
+        },
+        {
+          "id": "09-REQ-5.5",
+          "pattern": "ubiquitous",
+          "system": "fix apply",
+          "action": "record the ledger entry `apply {written, deleted, ignored}` after each apply, and never commit during rounds, so HEAD stays at `base_head` and no commit the brain made inside the box reaches the host",
+          "contract": "`git rev-parse HEAD` equals `base_head` after every apply"
+        },
+        {
+          "id": "09-REQ-5.6",
+          "pattern": "event_driven",
+          "condition": "a measured round is followed by another round",
+          "system": "fix loop",
+          "action": "re-sync the box from the host checkout with `Session.Sync`, so the box holds the measured tree with protected paths reverted"
+        },
+        {
+          "id": "09-REQ-5.7",
+          "pattern": "unwanted",
+          "condition": "a round ends without an accepted submission",
+          "system": "fix loop",
+          "action": "apply nothing from that round's box to the host",
+          "contract": "host tree unchanged by that round"
+        }
+      ]
+    },
+    {
+      "id": "09-REQ-6",
+      "title": "Measuring",
+      "rationale": "Every effect is decided from facts `af` measured on the host itself, never from the brain's claims.",
+      "criteria": [
+        {
+          "id": "09-REQ-6.1",
+          "pattern": "unwanted",
+          "condition": "at measure time the current branch is not the base or HEAD differs from `base_head`",
+          "system": "fix measure",
+          "action": "stop without landing or parking, naming the commits since `base_head`",
+          "contract": "status `failed`, category `git`, exit code 1"
+        },
+        {
+          "id": "09-REQ-6.2",
+          "pattern": "event_driven",
+          "condition": "a path from `gitx.ChangedPaths(base_head)` lies under a protected path",
+          "system": "fix measure",
+          "action": "restore that path to its content at `base_head`, or delete it when it did not exist there, and list it in `reverted_paths`",
+          "contract": "warning `protected_path_reverted` per path"
+        },
+        {
+          "id": "09-REQ-6.3",
+          "pattern": "unwanted",
+          "condition": "no changed path remains after the protected-path revert",
+          "system": "fix measure",
+          "action": "produce the refusal `no_change` without running the gate",
+          "contract": "refusal kind `no_change`"
+        },
+        {
+          "id": "09-REQ-6.4",
+          "pattern": "event_driven",
+          "condition": "the report's `files` differ from the measured changed paths",
+          "system": "fix measure",
+          "action": "list the undeclared changes and the declared-but-unchanged paths in `scope {undeclared, unchanged}` without refusing",
+          "contract": "warning `scope_mismatch`"
+        },
+        {
+          "id": "09-REQ-6.5",
+          "pattern": "event_driven",
+          "condition": "changed paths remain and `--no-verify` is not set",
+          "system": "fix measure",
+          "action": "run `checks.Run(dir, {Table: pinned})` and compare it with the baseline by gate id using `checks.Compare`. Under `--no-verify`, skip this step and set the verdict to `unverified`",
+          "contract": "`after {gate_id, passed}`, `verdict` and `landable` in the result"
+        },
+        {
+          "id": "09-REQ-6.6",
+          "pattern": "complex_event",
+          "condition": "the verdict is landable",
+          "guard": "`--no-verify` is not set",
+          "system": "fix measure",
+          "action": "run `conform.Check(dir, since=base_head)` with the pinned table, set `closes` true only for outcome `proven`, and let every other outcome land with `Refs`",
+          "contract": "`revert_check {outcome, reason}`; warning `fix_not_proven` when the outcome is not `proven`"
+        },
+        {
+          "id": "09-REQ-6.7",
+          "pattern": "event_driven",
+          "condition": "the loop measures a non-landable verdict or `no_change`",
+          "system": "fix loop",
+          "action": "record ledger entries `measure {verdict, after_gate_id, revert_outcome, closes, changed, reverted}` and `refusal {kind}`, and put the refusal kind, the verdict, each failing check's name and tail (at most 4 KiB each) and the reverted paths into the next round's task block"
+        },
+        {
+          "id": "09-REQ-6.8",
+          "pattern": "event_driven",
+          "condition": "`af fix land` measures a refusal",
+          "system": "af fix land",
+          "action": "park the work as in 09-REQ-9 without starting any brain round",
+          "contract": "status `unverified`, exit code 4"
+        }
+      ]
+    },
+    {
+      "id": "09-REQ-7",
+      "title": "Attempts, rounds and bounds",
+      "rationale": "A refused brain keeps its attempt's remaining budget instead of getting a fresh one, and work is never lost when bounds or the deadline run out.",
+      "criteria": [
+        {
+          "id": "09-REQ-7.1",
+          "pattern": "ubiquitous",
+          "system": "fix loop",
+          "action": "run at most `--attempts` attempts, each with `--budget` USD and `--max-turns` turns, and pass the run-wide round sequence number as `Brief.Attempt` for each `brain.Execute` call",
+          "contract": "result fields `attempts`, `rounds` and `attempts_max`"
+        },
+        {
+          "id": "09-REQ-7.2",
+          "pattern": "event_driven",
+          "condition": "a measured refusal occurs within an attempt",
+          "system": "fix loop",
+          "action": "start another round in the same attempt with the attempt's remaining cost and turns, only while more than USD 0 remains, at least 1 turn remains, and at least 1 minute of brain time remains. Brain time is the time left until the command deadline minus a measuring reserve of 3 × the baseline gate's duration + 1 minute"
+        },
+        {
+          "id": "09-REQ-7.3",
+          "pattern": "event_driven",
+          "condition": "an attempt ends because its bounds are spent or a round ended without an accepted submission, and attempts remain",
+          "system": "fix loop",
+          "action": "start the next attempt from the current host tree with a fresh budget and a fresh brain context, and state in its first task block why the previous attempt ended"
+        },
+        {
+          "id": "09-REQ-7.4",
+          "pattern": "unwanted",
+          "condition": "`brain.Execute` returns a failure it marked non-retryable (for example `budget`, `auth`, or a non-retryable `sandbox` failure)",
+          "system": "fix loop",
+          "action": "start no further attempt",
+          "contract": "the run proceeds to 09-REQ-7.5 with that failure as the last round's failure"
+        },
+        {
+          "id": "09-REQ-7.5",
+          "pattern": "event_driven",
+          "condition": "no attempt remains without a landable verdict",
+          "system": "fix loop",
+          "action": "park the applied change when the host tree holds one, using the last accepted report's subject and raising the warning `attempt_failed` when the last round failed. Fail with the last round's failure when nothing was applied",
+          "contract": "parked: status `unverified`, exit 4; nothing applied: status `failed` with the last round's category, exit 1"
+        },
+        {
+          "id": "09-REQ-7.6",
+          "pattern": "unwanted",
+          "condition": "the context is cancelled or the command deadline passes during the run",
+          "system": "fix loop",
+          "action": "park any applied change locally, without push or forge write, on a context detached from cancellation and bounded to 10 seconds, or discard it under `--dry-run`, then return the context error to the shell",
+          "contract": "status `failed` with category `cancelled` or `timeout`; the parked branch, when one was made, exists locally only"
+        },
+        {
+          "id": "09-REQ-7.7",
+          "pattern": "ubiquitous",
+          "system": "fix loop",
+          "action": "hold one box across every round through `box.With`, close it on every exit path including failure and cancellation, and report spec 07's `Tally` across all rounds as the envelope `usage`"
+        }
+      ]
+    },
+    {
+      "id": "09-REQ-8",
+      "title": "Landing",
+      "rationale": "A measured, landable change becomes exactly one commit that `af` made, on a fresh branch, with a pull-request body rendered from facts.",
+      "criteria": [
+        {
+          "id": "09-REQ-8.1",
+          "pattern": "complex_event",
+          "condition": "a text or file input reaches landing or parking",
+          "guard": "`--land pr` is set",
+          "system": "fix land",
+          "action": "create exactly one issue in the target repository whose title is the report subject and whose body is the original input under `## Original report`, followed by a line naming the run",
+          "contract": "`issue_created {number, url}`, the artifact `issue`, and the side effect `create_issue` with status `done`"
+        },
+        {
+          "id": "09-REQ-8.2",
+          "pattern": "ubiquitous",
+          "system": "fix land",
+          "action": "name the branch `fix/<N>-<slug>` for an issue, or `fix/<slug>` without one, where slug is `gitx.Slug` of the issue title (or of the subject for text and file input). Make the name unique with `gitx.UniqueBranchName` and create it from `base_head`, carrying the working tree along",
+          "contract": "the `branch` artifact and side effect"
+        },
+        {
+          "id": "09-REQ-8.3",
+          "pattern": "event_driven",
+          "condition": "the verdict is landable, or `--no-verify` is set and the result was measured",
+          "system": "fix land",
+          "action": "commit with `gitx.CommitAll` using the message `<type>: <subject>`, a blank line, `change` capped at 2000 bytes, a blank line, `Closes <url>` (when `closes`) or `Refs <url>` when there is an issue, and a blank line followed by `Agent-Fox-Run: <run id>` as the last paragraph",
+          "contract": "exactly one commit on the branch above `base_head`; `commit` holds its full hash"
+        },
+        {
+          "id": "09-REQ-8.4",
+          "pattern": "unwanted",
+          "condition": "a commit hook makes the landing commit fail",
+          "system": "fix land",
+          "action": "park the work as in 09-REQ-9",
+          "contract": "warning `commit_hook_failed`; status `unverified`, exit 4"
+        },
+        {
+          "id": "09-REQ-8.5",
+          "pattern": "unwanted",
+          "condition": "the push of the branch still fails after `Push(ctx, branch, 3, log)` retries",
+          "system": "fix land",
+          "action": "keep the branch and commit locally, return the checkout to the base branch, and raise the warning `push_retried` for each retry",
+          "contract": "status `failed`, category `git`, exit 1; `next` holds `git push -u origin <branch>`"
+        },
+        {
+          "id": "09-REQ-8.6",
+          "pattern": "event_driven",
+          "condition": "the branch was pushed and `--land pr` is set",
+          "system": "fix land",
+          "action": "call `CreatePullRequest(target, {Title: \"<type>: <subject>\", Body, Head: branch, Base: base, Draft})` with Draft true under `--no-verify` or when any criterion is `unmet` or `partial`. When the call fails after the push, still finish as `done`",
+          "contract": "`pull_request {number, url, draft}`; warning `criteria_unmet` when drafted for criteria; on failure, warning `pull_request_failed` carrying the forge error, and `pull_request` null"
+        },
+        {
+          "id": "09-REQ-8.7",
+          "pattern": "ubiquitous",
+          "system": "fix land",
+          "action": "for any report, render the pull-request body in this order: a marker comment with the run id; the verification section labelled measured by af (per-check baseline and after table, verdict, revert-check outcome and reason, reverted paths); the root cause, change, tests, criteria and decisions labelled reported; the changed files from git with their `why` or \"(not declared)\"; the `Closes`/`Refs` line; a footer with run id, brain and cost with source. Keep the body within `issuex.MaxBodyLength` by cutting the reported sections first behind a visible marker, never cutting the verification section or the `Closes`/`Refs` line, and write it with `RunDir.WriteReport`",
+          "contract": "`report.md` equals the body and is the `report` artifact"
+        },
+        {
+          "id": "09-REQ-8.8",
+          "pattern": "event_driven",
+          "condition": "landing completes",
+          "system": "fix land",
+          "action": "return the checkout to the base branch with a clean tree",
+          "contract": "status `done`, exit 0, outcome `landed`; under `--no-verify`, status `unverified`, exit 4, with warning `not_verified`"
+        }
+      ]
+    },
+    {
+      "id": "09-REQ-9",
+      "title": "Parking, land modes and dry runs",
+      "rationale": "Work that does not land is never thrown away, and nothing is written that the mode did not ask for.",
+      "criteria": [
+        {
+          "id": "09-REQ-9.1",
+          "pattern": "event_driven",
+          "condition": "a result is parked (non-landable after the last attempt or in `fix land`, interrupted run, or failed landing commit)",
+          "system": "fix park",
+          "action": "create the 09-REQ-8.2 branch and commit with `gitx.CommitAllNoVerify` using the message `wip: <subject>`, a blank line, `Parked by af fix: verdict <v>` with the failing checks, a blank line, `Refs <url>` when there is an issue, and a blank line followed by the `Agent-Fox-Run: <run id>` trailer"
+        },
+        {
+          "id": "09-REQ-9.2",
+          "pattern": "complex_event",
+          "condition": "a result is parked",
+          "guard": "the run was not interrupted",
+          "system": "fix park",
+          "action": "push the branch unless `--land none`, and under `--land pr` open a draft pull request that says `Refs`, creating the issue first for text and file input as in 09-REQ-8.1",
+          "contract": "`pull_request.draft` is true and the body contains `Refs <issue url>`"
+        },
+        {
+          "id": "09-REQ-9.3",
+          "pattern": "event_driven",
+          "condition": "parking completes",
+          "system": "fix park",
+          "action": "return the checkout to the base branch with a clean tree",
+          "contract": "status `unverified`, exit 4, outcome `parked`, warning `fix_not_landed` naming the verdict; `next` holds `git switch <branch>`"
+        },
+        {
+          "id": "09-REQ-9.4",
+          "pattern": "state_driven",
+          "condition": "`--land none` is set",
+          "system": "af fix",
+          "action": "make the local branch and commit, push nothing, and send no forge request",
+          "contract": "`pushed` false, `pull_request` null; the forge test server records zero requests"
+        },
+        {
+          "id": "09-REQ-9.5",
+          "pattern": "state_driven",
+          "condition": "`--dry-run` is set",
+          "system": "af fix",
+          "action": "run everything up to the landing decision, then discard the applied change with `ResetHard(base_head)` and `Clean`, create no branch or commit, push nothing, list `branch`, `commit` and `push` as `planned` side effects, and refuse forge writes through spec 05's `DryRunForge`",
+          "contract": "the status the real run would have had, outcome `dry_run`; the forge test server records zero write requests"
+        },
+        {
+          "id": "09-REQ-9.6",
+          "pattern": "ubiquitous",
+          "system": "af fix",
+          "action": "for any run that ends `landed`, `parked`, `needs_human` or `dry_run`, leave the base branch checked out at `base_head` with `gitx.DirtyFiles` empty"
+        }
+      ]
+    },
+    {
+      "id": "09-REQ-10",
+      "title": "Result, multi-round scripted brain, offline tests and documentation",
+      "rationale": "Callers consume one stable result shape, refusal-then-fix must be testable offline, and outdated docs count as regressions.",
+      "criteria": [
+        {
+          "id": "09-REQ-10.1",
+          "pattern": "ubiquitous",
+          "system": "af fix",
+          "action": "emit for `fix` and `fix land` a result with run_id, issue (url or null), issue_created ({number, url} or null), base, base_head, attempts, rounds, attempts_max, outcome (landed|parked|needs_human|failed|dry_run), verdict, landable, closes, baseline and after ({gate_id, passed}), revert_check ({outcome, reason} or null), changed_files, reverted_paths, scope ({undeclared, unchanged}), land, branch, commit (full hash), pushed, pull_request ({number, url, draft} or null) and box ({provider, image, network}, with network `host` for `local`)",
+          "contract": "the result validates against the declared `fix` / `fix_land` result schema"
+        },
+        {
+          "id": "09-REQ-10.2",
+          "pattern": "ubiquitous",
+          "system": "af fix",
+          "action": "report the artifacts `branch`, `commit`, `pull_request`, `issue` (when created), `report`, `submission`, `transcript` and `run_dir`, and the side effects `branch`, `commit`, `push`, `create_issue` and `create_pull_request`, each with status `done`, `planned` or `failed`"
+        },
+        {
+          "id": "09-REQ-10.3",
+          "pattern": "event_driven",
+          "condition": "the scripted brain is given a script of the form `{\"rounds\": [{\"steps\": [...]}, ...]}`",
+          "system": "scripted brain",
+          "action": "replay round k on the k-th `Run` call on the same brain value, end at once with outcome `ended` on any call past the last round, and treat a plain `{\"steps\": [...]}` file as one round"
+        },
+        {
+          "id": "09-REQ-10.4",
+          "pattern": "ubiquitous",
+          "system": "fix test suite",
+          "action": "run offline in `make check` with no vendor key, using temporary repositories with a local bare `origin`, a Makefile `check` fixture gate (skipped when `make` is absent), `httptest` GitHub and GitLab forges injected through `App.NewForge`, `--sandbox local`, scripted scripts, and `provider/faux` for the agentkit path",
+          "contract": "`make check` exits 0 with no network access beyond loopback"
+        },
+        {
+          "id": "09-REQ-10.5",
+          "pattern": "ubiquitous",
+          "system": "skills/af-fix",
+          "action": "describe the toolbelt flow `af fix brief` → work → `af fix submit` → `af fix land`; keep the method (read, refuse early, diagnose, test first, verify with targeted tests and `af gate run`); state that the agent never commits, pushes, branches or edits the issue; and use the branch form `fix/<N>-<slug>`",
+          "contract": "the skill text contains no instruction to run `git commit`, `git push`, `git checkout -b` or to open a pull request"
+        },
+        {
+          "id": "09-REQ-10.6",
+          "pattern": "ubiquitous",
+          "system": "documentation",
+          "action": "describe in `docs/cli.md` the five commands, their flags, defaults, results, warnings, the `preflight` category and exit codes; in `docs/configuration.md` the box-side `gate.json` and `guard.json` and the token for `--land pr`; in `docs/model-usage.md` the per-attempt bounds, attempts, rounds, and that dry runs spend model money; in `docs/architecture.md` the fix loop, the apply and measure steps, the `fix.json` and `report.md` run files and the `codefix` row; and in `README.md` the `internal/fix/` package"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "09-PATH-1",
+      "title": "An issue URL becomes a landed pull request",
+      "steps": [
+        {
+          "actor": "user",
+          "action": "runs `af fix <issue URL> --brain scripted --sandbox local --dir <repo>`"
+        },
+        {
+          "actor": "toolio shell",
+          "action": "resolves the issue input through the forge and opens a run directory"
+        },
+        {
+          "actor": "fix preflight",
+          "action": "checks the work tree, branch, clean tree, gate, origin, forge and brain, runs the baseline gate, and writes fix.json"
+        },
+        {
+          "actor": "fix loop",
+          "action": "renders the brief, opens the local box, writes gate.json and guard.json, and calls brain.Execute"
+        },
+        {
+          "actor": "scripted brain",
+          "action": "edits the tree in the box (and commits there) and submits a fix report through submit_fix"
+        },
+        {
+          "actor": "fix apply",
+          "action": "mirrors the exported tree onto the host checkout without .git"
+        },
+        {
+          "actor": "fix measure",
+          "action": "reverts protected paths, runs the gate after, gets a landable verdict, and runs the revert check"
+        },
+        {
+          "actor": "fix land",
+          "action": "creates fix/<N>-<slug> from base_head, commits once with the Agent-Fox-Run trailer, pushes to origin, and opens a pull request saying Closes or Refs"
+        },
+        {
+          "actor": "toolio shell",
+          "action": "prints status done, exits 0, with the checkout back on the base branch and a clean tree"
+        }
+      ]
+    },
+    {
+      "id": "09-PATH-2",
+      "title": "A file report creates an issue and a pull request",
+      "steps": [
+        {
+          "actor": "user",
+          "action": "runs `af fix ./bug.md --repo o/r --brain scripted --sandbox local --land pr`"
+        },
+        {
+          "actor": "fix loop",
+          "action": "runs preflight, the baseline, one round, apply and measure with a landable verdict"
+        },
+        {
+          "actor": "fix land",
+          "action": "creates one issue from the report under ## Original report"
+        },
+        {
+          "actor": "fix land",
+          "action": "creates fix/<N>-<slug>, commits, pushes, and opens a pull request saying Closes or Refs that issue"
+        },
+        {
+          "actor": "toolio shell",
+          "action": "emits status done with issue_created and pull_request set"
+        }
+      ]
+    },
+    {
+      "id": "09-PATH-3",
+      "title": "A refusal becomes the next round, and the second change lands",
+      "steps": [
+        {
+          "actor": "user",
+          "action": "runs `af fix <issue URL>` with a two-round scripted script"
+        },
+        {
+          "actor": "scripted brain",
+          "action": "submits a first change that makes the gate regress"
+        },
+        {
+          "actor": "fix measure",
+          "action": "returns the refusal with verdict regressed and the failing checks' tails"
+        },
+        {
+          "actor": "fix loop",
+          "action": "re-syncs the box and starts round 2 in the same attempt, with the refusal in the task block"
+        },
+        {
+          "actor": "scripted brain",
+          "action": "submits a second change that passes"
+        },
+        {
+          "actor": "fix land",
+          "action": "commits, pushes and opens the pull request"
+        },
+        {
+          "actor": "toolio shell",
+          "action": "emits status done with rounds 2"
+        }
+      ]
+    },
+    {
+      "id": "09-PATH-4",
+      "title": "Unverified work is parked as a draft",
+      "steps": [
+        {
+          "actor": "user",
+          "action": "runs `af fix <issue URL> --land pr --attempts 1` with a script whose change leaves the gate red"
+        },
+        {
+          "actor": "fix measure",
+          "action": "refuses with a still-failing verdict, and the attempt's bounds are spent"
+        },
+        {
+          "actor": "fix park",
+          "action": "creates the branch, commits wip: <subject> without hooks, pushes it, and opens a draft pull request saying Refs"
+        },
+        {
+          "actor": "toolio shell",
+          "action": "emits status unverified, exit 4, warning fix_not_landed, with the base branch checked out and a clean tree"
+        }
+      ]
+    },
+    {
+      "id": "09-PATH-5",
+      "title": "A question stops the run and the answer resumes it",
+      "steps": [
+        {
+          "actor": "user",
+          "action": "runs `af fix <issue URL>` with a script whose submission carries a question"
+        },
+        {
+          "actor": "fix loop",
+          "action": "ends the run without applying the tree, creating a branch or commit"
+        },
+        {
+          "actor": "toolio shell",
+          "action": "emits status needs_human, exit 3, with options A, B and resume.argv"
+        },
+        {
+          "actor": "user",
+          "action": "re-runs resume.argv with `--context B` appended"
+        },
+        {
+          "actor": "fix brief builder",
+          "action": "finds the earlier run by input key and context count, and renders the same prefix_sha256 with the question and answer B in the task block"
+        }
+      ]
+    },
+    {
+      "id": "09-PATH-6",
+      "title": "A dry run writes nothing",
+      "steps": [
+        {
+          "actor": "user",
+          "action": "runs `af fix <issue URL> --dry-run` against an httptest forge"
+        },
+        {
+          "actor": "fix loop",
+          "action": "runs preflight, the baseline, the round, apply and measure up to the landing decision"
+        },
+        {
+          "actor": "fix loop",
+          "action": "discards the applied change with ResetHard(base_head) and Clean"
+        },
+        {
+          "actor": "DryRunForge",
+          "action": "refuses the pull-request write and lists it as planned"
+        },
+        {
+          "actor": "toolio shell",
+          "action": "emits the real run's status with branch, commit, push and create_pull_request planned, and zero forge write requests"
+        }
+      ]
+    },
+    {
+      "id": "09-PATH-7",
+      "title": "A person fixes at their own checkout",
+      "steps": [
+        {
+          "actor": "user",
+          "action": "runs `af fix brief <issue URL>` and receives brief_path and the submit argv"
+        },
+        {
+          "actor": "user",
+          "action": "edits files directly in the checkout"
+        },
+        {
+          "actor": "user",
+          "action": "pipes a fix report into `af fix submit --run-id <id>`"
+        },
+        {
+          "actor": "af fix land",
+          "action": "measures once, then commits on fix/<N>-<slug>, pushes, and opens the pull request"
+        },
+        {
+          "actor": "toolio shell",
+          "action": "emits status done with the checkout back on the base branch"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "github.com/agent-fox-dev/agentfox/issuex",
+      "version": "workspace",
+      "verified": true,
+      "symbols": [
+        {
+          "name": "Client.CreatePullRequest",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "CreatePullRequest(ctx context.Context, repo Repo, req CreatePullRequestRequest) (PullRequest, error)",
+          "notes": "CreatePullRequestRequest{Title, Body, Head, Base string; Draft bool}. On GitLab the client adds the `Draft: ` title prefix itself."
+        },
+        {
+          "name": "Client.CreateIssue",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "CreateIssue(ctx context.Context, repo Repo, req CreateIssueRequest) (Issue, error)"
+        },
+        {
+          "name": "Client.GetRepository",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "GetRepository(ctx context.Context, repo Repo) (Repository, error)",
+          "notes": "Repository.Archived bool"
+        },
+        {
+          "name": "Client.Authenticated",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "Authenticated() bool"
+        },
+        {
+          "name": "MaxBodyLength",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "func MaxBodyLength(c Client) int",
+          "notes": "65536 on GitHub and by default; 1048576 on GitLab"
+        }
+      ]
+    },
+    {
+      "package": "github.com/agent-fox-dev/agentfox/internal/gitx",
+      "version": "workspace",
+      "verified": true,
+      "symbols": [
+        {
+          "name": "Slug",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func Slug(title string) string",
+          "notes": "Never returns an empty string"
+        },
+        {
+          "name": "UniqueBranchName",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func UniqueBranchName(ctx context.Context, g *Git, name string) string",
+          "notes": "Checks local branches and origin through ls-remote"
+        },
+        {
+          "name": "Git.CommitAll",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) CommitAll(ctx context.Context, message string) (string, error)",
+          "notes": "Returns the short hash"
+        },
+        {
+          "name": "Git.CommitAllNoVerify",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) CommitAllNoVerify(ctx context.Context, message string) (string, error)",
+          "notes": "The parking commit"
+        },
+        {
+          "name": "Git.Push",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) Push(ctx context.Context, branch string, attempts int, log func(string)) error",
+          "notes": "Retries transient failures only"
+        },
+        {
+          "name": "Git.DirtyFiles",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) DirtyFiles(ctx context.Context) ([]string, error)"
+        },
+        {
+          "name": "Git.CurrentBranch",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) CurrentBranch(ctx context.Context) (string, error)",
+          "notes": "Returns \"HEAD\" when detached"
+        },
+        {
+          "name": "Git.CreateBranch",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) CreateBranch(ctx context.Context, name string) error",
+          "notes": "checkout -b; carries the working tree"
+        },
+        {
+          "name": "Git.ResetHard",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) ResetHard(ctx context.Context, ref string) error"
+        },
+        {
+          "name": "Git.CommitsSince",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) CommitsSince(ctx context.Context, since string) ([]Commit, error)"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1569 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "06",
+  "spec_name": "af_ring1_facts",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-06-1",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-1.1",
+        "06-REQ-1.3"
+      ],
+      "title": "In a git work tree the file view lists tracked and untracked-not-ignored files unquoted, drops ignored and deleted files, and is sorted",
+      "given": [
+        "a temporary git repo built like gitx newRepo (skipped when git is missing)",
+        "a tracked file `a b.txt`, an untracked file `é/ü.go`, a file matched by .gitignore, a tracked file deleted from the working tree, a `.agent-fox/x` file and a tracked path under `.git`-like name `sub/.gitkeep`"
+      ],
+      "when": "the checks package builds the file view for the repo dir",
+      "then": [
+        "the view contains `a b.txt` and `é/ü.go` byte-exact, unquoted",
+        "the ignored file and the deleted tracked file are absent",
+        "nothing under `.git/` or `.agent-fox/` is present",
+        "paths are slash-separated, relative and sorted in byte order"
+      ],
+      "pseudocode": "v = FileView(ctx, dir); assert 'a b.txt' in v; assert 'é/ü.go' in v; assert 'ignored.log' not in v; assert 'deleted.txt' not in v; assert v == sorted(v); assert none(p.startswith('.agent-fox/') or p.startswith('.git/') for p in v)"
+    },
+    {
+      "id": "TS-06-2",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-1.2",
+        "06-REQ-1.3"
+      ],
+      "title": "Outside a git work tree the file view is a standard-library walk that skips the fixed directory names",
+      "given": [
+        "a plain temporary directory (no .git) holding src/a.go and, inside it, directories .git, .hg, .svn, node_modules, vendor, target, dist, build, __pycache__, .venv, venv and .agent-fox each with a file",
+        "a nested `src/vendor/x.go`"
+      ],
+      "when": "the checks package builds the file view for the directory",
+      "then": [
+        "the view is exactly the files outside the skipped directory names (including `src/` content that is not skipped)",
+        "no path has any skipped name as a directory segment, at any depth",
+        "paths are slash-separated, relative and sorted"
+      ],
+      "pseudocode": "v = FileView(ctx, dir); assert v == ['src/a.go']; for p in v: assert not (set(p.split('/')[:-1]) & SKIP)"
+    },
+    {
+      "id": "TS-06-3",
+      "kind": "property",
+      "verifies": [
+        "06-REQ-1.3"
+      ],
+      "title": "Every file view is sorted, slash-separated, relative and free of .git/ and .agent-fox/ entries",
+      "given": [
+        "a generator of directory trees with random names including spaces and non-ASCII, both inside and outside a git work tree"
+      ],
+      "when": "for any generated tree, the file view is built",
+      "then": [
+        "paths are in ascending byte order with no duplicates",
+        "no path begins with `/`, contains a backslash, or starts with `.git/` or `.agent-fox/`"
+      ],
+      "pseudocode": "for tree in gen_trees(): v = FileView(tree); assert v == sorted(set(v)); assert all(not p.startswith(('/', '.git/', '.agent-fox/')) and '\\\\' not in p for p in v)"
+    },
+    {
+      "id": "TS-06-4",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-1.4"
+      ],
+      "title": "The tree hash is 64 lowercase hex characters and reflects file kind, executable bit, symlink target and special file types",
+      "given": [
+        "a temporary directory with a regular file, a symlink to a missing target, and (where the OS allows) a named pipe"
+      ],
+      "when": "the tree hash is computed, then the exec bit of the file is flipped, then the symlink target is changed, then recomputed",
+      "then": [
+        "each hash matches ^[0-9a-f]{64}$",
+        "flipping the executable bit changes the hash",
+        "changing the symlink target changes the hash and the dangling link does not fail the call",
+        "the named pipe contributes only its type and the call does not block"
+      ],
+      "pseudocode": "h1 = TreeHash(dir); assert re.match('^[0-9a-f]{64}$', h1); chmod +x f; assert TreeHash(dir) != h1; relink(l, 'other'); assert TreeHash(dir) != h2"
+    },
+    {
+      "id": "TS-06-5",
+      "kind": "property",
+      "verifies": [
+        "06-REQ-1.5"
+      ],
+      "title": "The tree hash depends only on the file view's content, never on HEAD, location or ignored files, and any one-byte change alters it",
+      "given": [
+        "a generator of small file sets with random content, exec bits and symlinks",
+        "two git repos with different commit histories and absolute locations"
+      ],
+      "when": "for any file set written into two repos with different HEADs and locations, with arbitrary content added to ignored files in one, and then one byte of one viewed file is changed",
+      "then": [
+        "the two hashes are equal",
+        "the hash after changing one byte of a viewed file differs from before",
+        "the hash after changing only ignored files equals the one before"
+      ],
+      "pseudocode": "for fs in gen_filesets(): a=mk(fs, history=1); b=mk(fs, history=3); write_ignored(b); assert TreeHash(a)==TreeHash(b); flip_byte(a, pick(fs)); assert TreeHash(a)!=TreeHash(b)"
+    },
+    {
+      "id": "TS-06-6",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-1.6"
+      ],
+      "title": "An unreadable file hashes as a fixed unreadable marker and does not fail the tree hash",
+      "given": [
+        "a directory with a readable file and a file with mode 000 (test skipped when running as root)"
+      ],
+      "when": "the tree hash is computed twice",
+      "then": [
+        "the call returns a hash and a nil error both times",
+        "the hash is identical on both calls",
+        "making the file readable changes the hash"
+      ],
+      "pseudocode": "h, err = TreeHash(dir); assert err == nil; assert h == TreeHash(dir)[0]; chmod 644; assert TreeHash(dir)[0] != h"
+    },
+    {
+      "id": "TS-06-7",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-1.7"
+      ],
+      "title": "Computing a tree hash creates .agent-fox/ with its .gitignore so the directory never shows in git status",
+      "given": [
+        "a git repo with no .agent-fox directory"
+      ],
+      "when": "a tree hash is computed and then a gate result is written under .agent-fox/gate",
+      "then": [
+        "`.agent-fox/.gitignore` exists with the spec-05 content",
+        "`git status --porcelain` lists nothing under `.agent-fox/`",
+        "a second call with the directory present leaves the .gitignore unchanged"
+      ],
+      "pseudocode": "TreeHash(dir); assert exists('.agent-fox/.gitignore'); mkdir('.agent-fox/gate/x'); assert '.agent-fox' not in git('status','--porcelain')"
+    },
+    {
+      "id": "TS-06-8",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-1.8"
+      ],
+      "title": "gitx ChangedPaths returns diff-from-ref plus untracked paths NUL-separated, byte-exact, de-duplicated and sorted",
+      "given": [
+        "a git repo with a base commit",
+        "after it: a modified tracked file ` lead.txt` with a leading space, a new committed file `é x.go`, an untracked `trail .txt ` and an ignored file"
+      ],
+      "when": "ChangedPaths(ctx, base) is called",
+      "then": [
+        "the result holds the three paths byte-exact with spaces and non-ASCII preserved",
+        "the ignored file is absent",
+        "there are no duplicates and the list is sorted"
+      ],
+      "pseudocode": "p = g.ChangedPaths(ctx, base); assert p == sorted([' lead.txt','é x.go','trail .txt ']) "
+    },
+    {
+      "id": "TS-06-9",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-2.1"
+      ],
+      "title": "lang detect counts languages from the file view ordered by count then name and reports an empty directory as empty",
+      "given": [
+        "a repo with 3 .go files, 2 .py files, 2 .rs files and 1 .md file, plus go.mod",
+        "an empty directory"
+      ],
+      "when": "project detection runs on each directory",
+      "then": [
+        "languages are go(3), python(2), rust(2) in that order (ties by name) and markdown is not listed",
+        "go carries manifest `go.mod`",
+        "for the empty directory `languages` is empty and `gate.checks` is empty, status done"
+      ],
+      "pseudocode": "r = Detect(dir); assert [l.name for l in r.languages]==['go','python','rust']; assert r.languages[0].manifest=='go.mod'; assert Detect(empty).gate.checks==[]"
+    },
+    {
+      "id": "TS-06-10",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-2.2"
+      ],
+      "title": "A parsing gate.json is the effective table with source file",
+      "given": [
+        "a repo with a Makefile `check` target and `.agent-fox/gate.json` = {\"version\":1,\"checks\":[one custom check `./ci.sh`]}"
+      ],
+      "when": "detection runs",
+      "then": [
+        "`gate.source` is `file`",
+        "`gate.checks` is exactly the custom check, not `make check`"
+      ],
+      "pseudocode": "r = Detect(dir); assert r.gate.source=='file'; assert [c.argv for c in r.gate.checks]==[['./ci.sh']]"
+    },
+    {
+      "id": "TS-06-11",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-2.3"
+      ],
+      "title": "Without gate.json the table is detected from root files with Makefile precedence, and this repository gives exactly make check",
+      "given": [
+        "fixtures: a Makefile with `check:`; a GNUmakefile with `test:` and `lint:`; a makefile with only `test:`; a go.mod with a Makefile that has `VAR := x` and `.PHONY` lines only; this repository's root"
+      ],
+      "when": "detection runs on each fixture",
+      "then": [
+        "`check` target gives exactly [make check] with kind `check` and source `Makefile:check`",
+        "test+lint gives [make lint (lint), make test (test)]; test only gives [make test]",
+        "assignments and .PHONY are not targets, so the go.mod fixture falls through to `go vet ./...` then `go test ./...`",
+        "`gate.source` is `detected` and every check has name, argv without shell, kind, source and available",
+        "on this repository languages[0] is `go` and the checks are exactly [make check]"
+      ],
+      "pseudocode": "assert Detect(repoRoot).gate.checks == [Check('make check', ['make','check'], 'check', 'Makefile:check')]"
+    },
+    {
+      "id": "TS-06-12",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-2.4"
+      ],
+      "title": "Go, Rust, Java and Node manifests yield exactly their listed checks",
+      "given": [
+        "fixtures: go.mod; Cargo.toml; pom.xml without and with mvnw; build.gradle without and with gradlew; package.json with pnpm-lock.yaml and scripts test+lint; yarn.lock and bun.lockb variants; package.json with npm's placeholder test script `echo \\\"Error: no test specified\\\" && exit 1`; package.json with no lockfile"
+      ],
+      "when": "detection runs on each fixture (no Makefile)",
+      "then": [
+        "Go: go vet ./... (lint), go test ./... (test)",
+        "Rust: cargo test",
+        "Maven: `mvn -q test`, or `./mvnw test` when mvnw exists; Gradle: `gradle test` or `./gradlew test`",
+        "pnpm: `pnpm test` and `pnpm run lint`; yarn and bun use their program; no lockfile uses npm",
+        "the npm placeholder test script yields no test check",
+        "a package with no lint script yields no lint check"
+      ],
+      "pseudocode": "assert argvs(Detect(pnpmFixture)) == [['pnpm','test'],['pnpm','run','lint']]; assert argvs(Detect(placeholder)) == []"
+    },
+    {
+      "id": "TS-06-13",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-2.4"
+      ],
+      "title": "Python manifests choose pytest or unittest, the uv or poetry prefix, and ruff when configured",
+      "given": [
+        "fixtures: pyproject.toml with uv.lock and `[tool.pytest.ini_options]` and `[tool.ruff]`; pyproject.toml with poetry.lock and pytest in requirements; setup.py only; tox.ini with a root conftest.py; pytest.ini only"
+      ],
+      "when": "detection runs on each fixture",
+      "then": [
+        "uv fixture: `uv run pytest` and `uv run ruff check .` (lint)",
+        "poetry fixture: `poetry run pytest`",
+        "setup.py only: `python -m unittest discover`",
+        "conftest.py, pytest.ini or requirements mention each select pytest"
+      ],
+      "pseudocode": "assert argvs(Detect(uvFx)) == [['uv','run','pytest'],['uv','run','ruff','check','.']]; assert argvs(Detect(setupOnly)) == [['python','-m','unittest','discover']]"
+    },
+    {
+      "id": "TS-06-14",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-2.5"
+      ],
+      "title": "suite and programs are de-duplicated in first-seen order and on this repository contain the make and go forms",
+      "given": [
+        "this repository's root",
+        "a fixture with a Makefile `check` target plus go.mod and Cargo.toml"
+      ],
+      "when": "detection runs",
+      "then": [
+        "on this repo `suite` contains `make check`, `make test`, `go vet ./...` and `go test ./...`; `programs` contains `make` and `go`",
+        "in the fixture `suite` holds the gate argv, then make check/test forms, then language full-suite forms, each once",
+        "`programs` starts with the checks' argv[0] and then adds toolchain programs such as `cargo`, without duplicates"
+      ],
+      "pseudocode": "r = Detect(repo); assert ['make','check'] in r.suite and ['go','test','./...'] in r.suite; assert 'make' in r.programs and 'go' in r.programs; assert len(set(map(tuple,r.suite)))==len(r.suite)"
+    },
+    {
+      "id": "TS-06-15",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-2.6"
+      ],
+      "title": "A gate.json that does not parse or names another version fails with category config naming the file",
+      "given": [
+        "the af binary's lang detect command on a repo with a Makefile",
+        "case A: .agent-fox/gate.json holds `{not json`; case B: {\"version\":2,\"checks\":[]}"
+      ],
+      "when": "`af lang detect --dir repo` runs in each case",
+      "then": [
+        "status is `failed` and the exit code is 1",
+        "error.category is `config`",
+        "error.message contains the path of gate.json",
+        "no detected table is returned (no fallback to the Makefile)"
+      ],
+      "pseudocode": "env, code = af('lang','detect','--dir',d); assert code==1 and env.status=='failed' and env.error.category=='config' and 'gate.json' in env.error.message"
+    },
+    {
+      "id": "TS-06-16",
+      "kind": "property",
+      "verifies": [
+        "06-REQ-2.7"
+      ],
+      "title": "The selected checks, their order and argv are identical whatever is on PATH",
+      "given": [
+        "a fixture with go.mod and package.json (pnpm) and Cargo.toml",
+        "a generator of PATH values (empty, real, random subsets of the toolchain programs)"
+      ],
+      "when": "for any PATH value, detection runs",
+      "then": [
+        "names, argv, kinds and order of checks are equal across all PATH values",
+        "only the `available` flags differ"
+      ],
+      "pseudocode": "base = strip_available(Detect(fx, PATH=real)); for p in gen_paths(): assert strip_available(Detect(fx, PATH=p)) == base"
+    },
+    {
+      "id": "TS-06-17",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-2.7"
+      ],
+      "title": "A selected check whose program is missing stays in the table as unavailable with a check_unavailable warning",
+      "given": [
+        "a repo with a Cargo.toml and PATH lacking `cargo`"
+      ],
+      "when": "`af lang detect --dir repo` runs",
+      "then": [
+        "status `done`, exit 0",
+        "`cargo test` is present with `available: false`",
+        "a warning with code `check_unavailable` names the check"
+      ],
+      "pseudocode": "env = af('lang','detect'); assert env.status=='done'; assert any(w.code=='check_unavailable' for w in env.warnings)"
+    },
+    {
+      "id": "TS-06-18",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-2.8"
+      ],
+      "title": "--write stores the freshly detected table atomically, ignoring any existing gate.json, and a later detect reads it back as file",
+      "given": [
+        "a repo with a Makefile `check` target and an existing gate.json naming a different check"
+      ],
+      "when": "`af lang detect --write` runs, then `af lang detect` runs again",
+      "then": [
+        "gate.json holds {\"version\":1,\"checks\":[make check]} with no leftover temporary files in `.agent-fox/`",
+        "the second run reports `gate.source` `file` and the same checks"
+      ],
+      "pseudocode": "af('lang','detect','--write'); j=load('.agent-fox/gate.json'); assert j.version==1 and j.checks[0].argv==['make','check']; assert af('lang','detect').result.gate.source=='file'"
+    },
+    {
+      "id": "TS-06-19",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-3.1",
+        "06-REQ-3.3"
+      ],
+      "title": "A gate run executes available checks in order, writes one full log each, and records statuses, exit codes, durations and tails",
+      "given": [
+        "a git repo with gate.json holding checks: `pass` (exit 0, prints 100 lines), `fail` (exit 3), `missing` (program that does not exist but is listed available:false... plus a check whose argv[0] exists in PATH only via a script that is removed before start to give error), and `slow` (sleeps past its per-check deadline in an internal test with a short deadline)"
+      ],
+      "when": "checks.Run executes the table under ReducedEnvRunner",
+      "then": [
+        "logs exist at `.agent-fox/gate/<id>/01-<slug>.log`, `02-…` for each executed check and hold the full output",
+        "pass has status `pass`, exit_code 0; fail has status `fail`, exit_code 3; a program that cannot start has status `error`, exit_code -1; the slow check has status `timeout`",
+        "`log` is relative to the dir; `tail` has at most 40 lines and at most 4096 bytes",
+        "an unavailable check appears in `skipped` with reason `unavailable` and has no log"
+      ],
+      "pseudocode": "r = Run(ctx, dir, opts); assert r.checks[0].status=='pass'; assert len(r.checks[0].tail.splitlines())<=40 and len(r.checks[0].tail)<=4096; assert read(dir+'/'+r.checks[0].log).count('\\n')==100"
+    },
+    {
+      "id": "TS-06-20",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-3.2"
+      ],
+      "title": "--hermetic runs under HermeticRunner with a temporary HOME that is removed afterwards, including after cancellation",
+      "given": [
+        "a check script that writes `$HOME` to a file under the repo's .agent-fox/gate log",
+        "a second check that blocks until cancelled"
+      ],
+      "when": "a gate run with Hermetic=true completes, and another is cancelled mid-run",
+      "then": [
+        "result has `hermetic: true`",
+        "the HOME the script saw is not the real HOME and does not exist after the command returns",
+        "after the cancelled run its HOME also does not exist"
+      ],
+      "pseudocode": "r = Run(hermetic=true); h = read_log(r).home; assert r.hermetic and h != os.Getenv('HOME') and not exists(h)"
+    },
+    {
+      "id": "TS-06-21",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-3.4"
+      ],
+      "title": "The result carries all fields and passed is true only when at least one check ran and all executed checks passed",
+      "given": [
+        "tables: all pass; one fail; one pass plus one unavailable skipped; no available check"
+      ],
+      "when": "a gate run produces each result",
+      "then": [
+        "every result has id, tree, table_source, hermetic, label, cached, passed, checks and skipped with a reason per entry",
+        "passed is true for all-pass and for pass+skipped, false for one fail, false for no executed check"
+      ],
+      "pseudocode": "assert Run(allPass).passed; assert not Run(oneFail).passed; assert not Run(noneAvailable).passed"
+    },
+    {
+      "id": "TS-06-22",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-3.5",
+        "06-REQ-3.6"
+      ],
+      "title": "A red gate and an empty table are both done with exit 0 and passed false, the empty table with a no_checks warning",
+      "given": [
+        "case A: gate.json with one check `exit 1`; case B: gate.json whose only check program is not on PATH"
+      ],
+      "when": "`af gate run --dir repo` runs in each case",
+      "then": [
+        "A: status `done`, exit 0, result.passed false, one check with status fail, no warning no_checks",
+        "B: status `done`, exit 0, result.passed false, `checks` empty, skipped lists the check, warning code `no_checks`, no check was executed"
+      ],
+      "pseudocode": "env,code = af('gate','run'); assert code==0 and env.status=='done' and env.result.passed==false; assert 'no_checks' in codes(env.warnings) for case B"
+    },
+    {
+      "id": "TS-06-23",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-3.7"
+      ],
+      "title": "A tree changed by the checks is stored under the earlier hash with a tree_changed_during_gate warning",
+      "given": [
+        "a git repo whose single check appends a line to a tracked file"
+      ],
+      "when": "`af gate run` runs",
+      "then": [
+        "status `done`",
+        "warning code `tree_changed_during_gate`",
+        "result.tree equals the tree hash taken before the run and the result is stored under that id",
+        "the tree hash now differs from result.tree"
+      ],
+      "pseudocode": "pre = TreeHash(dir); env = af('gate','run'); assert env.result.tree == pre; assert TreeHash(dir) != pre; assert exists('.agent-fox/gate/'+env.result.id+'/result.json')"
+    },
+    {
+      "id": "TS-06-24",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-3.8"
+      ],
+      "title": "A command timeout or signal stops the check's process group, stores no result.json and fails the command",
+      "given": [
+        "gate.json with a check that spawns a child `sleep 60` and waits",
+        "`--timeout 1s`, and a second case that sends SIGINT"
+      ],
+      "when": "`af gate run --timeout 1s` runs and, separately, the process is signalled",
+      "then": [
+        "status `failed`, exit 1",
+        "the sleeping child process no longer exists",
+        "`.agent-fox/gate/<id>/result.json` does not exist",
+        "a following run with a passing table executes normally (nothing cached from the cancelled run)"
+      ],
+      "pseudocode": "env,code = af('gate','run','--timeout','1s'); assert code==1 and env.status=='failed'; assert not exists(resultJson); assert not pid_alive(child)"
+    },
+    {
+      "id": "TS-06-25",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-4.1"
+      ],
+      "title": "The gate id is the first 12 hex characters of SHA-256 over tree hash, canonical table JSON and runner mode",
+      "given": [
+        "a fixed tree hash and table"
+      ],
+      "when": "the cache key is computed for reduced and hermetic mode, for a reordered-key JSON table, and for a changed table",
+      "then": [
+        "id is 12 lowercase hex characters and equals the first 12 characters of the independently computed SHA-256",
+        "reduced and hermetic ids differ",
+        "a different table gives a different id",
+        "the same table with its JSON keys written in another order gives the same id",
+        "the result directory is `.agent-fox/gate/<id>/`"
+      ],
+      "pseudocode": "k = sha256(tree + canon(table) + 'reduced'); assert Key(tree, table, Reduced).ID == k[:12]; assert Key(..., Hermetic).ID != k[:12]"
+    },
+    {
+      "id": "TS-06-26",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-4.2"
+      ],
+      "title": "Two gate runs on an unchanged tree execute a counter-script check once and the second is cached",
+      "given": [
+        "a git repo with gate.json whose check is a script that appends a line to an ignored counter file outside the view"
+      ],
+      "when": "`af gate run` runs twice",
+      "then": [
+        "the counter file has exactly one line",
+        "the first envelope has `cached: false`, the second `cached: true`",
+        "both carry the same id and the second reports the stored checks",
+        "no new log is written on the second run"
+      ],
+      "pseudocode": "a = af('gate','run'); b = af('gate','run'); assert lines(counter)==1; assert not a.result.cached and b.result.cached; assert a.result.id==b.result.id"
+    },
+    {
+      "id": "TS-06-27",
+      "kind": "property",
+      "verifies": [
+        "06-REQ-4.3"
+      ],
+      "title": "Any one-byte change to a viewed file forces a re-run and any change confined to ignored files is a cache hit",
+      "given": [
+        "a generator of small repos and of mutations; a counter-script check"
+      ],
+      "when": "for any tree, a gate run is followed by one mutation (a one-byte change to a random viewed file, or arbitrary edits to ignored files) and another gate run",
+      "then": [
+        "after a viewed-file mutation the counter increments and `cached` is false",
+        "after an ignored-file-only mutation the counter does not change and `cached` is true"
+      ],
+      "pseudocode": "for t in gen_repos(): Run(t); m = gen_mutation(t); apply(m); r = Run(t); assert r.cached == (m.kind=='ignored')"
+    },
+    {
+      "id": "TS-06-28",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-4.4"
+      ],
+      "title": "--no-cache re-executes the checks and replaces the stored result",
+      "given": [
+        "a cached result for the tree from a counter-script check"
+      ],
+      "when": "`af gate run --no-cache` runs",
+      "then": [
+        "the counter increments",
+        "`cached` is false",
+        "result.json holds the new run's duration_ms and logs and the id is unchanged"
+      ],
+      "pseudocode": "af('gate','run'); af('gate','run','--no-cache'); assert lines(counter)==2; assert load(resultJson).cached==false"
+    },
+    {
+      "id": "TS-06-29",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-4.5"
+      ],
+      "title": "result.json is written after the logs, atomically, so concurrent runs never leave a partial file",
+      "given": [
+        "a repo with a check taking ~200ms",
+        "10 concurrent gate runs with --no-cache on the same tree while a reader repeatedly parses result.json"
+      ],
+      "when": "the runs and the reader execute together",
+      "then": [
+        "every successful read of result.json is complete valid JSON",
+        "at the end result.json exists and its logs exist",
+        "no temporary files remain in `.agent-fox/gate/<id>/`",
+        "a result.json never appears before the first log of its run exists"
+      ],
+      "pseudocode": "parallel(10, Run(noCache)); while running: if exists(rj): json.load(rj); assert no tmp files"
+    },
+    {
+      "id": "TS-06-30",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-4.6"
+      ],
+      "title": "--label records the id in labels.json on a miss and on a hit, and the latest result for a label wins",
+      "given": [
+        "a repo with a counter check, no labels.json"
+      ],
+      "when": "`af gate run --label baseline` runs, a viewed file is changed, `--label baseline` runs again, then the same tree is run with `--label after` (a hit)",
+      "then": [
+        "result.label equals the label given in each envelope",
+        "labels.json maps baseline to the second run's id, not the first",
+        "labels.json maps `after` to the same id although the run was a cache hit",
+        "labels.json has no temporary file left beside it"
+      ],
+      "pseudocode": "r1=af(...,'--label','baseline'); touch(f); r2=af(...,'--label','baseline'); r3=af(...,'--label','after'); L=load(labels); assert L.baseline==r2.id and L.after==r3.id and r3.cached"
+    },
+    {
+      "id": "TS-06-31",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-4.7"
+      ],
+      "title": "An invalid or id-shaped label is a usage error before any check runs and leaves labels.json unchanged",
+      "given": [
+        "a repo with an existing labels.json and a counter check"
+      ],
+      "when": "`af gate run --label X` runs for labels `Bad`, `1abc`, `a` repeated 33 times, empty-with-space `a b`, and `0123456789ab` (12 hex)",
+      "then": [
+        "status `usage`, exit 2 in every case",
+        "the counter file is unchanged (no check ran)",
+        "labels.json bytes are unchanged",
+        "a valid label `ok_label-1` is accepted"
+      ],
+      "pseudocode": "for l in bad: env,code=af('gate','run','--label',l); assert code==2 and env.status=='usage'; assert counter_unchanged and labels_bytes_unchanged"
+    },
+    {
+      "id": "TS-06-32",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-5.1"
+      ],
+      "title": "Per-check verdicts follow the four-row table with fail, error and timeout all counting as not pass",
+      "given": [
+        "stored results with checks a,b,c,d,e,f whose before/after statuses are pass/pass, fail/pass, pass/fail, fail/fail, error/pass, pass/timeout",
+        "one result stored under a label and the other by its id"
+      ],
+      "when": "checks.Compare resolves `--before` (label) and `--after` (id) and compares",
+      "then": [
+        "rows are a=pass, b=pass_was_already_failing, c=regressed, d=still_failing, e=pass_was_already_failing, f=regressed",
+        "each row carries the before status, after status and verdict",
+        "a label that equals a stored id string is resolved as a label first"
+      ],
+      "pseudocode": "rows = Compare(dir,'baseline',after.id).rows; assert [r.verdict for r in rows] == [...]"
+    },
+    {
+      "id": "TS-06-33",
+      "kind": "property",
+      "verifies": [
+        "06-REQ-5.2"
+      ],
+      "title": "The overall verdict is the highest-priority row verdict and landable is true only for pass and pass_was_already_failing",
+      "given": [
+        "a generator of result pairs with the same non-empty check names and random statuses from pass, fail, error, timeout"
+      ],
+      "when": "for any such pair, the pair is compared",
+      "then": [
+        "verdict equals the first of regressed, still_failing, pass_was_already_failing, pass that any row carries",
+        "landable is true iff verdict is pass or pass_was_already_failing"
+      ],
+      "pseudocode": "for (b,a) in gen_pairs(): v = Compare(b,a); assert v.verdict == first(p for p in ORDER if p in rowverdicts(v)); assert v.landable == (v.verdict in ('pass','pass_was_already_failing'))"
+    },
+    {
+      "id": "TS-06-34",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-5.3"
+      ],
+      "title": "A result with no checks on either side compares as unverified and not landable",
+      "given": [
+        "stored results: one with checks and one with an empty checks list, in both orders; and both empty"
+      ],
+      "when": "Compare runs for each combination",
+      "then": [
+        "verdict is `unverified` and landable false in each",
+        "no error is returned"
+      ],
+      "pseudocode": "assert Compare(empty, full).verdict=='unverified' and not .landable"
+    },
+    {
+      "id": "TS-06-35",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-5.4"
+      ],
+      "title": "gate compare returns a done envelope with exit 0 and both sides' id, label and passed for each of the five verdicts",
+      "given": [
+        "a repo where gate runs, labelled, have produced result pairs for pass, pass_was_already_failing, regressed, still_failing, and (with an empty-table gate.json) unverified"
+      ],
+      "when": "`af gate compare --before B --after A` runs for each pair",
+      "then": [
+        "status `done` and exit 0 in each of the five cases",
+        "result holds before{id,label,passed}, after{id,label,passed}, verdict, landable and the rows",
+        "verdict equals the expected one in each case and landable is true only for pass and pass_was_already_failing"
+      ],
+      "pseudocode": "for pair in pairs: env,code = af('gate','compare','--before',pair.b,'--after',pair.a); assert code==0 and env.status=='done' and env.result.verdict==pair.expected"
+    },
+    {
+      "id": "TS-06-36",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-5.5"
+      ],
+      "title": "A missing or unresolved --before/--after is a usage error naming the argument",
+      "given": [
+        "a repo with one stored label `baseline`"
+      ],
+      "when": "`af gate compare` runs with no --before; with `--before baseline` and no --after; with `--before baseline --after nosuch`",
+      "then": [
+        "status `usage`, exit 2 each time",
+        "error.message names `--before` for the first, `--after` for the second, and `nosuch` for the third"
+      ],
+      "pseudocode": "env,code = af('gate','compare','--before','baseline','--after','nosuch'); assert code==2 and 'nosuch' in env.error.message"
+    },
+    {
+      "id": "TS-06-37",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-5.6"
+      ],
+      "title": "Results with different check names cannot be compared and the message lists the one-sided names",
+      "given": [
+        "two stored results from different tables: {lint,test} and {test,build}"
+      ],
+      "when": "`af gate compare` runs on them",
+      "then": [
+        "status `usage`, exit 2",
+        "error.message lists `lint` as only before and `build` as only after"
+      ],
+      "pseudocode": "env,code = af('gate','compare',...); assert code==2 and 'lint' in msg and 'build' in msg"
+    },
+    {
+      "id": "TS-06-38",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-6.1"
+      ],
+      "title": "revert-check refuses a non-top-level --dir, a missing --since and an unresolvable --since before touching any file",
+      "given": [
+        "a git repo with a subdirectory and an untouched tree, index and .agent-fox"
+      ],
+      "when": "`af revert-check --since HEAD --dir repo/sub`, `af revert-check` with no --since, and `--since nosuchref` run",
+      "then": [
+        "status `usage`, exit 2 in each",
+        "error.message names `--dir`, `--since` and `--since` respectively",
+        "tree hash and index bytes are unchanged and no `.agent-fox/revert/` directory was created"
+      ],
+      "pseudocode": "for args in cases: env,code = af(*args); assert code==2 and env.status=='usage'; assert state_unchanged()"
+    },
+    {
+      "id": "TS-06-39",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-6.2"
+      ],
+      "title": "Test-path classification follows the fixed convention table",
+      "given": [
+        "a table of positive and negative paths"
+      ],
+      "when": "project.IsTestPath is applied to each",
+      "then": [
+        "true for `a_test.go`, `pkg/testdata/x.json`, `test_a.py`, `a_test.py`, `conftest.py`, `a.test.ts`, `b.spec.js`, `__tests__/x.js`, `src/test/java/A.java`, `FooTest.java`, `FooTests.java`, `FooIT.java`, `x_spec.rb`, `x_test.rb`, `tests/a.rs`, `spec/x.rb`, `a/test/b.c`",
+        "false for `main.go`, `latest.go`, `contest.py`, `src/main/java/A.java`, `testing.md` and `attest/x.go`"
+      ],
+      "pseudocode": "for p in pos: assert IsTestPath(p); for p in neg: assert not IsTestPath(p)"
+    },
+    {
+      "id": "TS-06-40",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-6.3"
+      ],
+      "title": "Nothing-to-measure cases return their outcome without modifying any file",
+      "given": [
+        "a git repo with a base commit and gate.json with a test check",
+        "case A: no changes; B: only test files changed; C: only non-test files changed; D: test and non-test changed but gate.json has only a lint check"
+      ],
+      "when": "`af revert-check --since base` runs in each case",
+      "then": [
+        "status `done`, exit 0, restored true",
+        "outcomes are no_changes, no_code_changes, no_test_changes and inconclusive respectively",
+        "warning `fix_not_proven` is present for B, C and D and absent for A",
+        "tree hash and index bytes are unchanged and no gate check ran in the reverted state"
+      ],
+      "pseudocode": "for c in cases: env = af('revert-check','--since',base); assert env.result.outcome==c.outcome; assert ('fix_not_proven' in codes) == (c.outcome!='no_changes'); assert unchanged()"
+    },
+    {
+      "id": "TS-06-41",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-6.4"
+      ],
+      "title": "A red current tree is inconclusive with reason after_not_green and nothing is reverted",
+      "given": [
+        "a git repo whose change touches a source file and a test file, and whose test check fails on the current tree"
+      ],
+      "when": "`af revert-check --since base` runs",
+      "then": [
+        "status `done`, outcome `inconclusive`, reason `after_not_green`, closes false",
+        "result.after holds the gate id that is in the gate cache",
+        "warning `fix_not_proven` is present",
+        "`reverted_files` is empty and tree hash and index are unchanged"
+      ],
+      "pseudocode": "env = af('revert-check','--since',base); assert env.result.reason=='after_not_green'; assert exists('.agent-fox/gate/'+env.result.after+'/result.json'); assert env.result.reverted_files==[]"
+    },
+    {
+      "id": "TS-06-42",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-6.5"
+      ],
+      "title": "Non-test paths are reverted to the ref's content and mode without touching the index, added files are moved aside and test paths stay",
+      "given": [
+        "a base commit with `lib.sh` (mode 755, content v1) and a test script `check_test.sh`",
+        "a working tree where lib.sh is v2, a new non-test file `new.go` is untracked, a test `fix_test.go` is added, and the current tree is green",
+        "a gate.json test check that, when run, records whether lib.sh holds v1, whether new.go exists and whether fix_test.go exists, into an ignored file"
+      ],
+      "when": "`af revert-check --since base` runs",
+      "then": [
+        "during the reverted run lib.sh held v1 with mode 755, new.go did not exist and fix_test.go existed",
+        "`reverted_files` lists lib.sh and new.go; `test_files` lists fix_test.go",
+        "the backup under `.agent-fox/revert/<id>/` held a manifest and copies while reverted",
+        "`git diff --cached` was empty and the index was untouched throughout",
+        "only test/check kind checks ran on the reverted tree"
+      ],
+      "pseudocode": "env = af('revert-check','--since',base); obs = read(observation); assert obs.libContent=='v1' and obs.libMode==0o755 and not obs.newExists and obs.testExists; assert env.result.reverted_files==['lib.sh','new.go']"
+    },
+    {
+      "id": "TS-06-43",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-6.6"
+      ],
+      "title": "proven and not_proven both exit 0 with closes true only for proven and the full result shape",
+      "given": [
+        "fixture P: change adds a fix to lib file and a test that fails without it",
+        "fixture N: change adds a test that passes without the fix"
+      ],
+      "when": "`af revert-check --since base` runs on each",
+      "then": [
+        "P: outcome `proven`, closes true, no `fix_not_proven` warning, reverted.passed false",
+        "N: outcome `not_proven`, closes false, warning `fix_not_proven`, reverted.passed true",
+        "both: status `done`, exit 0, `since` is a 40-character hash, and the result holds reason, test_files, reverted_files, after, reverted{id,passed,checks} and restored true",
+        "an `inconclusive` case also carries the `fix_not_proven` warning"
+      ],
+      "pseudocode": "p = af(P); assert p.result.outcome=='proven' and p.result.closes and len(p.result.since)==40; n = af(N); assert n.result.outcome=='not_proven' and not n.result.closes"
+    },
+    {
+      "id": "TS-06-44",
+      "kind": "property",
+      "verifies": [
+        "06-REQ-6.7"
+      ],
+      "title": "Every outcome leaves the tree hash and the index bytes as they were",
+      "given": [
+        "a generator of repos with random mixes of modified, added, deleted-and-renamed source files and test files, staged and unstaged, with a test check that passes or fails by content"
+      ],
+      "when": "for any such repo, revert-check runs",
+      "then": [
+        "tree hash before equals tree hash after",
+        "`.git/index` bytes before equal those after",
+        "`.agent-fox/revert/` has no remaining backup directory",
+        "restored is true"
+      ],
+      "pseudocode": "for repo in gen_repos(): h=TreeHash(repo); ix=read(repo/.git/index); Check(repo, base); assert TreeHash(repo)==h and read(index)==ix and not exists(repo/.agent-fox/revert/*)"
+    },
+    {
+      "id": "TS-06-45",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-6.7"
+      ],
+      "title": "A signal or timeout during the reverted run still restores the tree and the index",
+      "given": [
+        "a proven-style fixture whose reverted-tree test check sleeps 60s",
+        "the command run with `--timeout 3s` (and a variant killed by SIGINT once the reverted check starts)"
+      ],
+      "when": "the cancellation happens while the reverted tree is being tested",
+      "then": [
+        "the tree hash and `.git/index` bytes equal their pre-run values after the command returns",
+        "the backup directory is removed",
+        "the envelope status is `failed` (cancellation) while the tree is restored",
+        "the sleeping child is gone"
+      ],
+      "pseudocode": "env,code = af('revert-check','--since',base,'--timeout','3s'); assert TreeHash(dir)==h0 and read(index)==ix0 and not exists(backup)"
+    },
+    {
+      "id": "TS-06-46",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-6.8"
+      ],
+      "title": "A leftover backup, or a restore that fails or ends with a different tree hash, fails with category restore and keeps the backup",
+      "given": [
+        "case A: a directory `.agent-fox/revert/old/` exists before the command starts",
+        "case B: the test check deletes the backup directory's copy of a file (or makes the target path unwritable) so that the restore fails or the hash differs"
+      ],
+      "when": "`af revert-check --since base` runs in each case",
+      "then": [
+        "status `failed`, exit 1, error.category `restore`",
+        "error.message names the backup directory",
+        "in A nothing is reverted and the old directory is untouched",
+        "in B the backup directory is kept in place"
+      ],
+      "pseudocode": "env,code = af('revert-check','--since',base); assert code==1 and env.error.category=='restore' and backupDir in env.error.message and exists(backupDir)"
+    },
+    {
+      "id": "TS-06-47",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-7.1"
+      ],
+      "title": "Shell commands are split into segments, wrappers and assignments are skipped, and nested command contents are inspected",
+      "given": [
+        "a policy whose suite contains `go test ./...` and default protected paths"
+      ],
+      "when": "policy.Decide is called for `Bash` commands: `echo ok && go test ./...`, `FOO=1 env time timeout 5 nice nohup command exec make check`, `ls | go test ./...`, `echo $(make check)`, `` echo `make check` ``, `bash -c 'go test ./...'`, `sh -c \"git push\"`, and `go test ./pkg -run X; git diff`",
+      "then": [
+        "the first seven are denied (rules suite_command or git_mutation as appropriate) with a `segment` holding the offending segment",
+        "the last is allowed",
+        "the decision always carries decision, rule, segment and reason fields",
+        "the first deny wins when two segments are bad"
+      ],
+      "pseudocode": "for c in denied: d = Decide(bash(c)); assert d.Decision=='deny' and d.Segment!=''; assert Decide(bash('go test ./pkg -run X; git diff')).Decision=='allow'"
+    },
+    {
+      "id": "TS-06-48",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-7.2"
+      ],
+      "title": "An unparseable command is denied with rule unparseable",
+      "given": [
+        "default policy"
+      ],
+      "when": "Decide is called for `echo \"abc`, `echo 'abc`, `echo $(ls` and ``echo `ls``",
+      "then": [
+        "each decision is `deny` with rule `unparseable`",
+        "reason is non-empty and segment is non-empty"
+      ],
+      "pseudocode": "for c in bad: d=Decide(bash(c)); assert d.Decision=='deny' and d.Rule=='unparseable'"
+    },
+    {
+      "id": "TS-06-49",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-7.3"
+      ],
+      "title": "A refusal from the hands' guard is denied with rule hands_guard and its reason passed through, and an allow from the hands does not override later rules",
+      "given": [
+        "the hands' guard adapter replaced by a stub that refuses `rm -rf /` with reason R and allows everything else"
+      ],
+      "when": "Decide is called for `rm -rf /` and for `git push` (the stub allows it)",
+      "then": [
+        "the first is `deny`, rule `hands_guard`, reason exactly R",
+        "the second is still denied with rule `git_mutation`"
+      ],
+      "pseudocode": "setHands(stub); d=Decide(bash('rm -rf /')); assert d.Rule=='hands_guard' and d.Reason==R; assert Decide(bash('git push')).Rule=='git_mutation'"
+    },
+    {
+      "id": "TS-06-50",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-7.4"
+      ],
+      "title": "git is allowlisted by read-only subcommand, branch and remote only in listing forms, and -c is denied",
+      "given": [
+        "default policy"
+      ],
+      "when": "Decide is called for each of the 17 read-only subcommands, `git branch`, `git branch -a`, `git remote -v`, `git branch -D x`, `git remote add o u`, `git commit -m x`, `git push`, `git -c core.x=y status`, `git checkout main`, `git reset --hard`",
+      "then": [
+        "read-only subcommands and listing forms are allowed",
+        "the others are denied with rule `git_mutation`",
+        "the reason says that af makes every commit, branch and push"
+      ],
+      "pseudocode": "for s in RO: assert Decide(bash('git '+s)).Decision=='allow'; d=Decide(bash('git commit -m x')); assert d.Rule=='git_mutation' and 'af' in d.Reason"
+    },
+    {
+      "id": "TS-06-51",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-7.5"
+      ],
+      "title": "A segment equal to a suite form with dash-tokens stripped is denied naming af gate run, while targeted runs are allowed",
+      "given": [
+        "a policy whose suite holds `make check`, `make test`, `go test ./...`, `go vet ./...`"
+      ],
+      "when": "Decide is called for `make check`, `make -j4 check`, `go test ./...`, `go test -count=1 ./...`, `go test ./internal/x -run TestY`, `go test -run TestY ./internal/x`, `git diff`",
+      "then": [
+        "the first four are denied with rule `suite_command`",
+        "each reason names the command, `af gate run`, tree hash caching and that targeted runs are allowed",
+        "the last three are allowed"
+      ],
+      "pseudocode": "d=Decide(bash('go test -count=1 ./...')); assert d.Rule=='suite_command' and 'af gate run' in d.Reason and 'targeted' in d.Reason; assert Decide(bash('go test ./internal/x -run TestY')).Decision=='allow'"
+    },
+    {
+      "id": "TS-06-52",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-7.6"
+      ],
+      "title": "Only the listed af subcommands are allowed to a brain and the rest are denied as loop commands",
+      "given": [
+        "default policy"
+      ],
+      "when": "Decide is called for `af lang detect`, `af gate run`, `af gate compare`, `af revert-check`, `af map`, `af guard check`, `af triage brief`, `af triage submit`, `af fix brief`, `af fix submit`, `af --version`, `af --schema`, `af fix land`, `af run`, `af triage run`, `af`",
+      "then": [
+        "the twelve listed forms are allowed",
+        "the others are denied with rule `af_command` and a reason saying they belong to the loop"
+      ],
+      "pseudocode": "for c in ALLOWED: assert Decide(bash(c)).Decision=='allow'; d=Decide(bash('af fix land')); assert d.Rule=='af_command'"
+    },
+    {
+      "id": "TS-06-53",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-7.7"
+      ],
+      "title": "When allow_programs is set, other programs are denied except af and git, and an empty list means no allowlist",
+      "given": [
+        "policy A with allow_programs [`go`, `ls`]; policy B with allow_programs empty"
+      ],
+      "when": "Decide is called for `ls`, `curl x`, `af gate run`, `git status` under A and `curl x` under B",
+      "then": [
+        "under A `ls`, `af gate run` and `git status` are allowed and `curl x` is denied with rule `program_not_allowed`",
+        "under B `curl x` is allowed"
+      ],
+      "pseudocode": "assert Decide(A, bash('curl x')).Rule=='program_not_allowed'; assert Decide(B, bash('curl x')).Decision=='allow'"
+    },
+    {
+      "id": "TS-06-54",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-7.8"
+      ],
+      "title": "Redirections and write-style commands targeting protected paths are denied after resolution against --dir",
+      "given": [
+        "dir D with default protected paths"
+      ],
+      "when": "Decide is called for `echo x > .specs/a.md`, `echo x >> ./.github/workflows/ci.yml`, `rm .agent-fox/gate/labels.json`, `mv a .git/hooks/x`, `cp a ../D/.specs/b`, `tee .gitlab-ci.yml`, `touch .specs/n`, `mkdir .specs/d`, `truncate -s0 .git/x`, `ln -s a .specs/l`, `chmod +x .git/x`, `sed -i s/a/b/ .specs/x.md`, `cat .specs/x.md`, `echo x > src/a.go`, `sed s/a/b/ .specs/x.md`",
+      "then": [
+        "the first twelve are denied with rule `protected_path`",
+        "the last three (read, normal write, sed without -i) are allowed",
+        "`.specs/../src/a.go` resolving outside the protected path is allowed"
+      ],
+      "pseudocode": "for c in bad: assert Decide(bash(c)).Rule=='protected_path'; for c in ok: assert Decide(bash(c)).Decision=='allow'"
+    },
+    {
+      "id": "TS-06-55",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-8.1"
+      ],
+      "title": "The policy comes from --policy, then guard.json, then detection defaults, with missing keys defaulted",
+      "given": [
+        "a repo with a Makefile `check` target",
+        "a policy file P with suite [[`foo`]]",
+        "`.agent-fox/guard.json` with only {\"version\":1,\"protected_paths\":[\"docs/\"]}"
+      ],
+      "when": "LoadPolicy runs with the --policy path, then with guard.json only, then with neither",
+      "then": [
+        "with --policy, P's suite is used even though guard.json exists",
+        "with guard.json only, protected_paths is [`docs/`] while suite is the detected suite and allow_programs is empty",
+        "with neither, protected_paths are `.git/`, `.agent-fox/`, `.specs/`, `.github/workflows/`, `.gitlab-ci.yml`, suite is R2's suite and allow_programs is empty"
+      ],
+      "pseudocode": "p=Load(dir,policyPath=P); assert p.Suite==[['foo']]; p=Load(dir,''); assert p.ProtectedPaths==['docs/'] and p.Suite==Detect(dir).Suite"
+    },
+    {
+      "id": "TS-06-56",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-8.2"
+      ],
+      "title": "Write tools are denied under protected paths and outside --dir except under the temp directory",
+      "given": [
+        "dir D, default policy, a path under os.TempDir()"
+      ],
+      "when": "Decide is called for `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `write_file` and `edit_file` with paths `.specs/x.md`, `/etc/x`, `src/a.go`, the absolute D/.git/config, `../outside.txt` and the temp path",
+      "then": [
+        "`.specs/x.md` and D/.git/config are denied with rule `protected_path`",
+        "`/etc/x` and `../outside.txt` are denied with rule `outside_dir`",
+        "`src/a.go` and the temp path are allowed",
+        "relative paths are resolved against D, with each tool's own field name (file_path, notebook_path, path) read"
+      ],
+      "pseudocode": "d=Decide(write('Write','.specs/x.md')); assert d.Rule=='protected_path'; assert Decide(write('Write','/etc/x')).Rule=='outside_dir'"
+    },
+    {
+      "id": "TS-06-57",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-8.3"
+      ],
+      "title": "Unknown tools are allowed with an empty rule and every deny carries rule, segment and reason",
+      "given": [
+        "default policy"
+      ],
+      "when": "Decide is called for tools `Read`, `Grep`, `WebFetch` and `mcp__x`, and then over a collection of deny cases from the other tests",
+      "then": [
+        "the unknown tools give decision `allow` with empty rule",
+        "every deny has a rule from the closed set (unparseable, hands_guard, git_mutation, suite_command, af_command, program_not_allowed, protected_path, outside_dir) and a non-empty segment and reason"
+      ],
+      "pseudocode": "assert Decide(tool('Read',{})) == Decision('allow','','','')... ; for d in denies: assert d.Rule in RULES and d.Segment and d.Reason"
+    },
+    {
+      "id": "TS-06-58",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-8.4"
+      ],
+      "title": "Claude hook payloads and the neutral form give the same decision, and a non-PreToolUse event is allowed with no opinion",
+      "given": [
+        "the af guard check command in a repo with defaults"
+      ],
+      "when": "the same Bash `go test ./...` call is piped as a Claude payload (hook_event_name PreToolUse, tool_name, tool_input.command, cwd) and as {\"tool\":\"Bash\",\"input\":{\"command\":\"...\"}}, in envelope and `--host claude` forms, and a payload with hook_event_name `PostToolUse` is piped",
+      "then": [
+        "both shapes yield `deny` with rule `suite_command` in both output forms",
+        "the PostToolUse payload is allowed with no opinion in both forms",
+        "a Claude payload's `cwd` and a neutral payload both work with --dir"
+      ],
+      "pseudocode": "for form in (claude, neutral): assert decision(form)=='deny'; assert decision(postToolUse)=='allow'"
+    },
+    {
+      "id": "TS-06-59",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-8.5"
+      ],
+      "title": "Without --host the verdict is an envelope with decision, rule, reason, tool and segment, done and exit 0 for allow and deny",
+      "given": [
+        "the af guard check command"
+      ],
+      "when": "a denied `git commit` payload and an allowed `git diff` payload are piped without --host",
+      "then": [
+        "each envelope has status `done` and exit 0, `tool` equal to `guard check`",
+        "result holds decision, rule, reason, tool and segment; deny has rule `git_mutation`; allow has an empty rule"
+      ],
+      "pseudocode": "env,code = af_stdin(deny_payload); assert code==0 and env.status=='done' and env.result.decision=='deny' and env.result.rule=='git_mutation'"
+    },
+    {
+      "id": "TS-06-60",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-8.6"
+      ],
+      "title": "Without --host a malformed or oversized payload is usage and an unparseable policy is failed/config",
+      "given": [
+        "the af guard check command"
+      ],
+      "when": "stdin is `{not json`, a valid payload padded beyond 1 MiB, and a valid payload with `--policy` naming a file containing invalid JSON",
+      "then": [
+        "malformed and oversized payloads give status `usage` and exit 2",
+        "the broken policy gives status `failed`, exit 1, error.category `config`",
+        "no decision field is emitted in any of the three"
+      ],
+      "pseudocode": "assert code(af_stdin('{not json'))==2; assert code(af_stdin(big))==2; env,c=af_stdin(ok,'--policy',bad); assert c==1 and env.error.category=='config'"
+    },
+    {
+      "id": "TS-06-61",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-8.7"
+      ],
+      "title": "With --host claude a deny is a single hookSpecificOutput document, an allow is {} and permissionDecision allow is never printed, exit 0",
+      "given": [
+        "the af guard check command run as a subprocess"
+      ],
+      "when": "a denied `af fix land` payload and an allowed `git diff` payload are piped with `--host claude`",
+      "then": [
+        "deny stdout is one JSON document equal to {\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":<reason>}} and nothing else",
+        "allow stdout is exactly `{}`",
+        "exit code is 0 in both and the string `\"allow\"` does not occur in either output",
+        "stdout is not an envelope (no `status` key)"
+      ],
+      "pseudocode": "out,code = run(['guard','check','--host','claude'], stdin); assert code==0; j=json.loads(out); assert j['hookSpecificOutput']['permissionDecision']=='deny'; assert json.loads(out_allow)=={}"
+    },
+    {
+      "id": "TS-06-62",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-8.8"
+      ],
+      "title": "With --host claude every internal error fails closed as a deny carrying the error, exit 0",
+      "given": [
+        "the af guard check command with --host claude"
+      ],
+      "when": "a malformed payload, a payload over 1 MiB, a valid payload with a policy file that does not parse, and a case where the policy engine panics (test hook) are each processed",
+      "then": [
+        "each prints a deny document whose permissionDecisionReason contains the error text",
+        "exit code is 0 in every case",
+        "stdout is a single JSON document"
+      ],
+      "pseudocode": "for case in errors: out,code = run(case); assert code==0 and json.loads(out)['hookSpecificOutput']['permissionDecision']=='deny'"
+    },
+    {
+      "id": "TS-06-63",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-9.1",
+        "06-REQ-9.7"
+      ],
+      "title": "The map renders directories, indented files and declarations in the specified format and returns the full result shape",
+      "given": [
+        "a file view `a.go`, `pkg/b.go`, `pkg/b_test.go` and a fake Outliner returning `func A L3`, `type T L10` for a.go and `func B L1` for pkg/b.go",
+        "budget 4000"
+      ],
+      "when": "repomap.Build runs",
+      "then": [
+        "text is `./`, `  a.go`..., `pkg/` headers in path order with files indented two spaces and declarations as `func A L3 · type T L10`",
+        "result holds map, tokens=4000, estimated_tokens=ceil(len(map)/4), level 1, files_total 3, files_outlined, and truncated false",
+        "for a budget forcing level above 1, truncated is true"
+      ],
+      "pseudocode": "r = Build(view, fake, 4000); assert r.Level==1 and r.EstimatedTokens==ceil(len(r.Map)/4) and not r.Truncated and 'func A L3 · type T L10' in r.Map"
+    },
+    {
+      "id": "TS-06-64",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-9.1",
+        "06-REQ-9.2"
+      ],
+      "title": "af map defaults to 4000 tokens and rejects budgets below 200 or above 100000 as usage",
+      "given": [
+        "a repo with a few files"
+      ],
+      "when": "`af map`, `af map --tokens 199`, `--tokens 100001`, `--tokens 200` and `--tokens 100000` run",
+      "then": [
+        "default run is `done`, exit 0 with result.tokens 4000",
+        "199 and 100001 are status `usage`, exit 2",
+        "200 and 100000 are accepted"
+      ],
+      "pseudocode": "assert af('map').result.tokens==4000; assert code(af('map','--tokens','199'))==2"
+    },
+    {
+      "id": "TS-06-65",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-9.3"
+      ],
+      "title": "Files the outliner rejects are listed by name only, not counted as outlined, and the command still succeeds",
+      "given": [
+        "a fake Outliner that returns an unsupported-language error for `x.txt`, a parse error for `bad.go`, and declarations for `ok.go`",
+        "a file `big.go` over 1 MiB"
+      ],
+      "when": "repomap.Build runs with a generous budget",
+      "then": [
+        "`x.txt`, `bad.go` and `big.go` appear by name only; the outliner is not called for big.go",
+        "files_outlined is 1 (ok.go only)",
+        "no error is returned"
+      ],
+      "pseudocode": "r,err = Build(...); assert err==nil and r.FilesOutlined==1 and 'bad.go\\n' in r.Map; assert 'big.go' not in fake.calls"
+    },
+    {
+      "id": "TS-06-66",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-9.4"
+      ],
+      "title": "Each ladder level is chosen when it is the first to fit the budget",
+      "given": [
+        "a fake file view with many files, tests and declarations, and per-level fixture budgets measured from each level's rendered size"
+      ],
+      "when": "Build runs with a budget that just fits level 1, 2, 3 (with K=20, then 10, 5, 2, 1 and `… +N more`), 4, 5 and 6",
+      "then": [
+        "`level` equals 1,2,3,4,5,6 for the respective budgets",
+        "level 2 omits declarations of test files only",
+        "level 3 truncated lists end with `… +N more` and K halves progressively",
+        "level 5 lines read `path/ (N files)`",
+        "level 6 ends with `… N more directories`"
+      ],
+      "pseudocode": "for lvl,budget in fixtures: assert Build(view,fake,budget).Level==lvl"
+    },
+    {
+      "id": "TS-06-67",
+      "kind": "property",
+      "verifies": [
+        "06-REQ-9.5"
+      ],
+      "title": "The map never exceeds the token budget and is byte-identical for the same tree and budget",
+      "given": [
+        "a generator of file views (up to a few thousand paths with long names), fake outliner outputs and budgets in [200, 100000]"
+      ],
+      "when": "for any view, outline set and budget N, Build runs twice",
+      "then": [
+        "estimated_tokens <= N and ceil(len(map)/4) <= N",
+        "the two outputs are byte-identical",
+        "the reported level equals the first fitting level"
+      ],
+      "pseudocode": "for (v,o,n) in gen(): a=Build(v,o,n); b=Build(v,o,n); assert ceil(len(a.Map)/4)<=n and a.Map==b.Map"
+    },
+    {
+      "id": "TS-06-68",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-9.6"
+      ],
+      "title": "The outliner is skipped with map_outline_skipped when names alone exceed the budget or the view has more than 5000 files",
+      "given": [
+        "a counting fake Outliner",
+        "case A: 3000 long-named files with budget 200; case B: 5001 short files with budget 100000"
+      ],
+      "when": "Build runs for each case",
+      "then": [
+        "the fake Outliner is called zero times",
+        "files_outlined is 0",
+        "warning code `map_outline_skipped` is returned",
+        "a small view does not produce the warning"
+      ],
+      "pseudocode": "r = Build(...); assert fake.calls==0 and r.FilesOutlined==0 and 'map_outline_skipped' in r.WarningCodes"
+    },
+    {
+      "id": "TS-06-69",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-10.1"
+      ],
+      "title": "All six commands are registered with their default timeouts, flags in --help and tool equal to the command path",
+      "given": [
+        "the built af shell"
+      ],
+      "when": "each command is run with `--help`, and then run with a valid minimal input",
+      "then": [
+        "`lang detect`, `gate run`, `gate compare`, `revert-check`, `guard check` and `map` are all registered",
+        "default timeouts are 1m, 30m, 30s, 30m, 10s and 2m",
+        "--help lists each command's flags (--write; --label, --hermetic, --no-cache; --before, --after; --since; --policy, --host; --tokens)",
+        "each envelope's `tool` equals its command path"
+      ],
+      "pseudocode": "for cmd in six: assert cmd.DefaultTimeout==expected[cmd]; out=af(cmd,'--help'); for f in flags[cmd]: assert f in out; assert af(cmd,...).tool==cmd"
+    },
+    {
+      "id": "TS-06-70",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-10.2"
+      ],
+      "title": "None of the six commands builds a forge client, contacts the network or creates a run directory",
+      "given": [
+        "a repo with no remote, env with forge tokens unset, HTTP(S) proxy variables pointing to a closed local port, and a listener recording any connection attempt"
+      ],
+      "when": "each of the six commands runs successfully once",
+      "then": [
+        "no connection is received by the listener",
+        "no `.agent-fox/run/` directory exists afterwards",
+        "the commands succeed without a forge token or remote"
+      ],
+      "pseudocode": "for c in six: af(c); assert listener.conns==0; assert not exists('.agent-fox/run')"
+    },
+    {
+      "id": "TS-06-71",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-10.3"
+      ],
+      "title": "The five internal packages do not import internal/toolio and do not call os.Exit",
+      "given": [
+        "the Go source of internal/project, checks, conform, policy and repomap"
+      ],
+      "when": "their imports and call expressions are parsed with go/parser",
+      "then": [
+        "no file imports `internal/toolio`",
+        "no non-test file calls `os.Exit` or `log.Fatal`"
+      ],
+      "pseudocode": "for f in files: ast=parse(f); assert 'internal/toolio' not in imports(ast); assert not calls(ast,'os.Exit')"
+    },
+    {
+      "id": "TS-06-72",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-10.4"
+      ],
+      "title": "Each command's embedded schema matches its Go result type's JSON fields, appears in af --schema and the golden is current",
+      "given": [
+        "the six embedded result schemas and Go result types",
+        "the committed `--schema` golden"
+      ],
+      "when": "top-level schema properties are compared with the JSON field names of each result struct (by reflection), and `af --schema` output is compared with the golden",
+      "then": [
+        "property sets are equal for each command, and a deliberately renamed field in a test copy fails the comparison",
+        "`af --schema` includes all six result schemas",
+        "output equals the committed golden and the envelope schema version is unchanged"
+      ],
+      "pseudocode": "for c in six: assert keys(schema[c].properties) == jsonFields(reflect.TypeOf(c.Result)); assert af('--schema') == read(golden)"
+    },
+    {
+      "id": "TS-06-73",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-10.5"
+      ],
+      "title": "Only af guard check --host claude emits a non-envelope stdout document and it reads raw stdin",
+      "given": [
+        "the shell with the raw stdin and command-supplied stdout capabilities"
+      ],
+      "when": "each of the six commands is run with valid input, and `guard check` with and without `--host claude`",
+      "then": [
+        "the five other commands and `guard check` without --host print an envelope with `status`",
+        "`guard check --host claude` prints a hook document with no `status` key",
+        "stdin of guard check is read raw even though it takes no positional input"
+      ],
+      "pseudocode": "for c in others: assert 'status' in json(af(c)); assert 'status' not in json(af('guard','check','--host','claude'))"
+    },
+    {
+      "id": "TS-06-74",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-10.6"
+      ],
+      "title": "Non-usage failures use the categories config, restore, git or io",
+      "given": [
+        "failure cases: broken gate.json (config), leftover revert backup (restore), --dir that is not a repository for revert-check with a valid --since format but git failing (git), a .agent-fox path that cannot be written (io)"
+      ],
+      "when": "each command is run into its failing case",
+      "then": [
+        "status `failed`, exit 1",
+        "error.category is one of config, restore, git, io and equals the expected category for each case"
+      ],
+      "pseudocode": "for case in cases: env,code=af(*case.args); assert code==1 and env.error.category==case.category"
+    },
+    {
+      "id": "TS-06-75",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-10.7"
+      ],
+      "title": "The new packages' tests are offline and skip when git is missing",
+      "given": [
+        "the test files of the five internal packages, gitx and cmd/af for this spec"
+      ],
+      "when": "the test sources are scanned and the suite is run with PATH stripped of git",
+      "then": [
+        "git-dependent tests call a helper that skips when git is not found, and the run passes",
+        "no test dials a non-loopback address or reads a credential variable",
+        "`make check` is documented as the command and needs no network"
+      ],
+      "pseudocode": "for f in test_files: assert not imports_nonlocal_net(f); with PATH='': run tests -> exit 0 (skipped)"
+    },
+    {
+      "id": "TS-06-76",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-10.8"
+      ],
+      "title": "The documentation describes this scope, mentions the layout and contains no TODO or TBD",
+      "given": [
+        "docs/cli.md, docs/configuration.md, docs/model-usage.md, docs/architecture.md, docs/development.md and README.md after `make doc`"
+      ],
+      "when": "each file is read and searched",
+      "then": [
+        "docs/cli.md names all six commands, their flags, the warning codes check_unavailable, no_checks, tree_changed_during_gate, fix_not_proven and map_outline_skipped",
+        "docs/configuration.md describes gate.json, guard.json and precedence",
+        "docs/model-usage.md says these commands call no model",
+        "docs/architecture.md and docs/development.md describe the five packages and `.agent-fox/gate/` and `.agent-fox/revert/`",
+        "README.md's package table lists the new packages",
+        "none of the files contains the words TODO or TBD"
+      ],
+      "pseudocode": "for f,terms in EXPECT: t=read(f); for x in terms: assert x in t; assert 'TODO' not in t and 'TBD' not in t"
+    },
+    {
+      "id": "TS-06-77",
+      "kind": "smoke",
+      "verifies": [
+        "06-PATH-1",
+        "06-REQ-2.1",
+        "06-REQ-2.8"
+      ],
+      "title": "A person detects languages and writes the gate table for a repository",
+      "given": [
+        "the built af binary",
+        "a git repo with a Makefile `check` target and Go sources"
+      ],
+      "when": "`af lang detect --dir repo --write` runs",
+      "then": [
+        "a `done` envelope (tool `lang detect`) with languages, gate (source detected, [make check]), suite and programs, exit 0",
+        "`.agent-fox/gate.json` exists with version 1 and the table, and `git status` shows nothing from `.agent-fox/`",
+        "a second `af lang detect` reports source `file`"
+      ],
+      "real_components": [
+        "af binary",
+        "toolio shell",
+        "internal/project",
+        "internal/checks file view",
+        "filesystem",
+        "git"
+      ]
+    },
+    {
+      "id": "TS-06-78",
+      "kind": "smoke",
+      "verifies": [
+        "06-PATH-2",
+        "06-REQ-4.2",
+        "06-REQ-5.1"
+      ],
+      "title": "The loop runs the gate under labels, hits the cache and compares to pass_was_already_failing",
+      "given": [
+        "the built af binary",
+        "a git repo with gate.json holding a counter-script check that fails until a marker file exists in the tree"
+      ],
+      "when": "`af gate run --label baseline` runs on the red tree, the marker file is added, `af gate run --label after` runs, `af gate run --label after` runs again, then `af gate compare --before baseline --after after` runs",
+      "then": [
+        "baseline result is `done` with passed false",
+        "the second `after` run is `cached: true` and the counter shows no extra execution",
+        "labels.json maps baseline and after to different ids",
+        "compare prints a `done` envelope with verdict `pass_was_already_failing`, landable true, exit 0"
+      ],
+      "real_components": [
+        "af binary",
+        "toolio shell",
+        "internal/checks",
+        "internal/project",
+        "internal/gitx runners",
+        "filesystem",
+        "git"
+      ]
+    },
+    {
+      "id": "TS-06-79",
+      "kind": "smoke",
+      "verifies": [
+        "06-PATH-3",
+        "06-REQ-6.6",
+        "06-REQ-6.7"
+      ],
+      "title": "The loop proves a fix with revert-check and gets its tree and index back",
+      "given": [
+        "the built af binary",
+        "a git repo whose HEAD~ is the base, with a working-tree change adding a fix in a source file and a test that fails without it, partly staged",
+        "gate.json with a `go test`-style or script test check"
+      ],
+      "when": "`af revert-check --since <base>` runs",
+      "then": [
+        "a `done` envelope with outcome `proven`, closes true, restored true, exit 0",
+        "the tree hash and `.git/index` bytes equal their values before the command",
+        "`.agent-fox/revert/` holds no backup afterwards",
+        "the same repo with a passing-without-fix test gives `not_proven` with warning `fix_not_proven`"
+      ],
+      "real_components": [
+        "af binary",
+        "toolio shell",
+        "internal/conform",
+        "internal/checks",
+        "internal/project",
+        "internal/gitx",
+        "git",
+        "filesystem"
+      ]
+    },
+    {
+      "id": "TS-06-80",
+      "kind": "smoke",
+      "verifies": [
+        "06-PATH-4",
+        "06-REQ-7.5",
+        "06-REQ-8.7"
+      ],
+      "title": "Claude Code's PreToolUse hook gets a deny document naming af gate run for a suite command",
+      "given": [
+        "the built af binary",
+        "a repo with a Makefile `check` target and go.mod"
+      ],
+      "when": "a PreToolUse Bash payload for `go test ./...` is piped to `af guard check --host claude`, followed by payloads for `go test ./internal/x -run TestY`, `git diff`, `af gate run`, `git commit`, `git push`, `af fix land`, `make check` and a `Write` to `.specs/x.md`",
+      "then": [
+        "the `go test ./...` and `make check` outputs are deny documents whose reason names `af gate run`, exit 0",
+        "`go test ./internal/x -run TestY`, `git diff` and `af gate run` give `{}`",
+        "`git commit`, `git push`, `af fix land` and the `.specs/x.md` Write give deny documents",
+        "the envelope form gives the same decisions with status `done`"
+      ],
+      "real_components": [
+        "af binary",
+        "toolio shell",
+        "internal/policy",
+        "internal/project",
+        "hands guard adapter"
+      ]
+    },
+    {
+      "id": "TS-06-81",
+      "kind": "smoke",
+      "verifies": [
+        "06-PATH-5",
+        "06-REQ-9.4",
+        "06-REQ-9.5"
+      ],
+      "title": "A brain fetches a budgeted repository map and gets the same bytes every time",
+      "given": [
+        "the built af binary",
+        "a git repo with several packages, test files and Go sources"
+      ],
+      "when": "`af map --tokens 400` runs twice, then `af map --tokens 4000` runs",
+      "then": [
+        "the envelope is `done` with exit 0 and `estimated_tokens` <= 400",
+        "the two 400-token maps are byte-identical",
+        "`level` is the first ladder level that fits, and truncated is true when level > 1",
+        "the 4000-token map contains the repository's declarations as `<kind> <name> L<line>`"
+      ],
+      "real_components": [
+        "af binary",
+        "toolio shell",
+        "internal/repomap",
+        "hands outline adapter",
+        "internal/checks file view",
+        "git"
+      ]
+    }
+  ]
+}

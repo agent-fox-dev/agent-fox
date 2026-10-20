@@ -1,0 +1,1558 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "09",
+  "spec_name": "af_fix",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-09-1",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-1.1"
+      ],
+      "title": "The five fix command paths appear in af --schema with non-empty result schemas and match the golden",
+      "given": [
+        "the cmd/af command registry with the fix commands registered"
+      ],
+      "when": "`af --schema` is run and compared with the golden file",
+      "then": [
+        "the output lists `fix`, `fix brief`, `fix run`, `fix submit` and `fix land`",
+        "each of the five has a non-empty result schema",
+        "the output equals the golden file"
+      ],
+      "pseudocode": "out = run('af --schema'); for p in ['fix','fix brief','fix run','fix submit','fix land']: assert out.commands[p].result_schema != {}; assert out == golden"
+    },
+    {
+      "id": "TS-09-2",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-1.2"
+      ],
+      "title": "Loop defaults apply when flags are omitted",
+      "given": [
+        "a temporary repository with a gate and a scripted brain that submits a landable fix, run with the brain flag explicitly set only where needed to stay offline"
+      ],
+      "when": "`af fix --help` is read, and a dry run is made without --attempts, --land, --budget, --max-turns, --timeout",
+      "then": [
+        "help shows defaults agentkit, local, 10, 150, 2, pr and 45m",
+        "the result reports attempts_max 2 and land `pr`"
+      ],
+      "pseudocode": "h = help('fix'); assert defaults(h) == {brain:'agentkit', sandbox:'local', budget:10, 'max-turns':150, attempts:2, land:'pr', timeout:'45m'}; r = run(dry); assert r.result.attempts_max == 2 and r.result.land == 'pr'"
+    },
+    {
+      "id": "TS-09-3",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-1.3"
+      ],
+      "title": "Each fix command accepts exactly its documented flags",
+      "given": [
+        "the registered fix commands"
+      ],
+      "when": "each command's flag set and opt-ins are inspected, and each flag is passed to the commands that should accept it",
+      "then": [
+        "`fix` and `fix brief` accept --base",
+        "`fix` accepts --attempts, --land, --no-verify, --repo, --dry-run, --context and the brain flags, and opts into run dir and forge",
+        "`fix land` accepts --land",
+        "`fix run` accepts the brain flags",
+        "a flag on a command that does not declare it is a usage error"
+      ],
+      "pseudocode": "assert flags('fix') ⊇ {base,attempts,land,no-verify,repo,dry-run,context,brain,sandbox,budget,max-turns,script}; assert 'land' in flags('fix land'); assert 'brain' in flags('fix run'); assert exit(run('fix land --attempts 2')) == 2"
+    },
+    {
+      "id": "TS-09-4",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-1.4"
+      ],
+      "title": "Out-of-range --attempts or an unknown --land value is a usage error before preflight",
+      "given": [
+        "a forge test server that records requests",
+        "a scripted brain that counts Run calls"
+      ],
+      "when": "`af fix <issue URL>` is run with --attempts 0, --attempts 6 and --land bogus in turn",
+      "then": [
+        "each invocation exits 2 with status `usage`",
+        "the forge server saw no request beyond none at all",
+        "the brain was never run"
+      ],
+      "pseudocode": "for args in ['--attempts 0','--attempts 6','--land bogus']: r = run(fix, args); assert r.exit == 2 and r.status == 'usage'; assert forge.requests == [] and brain.runs == 0"
+    },
+    {
+      "id": "TS-09-5",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-1.5"
+      ],
+      "title": "A pull or merge request URL as input is a usage error",
+      "given": [
+        "an httptest GitHub and GitLab server recording writes and a counting brain"
+      ],
+      "when": "`af fix` and `af fix brief` are given a GitHub /pull/N URL and a GitLab /-/merge_requests/N URL",
+      "then": [
+        "each exits 2 with status `usage`",
+        "no model call and no forge write occurred"
+      ],
+      "pseudocode": "for cmd in ['fix','fix brief']: for u in [ghPR, glMR]: r = run(cmd,u); assert r.exit == 2; assert writes(forge)==[] and brain.runs==0"
+    },
+    {
+      "id": "TS-09-6",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-1.6"
+      ],
+      "title": "run, submit and land refuse a bad --run-id or a run directory without fix.json",
+      "given": [
+        "a repository checkout with a recorded HEAD and tree",
+        "a run directory that exists but has no fix.json"
+      ],
+      "when": "`fix run`, `fix submit` and `fix land` are invoked with a path-like run id, an unknown run id, and the run id without fix.json",
+      "then": [
+        "each exits 2 with status `usage`",
+        "HEAD, the branch list and the working tree are unchanged"
+      ],
+      "pseudocode": "for cmd in ['fix run','fix submit','fix land']: for id in ['../x','nope',idNoFixJson]: r = run(cmd,'--run-id',id); assert r.exit==2; assert snapshot(repo)==before"
+    },
+    {
+      "id": "TS-09-7",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-1.7"
+      ],
+      "title": "fix submit validates with the fix_report kind and writes the normalised payload",
+      "given": [
+        "a run created by `af fix brief` with run.json present",
+        "a valid report on stdin with CRLF in `change` and files out of order"
+      ],
+      "when": "`af fix submit --run-id <id>` is invoked",
+      "then": [
+        "the envelope is spec 07's submit envelope with status done",
+        "submission.json holds the normalised payload (LF, sorted files, type fix)",
+        "an invalid payload writes no submission file"
+      ],
+      "pseudocode": "r = run('fix submit', id, stdin=report); assert r.exit==0; s = read(runDir/'submission.json'); assert s.type=='fix' and '\\r' not in s.change and sorted(s.files)"
+    },
+    {
+      "id": "TS-09-8",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-1.8"
+      ],
+      "title": "fix run applies one round's tree without measuring, branching or committing",
+      "given": [
+        "a run from `fix brief` on a temporary repository",
+        "a scripted brain that edits a file and submits a report"
+      ],
+      "when": "`af fix run --run-id <id> --brain scripted --sandbox local --dir <repo>` is invoked",
+      "then": [
+        "the result carries the round number, the submission outcome and apply {written, deleted, ignored}",
+        "the file edit is in the host working tree",
+        "HEAD equals base_head and no new branch exists",
+        "no gate run was recorded in the ledger"
+      ],
+      "pseudocode": "r = run('fix run', id, ...); assert r.result.apply.written >= 1; assert rev_parse('HEAD')==base_head; assert branches(repo)==['main']; assert 'measure' not in ledger kinds"
+    },
+    {
+      "id": "TS-09-9",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-2.1"
+      ],
+      "title": "Preflight checks run in the documented order and a failure makes no model call, branch or forge write",
+      "given": [
+        "repositories each violating a different preflight check, one at a time and then several at once",
+        "a counting brain, a recording forge"
+      ],
+      "when": "`af fix` is run against each repository",
+      "then": [
+        "with several violations, the earliest check in order (work tree, branch, clean tree, gate, landing, brain) is the one reported",
+        "the brain ran zero times, no branch or commit exists, and the forge received no write"
+      ],
+      "pseudocode": "r = run(fix on dirty AND no-gate AND no-origin); assert r.category=='preflight' and 'dirty' in r.message; assert brain.runs==0 and writes(forge)==[]; assert branches==['main']"
+    },
+    {
+      "id": "TS-09-10",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-2.2"
+      ],
+      "title": "A non-top-level dir, detached HEAD or mismatched --base is a usage error",
+      "given": [
+        "a repository, a subdirectory of it, and a detached-HEAD copy"
+      ],
+      "when": "`af fix` is run with --dir set to the subdirectory, then on the detached repo, then with --base other while main is checked out",
+      "then": [
+        "each exits 2 with status `usage`",
+        "the --base mismatch message reads `check out other first`"
+      ],
+      "pseudocode": "assert run(fix,'--dir',sub).exit==2; assert run(fix,'--dir',detached).exit==2; r = run(fix,'--base','other'); assert r.exit==2 and 'check out other first' in r.message"
+    },
+    {
+      "id": "TS-09-11",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-2.3"
+      ],
+      "title": "A dirty tree fails preflight and names at most 20 paths",
+      "given": [
+        "a repository with 25 untracked non-ignored files and one tracked modification"
+      ],
+      "when": "`af fix` is run",
+      "then": [
+        "status is `failed`, category `preflight`, exit 1",
+        "the message names exactly 20 dirty paths and not the remaining ones",
+        "an ignored untracked file alone does not fail the check"
+      ],
+      "pseudocode": "r = run(fix); assert r.exit==1 and r.category=='preflight'; assert count_paths(r.message)==20"
+    },
+    {
+      "id": "TS-09-12",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-2.4"
+      ],
+      "title": "No available gate check fails preflight with a --no-verify hint, and --no-verify skips the check",
+      "given": [
+        "a clean repository with no detectable gate"
+      ],
+      "when": "`af fix` is run without and then with --no-verify",
+      "then": [
+        "without: status `failed`, category `preflight`, fix_hint {flag: \"--no-verify\"}, exit 1",
+        "with --no-verify the gate check does not stop the run"
+      ],
+      "pseudocode": "r = run(fix); assert r.exit==1 and r.category=='preflight' and r.fix_hint=={'flag':'--no-verify'}; r2 = run(fix,'--no-verify'); assert r2.category != 'preflight' or 'gate' not in r2.message"
+    },
+    {
+      "id": "TS-09-13",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-2.5"
+      ],
+      "title": "Landing prerequisites that fail in the repository or invocation use the documented category",
+      "given": [
+        "clean repositories with a gate: one without origin, one with origin but no parsable target repo and no --repo"
+      ],
+      "when": "`af fix --land branch` is run without origin, then `af fix --land pr` is run without a target repository",
+      "then": [
+        "no origin: `failed`/`preflight`, exit 1",
+        "no target: status `usage` with fix_hint {flag: \"--repo\"}, exit 2",
+        "`--land none` and `--dry-run` do not need origin"
+      ],
+      "pseudocode": "r1=run(fix,'--land','branch'); assert r1.exit==1 and r1.category=='preflight'; r2=run(fix,'--land','pr'); assert r2.exit==2 and r2.fix_hint.flag=='--repo'"
+    },
+    {
+      "id": "TS-09-14",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-2.5"
+      ],
+      "title": "An unauthenticated, unreadable or archived forge fails preflight, and --dry-run downgrades a missing token to a warning",
+      "given": [
+        "a forge client that is unauthenticated; one whose GetRepository returns 404; one returning Archived true"
+      ],
+      "when": "`af fix --land pr` is run with each client, and then the unauthenticated one with --dry-run",
+      "then": [
+        "unauthenticated: `failed`/`auth`, fix_hint {env} naming GITHUB_TOKEN (GITLAB_TOKEN for GitLab), exit 1",
+        "unreadable or archived: `failed`/`forge`, exit 1",
+        "under --dry-run the warning `no_forge_token` is raised and the run continues"
+      ],
+      "pseudocode": "assert run(unauth).category=='auth' and 'GITHUB_TOKEN' in fix_hint.env; assert run(notfound).category=='forge'; assert run(archived).category=='forge'; assert 'no_forge_token' in codes(run(unauth,'--dry-run').warnings)"
+    },
+    {
+      "id": "TS-09-15",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-2.6"
+      ],
+      "title": "A brain that cannot be constructed fails with category auth before a box is opened",
+      "given": [
+        "--brain agentkit with the vendor key unset",
+        "a box provider spy"
+      ],
+      "when": "`af fix <issue URL> --brain agentkit` is run",
+      "then": [
+        "status `failed`, category `auth`, exit 1",
+        "the box provider was never opened"
+      ],
+      "pseudocode": "r = run(fix,'--brain','agentkit'); assert r.exit==1 and r.category=='auth'; assert provider.opened==0"
+    },
+    {
+      "id": "TS-09-16",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-2.7"
+      ],
+      "title": "Preflight records the full base hash, runs the baseline once, and warns on a red baseline or closed issue",
+      "given": [
+        "a repository whose fixture gate is red at HEAD",
+        "an issue whose state is closed",
+        "a counting checks runner"
+      ],
+      "when": "`af fix brief <issue URL>` is run",
+      "then": [
+        "base_head is a 40-hex hash equal to `git rev-parse HEAD`",
+        "the baseline gate ran exactly once, in default mode and with no label",
+        "warnings `baseline_failing` and `issue_closed` are present and the run is done",
+        "the result reports baseline {gate_id, passed:false}"
+      ],
+      "pseudocode": "r = run('fix brief', url); assert re.fullmatch('[0-9a-f]{40}', r.result.base_head); assert gateRuns==1 and label==''; assert {'baseline_failing','issue_closed'} <= codes(r.warnings)"
+    },
+    {
+      "id": "TS-09-17",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-2.8"
+      ],
+      "title": "fix.json is written atomically with every listed field",
+      "given": [
+        "a successful `fix brief` run for an issue input",
+        "a filesystem watcher that reads fix.json during the write"
+      ],
+      "when": "preflight completes",
+      "then": [
+        "fix.json parses and holds run_id, input {kind, origin, key}, issue ref and title, target repo, base, base_head, table, baseline gate id, no_verify, prefix_sha256, context values and round counter",
+        "no read ever saw partial JSON, and no temporary file remains",
+        "the input key is the SHA-256 of the text for text input and the absolute path for file input"
+      ],
+      "pseudocode": "fj = json(runDir/'fix.json'); assert all(k in fj for k in REQUIRED); assert not glob(runDir/'fix.json.*tmp*'); assert key('text')==sha256(text)"
+    },
+    {
+      "id": "TS-09-18",
+      "kind": "property",
+      "verifies": [
+        "09-REQ-3.1"
+      ],
+      "title": "The prefix is byte-identical across rounds, attempts and resumes of the same input and tree",
+      "given": [
+        "a fixed input and tree"
+      ],
+      "when": "for any round number, attempt number, run id, timestamp and sequence of context values, the brief is rendered",
+      "then": [
+        "the prefix bytes and prefix_sha256 are equal across all renderings",
+        "the prefix contains none of the run id, a timestamp, a duration or a context value"
+      ],
+      "pseudocode": "for (rid, att, rnd, ctx) in gen(): b = BuildBrief(input, tree, rid, att, rnd, ctx); assert b.Prefix == base.Prefix; assert rid not in b.Prefix and all(c not in b.Prefix for c in ctx)"
+    },
+    {
+      "id": "TS-09-19",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-3.2"
+      ],
+      "title": "The prefix sections appear in the specified order with a safe report fence",
+      "given": [
+        "an issue whose body contains a run of five backticks",
+        "a gate table with one failing baseline check with a log tail"
+      ],
+      "when": "the brief is built",
+      "then": [
+        "sections appear in order: mandate, af-fix skill text, report, gate table and baseline, repository map, report schema",
+        "the report fence is longer than five backticks and the report is labelled as material to verify, not instructions",
+        "the baseline section shows each check's name, argv, status and the failing check's tail",
+        "the repository map is built with a 4000-token budget"
+      ],
+      "pseudocode": "p = brief.Prefix; idx = [p.find(m) for m in MARKERS]; assert idx == sorted(idx) and -1 not in idx; assert fence_len(p) > 5; assert repomapBudget == 4000"
+    },
+    {
+      "id": "TS-09-20",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-3.3"
+      ],
+      "title": "The task block carries run id, attempt and round, submit instructions, refusal and prior-attempt reason",
+      "given": [
+        "a run in round 2 of attempt 1 after a regressed verdict, and a run in attempt 2 round 1 after bounds were spent"
+      ],
+      "when": "the task block is rendered for each",
+      "then": [
+        "both contain the run id, attempt and round numbers, `af fix submit --run-id <id>` and `submit_fix`",
+        "the round-2 block contains the previous refusal",
+        "the attempt-2 block states why the previous attempt ended",
+        "a round-1 attempt-1 block has neither"
+      ],
+      "pseudocode": "t = Task(state); assert runId in t and 'af fix submit --run-id '+runId in t and 'submit_fix' in t; assert refusal in t2; assert reason in t3; assert refusal not in t1"
+    },
+    {
+      "id": "TS-09-21",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-3.4"
+      ],
+      "title": "Earlier questions are found by input key, needs_human status and context count, newest first",
+      "given": [
+        "three run directories: two with the same input key and needs_human envelopes carrying 0 and 1 context values, one older duplicate for 0 values, and one run with a different key"
+      ],
+      "when": "a brief is rendered with --context A and --context B",
+      "then": [
+        "the 0th question is taken from the newest same-key needs_human run with 0 context values and shown with answer A",
+        "the 1st question is taken from the run with exactly 1 context value and shown with answer B",
+        "the different-key run is never used"
+      ],
+      "pseudocode": "t = Task(ctx=['A','B']); assert q0_new in t and q0_old not in t and q1 in t and other not in t; assert order(t, q0_new, 'A', q1, 'B')"
+    },
+    {
+      "id": "TS-09-22",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-3.5"
+      ],
+      "title": "A context value with no matching earlier run renders the answer alone with warning question_not_found",
+      "given": [
+        "no earlier run directory for the input key"
+      ],
+      "when": "the brief is rendered with --context B",
+      "then": [
+        "the task block contains the answer `B` without any question",
+        "the warning `question_not_found` is raised and the run continues"
+      ],
+      "pseudocode": "r = run(fix,'--context','B'); assert 'B' in task and no question; assert 'question_not_found' in codes(r.warnings)"
+    },
+    {
+      "id": "TS-09-23",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-3.6"
+      ],
+      "title": "Brief tools and hook config follow the specified lists",
+      "given": [
+        "a project whose detected gate programs are `make` and `sh`"
+      ],
+      "when": "the Brief is constructed",
+      "then": [
+        "Brief.Tools equals the box session's whole tool set",
+        "HookConfig.ProtectedPaths equals the policy default list (.git/, .agent-fox/, .specs/, .github/workflows/, .gitlab-ci.yml)",
+        "HookConfig.AllowPrograms contains make, sh, git, af, ls, cat, head, tail, wc, grep, rg, diff, sort, pwd, echo and mkdir"
+      ],
+      "pseudocode": "b = BuildBrief(...); assert b.Tools == session.Tools(); assert b.Hook.ProtectedPaths == policy.Default; assert set(b.Hook.AllowPrograms) >= {'make','sh','git','af','ls','cat','head','tail','wc','grep','rg','diff','sort','pwd','echo','mkdir'}"
+    },
+    {
+      "id": "TS-09-24",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-3.7"
+      ],
+      "title": "gate.json and guard.json are written into the box before brain.Execute on every round",
+      "given": [
+        "a local box session and a brain whose Run snapshots the box's .agent-fox directory",
+        "a two-round scenario"
+      ],
+      "when": "the loop runs both rounds",
+      "then": [
+        "at the start of each Run, .agent-fox/gate.json holds the pinned table",
+        "guard.json holds the suite, protected paths and allowed programs",
+        "both were written via Session.WriteFile"
+      ],
+      "pseudocode": "onRun: snap = read(box/.agent-fox/gate.json, guard.json); assert snap.gate == pinned and snap.guard.protected_paths == policy.Default; assert called for rounds 1 and 2"
+    },
+    {
+      "id": "TS-09-25",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-3.8"
+      ],
+      "title": "fix brief writes brief.md, fix.json and run.json and nothing outside .agent-fox",
+      "given": [
+        "a clean repository with a gate and local bare origin"
+      ],
+      "when": "`af fix brief <issue URL>` is run",
+      "then": [
+        "status done, exit 0",
+        "brief.md, fix.json and .agent-fox/run/<id>/run.json exist, run.json being {run_id, kind \"fix_report\", attempt 1, nonce}",
+        "the result holds brief_path, prefix_sha256, base, base_head, baseline {gate_id, passed}, table and the submit argv",
+        "`git status` shows no change outside ignored .agent-fox, no branch or commit made"
+      ],
+      "pseudocode": "r = run('fix brief', url); assert r.exit==0; rj=json(repo/'.agent-fox/run'/id/'run.json'); assert rj.kind=='fix_report' and rj.attempt==1 and rj.nonce; assert DirtyFiles()==[] and head==base"
+    },
+    {
+      "id": "TS-09-26",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-4.1"
+      ],
+      "title": "fix_report registers as kind fix_report / submit_fix and accepts one of the two forms",
+      "given": [
+        "the FixReport kind"
+      ],
+      "when": "a question-form payload, a report-form payload, and a payload with both `question` and report fields are validated",
+      "then": [
+        "Name is `fix_report` and ToolName is `submit_fix`",
+        "the question form and the report form are accepted",
+        "the mixed payload is refused"
+      ],
+      "pseudocode": "assert K.Name=='fix_report' and K.ToolName=='submit_fix'; assert ok(K.Validate(q)); assert ok(K.Validate(rep)); assert problems(K.Validate(mixed))"
+    },
+    {
+      "id": "TS-09-27",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-4.2"
+      ],
+      "title": "Report and question field limits are enforced at their boundaries",
+      "given": [
+        "a valid baseline report and question"
+      ],
+      "when": "each field is set just inside and just outside its limit: subject 72/73 chars, trailing period, leading `fix:`, newline in subject, root_cause and change 4000/4001, files 1/0/501, path under .git/ or .agent-fox/, absolute or `..` path, duplicate paths, why 300/301, tests path absent from the tree, criteria status outside the enum, decisions 30/31 and 500/501 chars; question text 2000/2001, options 6/7 and 200/201 chars, root_cause 8000/8001",
+      "then": [
+        "values inside the limit are accepted",
+        "values outside produce a problem naming that field",
+        "a test path that is not a regular file in the submitted tree is refused"
+      ],
+      "pseudocode": "for (field,okv,badv) in CASES: assert ok(Validate(set(base,field,okv))); assert field in names(Validate(set(base,field,badv)))"
+    },
+    {
+      "id": "TS-09-28",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-4.3"
+      ],
+      "title": "An invalid payload yields every problem at once and no normalised payload",
+      "given": [
+        "a payload with an unknown field `extra`, an empty subject, a duplicate file path and an invalid criterion status"
+      ],
+      "when": "Validate is called, and the payload is submitted",
+      "then": [
+        "Validate returns at least four Problems, one per violation",
+        "the normalised payload is empty",
+        "no submission file is written"
+      ],
+      "pseudocode": "out, probs = K.Validate(bad); assert out is None and len(probs)>=4; assert not exists(runDir/'submission.json')"
+    },
+    {
+      "id": "TS-09-29",
+      "kind": "property",
+      "verifies": [
+        "09-REQ-4.4"
+      ],
+      "title": "Normalisation is idempotent and applies trimming, LF, default type and path sorting",
+      "given": [
+        "any accepted payload"
+      ],
+      "when": "for any valid report with arbitrary surrounding whitespace, CRLF line endings, omitted type and unsorted files",
+      "then": [
+        "strings are trimmed with no CR left",
+        "type is `fix` when omitted",
+        "files are sorted by path",
+        "validating the normalised payload returns it unchanged"
+      ],
+      "pseudocode": "for p in gen_valid_reports(): n = Validate(p); assert '\\r' not in n and n.type and is_sorted(n.files, key=path); assert Validate(n) == n"
+    },
+    {
+      "id": "TS-09-30",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-4.5"
+      ],
+      "title": "A question submission in the loop ends with needs_human and touches nothing",
+      "given": [
+        "a scripted brain whose first submission is a question with options `x`, `y` and `z`",
+        "a repository with a recorded tree and branches"
+      ],
+      "when": "`af fix <issue URL> --brain scripted --sandbox local` is run",
+      "then": [
+        "status needs_human and exit 3",
+        "options are labelled A, B, C in order and `resume` is present",
+        "the brain's tree is not applied, no branch or commit exists, and the checkout equals its pre-run state"
+      ],
+      "pseudocode": "r = run(fix); assert r.exit==3 and r.status=='needs_human'; assert [o.id for o in r.options]==['A','B','C'] and r.resume.argv; assert branches==['main'] and head==base and DirtyFiles()==[]"
+    },
+    {
+      "id": "TS-09-31",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-4.6"
+      ],
+      "title": "fix land refuses a question submission and points at fix brief --context",
+      "given": [
+        "a run whose submission.json is a question form"
+      ],
+      "when": "`af fix land --run-id <id>` is invoked",
+      "then": [
+        "status `failed`, category `submission`, exit 1",
+        "the message tells the person to re-run `af fix brief <input> --context <answer>`",
+        "no branch or commit is made"
+      ],
+      "pseudocode": "r = run('fix land', id); assert r.exit==1 and r.category=='submission'; assert 'af fix brief' in r.message and '--context' in r.message; assert branches==['main']"
+    },
+    {
+      "id": "TS-09-32",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-5.1",
+        "09-REQ-5.5"
+      ],
+      "title": "Apply writes new and changed files, recreates symlinks, skips .git, .agent-fox and ignored paths, and never commits",
+      "given": [
+        "a host checkout with .gitignore containing `build/`",
+        "an export with a new file, a changed file, a mode change, a symlink, a commit made inside the box, plus files under .git/, .agent-fox/ and build/"
+      ],
+      "when": "apply is run",
+      "then": [
+        "new, changed and mode-changed files are written, and the symlink is recreated as a symlink without following it",
+        "nothing from .git/, .agent-fox/ or build/ reaches the host",
+        "the ledger holds `apply {written, deleted, ignored}`",
+        "`git rev-parse HEAD` equals base_head, so the in-box commit is absent"
+      ],
+      "pseudocode": "res = Apply(host, exportDir); assert read(host/'new')==...; assert islink(host/'ln') and readlink==target; assert not exists(host/'build/x'); assert ledger.last.kind=='apply'; assert rev_parse('HEAD')==base_head"
+    },
+    {
+      "id": "TS-09-33",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-5.2"
+      ],
+      "title": "Files in the host file view that are absent from the export are deleted",
+      "given": [
+        "a host checkout with tracked file `old.txt` and an export lacking it"
+      ],
+      "when": "apply is run",
+      "then": [
+        "old.txt is deleted from the host",
+        "the apply ledger entry counts one deleted"
+      ],
+      "pseudocode": "Apply(host, export); assert not exists(host/'old.txt'); assert ledger.apply.deleted==1"
+    },
+    {
+      "id": "TS-09-34",
+      "kind": "property",
+      "verifies": [
+        "09-REQ-5.3"
+      ],
+      "title": "After apply the host file view equals the export in paths, contents, modes and symlink targets",
+      "given": [
+        "a host checkout with random tracked files and ignored paths"
+      ],
+      "when": "for any exported tree of regular files, executables and symlinks (excluding .git/ and .agent-fox/)",
+      "then": [
+        "the host file view minus ignored paths equals the export minus .git/ and .agent-fox/ in paths, content, mode and symlink target"
+      ],
+      "pseudocode": "for (hostTree, exportTree) in gen(): Apply(); assert snapshot(FileView(host) - ignored) == snapshot(export - {'.git','.agent-fox'})"
+    },
+    {
+      "id": "TS-09-35",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-5.4"
+      ],
+      "title": "An export with no files is failed/sandbox and nothing is applied",
+      "given": [
+        "a host checkout with files and an empty export"
+      ],
+      "when": "apply is run",
+      "then": [
+        "status `failed`, category `sandbox`",
+        "the host tree is byte-for-byte unchanged"
+      ],
+      "pseudocode": "err = Apply(host, emptyExport); assert err.category=='sandbox'; assert snapshot(host)==before"
+    },
+    {
+      "id": "TS-09-36",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-5.6"
+      ],
+      "title": "Between rounds the box is re-synced from the measured host tree with protected paths reverted",
+      "given": [
+        "a two-round scripted run whose first round edits `.specs/x.md` and a source file and fails the gate"
+      ],
+      "when": "round 2 starts",
+      "then": [
+        "the box at the start of round 2 holds the host tree, with `.specs/x.md` reverted to base content",
+        "Session.Sync was called between the rounds"
+      ],
+      "pseudocode": "onRun(round=2): assert read(box/'.specs/x.md')==base_content and read(box/'src.go')==round1_content"
+    },
+    {
+      "id": "TS-09-37",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-5.7"
+      ],
+      "title": "A round without an accepted submission applies nothing",
+      "given": [
+        "a scripted brain whose round edits files and ends without submitting"
+      ],
+      "when": "the loop runs that round",
+      "then": [
+        "the host tree equals its pre-round state",
+        "the ledger has no apply entry for that round"
+      ],
+      "pseudocode": "run(fix, script=edit_no_submit); assert snapshot(host)==before; assert 'apply' not in kinds(ledger)"
+    },
+    {
+      "id": "TS-09-38",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-6.1"
+      ],
+      "title": "A foreign commit or switched branch at measure time fails with category git",
+      "given": [
+        "a run whose host HEAD advanced by a commit made outside af, then one whose current branch is not the base"
+      ],
+      "when": "`af fix land --run-id <id>` is run",
+      "then": [
+        "status `failed`, category `git`, exit 1",
+        "the message names the commits since base_head",
+        "no branch is created and nothing is parked"
+      ],
+      "pseudocode": "commit_outside(); r = run('fix land'); assert r.exit==1 and r.category=='git' and subj in r.message; assert branches==['main'] or only foreign"
+    },
+    {
+      "id": "TS-09-39",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-6.2"
+      ],
+      "title": "Protected-path changes are restored to base content or deleted and reported",
+      "given": [
+        "a host tree with a modified `.specs/a.md` (existing at base), a new `.github/workflows/ci.yml`, and a source change"
+      ],
+      "when": "measure runs",
+      "then": [
+        "`.specs/a.md` equals its content at base_head and the new workflow file is deleted",
+        "both are in reverted_paths with a `protected_path_reverted` warning each",
+        "the source change remains"
+      ],
+      "pseudocode": "m = Measure(); assert read('.specs/a.md')==base and not exists('.github/workflows/ci.yml'); assert set(m.reverted)=={...}; assert count(warnings,'protected_path_reverted')==2"
+    },
+    {
+      "id": "TS-09-40",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-6.3"
+      ],
+      "title": "No remaining change after the protected revert is the no_change refusal and the gate is not run",
+      "given": [
+        "a tree whose only change is under .specs/"
+      ],
+      "when": "measure runs",
+      "then": [
+        "the refusal kind is `no_change`",
+        "the gate was not run after the change"
+      ],
+      "pseudocode": "m = Measure(); assert m.refusal.kind=='no_change'; assert gateRuns==baselineOnly"
+    },
+    {
+      "id": "TS-09-41",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-6.4"
+      ],
+      "title": "Scope mismatch lists undeclared and unchanged paths and warns without refusing",
+      "given": [
+        "a report declaring files a.go and b.go, while git shows a.go and c.go changed"
+      ],
+      "when": "measure compares them",
+      "then": [
+        "scope.undeclared is [c.go] and scope.unchanged is [b.go]",
+        "the warning `scope_mismatch` is raised",
+        "the result is not a refusal"
+      ],
+      "pseudocode": "s = Scope(declared=['a.go','b.go'], changed=['a.go','c.go']); assert s.undeclared==['c.go'] and s.unchanged==['b.go']; assert not refused"
+    },
+    {
+      "id": "TS-09-42",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-6.5"
+      ],
+      "title": "The gate after is compared with the baseline by id, and --no-verify skips it with verdict unverified",
+      "given": [
+        "a repository with the Makefile fixture gate green at baseline",
+        "a change that keeps it green"
+      ],
+      "when": "measure runs with and without --no-verify",
+      "then": [
+        "with verification: `after {gate_id, passed}`, a landable verdict, via checks.Run with the pinned table and checks.Compare by id",
+        "with --no-verify: no after gate run, verdict `unverified`"
+      ],
+      "pseudocode": "m = Measure(); assert m.after.gate_id != baseline.gate_id and m.landable; m2 = Measure(noVerify); assert m2.verdict=='unverified' and m2.after is None"
+    },
+    {
+      "id": "TS-09-43",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-6.6"
+      ],
+      "title": "The revert check runs only on landable verdicts; only proven means closes",
+      "given": [
+        "a landable change with a proving test",
+        "a landable change whose test passes without the fix",
+        "a regressed change"
+      ],
+      "when": "measure runs on each",
+      "then": [
+        "proven: closes true and revert_check outcome proven",
+        "not_proven: closes false, landable, and warning `fix_not_proven`",
+        "regressed: conform.Check not called and revert_check null",
+        "--no-verify: conform.Check not called"
+      ],
+      "pseudocode": "assert Measure(proven).closes and not Measure(notProven).closes; assert 'fix_not_proven' in codes(w); assert conformCalls(regressed)==0"
+    },
+    {
+      "id": "TS-09-44",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-6.7"
+      ],
+      "title": "A refusal is recorded in the ledger and becomes the next round's task block with 4 KiB tails",
+      "given": [
+        "a round whose change regresses a check producing 10 KiB of output and also touches .specs/"
+      ],
+      "when": "the loop measures and starts the next round",
+      "then": [
+        "the ledger holds `measure {verdict, after_gate_id, revert_outcome, closes, changed, reverted}` and `refusal {kind}`",
+        "the next task block holds the refusal kind, verdict, each failing check's name and a tail of at most 4096 bytes, and the reverted paths"
+      ],
+      "pseudocode": "assert ledger has measure and refusal; t = nextTask; assert 'regressed' in t and checkName in t and len(tail_in(t))<=4096 and '.specs/' in t"
+    },
+    {
+      "id": "TS-09-45",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-6.8"
+      ],
+      "title": "fix land on a refusal parks the work with no brain round",
+      "given": [
+        "a checkout edited by hand that leaves the gate red, with a valid submission"
+      ],
+      "when": "`af fix land --run-id <id> --land branch` is invoked",
+      "then": [
+        "status `unverified`, exit 4",
+        "a `wip:` commit exists on the branch and no brain round was started",
+        "the base branch is checked out"
+      ],
+      "pseudocode": "r = run('fix land', id); assert r.exit==4 and r.result.outcome=='parked'; assert subject(branch_head).startswith('wip:'); assert brain.runs==0"
+    },
+    {
+      "id": "TS-09-46",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-7.1"
+      ],
+      "title": "The result reports attempts, rounds and attempts_max, and Brief.Attempt is the run-wide round number",
+      "given": [
+        "a spy brain recording Brief.Attempt, and a scenario with two refused rounds in attempt 1 and one round in attempt 2"
+      ],
+      "when": "the loop runs with --attempts 2",
+      "then": [
+        "Brief.Attempt values are 1, 2, 3",
+        "result attempts is 2, rounds is 3, attempts_max is 2",
+        "brief.<n>.md files do not collide"
+      ],
+      "pseudocode": "assert spy.attempts==[1,2,3]; assert (r.attempts,r.rounds,r.attempts_max)==(2,3,2); assert len(glob('brief.*.md'))==3"
+    },
+    {
+      "id": "TS-09-47",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-7.2"
+      ],
+      "title": "Another round starts only while cost, turns and brain time remain, with the measuring reserve",
+      "given": [
+        "a measured refusal with remaining budget cases: cost 0, 0 turns, and a command deadline leaving less than 1 minute after reserve = 3 × baseline duration + 1 minute"
+      ],
+      "when": "the round-continuation decision is made",
+      "then": [
+        "with cost > 0, turns ≥ 1 and brain time ≥ 1 minute, another round starts with the remaining cost and turns",
+        "cost 0, 0 turns, or less than 1 minute of brain time ends the attempt",
+        "brain time is deadline-left minus the reserve"
+      ],
+      "pseudocode": "assert Continue(cost=1,turns=5,left=10m,baseline=1m)==True; assert Continue(cost=0,...)==False; assert Continue(turns=0)==False; assert Continue(left=4m,baseline=1m)==False; assert BrainTime(10m,1m)==6m"
+    },
+    {
+      "id": "TS-09-48",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-7.3"
+      ],
+      "title": "A new attempt starts from the current host tree with a fresh budget, and says why the last attempt ended",
+      "given": [
+        "attempt 1's bounds spent after an applied change that leaves the gate red"
+      ],
+      "when": "attempt 2 starts with --attempts 2",
+      "then": [
+        "attempt 2's first brain context starts from the host tree containing attempt 1's change",
+        "its budget and turns equal the full per-attempt values",
+        "its first task block states why attempt 1 ended"
+      ],
+      "pseudocode": "assert spy[2].box_has('change.go'); assert spy[2].MaxCostUSD==10 and spy[2].MaxTurns==150; assert 'bounds' in spy[2].Task"
+    },
+    {
+      "id": "TS-09-49",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-7.4"
+      ],
+      "title": "A non-retryable Execute failure starts no further attempt",
+      "given": [
+        "brain.Execute failing with category budget on attempt 1, with attempts remaining; same for auth"
+      ],
+      "when": "the loop handles the failure",
+      "then": [
+        "no second attempt is started",
+        "the run proceeds to the park-or-fail decision with that failure as the last round's failure"
+      ],
+      "pseudocode": "r = loop(exec=fail('budget',retryable=false)); assert exec.calls==1; assert r.category=='budget'"
+    },
+    {
+      "id": "TS-09-50",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-7.5"
+      ],
+      "title": "With no attempt left, an applied change is parked and a run with nothing applied fails",
+      "given": [
+        "scenario A: attempt 1 applied a red change, attempt 2's round failed",
+        "scenario B: every round failed before any apply"
+      ],
+      "when": "the loop ends in each scenario",
+      "then": [
+        "A: status unverified, exit 4, a wip commit with the last accepted report's subject, and warning `attempt_failed`",
+        "B: status failed with the last round's failure category, exit 1, and no branch exists"
+      ],
+      "pseudocode": "a = run(A); assert a.exit==4 and 'attempt_failed' in codes(a.warnings) and wip_subject==lastSubject; b = run(B); assert b.exit==1 and b.category==lastFailure.category and branches==['main']"
+    },
+    {
+      "id": "TS-09-51",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-7.6"
+      ],
+      "title": "Cancellation or deadline parks the applied change locally within 10 seconds, or discards it under dry-run",
+      "given": [
+        "a run with an applied change when the context is cancelled mid-round; same for a short --timeout; same with --dry-run",
+        "a local bare origin and a recording forge"
+      ],
+      "when": "the loop is interrupted",
+      "then": [
+        "a local `wip:` branch exists and was not pushed to origin",
+        "the forge received no write",
+        "the status is failed with category `cancelled` (or `timeout`)",
+        "under --dry-run, no branch exists and the tree is reset to base_head",
+        "parking ran on a context detached from cancellation and bounded to 10 seconds"
+      ],
+      "pseudocode": "cancel(); r = run(); assert r.category in ['cancelled','timeout']; assert local_branch_exists and not remote_branch_exists; assert writes(forge)==[]; dry = run('--dry-run'); assert branches==['main'] and DirtyFiles()==[]"
+    },
+    {
+      "id": "TS-09-52",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-7.7"
+      ],
+      "title": "One box is held across all rounds, closed on every exit path, and usage is the Tally",
+      "given": [
+        "a box provider spy counting opens and closes, and a brain reporting cost and turns per round"
+      ],
+      "when": "the loop runs three rounds, then fails, then is cancelled",
+      "then": [
+        "the box opens once per run and closes exactly once on success, failure and cancellation",
+        "the envelope usage equals the summed Tally of all rounds"
+      ],
+      "pseudocode": "assert (spy.opens,spy.closes)==(1,1) for each scenario; assert env.usage == sum(round.usage)"
+    },
+    {
+      "id": "TS-09-53",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-8.1"
+      ],
+      "title": "Text and file input under --land pr create exactly one issue with the original report",
+      "given": [
+        "an httptest GitHub forge and a file ./bug.md"
+      ],
+      "when": "the run lands with `--land pr` from the file and from text",
+      "then": [
+        "exactly one create-issue request is made per run",
+        "its title is the report subject and its body holds the original input under `## Original report` followed by a line naming the run",
+        "issue_created {number, url}, the `issue` artifact and the `create_issue` side effect with status done are reported"
+      ],
+      "pseudocode": "assert count(forge, 'POST issues')==1; assert body.title==subject and '## Original report' in body.body and runId in body.body; assert r.issue_created.number and 'issue' in artifacts"
+    },
+    {
+      "id": "TS-09-54",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-8.2"
+      ],
+      "title": "Branch names are fix/<N>-<slug> or fix/<slug>, made unique and created from base_head",
+      "given": [
+        "an issue #42 titled `Crash on empty input`",
+        "a text input with subject `Handle nil`",
+        "an existing local branch and a remote branch with the same name"
+      ],
+      "when": "the branch is named and created",
+      "then": [
+        "issue input gives `fix/42-crash-on-empty-input`, text input gives `fix/handle-nil`",
+        "existing local or origin names yield a different unique name",
+        "the branch starts at base_head with the working tree carried",
+        "the branch artifact and side effect are reported"
+      ],
+      "pseudocode": "assert BranchFor(issue42)=='fix/42-crash-on-empty-input'; assert BranchFor(text)=='fix/handle-nil'; assert BranchFor(issue42, existing) != existing; assert merge_base(branch, base_head)==base_head"
+    },
+    {
+      "id": "TS-09-55",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-8.3"
+      ],
+      "title": "The landing commit has the specified message layout and exactly one commit above base_head",
+      "given": [
+        "a landable proven result with a 3000-byte `change`, type `feat`, subject `Add x`, issue URL",
+        "a landable not-proven result"
+      ],
+      "when": "the landing commit is made",
+      "then": [
+        "the message is `feat: Add x`, blank line, change capped at 2000 bytes, blank line, `Closes <url>` (proven) or `Refs <url>` (not proven), blank line, `Agent-Fox-Run: <run id>` as the last paragraph",
+        "exactly one commit lies above base_head",
+        "`commit` in the result is the full 40-hex hash"
+      ],
+      "pseudocode": "msg = git_log('-1','%B'); paras = msg.split('\\n\\n'); assert paras[0]=='feat: Add x' and len(paras[1])<=2000 and paras[-2].startswith('Closes ') and paras[-1]=='Agent-Fox-Run: '+rid; assert count(base_head..HEAD)==1"
+    },
+    {
+      "id": "TS-09-56",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-8.4"
+      ],
+      "title": "A failing commit hook parks the work with warning commit_hook_failed",
+      "given": [
+        "a repository with a pre-commit hook that exits 1",
+        "a landable change"
+      ],
+      "when": "landing commits",
+      "then": [
+        "the work is parked as a `wip:` commit made without hooks",
+        "warning `commit_hook_failed` is raised",
+        "status unverified, exit 4",
+        "the base branch is checked out with a clean tree"
+      ],
+      "pseudocode": "r = run(fix); assert r.exit==4 and 'commit_hook_failed' in codes(r.warnings); assert subject(branch).startswith('wip:'); assert DirtyFiles()==[]"
+    },
+    {
+      "id": "TS-09-57",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-8.5"
+      ],
+      "title": "A push that still fails keeps the branch locally and reports failed/git with a next command",
+      "given": [
+        "an origin whose push is rejected with a transient error each time",
+        "gitx sleep disabled for the test"
+      ],
+      "when": "landing pushes with 3 attempts",
+      "then": [
+        "warning `push_retried` is raised for each retry",
+        "status `failed`, category `git`, exit 1",
+        "the branch and commit exist locally and the checkout is back on the base branch",
+        "`next` holds `git push -u origin <branch>`"
+      ],
+      "pseudocode": "r = run(fix); assert r.exit==1 and r.category=='git'; assert count(warnings,'push_retried')==2; assert 'git push -u origin '+branch in r.next; assert current_branch()=='main'"
+    },
+    {
+      "id": "TS-09-58",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-8.6"
+      ],
+      "title": "The pull request is drafted under --no-verify or unmet criteria, and a forge failure after the push still ends done",
+      "given": [
+        "an httptest GitHub forge",
+        "a report with a criterion `partial`",
+        "a variant where the PR creation returns 500"
+      ],
+      "when": "the landing opens the pull request",
+      "then": [
+        "the request carries title `<type>: <subject>`, head the branch, base the base branch, and draft true for unmet/partial criteria (warning `criteria_unmet`) and for --no-verify",
+        "a fully met verified run is not a draft",
+        "when the PR call fails after the push, status is done, warning `pull_request_failed` carries the forge error, and pull_request is null"
+      ],
+      "pseudocode": "assert req.draft and 'criteria_unmet' in codes(w); assert not req2.draft; r3 = run(forge500); assert r3.exit==0 and 'pull_request_failed' in codes(r3.warnings) and r3.result.pull_request is None"
+    },
+    {
+      "id": "TS-09-59",
+      "kind": "property",
+      "verifies": [
+        "09-REQ-8.7"
+      ],
+      "title": "The pull-request body has the required order and respects the forge body limit without cutting facts",
+      "given": [
+        "forge limits of 65536 and 1048576"
+      ],
+      "when": "for any report (arbitrary lengths of root_cause, change, tests, criteria, decisions, files) and any limit",
+      "then": [
+        "sections appear in order: run-id marker comment, verification (measured by af), reported sections, changed files with `why` or `(not declared)`, Closes/Refs line, footer with run id, brain and cost with source",
+        "len(body) <= limit",
+        "the verification section and the Closes/Refs line are always intact, and any cut of reported sections leaves a visible marker",
+        "report.md equals the body"
+      ],
+      "pseudocode": "for (rep, limit) in gen(): b = RenderBody(rep, limit); assert len(b)<=limit; assert order(b, MARKERS); assert verification(b)==full and refsLine in b; if cut: assert CUT_MARKER in b"
+    },
+    {
+      "id": "TS-09-60",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-8.8"
+      ],
+      "title": "After landing the checkout is on the base branch with a clean tree, and --no-verify reports unverified",
+      "given": [
+        "a landable result, and the same input with --no-verify"
+      ],
+      "when": "the run completes",
+      "then": [
+        "verified: status done, exit 0, outcome landed",
+        "--no-verify: status unverified, exit 4, warning `not_verified`, draft PR that says Refs",
+        "in both, the base branch is checked out and DirtyFiles is empty"
+      ],
+      "pseudocode": "r = run(fix); assert r.exit==0 and r.result.outcome=='landed' and current_branch()=='main'; r2 = run(fix,'--no-verify'); assert r2.exit==4 and 'not_verified' in codes(r2.warnings)"
+    },
+    {
+      "id": "TS-09-61",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-9.1"
+      ],
+      "title": "Parking commits wip with the verdict, failing checks, Refs and trailer without running hooks",
+      "given": [
+        "a red result for an issue with a pre-commit hook that fails"
+      ],
+      "when": "the run parks",
+      "then": [
+        "the branch uses the 09-REQ-8.2 name",
+        "the message is `wip: <subject>`, a blank line, `Parked by af fix: verdict <v>` with the failing checks, a blank line, `Refs <url>`, a blank line, `Agent-Fox-Run: <run id>`",
+        "the commit was made without running the failing hook"
+      ],
+      "pseudocode": "msg = git_log(branch,'%B'); assert msg.startswith('wip: '); assert 'Parked by af fix: verdict still_failing' in msg and 'Refs '+url in msg and msg.endswith('Agent-Fox-Run: '+rid)"
+    },
+    {
+      "id": "TS-09-62",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-9.2"
+      ],
+      "title": "A parked run pushes and opens a draft Refs pull request under --land pr, creating the issue for text input",
+      "given": [
+        "a red result from text input and an httptest GitHub forge",
+        "a variant with --land branch and one interrupted by cancellation"
+      ],
+      "when": "the run parks",
+      "then": [
+        "under --land pr the branch is pushed, one issue is created first, and the PR is a draft whose body contains `Refs <issue url>`",
+        "under --land branch the branch is pushed with no forge request",
+        "an interrupted run is neither pushed nor given a PR"
+      ],
+      "pseudocode": "assert remote_has(branch) and pr.draft and 'Refs '+issue_url in pr.body; assert order(forge.requests)[0]=='POST issues'; assert writes(forge_branch_mode)==[]"
+    },
+    {
+      "id": "TS-09-63",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-9.3"
+      ],
+      "title": "Parking completes on the base branch with a clean tree, unverified/4, fix_not_landed and a switch hint",
+      "given": [
+        "a red result that parks"
+      ],
+      "when": "parking completes",
+      "then": [
+        "status unverified, exit 4, outcome parked",
+        "warning `fix_not_landed` names the verdict",
+        "`next` holds `git switch <branch>`",
+        "the base branch is checked out and DirtyFiles is empty"
+      ],
+      "pseudocode": "r = run(fix); assert r.exit==4 and r.result.outcome=='parked'; assert 'fix_not_landed' in codes(r.warnings) and verdict in msg; assert 'git switch '+r.result.branch in r.next; assert DirtyFiles()==[]"
+    },
+    {
+      "id": "TS-09-64",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-9.4"
+      ],
+      "title": "--land none makes the local branch and commit and sends no forge request or push",
+      "given": [
+        "a local bare origin and a recording httptest forge"
+      ],
+      "when": "`af fix <issue URL> --land none` is run with a landable fix",
+      "then": [
+        "a local branch and commit exist",
+        "origin has no such branch, pushed is false and pull_request is null",
+        "the forge saw zero requests for the landing"
+      ],
+      "pseudocode": "r = run(fix,'--land','none'); assert local_branch_exists and not origin_has(branch); assert r.result.pushed==False and r.result.pull_request is None; assert forge.landing_requests==[]"
+    },
+    {
+      "id": "TS-09-65",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-9.5"
+      ],
+      "title": "--dry-run discards the change, makes no branch or commit, and lists planned side effects",
+      "given": [
+        "a landable fix and a recording httptest forge"
+      ],
+      "when": "`af fix <issue URL> --dry-run` is run",
+      "then": [
+        "the status is the one the real run would have had, outcome `dry_run`",
+        "ResetHard(base_head) and Clean left the tree clean at base_head",
+        "no branch or commit was created and nothing was pushed",
+        "side effects branch, commit, push and create_pull_request are listed as `planned`",
+        "the forge recorded zero write requests"
+      ],
+      "pseudocode": "r = run(fix,'--dry-run'); assert r.result.outcome=='dry_run' and r.exit==0; assert branches==['main'] and head==base_head and DirtyFiles()==[]; assert planned(r) >= {'branch','commit','push','create_pull_request'}; assert writes(forge)==[]"
+    },
+    {
+      "id": "TS-09-66",
+      "kind": "property",
+      "verifies": [
+        "09-REQ-9.6"
+      ],
+      "title": "Every landed, parked, needs_human or dry_run run leaves the base branch at base_head with a clean tree",
+      "given": [
+        "scripted scenarios"
+      ],
+      "when": "for any scenario drawn from landed, parked, needs_human and dry_run with any --land mode",
+      "then": [
+        "the current branch is the base branch",
+        "the working tree is clean",
+        "for needs_human and dry_run, HEAD equals base_head"
+      ],
+      "pseudocode": "for sc in scenarios(): r = run(sc); assert current_branch()==base and DirtyFiles()==[]; if r.outcome in ['needs_human','dry_run']: assert head==base_head"
+    },
+    {
+      "id": "TS-09-67",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-10.1"
+      ],
+      "title": "The fix and fix land results carry every field and validate against their schema",
+      "given": [
+        "a landed result and a parked result for an issue input, and the declared `fix` and `fix land` result schemas"
+      ],
+      "when": "the results are produced and validated",
+      "then": [
+        "every field is present: run_id, issue, issue_created, base, base_head, attempts, rounds, attempts_max, outcome, verdict, landable, closes, baseline, after, revert_check, changed_files, reverted_paths, scope, land, branch, commit, pushed, pull_request, box",
+        "box.network is `host` for the local provider",
+        "both results validate against their schemas"
+      ],
+      "pseudocode": "for r in [landed, parked]: assert validate(schema, r.result); assert r.result.box.network=='host'; assert r.result.commit matches [0-9a-f]{40}"
+    },
+    {
+      "id": "TS-09-68",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-10.2"
+      ],
+      "title": "Artifacts and side effects are reported with done, planned or failed statuses",
+      "given": [
+        "a landed run, a dry run and a run whose push failed"
+      ],
+      "when": "each envelope is read",
+      "then": [
+        "the landed run lists artifacts branch, commit, pull_request, report, submission, transcript and run_dir (and issue when created)",
+        "side effects branch, commit, push, create_issue and create_pull_request are `done` for landed, `planned` for dry-run, and the push is `failed` for the push failure"
+      ],
+      "pseudocode": "assert {'branch','commit','pull_request','report','submission','transcript','run_dir'} <= kinds(landed.artifacts); assert status(dry,'push')=='planned'; assert status(pushfail,'push')=='failed'"
+    },
+    {
+      "id": "TS-09-69",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-10.3"
+      ],
+      "title": "The scripted brain replays round k on the k-th Run and ends past the last round",
+      "given": [
+        "a script `{\"rounds\": [{\"steps\": [...A]}, {\"steps\": [...B]}]}` and a plain `{\"steps\": [...]}` script"
+      ],
+      "when": "Run is called three times on the same brain value, and once on the plain script twice",
+      "then": [
+        "call 1 replays round 1 and call 2 replays round 2",
+        "call 3 ends at once with outcome `ended`",
+        "the plain script behaves as one round: the second call ends at once"
+      ],
+      "pseudocode": "b = Scripted(multi); assert run(b).steps==A; assert run(b).steps==B; assert run(b).outcome=='ended' and no steps; p = Scripted(plain); run(p); assert run(p).outcome=='ended'"
+    },
+    {
+      "id": "TS-09-70",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-10.4"
+      ],
+      "title": "The agentkit path on provider/faux and the GitLab forge pass offline with no vendor key",
+      "given": [
+        "no vendor key in the environment",
+        "an httptest GitLab injected through App.NewForge, a temporary repo with a local bare origin and the Makefile fixture gate"
+      ],
+      "when": "`af fix <issue URL> --brain agentkit --sandbox local` is run with the model provider/faux",
+      "then": [
+        "the run completes with status done and a merge request opened against the httptest GitLab",
+        "only loopback connections were made"
+      ],
+      "pseudocode": "unsetenv(vendor keys); r = run(fix,'--brain','agentkit','--model','provider/faux'); assert r.exit==0 and gitlabMR.created; assert all(conn.is_loopback)"
+    },
+    {
+      "id": "TS-09-71",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-10.5"
+      ],
+      "title": "The af-fix skill describes the toolbelt flow and contains no commit, push, branch or PR instruction",
+      "given": [
+        "skills/af-fix text"
+      ],
+      "when": "the skill text is scanned",
+      "then": [
+        "it mentions `af fix brief`, `af fix submit` and `af fix land` in that order and `af gate run`",
+        "it states the agent never commits, pushes, branches or edits the issue",
+        "it uses the branch form `fix/<N>-<slug>`",
+        "it contains no instruction to run `git commit`, `git push`, `git checkout -b` or to open a pull request"
+      ],
+      "pseudocode": "t = read('skills/af-fix/SKILL.md'); assert order(t,'af fix brief','af fix submit','af fix land'); assert 'fix/<N>-<slug>' in t; for bad in ['git commit','git push','git checkout -b']: assert bad not in instructions(t)"
+    },
+    {
+      "id": "TS-09-72",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-10.6"
+      ],
+      "title": "The documentation describes what the scope ships",
+      "given": [
+        "docs/cli.md, docs/configuration.md, docs/model-usage.md, docs/architecture.md and README.md"
+      ],
+      "when": "each file is searched for the required content",
+      "then": [
+        "cli.md lists the five commands, flags, defaults, warnings, the `preflight` category and exit codes",
+        "configuration.md mentions gate.json, guard.json and the token for --land pr",
+        "model-usage.md describes per-attempt bounds, attempts, rounds and that dry runs spend model money",
+        "architecture.md describes the fix loop, apply and measure, fix.json, report.md and the codefix row",
+        "README.md mentions internal/fix/"
+      ],
+      "pseudocode": "for (file, needles) in DOCS: for n in needles: assert n in read(file)"
+    },
+    {
+      "id": "TS-09-73",
+      "kind": "smoke",
+      "verifies": [
+        "09-PATH-1",
+        "09-REQ-1.2",
+        "09-REQ-5.5",
+        "09-REQ-8.3"
+      ],
+      "title": "An issue URL becomes one commit on fix/<N>-<slug>, pushed, with a pull request saying Closes",
+      "given": [
+        "a temporary repository on main with a local bare origin and the Makefile fixture gate",
+        "an httptest GitHub serving the issue and accepting the pull request",
+        "a scripted brain that edits the tree, commits inside the box and submits a report with a proving test"
+      ],
+      "when": "`af fix <issue URL> --brain scripted --sandbox local --dir <repo>` is run",
+      "then": [
+        "status done and exit 0",
+        "`fix/<N>-<slug>` exists with exactly one commit above base whose last paragraph is `Agent-Fox-Run: <run id>`",
+        "the commit the brain made in the box is not on the branch",
+        "the branch is pushed to origin",
+        "one pull request is opened with body containing `Closes <issue url>`",
+        "the checkout is on main with a clean tree"
+      ],
+      "real_components": [
+        "toolio shell",
+        "fix preflight",
+        "fix loop",
+        "fix apply",
+        "fix measure",
+        "fix land",
+        "checks and conform",
+        "gitx with real git",
+        "local box",
+        "scripted brain",
+        "issuex GitHub client against httptest"
+      ]
+    },
+    {
+      "id": "TS-09-74",
+      "kind": "smoke",
+      "verifies": [
+        "09-PATH-2",
+        "09-REQ-8.1"
+      ],
+      "title": "A file report creates one issue and a pull request that closes or refs it",
+      "given": [
+        "a temporary repository with local bare origin and fixture gate",
+        "an httptest GitHub and ./bug.md"
+      ],
+      "when": "`af fix ./bug.md --repo o/r --brain scripted --sandbox local --land pr` is run",
+      "then": [
+        "status done",
+        "exactly one issue was created with the report under `## Original report`",
+        "a branch is pushed and one pull request body says `Closes` or `Refs` followed by the new issue URL",
+        "issue_created and pull_request are set in the result"
+      ],
+      "real_components": [
+        "toolio shell",
+        "fix loop",
+        "fix land",
+        "gitx with real git",
+        "checks and conform",
+        "local box",
+        "scripted brain",
+        "issuex GitHub client against httptest"
+      ]
+    },
+    {
+      "id": "TS-09-75",
+      "kind": "smoke",
+      "verifies": [
+        "09-PATH-3",
+        "09-REQ-6.7",
+        "09-REQ-7.2"
+      ],
+      "title": "A regressing first change is refused and the second round's passing change lands",
+      "given": [
+        "a fixture repo with green baseline",
+        "a two-round scripted script: round 1 breaks the gate, round 2 fixes it",
+        "an httptest GitHub"
+      ],
+      "when": "`af fix <issue URL> --brain scripted --sandbox local` is run",
+      "then": [
+        "round 2's task block contains the verdict `regressed` and the failing checks' output",
+        "the run lands with status done and exit 0",
+        "the envelope reports rounds 2 and attempts 1",
+        "the pull request is opened"
+      ],
+      "real_components": [
+        "toolio shell",
+        "fix loop",
+        "fix apply",
+        "fix measure",
+        "fix land",
+        "checks and conform",
+        "gitx with real git",
+        "local box",
+        "scripted brain with rounds",
+        "issuex GitHub client against httptest"
+      ]
+    },
+    {
+      "id": "TS-09-76",
+      "kind": "smoke",
+      "verifies": [
+        "09-PATH-4",
+        "09-REQ-9.2",
+        "09-REQ-9.3"
+      ],
+      "title": "A still-red result with bounds spent is parked as wip and a draft Refs pull request",
+      "given": [
+        "a fixture repo, a script whose change leaves the gate red",
+        "an httptest GitHub, a local bare origin"
+      ],
+      "when": "`af fix <issue URL> --land pr --attempts 1 --brain scripted --sandbox local` is run",
+      "then": [
+        "status unverified and exit 4 with warning `fix_not_landed`",
+        "a `wip: …` commit on the fix branch pushed to origin",
+        "a draft pull request whose body says `Refs <issue url>`",
+        "the base branch is checked out with a clean tree"
+      ],
+      "real_components": [
+        "toolio shell",
+        "fix loop",
+        "fix measure",
+        "fix park",
+        "checks and conform",
+        "gitx with real git",
+        "local box",
+        "scripted brain",
+        "issuex GitHub client against httptest"
+      ]
+    },
+    {
+      "id": "TS-09-77",
+      "kind": "smoke",
+      "verifies": [
+        "09-PATH-5",
+        "09-REQ-3.4",
+        "09-REQ-3.1"
+      ],
+      "title": "A question exits needs_human and resuming with --context B renders the same prefix with the answer",
+      "given": [
+        "a fixture repo and an httptest GitHub",
+        "a script whose submission is a question with options"
+      ],
+      "when": "`af fix <issue URL>` is run, then `needs_human.resume.argv` is re-run with `--context B` appended using `fix brief` equivalent output of brief.md",
+      "then": [
+        "the first run exits 3 with options A, B and resume.argv, with no branch or commit and an untouched tree",
+        "the resumed run's brief has the same prefix_sha256",
+        "its task block holds the earlier question and the answer `B`"
+      ],
+      "real_components": [
+        "toolio shell",
+        "fix preflight",
+        "fix loop",
+        "fix brief builder",
+        "fix questions lookup",
+        "gitx with real git",
+        "local box",
+        "scripted brain",
+        "issuex GitHub client against httptest"
+      ]
+    },
+    {
+      "id": "TS-09-78",
+      "kind": "smoke",
+      "verifies": [
+        "09-PATH-6",
+        "09-REQ-9.5"
+      ],
+      "title": "A dry run spends the round but writes nothing to the forge, git or remote",
+      "given": [
+        "a fixture repo with local bare origin and an httptest GitHub recording writes",
+        "a scripted brain submitting a landable fix"
+      ],
+      "when": "`af fix <issue URL> --dry-run --brain scripted --sandbox local` is run",
+      "then": [
+        "zero write requests reached the forge",
+        "no branch and no commit were created, nothing was pushed",
+        "branch, commit, push and create_pull_request are listed as `planned`",
+        "the tree is clean at base_head and the status is the real run's"
+      ],
+      "real_components": [
+        "toolio shell",
+        "DryRunForge",
+        "fix loop",
+        "fix apply",
+        "fix measure",
+        "gitx with real git",
+        "checks and conform",
+        "local box",
+        "scripted brain",
+        "issuex GitHub client against httptest"
+      ]
+    },
+    {
+      "id": "TS-09-79",
+      "kind": "smoke",
+      "verifies": [
+        "09-PATH-7",
+        "09-REQ-3.8",
+        "09-REQ-1.7"
+      ],
+      "title": "A person runs brief, edits their checkout, submits and lands",
+      "given": [
+        "a fixture repo with local bare origin and an httptest GitHub"
+      ],
+      "when": "`af fix brief <issue URL>` is run, a file is edited directly, a report is piped to `af fix submit --run-id <id>`, then `af fix land --run-id <id>` is run",
+      "then": [
+        "brief returns brief_path and the submit argv",
+        "submit is accepted",
+        "land measures once and creates `fix/<N>-<slug>` with one commit, pushes, and opens a pull request",
+        "status done and the checkout is back on the base branch"
+      ],
+      "real_components": [
+        "toolio shell",
+        "fix brief",
+        "fix submit with fix_report kind",
+        "fix land",
+        "fix measure",
+        "checks and conform",
+        "gitx with real git",
+        "issuex GitHub client against httptest"
+      ]
+    }
+  ]
+}

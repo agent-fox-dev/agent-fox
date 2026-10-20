@@ -1,0 +1,1485 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "05",
+  "spec_name": "af_cli_envelope",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-05-1",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-1.1"
+      ],
+      "title": "The shell dispatches to the command with the longest matching path",
+      "given": [
+        "commands registered under \"gate\" and \"gate run\", each returning done",
+        "an App with in-memory stdin, stdout and stderr"
+      ],
+      "when": "App.Main is called with args [\"gate\", \"run\", \"--dir\", \".\"] and then with [\"gate\"]",
+      "then": [
+        "the first envelope's tool is \"gate run\" and the \"gate run\" command ran",
+        "the second envelope's tool is \"gate\"",
+        "the remaining arguments reached the command's flag set"
+      ],
+      "pseudocode": "app.Register(gate); app.Register(gateRun); code = app.Main(ctx, ['gate','run'], in, out, err); assert json(out).tool == 'gate run'; assert gateRun.called && !gate.called"
+    },
+    {
+      "id": "TS-05-2",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-1.2"
+      ],
+      "title": "No arguments or an unknown command gives a usage envelope listing the commands",
+      "given": [
+        "commands \"alpha\" and \"beta gamma\" registered"
+      ],
+      "when": "App.Main is called with no args and then with [\"nosuch\"]",
+      "then": [
+        "both calls return exit code 2",
+        "each envelope has status \"usage\", tool \"af\", error.category \"usage\"",
+        "error.message contains \"alpha\" and \"beta gamma\""
+      ],
+      "pseudocode": "for args in [[], ['nosuch']]: code = Main(args); assert code == 2; e = json(out); assert e.tool == 'af' && e.status == 'usage' && 'alpha' in e.error.message && 'beta gamma' in e.error.message"
+    },
+    {
+      "id": "TS-05-3",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-1.3"
+      ],
+      "title": "Flags before or after the positional argument parse identically and -- ends flags",
+      "given": [
+        "a test command declaring an input and a --dir flag that records its parsed flags and input"
+      ],
+      "when": "Main is called with [\"X\", \"./bug.md\", \"--dir\", \"repo\"], with [\"X\", \"--dir\", \"repo\", \"./bug.md\"], and with [\"X\", \"--\", \"--dir\"]",
+      "then": [
+        "the first two calls record the same dir and the same positional",
+        "the third call treats \"--dir\" as the positional text and sets no dir flag",
+        "the flag set is created with ContinueOnError (no os.Exit on a bad flag)"
+      ],
+      "pseudocode": "a = run(['X','./bug.md','--dir',d]); b = run(['X','--dir',d,'./bug.md']); assert a.flags == b.flags && a.pos == b.pos; c = run(['X','--','--dir']); assert c.pos == '--dir'"
+    },
+    {
+      "id": "TS-05-4",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-1.4"
+      ],
+      "title": "A bad flag or an extra positional gives a usage envelope and nothing on stderr",
+      "given": [
+        "a test command with one positional input and a --dir flag"
+      ],
+      "when": "Main is called with [\"X\", \"--bogus\", \"a\"] and with [\"X\", \"a\", \"b\"]",
+      "then": [
+        "each call returns exit code 2 with status \"usage\"",
+        "error.message names \"--bogus\" in the first case and the extra argument \"b\" in the second",
+        "stderr is empty and the flag package printed nothing"
+      ],
+      "pseudocode": "code = Main(['X','--bogus','a']); assert code == 2; assert 'bogus' in json(out).error.message; assert err.Len() == 0"
+    },
+    {
+      "id": "TS-05-5",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-1.5"
+      ],
+      "title": "-h, --help and help print plain-text help with exit 0",
+      "given": [
+        "commands \"alpha\" (with a --dir flag and a summary) and \"beta\" registered"
+      ],
+      "when": "Main is called with [\"-h\"], [\"--help\"], [\"help\"], [\"help\", \"alpha\"] and [\"alpha\", \"--help\"]",
+      "then": [
+        "every call returns exit code 0",
+        "stdout of [\"help\"] lists alpha and beta",
+        "stdout of [\"help\",\"alpha\"] contains alpha's synopsis and \"--dir\"",
+        "stdout is not valid JSON in every case"
+      ],
+      "pseudocode": "for args in cases: assert Main(args) == 0; assert !json.Valid(out); assert 'alpha' in out"
+    },
+    {
+      "id": "TS-05-6",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-1.6"
+      ],
+      "title": "--version reports ldflags values, else build info, else dev",
+      "given": [
+        "an App built with explicit Version, Commit and BuildTime, and a second App with all three empty"
+      ],
+      "when": "Main is called with [\"--version\"] on each",
+      "then": [
+        "the first prints exactly one JSON document with name \"af\", the given version, commit, build_time and the runtime go_version, exit 0",
+        "the second falls back to runtime/debug.ReadBuildInfo values, and when none exist reports version \"dev\" with empty commit and build_time",
+        "key order is name, version, commit, build_time, go_version"
+      ],
+      "pseudocode": "assert Main(['--version']) == 0; v = json(out); assert v.name == 'af' && v.version == 'v1.2.3' && v.go_version == runtime.Version()"
+    },
+    {
+      "id": "TS-05-7",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-1.7"
+      ],
+      "title": "make build writes bin/af with the Makefile's version and cmd/af compiles",
+      "given": [
+        "the repository checkout with its Makefile"
+      ],
+      "when": "`go build ./cmd/af` and `make build VERSION=9.9.9-test` are run and then `bin/af --version`",
+      "then": [
+        "both builds succeed",
+        "bin/af exists and its --version output reports version \"9.9.9-test\"",
+        "cmd/af contains only package main wiring that exits with App.Main's return value"
+      ],
+      "pseudocode": "run('make build VERSION=9.9.9-test'); out = run('bin/af --version'); assert json(out).version == '9.9.9-test'"
+    },
+    {
+      "id": "TS-05-8",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-1.8"
+      ],
+      "title": "--schema, --version and --help short-circuit input, forge and run directory work",
+      "given": [
+        "a command declaring input, forge, run directory and dry-run, with an NewForge hook that counts calls",
+        "a temporary --dir"
+      ],
+      "when": "Main is called with [\"X\", \"--schema\", \"-\", \"--dir\", tmp], [\"X\", \"https://github.com/o/r/issues/1\", \"--version\"] and [\"X\", \"https://github.com/o/r/issues/1\", \"--help\", \"--dir\", tmp]",
+      "then": [
+        "each returns exit code 0",
+        "NewForge was never called and no forge request was made",
+        "stdin was not read",
+        "no .agent-fox directory exists under the temporary dir"
+      ],
+      "pseudocode": "for args in cases: assert Main(args) == 0; assert forgeCalls == 0; assert !exists(tmp/'.agent-fox')"
+    },
+    {
+      "id": "TS-05-9",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-2.1"
+      ],
+      "title": "Stdout holds exactly one two-space-indented JSON object ending in one newline",
+      "given": [
+        "a test command returning done"
+      ],
+      "when": "Main is called and stdout is captured",
+      "then": [
+        "stdout parses as a single JSON object with no trailing data",
+        "the text is indented with two spaces and ends with exactly one newline",
+        "nothing else is written to stdout"
+      ],
+      "pseudocode": "dec = json.NewDecoder(out); dec.Decode(&obj); assert !dec.More(); assert out == json.MarshalIndent(obj,'','  ') + '\\n'"
+    },
+    {
+      "id": "TS-05-10",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-2.2"
+      ],
+      "title": "Envelope fields appear in the fixed order with every field present",
+      "given": [
+        "test commands that end done, failed, usage, needs_human and unverified"
+      ],
+      "when": "each is run and the raw stdout key order is read with a token decoder",
+      "then": [
+        "top-level keys are exactly schema_version, tool, run_id, status, exit_code, summary, input, result, needs_human, error, warnings, artifacts, side_effects, next, usage, started_at, finished_at, duration_ms in that order",
+        "schema_version is \"4.0.0\"",
+        "warnings, artifacts, side_effects and next are [] never null",
+        "fix_hint is null or has only keys among flag, env, var, suggest"
+      ],
+      "pseudocode": "for s in statuses: keys = topLevelKeys(out); assert keys == EXPECTED; assert e.schema_version == '4.0.0'; assert e.warnings == []"
+    },
+    {
+      "id": "TS-05-11",
+      "kind": "property",
+      "verifies": [
+        "05-REQ-2.3"
+      ],
+      "title": "Status, exit code and the null-iff rules hold for every possible ending",
+      "given": [
+        "a test command whose ending is chosen by the generator"
+      ],
+      "when": "for any ending drawn from outcomes (done, unverified, needs_human with a question), Failures of every category, plain errors and panics",
+      "then": [
+        "status/exit_code pairs are only done/0, failed/1, usage/2, needs_human/3, unverified/4",
+        "needs_human is non-null iff status is needs_human",
+        "error is non-null iff status is failed or usage",
+        "App.Main returns exactly the envelope's exit_code"
+      ],
+      "pseudocode": "for ending in gen_endings(): code = Main(...); e = json(out); assert code == e.exit_code == MAP[e.status]; assert (e.needs_human != null) == (e.status == 'needs_human'); assert (e.error != null) == (e.status in ['failed','usage'])"
+    },
+    {
+      "id": "TS-05-12",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-2.4"
+      ],
+      "title": "Timestamps are RFC 3339 UTC with milliseconds and usage defaults to the no-brain value",
+      "given": [
+        "an App whose Now function returns a fixed instant then an instant 250ms later"
+      ],
+      "when": "a command that sets no usage runs",
+      "then": [
+        "started_at and finished_at match ^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+        "duration_ms is 250 and is an integer",
+        "usage equals {brain \"\", cost_usd 0, cost_source \"none\", input_tokens 0, output_tokens 0, turns 0}"
+      ],
+      "pseudocode": "e = json(out); assert re.match(RFC3339_MS, e.started_at); assert e.duration_ms == 250; assert e.usage == {brain:'',cost_usd:0,cost_source:'none',input_tokens:0,output_tokens:0,turns:0}"
+    },
+    {
+      "id": "TS-05-13",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-2.5"
+      ],
+      "title": "The envelope is written byte-identically to envelope.json and --output",
+      "given": [
+        "a command with a run directory in a temporary --dir",
+        "--output pointing at a path in a temporary directory"
+      ],
+      "when": "the command runs and finishes",
+      "then": [
+        "<run_dir>/envelope.json content equals stdout byte for byte",
+        "the --output file content equals stdout byte for byte",
+        "a command without a run directory still writes the --output copy"
+      ],
+      "pseudocode": "assert read(runDir/'envelope.json') == stdout; assert read(outPath) == stdout"
+    },
+    {
+      "id": "TS-05-14",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-2.6"
+      ],
+      "title": "An unwritable envelope copy becomes a warning and leaves the status unchanged",
+      "given": [
+        "a command ending done",
+        "--output pointing into a nonexistent directory",
+        "in a second case, the run directory's envelope.json path replaced by a directory"
+      ],
+      "when": "the command runs",
+      "then": [
+        "the stdout envelope has warning code output_unwritable in the first case and envelope_unwritable in the second",
+        "status remains done and exit code 0",
+        "the stdout envelope is still printed in full"
+      ],
+      "pseudocode": "e = json(out); assert 'output_unwritable' in codes(e.warnings); assert e.status == 'done' && code == 0"
+    },
+    {
+      "id": "TS-05-15",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-2.7"
+      ],
+      "title": "A failing stdout write does not change the exit code",
+      "given": [
+        "a stdout writer that always returns an error",
+        "commands ending done, needs_human and failed"
+      ],
+      "when": "Main is called with that stdout",
+      "then": [
+        "Main returns 0, 3 and 1 respectively",
+        "Main does not panic"
+      ],
+      "pseudocode": "assert Main(args, failingWriter) == 3"
+    },
+    {
+      "id": "TS-05-16",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-3.1"
+      ],
+      "title": "An outcome's status, summary and result are copied into the envelope",
+      "given": [
+        "commands returning done, unverified (with a warning) and needs_human outcomes with a summary and a result object"
+      ],
+      "when": "each runs",
+      "then": [
+        "the envelope status, summary and result equal the outcome's",
+        "exit codes are 0, 4 and 3",
+        "error is null for each"
+      ],
+      "pseudocode": "assert e.summary == 'ok' && e.result == {n:1} && code == 0"
+    },
+    {
+      "id": "TS-05-17",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-3.2"
+      ],
+      "title": "A *Failure becomes the error object with status by category",
+      "given": [
+        "a command returning Failure{Category: \"forge\", Message: \"m\", Retryable: true, FixHint: {Env: \"X\"}}",
+        "a command returning Failure{Category: \"usage\"}"
+      ],
+      "when": "each runs",
+      "then": [
+        "the first envelope has status failed, exit 1, and error {category forge, message m, retryable true, fix_hint {env X}}",
+        "the second has status usage and exit 2"
+      ],
+      "pseudocode": "assert e.error == {category:'forge',message:'m',retryable:true,fix_hint:{env:'X'}} && code == 1"
+    },
+    {
+      "id": "TS-05-18",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-3.3"
+      ],
+      "title": "A plain error becomes failed/internal with the error text",
+      "given": [
+        "a command returning errors.New(\"disk on fire\")"
+      ],
+      "when": "the command runs",
+      "then": [
+        "exit code is 1 and status failed",
+        "error.category is \"internal\", error.message contains \"disk on fire\", retryable false"
+      ],
+      "pseudocode": "assert code == 1 && e.error.category == 'internal' && !e.error.retryable"
+    },
+    {
+      "id": "TS-05-19",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-3.4"
+      ],
+      "title": "A panic is recovered, its stack saved, and one envelope printed",
+      "given": [
+        "a command with a run directory that panics with \"boom\""
+      ],
+      "when": "Main is called",
+      "then": [
+        "exit code is 1 and stdout holds exactly one envelope with status failed and category internal",
+        "stderr contains the stack trace including \"boom\"",
+        "<run_dir>/panic.txt exists and contains the stack",
+        "a panicking command without a run directory writes no panic.txt and still prints one envelope"
+      ],
+      "pseudocode": "assert code == 1; assert 'boom' in stderr; assert 'boom' in read(runDir/'panic.txt')"
+    },
+    {
+      "id": "TS-05-20",
+      "kind": "property",
+      "verifies": [
+        "05-REQ-3.5"
+      ],
+      "title": "The summary is always one line",
+      "given": [
+        "a test command returning arbitrary summaries"
+      ],
+      "when": "for any command ending (outcome with a summary containing newlines or carriage returns, Failure with multi-line message, usage, internal, cancelled, timeout)",
+      "then": [
+        "envelope summary contains no \\n or \\r",
+        "a shell-set status (usage, internal, cancelled, timeout) always has a non-empty summary"
+      ],
+      "pseudocode": "for ending in gen_endings_with_newlines(): s = json(out).summary; assert '\\n' not in s and '\\r' not in s; if shellSet(ending): assert s != ''"
+    },
+    {
+      "id": "TS-05-21",
+      "kind": "property",
+      "verifies": [
+        "05-REQ-3.6"
+      ],
+      "title": "Warnings are deduplicated in first-raised order and never change the status",
+      "given": [
+        "a test command that raises a generated sequence of warnings and returns done"
+      ],
+      "when": "for any sequence of (code, message) pairs with repeats raised through Run.Warn",
+      "then": [
+        "envelope warnings equal the sequence with later exact duplicates removed, in first-raised order",
+        "status stays done and exit code 0"
+      ],
+      "pseudocode": "for seq in gen_warning_seqs(): run(seq); assert e.warnings == dedupe_keep_first(seq); assert e.status == 'done' && code == 0"
+    },
+    {
+      "id": "TS-05-22",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-3.7"
+      ],
+      "title": "The seven failure categories are exported constants with the documented strings",
+      "given": [
+        "the toolio package"
+      ],
+      "when": "the constants CategoryUsage, CategoryAuth, CategoryForge, CategoryIO, CategoryCancelled, CategoryTimeout and CategoryInternal are read",
+      "then": [
+        "their values are usage, auth, forge, io, cancelled, timeout and internal",
+        "every shell-set failure (usage error, panic, cancel, timeout) reports one of those strings"
+      ],
+      "pseudocode": "assert [CategoryUsage,...] == ['usage','auth','forge','io','cancelled','timeout','internal']"
+    },
+    {
+      "id": "TS-05-23",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-3.8"
+      ],
+      "title": "Every warning code the shell raises matches the code pattern",
+      "given": [
+        "scenarios that make the shell raise input_truncated, comments_unreadable, envelope_unwritable, output_unwritable and events_unwritable"
+      ],
+      "when": "each scenario runs and the envelope warnings are collected",
+      "then": [
+        "every code matches ^[a-z][a-z0-9_]*$",
+        "the set of codes seen includes all five names"
+      ],
+      "pseudocode": "for w in all_warnings: assert re.match('^[a-z][a-z0-9_]*$', w.code)"
+    },
+    {
+      "id": "TS-05-24",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-4.1"
+      ],
+      "title": "SIGINT cancels the command context and yields failed/cancelled",
+      "given": [
+        "a test command that blocks on Run.Ctx.Done() and returns ctx.Err()",
+        "signal delivery to the process through the shell's signal handling"
+      ],
+      "when": "SIGINT is sent while the command runs, and again with SIGTERM",
+      "then": [
+        "the command's context is cancelled",
+        "exit code is 1 and error.category is \"cancelled\"",
+        "exactly one envelope is printed"
+      ],
+      "pseudocode": "go Main(...); waitStarted(); syscall.Kill(pid, SIGINT); assert code == 1 && e.error.category == 'cancelled'"
+    },
+    {
+      "id": "TS-05-25",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-4.2"
+      ],
+      "title": "A command ignoring cancellation is abandoned after 10 seconds",
+      "given": [
+        "a test command that ignores its context and blocks for 60 seconds"
+      ],
+      "when": "SIGTERM is sent while it runs",
+      "then": [
+        "Main returns exit code 1 within about 10 seconds of the signal (before 15 seconds)",
+        "the envelope has status failed and category cancelled",
+        "it was not returned earlier than the grace period of 10 seconds"
+      ],
+      "pseudocode": "t0 = now(); kill(SIGTERM); code = <-done; assert 9s <= now()-t0 < 15s; assert e.error.category == 'cancelled'"
+    },
+    {
+      "id": "TS-05-26",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-4.3"
+      ],
+      "title": "--timeout is opt-in, uses the command default, and 0 means no deadline",
+      "given": [
+        "a command declaring --timeout with default 5m that records Run.Ctx.Deadline()",
+        "a command that does not opt in"
+      ],
+      "when": "each runs with no flag, with --timeout 30s, and with --timeout 0",
+      "then": [
+        "no flag: deadline about 5 minutes ahead",
+        "--timeout 30s: deadline about 30 seconds ahead",
+        "--timeout 0: no deadline",
+        "the non-opted command rejects --timeout as an unknown flag with a usage envelope"
+      ],
+      "pseudocode": "d,ok = ctx.Deadline(); assert ok && abs(d-now()-30s) < 1s"
+    },
+    {
+      "id": "TS-05-27",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-4.4"
+      ],
+      "title": "An expired --timeout gives failed/timeout with a doubled-timeout hint",
+      "given": [
+        "a command that blocks on its context and returns ctx.Err()"
+      ],
+      "when": "it runs with --timeout 50ms",
+      "then": [
+        "exit code is 1 and error.category is \"timeout\"",
+        "error.retryable is false",
+        "error.fix_hint is {flag \"--timeout\", suggest \"100ms\"}"
+      ],
+      "pseudocode": "assert e.error.category == 'timeout' && !e.error.retryable && e.error.fix_hint == {flag:'--timeout', suggest:'100ms'}"
+    },
+    {
+      "id": "TS-05-28",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-4.5"
+      ],
+      "title": "An unparseable or negative --timeout is refused before the command runs",
+      "given": [
+        "a command opting into --timeout that records whether it ran"
+      ],
+      "when": "it is invoked with --timeout abc and with --timeout -5s",
+      "then": [
+        "both return exit code 2 with status usage",
+        "the command never ran"
+      ],
+      "pseudocode": "assert Main(['X','--timeout','abc']) == 2 && !ran"
+    },
+    {
+      "id": "TS-05-29",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-5.1"
+      ],
+      "title": "A needs_human outcome becomes {question, options, resume} with lettered ids",
+      "given": [
+        "a command returning needs_human with question \"Which?\" and options labelled \"x\", \"y\"",
+        "a second command returning needs_human with no options"
+      ],
+      "when": "each runs",
+      "then": [
+        "exit code is 3 and status needs_human",
+        "options are [{id A,label x},{id B,label y}]",
+        "the second has options [] (not null)"
+      ],
+      "pseudocode": "assert e.needs_human.options == [{id:'A',label:'x'},{id:'B',label:'y'}]"
+    },
+    {
+      "id": "TS-05-30",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-5.2"
+      ],
+      "title": "resume.argv is the received invocation with argv[0] replaced by af and prior --context kept",
+      "given": [
+        "a needs_human command opting into --context, invoked as [\"/tmp/bin/whatever\", \"X\", \"text\", \"--context\", \"A\"]"
+      ],
+      "when": "it returns needs_human",
+      "then": [
+        "resume.flag is \"--context\"",
+        "resume.argv is [\"af\", \"X\", \"text\", \"--context\", \"A\"]",
+        "re-running resume.argv plus [\"--context\", \"B\"] gives Run.Context [\"A\", \"B\"]"
+      ],
+      "pseudocode": "assert e.needs_human.resume == {argv:['af','X','text','--context','A'], flag:'--context'}"
+    },
+    {
+      "id": "TS-05-31",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-5.3"
+      ],
+      "title": "--context is repeatable and reaches the command verbatim in order",
+      "given": [
+        "a command opting into --context that records Run.Context"
+      ],
+      "when": "invoked with --context \" B \" --context \"x y\" --context B",
+      "then": [
+        "Run.Context equals [\" B \", \"x y\", \"B\"] with no trimming or dedupe",
+        "a command that did not opt in rejects --context as a usage error"
+      ],
+      "pseudocode": "assert recorded == [' B ','x y','B']"
+    },
+    {
+      "id": "TS-05-32",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-5.4"
+      ],
+      "title": "An empty --context value is refused before the command runs",
+      "given": [
+        "a command opting into --context"
+      ],
+      "when": "invoked with --context \"\"",
+      "then": [
+        "exit code 2 and status usage",
+        "the command never ran"
+      ],
+      "pseudocode": "assert Main(['X','--context','']) == 2 && !ran"
+    },
+    {
+      "id": "TS-05-33",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-5.5"
+      ],
+      "title": "An inconsistent outcome is a command bug reported as failed/internal",
+      "given": [
+        "commands returning: needs_human with empty question; done with a NeedsHuman question; needs_human with 27 options"
+      ],
+      "when": "each runs",
+      "then": [
+        "each returns exit code 1 with status failed and category internal",
+        "needs_human is null in each envelope"
+      ],
+      "pseudocode": "for c in bad: assert Main(c) == 1; assert e.error.category == 'internal' && e.needs_human == null"
+    },
+    {
+      "id": "TS-05-34",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-6.1"
+      ],
+      "title": "The argument - reads stdin until EOF",
+      "given": [
+        "a command declaring an input and stdin containing \"multi\\nline problem\\n\""
+      ],
+      "when": "invoked with the positional -",
+      "then": [
+        "Input.Body is the stdin content (trimmed of surrounding whitespace)",
+        "envelope input is {kind stdin, origin \"\"}"
+      ],
+      "pseudocode": "assert e.input.kind == 'stdin' && e.input.origin == '' && recorded.Body == 'multi\\nline problem'"
+    },
+    {
+      "id": "TS-05-35",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-6.2"
+      ],
+      "title": "A GitHub issue URL is read through the forge and rendered",
+      "given": [
+        "an httptest GitHub forge serving issue 7 and its comments, with GITHUB_API_URL pointing at it",
+        "a command declaring input and forge use"
+      ],
+      "when": "invoked with the forge's issue URL; and again with a /pull/7 URL",
+      "then": [
+        "input.kind is issue and input.origin equals IssueRef.URL()",
+        "Input.Issue and Input.Thread are set",
+        "IsPullRequest is true for the pull URL, and also true when the URL is an issue URL but thread.Issue.IsPR is true"
+      ],
+      "pseudocode": "assert e.input.kind == 'issue' && e.input.origin == ref.URL() && rec.Issue.IsPullRequest == isPR"
+    },
+    {
+      "id": "TS-05-36",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-6.3"
+      ],
+      "title": "An http(s) URL that is not an issue URL is a usage error with a self-hosting hint",
+      "given": [
+        "a counting httptest server",
+        "a command declaring input"
+      ],
+      "when": "invoked with \"https://example.com/some/page\" and \"http://github.com/o/r\"",
+      "then": [
+        "exit code 2, status usage",
+        "error.message names the accepted GitHub issue/pull and GitLab issue/merge-request forms",
+        "fix_hint names GITHUB_API_URL and GITLAB_API_URL",
+        "no forge request was made"
+      ],
+      "pseudocode": "assert code == 2; assert 'GITHUB_API_URL' in hintText(e) && 'GITLAB_API_URL' in hintText(e); assert srv.requests == 0"
+    },
+    {
+      "id": "TS-05-37",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-6.4"
+      ],
+      "title": "An existing file is read with kind file and an absolute origin",
+      "given": [
+        "a text file bug.md in a temporary working directory and the process chdir'd there"
+      ],
+      "when": "invoked with the relative positional \"bug.md\"",
+      "then": [
+        "input.kind is file",
+        "input.origin is the absolute path of bug.md",
+        "Input.Body is the file's content"
+      ],
+      "pseudocode": "assert e.input.kind == 'file' && isAbs(e.input.origin) && e.input.origin.endsWith('bug.md')"
+    },
+    {
+      "id": "TS-05-38",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-6.5"
+      ],
+      "title": "A binary file or a directory is refused as usage",
+      "given": [
+        "a file with a NUL byte within its first 8 KiB",
+        "a directory",
+        "a file with a NUL byte after the first 8 KiB"
+      ],
+      "when": "each is given as the positional",
+      "then": [
+        "the NUL-in-first-8KiB file gives exit 2, status usage, message containing \"not a text file\"",
+        "the directory gives exit 2, status usage",
+        "the file whose NUL is beyond 8 KiB is accepted"
+      ],
+      "pseudocode": "assert Main(['X', binfile]) == 2 && 'not a text file' in msg"
+    },
+    {
+      "id": "TS-05-39",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-6.5"
+      ],
+      "title": "An existing but unreadable file is failed/io",
+      "given": [
+        "a regular file with permissions 000 (skipped when running as root)"
+      ],
+      "when": "given as the positional",
+      "then": [
+        "exit code 1, status failed, error.category io"
+      ],
+      "pseudocode": "chmod(f, 0); assert code == 1 && e.error.category == 'io'"
+    },
+    {
+      "id": "TS-05-40",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-6.6"
+      ],
+      "title": "Anything else is text, trimmed",
+      "given": [
+        "no file named \"  fix the login bug  \" exists"
+      ],
+      "when": "invoked with the positional \"  fix the login bug  \"",
+      "then": [
+        "input.kind is text and input.origin is \"\"",
+        "Input.Body is \"fix the login bug\""
+      ],
+      "pseudocode": "assert e.input.kind == 'text' && rec.Body == 'fix the login bug'"
+    },
+    {
+      "id": "TS-05-41",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-6.7"
+      ],
+      "title": "A missing or blank input is refused before the command runs",
+      "given": [
+        "a command requiring an input"
+      ],
+      "when": "invoked with no positional, with \"   \", and with - and empty stdin",
+      "then": [
+        "each returns exit code 2 with status usage",
+        "the command never ran"
+      ],
+      "pseudocode": "for args in cases: assert Main(args) == 2 && !ran"
+    },
+    {
+      "id": "TS-05-42",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-6.8"
+      ],
+      "title": "The envelope input object reflects the resolved input or none",
+      "given": [
+        "a command declaring an input and one declaring none"
+      ],
+      "when": "the first runs with a file argument and the second runs bare",
+      "then": [
+        "the first envelope input is {kind file, origin <abs path>, truncated false}",
+        "the second is {kind none, origin \"\", truncated false}"
+      ],
+      "pseudocode": "assert e2.input == {kind:'none',origin:'',truncated:false}"
+    },
+    {
+      "id": "TS-05-43",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-7.1"
+      ],
+      "title": "RenderThread produces the documented format for each forge and shape",
+      "given": [
+        "threads for github.com, gitlab.example, an unrecognised host and an empty host",
+        "a thread with labels and comments and one without labels, one with Truncated set"
+      ],
+      "when": "RenderThread(ref, thread) is called",
+      "then": [
+        "the heading starts with GitHub, GitLab, Forge, GitHub respectively, followed by issue or pull request, the ref and (state: <state>)",
+        "Title: and Author: lines follow, Labels: only when labels exist",
+        "the trimmed body follows, then each comment as \"\\n--- comment by <login> ---\\n<body>\\n\"",
+        "\"\\n[... further comments not read ...]\\n\" ends a truncated thread",
+        "Input.Body for an issue equals this render before truncation"
+      ],
+      "pseudocode": "assert RenderThread(ref, t) == 'GitHub issue o/r#7 (state: open)\\nTitle: T\\nAuthor: a\\nLabels: bug\\n...'"
+    },
+    {
+      "id": "TS-05-44",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-7.2"
+      ],
+      "title": "An oversized body is cut with the marker and a warning",
+      "given": [
+        "a text input of 131073+ bytes of ASCII"
+      ],
+      "when": "it is resolved",
+      "then": [
+        "Body is the first 131072 bytes followed by \"\\n[... input truncated at 131072 bytes ...]\\n\"",
+        "input.truncated is true",
+        "warnings contain code input_truncated",
+        "a multibyte rune straddling the limit is dropped whole"
+      ],
+      "pseudocode": "assert len(rec.Body) == 131072 + len(marker) && e.input.truncated && 'input_truncated' in codes"
+    },
+    {
+      "id": "TS-05-45",
+      "kind": "property",
+      "verifies": [
+        "05-REQ-7.3"
+      ],
+      "title": "Truncation always yields valid UTF-8 within the bound and is the identity below it",
+      "given": [
+        "the input resolver's truncation applied to generated bodies"
+      ],
+      "when": "for any valid UTF-8 string of length 0 to 300000 bytes mixing 1-4 byte runes",
+      "then": [
+        "the result is valid UTF-8",
+        "its length is at most 131072 plus the marker length",
+        "when the original is at most 131072 bytes the result equals the original"
+      ],
+      "pseudocode": "for s in gen_utf8(): b = Truncate(s); assert utf8.ValidString(b); assert len(b) <= 131072 + len(marker); if len(s) <= 131072: assert b == s"
+    },
+    {
+      "id": "TS-05-46",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-7.4"
+      ],
+      "title": "A truncated thread marks the input truncated and warns",
+      "given": [
+        "an httptest forge whose comment listing has further pages beyond the client limit so the thread has Truncated set"
+      ],
+      "when": "a command resolves its issue URL",
+      "then": [
+        "input.truncated is true",
+        "warnings contain input_truncated",
+        "Body ends with \"[... further comments not read ...]\""
+      ],
+      "pseudocode": "assert e.input.truncated && 'input_truncated' in codes"
+    },
+    {
+      "id": "TS-05-47",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-7.5"
+      ],
+      "title": "Unreadable comments raise a warning and the run continues",
+      "given": [
+        "an httptest forge serving the issue but returning 500 for its comments"
+      ],
+      "when": "a command resolves the issue URL and returns done",
+      "then": [
+        "warnings contain comments_unreadable",
+        "status is done and exit code 0",
+        "Body holds the issue body"
+      ],
+      "pseudocode": "assert 'comments_unreadable' in codes && e.status == 'done'"
+    },
+    {
+      "id": "TS-05-48",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-7.6"
+      ],
+      "title": "An unauthenticated not-found read is failed/auth with a token hint",
+      "given": [
+        "an httptest forge answering 404 for the issue and no token in the environment",
+        "a GitHub-host URL and a GitLab-host URL"
+      ],
+      "when": "a command resolves each URL",
+      "then": [
+        "exit code 1, status failed, category auth",
+        "message says the issue may be private",
+        "fix_hint env is GITHUB_TOKEN for the GitHub URL and GITLAB_TOKEN for the GitLab URL"
+      ],
+      "pseudocode": "assert e.error.category == 'auth' && 'private' in e.error.message && e.error.fix_hint.env == 'GITLAB_TOKEN'"
+    },
+    {
+      "id": "TS-05-49",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-7.7"
+      ],
+      "title": "An authenticated not-found read is a non-retryable forge failure",
+      "given": [
+        "an httptest forge answering 404 and a GITHUB_TOKEN set"
+      ],
+      "when": "a command resolves the issue URL",
+      "then": [
+        "exit code 1, status failed, category forge",
+        "error.retryable is false"
+      ],
+      "pseudocode": "assert e.error.category == 'forge' && !e.error.retryable"
+    },
+    {
+      "id": "TS-05-50",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-7.8"
+      ],
+      "title": "A rate limit or transport error is a retryable forge failure",
+      "given": [
+        "an httptest forge answering 429 with a short Retry-After",
+        "a second forge that closes the connection without a response"
+      ],
+      "when": "a command resolves the issue URL against each",
+      "then": [
+        "each gives exit code 1, status failed, category forge",
+        "error.retryable is true"
+      ],
+      "pseudocode": "for srv in [rateLimited, dropped]: assert e.error.category == 'forge' && e.error.retryable"
+    },
+    {
+      "id": "TS-05-51",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-8.1"
+      ],
+      "title": "The forge client is built with the documented options and only for commands that declare it",
+      "given": [
+        "an App with NewForge recording the issuex.Options it receives and returning a stub client",
+        "commands: one declaring forge use and --repo, one declaring no forge"
+      ],
+      "when": "run with an issue URL input; with --repo o/r and a text input; with neither; and the non-forge command",
+      "then": [
+        "options are {Repo: ref.Repo}, {Repo: parsed o/r}, and {} respectively, each with UserAgent \"af/<version>\" and Dir set to --dir",
+        "Run.Target equals the resolved repository",
+        "Run.Forge is non-nil only for the forge-declaring command and NewForge is not called for the other"
+      ],
+      "pseudocode": "assert opts.UserAgent == 'af/'+version && opts.Dir == absDir; assert opts.Repo == ref.Repo; assert run.Forge == nil for noForge"
+    },
+    {
+      "id": "TS-05-52",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-8.2"
+      ],
+      "title": "A bad or conflicting --repo is a usage error",
+      "given": [
+        "a forge-using command opting into --repo"
+      ],
+      "when": "invoked with --repo \"not a repo\", and with --repo a/b plus an issue URL for c/d",
+      "then": [
+        "both return exit code 2 with status usage",
+        "the command never ran"
+      ],
+      "pseudocode": "assert Main(['X','--repo','bad']) == 2 && Main(['X','--repo','a/b',urlCD]) == 2"
+    },
+    {
+      "id": "TS-05-53",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-8.3"
+      ],
+      "title": "Ambiguous forge with an issue URL is a usage error with a GITHUB_API_URL hint",
+      "given": [
+        "NewForge returning an error wrapping issuex.ErrAmbiguousForge, and another wrapping ErrUnsupportedForge",
+        "an issue URL input"
+      ],
+      "when": "the command is invoked",
+      "then": [
+        "exit code 2 and status usage",
+        "error.message carries issuex's message",
+        "fix_hint env is GITHUB_API_URL"
+      ],
+      "pseudocode": "assert code == 2 && e.error.fix_hint.env == 'GITHUB_API_URL' && issuexMsg in e.error.message"
+    },
+    {
+      "id": "TS-05-54",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-8.4"
+      ],
+      "title": "Ambiguous forge without an issue URL gives the command a no-op client",
+      "given": [
+        "NewForge returning ErrAmbiguousForge",
+        "a forge-using command with a text input that records Run.Forge and Run.Target"
+      ],
+      "when": "the command is invoked",
+      "then": [
+        "the command runs and returns done",
+        "Run.Forge is a NoOp client (Authenticated false)",
+        "Run.Target.Valid() is false"
+      ],
+      "pseudocode": "assert ran && !run.Forge.Authenticated() && !run.Target.Valid()"
+    },
+    {
+      "id": "TS-05-55",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-8.5"
+      ],
+      "title": "The forge client is closed exactly once on return, error and panic",
+      "given": [
+        "a counting stub client from NewForge",
+        "commands that return done, return an error, and panic"
+      ],
+      "when": "each is run",
+      "then": [
+        "Close was called exactly once in each case",
+        "Close happened before the envelope was written to stdout"
+      ],
+      "pseudocode": "assert stub.closeCalls == 1; assert closeTime < stdoutWriteTime"
+    },
+    {
+      "id": "TS-05-56",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-8.6"
+      ],
+      "title": "--dry-run sets Run.DryRun and hands the command the decorator",
+      "given": [
+        "a forge-using command opting into --dry-run recording Run.DryRun and Run.Forge"
+      ],
+      "when": "invoked with and without --dry-run",
+      "then": [
+        "with the flag: Run.DryRun true and Run.Forge is the DryRunForge decorator, not the inner client",
+        "without it: Run.DryRun false and Run.Forge is the inner client",
+        "a command that does not opt in rejects --dry-run as unknown"
+      ],
+      "pseudocode": "assert run.DryRun && run.Forge != inner && isDryRunForge(run.Forge)"
+    },
+    {
+      "id": "TS-05-57",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-8.7"
+      ],
+      "title": "DryRunForge passes reads through and keeps the inner body limit",
+      "given": [
+        "an httptest GitHub forge and an httptest GitLab forge recording requests",
+        "clients built with issuex.NewGitHub and NewGitLab wrapped in DryRunForge"
+      ],
+      "when": "Authenticated, GetRepository, ReadIssue, ListIssues, ListComments, ReadPullRequest, ReadChangedFiles, GetPRState, GetCIChecks, GetPRReviews and Close are called, and issuex.MaxBodyLength is applied",
+      "then": [
+        "each read reaches the server and returns the inner result",
+        "Close closes the inner client",
+        "issuex.MaxBodyLength(DryRunForge(gitlab)) is 1048576 and for GitHub is 65536"
+      ],
+      "pseudocode": "assert issuex.MaxBodyLength(DryRunForge(gl)) == 1048576"
+    },
+    {
+      "id": "TS-05-58",
+      "kind": "property",
+      "verifies": [
+        "05-REQ-8.8"
+      ],
+      "title": "No write method ever sends a request and each is recorded as planned",
+      "given": [
+        "an httptest forge counting every request by method",
+        "DryRunForge wrapping a client for it"
+      ],
+      "when": "for any write method among CreateIssue, UpdateIssue, CloseIssue, AddComment, AddLabels, RemoveLabel, CreateLabel, CreatePullRequest, PostReviewComment, MergePullRequest, ClosePullRequest and any issue ref or repo",
+      "then": [
+        "the server saw zero POST, PUT, PATCH or DELETE requests",
+        "the returned error satisfies errors.Is(err, ErrDryRun)",
+        "a side effect {kind snake_case(method), target IssueRef.String() or Repo.String(), state planned} is appended per call, in call order"
+      ],
+      "pseudocode": "for m, ref in gen(): err = call(m, ref); assert errors.Is(err, ErrDryRun); assert srv.writes == 0; assert last(effects) == {kind: snake(m), target: ref.String(), state:'planned'}"
+    },
+    {
+      "id": "TS-05-59",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-8.8",
+        "05-REQ-8.6"
+      ],
+      "title": "A command's refused writes appear as planned side effects in the envelope",
+      "given": [
+        "an httptest GitHub forge, a command calling AddComment, AddLabels and CreateIssue under --dry-run"
+      ],
+      "when": "the command runs with --dry-run and returns done",
+      "then": [
+        "envelope side_effects lists add_comment, add_labels and create_issue with state planned and the right targets",
+        "the server recorded zero write requests",
+        "the command's errors wrapped ErrDryRun"
+      ],
+      "pseudocode": "assert kinds(e.side_effects) == ['add_comment','add_labels','create_issue'] && srv.writes == 0"
+    },
+    {
+      "id": "TS-05-60",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-9.1"
+      ],
+      "title": "A run directory is created under --dir with a well-formed id and artifacts",
+      "given": [
+        "a temporary --dir, an App with injected clock",
+        "a command declaring a run directory that calls RunDir.WriteReport",
+        "a command declaring none"
+      ],
+      "when": "the first runs normally and with --dry-run, and the second runs",
+      "then": [
+        "<dir>/.agent-fox/run/<id>/ exists before Run is called and run_id matches ^[0-9]{8}_[0-9]{6}_[0-9a-f]{6}$",
+        "the id's date-time part is the injected UTC time",
+        "artifacts contain {kind run_dir, path} and {kind report, path}, both absolute, and report.md exists",
+        "the second command's run_id is null"
+      ],
+      "pseudocode": "assert re.match(ID_RE, e.run_id); assert isAbs(artifact('run_dir').path); assert exists(runDir+'/report.md')"
+    },
+    {
+      "id": "TS-05-61",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-9.2"
+      ],
+      "title": "A missing or non-directory --dir is a usage error and nothing is created",
+      "given": [
+        "a nonexistent path and a regular file path"
+      ],
+      "when": "a run-directory command is invoked with each as --dir",
+      "then": [
+        "exit code 2 and status usage",
+        "the command never ran and nothing was created next to the path"
+      ],
+      "pseudocode": "assert Main(['X','--dir',missing]) == 2 && !ran"
+    },
+    {
+      "id": "TS-05-62",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-9.3"
+      ],
+      "title": "Run id collisions are retried up to five times, then failed/io",
+      "given": [
+        "an App whose Rand yields the same bytes every time and a pre-existing directory with that id",
+        "a second setup where only the first 4 draws collide"
+      ],
+      "when": "a run-directory command is invoked",
+      "then": [
+        "with all collisions: exit code 1, status failed, category io, and exactly 5 draws were made",
+        "with 4 collisions: the run succeeds with the fifth id"
+      ],
+      "pseudocode": "assert code == 1 && e.error.category == 'io' && draws == 5"
+    },
+    {
+      "id": "TS-05-63",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-9.4"
+      ],
+      "title": "The .agent-fox/.gitignore is created once and the repository .gitignore is untouched",
+      "given": [
+        "a real git repository in a temporary dir with its own .gitignore",
+        "concurrent run-directory creations in the same dir"
+      ],
+      "when": "several runs start concurrently, and again with a pre-existing differing .agent-fox/.gitignore",
+      "then": [
+        "no run fails and .agent-fox/.gitignore contains exactly \"*\\n\"",
+        "`git status --porcelain` shows nothing under .agent-fox",
+        "the repository .gitignore is byte-identical before and after",
+        "the pre-existing .agent-fox/.gitignore is left unmodified"
+      ],
+      "pseudocode": "parallel(8, newRun); assert read('.agent-fox/.gitignore') == '*\\n'; assert git('status','--porcelain') == ''"
+    },
+    {
+      "id": "TS-05-64",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-9.5"
+      ],
+      "title": "OpenRunDir opens an existing run and refuses bad ids as usage",
+      "given": [
+        "a run created by NewRunDir in a temp dir"
+      ],
+      "when": "OpenRunDir is called with that id, with \"../x\", with a well-formed missing id and with an empty id",
+      "then": [
+        "the first returns the same path as the original run",
+        "the rest return a *Failure with category usage",
+        "no file or directory outside .agent-fox/run was touched"
+      ],
+      "pseudocode": "rd,err = OpenRunDir(d, id); assert rd.Path == orig.Path; _,err = OpenRunDir(d,'../x'); assert err.(*Failure).Category == 'usage'"
+    },
+    {
+      "id": "TS-05-65",
+      "kind": "property",
+      "verifies": [
+        "05-REQ-9.6"
+      ],
+      "title": "Ledger records read back in order with seq 1..n and the shell records nothing",
+      "given": [
+        "a fresh run directory"
+      ],
+      "when": "for any sequence of Record(kind, data) calls with arbitrary kinds and JSON-encodable data",
+      "then": [
+        "ledger.jsonl has n lines with seq 1..n",
+        "Ledger() returns the same kinds and data in the same order",
+        "a run that records nothing leaves ledger.jsonl empty or absent after a full shell invocation"
+      ],
+      "pseudocode": "for recs in gen_records(): rd = NewRunDir(tmp); for r in recs: rd.Record(r.kind, r.data); got = rd.Ledger(); assert [(g.seq,g.kind,g.data) for g in got] == [(i+1,r.kind,r.data) ...]"
+    },
+    {
+      "id": "TS-05-66",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-9.7"
+      ],
+      "title": "Events are flushed JSON lines bracketed by run_start and run_end, also to --emit-events",
+      "given": [
+        "a run-directory command that raises two warnings and emits a step and a heartbeat event",
+        "--emit-events pointing at a file that already holds one line"
+      ],
+      "when": "the command runs",
+      "then": [
+        "events.jsonl first type is run_start with data {tool, argv, input_kind} and last is run_end with {status, exit_code, duration_ms}",
+        "there is one warning event per warning and the command's events appear in order",
+        "seq starts at 1 and increases by exactly 1 with run_id on every line",
+        "the --emit-events file has the new lines appended after the existing line"
+      ],
+      "pseudocode": "evs = lines(events.jsonl); assert evs[0].type == 'run_start' && evs[-1].type == 'run_end'; assert [e.seq for e in evs] == range(1, n+1)"
+    },
+    {
+      "id": "TS-05-67",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-9.8"
+      ],
+      "title": "An unwritable event sink raises events_unwritable exactly once",
+      "given": [
+        "--emit-events pointing into a nonexistent directory and a command emitting several events"
+      ],
+      "when": "the command runs and returns done",
+      "then": [
+        "warnings contain exactly one events_unwritable",
+        "status is done and exit code 0",
+        "the run directory's events.jsonl is still written"
+      ],
+      "pseudocode": "assert count(codes, 'events_unwritable') == 1 && e.status == 'done'"
+    },
+    {
+      "id": "TS-05-68",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-10.1"
+      ],
+      "title": "af --schema prints the embedded envelope schema with commands under $defs",
+      "given": [
+        "two commands registered, one with a result schema and a path \"gate run\""
+      ],
+      "when": "Main is called with [\"--schema\"]",
+      "then": [
+        "exit code 0 and stdout is one JSON document with $schema draft 2020-12",
+        "properties.schema_version has const \"4.0.0\"",
+        "required lists every envelope field in envelope order",
+        "result is open and $defs contains key gate_run"
+      ],
+      "pseudocode": "s = json(out); assert s.properties.schema_version.const == '4.0.0'; assert s.required == ENVELOPE_FIELDS; assert 'gate_run' in s['$defs']"
+    },
+    {
+      "id": "TS-05-69",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-10.2"
+      ],
+      "title": "af <command> --schema narrows tool and result to the command",
+      "given": [
+        "a command \"gate run\" with a result schema and a command without one"
+      ],
+      "when": "Main is called with [\"gate\", \"run\", \"--schema\"] and [\"other\", \"--schema\"]",
+      "then": [
+        "exit code 0 and one JSON document each",
+        "tool is const \"gate run\" and result is null-or-the command's schema for the first",
+        "for the command without a schema result is null"
+      ],
+      "pseudocode": "assert s.properties.tool.const == 'gate run'"
+    },
+    {
+      "id": "TS-05-70",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-10.3"
+      ],
+      "title": "Schema output matches both committed golden files and -update rewrites them",
+      "given": [
+        "internal/toolio/testdata/schema.golden.json and cmd/af/testdata/schema.golden.json committed"
+      ],
+      "when": "the schema tests run with an App with no commands and with the real cmd/af registrations",
+      "then": [
+        "the outputs equal the golden files byte for byte",
+        "a modified golden file fails the test",
+        "running with -update rewrites the goldens to the current output"
+      ],
+      "pseudocode": "got = schemaOutput(app); if *update: write(golden, got); assert got == read(golden)"
+    },
+    {
+      "id": "TS-05-71",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-10.4"
+      ],
+      "title": "The schema's required list equals the Envelope JSON tags in names and order",
+      "given": [
+        "toolio.Envelope and the embedded envelope.schema.json"
+      ],
+      "when": "the JSON tags of Envelope's fields are read by reflection and compared with the schema's required list",
+      "then": [
+        "the two lists are equal in names and order",
+        "the test fails if a struct field is added, removed or reordered without the schema (checked against a deliberately mutated copy of the list)"
+      ],
+      "pseudocode": "assert tags(reflect.TypeOf(Envelope{})) == schema.required"
+    },
+    {
+      "id": "TS-05-72",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-10.5"
+      ],
+      "title": "The documentation files exist and name every status, exit code, category and warning code",
+      "given": [
+        "docs/cli.md, docs/configuration.md, docs/model-usage.md, README.md and docs/architecture.md in the repository"
+      ],
+      "when": "their contents are read",
+      "then": [
+        "the three new files exist",
+        "cli.md names done, failed, usage, needs_human, unverified with exit codes 0 to 4, the seven categories and the warning codes input_truncated, comments_unreadable, envelope_unwritable, output_unwritable, events_unwritable",
+        "configuration.md names GITHUB_TOKEN, GH_TOKEN, GITLAB_TOKEN, GITHUB_API_URL, GITLAB_API_URL and .agent-fox",
+        "model-usage.md states af runs no model",
+        "README.md mentions cmd/af, internal/toolio and bin/af; architecture.md no longer claims docs/cli.md already exists",
+        "docs/generated/cmd/af.txt exists"
+      ],
+      "pseudocode": "for term in REQUIRED_TERMS: assert term in read(file)"
+    },
+    {
+      "id": "TS-05-73",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-10.6"
+      ],
+      "title": "Lint passes and the toolio and cmd tests contact only loopback servers",
+      "given": [
+        "the repository checkout"
+      ],
+      "when": "`make lint` is run and the test sources under cmd/af and internal/toolio are scanned for URLs and listeners",
+      "then": [
+        "`make lint` exits 0 (gofmt and go vet clean)",
+        "every forge URL used in tests resolves to httptest or 127.0.0.1/localhost",
+        "no test requires an environment key or network"
+      ],
+      "pseudocode": "assert run('make lint').exit == 0; for url in urls(test_files): assert host(url) in loopback"
+    },
+    {
+      "id": "TS-05-74",
+      "kind": "smoke",
+      "verifies": [
+        "05-PATH-1",
+        "05-REQ-1.6",
+        "05-REQ-10.1",
+        "05-REQ-10.3"
+      ],
+      "title": "A tool fetches the version and the schema from the real built binary",
+      "given": [
+        "the binary built by `make build` with ldflags version 9.9.9-test"
+      ],
+      "when": "`bin/af --version` and `bin/af --schema` are executed as subprocesses",
+      "then": [
+        "both exit 0 and each prints exactly one JSON document",
+        "the version document reports 9.9.9-test",
+        "the schema equals cmd/af/testdata/schema.golden.json",
+        "nothing is written to stderr and no .agent-fox directory is created"
+      ],
+      "pseudocode": "v = exec('bin/af','--version'); s = exec('bin/af','--schema'); assert v.exit == 0 && s.exit == 0; assert s.stdout == read('cmd/af/testdata/schema.golden.json')",
+      "real_components": [
+        "cmd/af main",
+        "toolio.App",
+        "embedded schema",
+        "make build",
+        "go toolchain"
+      ]
+    },
+    {
+      "id": "TS-05-75",
+      "kind": "smoke",
+      "verifies": [
+        "05-PATH-2",
+        "05-REQ-8.8",
+        "05-REQ-9.1",
+        "05-REQ-9.4"
+      ],
+      "title": "A dry run reads a GitHub issue and is refused every forge write",
+      "given": [
+        "an httptest GitHub forge serving an issue and its comments, GITHUB_API_URL pointing at it",
+        "a temporary git checkout as --dir",
+        "a test command that calls AddComment and CreatePullRequest on Run.Forge and returns done"
+      ],
+      "when": "the test command is run through App.Main with the issue URL, --dry-run and --dir",
+      "then": [
+        "<tmp>/.agent-fox/.gitignore and <tmp>/.agent-fox/run/<id>/ exist",
+        "the forge recorded the GET requests for the issue and comments and zero write requests",
+        "both write calls returned errors wrapping ErrDryRun",
+        "the envelope has status done, input.kind issue, two planned side effects (add_comment, create_pull_request)",
+        "envelope.json and events.jsonl (run_start … run_end) exist in the run directory and envelope.json equals stdout"
+      ],
+      "pseudocode": "code = Main(['X', issueURL, '--dry-run', '--dir', tmp]); assert code == 0; assert srv.writes == 0; assert len(e.side_effects) == 2; assert events[0].type == 'run_start'",
+      "real_components": [
+        "toolio.App",
+        "input resolver",
+        "DryRunForge",
+        "issuex GitHub client",
+        "httptest forge",
+        "RunDir",
+        "filesystem",
+        "git binary"
+      ]
+    },
+    {
+      "id": "TS-05-76",
+      "kind": "smoke",
+      "verifies": [
+        "05-PATH-3",
+        "05-REQ-5.1",
+        "05-REQ-5.2",
+        "05-REQ-5.3"
+      ],
+      "title": "A command stops on a question and is resumed with --context",
+      "given": [
+        "a test command opting into --context that returns needs_human with two options when Run.Context is empty and done otherwise"
+      ],
+      "when": "it is run with a text input, then resume.argv with `--context B` appended is run",
+      "then": [
+        "the first envelope has exit code 3, options A and B, and resume {argv starting with \"af\", flag \"--context\"}",
+        "the second run receives Run.Context [\"B\"]",
+        "the second envelope has status done and exit code 0"
+      ],
+      "pseudocode": "c1 = Main(['X','text']); r = e1.needs_human.resume; c2 = Main(r.argv[1:] + [r.flag,'B']); assert c1 == 3 && c2 == 0 && recorded.Context == ['B']",
+      "real_components": [
+        "toolio.App",
+        "flag parsing",
+        "input resolver"
+      ]
+    },
+    {
+      "id": "TS-05-77",
+      "kind": "smoke",
+      "verifies": [
+        "05-PATH-4",
+        "05-REQ-1.2"
+      ],
+      "title": "An unknown command yields a usage envelope with nothing on stderr",
+      "given": [
+        "the real cmd/af registrations and an App wired like main"
+      ],
+      "when": "`af nosuch` is run through Main and through the built binary",
+      "then": [
+        "exit code is 2",
+        "the envelope has tool \"af\", status usage and an error message listing the registered commands",
+        "stderr is empty"
+      ],
+      "pseudocode": "assert Main(['nosuch']) == 2 && e.tool == 'af' && stderr == ''",
+      "real_components": [
+        "cmd/af main",
+        "toolio.App"
+      ]
+    },
+    {
+      "id": "TS-05-78",
+      "kind": "smoke",
+      "verifies": [
+        "05-PATH-5",
+        "05-REQ-7.6"
+      ],
+      "title": "An unauthenticated read of a private GitLab merge request fails with an auth hint",
+      "given": [
+        "an httptest GitLab forge answering the merge-request read with 404",
+        "GITLAB_API_URL pointing at it and no GITLAB_TOKEN, GITHUB_TOKEN or GH_TOKEN set",
+        "a test command declaring input and forge use"
+      ],
+      "when": "the test command is run with the GitLab merge-request URL",
+      "then": [
+        "exit code is 1",
+        "the envelope has status failed, category auth, a message saying the issue may be private",
+        "fix_hint is {env \"GITLAB_TOKEN\"}",
+        "the forge saw only the read request"
+      ],
+      "pseudocode": "code = Main(['X', mrURL]); assert code == 1 && e.error.category == 'auth' && e.error.fix_hint.env == 'GITLAB_TOKEN'",
+      "real_components": [
+        "toolio.App",
+        "input resolver",
+        "issuex GitLab client",
+        "httptest forge"
+      ]
+    }
+  ]
+}

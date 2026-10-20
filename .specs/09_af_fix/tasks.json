@@ -1,0 +1,561 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "09",
+  "spec_name": "af_fix",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/fix/... ./cmd/af/... ./internal/brain/... ./internal/gitx/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "05",
+      "reason": "Provides the toolio shell (Command, Run, Failure, warnings, artifacts, side effects, next), input resolution, DryRunForge, RunDir with ledger and WriteReport, needs_human/resume/--context, --timeout, --schema and its golden, and App.NewForge."
+    },
+    {
+      "spec": "06",
+      "reason": "Provides project.Detect, checks.FileView/Run/Compare, conform.Check, policy default protected paths, repomap.Build and gitx.ChangedPaths; conform.Check may need an explicit table parameter added here."
+    },
+    {
+      "spec": "07",
+      "reason": "Provides brain.Brief/Execute/Flags and registry, box.With/Session (Sync, Export, WriteFile, Tools) and submission.Kind/Submit/Command; this spec adds the scripted brain's rounds form."
+    },
+    {
+      "spec": "08",
+      "reason": "Provides the skills Go package embedding skills/af-*, used for the af-fix skill text in the prefix, and possibly a shared forge constructor for a recorded repo and earlier-question lookup to reuse."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Add the fix_report submission kind and the scripted brain's multi-round form",
+      "criteria": [
+        "09-REQ-4.1",
+        "09-REQ-4.2",
+        "09-REQ-4.3",
+        "09-REQ-4.4",
+        "09-REQ-10.3"
+      ],
+      "tests": [
+        "TS-09-26",
+        "TS-09-27",
+        "TS-09-28",
+        "TS-09-29",
+        "TS-09-69"
+      ],
+      "steps": [
+        "Write TS-09-26..29 and TS-09-69 first and confirm they fail",
+        "Create internal/fix/kind.go exporting FixReport (submission.Kind) with Name fix_report, ToolName submit_fix, a JSON schema for the question and report forms, and a Validate(ctx, fs.FS, json.RawMessage) that decodes with DisallowUnknownFields-equivalent checking",
+        "Implement question-form rules (text 1-2000, options 0-6 of 1-200, root_cause <=8000) and refuse a payload that mixes question with report fields",
+        "Implement report-form rules: type enum default fix; subject 1-72 chars, one line, no trailing period, no leading '<type>:'; root_cause/change 1-4000; files 1-500 unique {path,why} with valid relative slash path not under .git/ or .agent-fox/, why 1-300; tests 0-100 with path a regular file in the submitted fs.FS; criteria 0-50 with status enum; decisions 0-30 of <=500",
+        "Collect every violation as a submission.Problem naming its field and return no normalised payload when any exist",
+        "Normalise accepted payloads: trim strings, CRLF to LF, default type, sort files by path; make re-validating the output return it unchanged (property test with testing/quick or a seeded generator)",
+        "Add a typed Report struct (and question struct) used by later tasks to decode submission.json",
+        "Extend internal/brain/scripted.go: accept {\"rounds\":[{\"steps\":[...]}]} and treat a plain {\"steps\":[...]} file as one round; the k-th Run on the same brain value replays round k and a call past the last round ends at once with outcome ended",
+        "Run make test and make lint"
+      ],
+      "touches": [
+        "internal/fix/kind.go",
+        "internal/fix/kind_test.go",
+        "internal/brain/scripted.go",
+        "internal/brain/scripted_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Register the fix command with usage validation and the ordered preflight",
+      "criteria": [
+        "09-REQ-1.4",
+        "09-REQ-1.5",
+        "09-REQ-2.1",
+        "09-REQ-2.2",
+        "09-REQ-2.3",
+        "09-REQ-2.4",
+        "09-REQ-2.5",
+        "09-REQ-2.6"
+      ],
+      "tests": [
+        "TS-09-4",
+        "TS-09-5",
+        "TS-09-9",
+        "TS-09-10",
+        "TS-09-11",
+        "TS-09-12",
+        "TS-09-13",
+        "TS-09-14",
+        "TS-09-15"
+      ],
+      "steps": [
+        "Write the listed tests first (temporary repos copied from gitx newRepo with a local bare origin, httptest forge via App.NewForge, a counting scripted brain and a box provider spy) and confirm they fail",
+        "Add gitx helpers in internal/gitx: RevParse(ctx, ref) returning the full 40-hex hash, and Ignored(ctx, paths) using check-ignore -z --stdin (exit 1 means none ignored), each with a unit test",
+        "Create cmd/af/fix.go registering `fix` on the toolio shell with brain.Flags defaults (agentkit, local, 10, 150), --base, --attempts, --land, --no-verify, --repo, --dry-run, --context, DefaultTimeout 45m and run dir/forge opt-ins; a placeholder result schema file cmd/af/schemas/fix.json",
+        "Validate --attempts 1-5 and --land pr|branch|none and reject PR/MR URL inputs (GitHub /pull/N, GitLab /-/merge_requests/N) as usage before preflight",
+        "Create internal/fix/preflight.go running in order: --dir is the git top level; branch exists (detached is usage) and --base equals it ('check out <base> first'); DirtyFiles empty (failed/preflight naming at most 20 paths); gate via project.Detect with an available check unless --no-verify (failed/preflight, fix_hint flag --no-verify); landing prerequisites (origin -> preflight, valid target -> usage with fix_hint --repo, authenticated -> auth with fix_hint env GITHUB_TOKEN/GITLAB_TOKEN, GetRepository ok and not archived -> forge; under --dry-run a missing token is warning no_forge_token); brain constructible via the registry (auth)",
+        "Add the new `preflight` failure category to the toolio categories if spec 05/06/07 did not",
+        "Raise warning issue_closed when the input issue is closed",
+        "Have the fix command Run call preflight and then hand off to a loop entry point stubbed to return a failed internal 'fix loop not wired' failure; task 9 replaces it",
+        "Confirm no model call, branch, commit or forge write happens on any preflight failure"
+      ],
+      "touches": [
+        "internal/gitx/git.go",
+        "internal/gitx/git_test.go",
+        "internal/fix/preflight.go",
+        "internal/fix/preflight_test.go",
+        "cmd/af/fix.go",
+        "cmd/af/fix_test.go",
+        "cmd/af/schemas/fix.json"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Baseline, fix.json, the brief builder and the fix brief and fix submit commands",
+      "criteria": [
+        "09-REQ-1.7",
+        "09-REQ-2.7",
+        "09-REQ-2.8",
+        "09-REQ-3.1",
+        "09-REQ-3.2",
+        "09-REQ-3.3",
+        "09-REQ-3.4",
+        "09-REQ-3.5",
+        "09-REQ-3.6",
+        "09-REQ-3.8"
+      ],
+      "tests": [
+        "TS-09-7",
+        "TS-09-16",
+        "TS-09-17",
+        "TS-09-18",
+        "TS-09-19",
+        "TS-09-20",
+        "TS-09-21",
+        "TS-09-22",
+        "TS-09-23",
+        "TS-09-25"
+      ],
+      "steps": [
+        "Write the listed tests first and confirm they fail",
+        "Create internal/fix/state.go: the fix.json struct (run_id, input kind/origin/key, issue ref and title, target repo, base, base_head, table, baseline gate id, no_verify, prefix_sha256, context values, round counter), atomic write via temp file in the same directory plus rename, load, and the input key (issue URL, absolute file path, SHA-256 of text)",
+        "Extend preflight to record base, base_head (full hash via RevParse), the pinned table and run checks.Run(dir,{Table}) exactly once in default mode with no label unless --no-verify; raise baseline_failing on a red baseline",
+        "Create internal/fix/brief.go building brain.Brief{Prefix,Task}: prefix sections in order mandate, af-fix skill text (skills package from spec 08), report in a fence longer than any backtick run labelled as material to verify, gate table and baseline (name, argv, status, failing tail), repomap.Build at 4000 tokens, fix-report schema; no run id, timestamp, duration or context value; compute prefix_sha256",
+        "Build the task block: run id, attempt and round numbers, submit instruction (`af fix submit --run-id <id>` and `submit_fix`), earlier questions with answers, previous refusal and previous-attempt reason inputs",
+        "Create internal/fix/questions.go: for each i in 0..n-1 scan .agent-fox/run/*/fix.json and envelope.json for the newest run with the same input key, status needs_human and exactly i context values; render with the i-th answer, else answer alone plus warning question_not_found",
+        "Set Brief.Tools to the box tool set, HookConfig.ProtectedPaths to the policy default list, and HookConfig.AllowPrograms to the detected programs plus git, af, ls, cat, head, tail, wc, grep, rg, diff, sort, pwd, echo, mkdir",
+        "Register `fix brief <input>` in cmd/af (flags --base and --dir, run dir, forge, repo, context) writing <run_dir>/brief.md, fix.json and .agent-fox/run/<id>/run.json {run_id, kind fix_report, attempt 1, nonce}, nothing else outside .agent-fox/; result {brief_path, prefix_sha256, base, base_head, baseline{gate_id,passed}, table, submit argv}; schema cmd/af/schemas/fix_brief.json",
+        "Register `fix submit` as submission.Command(\"fix submit\", FixReport) with a fix_submit.json result schema",
+        "Run make test and make lint"
+      ],
+      "touches": [
+        "internal/fix/state.go",
+        "internal/fix/brief.go",
+        "internal/fix/questions.go",
+        "internal/fix/preflight.go",
+        "internal/fix/brief_test.go",
+        "cmd/af/fix.go",
+        "cmd/af/schemas/fix_brief.json",
+        "cmd/af/schemas/fix_submit.json"
+      ],
+      "depends_on": [
+        1,
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Apply the brain's exported tree to the host and add the fix run command",
+      "criteria": [
+        "09-REQ-1.8",
+        "09-REQ-5.1",
+        "09-REQ-5.2",
+        "09-REQ-5.3",
+        "09-REQ-5.4",
+        "09-REQ-5.5"
+      ],
+      "tests": [
+        "TS-09-32",
+        "TS-09-33",
+        "TS-09-34",
+        "TS-09-35",
+        "TS-09-8"
+      ],
+      "steps": [
+        "Write the listed tests first and confirm they fail",
+        "Create internal/fix/apply.go: Apply(ctx, host, exportDir, ledger) mirroring the export onto the host: write every file outside .git/ and .agent-fox/ and not ignored (gitx.Ignored) when absent or differing in content, mode or symlink target; recreate symlinks with os.Symlink and never follow them (use Lstat/Readlink)",
+        "Delete every checks.FileView path absent from the export; remove emptied directories",
+        "Return failed/sandbox and touch nothing when the export holds no files",
+        "Record ledger entry apply {written, deleted, ignored}; never commit so HEAD stays at base_head",
+        "Add a property test comparing FileView minus ignored with the export minus .git/.agent-fox in paths, contents, modes and symlink targets",
+        "Create internal/fix/round.go with one-round execution shared with the loop: write gate.json and guard.json into the box via Session.WriteFile, call brain.Execute with Brief.Attempt as the round sequence number, and on an accepted submission export and apply",
+        "Register `fix run --run-id <id>` in cmd/af (brain flags, --dir, run dir opened with toolio.OpenRunDir, needs fix.json): open a box with box.With, run one round, apply, no measuring, branch or commit; result {round, submission outcome, apply{written,deleted,ignored}} with schema fix_run.json",
+        "Run make test and make lint"
+      ],
+      "touches": [
+        "internal/fix/apply.go",
+        "internal/fix/apply_test.go",
+        "internal/fix/round.go",
+        "cmd/af/fix.go",
+        "cmd/af/schemas/fix_run.json"
+      ],
+      "depends_on": [
+        1,
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Measure the host tree: foreign commits, protected revert, scope, gate after, revert check",
+      "criteria": [
+        "09-REQ-6.1",
+        "09-REQ-6.2",
+        "09-REQ-6.3",
+        "09-REQ-6.4",
+        "09-REQ-6.5",
+        "09-REQ-6.6"
+      ],
+      "tests": [
+        "TS-09-39",
+        "TS-09-40",
+        "TS-09-41",
+        "TS-09-42",
+        "TS-09-43"
+      ],
+      "steps": [
+        "Write the listed tests first using the Makefile fixture gate (check target running a shell test under tests/ against a non-test script; skip when make is absent) and confirm they fail",
+        "Create internal/fix/measure.go with Measure(ctx, state, report) returning a Measurement {Verdict, Landable, Closes, After, RevertCheck, Changed, Reverted, Scope, Refusal}",
+        "Foreign-commit check: current branch must be the base and HEAD must equal base_head, else failed/git listing the commits since base_head via CommitsSince",
+        "Protected-path revert: for each gitx.ChangedPaths(base_head) path under a policy protected path, restore via CheckoutPaths from base_head or delete when absent at base, collect in Reverted and warn protected_path_reverted",
+        "Refuse with kind no_change (no gate run) when no changed path remains",
+        "Scope: compare report files with measured paths into scope{undeclared, unchanged}; warn scope_mismatch, never refuse",
+        "Gate after: checks.Run(dir,{Table: pinned}) then checks.Compare against the baseline gate id; under --no-verify skip and set verdict unverified with After nil",
+        "If conform.Check cannot take an explicit table, add that parameter to spec 06's conform package in a backward-compatible way; on a landable verdict run conform.Check(dir, since=base_head) with the pinned table, closes true only for proven, otherwise warn fix_not_proven; never call it on non-landable verdicts or under --no-verify",
+        "Collect failing checks' names and tails (cap 4 KiB each) for refusal rendering",
+        "Run make test and make lint"
+      ],
+      "touches": [
+        "internal/fix/measure.go",
+        "internal/fix/measure_test.go",
+        "internal/conform"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Branch naming, issue creation for text/file input, and parking as wip",
+      "criteria": [
+        "09-REQ-8.1",
+        "09-REQ-8.2",
+        "09-REQ-9.1",
+        "09-REQ-9.2",
+        "09-REQ-9.3"
+      ],
+      "tests": [
+        "TS-09-54",
+        "TS-09-53",
+        "TS-09-61",
+        "TS-09-62",
+        "TS-09-63"
+      ],
+      "steps": [
+        "Write the listed tests first (real git, local bare origin, httptest GitHub) and confirm they fail",
+        "Create internal/fix/land.go shared helpers: BranchFor naming fix/<N>-<slug> for an issue or fix/<slug> otherwise via gitx.Slug of the issue title or report subject, made unique with gitx.UniqueBranchName, created from base_head with CreateBranch carrying the working tree; record branch artifact and side effect",
+        "Add ensureIssue: for text or file input under --land pr create exactly one issue titled with the subject, body the original input under '## Original report' plus a line naming the run; report issue_created {number,url}, the issue artifact and create_issue side effect",
+        "Create internal/fix/park.go: Park(ctx, ...) creating the branch and committing with CommitAllNoVerify as 'wip: <subject>', blank line, 'Parked by af fix: verdict <v>' with failing checks, blank line, 'Refs <url>' when an issue exists, blank line, 'Agent-Fox-Run: <run id>' trailer",
+        "Unless interrupted: push (unless --land none) with Push(ctx, branch, 3, log); under --land pr open a draft pull request whose body says Refs <issue url> (creating the issue first for text/file input)",
+        "Return to the base branch with a clean tree; outcome parked, status unverified exit 4, warning fix_not_landed naming the verdict, next `git switch <branch>`",
+        "Run make test and make lint"
+      ],
+      "touches": [
+        "internal/fix/land.go",
+        "internal/fix/park.go",
+        "internal/fix/park_test.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Land a measured change: commit, push, pull request, body, land modes",
+      "criteria": [
+        "09-REQ-8.3",
+        "09-REQ-8.4",
+        "09-REQ-8.5",
+        "09-REQ-8.6",
+        "09-REQ-8.7",
+        "09-REQ-8.8",
+        "09-REQ-9.4"
+      ],
+      "tests": [
+        "TS-09-55",
+        "TS-09-56",
+        "TS-09-57",
+        "TS-09-58",
+        "TS-09-59",
+        "TS-09-60",
+        "TS-09-64"
+      ],
+      "steps": [
+        "Write the listed tests first and confirm they fail",
+        "Create internal/fix/body.go: RenderBody(facts, limit) composing in order the run-id marker comment, the verification section 'measured by af' (per-check baseline/after table, verdict, revert-check outcome and reason, reverted paths), reported root cause/change/tests/criteria/decisions, changed files from git with 'why' or '(not declared)', the Closes/Refs line, and a footer with run id, brain and cost with source; cut reported sections first behind a visible marker to fit issuex.MaxBodyLength, never cutting verification or the Closes/Refs line; write it via RunDir.WriteReport",
+        "Extend land.go: commit with gitx.CommitAll using '<type>: <subject>', blank, change capped at 2000 bytes, blank, Closes <url> (only when closes) or Refs <url>, blank, 'Agent-Fox-Run: <run id>' as the last paragraph; report the full hash via RevParse",
+        "On commit failure park the work with warning commit_hook_failed",
+        "Push unless --land none using Push(ctx, branch, 3, log), raising push_retried per retry; on final failure keep branch and commit, return to base, fail category git with next `git push -u origin <branch>` and side effect push failed",
+        "Under --land pr call CreatePullRequest(target, {Title, Body, Head, Base, Draft}); Draft under --no-verify or an unmet/partial criterion (warning criteria_unmet); on failure after push stay done with warning pull_request_failed and pull_request null",
+        "--land none makes the local branch and commit only, with no push and no forge request",
+        "Return to the base branch with a clean tree; status done exit 0 outcome landed, or under --no-verify unverified exit 4 with warning not_verified and a draft that says Refs",
+        "Run make test and make lint"
+      ],
+      "touches": [
+        "internal/fix/land.go",
+        "internal/fix/body.go",
+        "internal/fix/land_test.go",
+        "internal/fix/body_test.go"
+      ],
+      "depends_on": [
+        5,
+        6
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Add the fix land command and the shared fix result",
+      "criteria": [
+        "09-REQ-1.6",
+        "09-REQ-4.6",
+        "09-REQ-6.8",
+        "09-REQ-10.1"
+      ],
+      "tests": [
+        "TS-09-6",
+        "TS-09-31",
+        "TS-09-38",
+        "TS-09-45",
+        "TS-09-67"
+      ],
+      "steps": [
+        "Write the listed tests first and confirm they fail",
+        "Create internal/fix/result.go: the Result struct with run_id, issue, issue_created, base, base_head, attempts, rounds, attempts_max, outcome, verdict, landable, closes, baseline, after, revert_check, changed_files, reverted_paths, scope, land, branch, commit, pushed, pull_request and box{provider,image,network} (network host for local), plus a builder used by both fix and fix land",
+        "Write cmd/af/schemas/fix.json and fix_land.json describing that result and validate real results against them in the test",
+        "Register `fix land --run-id <id>` (--dir, --land) opening the run with toolio.OpenRunDir; a bad run id or a run directory without fix.json is a usage error before touching the checkout; same check added to fix run and fix submit",
+        "Implement the land flow: load fix.json and the submission; a question submission fails category submission with a message telling the person to re-run `af fix brief <input> --context <answer>`",
+        "Measure once with Measure (a foreign commit or branch switch is failed/git naming the commits); on a landable verdict call the landing from task 7, on a refusal call Park from task 6 without starting any brain round",
+        "Build the forge client for the recorded target repository (reuse spec 08's constructor if present) and emit the shared Result",
+        "Run make test and make lint"
+      ],
+      "touches": [
+        "internal/fix/result.go",
+        "internal/fix/landcmd.go",
+        "internal/fix/landcmd_test.go",
+        "cmd/af/fix.go",
+        "cmd/af/schemas/fix.json",
+        "cmd/af/schemas/fix_land.json"
+      ],
+      "depends_on": [
+        3,
+        4,
+        5,
+        7
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "The fix loop: rounds, refusals, questions, attempts and bounds",
+      "criteria": [
+        "09-REQ-3.7",
+        "09-REQ-4.5",
+        "09-REQ-5.6",
+        "09-REQ-5.7",
+        "09-REQ-6.7",
+        "09-REQ-7.1",
+        "09-REQ-7.2",
+        "09-REQ-7.3",
+        "09-REQ-7.4"
+      ],
+      "tests": [
+        "TS-09-24",
+        "TS-09-30",
+        "TS-09-36",
+        "TS-09-37",
+        "TS-09-44",
+        "TS-09-46",
+        "TS-09-47",
+        "TS-09-48",
+        "TS-09-49"
+      ],
+      "steps": [
+        "Write the listed tests first (spy brain recording Brief fields, scripted multi-round scripts, box provider spy) and confirm they fail",
+        "Create internal/fix/loop.go: Run(ctx, ...) replacing the task 2 stub; hold one box across all rounds with box.With; before each round write gate.json and guard.json via Session.WriteFile",
+        "Each round calls brain.Execute with Brief.Attempt set to the run-wide round sequence number and the attempt's remaining cost and turns; a round without an accepted submission applies nothing (5.7)",
+        "An accepted question submission ends the run with needs_human: options A, B, C in order, the shell's resume, no apply, no branch or commit, checkout untouched",
+        "On an accepted report: export and Apply, then Measure; a landable verdict goes to landing (task 7), a refusal records ledger `measure {verdict, after_gate_id, revert_outcome, closes, changed, reverted}` and `refusal {kind}` and the refusal (kind, verdict, failing checks' names and tails capped 4 KiB, reverted paths) enters the next task block",
+        "Between measured rounds re-sync the box with Session.Sync from the host tree",
+        "Implement the continue decision: another round only while cost remains > 0, turns >= 1 and brain time >= 1 minute, where brain time is the time to the command deadline minus 3 x baseline gate duration + 1 minute; expose a pure function for TS-09-47",
+        "Attempts: up to --attempts, each with a fresh budget, turns and brain context starting from the current host tree; the first task block of a later attempt states why the previous attempt ended; do not start another attempt after a non-retryable Execute failure",
+        "Update fix.json round counter after every round, and wire cmd/af fix to call the loop",
+        "Run make test and make lint"
+      ],
+      "touches": [
+        "internal/fix/loop.go",
+        "internal/fix/loop_test.go",
+        "internal/fix/round.go",
+        "cmd/af/fix.go"
+      ],
+      "depends_on": [
+        1,
+        4,
+        5,
+        7
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 10,
+      "kind": "implement",
+      "title": "Loop endings, interruption, dry run, result wiring and schema golden",
+      "criteria": [
+        "09-REQ-1.1",
+        "09-REQ-1.2",
+        "09-REQ-1.3",
+        "09-REQ-7.5",
+        "09-REQ-7.6",
+        "09-REQ-7.7",
+        "09-REQ-9.5",
+        "09-REQ-9.6",
+        "09-REQ-10.2"
+      ],
+      "tests": [
+        "TS-09-1",
+        "TS-09-2",
+        "TS-09-3",
+        "TS-09-50",
+        "TS-09-51",
+        "TS-09-52",
+        "TS-09-65",
+        "TS-09-66",
+        "TS-09-68"
+      ],
+      "steps": [
+        "Write the listed tests first and confirm they fail",
+        "When no attempt remains without a landable verdict: park the applied change using the last accepted report's subject (warning attempt_failed when the last round failed), else fail with the last round's failure category",
+        "On cancellation or the command deadline: park any applied change locally, without push or forge write, on a context detached from cancellation (context.WithoutCancel) with a 10 second timeout; under --dry-run discard instead; return the context error to the shell (cancelled or timeout)",
+        "Ensure box closes exactly once on every exit path and set the envelope usage to spec 07's Tally across all rounds",
+        "Dry run: after the landing decision ResetHard(base_head) and Clean, create no branch or commit, push nothing, add planned side effects branch, commit, push and (via DryRunForge) create_pull_request, and return the real run's status with outcome dry_run",
+        "Fill the artifacts (branch, commit, pull_request, issue when created, report, submission, transcript, run_dir) and side effects (branch, commit, push, create_issue, create_pull_request as done/planned/failed) from the shared Result builder",
+        "Verify the base branch is checked out at base_head with a clean tree for landed, parked, needs_human and dry_run outcomes (property over scripted scenarios and --land modes)",
+        "Confirm defaults agentkit, local, 10, 150, 2 attempts, pr, 45m in `af fix --help` and the result attempts_max/land; confirm each command accepts exactly its documented flags and rejects others as usage",
+        "Finalise the five result schemas, register them for `af --schema`, and regenerate the golden file",
+        "Run make test and make lint"
+      ],
+      "touches": [
+        "internal/fix/loop.go",
+        "internal/fix/loop_test.go",
+        "internal/fix/result.go",
+        "cmd/af/fix.go",
+        "cmd/af/fix_test.go",
+        "cmd/af/schemas",
+        "cmd/af/testdata"
+      ],
+      "depends_on": [
+        8,
+        9
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 11,
+      "kind": "implement",
+      "title": "Offline agentkit and GitLab run, af-fix skill rewrite and documentation",
+      "criteria": [
+        "09-REQ-10.4",
+        "09-REQ-10.5",
+        "09-REQ-10.6"
+      ],
+      "tests": [
+        "TS-09-70",
+        "TS-09-71",
+        "TS-09-72"
+      ],
+      "steps": [
+        "Write TS-09-70, TS-09-71 and TS-09-72 first and confirm they fail",
+        "TS-09-70: run `af fix` with --brain agentkit and model provider/faux against an httptest GitLab injected through App.NewForge, on a temp repo with a local bare origin and the Makefile fixture gate, with vendor keys unset; assert done, a merge request created and loopback-only connections; fix any wiring gap this reveals",
+        "Rewrite skills/af-fix to the toolbelt flow `af fix brief` -> work -> `af fix submit` -> `af fix land`; keep the method (read, refuse early, diagnose, test first, verify with targeted tests and `af gate run`); state the agent never commits, pushes, branches or edits the issue; use branch form fix/<N>-<slug>; remove every git commit/push/checkout -b and pull-request instruction",
+        "Run `make doc` first to refresh the Go docs",
+        "Update docs/cli.md: the five commands, flags and defaults, results, warnings (baseline_failing, issue_closed, question_not_found, protected_path_reverted, scope_mismatch, fix_not_proven, push_retried, criteria_unmet, pull_request_failed, fix_not_landed, not_verified, attempt_failed, commit_hook_failed, no_forge_token), the preflight category and exit codes",
+        "Update docs/configuration.md (box-side .agent-fox/gate.json and guard.json, token needed for --land pr) and docs/model-usage.md (per-attempt bounds, attempts, rounds, dry runs spend model money)",
+        "Update docs/architecture.md (fix loop as built, apply and measure steps, fix.json and report.md run files, the What moves where codefix row) and README.md (internal/fix/)",
+        "Run make check and confirm it passes offline"
+      ],
+      "touches": [
+        "skills/af-fix/SKILL.md",
+        "docs/cli.md",
+        "docs/configuration.md",
+        "docs/model-usage.md",
+        "docs/architecture.md",
+        "README.md",
+        "internal/fix/fix_e2e_test.go",
+        "internal/fix/docs_test.go"
+      ],
+      "depends_on": [
+        10
+      ],
+      "done_when": [
+        "`make check` passes with no vendor key and no network beyond loopback"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 12,
+      "kind": "integration",
+      "title": "Verify every fix execution path end to end",
+      "tests": [
+        "TS-09-73",
+        "TS-09-74",
+        "TS-09-75",
+        "TS-09-76",
+        "TS-09-77",
+        "TS-09-78",
+        "TS-09-79"
+      ],
+      "steps": [
+        "Write TS-09-73..79 against the real toolio shell, real git with a local bare origin, the Makefile fixture gate, the local box, the scripted brain and httptest GitHub, and confirm they pass",
+        "Trace 09-PATH-1..7 through the real code (cmd/af/fix.go -> preflight -> loop -> round -> apply -> measure -> land/park, and fix brief -> submit -> land); confirm each step calls the next and no stub remains, including that the task 2 loop placeholder is gone",
+        "For every criterion with a contract, confirm the producer's result (Result fields, ledger entries, warnings, artifacts, side effects, next) is consumed by a caller in production code, not only by tests",
+        "Confirm cmd/af registers all five fix commands and that spec 05/06/07 entry points (toolio shell, checks.Run/Compare, conform.Check, brain.Execute, box.With, submission.Command) are called from production code",
+        "Search every file in the tasks' touches for panic(\"not implemented\"), TODO, and bare `return nil` on non-trivial paths, and remove any that remain",
+        "Run make check and confirm it passes offline"
+      ],
+      "touches": [
+        "internal/fix/smoke_test.go",
+        "cmd/af/fix_smoke_test.go"
+      ],
+      "depends_on": [
+        11
+      ],
+      "done_when": [
+        "`make check` passes",
+        "every execution path 09-PATH-1..7 is exercised by a smoke test"
+      ],
+      "state": "pending"
+    }
+  ]
+}

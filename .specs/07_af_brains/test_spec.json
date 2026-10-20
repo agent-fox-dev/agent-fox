@@ -1,0 +1,1618 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "07",
+  "spec_name": "af_brains",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-07-1",
+      "kind": "property",
+      "verifies": [
+        "07-REQ-1.1"
+      ],
+      "title": "Document() is always Prefix followed by Task byte for byte",
+      "given": [
+        "a zero-value Brief with only Prefix and Task set"
+      ],
+      "when": "for any pair of strings (Prefix, Task), including empty, multi-byte UTF-8 and strings containing newlines, Document() is called",
+      "then": [
+        "the result equals Prefix + Task exactly",
+        "the result's first len(Prefix) bytes are Prefix"
+      ],
+      "pseudocode": "for p,t in gen_strings(): assert Brief{Prefix:p,Task:t}.Document() == p+t"
+    },
+    {
+      "id": "TS-07-2",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-1.2"
+      ],
+      "title": "An unknown brain name is a usage failure listing the registered names",
+      "given": [
+        "the default brain registry holding agentkit and scripted"
+      ],
+      "when": "Registry.Lookup(\"claude-x\") / New is called with an unregistered name",
+      "then": [
+        "the error is a *toolio.Failure with category usage (exit code 2)",
+        "the message contains both \"agentkit\" and \"scripted\"",
+        "no Brain is constructed (New func never called)"
+      ],
+      "pseudocode": "_, err = reg.New(\"nope\", opts); f = asFailure(err); assert f.Category==usage; assert contains(f.Message,'agentkit') && contains(f.Message,'scripted')"
+    },
+    {
+      "id": "TS-07-3",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-1.3"
+      ],
+      "title": "A non-finite or non-positive budget and a max-turns below 1 are usage errors naming the flag",
+      "given": [
+        "a FlagSet with brain.Flags registered using the command's defaults"
+      ],
+      "when": "parsing --budget with 0, -1, NaN, +Inf and a non-number, and --max-turns with 0 and -3",
+      "then": [
+        "each case yields a *toolio.Failure with category usage (exit 2)",
+        "the message names --budget or --max-turns respectively",
+        "the box provider's create count is 0"
+      ],
+      "pseudocode": "for args in cases: err = flags.Validate(parse(args)); assert usage(err) && contains(msg, flagname)"
+    },
+    {
+      "id": "TS-07-4",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-1.4"
+      ],
+      "title": "--script without scripted, and scripted without --script, are usage errors naming --script",
+      "given": [
+        "a FlagSet with brain.Flags registered"
+      ],
+      "when": "parsing `--brain scripted` alone, and `--brain agentkit --script x.json`",
+      "then": [
+        "both yield a usage Failure (exit 2) whose message names --script",
+        "no box is opened"
+      ],
+      "pseudocode": "assert usage(validate('--brain scripted')) ; assert usage(validate('--brain agentkit --script x.json'))"
+    },
+    {
+      "id": "TS-07-5",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-1.5"
+      ],
+      "title": "An unknown --sandbox value is a usage failure listing registered providers",
+      "given": [
+        "the box registry with local registered"
+      ],
+      "when": "a box is requested with provider \"podman\"",
+      "then": [
+        "a *toolio.Failure with category usage (exit 2) is returned",
+        "the message lists \"local\"",
+        "no sandbox is created"
+      ],
+      "pseudocode": "err = box.Open(ctx, Request{Provider:'podman',...}); assert usage(err) && contains(msg,'local'); assert createCount==0"
+    },
+    {
+      "id": "TS-07-6",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-1.6"
+      ],
+      "title": "Without --sandbox the shared flags select local",
+      "given": [
+        "brain.Flags registered with the documented sandbox default \"local\""
+      ],
+      "when": "an empty argument list is parsed",
+      "then": [
+        "the parsed sandbox value is \"local\""
+      ],
+      "pseudocode": "fs = FlagSet; f = brain.Flags(fs, defaults{Sandbox:'local'}); fs.Parse([]); assert f.Sandbox == 'local'"
+    },
+    {
+      "id": "TS-07-7",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-1.7"
+      ],
+      "title": "Opening a local box raises box_unconfined exactly once per run",
+      "given": [
+        "a real local provider and a temporary git repository",
+        "a recording Warn sink"
+      ],
+      "when": "a run opens the box via box.With, and the session is Synced a second time",
+      "then": [
+        "exactly one warning with code box_unconfined is raised",
+        "its message says the box has no process or network isolation"
+      ],
+      "pseudocode": "With(ctx, req, fn); sess.Sync(); assert count(warnings, 'box_unconfined') == 1"
+    },
+    {
+      "id": "TS-07-8",
+      "kind": "property",
+      "verifies": [
+        "07-REQ-1.8"
+      ],
+      "title": "Box environment equals exactly the host values of BoxEnv names",
+      "given": [
+        "a registry entry with a generated BoxEnv list and a generated host environment containing unrelated variables"
+      ],
+      "when": "for any BoxEnv name list and any host environment map, the entry's box env is built via Getenv",
+      "then": [
+        "the resulting map has exactly the keys of BoxEnv that are set on the host",
+        "each value equals the host value",
+        "no other host variable appears"
+      ],
+      "pseudocode": "for names, host in gen(): env = BuildBoxEnv(entry{BoxEnv:names}, host.get); assert env == {n:host[n] for n in names if n in host}"
+    },
+    {
+      "id": "TS-07-9",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-1.8"
+      ],
+      "title": "With host tokens set, the agentkit and scripted boxes carry an empty environment",
+      "given": [
+        "GITHUB_TOKEN, GITLAB_TOKEN and ANTHROPIC_API_KEY set on the host",
+        "a local box on a temporary repository"
+      ],
+      "when": "a box and Brief are built for each of the agentkit and scripted entries",
+      "then": [
+        "Session.Spec().Env is empty for both",
+        "Brief.Env is empty for both"
+      ],
+      "pseudocode": "for name in ['agentkit','scripted']: s = open(name); assert len(s.Spec().Env)==0 && len(brief.Env)==0"
+    },
+    {
+      "id": "TS-07-10",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-2.1",
+        "07-REQ-2.3"
+      ],
+      "title": "Open on a work tree's top level creates the spec, syncs with .git and records ledger entries in order",
+      "given": [
+        "a temporary git repository with one commit",
+        "a real RunDir",
+        "a counting local provider wrapper"
+      ],
+      "when": "box.Open is called with HostDir at the top level, RunID, Tool \"fix\" and a TTL",
+      "then": [
+        "a session is returned with Provider() == \"local\"",
+        "Spec() has Labels af.run_id and af.tool and the TTL",
+        "Tools() is non-empty",
+        "`.git` exists inside the box",
+        "ledger holds box_open {provider} then box_sync {head} where head equals gitx.Head"
+      ],
+      "pseudocode": "s = Open(...); assert s.Spec().Labels['af.run_id']==id; assert ledger kinds == ['box_open','box_sync']; assert ledger[1].head == host.Head()"
+    },
+    {
+      "id": "TS-07-11",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-2.2"
+      ],
+      "title": "A HostDir that is not a work tree or not its top level is refused with a usage failure",
+      "given": [
+        "a plain temporary directory, and a repository with a subdirectory",
+        "a counting provider"
+      ],
+      "when": "box.Open is called with the plain directory, then with the repository's subdirectory, and with a symlinked path to the top level",
+      "then": [
+        "the first two return a usage Failure",
+        "the subdirectory message names the work tree's top level",
+        "the symlinked top-level path is accepted (compared after EvalSymlinks)",
+        "no sandbox is created for the refused calls"
+      ],
+      "pseudocode": "err1 = Open(plainDir); err2 = Open(repo/sub); assert usage(err1,err2); assert contains(err2.Message, topLevel); assert createCount==0"
+    },
+    {
+      "id": "TS-07-12",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-2.4"
+      ],
+      "title": "A provider that cannot create a sandbox yields failed/sandbox, not retryable",
+      "given": [
+        "a stub provider whose Create returns an error"
+      ],
+      "when": "box.Open is called",
+      "then": [
+        "no session is returned",
+        "the error is a *toolio.Failure with category sandbox and Retryable false"
+      ],
+      "pseudocode": "s, err = Open(stubFailCreate); assert s==nil; assert f.Category=='sandbox' && !f.Retryable"
+    },
+    {
+      "id": "TS-07-13",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-2.5"
+      ],
+      "title": "A sync failure closes the sandbox and yields failed/sandbox retryable",
+      "given": [
+        "a stub provider whose sandbox Sync fails and which counts Create and Close"
+      ],
+      "when": "box.Open is called",
+      "then": [
+        "the error is a *toolio.Failure with category sandbox and Retryable true",
+        "the provider's close count equals its create count (1)"
+      ],
+      "pseudocode": "err = Open(stubFailSync); assert f.Category=='sandbox' && f.Retryable; assert closes==creates==1"
+    },
+    {
+      "id": "TS-07-14",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-2.6"
+      ],
+      "title": "Session.Sync re-syncs the host directory and records another box_sync",
+      "given": [
+        "an open local session on a temporary repository",
+        "a new commit made on the host after the first sync"
+      ],
+      "when": "Sync(ctx) is called",
+      "then": [
+        "it returns nil",
+        "the ledger has one more box_sync entry whose head is the new host HEAD",
+        "git rev-parse inside the box returns the new hash"
+      ],
+      "pseudocode": "host.commit(); assert s.Sync(ctx)==nil; assert count(ledger,'box_sync')==2; assert boxHead(s)==host.Head()"
+    },
+    {
+      "id": "TS-07-15",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-2.7",
+        "07-REQ-2.8"
+      ],
+      "title": "The box HEAD equals the host HEAD and a commit inside leaves the host untouched",
+      "given": [
+        "a local session on a temporary repository",
+        "host HEAD and `git status --porcelain` captured at sync time"
+      ],
+      "when": "through Session.Tools() `git rev-parse --short HEAD` is executed, then a file is written and a commit is made inside the box",
+      "then": [
+        "the box HEAD output equals gitx.Head on the host",
+        "host gitx.Head and `git status --porcelain` are identical before and after",
+        "the file written inside is absent from HostDir",
+        "the commit is not on the host's branch"
+      ],
+      "pseudocode": "assert exec(s,'git rev-parse --short HEAD').trim()==host.Head(); write(s,'new.txt'); exec(s,'git commit -am x'); assert host.Head()==before && status()==beforeStatus && !exists(hostDir/'new.txt')"
+    },
+    {
+      "id": "TS-07-16",
+      "kind": "property",
+      "verifies": [
+        "07-REQ-2.7"
+      ],
+      "title": "For any synced repository state the box's short HEAD equals the host's",
+      "given": [
+        "a temporary repository with a generated number of commits"
+      ],
+      "when": "for any number of commits 1..N on any branch name, a session is opened and `git rev-parse --short HEAD` is run inside",
+      "then": [
+        "the box output always equals gitx.Head on the host at sync time"
+      ],
+      "pseudocode": "for n, branch in gen(): repo = newRepo(n, branch); s = Open(repo); assert execHead(s) == host.Head()"
+    },
+    {
+      "id": "TS-07-17",
+      "kind": "property",
+      "verifies": [
+        "07-REQ-2.8"
+      ],
+      "title": "For any file write or commit inside the box the host checkout is unchanged",
+      "given": [
+        "a temporary repository and an open local session"
+      ],
+      "when": "for any sequence of generated file writes (path, content) and commits made through Session.Tools()",
+      "then": [
+        "the host's HEAD, branch, index and `git status --porcelain` never change",
+        "none of the generated files exists in HostDir"
+      ],
+      "pseudocode": "for ops in gen_ops(): apply(s, ops); assert hostSnapshot()==before && none(exists(hostDir/p))"
+    },
+    {
+      "id": "TS-07-18",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-3.1"
+      ],
+      "title": "FS(ctx) is read-only, maps a missing path to fs.ErrNotExist and stats a directory as a directory",
+      "given": [
+        "a session whose tree holds README.md and a src/ directory"
+      ],
+      "when": "fs.Stat, fs.ReadFile and fs.ReadDir are called on the view, including a missing path",
+      "then": [
+        "Stat of a missing path satisfies errors.Is(err, fs.ErrNotExist)",
+        "Stat(\"src\").IsDir() is true",
+        "ReadFile(\"README.md\") returns its content",
+        "the FS value offers no write method"
+      ],
+      "pseudocode": "_, err = fs.Stat(s.FS(ctx),'missing'); assert errors.Is(err, fs.ErrNotExist); fi,_ = fs.Stat(f,'src'); assert fi.IsDir()"
+    },
+    {
+      "id": "TS-07-19",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-3.2"
+      ],
+      "title": "WriteFile refuses invalid paths and paths outside .agent-fox/ with an internal error and writes nothing",
+      "given": [
+        "an open session"
+      ],
+      "when": "WriteFile is called with \"../x\", \"/abs\", \"src/main.go\", \".agent-fox/../x\" and a valid \".agent-fox/run/r/brief.md\"",
+      "then": [
+        "the first four return a non-nil error that is not a usage *toolio.Failure (internal)",
+        "the tree is unchanged by them",
+        "the valid path is written and readable through FS"
+      ],
+      "pseudocode": "for p in bad: err = s.WriteFile(ctx,p,d); assert err!=nil && !usage(err); assert s.WriteFile(ctx,'.agent-fox/run/r/brief.md',d)==nil"
+    },
+    {
+      "id": "TS-07-20",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-3.3"
+      ],
+      "title": "Export writes the brain's edits to an af-export directory under the temp dir without .git",
+      "given": [
+        "a local session on a temporary repository with an edit written inside the box"
+      ],
+      "when": "Export(ctx) is called",
+      "then": [
+        "the returned directory has a base name starting af-export-<run_id>-",
+        "it lies under os.TempDir() and not inside the checkout",
+        "it contains the edit and no .git",
+        "the ledger gains box_export with that path"
+      ],
+      "pseudocode": "d = s.Export(ctx); assert hasPrefix(base(d),'af-export-'+id+'-'); assert !exists(d/'.git') && read(d/'new.txt')==data; assert ledger.last.path==d"
+    },
+    {
+      "id": "TS-07-21",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-3.4"
+      ],
+      "title": "An export that carries .git is removed and fails as sandbox",
+      "given": [
+        "a stub sandbox whose Export creates <dst>/.git"
+      ],
+      "when": "Export(ctx) is called",
+      "then": [
+        "the error is a *toolio.Failure with status failed, category sandbox and a message containing \"export carried .git\"",
+        "the export directory no longer exists"
+      ],
+      "pseudocode": "_, err = s.Export(ctx); assert f.Category=='sandbox' && contains(f.Message,'export carried .git'); assert !exists(dir)"
+    },
+    {
+      "id": "TS-07-22",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-3.5"
+      ],
+      "title": "Close is idempotent, removes export directories and records box_close once",
+      "given": [
+        "a session with two exports made"
+      ],
+      "when": "Close() is called three times",
+      "then": [
+        "the sandbox is closed exactly once",
+        "both export directories are gone",
+        "the ledger holds exactly one box_close",
+        "the second and third calls return nil"
+      ],
+      "pseudocode": "d1,d2 = export x2; s.Close(); s.Close(); s.Close(); assert closes==1 && !exists(d1,d2) && count(ledger,'box_close')==1"
+    },
+    {
+      "id": "TS-07-23",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-3.6"
+      ],
+      "title": "box.With closes the session after a normal return, an error, a panic and a cancelled context",
+      "given": [
+        "a counting provider wrapper over the local provider"
+      ],
+      "when": "With is run with fn returning nil, returning an error, panicking with a value, and with a context cancelled inside fn",
+      "then": [
+        "each case ends with close count equal to create count",
+        "the error case returns fn's error unchanged (errors.Is holds)",
+        "the panic case re-panics with the same value after the close",
+        "the close of the cancelled case succeeds on a detached context with a deadline of at most 30 s"
+      ],
+      "pseudocode": "for c in [ok,err,panic,cancel]: run With; assert closes==creates; assert result matches c"
+    },
+    {
+      "id": "TS-07-24",
+      "kind": "property",
+      "verifies": [
+        "07-REQ-3.6"
+      ],
+      "title": "For any fn outcome box.With closes once per open and returns the outcome unchanged",
+      "given": [
+        "a counting provider wrapper"
+      ],
+      "when": "for any sequence of fn outcomes drawn from {return nil, return error E, panic P, cancel ctx then return ctx.Err()}",
+      "then": [
+        "close count always equals create count",
+        "With returns exactly fn's returned error or re-panics with P"
+      ],
+      "pseudocode": "for outcomes in gen(): for o in outcomes: r = safeWith(o); assert closes==creates; assert r == expected(o)"
+    },
+    {
+      "id": "TS-07-25",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-3.7"
+      ],
+      "title": "A close error becomes a box_close_failed warning and does not change With's result",
+      "given": [
+        "a stub sandbox whose Close returns an error",
+        "a recording Warn sink"
+      ],
+      "when": "With runs an fn that returns nil, and another that returns error E",
+      "then": [
+        "With returns nil and E respectively",
+        "one box_close_failed warning is raised per run"
+      ],
+      "pseudocode": "assert With(fnNil)==nil; assert With(fnErr)==E; assert count(warnings,'box_close_failed')==2"
+    },
+    {
+      "id": "TS-07-26",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-4.1"
+      ],
+      "title": "A valid payload is written with attempt and nonce from run.json and a matching sha256",
+      "given": [
+        "a tree holding run.json {run_id, kind, attempt:2, nonce:\"abcdef0123456789\"}",
+        "a kind whose Validate returns the payload normalised"
+      ],
+      "when": "submission.Submit is called with an indented valid JSON object",
+      "then": [
+        "submission.json exists at .agent-fox/run/<id>/submission.json with kind, run_id, attempt 2, nonce, submitted_at, payload_sha256, payload",
+        "payload is the compacted normalised payload",
+        "Receipt.SHA256 equals sha256 of the compacted payload and payload_sha256 in the file",
+        "Receipt.Path is the file path"
+      ],
+      "pseudocode": "r = Submit(ctx,target,kind,raw,now); f = read(path); assert f.attempt==2 && f.nonce==n && f.payload_sha256==r.SHA256==hex(sha256(compact(f.payload)))"
+    },
+    {
+      "id": "TS-07-27",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-4.2"
+      ],
+      "title": "An oversized, empty or non-object payload is refused with a Refused naming the problem and nothing is written",
+      "given": [
+        "a valid run.json in the tree"
+      ],
+      "when": "Submit is called with 1 MiB + 1 bytes of JSON, with empty input, with whitespace only, with a JSON array, with two concatenated objects and with a bare string",
+      "then": [
+        "each returns *submission.Refused (errors.As)",
+        "Problems name size, emptiness or shape accordingly",
+        "no submission.json exists"
+      ],
+      "pseudocode": "for raw in cases: err = Submit(...); var r *Refused; assert errors.As(err,&r) && len(r.Problems)>0; assert !exists(path)"
+    },
+    {
+      "id": "TS-07-28",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-4.3"
+      ],
+      "title": "A missing run.json or one naming another kind is refused with a problem naming run.json",
+      "given": [
+        "a tree without run.json, and a tree whose run.json names kind \"other\""
+      ],
+      "when": "Submit is called with a valid payload",
+      "then": [
+        "both return *Refused with a Problem whose message names run.json",
+        "nothing is written"
+      ],
+      "pseudocode": "err = Submit(treeNoRunJSON,...); assert contains(problems[0].Message,'run.json'); same for kind mismatch; assert !exists(submission.json)"
+    },
+    {
+      "id": "TS-07-29",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-4.4"
+      ],
+      "title": "Every problem Validate reports appears in the refusal at once",
+      "given": [
+        "a kind whose Validate returns three problems"
+      ],
+      "when": "Submit is called",
+      "then": [
+        "*Refused.Problems contains all three problems",
+        "nothing is written"
+      ],
+      "pseudocode": "err = Submit(...); assert set(r.Problems) == set(validateProblems); assert !exists(path)"
+    },
+    {
+      "id": "TS-07-30",
+      "kind": "property",
+      "verifies": [
+        "07-REQ-4.5"
+      ],
+      "title": "For any set of problems Refused.Problems is sorted by Path then Message",
+      "given": [
+        "a kind whose Validate returns a generated slice of problems in arbitrary order, with duplicates of Path"
+      ],
+      "when": "for any slice of (Path, Message) pairs, Submit is called",
+      "then": [
+        "Refused.Problems is sorted by (Path, Message)",
+        "it is a permutation of the input"
+      ],
+      "pseudocode": "for ps in gen_problems(): r = refused(Submit(withValidate(ps))); assert isSorted(r.Problems, by(Path,Message)) && sameElements(r.Problems, ps)"
+    },
+    {
+      "id": "TS-07-31",
+      "kind": "property",
+      "verifies": [
+        "07-REQ-4.6"
+      ],
+      "title": "For any refusal an existing submission.json stays byte-identical and no file is created",
+      "given": [
+        "a tree with and without an earlier valid submission.json"
+      ],
+      "when": "for any refused input (oversized, empty, non-object, wrong kind in run.json, Validate problems), Submit is called",
+      "then": [
+        "the earlier file's bytes are identical before and after",
+        "with no earlier file none exists afterwards",
+        "no temporary file is left in the directory"
+      ],
+      "pseudocode": "for raw, withPrior in gen_refusals(): before = read_opt(path); Submit(...); assert read_opt(path)==before; assert listdir(dir)==expected"
+    },
+    {
+      "id": "TS-07-32",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-4.7"
+      ],
+      "title": "Submit writes through Target.Write via a temp file renamed in place and leaves no temp file",
+      "given": [
+        "a Target whose Write is backed by the host filesystem and records each written path"
+      ],
+      "when": "Submit accepts a payload",
+      "then": [
+        "the directory contains only submission.json and run.json afterwards",
+        "a reader polling the target path never sees a partial file (content is empty-or-complete JSON)"
+      ],
+      "pseudocode": "Submit(...); assert listdir(dir) == ['run.json','submission.json']; assert json.valid(read(path))"
+    },
+    {
+      "id": "TS-07-33",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-4.8"
+      ],
+      "title": "A later valid submission replaces the earlier one",
+      "given": [
+        "an accepted first submission with payload A"
+      ],
+      "when": "Submit is called again with a different valid payload B",
+      "then": [
+        "submission.json holds B",
+        "the second Receipt.SHA256 differs from the first and matches the file"
+      ],
+      "pseudocode": "r1 = Submit(A); r2 = Submit(B); assert read(path).payload==compact(B) && r2.SHA256 != r1.SHA256"
+    },
+    {
+      "id": "TS-07-34",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-5.1"
+      ],
+      "title": "The command factory builds a command at the given path that reads stdin and submits against --dir",
+      "given": [
+        "a toolio App with submission.Command(\"fake submit\", kind) registered",
+        "a run directory and a tree dir holding run.json"
+      ],
+      "when": "the App is run with `fake submit --dir <tree> --run-id <id>` and a JSON object on stdin",
+      "then": [
+        "Command.Path equals \"fake submit\"",
+        "the tree holds .agent-fox/run/<id>/submission.json with the stdin payload",
+        "the exit code is 0"
+      ],
+      "pseudocode": "app.Register(submission.Command('fake submit',kind)); code = app.Main(ctx,['fake','submit','--dir',tree,'--run-id',id],stdin,out,err); assert code==0 && exists(subfile)"
+    },
+    {
+      "id": "TS-07-35",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-5.2"
+      ],
+      "title": "A missing or invalid --run-id is a usage failure with exit 2 and nothing is written",
+      "given": [
+        "the submit command registered in an App"
+      ],
+      "when": "it is run without --run-id, with --run-id \"bad\", and with a well-formed id naming no run directory",
+      "then": [
+        "the envelope status is failed with category usage",
+        "the exit code is 2",
+        "no submission.json exists"
+      ],
+      "pseudocode": "for args in cases: code = run(args); assert code==2 && env.error.category=='usage'; assert !exists(subfile)"
+    },
+    {
+      "id": "TS-07-36",
+      "kind": "property",
+      "verifies": [
+        "07-REQ-5.3"
+      ],
+      "title": "For any tree, a symlink resolving outside --dir is never read by validation",
+      "given": [
+        "a --dir tree containing a symlink whose target is a generated path outside the root (absolute, ../ relative, nested)",
+        "a kind whose Validate cites a path and reads it via the tree FS"
+      ],
+      "when": "for any such symlink target, the submit command is run with a payload citing the symlink",
+      "then": [
+        "the validator reports a problem for the cited path (the command fails with category submission)",
+        "the content of the outside file is never read (no content in the output)"
+      ],
+      "pseudocode": "for target in gen_targets(): symlink(tree/'link', target); env = run(payload cites 'link'); assert env.error.category=='submission'; assert !contains(out, outsideSecret)"
+    },
+    {
+      "id": "TS-07-37",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-5.4"
+      ],
+      "title": "An accepted submission yields a done envelope with result and submission artifact",
+      "given": [
+        "the submit command registered, a run directory, a valid payload on stdin"
+      ],
+      "when": "the command runs to completion",
+      "then": [
+        "envelope status is done and exit code 0",
+        "result is {run_id, kind, path, sha256} with sha256 equal to payload_sha256 in the file",
+        "artifacts contain {kind: \"submission\", path}"
+      ],
+      "pseudocode": "env = run(...); assert env.status=='done' && env.result.sha256==file.payload_sha256; assert {kind:'submission',path:p} in env.artifacts"
+    },
+    {
+      "id": "TS-07-38",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-5.5"
+      ],
+      "title": "A refused or malformed submission yields a failed/submission envelope that names every problem and keeps the earlier file",
+      "given": [
+        "an earlier valid submission.json",
+        "a kind whose Validate returns two problems"
+      ],
+      "when": "the command runs with a payload that fails validation, and again with malformed JSON `{oops`",
+      "then": [
+        "status failed, category submission, retryable true, result null, exit code 1",
+        "error.message names both problems for the first case and the parse problem for the second",
+        "the earlier submission.json is byte-identical"
+      ],
+      "pseudocode": "env = run(badPayload); assert env.status=='failed' && env.error.category=='submission' && env.error.retryable && env.result==nil; assert contains(msg,p1)&&contains(msg,p2); assert read(path)==before"
+    },
+    {
+      "id": "TS-07-39",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-5.6"
+      ],
+      "title": "The submit command creates no run directory, has no --dry-run flag and declares its result schema",
+      "given": [
+        "the submit command and an App with it registered"
+      ],
+      "when": "the command's declaration, `af --schema` output and a run are inspected",
+      "then": [
+        "the run directory set is unchanged after a run (no new run dir)",
+        "--dry-run is not a flag of the command (parsing it is a usage error)",
+        "`af --schema` output contains the command's result schema"
+      ],
+      "pseudocode": "cmd = submission.Command(p,k); assert !cmd.UsesDryRun && !cmd.UsesRunDir(create); assert contains(schemaOut, 'sha256')"
+    },
+    {
+      "id": "TS-07-40",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-6.1"
+      ],
+      "title": "Execute places .gitignore, brief.md, run.json and hook.json in the box before Brain.Run",
+      "given": [
+        "a local session, a RunDir, a Request.Rand with a fixed sequence, and a stub brain that snapshots the tree via Session.FS when Run starts"
+      ],
+      "when": "brain.Execute is called",
+      "then": [
+        "the box holds .agent-fox/.gitignore with content \"*\"",
+        "brief.md equals Brief.Document()",
+        "run.json holds {run_id, kind, attempt, nonce} with a 16-hex nonce drawn from Rand",
+        "hook.json equals the HookConfig JSON",
+        "all four exist at the moment Brain.Run starts"
+      ],
+      "pseudocode": "stub.Run = func(){ snapshot = readTree(sess) }; Execute(...); assert snapshot['.agent-fox/run/id/run.json'].nonce matches ^[0-9a-f]{16}$"
+    },
+    {
+      "id": "TS-07-41",
+      "kind": "property",
+      "verifies": [
+        "07-REQ-6.2"
+      ],
+      "title": "For any HookConfig the placed hook.json lists .agent-fox/ in protected_paths",
+      "given": [
+        "a stub brain that does nothing"
+      ],
+      "when": "for any ProtectedPaths slice (empty, nil, with or without \".agent-fox/\", with duplicates) and any AllowPrograms, Execute is called",
+      "then": [
+        "hook.json in the box and in the run directory both contain \".agent-fox/\" in protected_paths",
+        "the other configured paths and allow_programs are preserved",
+        "\".agent-fox/\" appears at least once"
+      ],
+      "pseudocode": "for hc in gen_hooks(): Execute(hc); for f in [boxHook, hostHook]: assert '.agent-fox/' in f.protected_paths && superset(f.protected_paths, hc.ProtectedPaths)"
+    },
+    {
+      "id": "TS-07-42",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-6.3"
+      ],
+      "title": "Execute writes host copies, records brief_placed with the prefix hash and wires TranscriptPath and Observe",
+      "given": [
+        "a Brief with Attempt 2, distinct Prefix and Task",
+        "a stub brain that captures the Brief it receives and calls Observe once"
+      ],
+      "when": "Execute runs",
+      "then": [
+        "<run_dir>/brief.2.md and <run_dir>/hook.json exist",
+        "the ledger has brief_placed {attempt: 2, bytes, sha256, prefix_sha256} with prefix_sha256 equal to sha256(Prefix)",
+        "the captured TranscriptPath is <run_dir>/transcript.2.jsonl",
+        "the Observe call emits a tool_call event"
+      ],
+      "pseudocode": "Execute(...); e = ledger('brief_placed'); assert e.prefix_sha256==hex(sha256(prefix)) && e.bytes==len(doc); assert captured.TranscriptPath==rd+'/transcript.2.jsonl'; assert events has 'tool_call'"
+    },
+    {
+      "id": "TS-07-43",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-6.4"
+      ],
+      "title": "Execute emits step and heartbeat events and records brain_start and brain_end",
+      "given": [
+        "a stub brain that blocks for several heartbeat periods then returns an Outcome",
+        "Request.Heartbeat set to 10 ms"
+      ],
+      "when": "Execute runs",
+      "then": [
+        "step events for brief, brain and submission are emitted in that order",
+        "at least two heartbeat events carry brain and elapsed_ms",
+        "ledger holds brain_start before brain_end",
+        "brain_end carries brain, stop_reason, submitted_claim, cost_usd, cost_source, turns and duration_ms"
+      ],
+      "pseudocode": "Execute(...); assert steps==['brief','brain','submission']; assert count(events,'heartbeat')>=2; assert ledgerKinds contains brain_start<brain_end"
+    },
+    {
+      "id": "TS-07-44",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-6.5"
+      ],
+      "title": "Brief.Timeout sets Brain.Run's deadline to start plus Timeout and zero leaves only the caller's deadline",
+      "given": [
+        "a stub brain recording ctx.Deadline()",
+        "a fake clock or time bounds around the call"
+      ],
+      "when": "Execute runs with Timeout 5s, then with Timeout 0 and a caller context with no deadline, then with Timeout 0 and a caller deadline",
+      "then": [
+        "the first deadline lies within [start+5s, start+5s+slack]",
+        "the second has no deadline",
+        "the third equals the caller's deadline"
+      ],
+      "pseudocode": "d,ok = captured.Deadline(); assert ok && d.Sub(start) within 5s±slack"
+    },
+    {
+      "id": "TS-07-45",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-6.6"
+      ],
+      "title": "A panic inside Brain.Run is recovered as failed/brain and the stack is written",
+      "given": [
+        "a stub brain whose Run panics with \"boom\""
+      ],
+      "when": "Execute runs for attempt 3",
+      "then": [
+        "Execute returns a *toolio.Failure with status failed and category brain",
+        "<run_dir>/brain-panic.3.txt exists and contains \"boom\" and a goroutine stack",
+        "the process does not crash"
+      ],
+      "pseudocode": "_, err = Execute(...); assert f.Category=='brain'; assert contains(read(rd+'/brain-panic.3.txt'),'boom')"
+    },
+    {
+      "id": "TS-07-46",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-6.7"
+      ],
+      "title": "Outcomes accumulate in the Tally across attempts and SetUsage gets the total, even when Run errors",
+      "given": [
+        "a shared Tally and a recording Report",
+        "stub brain attempt 1 returning cost 0.10, 3 turns, 100/50 tokens; attempt 2 returning an error with cost 0.20, 2 turns, 10/5 tokens"
+      ],
+      "when": "Execute is called twice with the same Tally",
+      "then": [
+        "after attempt 1 SetUsage has cost 0.10, turns 3, input 100, output 50, brain set to the entry name",
+        "after attempt 2 (which failed) SetUsage has cost 0.30, turns 5, input 110, output 55"
+      ],
+      "pseudocode": "Execute(a1); Execute(a2); assert report.usage == {brain:'scripted',cost:0.30,turns:5,in:110,out:55}"
+    },
+    {
+      "id": "TS-07-47",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-6.8"
+      ],
+      "title": "A brain claiming Submitted with no valid file yields no payload",
+      "given": [
+        "a stub brain returning Outcome{Submitted: true} and writing nothing, and a transcript containing a plausible payload"
+      ],
+      "when": "Execute runs",
+      "then": [
+        "Result.Payload is empty and the call fails (not done)",
+        "no <run_dir>/submission.json exists",
+        "the transcript file is never opened by af (no read of it)"
+      ],
+      "pseudocode": "res, err = Execute(...); assert err!=nil && res.Payload==nil && !exists(rd+'/submission.json')"
+    },
+    {
+      "id": "TS-07-48",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-7.1"
+      ],
+      "title": "The submission is read after a timeout using a fresh bounded context",
+      "given": [
+        "a stub brain that submits a valid file through the session and then blocks until its context deadline expires (Brief.Timeout 50ms)"
+      ],
+      "when": "Execute runs",
+      "then": [
+        "the box file is still read and re-validated although the run context expired",
+        "the submission is accepted and the result carries the payload",
+        "the read used a context with a deadline of at most 30 seconds"
+      ],
+      "pseudocode": "stub: submit(); <-ctx.Done(); res, err = Execute(); assert err==nil && res.Payload!=nil"
+    },
+    {
+      "id": "TS-07-49",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-7.2"
+      ],
+      "title": "A matching, re-validated submission is copied to the run directory and recorded as accepted",
+      "given": [
+        "a stub brain that calls submission.Submit with a valid payload"
+      ],
+      "when": "Execute runs",
+      "then": [
+        "<run_dir>/submission.json exists with the same bytes as the box file",
+        "Result.Path is that file and Result.Payload is the re-validated payload",
+        "the artifacts contain {kind: \"submission\", path}",
+        "the ledger holds submission_accepted {sha256}",
+        "no temporary file remains in the run directory"
+      ],
+      "pseudocode": "res,_ = Execute(); assert read(res.Path)==boxRead(); assert artifact('submission',res.Path); assert ledger.last('submission_accepted').sha256==sha(res.Payload)"
+    },
+    {
+      "id": "TS-07-50",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-7.3"
+      ],
+      "title": "An unparsable, mismatching or invalid box submission raises submission_invalid and counts as absent",
+      "given": [
+        "a stub brain that writes the box's submission.json directly as: broken JSON; wrong kind; wrong run_id; wrong attempt; wrong payload_sha256; payload that Validate refuses"
+      ],
+      "when": "Execute runs once per case",
+      "then": [
+        "each run raises the warning submission_invalid listing its problems",
+        "each run records submission_invalid in the ledger",
+        "no <run_dir>/submission.json is written",
+        "Execute fails with no_result (no valid submission)"
+      ],
+      "pseudocode": "for c in cases: err = Execute(writeRaw(c)); assert warnings has 'submission_invalid' && !exists(rd+'/submission.json')"
+    },
+    {
+      "id": "TS-07-51",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-7.4"
+      ],
+      "title": "A stale nonce records submission_stale and a missing file records submission_absent",
+      "given": [
+        "a valid submission.json left by attempt 1 (nonce N1) in the box",
+        "a fresh Execute for attempt 2 that draws nonce N2 and a stub brain that writes nothing"
+      ],
+      "when": "Execute runs for attempt 2, then runs again on a box with no file",
+      "then": [
+        "the first run records submission_stale and writes no <run_dir>/submission.json",
+        "the second records submission_absent",
+        "neither accepts a submission"
+      ],
+      "pseudocode": "assert ledger has 'submission_stale'; assert !exists(subfile); second: assert ledger has 'submission_absent'"
+    },
+    {
+      "id": "TS-07-52",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-7.5"
+      ],
+      "title": "A claim that differs from the host's decision raises submission_claim_mismatch",
+      "given": [
+        "stub brains: (a) Submitted true with no file, (b) Submitted false with a valid file, (c) Submitted true with a valid file"
+      ],
+      "when": "Execute runs each",
+      "then": [
+        "(a) and (b) raise the warning submission_claim_mismatch",
+        "(c) raises no such warning"
+      ],
+      "pseudocode": "assert hasWarning(a,'submission_claim_mismatch') && hasWarning(b,...) && !hasWarning(c,...)"
+    },
+    {
+      "id": "TS-07-53",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-7.6"
+      ],
+      "title": "An existing transcript is added as an artifact without being read",
+      "given": [
+        "a stub brain that writes <run_dir>/transcript.1.jsonl (unreadable mode 0o000 on unix, or large) and one that writes none"
+      ],
+      "when": "Execute runs each",
+      "then": [
+        "the first run's artifacts contain {kind: \"transcript\", path: <run_dir>/transcript.1.jsonl}",
+        "the second has no transcript artifact",
+        "no error arises from the transcript's content"
+      ],
+      "pseudocode": "assert artifact('transcript', rd+'/transcript.1.jsonl') for first; none for second"
+    },
+    {
+      "id": "TS-07-54",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-7.7"
+      ],
+      "title": "A valid submission wins over a brain error or a non-submitted stop reason",
+      "given": [
+        "a stub brain that submits a valid payload then returns Outcome{StopReason: \"error\"} and an error E"
+      ],
+      "when": "Execute runs",
+      "then": [
+        "Execute returns a nil error with Result.Payload set",
+        "the warning brain_error is present",
+        "a variant with StopReason budget and no error returns nil error and no brain_error warning"
+      ],
+      "pseudocode": "res, err = Execute(); assert err==nil && res.Payload!=nil && hasWarning('brain_error')"
+    },
+    {
+      "id": "TS-07-55",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-7.8"
+      ],
+      "title": "Timeout expiry yields failed/timeout with a doubled --timeout hint, and cancellation returns the context error",
+      "given": [
+        "a stub brain that blocks on ctx.Done() and returns ctx.Err()",
+        "Brief.Timeout 40ms; second case: caller context cancelled; third case: caller deadline passed with Timeout 0"
+      ],
+      "when": "Execute runs in each case with no submission in the box",
+      "then": [
+        "case 1: *toolio.Failure failed/timeout with fix_hint flag --timeout and suggestion twice the value (80ms)",
+        "case 2: the returned error is context.Canceled (errors.Is) for the shell, not a Failure",
+        "case 3: the returned error is context.DeadlineExceeded for the shell"
+      ],
+      "pseudocode": "f = asFailure(err1); assert f.Category=='timeout' && f.FixHint.Flag=='--timeout' && f.FixHint.Suggest==2*timeout; assert errors.Is(err2, context.Canceled)"
+    },
+    {
+      "id": "TS-07-56",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-7.8"
+      ],
+      "title": "Without a submission the brain error, budget, turns and other stops map to their categories in order",
+      "given": [
+        "stub brains and no valid submission in the box",
+        "Brief.MaxCostUSD 1.5 and MaxTurns 10"
+      ],
+      "when": "Execute runs with: Run error E; StopReason budget; StopReason turns; StopReason ended; StopReason budget together with an error",
+      "then": [
+        "Run error → failed/brain, retryable true",
+        "budget → failed/budget, retryable false, fix_hint flag --budget suggesting 3.0",
+        "turns → failed/budget, retryable false, fix_hint flag --max-turns suggesting 20",
+        "ended → failed/no_result, retryable true",
+        "budget with an error → failed/brain (error takes precedence)"
+      ],
+      "pseudocode": "table-driven: assert f.Category, f.Retryable, f.FixHint.Flag, f.FixHint.Suggest per row"
+    },
+    {
+      "id": "TS-07-57",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-8.1"
+      ],
+      "title": "A tool outside Brief.Tools is denied without invoking the box tool",
+      "given": [
+        "Brief.Tools = [read_file]",
+        "a spy box tool set that records invocations"
+      ],
+      "when": "the gate decides a call to write_file",
+      "then": [
+        "the result is an error \"tool write_file is not in this run's allowlist\"",
+        "the spy's write_file was never invoked",
+        "Decision is deny"
+      ],
+      "pseudocode": "res = gate.Call('write_file',args); assert res.IsError && res.Text=='tool write_file is not in this run\\'s allowlist'; assert spy.calls==0"
+    },
+    {
+      "id": "TS-07-58",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-8.2"
+      ],
+      "title": "The terminating submit tool works with an empty Brief.Tools",
+      "given": [
+        "Brief.Tools is empty",
+        "a run.json in the box"
+      ],
+      "when": "the submit tool is called with a valid payload",
+      "then": [
+        "the call is not denied by the allowlist",
+        "it reaches submission.Submit and a submission file is written"
+      ],
+      "pseudocode": "brief.Tools=[]; res = brain.callSubmit(valid); assert !res.IsError && exists(boxSubmission)"
+    },
+    {
+      "id": "TS-07-59",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-8.3"
+      ],
+      "title": "Both in-process brains fail at Run start for an unknown tool name before any model call or step",
+      "given": [
+        "Brief.Tools = [read_file, teleport]",
+        "a faux provider that counts requests and a script with steps"
+      ],
+      "when": "the agentkit brain's Run and the scripted brain's Run are called",
+      "then": [
+        "each returns a non-nil internal error (not a usage Failure) naming teleport",
+        "the faux provider received zero requests",
+        "the scripted brain executed no step and wrote no transcript step lines"
+      ],
+      "pseudocode": "_, err = agentkit.Run(); assert err!=nil && faux.requests==0; _, err = scripted.Run(); assert err!=nil && stepsRun==0"
+    },
+    {
+      "id": "TS-07-60",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-8.4"
+      ],
+      "title": "A call the ring-1 guard denies is not executed and returns the guard's reason",
+      "given": [
+        "Brief.Tools contains execute and Brief.Hook configured so the guard denies `rm -rf /`",
+        "a spy box tool set"
+      ],
+      "when": "the gate decides an execute call with `rm -rf /` and an allowed `git status`",
+      "then": [
+        "the denied call returns the guard's reason as an error result and the spy saw no invocation",
+        "the allowed call is executed once",
+        "Brief.Hook is the policy passed to the guard"
+      ],
+      "pseudocode": "r1 = gate.Call('execute',{cmd:'rm -rf /'}); assert r1.IsError && r1.Text==guardReason && spy.n==0; r2 = gate.Call('execute',{cmd:'git status'}); assert spy.n==1"
+    },
+    {
+      "id": "TS-07-61",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-8.5"
+      ],
+      "title": "Writes and shell commands targeting .agent-fox/ are denied and the file is unchanged",
+      "given": [
+        "Brief.Tools contains write_file and execute",
+        "a box file .agent-fox/run/<id>/run.json with known content"
+      ],
+      "when": "the gate decides write_file to .agent-fox/run/<id>/run.json, write_file to ./sub/../.agent-fox/x, and execute `echo x > .agent-fox/run/<id>/submission.json`",
+      "then": [
+        "each is denied with an error result naming the protected path",
+        "none is executed",
+        "run.json content is unchanged and no submission.json exists in the box"
+      ],
+      "pseudocode": "for c in calls: r = gate.Call(c); assert r.IsError && contains(r.Text,'.agent-fox'); assert read(run.json)==orig"
+    },
+    {
+      "id": "TS-07-62",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-8.6"
+      ],
+      "title": "A denial reason is the brain's next turn for both in-process brains",
+      "given": [
+        "a faux script whose first turn calls a non-allowlisted tool",
+        "a scripted script whose first step calls a non-allowlisted tool with expect denied, then a second step that observes the result"
+      ],
+      "when": "each brain runs over a local box",
+      "then": [
+        "the agentkit brain's second faux request carries the denial reason as the tool result error",
+        "the scripted brain's step 1 observed result is denied with the same reason and the replay proceeds to step 2"
+      ],
+      "pseudocode": "agentkit: assert faux.requests[1].lastToolResult.IsError && contains(...,'allowlist'); scripted: assert transcript[0].decision=='deny' && transcript[0].reason==..."
+    },
+    {
+      "id": "TS-07-63",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-8.7"
+      ],
+      "title": "Each decided call yields one Observe and one transcript line with args and result truncated to 4096 bytes",
+      "given": [
+        "a gate with an Observe spy and a transcript writer",
+        "a write_file call with 10 KiB of args and a read_file whose result is 10 KiB"
+      ],
+      "when": "an allowed call, a denied call and a large call are decided",
+      "then": [
+        "Observe is called once per call with Brain, Tool, Decision (allow|deny), Reason, OK and DurationMS",
+        "the transcript has one line per call with keys seq, tool, args, decision, reason, ok, result and seq strictly increasing",
+        "args and result fields are at most 4096 bytes each"
+      ],
+      "pseudocode": "assert len(observed)==3 && len(lines)==3; for l in lines: assert len(l.args)<=4096 && len(l.result)<=4096; assert seqs increasing"
+    },
+    {
+      "id": "TS-07-64",
+      "kind": "property",
+      "verifies": [
+        "07-REQ-8.8"
+      ],
+      "title": "For any tool call the tool_call event carries only brain, tool, decision, reason, ok and duration_ms",
+      "given": [
+        "Execute running a stub brain that invokes the Brief's Observe with generated ToolCalls"
+      ],
+      "when": "for any ToolCall (any tool name, decision, reason text, ok, duration), Observe is invoked",
+      "then": [
+        "exactly one tool_call event is emitted per call",
+        "its data keys are a subset of {brain, tool, decision, reason, ok, duration_ms}",
+        "no args or result key and no argument text appears in the event"
+      ],
+      "pseudocode": "for tc in gen_calls(): Observe(tc); ev = lastEvent(); assert keys(ev.data) ⊆ allowed && 'args' not in ev.data && 'result' not in ev.data"
+    },
+    {
+      "id": "TS-07-65",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-9.1"
+      ],
+      "title": "An unreadable or malformed script fails construction with a usage failure before any box opens",
+      "given": [
+        "scripts: missing file; JSON with an unknown field; a step with both tool and submit; a step with neither; a tool step with expect accepted; a submit step with expect ok",
+        "a counting box provider"
+      ],
+      "when": "the scripted brain is constructed from each file",
+      "then": [
+        "each returns a *toolio.Failure with category usage naming the file",
+        "step-level problems name the step index",
+        "the provider's create count is 0"
+      ],
+      "pseudocode": "for f in files: _, err = reg.New('scripted',Options{Script:f}); assert usage(err) && contains(msg,f); assert creates==0"
+    },
+    {
+      "id": "TS-07-66",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-9.2"
+      ],
+      "title": "The scripted brain replays steps in order and each effect is visible before the next step",
+      "given": [
+        "a script: write_file then read_file of the same path with expect ok, then a submit step citing that path",
+        "a local session and Brief.Tools including both tools"
+      ],
+      "when": "Run replays the script",
+      "then": [
+        "the read step returns the content the write step produced",
+        "the submit step is validated against Session.FS and written through Session.WriteFile",
+        "steps are executed strictly in order"
+      ],
+      "pseudocode": "out = scripted.Run(ctx, brief); assert transcript[1].result contains written content; assert exists(box submission.json)"
+    },
+    {
+      "id": "TS-07-67",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-9.3"
+      ],
+      "title": "A step whose actual result differs from expect stops the replay with an error naming index, expected and actual",
+      "given": [
+        "scripts with a tool step expect error that succeeds, a tool step expect ok that is denied, and a submit step expect accepted that is refused"
+      ],
+      "when": "Run replays each",
+      "then": [
+        "Run returns an error for each",
+        "the message names the step index, the expected result and the actual result",
+        "no later step is executed"
+      ],
+      "pseudocode": "err = Run(); assert contains(err,'step 1') && contains(err,'expected error') && contains(err,'actual ok')"
+    },
+    {
+      "id": "TS-07-68",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-9.4"
+      ],
+      "title": "An accepted submit step ends the replay and lists the remaining steps as skipped",
+      "given": [
+        "a script of a submit step followed by two more tool steps"
+      ],
+      "when": "Run replays it",
+      "then": [
+        "Outcome is {Submitted: true, StopReason: \"submitted\"}",
+        "the two remaining steps are not executed and appear as skipped in the transcript"
+      ],
+      "pseudocode": "o = Run(); assert o.Submitted && o.StopReason=='submitted'; assert transcript.skipped == [1,2]"
+    },
+    {
+      "id": "TS-07-69",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-9.5"
+      ],
+      "title": "Reaching MaxTurns before an accepted submission stops with StopReason turns",
+      "given": [
+        "a script of 5 tool steps and a Brief with MaxTurns 3"
+      ],
+      "when": "Run replays it",
+      "then": [
+        "Outcome.StopReason is \"turns\" and Turns is 3",
+        "only three steps were executed and Submitted is false"
+      ],
+      "pseudocode": "o = Run(); assert o.StopReason=='turns' && o.Turns==3 && stepsExecuted==3"
+    },
+    {
+      "id": "TS-07-70",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-9.6"
+      ],
+      "title": "Running out of steps without a submission ends with StopReason ended",
+      "given": [
+        "a script of two tool steps and MaxTurns 10"
+      ],
+      "when": "Run replays it",
+      "then": [
+        "Outcome is {Submitted: false, StopReason: \"ended\"} with Turns 2",
+        "no error is returned"
+      ],
+      "pseudocode": "o,err = Run(); assert err==nil && !o.Submitted && o.StopReason=='ended'"
+    },
+    {
+      "id": "TS-07-71",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-9.7"
+      ],
+      "title": "The scripted brain reports zero cost with source none, steps run as turns and writes the transcript",
+      "given": [
+        "a script of three steps with the third an accepted submit and a TranscriptPath in a temporary directory"
+      ],
+      "when": "Run replays it",
+      "then": [
+        "Outcome.CostUSD is 0 and CostSource is \"none\"",
+        "Turns is 3",
+        "Outcome.Transcript equals TranscriptPath and the file exists with one line per step"
+      ],
+      "pseudocode": "o = Run(); assert o.CostUSD==0 && o.CostSource=='none' && o.Turns==3 && o.Transcript==path && exists(path)"
+    },
+    {
+      "id": "TS-07-72",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-10.1"
+      ],
+      "title": "The agentkit brain's first faux request carries the prefix, the task and the terminating tool",
+      "given": [
+        "a faux provider recording requests, returning a single text turn",
+        "Brief with Prefix, Task, Tools [read_file], Kind with ToolName, Description and Schema, MaxCostUSD and MaxTurns"
+      ],
+      "when": "the agentkit brain's Run is called over a local session",
+      "then": [
+        "the first request's prefix equals Brief.Prefix byte for byte",
+        "the first user message equals Brief.Task",
+        "the tool list holds read_file and the terminating tool named Kind.ToolName with Kind.Description and Kind.Schema as input schema",
+        "no non-allowlisted box tool is listed"
+      ],
+      "pseudocode": "brain.Run(); r = faux.requests[0]; assert r.Prefix==prefix && r.Messages[0].Text==task && has(r.Tools, kind.ToolName)"
+    },
+    {
+      "id": "TS-07-73",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-10.2"
+      ],
+      "title": "A missing vendor credential fails agentkit construction as failed/auth with an ANTHROPIC_API_KEY hint and no box",
+      "given": [
+        "Options.NewProvider nil (production path) and Getenv returning no ANTHROPIC_API_KEY",
+        "a counting box provider"
+      ],
+      "when": "the agentkit brain is constructed from the registry",
+      "then": [
+        "the error is a *toolio.Failure with status failed, category auth",
+        "fix_hint is {env: \"ANTHROPIC_API_KEY\"}",
+        "the provider's create count is 0"
+      ],
+      "pseudocode": "_, err = reg.New('agentkit',Options{Getenv: empty}); assert f.Category=='auth' && f.FixHint.Env=='ANTHROPIC_API_KEY'; assert creates==0"
+    },
+    {
+      "id": "TS-07-74",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-10.3"
+      ],
+      "title": "A refused terminating-tool payload returns every problem as the next faux turn and writes no file",
+      "given": [
+        "a kind whose validator returns two problems for a payload citing a missing path",
+        "a faux script: invalid submit call, then end of turns"
+      ],
+      "when": "the agentkit brain runs over a local session",
+      "then": [
+        "the second faux request carries both problems in the tool's error result",
+        "no submission.json exists in the box after the refused call",
+        "the loop continued (a second request was made)"
+      ],
+      "pseudocode": "brain.Run(); assert contains(faux.requests[1].toolResult, p1) && contains(..., p2); assert !exists(box submission.json)"
+    },
+    {
+      "id": "TS-07-75",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-10.4"
+      ],
+      "title": "An accepted terminating-tool submission ends the loop with StopReason submitted and no further request",
+      "given": [
+        "a faux script: valid submit call followed by another scripted turn that must never be requested"
+      ],
+      "when": "the agentkit brain runs",
+      "then": [
+        "Outcome is {Submitted: true, StopReason: \"submitted\"}",
+        "the faux provider received exactly one request",
+        "the submission file exists in the box"
+      ],
+      "pseudocode": "o = Run(); assert o.Submitted && o.StopReason=='submitted' && faux.requests==1"
+    },
+    {
+      "id": "TS-07-76",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-10.5"
+      ],
+      "title": "The agentkit brain reports measured cost, turns and tokens and maps driver stops to budget, turns and ended",
+      "given": [
+        "faux scripts: one that exceeds a tiny MaxCostUSD, one that runs past MaxTurns 1, one that ends with plain text"
+      ],
+      "when": "the agentkit brain runs each",
+      "then": [
+        "CostSource is \"measured\" in every run and turns and tokens come from the driver",
+        "the stop reasons are budget, turns and ended respectively",
+        "StopReason is always one of submitted, budget, turns, ended, error"
+      ],
+      "pseudocode": "for s in scripts: o = Run(s); assert o.CostSource=='measured'; assert o.StopReason == expected[s] && o.Turns>0"
+    },
+    {
+      "id": "TS-07-77",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-10.6",
+        "07-REQ-6.8",
+        "07-REQ-8.1",
+        "07-REQ-8.5"
+      ],
+      "title": "The Brain contract test: scripted and agentkit leave identical payload bytes and agree on denials and claim",
+      "given": [
+        "a temporary repository, a local box and one brief with a test kind whose validator checks a cited path exists in the tree",
+        "a table with rows scripted (script file) and agentkit (faux script)",
+        "each script: call outside the allowlist, write under .agent-fox/, invalid submission citing a missing path, then the valid submission"
+      ],
+      "when": "each row runs the same brief through brain.Execute",
+      "then": [
+        "<run_dir>/submission.json holds the same normalised payload bytes in both rows",
+        "the invalid first submission's problems reach the brain as its next turn and no file exists until the valid one",
+        "the out-of-allowlist call and the .agent-fox/ write are denied and not executed",
+        "Outcome.Submitted equals the host's decision (true)",
+        "usage cost_source is none for scripted and measured for agentkit"
+      ],
+      "pseudocode": "for row in rows: res = Execute(row.brain); payloads[row] = res.Payload; assert res.Outcome.Submitted; assert payloads['scripted']==payloads['agentkit']"
+    },
+    {
+      "id": "TS-07-78",
+      "kind": "property",
+      "verifies": [
+        "07-REQ-10.6"
+      ],
+      "title": "For any valid payload both brains leave identical bytes and Submitted true",
+      "given": [
+        "the scripted and agentkit(faux) brains over local boxes on the same repository"
+      ],
+      "when": "for any valid payload object (generated keys, nested values, unicode, whitespace layouts) citing an existing path",
+      "then": [
+        "<run_dir>/submission.json payload bytes are identical across the two brains",
+        "both report Submitted true",
+        "cost_source is none for scripted and measured for agentkit"
+      ],
+      "pseudocode": "for p in gen_payloads(): a = Execute(scripted(p)); b = Execute(agentkit(p)); assert a.Payload==b.Payload && a.Outcome.Submitted && b.Outcome.Submitted"
+    },
+    {
+      "id": "TS-07-79",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-10.7"
+      ],
+      "title": "The brain, box and submission suites run offline with no vendor key and no network",
+      "given": [
+        "ANTHROPIC_API_KEY unset",
+        "an http.DefaultTransport replacement that fails any non-loopback dial"
+      ],
+      "when": "the agentkit brain runs a faux script over a local box and the scripted brain runs a script",
+      "then": [
+        "both complete without any network attempt",
+        "no code path reads ANTHROPIC_API_KEY when NewProvider is injected",
+        "the tests pass so that `make check` exits 0 offline"
+      ],
+      "pseudocode": "unsetenv('ANTHROPIC_API_KEY'); http.DefaultTransport = denyNonLoopback; res = Execute(agentkit faux); assert res ok && dialAttempts==0"
+    },
+    {
+      "id": "TS-07-80",
+      "kind": "smoke",
+      "verifies": [
+        "07-PATH-1",
+        "07-REQ-1.7",
+        "07-REQ-6.1",
+        "07-REQ-7.2"
+      ],
+      "title": "A scripted brain runs a brief in a local box and its submission reaches the run directory",
+      "given": [
+        "a temporary git repository with one commit",
+        "a script file with a tool step and an accepted submit step",
+        "a real RunDir and Report"
+      ],
+      "when": "flags `--brain scripted --script <file>` are parsed, the brain is built from the registry, and box.With runs brain.Execute",
+      "then": [
+        "ledger holds box_open, box_sync, brief_placed, brain_start, brain_end, submission_accepted and box_close in order",
+        "the box_unconfined warning is raised once",
+        "<run_dir>/submission.json exists with the submitted payload, plus brief.1.md and hook.json",
+        "artifacts include the submission",
+        "the box is closed and its tree stays out of the host checkout"
+      ],
+      "real_components": [
+        "brain.Flags",
+        "brain registry",
+        "scripted brain",
+        "box.With",
+        "box.Session",
+        "local provider",
+        "brain.Execute",
+        "submission.Submit",
+        "toolio.RunDir",
+        "gitx"
+      ]
+    },
+    {
+      "id": "TS-07-81",
+      "kind": "smoke",
+      "verifies": [
+        "07-PATH-2",
+        "07-REQ-10.5"
+      ],
+      "title": "The agentkit brain on the faux provider recovers from a denied tool and a refused submission",
+      "given": [
+        "a temporary repository and Options.NewProvider returning a faux provider",
+        "faux turns: a non-allowlisted tool call, an invalid terminating-tool payload, then a corrected payload"
+      ],
+      "when": "the brain runs via box.With and brain.Execute",
+      "then": [
+        "the denial reason and then all submit problems appear in successive faux requests",
+        "the corrected payload is accepted and the loop ends with StopReason submitted",
+        "<run_dir>/submission.json is written",
+        "usage cost_source is measured",
+        "the box is closed"
+      ],
+      "real_components": [
+        "agentkit brain",
+        "agentkit driver",
+        "faux provider",
+        "tool gate",
+        "box.With",
+        "box.Session",
+        "local provider",
+        "brain.Execute",
+        "submission.Submit",
+        "toolio.RunDir"
+      ]
+    },
+    {
+      "id": "TS-07-82",
+      "kind": "smoke",
+      "verifies": [
+        "07-PATH-3",
+        "07-REQ-5.1",
+        "07-REQ-5.4"
+      ],
+      "title": "A brain with its own hands submits through the submit command and gets a done envelope",
+      "given": [
+        "a toolio App with submission.Command registered",
+        "a run directory with run.json placed in a tree directory"
+      ],
+      "when": "the App runs `<agent> submit --dir <tree> --run-id <id>` with a JSON object on stdin",
+      "then": [
+        "the exit code is 0 and the envelope status is done",
+        "result is {run_id, kind, path, sha256}",
+        "the artifact {kind: \"submission\", path} is present",
+        "<tree>/.agent-fox/run/<id>/submission.json exists with a matching payload_sha256 and no temp file remains"
+      ],
+      "real_components": [
+        "submission.Command",
+        "toolio.App",
+        "toolio.OpenRunDir",
+        "os.OpenRoot",
+        "submission.Submit"
+      ]
+    },
+    {
+      "id": "TS-07-83",
+      "kind": "smoke",
+      "verifies": [
+        "07-PATH-4",
+        "07-REQ-7.4",
+        "07-REQ-7.8"
+      ],
+      "title": "A run with only a stale submission fails as no_result, still records usage and closes the box",
+      "given": [
+        "a local box where attempt 1 left a valid submission.json",
+        "a scripted brain whose steps end without an accepted submission for attempt 2"
+      ],
+      "when": "box.With runs brain.Execute for attempt 2 with a shared Tally",
+      "then": [
+        "the ledger records submission_stale and no <run_dir>/submission.json is written",
+        "Execute returns failed/no_result with retryable true",
+        "SetUsage was called with the Tally total despite the failure",
+        "box_close is recorded and the provider's close count equals its create count"
+      ],
+      "real_components": [
+        "scripted brain",
+        "box.With",
+        "box.Session",
+        "local provider",
+        "brain.Execute",
+        "submission.Submit",
+        "toolio.RunDir"
+      ]
+    },
+    {
+      "id": "TS-07-84",
+      "kind": "smoke",
+      "verifies": [
+        "07-PATH-5",
+        "07-REQ-3.3",
+        "07-REQ-3.5"
+      ],
+      "title": "A brain's edits are exported without .git and the export is removed on close",
+      "given": [
+        "a temporary repository and an open local session",
+        "host HEAD and `git status --porcelain` captured at sync time"
+      ],
+      "when": "a file is written and committed inside the box through Session.Tools(), Export is called, and then Close",
+      "then": [
+        "the export under the OS temp directory contains the edit and no .git",
+        "box_export is recorded with its path",
+        "host HEAD, branch and `git status --porcelain` are unchanged and the file is absent from the checkout",
+        "after Close the export directory is gone and box_close is recorded once"
+      ],
+      "real_components": [
+        "box.Session",
+        "local provider",
+        "gitx",
+        "git",
+        "toolio.RunDir"
+      ]
+    }
+  ]
+}

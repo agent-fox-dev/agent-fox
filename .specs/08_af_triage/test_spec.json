@@ -1,0 +1,1525 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "08",
+  "spec_name": "af_triage",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-08-1",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-1.1"
+      ],
+      "title": "The five triage commands are registered with their default timeouts and flags",
+      "given": [
+        "a toolio App with the triage commands registered"
+      ],
+      "when": "the registered Commands are looked up by Path and `af triage brief --help` is rendered",
+      "then": [
+        "paths triage, triage brief, triage run, triage submit, triage land exist",
+        "DefaultTimeout is 15m, 2m, 15m, 30s, 2m in that order",
+        "loop and brief declare the positional input, forge, --repo, --context and a new run directory",
+        "run, submit and land take --run-id and --dir with default `.`",
+        "brief help lists --dir, --context and --repo"
+      ],
+      "pseudocode": "for p,d in table: c=app.Lookup(p); assert c.DefaultTimeout==d; assert 'run-id' in flags('triage submit')"
+    },
+    {
+      "id": "TS-08-2",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-1.2"
+      ],
+      "title": "run, submit and land refuse a missing, malformed or unknown run id as usage",
+      "given": [
+        "a temporary git repo with no run directories",
+        "an httptest forge that records requests"
+      ],
+      "when": "each of run, submit and land is invoked with no --run-id, with `bad-id`, and with a well-formed id that does not exist",
+      "then": [
+        "each envelope has status failed, category usage and exit code 2",
+        "no file is written under .agent-fox/run",
+        "the forge records zero requests"
+      ],
+      "pseudocode": "for cmd in [run,submit,land]: for id in ['', 'bad-id','20240101_000000_abcdef']: r=app(cmd,id); assert r.exit==2 && r.cat=='usage'; assert forge.requests==0"
+    },
+    {
+      "id": "TS-08-3",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-1.3"
+      ],
+      "title": "Rendering a brief writes brief.md, original.md and triage.json with consistent hashes",
+      "given": [
+        "an httptest GitHub issue with a body",
+        "a temporary git repo"
+      ],
+      "when": "the triage brief is rendered through the shell",
+      "then": [
+        "brief.md, original.md and triage.json exist in the run directory",
+        "triage.json has format_version 1, input {kind, origin, fingerprint}, target, issue, original_report_sha256 and prefix {bytes, sha256}",
+        "sha256(original.md) equals original_report_sha256",
+        "prefix.sha256 equals the SHA-256 of the first prefix.bytes bytes of brief.md"
+      ],
+      "pseudocode": "b=read(brief.md); j=load(triage.json); assert sha(b[:j.prefix.bytes])==j.prefix.sha256; assert sha(read(original.md))==j.original_report_sha256"
+    },
+    {
+      "id": "TS-08-4",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-1.4"
+      ],
+      "title": "A full loop appends triage.input, brief, submission and land in order, and question runs append triage.question",
+      "given": [
+        "an httptest GitHub issue",
+        "a scripted brain submitting a valid diagnosis",
+        "a second run whose scripted submission carries a question"
+      ],
+      "when": "the loop runs for each case",
+      "then": [
+        "the first ledger holds triage.input, triage.brief, triage.submission, triage.land in that order",
+        "the second ledger holds triage.input, triage.brief, triage.submission, triage.question and no triage.land"
+      ],
+      "pseudocode": "kinds=[r.kind for r in ledger]; assert kinds==['triage.input','triage.brief','triage.submission','triage.land']"
+    },
+    {
+      "id": "TS-08-5",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-1.5"
+      ],
+      "title": "Triage commands run on a dirty tree and change nothing in the checkout",
+      "given": [
+        "a temporary git repo with an uncommitted modification and an untracked file",
+        "git status --porcelain and HEAD captured"
+      ],
+      "when": "brief, the loop with --land none, and the loop with --dry-run run",
+      "then": [
+        "no command refuses because of the dirty tree",
+        "git status --porcelain and HEAD are identical afterwards",
+        "new files exist only under .agent-fox/"
+      ],
+      "pseudocode": "before=status(); run_all(); assert status()==before and head()==head0"
+    },
+    {
+      "id": "TS-08-6",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-1.6"
+      ],
+      "title": "af triage land builds its forge client for the recorded repository with host and closes it",
+      "given": [
+        "a run directory whose triage.json records a repository with a non-default host",
+        "an App.NewForge stub that records issuex.Options and returns a client wrapping a close counter"
+      ],
+      "when": "af triage land runs with --dir set, once normally and once with --dry-run",
+      "then": [
+        "NewForge receives Options{Repo: recorded repo with host, UserAgent: \"af/<version>\", Dir: <--dir>}",
+        "under --dry-run the client is wrapped by DryRunForge",
+        "the client is closed once when the command returns"
+      ],
+      "pseudocode": "assert opts.Repo.Host==rec.Host && opts.UserAgent=='af/'+ver && opts.Dir==dir; assert closeCount==1"
+    },
+    {
+      "id": "TS-08-7",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-1.7"
+      ],
+      "title": "land with --repo naming another repository is a usage error naming both",
+      "given": [
+        "a run whose triage.json records owner/one",
+        "a forge stub that fails if constructed"
+      ],
+      "when": "af triage land --run-id <id> --repo owner/two runs",
+      "then": [
+        "status failed, category usage, exit code 2",
+        "the message names owner/one and owner/two",
+        "no forge client was built and nothing was written"
+      ],
+      "pseudocode": "r=land(id,'--repo','owner/two'); assert r.exit==2 && 'owner/one' in r.msg && 'owner/two' in r.msg; assert newForgeCalls==0"
+    },
+    {
+      "id": "TS-08-8",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-2.1"
+      ],
+      "title": "A refused preflight renders no brief, calls no brain and writes nothing to the forge",
+      "given": [
+        "an httptest forge recording writes",
+        "an agentkit brain on the faux provider counting requests"
+      ],
+      "when": "the loop runs with an invalid label, and separately with a pull-request input",
+      "then": [
+        "neither run leaves a brief.md",
+        "the faux provider received zero requests",
+        "the forge recorded zero write requests",
+        "flag checks are reported before input checks when both would fail"
+      ],
+      "pseudocode": "r=loop('--label','a,b', prUrl); assert r.cat=='usage'; assert not exists(brief.md); assert faux.calls==0; assert forge.writes==0"
+    },
+    {
+      "id": "TS-08-9",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-2.2"
+      ],
+      "title": "Invalid --label, --budget, --max-turns and --label with --land none are usage errors",
+      "given": [
+        "a loop invoked on an issue URL"
+      ],
+      "when": "labels are '', 51 characters, 'a,b', ' a', 'a ', eleven distinct labels, and --label with --land none; also --budget 0, NaN and --max-turns 0",
+      "then": [
+        "each envelope is failed/usage with exit code 2",
+        "the message names the offending label or flag",
+        "ten labels and exact duplicates ('x','x') are accepted, collapsed to one"
+      ],
+      "pseudocode": "for bad in cases: r=loop(bad); assert r.status=='failed' && r.cat=='usage' && r.exit==2"
+    },
+    {
+      "id": "TS-08-10",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-2.3"
+      ],
+      "title": "A pull or merge request ref is refused as triage input",
+      "given": [
+        "an issue ref with IsPullRequest set (GitHub pull URL and GitLab merge_requests URL)"
+      ],
+      "when": "the loop runs",
+      "then": [
+        "status failed, category usage, exit code 2",
+        "the message states that triage takes an issue and not a pull or merge request"
+      ],
+      "pseudocode": "r=loop(pullUrl); assert r.exit==2 && 'pull or merge request' in r.msg"
+    },
+    {
+      "id": "TS-08-11",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-2.4"
+      ],
+      "title": "A closed issue raises issue_closed and the run continues",
+      "given": [
+        "an httptest issue whose state is closed",
+        "a scripted brain submitting a valid diagnosis"
+      ],
+      "when": "the loop runs with --land none",
+      "then": [
+        "warnings contain issue_closed",
+        "the run proceeds past preflight and ends done"
+      ],
+      "pseudocode": "r=loop(closedIssue,'--land','none'); assert 'issue_closed' in codes(r.warnings); assert r.status=='done'"
+    },
+    {
+      "id": "TS-08-12",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-2.5"
+      ],
+      "title": "A non-issue input with no valid target is refused naming --repo and --land none",
+      "given": [
+        "text input, no --repo, and an origin that does not resolve to a repository"
+      ],
+      "when": "the loop runs with the default --land issue",
+      "then": [
+        "status failed, category usage, exit code 2",
+        "the message names `--repo` and `--land none`"
+      ],
+      "pseudocode": "r=loop('some text'); assert r.exit==2 && '--repo' in r.msg && '--land none' in r.msg"
+    },
+    {
+      "id": "TS-08-13",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-2.6"
+      ],
+      "title": "An unauthenticated forge refuses with the credential message and the right env hint",
+      "given": [
+        "an unauthenticated httptest GitHub client",
+        "an unauthenticated httptest GitLab client"
+      ],
+      "when": "the loop runs without --dry-run for an issue on each host, and `af triage land` runs likewise",
+      "then": [
+        "status failed, category auth, exit code 1",
+        "message is \"creating or updating an issue in <target> needs a credential: set GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN, or pass --dry-run or --land none\"",
+        "fix_hint.env is GITHUB_TOKEN for GitHub and GITLAB_TOKEN for GitLab",
+        "no write request is sent"
+      ],
+      "pseudocode": "assert r.cat=='auth' && r.exit==1 && r.fix_hint.env==expected"
+    },
+    {
+      "id": "TS-08-14",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-2.7"
+      ],
+      "title": "GetRepository failures and archived repositories are refused with the mapped category",
+      "given": [
+        "an authenticated forge whose repository endpoint returns 401-no-token, 404, 429, a transport error, or archived true"
+      ],
+      "when": "the loop runs without --dry-run",
+      "then": [
+        "no-token gives failed/auth",
+        "404 gives failed/forge retryable false",
+        "429 and transport error give failed/forge retryable true",
+        "archived gives failed/forge with message \"repository is archived\"",
+        "exit code is 1 and no brief.md exists"
+      ],
+      "pseudocode": "for case in cases: r=loop(); assert (r.cat,r.retryable)==case.want; assert not exists(brief.md)"
+    },
+    {
+      "id": "TS-08-15",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-2.8"
+      ],
+      "title": "A truncated or oversized text/file/stdin report is refused with both numbers",
+      "given": [
+        "a GitHub forge (limit 65536) and a GitLab forge (limit 1048576)",
+        "an input shell-truncated, an input of length 48641 on GitHub, and an input of length 48640"
+      ],
+      "when": "the loop runs with --land issue",
+      "then": [
+        "the truncated input and the 48641-byte input give failed/usage, exit 2",
+        "the message gives the input length and the limit and suggests --land none",
+        "the 48640-byte input passes this check, and the same 48641-byte input passes on GitLab"
+      ],
+      "pseudocode": "assert len+16896 > MaxBodyLength(forge) => usage"
+    },
+    {
+      "id": "TS-08-16",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-3.1"
+      ],
+      "title": "The prefix holds mandate, skill body, repository map and report in order, without skill frontmatter",
+      "given": [
+        "a temporary git repo with Go files",
+        "an issue input"
+      ],
+      "when": "the brief is rendered",
+      "then": [
+        "brief.md contains the mandate, the af-triage body, the map and the report section in that order",
+        "the skill's frontmatter lines (name:, description:, argument-hint:) are absent",
+        "the map came from repomap.Build over checks.FileView at 4000 tokens"
+      ],
+      "pseudocode": "i=[idx(mandate),idx(skillBody),idx(map),idx(report)]; assert sorted(i)==i and -1 not in i; assert 'argument-hint:' not in brief"
+    },
+    {
+      "id": "TS-08-17",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-3.2"
+      ],
+      "title": "Each report part is fenced and preceded by one provenance line",
+      "given": [
+        "an issue whose body carries a previous agent-fox diagnosis, and two comments, one by the reporter",
+        "text, file and stdin inputs"
+      ],
+      "when": "the report section is rendered for each",
+      "then": [
+        "title, original report, previous diagnosis (labelled possibly stale) and every comment each get one fence immediately preceded by one provenance line",
+        "comment lines name login and date, and the reporter is marked",
+        "text input is labelled with the command line, file input with the base name, stdin with stdin, each in one fence"
+      ],
+      "pseudocode": "for fence in fences(report): assert isProvenance(line_before(fence))"
+    },
+    {
+      "id": "TS-08-18",
+      "kind": "property",
+      "verifies": [
+        "08-REQ-3.3"
+      ],
+      "title": "A fence is one backtick longer than the longest run in its content and never closed by it",
+      "given": [
+        "arbitrary content including backtick runs of any length and lines of backticks"
+      ],
+      "when": "for any string content, it is fenced",
+      "then": [
+        "the fence length is max(3, longest backtick run + 1)",
+        "opening and closing fences are equal",
+        "no line of the content equals the closing fence"
+      ],
+      "pseudocode": "for s in gen_strings_with_backticks(): f=fence(s); n=len(f.open); assert n>=3 and n>longest_run(s); assert f.close not in s.split('\\n')"
+    },
+    {
+      "id": "TS-08-19",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-3.4"
+      ],
+      "title": "An oversized report is cut at a UTF-8 boundary with the truncation marker and a warning",
+      "given": [
+        "an issue whose report is over 131072 bytes and ends with multi-byte runes straddling the limit"
+      ],
+      "when": "the brief is rendered",
+      "then": [
+        "the report content is valid UTF-8 of at most 131072 bytes before the shell's truncation marker",
+        "the marker follows the cut",
+        "result.report_truncated is true and warning input_truncated is present"
+      ],
+      "pseudocode": "assert utf8.Valid(cut) and len(cut)<=131072; assert marker in section; assert 'input_truncated' in warn"
+    },
+    {
+      "id": "TS-08-20",
+      "kind": "property",
+      "verifies": [
+        "08-REQ-3.5"
+      ],
+      "title": "Prefixes are byte-identical across runs differing only in run id, context, brain and bounds",
+      "given": [
+        "a fixed tree and fixed issue thread or input text"
+      ],
+      "when": "for any run id, --context list, --brain name, --budget and --max-turns, the brief is rendered",
+      "then": [
+        "prefix_sha256 is equal across all renders",
+        "the prefix holds no run id, run directory path, context value, brain name or bound"
+      ],
+      "pseudocode": "base=prefixSha(); for v in gen_run_variants(): r=render(v); assert r.prefix==base.prefix; assert v.runId not in r.prefix"
+    },
+    {
+      "id": "TS-08-21",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-3.6"
+      ],
+      "title": "--context places the earlier question and the answer in the task block, or the answer alone",
+      "given": [
+        "an earlier triage run under .agent-fox/run with the same input fingerprint and a triage.question ledger record",
+        "a second earlier run with a different fingerprint and a newer question",
+        "a third scenario with no earlier question run"
+      ],
+      "when": "the brief is rendered with `--context B`",
+      "then": [
+        "the task block holds the newest same-fingerprint question and its options, then the fenced answer B labelled as a person's answer",
+        "result.previous_question is true",
+        "with no earlier question the answers stand alone and previous_question is false",
+        "the different-fingerprint run is ignored"
+      ],
+      "pseudocode": "r=brief('--context','B'); assert q.text in task; assert task.index(q.text)<task.index('B'); assert r.previous_question==True"
+    },
+    {
+      "id": "TS-08-22",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-3.7"
+      ],
+      "title": "The task block ends with the run id, exactly one submission route and the bounds",
+      "given": [
+        "an in-process brain (agentkit) and the brief subcommand"
+      ],
+      "when": "the task block is rendered for each",
+      "then": [
+        "the in-process task block names the file_diagnosis tool and not `af triage submit`",
+        "the brief subcommand and a harness brain render `af triage submit --run-id <id>` with JSON on stdin and not file_diagnosis",
+        "each contains the run id and the turn, cost and time bounds"
+      ],
+      "pseudocode": "assert count_routes(task)==1 and runId in task"
+    },
+    {
+      "id": "TS-08-23",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-3.8"
+      ],
+      "title": "af triage brief returns its result, artifact and next entries and writes nothing to the forge",
+      "given": [
+        "an httptest GitHub issue",
+        "a counting faux provider"
+      ],
+      "when": "af triage brief <issue URL> runs",
+      "then": [
+        "status done, exit 0",
+        "result has brief, prefix_bytes, prefix_sha256, document_bytes, estimated_tokens, map {level, truncated}, report_truncated, previous_question",
+        "an artifact {kind: brief, path} and two next entries for submit and land",
+        "ledger holds triage.input and triage.brief",
+        "zero forge write requests and zero model requests"
+      ],
+      "pseudocode": "assert r.exit==0 and keys(r.result)>=expected; assert forge.writes==0 and faux.calls==0"
+    },
+    {
+      "id": "TS-08-24",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-4.1"
+      ],
+      "title": "The loop hands the brain a Brief with the rendered prefix, triage tools, hook and bounds",
+      "given": [
+        "a spy brain registered through spec 07's Brain interface",
+        "--budget 3 --max-turns 40 --timeout 10m"
+      ],
+      "when": "the loop runs past preflight",
+      "then": [
+        "Brief.Prefix equals the brief's prefix bytes and Document() equals brief.md",
+        "Tools is the triage allowlist, Hook is the read-only default",
+        "MaxCostUSD is 3, MaxTurns is 40",
+        "Timeout is no more than the time left on the deadline"
+      ],
+      "pseudocode": "b=spy.brief; assert b.Prefix==prefix and b.Document()==read(brief.md); assert b.MaxCostUSD==3 and b.MaxTurns==40 and b.Timeout<=10m"
+    },
+    {
+      "id": "TS-08-25",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-4.2"
+      ],
+      "title": "Omitted bounds default to USD 2, 100 turns and 15 minutes, with agentkit as default brain",
+      "given": [
+        "the loop and af triage run invoked without --budget, --max-turns, --timeout, --brain"
+      ],
+      "when": "the Brief handed to the brain and the command's DefaultTimeout are inspected",
+      "then": [
+        "MaxCostUSD 2, MaxTurns 100",
+        "shell timeout 15m",
+        "the selected brain is agentkit"
+      ],
+      "pseudocode": "assert b.MaxCostUSD==2 and b.MaxTurns==100 and cmd.DefaultTimeout==15*time.Minute"
+    },
+    {
+      "id": "TS-08-26",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-4.3"
+      ],
+      "title": "The allowlist is a subset of the nine names, includes file_diagnosis and never a writing tool",
+      "given": [
+        "a hands toolset offering all names plus write_file and run_command",
+        "a hands toolset without code_search and without find_references"
+      ],
+      "when": "the allowlist is resolved for each toolset",
+      "then": [
+        "the result is a subset of read_file, list_files, find_files, search_files, file_outline, find_symbol, find_references, code_search, file_diagnosis",
+        "code_search is present only when offered",
+        "names the hands do not offer are dropped",
+        "file_diagnosis is always present and write_file/run_command never are"
+      ],
+      "pseudocode": "a=Allowlist(offered); assert set(a)<=NINE and 'file_diagnosis' in a and not ({'write_file','run_command'}&set(a))"
+    },
+    {
+      "id": "TS-08-27",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-4.4"
+      ],
+      "title": "The triage submission kind makes file_diagnosis write submission.json in the brain's tree",
+      "given": [
+        "the triage submission.Kind with ToolName file_diagnosis, the diagnosis Schema and the validator",
+        "a temporary tree with a.go"
+      ],
+      "when": "an in-process file_diagnosis call is made with a valid diagnosis citing a.go",
+      "then": [
+        "Kind.ToolName is file_diagnosis and Schema equals the diagnosis JSON Schema",
+        "`.agent-fox/run/<id>/submission.json` exists in that tree with the normalized diagnosis"
+      ],
+      "pseudocode": "res=submitInProc(kind,tree,id,diag); assert exists(tree+'/.agent-fox/run/'+id+'/submission.json')"
+    },
+    {
+      "id": "TS-08-28",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-4.5"
+      ],
+      "title": "After the brain ends the loop reads back both files and treats a stale submission as absent",
+      "given": [
+        "a scripted brain in a local box that submits a valid diagnosis and has one refusal",
+        "a variant whose submission cites a file deleted from the host tree before read-back"
+      ],
+      "when": "the brain run ends",
+      "then": [
+        "<run_dir>/submission.json and rejections.jsonl hold the brain's files",
+        "the host re-validates against the host tree",
+        "the stale variant is treated as absent and ends failed/no_result"
+      ],
+      "pseudocode": "assert read(runDir/'rejections.jsonl')==boxFile; stale => r.cat=='no_result'"
+    },
+    {
+      "id": "TS-08-29",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-4.6"
+      ],
+      "title": "No valid submission or a spent bound lands nothing and reports the shell's failure",
+      "given": [
+        "a scripted brain that never submits",
+        "a scripted brain exceeding --max-turns 3",
+        "a faux brain exceeding --budget 0.5",
+        "an httptest forge recording writes"
+      ],
+      "when": "the loop runs for each",
+      "then": [
+        "the first is failed/no_result",
+        "the others are failed/budget with fix_hint.flag --max-turns suggest 6 and --budget suggest 1",
+        "exit 1, result null, artifacts list the brief",
+        "zero forge write requests"
+      ],
+      "pseudocode": "assert r.exit==1 and r.result is None; assert {'kind':'brief'} in artifacts; assert forge.writes==0"
+    },
+    {
+      "id": "TS-08-30",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-4.7"
+      ],
+      "title": "af triage run executes the agentkit brain in-process over --dir and submits into the run directory",
+      "given": [
+        "a run directory created by af triage brief with a brief.md",
+        "the faux provider scripted to call file_diagnosis with a valid diagnosis"
+      ],
+      "when": "af triage run --run-id <id> --dir <repo> executes",
+      "then": [
+        "status done",
+        "result is {run_id, submitted: true, rejected_path_calls}",
+        "submission.json is in .agent-fox/run/<id> under --dir",
+        "the envelope carries usage from spec 07"
+      ],
+      "pseudocode": "r=run(id); assert r.status=='done' and r.result.submitted; assert exists(runDir/'submission.json'); assert r.usage is not None"
+    },
+    {
+      "id": "TS-08-31",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-5.1"
+      ],
+      "title": "The same payload and tree yield the same problems through submit, in-process submit and host re-validation",
+      "given": [
+        "one payload with several problems and one tree"
+      ],
+      "when": "it is sent through `af triage submit`, the in-process file_diagnosis and the host re-validation",
+      "then": [
+        "the problem lists are identical in content and order across the three callers"
+      ],
+      "pseudocode": "assert problems(cli)==problems(inproc)==problems(host)"
+    },
+    {
+      "id": "TS-08-32",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-5.2"
+      ],
+      "title": "Each broken field rule yields one problem with a JSON pointer",
+      "given": [
+        "a valid diagnosis and a tree of two files, one with 10 lines"
+      ],
+      "when": "the validator is given: a 65537-byte payload, a non-object, an unknown field, a missing/multi-line/121-char title, severity 'urgent', confidence 'sure', empty or 6001-byte root_cause, 31 affected files, 301-byte note, line 0 or 11, empty or oversized suggested_fix, 16 criteria, a 301-byte criterion, question text empty or 2001 bytes, 1 or 7 options, an option over 200 bytes, a question with confirmed",
+      "then": [
+        "one problem per broken rule, each naming its pointer such as /severity, /title, /affected_files/2/line, /question/options",
+        "a fully valid diagnosis has zero problems",
+        "several broken rules in one payload are all reported together"
+      ],
+      "pseudocode": "for mut,ptr in table: p=Validate(mutate(valid,mut),tree); assert ptr in pointers(p)"
+    },
+    {
+      "id": "TS-08-33",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-5.3"
+      ],
+      "title": "not_reproducible or a question relaxes only the list fields",
+      "given": [
+        "a not_reproducible diagnosis with empty affected_files, suggested_fix and acceptance_criteria",
+        "a suspected diagnosis with a question and empty lists",
+        "a suspected diagnosis with no question and empty lists",
+        "a not_reproducible diagnosis with a bad severity"
+      ],
+      "when": "each is validated",
+      "then": [
+        "the first two have zero problems",
+        "the third reports problems for the empty lists",
+        "the fourth reports /severity"
+      ],
+      "pseudocode": "assert Validate(nr_empty)==[]; assert '/affected_files' in ptrs(Validate(suspected_empty))"
+    },
+    {
+      "id": "TS-08-34",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-5.4"
+      ],
+      "title": "Path forms ./x, absolute-under-tree and path:N resolve to the cleaned path and line",
+      "given": [
+        "a tree containing a/b.go with 20 lines and a file literally named c:5"
+      ],
+      "when": "paths `./a/b.go`, `<tree>/a/b.go`, `a\\\\b.go`, `a/b.go:12` and `c:5` are validated, and `a/b.go:12` with an explicit line 3",
+      "then": [
+        "the first three resolve to a/b.go",
+        "`a/b.go:12` resolves to a/b.go with line 12",
+        "`c:5` resolves as given because it exists",
+        "with line already present the colon form is not split and is unresolved"
+      ],
+      "pseudocode": "assert norm('a/b.go:12')==('a/b.go',12)"
+    },
+    {
+      "id": "TS-08-35",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-5.5"
+      ],
+      "title": "Unresolvable paths are reported at /affected_files/<i>/path with same-base suggestions",
+      "given": [
+        "a tree with x/util.go, y/util.go, z/util.go, w/util.go and a directory pkg/"
+      ],
+      "when": "paths `/etc/passwd`, `../x/util.go`, `.git/config`, `.agent-fox/run/x`, `pkg`, `missing/util.go` are validated",
+      "then": [
+        "each yields a problem at /affected_files/<i>/path naming the path",
+        "`missing/util.go` lists at most three existing paths with base util.go",
+        "no problem is reported for a regular file in the view"
+      ],
+      "pseudocode": "p=Validate(...); assert len(suggestions(p['missing/util.go']))==3"
+    },
+    {
+      "id": "TS-08-36",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-5.6"
+      ],
+      "title": "NUL bytes, marker text and an oversized rendering are reported",
+      "given": [
+        "a diagnosis with a NUL in a note, another with `<!-- agent-fox:` in root_cause and in an option, and one whose rendered diagnosis exceeds 16384 bytes within the field caps"
+      ],
+      "when": "each is validated",
+      "then": [
+        "the NUL and marker problems name the JSON pointer of the string",
+        "the oversized one reports the rendered byte count and the 16384 limit"
+      ],
+      "pseudocode": "assert '/root_cause' in ptrs(p) ; assert '16384' in msg(p_big)"
+    },
+    {
+      "id": "TS-08-37",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-5.7"
+      ],
+      "title": "A refusal lists every problem, writes no submission and leaves an earlier one untouched",
+      "given": [
+        "a run with an earlier valid submission.json"
+      ],
+      "when": "a payload with three problems is sent via `af triage submit` and via in-process file_diagnosis",
+      "then": [
+        "the CLI gives failed/submission retryable true listing all three problems",
+        "the in-process call returns all three as the tool's error result",
+        "submission.json bytes are identical to before"
+      ],
+      "pseudocode": "before=read(sub); r=submit(bad); assert r.cat=='submission' and r.retryable and len(r.problems)==3; assert read(sub)==before"
+    },
+    {
+      "id": "TS-08-38",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-5.8"
+      ],
+      "title": "An accepted submit stores the normalized form and returns its result",
+      "given": [
+        "a run directory and a diagnosis citing `./a/b.go:12`"
+      ],
+      "when": "the JSON is piped into af triage submit --run-id <id> --dir <repo>",
+      "then": [
+        "status done, exit 0",
+        "result {run_id, accepted: true, submission: <path>, rejected_path_calls}",
+        "submission.json holds path a/b.go and line 12",
+        "ledger records triage.submission"
+      ],
+      "pseudocode": "r=submit(diag); assert r.result.accepted; s=load(sub); assert s.affected_files[0]=={'path':'a/b.go','line':12,'note':..}"
+    },
+    {
+      "id": "TS-08-39",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-6.1"
+      ],
+      "title": "Each refused submit call appends exactly one rejections.jsonl line beside submission.json",
+      "given": [
+        "a run directory, both via the CLI and via in-process submit"
+      ],
+      "when": "two refused calls and then one accepted call are made",
+      "then": [
+        "rejections.jsonl has exactly two lines of {ts, problems, unresolved_paths}",
+        "the file sits in the directory submission.json is written to",
+        "the accepted call adds no line"
+      ],
+      "pseudocode": "assert len(lines(rej))==2 and keys(lines[0])=={'ts','problems','unresolved_paths'}"
+    },
+    {
+      "id": "TS-08-40",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-6.2"
+      ],
+      "title": "Rejection counts separate path refusals from all refusals, and are 0 when the file is absent",
+      "given": [
+        "rejections.jsonl with one line having an unresolved path and one citing only a bad severity",
+        "a run with no rejections.jsonl"
+      ],
+      "when": "the counts are read",
+      "then": [
+        "rejected_path_calls is 1 and rejected_submissions is 2",
+        "an absent file gives 0 and 0 with no warning"
+      ],
+      "pseudocode": "assert Count(f)==(1,2); assert Count(absent)==(0,0)"
+    },
+    {
+      "id": "TS-08-41",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-6.3"
+      ],
+      "title": "An unreadable or malformed rejections.jsonl gives zero counts and a warning",
+      "given": [
+        "a rejections.jsonl with a malformed line",
+        "a rejections.jsonl path that is a directory"
+      ],
+      "when": "the counts are read",
+      "then": [
+        "rejected_path_calls 0 and rejected_submissions 0",
+        "warning rejections_unreadable is raised in both cases"
+      ],
+      "pseudocode": "c,w=Count(bad); assert c==(0,0) and w=='rejections_unreadable'"
+    },
+    {
+      "id": "TS-08-42",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-6.4"
+      ],
+      "title": "Landing is identical whatever rejections.jsonl holds",
+      "given": [
+        "the same valid submission landed three times with rejections.jsonl absent, with many lines and with garbage"
+      ],
+      "when": "af triage land runs against an httptest forge each time",
+      "then": [
+        "the action and the rendered body bytes are identical across the three",
+        "status is done each time"
+      ],
+      "pseudocode": "assert body(a)==body(b)==body(c) and action(a)==action(b)==action(c)"
+    },
+    {
+      "id": "TS-08-43",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-7.1"
+      ],
+      "title": "The body renderer is deterministic and matches goldens for a full and a not_reproducible diagnosis",
+      "given": [
+        "a full diagnosis with a line-less path and a question, a not_reproducible diagnosis with empty lists, a fixed run id and original"
+      ],
+      "when": "each is rendered twice",
+      "then": [
+        "both renders are byte-identical and equal the golden files",
+        "the first line is `<!-- agent-fox:triage v1 run=<run_id> -->`",
+        "empty sections are omitted but ## Diagnosis and ## Original report remain",
+        "affected files use `- `path:line` — note` or `- `path` — note`",
+        "question options are lettered A., B."
+      ],
+      "pseudocode": "assert Render(d,id,o)==Render(d,id,o)==golden"
+    },
+    {
+      "id": "TS-08-44",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-7.2"
+      ],
+      "title": "The original sits exactly between begin marker plus newline and newline plus end marker",
+      "given": [
+        "originals: empty, with trailing newlines, with CRLF, with marker-like text"
+      ],
+      "when": "each is rendered",
+      "then": [
+        "the bytes between `<begin>\\n` and `\\n<end>` equal the original",
+        "no other bytes are added there"
+      ],
+      "pseudocode": "i=body.index(begin+'\\n')+len(begin)+1; j=body.rindex('\\n'+end); assert body[i:j]==o"
+    },
+    {
+      "id": "TS-08-45",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-7.3"
+      ],
+      "title": "A body not starting with a triage marker is wholly the original",
+      "given": [
+        "a person's body, an empty body, and a body containing the markers but not on the first line"
+      ],
+      "when": "Extract is called",
+      "then": [
+        "it returns (body, \"\", no warning) for each"
+      ],
+      "pseudocode": "assert Extract(b)==(b,'',None)"
+    },
+    {
+      "id": "TS-08-46",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-7.4"
+      ],
+      "title": "A paired triage body yields its original and previous diagnosis",
+      "given": [
+        "a body rendered by Render containing marker-like text in the original"
+      ],
+      "when": "Extract is called",
+      "then": [
+        "the original is between the first begin marker plus newline and the last newline plus end marker",
+        "the previous diagnosis is everything between the first line and `## Original report`",
+        "no warning"
+      ],
+      "pseudocode": "o,prev,w=Extract(Render(d,id,s)); assert o==s and prev.startswith('## Diagnosis') and w is None"
+    },
+    {
+      "id": "TS-08-47",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-7.5"
+      ],
+      "title": "A triage body with unpairable markers is wholly the original with a warning",
+      "given": [
+        "bodies starting with the triage marker with: no markers, only a begin marker, end before begin"
+      ],
+      "when": "Extract is called",
+      "then": [
+        "each returns (body, \"\", warning original_report_unparsed)"
+      ],
+      "pseudocode": "assert Extract(b)==(b,'','original_report_unparsed')"
+    },
+    {
+      "id": "TS-08-48",
+      "kind": "property",
+      "verifies": [
+        "08-REQ-7.6"
+      ],
+      "title": "Extract inverts Render for any string and re-rendering is idempotent",
+      "given": [
+        "any valid diagnosis and any run id"
+      ],
+      "when": "for any string s, including ones with marker-like text, a triage marker first line, backticks, CRLF and invalid-looking markup, body = Render(d, s)",
+      "then": [
+        "Extract(body).original == s byte for byte",
+        "Render(d, Extract(body).original) == body"
+      ],
+      "pseudocode": "for d,s in gen(): b=Render(d,id,s); o,_,_=Extract(b); assert o==s and Render(d,id,o)==b"
+    },
+    {
+      "id": "TS-08-49",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-8.1"
+      ],
+      "title": "Landing with a missing or invalid submission fails no_result and writes nothing",
+      "given": [
+        "a run with no submission.json",
+        "a run whose submission fails re-validation",
+        "an httptest forge recording writes"
+      ],
+      "when": "af triage land runs",
+      "then": [
+        "status failed, category no_result, exit 1, result null",
+        "no diagnosis.md exists",
+        "zero forge write requests"
+      ],
+      "pseudocode": "assert r.cat=='no_result' and r.exit==1 and not exists(diagnosis.md) and forge.writes==0"
+    },
+    {
+      "id": "TS-08-50",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-8.2"
+      ],
+      "title": "diagnosis.md is written and listed before any forge write, and --land none needs no token",
+      "given": [
+        "a run with a valid submission",
+        "a forge that records the order of diagnosis.md existence at each write",
+        "no token set"
+      ],
+      "when": "landing runs with --land issue, and with --land none",
+      "then": [
+        "diagnosis.md exists and the artifact {kind: diagnosis, path} is listed before the first write",
+        "with --land none: status done, exit 0, action none, zero forge requests"
+      ],
+      "pseudocode": "onWrite: assert exists(diagnosis.md); r=land('--land','none'); assert r.result.action=='none' and forge.requests==0"
+    },
+    {
+      "id": "TS-08-51",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-8.3"
+      ],
+      "title": "Landing on an issue sends one body-only write and keeps the current original",
+      "given": [
+        "httptest GitHub and GitLab issues",
+        "the issue body edited after triage.json's snapshot",
+        "--label triaged"
+      ],
+      "when": "the diagnosis is landed in-process",
+      "then": [
+        "exactly one body write (PATCH on GitHub, PUT description on GitLab) with no title field",
+        "the bytes between the markers equal the current original, not the snapshot",
+        "warning report_changed_during_triage is raised",
+        "one label add follows, action replaced_body",
+        "when the body is unchanged no warning is raised"
+      ],
+      "pseudocode": "w=forge.writes('body'); assert len(w)==1 and 'title' not in w[0].json; assert between(markers,w[0].body)==current"
+    },
+    {
+      "id": "TS-08-52",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-8.4"
+      ],
+      "title": "A body over the forge limit falls back to one comment without the original section",
+      "given": [
+        "a GitHub issue whose original makes the rendered body exceed 65536 bytes"
+      ],
+      "when": "the diagnosis is landed with --label triaged",
+      "then": [
+        "action commented",
+        "zero UpdateIssue requests and the body is untouched",
+        "one add_comment side effect whose text lacks `## Original report`",
+        "warning body_too_long is raised",
+        "AddLabels is still called"
+      ],
+      "pseudocode": "assert action=='commented' and forge.count('PATCH issue')==0 and forge.count('POST comments')==1"
+    },
+    {
+      "id": "TS-08-53",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-8.5"
+      ],
+      "title": "Text landing creates one issue and repeated land updates it instead",
+      "given": [
+        "a run for text input with --repo owner/name and a valid submission",
+        "an httptest forge"
+      ],
+      "when": "af triage land runs three times",
+      "then": [
+        "the first creates an issue with the submission's title, the rendered body and the labels, action created_issue",
+        "the second and third update that issue's body",
+        "the forge records exactly one create request"
+      ],
+      "pseudocode": "for i in 1..3: land(); assert forge.count('create issue')==1"
+    },
+    {
+      "id": "TS-08-54",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-8.6"
+      ],
+      "title": "Each write adds a side effect, the landed issue an artifact and the land ledger record",
+      "given": [
+        "a landing that performs a body write and a label write"
+      ],
+      "when": "landing ends",
+      "then": [
+        "side_effects list update_issue and add_labels with targets and states",
+        "artifacts include {kind: issue, url, number}",
+        "the ledger holds triage.land with the action"
+      ],
+      "pseudocode": "assert kinds(r.side_effects)==['update_issue','add_labels']; assert ledger[-1].kind=='triage.land'"
+    },
+    {
+      "id": "TS-08-55",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-8.7"
+      ],
+      "title": "Landing write failures map to categories and a label failure only warns",
+      "given": [
+        "a forge failing the body write with no-token, 429, a transport error and 500",
+        "a forge failing only the labels write"
+      ],
+      "when": "landing runs",
+      "then": [
+        "no-token is failed/auth",
+        "429 and transport error are failed/forge retryable true",
+        "500 is failed/forge retryable false",
+        "exit code 1 for each, no further writes after a body failure",
+        "a label failure keeps status done, raises labels_failed and records a failed add_labels side effect"
+      ],
+      "pseudocode": "assert (r.cat,r.retryable)==want; labelFail => r.status=='done' and 'labels_failed' in codes"
+    },
+    {
+      "id": "TS-08-56",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-8.8"
+      ],
+      "title": "A dry run runs the brain and reports planned writes with zero forge writes",
+      "given": [
+        "an httptest GitHub issue and a counting scripted brain",
+        "--dry-run --label triaged"
+      ],
+      "when": "the loop runs",
+      "then": [
+        "the brain ran",
+        "status done, exit 0, action planned",
+        "planned side effects for update_issue and add_labels",
+        "the forge recorded zero write requests",
+        "an ErrDryRun error is not reported as a failure"
+      ],
+      "pseudocode": "assert brain.calls==1 and r.result.action=='planned' and forge.writes==0"
+    },
+    {
+      "id": "TS-08-57",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-9.1"
+      ],
+      "title": "A submission with a question stops with needs_human and writes nothing",
+      "given": [
+        "a scripted brain submitting a suspected diagnosis with a question and options A and B",
+        "an httptest forge"
+      ],
+      "when": "the loop runs, and af triage land runs on that run",
+      "then": [
+        "status needs_human, exit 3, needs_human carries the question and options in order with the resume argv",
+        "result action is none",
+        "ledger holds triage.question {text, options}",
+        "zero forge write requests and no comment"
+      ],
+      "pseudocode": "assert r.exit==3 and r.needs_human.options==['A..','B..'] and forge.writes==0"
+    },
+    {
+      "id": "TS-08-58",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-9.2"
+      ],
+      "title": "Landed, --land none, dry-run and not_reproducible runs all end done",
+      "given": [
+        "scripted brains submitting a valid diagnosis and a not_reproducible diagnosis without a question"
+      ],
+      "when": "each is run with landing, --land none and --dry-run",
+      "then": [
+        "every envelope is status done with exit 0"
+      ],
+      "pseudocode": "for c in cases: assert run(c).status=='done'"
+    },
+    {
+      "id": "TS-08-59",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-9.3"
+      ],
+      "title": "The result carries every required field and validates against the declared schema",
+      "given": [
+        "landed runs: an issue replaced, a created issue, and a --land none run with duplicate labels 'a','b','a'"
+      ],
+      "when": "the results are compared with each command's declared result schema",
+      "then": [
+        "result holds run_id, issue {repo, host, number, url} or null, action, diagnosis, rejected_path_calls, rejected_submissions, labels, original_report_sha256",
+        "labels are deduplicated in first-seen order",
+        "action is one of replaced_body, commented, created_issue, planned, none",
+        "the result validates against the schema"
+      ],
+      "pseudocode": "assert validate(schema, r.result); assert r.result.labels==['a','b']"
+    },
+    {
+      "id": "TS-08-60",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-9.4"
+      ],
+      "title": "A failed run still lists brief, submission and diagnosis artifacts that exist",
+      "given": [
+        "a landing write failure after a valid submission",
+        "a no_result failure with only a brief"
+      ],
+      "when": "the envelopes are read",
+      "then": [
+        "the first is failed with result null, artifacts brief, submission and diagnosis",
+        "the second lists only the brief",
+        "a usage failure exits 2"
+      ],
+      "pseudocode": "assert r.result is None; assert kinds(r.artifacts)>={'brief','submission','diagnosis'}"
+    },
+    {
+      "id": "TS-08-61",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-9.5"
+      ],
+      "title": "A done issue run with confirmed or probable confidence suggests af fix",
+      "given": [
+        "done runs for an issue with confidence confirmed, probable, suspected, and a created-issue run"
+      ],
+      "when": "the envelope next entries are read",
+      "then": [
+        "confirmed and probable on an issue include `af fix <issue url> --dir <dir>`",
+        "suspected and not_reproducible do not"
+      ],
+      "pseudocode": "assert (fixArgv in r.next)==(conf in ['confirmed','probable'] and isIssue)"
+    },
+    {
+      "id": "TS-08-62",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-9.6"
+      ],
+      "title": "A failed landing with a valid submission suggests af triage land with --repo when built from the URL",
+      "given": [
+        "a body write failure for an issue URL input",
+        "a body write failure for a --repo text input"
+      ],
+      "when": "the envelope next entries are read",
+      "then": [
+        "next contains `af triage land --run-id <id> --dir <dir>`",
+        "`--repo <owner/name>` is appended when the client was built from the input URL"
+      ],
+      "pseudocode": "assert landArgv in r.next"
+    },
+    {
+      "id": "TS-08-63",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-9.7"
+      ],
+      "title": "Step events preflight, brief, brain, land appear in order and stop where the run ends",
+      "given": [
+        "a full run, a preflight refusal and a no_result run"
+      ],
+      "when": "the event stream is read",
+      "then": [
+        "a full run emits step events preflight, brief, brain, land",
+        "a preflight refusal emits only preflight",
+        "a no_result run emits preflight, brief, brain"
+      ],
+      "pseudocode": "assert steps(events) == ['preflight','brief','brain','land'][:n]"
+    },
+    {
+      "id": "TS-08-64",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-9.8"
+      ],
+      "title": "Triage envelopes carry only the allowed warning codes and failure categories",
+      "given": [
+        "envelopes collected from every triage scenario in the suite"
+      ],
+      "when": "their warning codes and failure categories are collected",
+      "then": [
+        "every warning code is in the shell's, spec 07's or the six new codes",
+        "every failure category is in the shell's or spec 07's set",
+        "every code matches ^[a-z][a-z0-9_]*$"
+      ],
+      "pseudocode": "assert codes<=ALLOWED_WARN and cats<=ALLOWED_CAT"
+    },
+    {
+      "id": "TS-08-65",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-10.1"
+      ],
+      "title": "skills/af-triage has the three frontmatter keys and the required method, never-list and attended section",
+      "given": [
+        "the file skills/af-triage"
+      ],
+      "when": "its frontmatter and body are parsed",
+      "then": [
+        "frontmatter has name, description and argument-hint",
+        "the body mentions the method steps, severity and confidence definitions, the never-list items, and `af triage brief`, `af triage submit --run-id` and `af triage land --run-id`"
+      ],
+      "pseudocode": "fm,body=split(read(file)); assert keys(fm)=={'name','description','argument-hint'}; for t in terms: assert t in body"
+    },
+    {
+      "id": "TS-08-66",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-10.2"
+      ],
+      "title": "The skills package embeds af-* entries equal to the files on disk",
+      "given": [
+        "skills/skills.go with //go:embed af-*"
+      ],
+      "when": "the embedded af-triage bytes are read",
+      "then": [
+        "they equal the file on disk",
+        "the brief renderer uses those bytes for the skill body"
+      ],
+      "pseudocode": "assert skills.FS.ReadFile('af-triage')==os.ReadFile('skills/af-triage')"
+    },
+    {
+      "id": "TS-08-67",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-10.3"
+      ],
+      "title": "The Makefile skill loops cover af-* only",
+      "given": [
+        "the Makefile"
+      ],
+      "when": "the install-skills and uninstall-skills recipes are read",
+      "then": [
+        "both loop over skills/af-*",
+        "skills.go is never matched by that glob"
+      ],
+      "pseudocode": "assert 'skills/af-*' in recipe('install-skills') and in recipe('uninstall-skills')"
+    },
+    {
+      "id": "TS-08-68",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-10.4"
+      ],
+      "title": "af --schema matches the committed golden and contains the five triage schemas",
+      "given": [
+        "the committed cmd/af schema golden"
+      ],
+      "when": "`af --schema` output is generated",
+      "then": [
+        "it equals the golden byte for byte",
+        "it includes result schemas for triage, triage brief, triage run, triage submit and triage land"
+      ],
+      "pseudocode": "assert out==golden and all(p in out for p in paths)"
+    },
+    {
+      "id": "TS-08-69",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-10.5"
+      ],
+      "title": "The triage suite runs offline with no vendor key or token",
+      "given": [
+        "an environment with no GITHUB_TOKEN, GITLAB_TOKEN or vendor key",
+        "httptest servers on loopback injected through App.NewForge",
+        "git skipped cleanly when missing"
+      ],
+      "when": "a loop run on GitHub and one on GitLab executes with the scripted brain, the agentkit brain on faux and the local box",
+      "then": [
+        "every request goes to loopback only",
+        "both runs end done",
+        "the tests skip when git is unavailable"
+      ],
+      "pseudocode": "assert all(host(r)=='127.0.0.1' for r in requests)"
+    },
+    {
+      "id": "TS-08-70",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-10.6"
+      ],
+      "title": "The named documents contain the triage sections and generated docs exist",
+      "given": [
+        "docs/cli.md, docs/configuration.md, docs/model-usage.md, docs/architecture.md, README.md, docs/generated/skills.txt"
+      ],
+      "when": "the files are scanned",
+      "then": [
+        "cli.md describes the five commands, flags, results, statuses and warnings",
+        "configuration.md lists the run files and says no new environment variable is read",
+        "model-usage.md describes the brief sent and the default bounds",
+        "architecture.md resolves the triage-shape decision, updates the issuetriage row and describes the body format",
+        "README.md names internal/triage/, the skills package and af-triage",
+        "docs/generated/skills.txt exists"
+      ],
+      "pseudocode": "for f,terms in table: for t in terms: assert t in read(f)"
+    },
+    {
+      "id": "TS-08-71",
+      "kind": "smoke",
+      "verifies": [
+        "08-PATH-1",
+        "08-REQ-8.3",
+        "08-REQ-9.3"
+      ],
+      "title": "An issue is triaged end to end on GitHub and on GitLab and its body replaced once",
+      "given": [
+        "an httptest GitHub (then GitLab) with an issue and a token",
+        "a temporary git repo as --dir",
+        "the faux provider scripted to call file_diagnosis"
+      ],
+      "when": "`af triage <issue URL> --brain agentkit --sandbox local --dir <repo> --label triaged` runs",
+      "then": [
+        "exactly one body write is recorded",
+        "the bytes between the original-report markers equal the body read at the start",
+        "the label triaged is added",
+        "status done, exit 0, action replaced_body"
+      ],
+      "real_components": [
+        "toolio shell",
+        "triage loop",
+        "brief renderer",
+        "agentkit brain on faux",
+        "local box",
+        "diagnosis validator",
+        "body renderer",
+        "issuex GitHub and GitLab clients over httptest",
+        "git repo"
+      ]
+    },
+    {
+      "id": "TS-08-72",
+      "kind": "smoke",
+      "verifies": [
+        "08-PATH-2",
+        "08-REQ-8.5"
+      ],
+      "title": "Text and file inputs each create exactly one issue in the named repository",
+      "given": [
+        "an httptest GitHub",
+        "a temporary git repo",
+        "a scripted brain submitting a titled diagnosis"
+      ],
+      "when": "`af triage \"<text>\" --repo owner/name --brain scripted` and `af triage <file> --repo owner/name` run",
+      "then": [
+        "each run creates exactly one issue in owner/name",
+        "the issue title is the submission's title",
+        "the original-report section holds the input",
+        "each ends done with action created_issue and an issue artifact"
+      ],
+      "real_components": [
+        "toolio shell",
+        "triage loop",
+        "brief renderer",
+        "scripted brain",
+        "diagnosis validator",
+        "body renderer",
+        "issuex GitHub client over httptest"
+      ]
+    },
+    {
+      "id": "TS-08-73",
+      "kind": "smoke",
+      "verifies": [
+        "08-PATH-3",
+        "08-REQ-6.2"
+      ],
+      "title": "A diagnosis citing a missing path is refused as the brain's next turn and then corrected",
+      "given": [
+        "an httptest GitHub issue",
+        "a scripted brain whose first submission cites a missing path and second cites an existing file"
+      ],
+      "when": "the loop runs",
+      "then": [
+        "the first refusal names the missing path at /affected_files/0/path and is the brain's next turn",
+        "envelope result.rejected_path_calls is 1",
+        "every path in the landed diagnosis is a file in the workspace",
+        "status done"
+      ],
+      "real_components": [
+        "toolio shell",
+        "triage loop",
+        "scripted brain",
+        "in-process submit",
+        "diagnosis validator",
+        "rejections.jsonl",
+        "issuex GitHub client over httptest",
+        "git repo"
+      ]
+    },
+    {
+      "id": "TS-08-74",
+      "kind": "smoke",
+      "verifies": [
+        "08-PATH-4",
+        "08-REQ-3.6"
+      ],
+      "title": "A question stops the run with needs_human and the answer resumes with the same prefix",
+      "given": [
+        "an httptest GitHub issue",
+        "a scripted brain submitting a suspected diagnosis with options A and B"
+      ],
+      "when": "the loop runs, then needs_human.resume.argv is re-run with `--context B` appended",
+      "then": [
+        "the first run exits 3 with needs_human and the options, and the forge records zero writes",
+        "the resumed brief has the same prefix_sha256",
+        "its task block holds the earlier question and the answer B"
+      ],
+      "real_components": [
+        "toolio shell",
+        "triage loop",
+        "brief renderer",
+        "scripted brain",
+        "diagnosis validator",
+        "run directory ledger",
+        "issuex GitHub client over httptest",
+        "git repo"
+      ]
+    },
+    {
+      "id": "TS-08-75",
+      "kind": "smoke",
+      "verifies": [
+        "08-PATH-5",
+        "08-REQ-7.6"
+      ],
+      "title": "Re-triaging a triaged issue replaces the old diagnosis and keeps the original byte-identical",
+      "given": [
+        "an httptest GitHub issue whose body was rendered by an earlier triage",
+        "a scripted brain submitting a new diagnosis"
+      ],
+      "when": "the loop runs again on the issue",
+      "then": [
+        "the brief fences the previous diagnosis labelled as possibly stale",
+        "the landed body holds the new diagnosis only",
+        "the original-report bytes equal those of the first triage"
+      ],
+      "real_components": [
+        "toolio shell",
+        "triage loop",
+        "body extractor",
+        "body renderer",
+        "brief renderer",
+        "scripted brain",
+        "issuex GitHub client over httptest",
+        "git repo"
+      ]
+    },
+    {
+      "id": "TS-08-76",
+      "kind": "smoke",
+      "verifies": [
+        "08-PATH-6",
+        "08-REQ-8.8",
+        "08-REQ-8.2"
+      ],
+      "title": "--dry-run and --land none write nothing to the forge",
+      "given": [
+        "an httptest GitHub issue with a token",
+        "a text input and no token for the --land none run"
+      ],
+      "when": "the loop runs with --dry-run on the issue, then with text input, --repo and --land none and no token",
+      "then": [
+        "the dry run ends done with action planned and planned side effects, and zero write requests",
+        "the --land none run ends done with action none, writes only diagnosis.md and sends zero forge requests"
+      ],
+      "real_components": [
+        "toolio shell",
+        "DryRunForge",
+        "triage loop",
+        "scripted brain",
+        "diagnosis validator",
+        "issuex GitHub client over httptest",
+        "git repo"
+      ]
+    },
+    {
+      "id": "TS-08-77",
+      "kind": "smoke",
+      "verifies": [
+        "08-PATH-7",
+        "08-REQ-1.6",
+        "08-REQ-5.8"
+      ],
+      "title": "A person drives brief, submit and land step by step at their own checkout",
+      "given": [
+        "an httptest GitHub issue with a token",
+        "a temporary git repo with a file a.go"
+      ],
+      "when": "`af triage brief <issue URL>`, then a diagnosis piped into `af triage submit --run-id <id>`, then `af triage land --run-id <id> --label triaged` run",
+      "then": [
+        "brief writes brief.md, original.md, triage.json and returns prefix_sha256",
+        "submit stores the normalized submission and records triage.submission",
+        "land builds a client for the recorded repository, replaces the issue body once, adds the label and records triage.land"
+      ],
+      "real_components": [
+        "toolio shell",
+        "af triage brief",
+        "af triage submit",
+        "af triage land",
+        "diagnosis validator",
+        "body renderer",
+        "run directory ledger",
+        "issuex GitHub client over httptest",
+        "git repo"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,549 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "07",
+  "spec_name": "af_brains",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/box/... ./internal/submission/... ./internal/brain/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "05",
+      "reason": "Consumes toolio.Command, toolio.Run (Emit, Warn, Artifact, SetUsage), toolio.RunDir/OpenRunDir, *toolio.Failure with FixHint, and the envelope usage fields. cmd/af and internal/toolio do not exist until spec 05 is implemented."
+    },
+    {
+      "spec": "06",
+      "reason": "The tool gate calls the ring-1 guard's Go decision function in internal/policy with HookConfig; the submit command reads stdin through Run.Stdin, which spec 06 adds."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Box registry, Open and Sync over the local provider",
+      "criteria": [
+        "07-REQ-1.5",
+        "07-REQ-1.7",
+        "07-REQ-2"
+      ],
+      "tests": [
+        "TS-07-5",
+        "TS-07-7",
+        "TS-07-10",
+        "TS-07-11",
+        "TS-07-12",
+        "TS-07-13",
+        "TS-07-14",
+        "TS-07-15",
+        "TS-07-16",
+        "TS-07-17"
+      ],
+      "steps": [
+        "Write the listed tests first (package box, real-git helper copied from internal/gitx newRepo(t), a counting provider wrapper and stub providers whose Create or Sync fails) and confirm they fail",
+        "Add (*gitx.Git).TopLevel(ctx) (string, error) running `rev-parse --show-toplevel` in internal/gitx/git.go (reuse one from spec 06 if it already exists)",
+        "Create internal/box/registry.go: a registry of providers by name with `local` registered (wrapping agentkit sandbox.Open(\"local\"), kept behind one adapter file so unverified agentkit signatures stay in one place); Lookup of an unknown name returns a usage *toolio.Failure listing every registered name",
+        "Create internal/box/open.go with Request{Provider, HostDir, RunID, Tool, Env, TTL, Record, Warn} and Open(ctx, Request) (*Session, error)",
+        "In Open check HostDir is a work tree top level by comparing filepath.EvalSymlinks of HostDir and TopLevel; otherwise return a usage Failure naming the top level",
+        "Create the sandbox with Spec{Env, Labels{af.run_id, af.tool}, TTL}; a Create error is Failure failed/sandbox retryable false",
+        "Sync HostDir in with .git (sandbox.LocalDir); a Sync failure closes the sandbox first and returns Failure failed/sandbox retryable true",
+        "Record ledger entries box_open {provider} then box_sync {head} through Request.Record, head from gitx.Head",
+        "Raise warning box_unconfined once per Open (never on later Sync) when the provider is local, with a message saying the box has no process or network isolation",
+        "Create internal/box/session.go with Session, Provider(), Spec(), Tools() and Sync(ctx) (re-sync + box_sync record); never write the host checkout",
+        "Verify with real git that box HEAD (git rev-parse --short HEAD via Tools) equals host Head, and that commits and writes inside leave host HEAD, status and files unchanged; if the local provider works in place on the host dir, stop and report an erratum"
+      ],
+      "touches": [
+        "internal/gitx/git.go",
+        "internal/box/registry.go",
+        "internal/box/open.go",
+        "internal/box/session.go",
+        "internal/box/box_test.go"
+      ],
+      "done_when": [
+        "`go test ./internal/box/... -count=1` passes offline"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Session FS, WriteFile, Export, Close and box.With",
+      "criteria": [
+        "07-REQ-3"
+      ],
+      "tests": [
+        "TS-07-18",
+        "TS-07-19",
+        "TS-07-20",
+        "TS-07-21",
+        "TS-07-22",
+        "TS-07-23",
+        "TS-07-24",
+        "TS-07-25"
+      ],
+      "steps": [
+        "Write the listed tests first (including a stub sandbox whose Export creates <dst>/.git and one whose Close errors) and confirm they fail",
+        "Add Session.FS(ctx) fs.FS in internal/box/fs.go: a read-only io/fs view built on the box's read and listing tools; a missing path maps to fs.ErrNotExist, a directory stats as a directory; implement Open, Stat, ReadFile and ReadDir",
+        "Add Session.WriteFile(ctx, rel, data): accept only fs.ValidPath paths under .agent-fox/, otherwise return a plain internal error (not a usage Failure); write through the box write tool",
+        "Add Session.Export(ctx): os.MkdirTemp(os.TempDir(), \"af-export-<run_id>-*\"), sandbox Export into it, and remove it plus return Failure failed/sandbox \"export carried .git\" if <dir>/.git exists; record box_export {path} and remember the dir",
+        "Make Close idempotent with sync.Once: close the sandbox once, remove all export directories, record box_close once, return nil on later calls",
+        "Create internal/box/with.go: With(ctx, req, fn) opens a session, runs fn, and closes via defer on every path including panic (recover, close, re-panic with the same value) and cancellation",
+        "Run the close on context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second); a close error raises warning box_close_failed through req.Warn and never changes fn's result",
+        "Cover the cancellation case by cancelling the context inside fn and asserting close count equals create count with a counting provider wrapper"
+      ],
+      "touches": [
+        "internal/box/fs.go",
+        "internal/box/session.go",
+        "internal/box/with.go",
+        "internal/box/session_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "done_when": [
+        "`go test ./internal/box/... -count=1` passes offline"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Submission kinds and the Submit core",
+      "criteria": [
+        "07-REQ-4"
+      ],
+      "tests": [
+        "TS-07-26",
+        "TS-07-27",
+        "TS-07-28",
+        "TS-07-29",
+        "TS-07-30",
+        "TS-07-31",
+        "TS-07-32",
+        "TS-07-33"
+      ],
+      "steps": [
+        "Write the listed tests first (package submission; a Target whose Tree is os.DirFS and Write writes the host filesystem) and confirm they fail",
+        "Create internal/submission/kind.go with Kind{Name, ToolName, Description, Schema, Validate}, Problem{Path, Message}, Refused{Problems} (implements error, message names every problem) and Receipt{Path, SHA256}",
+        "Create internal/submission/submit.go with Target{Tree fs.FS, Write func(ctx, rel string, data []byte) error, RunID} and Submit(ctx, target, kind, raw, now)",
+        "Refuse (without writing) a payload over 1 MiB, empty or whitespace-only, or not a single JSON object (arrays, bare strings, trailing second value); use json.Decoder and check for trailing data",
+        "Read .agent-fox/run/<id>/run.json from Tree; refuse with a Problem naming run.json when missing, unparsable or naming another kind",
+        "Call Kind.Validate; refuse with all returned problems; sort Problems by Path then Message (sort.SliceStable) for every refusal",
+        "On success compact the normalised payload, compute sha256 hex, build {kind, run_id, attempt, nonce, submitted_at, payload_sha256, payload} with attempt and nonce from run.json, and call Target.Write for .agent-fox/run/<id>/submission.json",
+        "Provide a host-filesystem Write helper that writes a temp file in the same directory and os.Rename's it over the target, leaving no temp file; a refusal never touches an existing file",
+        "Verify the last valid submission wins and Receipt.SHA256 matches payload_sha256 in the file"
+      ],
+      "touches": [
+        "internal/submission/kind.go",
+        "internal/submission/submit.go",
+        "internal/submission/submit_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "done_when": [
+        "`go test ./internal/submission/... -count=1` passes offline"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "The submit command factory",
+      "criteria": [
+        "07-REQ-5"
+      ],
+      "tests": [
+        "TS-07-34",
+        "TS-07-35",
+        "TS-07-36",
+        "TS-07-37",
+        "TS-07-38",
+        "TS-07-39"
+      ],
+      "steps": [
+        "Write the listed tests first using a toolio.App with the command registered and a fake kind; confirm they fail (read internal/toolio for the real Command, Run, Failure and App names and adapt)",
+        "Create internal/submission/command.go with Command(path string, kind Kind) toolio.Command",
+        "Declare flags --dir (default .) and --run-id; open the run directory with toolio.OpenRunDir (missing or invalid id returns the usage Failure, exit 2)",
+        "Declare the command so it creates no run directory, does not opt into --dry-run, and carries a ResultSchema for {run_id, kind, path, sha256} so it shows in `af --schema`",
+        "Read the payload as raw JSON from Run.Stdin (added by spec 06)",
+        "Open the tree with os.OpenRoot(dir) and use root.FS() as Target.Tree so symlinks escaping the root cannot be read; Write goes through the root-confined filesystem helper from task 3",
+        "On success return status done with result {run_id, kind, path, sha256} and artifact {kind: submission, path}",
+        "On *Refused (including malformed JSON) return a Failure failed/submission retryable true whose message names every problem; the earlier file stays untouched; register category `submission` in toolio if absent",
+        "Test the symlink property with generated absolute, ../ and nested targets and assert the outside secret never appears in output"
+      ],
+      "touches": [
+        "internal/submission/command.go",
+        "internal/submission/command_test.go",
+        "internal/toolio"
+      ],
+      "depends_on": [
+        3
+      ],
+      "done_when": [
+        "`go test ./internal/submission/... -count=1` passes offline"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Brain contract types, shared flags and box environment",
+      "criteria": [
+        "07-REQ-1.1",
+        "07-REQ-1.3",
+        "07-REQ-1.4",
+        "07-REQ-1.6",
+        "07-REQ-1.8"
+      ],
+      "tests": [
+        "TS-07-1",
+        "TS-07-3",
+        "TS-07-4",
+        "TS-07-6",
+        "TS-07-8"
+      ],
+      "steps": [
+        "Write the listed tests first (package brain) and confirm they fail",
+        "Create internal/brain/brain.go with Brain, Brief (Document() = Prefix+Task), Outcome, HookConfig (json tags run_id, protected_paths, allow_programs) and ToolCall exactly as in the PRD, with Brief.Box *box.Session and Kind submission.Kind",
+        "Create internal/brain/registry.go with Entry{Name, CostSource, BoxEnv, New func(Options) (Brain, error)}, Options{Model, Script, NewProvider, Getenv} and a Registry type with Register, Names and New(name, opts); an unknown name returns a usage Failure listing registered names (the default registry is populated by tasks 9 and 10)",
+        "Add BuildBoxEnv(entry, getenv) map[string]string returning exactly the host values of the BoxEnv names that are set and nothing else",
+        "Create internal/brain/flags.go: Flags(fs *flag.FlagSet, defaults) registering --brain, --sandbox, --budget, --max-turns, --script with caller-supplied defaults (sandbox default local) and a Validate method",
+        "Validate returns usage Failures naming the flag for: budget not finite or <= 0 (NaN, Inf, 0, negative), --max-turns < 1, --brain scripted without --script, --script with any other brain",
+        "Define the Report interface (Emit, Warn, Artifact, SetUsage) and Tally in internal/brain/report.go with an assertion `var _ Report = (*toolio.Run)(nil)`, adapting with a wrapper if the real signatures differ"
+      ],
+      "touches": [
+        "internal/brain/brain.go",
+        "internal/brain/registry.go",
+        "internal/brain/flags.go",
+        "internal/brain/report.go",
+        "internal/brain/brain_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "done_when": [
+        "`go test ./internal/brain/... -count=1` passes offline"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Execute: place the brief, run the brain, record usage",
+      "criteria": [
+        "07-REQ-6.1",
+        "07-REQ-6.2",
+        "07-REQ-6.3",
+        "07-REQ-6.4",
+        "07-REQ-6.5",
+        "07-REQ-6.6",
+        "07-REQ-6.7",
+        "07-REQ-8.8"
+      ],
+      "tests": [
+        "TS-07-40",
+        "TS-07-41",
+        "TS-07-42",
+        "TS-07-43",
+        "TS-07-44",
+        "TS-07-45",
+        "TS-07-46",
+        "TS-07-64"
+      ],
+      "steps": [
+        "Write the listed tests first using a stub Brain, a local box session on a temp repo, a real RunDir and a recording Report; confirm they fail",
+        "Create internal/brain/execute.go with Request{Session, Name, Brain, Brief, RunDir, Report, Tally, Heartbeat, Rand}, Result{Outcome, Payload, Path} and Execute",
+        "Draw a 16-hex nonce from Request.Rand; write through Session.WriteFile .agent-fox/.gitignore (*), .agent-fox/run/<id>/brief.md (Document()), run.json {run_id, kind, attempt, nonce} and hook.json (HookConfig with .agent-fox/ added to ProtectedPaths when missing)",
+        "Write host copies <run_dir>/brief.<attempt>.md and <run_dir>/hook.json; record brief_placed {attempt, bytes, sha256, prefix_sha256}; set TranscriptPath to <run_dir>/transcript.<attempt>.jsonl",
+        "Set Brief.Observe to emit one tool_call event whose data holds only brain, tool, decision, reason, ok, duration_ms",
+        "Apply context.WithTimeout from the start of the run when Brief.Timeout > 0; emit step events brief, brain, submission in order; run a heartbeat ticker (default 30 s) emitting heartbeat {brain, elapsed_ms}",
+        "Record brain_start, call Brain.Run inside a recover wrapper, then record brain_end {brain, stop_reason, submitted_claim, cost_usd, cost_source, turns, duration_ms}",
+        "On panic write the stack to <run_dir>/brain-panic.<attempt>.txt and return Failure failed/brain; register categories brain, no_result, budget, sandbox in toolio if absent",
+        "Add the Outcome to Tally (also when Run errored) and call Report.SetUsage with the accumulated totals and brain = Request.Name",
+        "Leave a clearly separated function seam for the post-run submission decision implemented in task 7 (until then Execute returns a no_result Failure)"
+      ],
+      "touches": [
+        "internal/brain/execute.go",
+        "internal/brain/execute_test.go"
+      ],
+      "depends_on": [
+        2,
+        3,
+        5
+      ],
+      "done_when": [
+        "`go test ./internal/brain/... -count=1` passes offline"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Execute: decide the submission and map failures",
+      "criteria": [
+        "07-REQ-6.8",
+        "07-REQ-7"
+      ],
+      "tests": [
+        "TS-07-47",
+        "TS-07-48",
+        "TS-07-49",
+        "TS-07-50",
+        "TS-07-51",
+        "TS-07-52",
+        "TS-07-53",
+        "TS-07-54",
+        "TS-07-55",
+        "TS-07-56"
+      ],
+      "steps": [
+        "Write the listed tests first with stub brains that write the box submission.json directly through Session.WriteFile or call submission.Submit; confirm they fail",
+        "After Brain.Run, read .agent-fox/run/<id>/submission.json through Session.FS using a fresh context.WithTimeout(context.WithoutCancel(ctx), 30s) when the run context has expired",
+        "Decide only from the file: parse; kind, run_id, attempt, nonce must match; payload_sha256 must match the compacted payload; Kind.Validate must accept the payload against Session.FS (the re-validated payload is authoritative)",
+        "On acceptance copy the file atomically (temp + rename) to <run_dir>/submission.json, add artifact {kind: submission, path}, record submission_accepted {sha256}, and return Result{Outcome, Payload, Path}",
+        "On parse, kind, run_id, attempt, sha or validation failure raise warning submission_invalid with its problems and record submission_invalid; on a different nonce record submission_stale; on a missing file record submission_absent; all count as no submission",
+        "Raise warning submission_claim_mismatch when Outcome.Submitted differs from the host's decision",
+        "Add artifact {kind: transcript, path} when a file exists at TranscriptPath, using os.Stat only, never reading it",
+        "A valid submission wins: a returned Run error becomes warning brain_error and Execute returns nil error",
+        "Without a submission fail in order: Brief.Timeout expired -> Failure timeout with FixHint --timeout twice the value; ctx cancelled or the caller's deadline passed -> return the context error; Run error -> failed/brain retryable true; StopReason budget -> failed/budget retryable false with FixHint --budget doubled; StopReason turns -> failed/budget with FixHint --max-turns doubled; else failed/no_result retryable true",
+        "Verify an Outcome with Submitted true and no valid file yields no Payload and nothing is parsed from the transcript"
+      ],
+      "touches": [
+        "internal/brain/execute.go",
+        "internal/brain/decide.go",
+        "internal/brain/decide_test.go"
+      ],
+      "depends_on": [
+        6
+      ],
+      "done_when": [
+        "`go test ./internal/brain/... -count=1` passes offline"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "The tool gate for in-process brains",
+      "criteria": [
+        "07-REQ-8.1",
+        "07-REQ-8.4",
+        "07-REQ-8.5",
+        "07-REQ-8.7"
+      ],
+      "tests": [
+        "TS-07-57",
+        "TS-07-60",
+        "TS-07-61",
+        "TS-07-63"
+      ],
+      "steps": [
+        "Write the listed tests first with a spy box tool set and a transcript writer; confirm they fail",
+        "Read the real ring-1 guard API in internal/policy (spec 06) and the real box tool types from the agentkit adapter in internal/box; adapt the signatures below to them",
+        "Create internal/brain/gate.go with a Gate built from Brief (Tools allowlist, Hook, Observe, brain name), the box tool set and a transcript writer; Gate.Call(ctx, tool, args) returns a result or an error-result",
+        "Deny a tool not in Brief.Tools with exactly \"tool <name> is not in this run's allowlist\" without invoking it; the terminating submit tool bypasses the allowlist (the brains wire it in)",
+        "Pass each allowed call with Brief.Hook to the guard's Go decision function and execute only on allow; return the guard's reason as the error result on deny",
+        "Deny any write_file whose cleaned path resolves under .agent-fox/ (including ./sub/../.agent-fox/x) and any execute command that redirects or writes to .agent-fox/, via the guard's ProtectedPaths or an in-gate check; the message names the protected path",
+        "For every decided call invoke Observe once with ToolCall{Brain, Tool, Decision, Reason, OK, DurationMS} and append one JSON line {seq, tool, args, decision, reason, ok, result} with strictly increasing seq and args/result each truncated to 4096 bytes (UTF-8 safe)",
+        "Expose a helper to validate Brief.Tools names against the box tool set returning an internal error naming the unknown tool, used by both brains at Run start"
+      ],
+      "touches": [
+        "internal/brain/gate.go",
+        "internal/brain/transcript.go",
+        "internal/brain/gate_test.go"
+      ],
+      "depends_on": [
+        2,
+        5
+      ],
+      "done_when": [
+        "`go test ./internal/brain/... -count=1` passes offline"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "The scripted brain",
+      "criteria": [
+        "07-REQ-9"
+      ],
+      "tests": [
+        "TS-07-65",
+        "TS-07-66",
+        "TS-07-67",
+        "TS-07-68",
+        "TS-07-69",
+        "TS-07-70",
+        "TS-07-71"
+      ],
+      "steps": [
+        "Write the listed tests first with script files in t.TempDir() and a local session; confirm they fail",
+        "Create internal/brain/scripted.go: parse the --script file with json.Decoder.DisallowUnknownFields into {steps: [...]}; each step is exactly one of {tool, args} or {submit}, with optional expect (ok|error|denied for tool, accepted|refused for submit)",
+        "Construction failures (unreadable file, unknown field, both or neither form, invalid expect) are usage Failures naming the file and step index, raised in the registry New before any box opens",
+        "Register the `scripted` entry (CostSource none, BoxEnv empty) in the default registry",
+        "Run: validate Brief.Tools against the box tools first (internal error, no step run), then replay steps in order on the host; tool steps go through the gate over Brief.Box.Tools(), submit steps through submission.Submit with Tree = Session.FS and Write = Session.WriteFile",
+        "Treat each step as one turn; compare the actual result (ok, error, denied or accepted, refused) to expect and on mismatch stop and return an error naming the step index, expected and actual",
+        "An accepted submit ends the replay with Outcome{Submitted true, StopReason submitted} and lists remaining steps as skipped in the transcript; reaching MaxTurns gives StopReason turns with Turns = MaxTurns; running out of steps gives ended",
+        "Report CostUSD 0, CostSource none, Turns = steps run and write the transcript to Brief.TranscriptPath, setting Outcome.Transcript"
+      ],
+      "touches": [
+        "internal/brain/scripted.go",
+        "internal/brain/scripted_test.go"
+      ],
+      "depends_on": [
+        3,
+        5,
+        8
+      ],
+      "done_when": [
+        "`go test ./internal/brain/... -count=1` passes offline"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 10,
+      "kind": "implement",
+      "title": "The agentkit brain on the host over box tools",
+      "criteria": [
+        "07-REQ-1.2",
+        "07-REQ-8.2",
+        "07-REQ-8.3",
+        "07-REQ-8.6",
+        "07-REQ-10.1",
+        "07-REQ-10.2",
+        "07-REQ-10.3",
+        "07-REQ-10.4",
+        "07-REQ-10.5"
+      ],
+      "tests": [
+        "TS-07-2",
+        "TS-07-9",
+        "TS-07-58",
+        "TS-07-59",
+        "TS-07-62",
+        "TS-07-72",
+        "TS-07-73",
+        "TS-07-74",
+        "TS-07-75",
+        "TS-07-76"
+      ],
+      "steps": [
+        "Write the listed tests first using agentkit's provider/faux (recording requests) and local sessions; confirm they fail",
+        "Read what agentkit-go exposes (module is replaced by ../agentkit-go and may be unreadable): if signatures differ from the PRD's assumed agentkit.New, Config.Prefix, MaxCostUSD, BeforeToolCall and faux, adapt in one adapter file internal/brain/agentkit_adapter.go and record the differences in the task notes",
+        "Create internal/brain/agentkit.go and register the `agentkit` entry (CostSource measured, BoxEnv empty) in the default registry so Lookup of an unknown name lists agentkit and scripted",
+        "Constructor: use Options.NewProvider when set; otherwise build agentkit's provider for Options.Model and, when ANTHROPIC_API_KEY is missing from Options.Getenv, return Failure failed/auth with FixHint {Env: ANTHROPIC_API_KEY} before any box opens (register category auth if absent)",
+        "Run: validate Brief.Tools against box tools first (internal error before any model call); build the driver with agentkit.New with Prefix = Brief.Prefix, the allowlisted box tools plus a terminating tool named Kind.ToolName with Kind.Description and Kind.Schema, MaxCostUSD, MaxTurns and the task 8 gate as BeforeToolCall; send Brief.Task as the first user message",
+        "Terminating tool calls submission.Submit against the session; a *Refused returns every problem as the tool's error result and the loop continues; an acceptance ends the loop through the driver's terminating-tool mechanism or by cancelling the driver's context, giving StopReason submitted",
+        "Keep the submit tool available with an empty Brief.Tools; denied calls return the reason as the tool error result so it is the next faux request's content",
+        "Map the driver's stop to budget, turns or ended, and take cost, turns and tokens from the driver with CostSource measured; write the transcript via the gate's writer",
+        "Add a test helper that builds a Brief and box env for the agentkit and scripted entries with host tokens set (TS-07-9) and asserts Session.Spec().Env and Brief.Env are empty"
+      ],
+      "touches": [
+        "internal/brain/agentkit.go",
+        "internal/brain/agentkit_adapter.go",
+        "internal/brain/registry.go",
+        "internal/brain/agentkit_test.go"
+      ],
+      "depends_on": [
+        7,
+        8,
+        9
+      ],
+      "done_when": [
+        "`go test ./internal/brain/... -count=1` passes offline with ANTHROPIC_API_KEY unset"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 11,
+      "kind": "implement",
+      "title": "Brain contract tests, offline guarantee and documentation",
+      "criteria": [
+        "07-REQ-10.6",
+        "07-REQ-10.7"
+      ],
+      "tests": [
+        "TS-07-77",
+        "TS-07-78",
+        "TS-07-79"
+      ],
+      "steps": [
+        "Write internal/brain/contract_test.go as a table with rows scripted (script file) and agentkit (faux script); both run the same brief over a local box on a temp repo with a test kind whose validator checks a cited path exists in the tree",
+        "Each script calls a tool outside the allowlist, writes under .agent-fox/, submits an invalid payload citing a missing path, then submits the valid one; assert identical normalised payload bytes in <run_dir>/submission.json, denials not executed, problems reached the brain as its next turn, Outcome.Submitted true, cost_source none vs measured",
+        "Add the property test TS-07-78 with generated valid payloads (keys, nested values, unicode, whitespace) across both brains",
+        "Add TS-07-79: unset ANTHROPIC_API_KEY, replace http.DefaultTransport with one failing non-loopback dials, run both brains offline and assert zero dial attempts",
+        "Run `make doc` first (it generates nothing for internal packages, but steering requires it)",
+        "Update docs/architecture.md: The brain interface as built (differing fields, registry, submission file with nonce), run-dir layout additions (brief.<attempt>.md, hook.json, submission.json, transcript.<attempt>.jsonl, box-side run.json, ledger kinds), and mark agentkit placement host-side in this release",
+        "Update docs/cli.md: categories sandbox, brain, no_result, budget, submission; warnings box_unconfined, box_close_failed, submission_invalid, submission_claim_mismatch, brain_error; the shared brain and box flags and the submit command contract",
+        "Update docs/configuration.md and docs/model-usage.md: AF_MODEL, ANTHROPIC_API_KEY, cost measured vs reported per brain, and that local is unconfined",
+        "Create or update docs/development.md with the scripted brain's script format and how to write a faux-driven test; add internal/brain/, internal/box/ and internal/submission/ to README.md's What is here table",
+        "Run `make check` and fix any failures"
+      ],
+      "touches": [
+        "internal/brain/contract_test.go",
+        "docs/architecture.md",
+        "docs/cli.md",
+        "docs/configuration.md",
+        "docs/model-usage.md",
+        "docs/development.md",
+        "README.md"
+      ],
+      "depends_on": [
+        4,
+        10
+      ],
+      "done_when": [
+        "`make check` exits 0 with ANTHROPIC_API_KEY unset and no network"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 12,
+      "kind": "integration",
+      "title": "Verify every execution path end to end and remove stubs",
+      "tests": [
+        "TS-07-80",
+        "TS-07-81",
+        "TS-07-82",
+        "TS-07-83",
+        "TS-07-84"
+      ],
+      "steps": [
+        "Write the five smoke tests TS-07-80..84 against real components (real local provider, real git, real RunDir, real toolio.App for the submit command, faux provider for agentkit) and confirm they pass",
+        "Trace 07-PATH-1 through the real code: brain.Flags -> registry New(scripted) -> box.With -> box.Open -> brain.Execute -> scripted brain -> submission.Submit -> Execute decision -> box close; confirm each step calls the next and no stub remains",
+        "Trace 07-PATH-2 (agentkit on faux with a denied tool and a refused submission), 07-PATH-3 (submit command), 07-PATH-4 (stale submission, failed/no_result, usage still recorded, box closed) and 07-PATH-5 (export without .git, removed on Close)",
+        "For every criterion with a contract confirm the producer's result is consumed in production code: Result.Payload and Path, Outcome via Tally and SetUsage, box_unconfined and box_close_failed warnings, submission.Command registered by a caller, the registry and Flags used by a command",
+        "Confirm the guard call in the gate and the submit command's Run.Stdin read reach the real internal/policy and toolio code from specs 06 and 05; if an entry point from another spec is not called from production code, report it rather than stubbing",
+        "Search internal/brain, internal/box, internal/submission and internal/gitx for panic(\"not implemented\"), TODO, and a bare `return nil` on a non-trivial path, and remove any that remain",
+        "Run `make check` offline with ANTHROPIC_API_KEY unset"
+      ],
+      "touches": [
+        "internal/brain/smoke_test.go",
+        "internal/box/smoke_test.go",
+        "internal/submission/smoke_test.go"
+      ],
+      "depends_on": [
+        11
+      ],
+      "done_when": [
+        "`make check` passes offline with no key and no network"
+      ],
+      "state": "pending",
+      "optional": false
+    }
+  ]
+}

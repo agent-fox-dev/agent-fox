@@ -1,0 +1,1314 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "10",
+  "spec_name": "af_boxes_claude",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-10-1",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-1.1"
+      ],
+      "title": "The box registry holds four providers with the right isolating and in-place properties",
+      "given": [
+        "the box registry"
+      ],
+      "when": "each of landlock, podman, local and none is looked up",
+      "then": [
+        "all four names resolve",
+        "isolates is true only for landlock and podman",
+        "in-place is true only for none"
+      ],
+      "pseudocode": "for n in [landlock,podman,local,none]: p=registry.Get(n); assert p.Isolates==(n in {landlock,podman}); assert p.InPlace==(n=='none')"
+    },
+    {
+      "id": "TS-10-2",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-1.2"
+      ],
+      "title": "An unknown --sandbox value is a usage failure that lists all four providers",
+      "given": [
+        "no box has been opened",
+        "a recording provider factory"
+      ],
+      "when": "flags are resolved with --sandbox docker",
+      "then": [
+        "status is failed with category usage",
+        "the message contains landlock, podman, local and none",
+        "no box is opened"
+      ],
+      "pseudocode": "f=Resolve(['--sandbox','docker']); assert f.Category=='usage'; for n in four: assert n in f.Message; assert opens==0"
+    },
+    {
+      "id": "TS-10-3",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-1.3"
+      ],
+      "title": "Without --sandbox the provider comes from AF_SANDBOX, else landlock on Linux, else podman",
+      "given": [
+        "runtime.GOOS is injectable"
+      ],
+      "when": "flags are resolved with no --sandbox for GOOS linux, darwin and windows, with AF_SANDBOX unset and set to local, and with --sandbox none overriding AF_SANDBOX=local",
+      "then": [
+        "unset AF_SANDBOX gives landlock on linux and podman on darwin and windows",
+        "AF_SANDBOX=local gives local on every OS",
+        "--sandbox wins over AF_SANDBOX",
+        "the selected name is the one recorded in the box_open ledger entry"
+      ],
+      "pseudocode": "table of (goos, env, flag) -> expected; assert ledger.box_open.provider == expected"
+    },
+    {
+      "id": "TS-10-4",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-1.4"
+      ],
+      "title": "An invalid AF_SANDBOX value is a usage failure naming the variable",
+      "given": [
+        "AF_SANDBOX=bogus and no --sandbox"
+      ],
+      "when": "flags are resolved",
+      "then": [
+        "status is failed with category usage",
+        "the message names AF_SANDBOX and lists all four provider names",
+        "no box is opened"
+      ],
+      "pseudocode": "f=Resolve([]); assert f.Category=='usage'; assert 'AF_SANDBOX' in f.Message"
+    },
+    {
+      "id": "TS-10-5",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-1.5"
+      ],
+      "title": "A default provider that cannot open fails with a fix hint and never falls back",
+      "given": [
+        "no --sandbox and no AF_SANDBOX",
+        "the default provider is a stub whose Open fails",
+        "local and none providers are recording stubs"
+      ],
+      "when": "box.Open is called through the loop",
+      "then": [
+        "status is failed/sandbox",
+        "fix_hint names --sandbox and AF_SANDBOX",
+        "local and none are never opened",
+        "no brain process is started"
+      ],
+      "pseudocode": "r=run(); assert r.Category=='sandbox'; assert hint mentions both; assert localOpens==0 and noneOpens==0 and brainStarts==0"
+    },
+    {
+      "id": "TS-10-6",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-1.6"
+      ],
+      "title": "box_unconfined is raised exactly once for local and for none, with a distinct none message",
+      "given": [
+        "a temporary git checkout"
+      ],
+      "when": "a run opens a local box and another run opens a none box, each running two attempts",
+      "then": [
+        "each result has exactly one box_unconfined warning",
+        "the none message says the brain works on the checkout itself and the hook is the only guard"
+      ],
+      "pseudocode": "for p in [local,none]: r=run(p); assert count(r.warnings,'box_unconfined')==1; assert 'checkout itself' in none.msg and 'hook' in none.msg"
+    },
+    {
+      "id": "TS-10-7",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-1.7"
+      ],
+      "title": "--borrowed-hands with a brain other than agentkit is a usage failure",
+      "given": [
+        "brains scripted and claude"
+      ],
+      "when": "flags are resolved with --borrowed-hands and each of --brain scripted and --brain claude, and with --brain agentkit",
+      "then": [
+        "scripted and claude give failed/usage naming --borrowed-hands and agentkit",
+        "agentkit is accepted",
+        "no box opens in the failing cases"
+      ]
+    },
+    {
+      "id": "TS-10-8",
+      "kind": "property",
+      "verifies": [
+        "10-REQ-2.1"
+      ],
+      "title": "Placement is a pure function of brain, provider and borrowed-hands",
+      "given": [
+        "the box spec function"
+      ],
+      "when": "for any brain in {scripted, agentkit, claude}, any provider in {landlock, podman, local, none} and any borrowed-hands flag valid for the brain",
+      "then": [
+        "placement is host for scripted, and for agentkit under local, none or with borrowed-hands",
+        "placement is box for claude under local, landlock and podman, and for agentkit under landlock and podman without borrowed-hands",
+        "placement is checkout for claude under none",
+        "the loops open their box with the returned request"
+      ],
+      "pseudocode": "for (b,p,h) in product: assert Spec(b,p,h,tools).Placement == expected(b,p,h)"
+    },
+    {
+      "id": "TS-10-9",
+      "kind": "property",
+      "verifies": [
+        "10-REQ-2.2"
+      ],
+      "title": "Spec.Env holds exactly the credentials for the placement and nothing else",
+      "given": [
+        "a host environment generated with arbitrary extra variables plus optional GITHUB_TOKEN, GH_TOKEN, GITLAB_TOKEN, ANTHROPIC_API_KEY"
+      ],
+      "when": "for any brain, provider and borrowed-hands combination and any host environment",
+      "then": [
+        "Env is empty for host placement",
+        "Env is exactly {ANTHROPIC_API_KEY: host value} for box and checkout placement when the key is set",
+        "no other host variable appears in Env or any other field of the request"
+      ],
+      "pseudocode": "env=Spec(...).Env; assert keys(env)==(placement in {box,checkout} ? {'ANTHROPIC_API_KEY'}&set : {})"
+    },
+    {
+      "id": "TS-10-10",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-2.2"
+      ],
+      "title": "With all four secrets on the host, claude gets only the vendor key and host brains get none",
+      "given": [
+        "GITHUB_TOKEN, GH_TOKEN, GITLAB_TOKEN and ANTHROPIC_API_KEY are set on the host"
+      ],
+      "when": "the spec is computed for claude, scripted and agentkit with --borrowed-hands",
+      "then": [
+        "claude Env equals {ANTHROPIC_API_KEY}",
+        "scripted Env is empty",
+        "agentkit --borrowed-hands Env is empty"
+      ]
+    },
+    {
+      "id": "TS-10-11",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-2.3"
+      ],
+      "title": "Network is none only for a host-placed brain without execute, open otherwise, host under local and none",
+      "given": [
+        "tool sets with and without execute"
+      ],
+      "when": "the spec is computed for scripted and agentkit on host placement with each tool set, for claude under podman, and for any brain under local and none",
+      "then": [
+        "host placement without execute gives none",
+        "host placement with execute gives open",
+        "box placement gives open",
+        "local and none record host"
+      ]
+    },
+    {
+      "id": "TS-10-12",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-2.4"
+      ],
+      "title": "The podman image comes from AF_SANDBOX_IMAGE or defaults to the tools image",
+      "given": [
+        "AF_SANDBOX_IMAGE unset, then set to example.test/img:1"
+      ],
+      "when": "the spec is computed for podman, landlock, local and none",
+      "then": [
+        "podman image is quay.io/agentfox/tools:latest when unset",
+        "podman image is example.test/img:1 when set",
+        "the other providers have an empty image"
+      ]
+    },
+    {
+      "id": "TS-10-13",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-2.5"
+      ],
+      "title": "TTL is deadline plus ten minutes, landlock requires Landlock, labels match spec 07",
+      "given": [
+        "a context with a deadline 5 minutes away"
+      ],
+      "when": "the spec is computed for landlock and for podman",
+      "then": [
+        "TTL is about 15 minutes",
+        "RequireLandlock is true for landlock and false otherwise",
+        "labels equal those spec 07 produces for the same run"
+      ]
+    },
+    {
+      "id": "TS-10-14",
+      "kind": "integration",
+      "verifies": [
+        "10-REQ-2.6"
+      ],
+      "title": "box_open records image, network and placement, and the fix result carries box",
+      "given": [
+        "a recording test provider",
+        "the fix result schema golden regenerated"
+      ],
+      "when": "af fix runs with --brain scripted --sandbox local and its --schema output is requested",
+      "then": [
+        "the box_open ledger entry has image, network and placement",
+        "the result has box {provider, image, network}",
+        "the schema golden includes the box object and matches the generated schema"
+      ],
+      "pseudocode": "assert ledger.box_open has keys image,network,placement; assert result.box.provider=='local'; assert schema == golden"
+    },
+    {
+      "id": "TS-10-15",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-3.1"
+      ],
+      "title": "landlock on a non-Linux OS is refused before any sandbox is created",
+      "given": [
+        "GOOS injected as darwin",
+        "a recording sandbox factory"
+      ],
+      "when": "the landlock provider opens",
+      "then": [
+        "status is failed/sandbox with retryable false",
+        "the message is 'landlock needs Linux'",
+        "fix_hint is {flag: --sandbox, suggest: podman}",
+        "the factory is never called"
+      ]
+    },
+    {
+      "id": "TS-10-16",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-3.2"
+      ],
+      "title": "The ABI is read through a replaceable function variable",
+      "given": [
+        "GOOS is linux",
+        "the ABI function variable is replaced to return 4 and records calls"
+      ],
+      "when": "the landlock provider opens",
+      "then": [
+        "the injected function is called once",
+        "a non-injected build of the real query returns an integer or the absent value without panicking"
+      ]
+    },
+    {
+      "id": "TS-10-17",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-3.3"
+      ],
+      "title": "A Landlock ABI below 4 or no Landlock is refused naming the ABI found and needed",
+      "given": [
+        "GOOS is linux",
+        "the ABI function returns 3, then returns the absent value"
+      ],
+      "when": "the landlock provider opens",
+      "then": [
+        "each is failed/sandbox with retryable false",
+        "the message names the ABI found (3, or absent) and ABI 4 needed",
+        "fix_hint is {flag: --sandbox, suggest: podman}",
+        "no sandbox is created"
+      ]
+    },
+    {
+      "id": "TS-10-18",
+      "kind": "integration",
+      "verifies": [
+        "10-REQ-3.4"
+      ],
+      "title": "With ABI 4 the landlock session syncs .git in, exports without it, and fails an export that carries .git",
+      "given": [
+        "the ABI function returns 4",
+        "a stub agentkit landlock sandbox that records the spec and can be told to return .git in its export"
+      ],
+      "when": "the session is opened, synced and exported, and then exported again with .git present",
+      "then": [
+        "the stub receives the spec from 10-REQ-2 with RequireLandlock",
+        "InPlace() is false",
+        "sync includes .git",
+        "the normal export has no .git",
+        "the .git export returns a sandbox failure"
+      ]
+    },
+    {
+      "id": "TS-10-19",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-4.1"
+      ],
+      "title": "An unreachable podman engine is a non-retryable sandbox failure with a machine-start hint off Linux",
+      "given": [
+        "a stub podman provider whose Open returns 'cannot connect'",
+        "GOOS injected as darwin, then linux"
+      ],
+      "when": "the podman provider opens",
+      "then": [
+        "status is failed/sandbox with retryable false",
+        "the message carries 'cannot connect'",
+        "on darwin the message mentions podman machine start, on linux it does not",
+        "fix_hint names --sandbox"
+      ]
+    },
+    {
+      "id": "TS-10-20",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-4.2"
+      ],
+      "title": "A missing image that cannot be pulled is a retryable sandbox failure naming the image",
+      "given": [
+        "a stub podman provider whose Open reports image not found",
+        "AF_SANDBOX_IMAGE=example.test/img:1"
+      ],
+      "when": "the podman provider opens",
+      "then": [
+        "status is failed/sandbox with retryable true",
+        "the message names example.test/img:1 and AF_SANDBOX_IMAGE"
+      ]
+    },
+    {
+      "id": "TS-10-21",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-4.3"
+      ],
+      "title": "A differing image af version raises box_af_version_mismatch and the run continues",
+      "given": [
+        "a stub podman session whose Exec answers 'af --version' with a different commit than the running binary"
+      ],
+      "when": "the probe runs before the first process-brain run",
+      "then": [
+        "exactly one box_af_version_mismatch warning",
+        "the probe is recorded ok",
+        "the run continues and its status is unchanged",
+        "the same version raises no warning"
+      ]
+    },
+    {
+      "id": "TS-10-22",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-4.4"
+      ],
+      "title": "containers/tools/Containerfile has the required args, af build, Claude Code and user",
+      "given": [
+        "the file containers/tools/Containerfile"
+      ],
+      "when": "its text is read",
+      "then": [
+        "ARG BASE_IMAGE defaults to quay.io/agentfox/sandbox:latest",
+        "ARG AGENTKIT_REF and ARG CLAUDE_CODE_VERSION are declared",
+        "agentkit-go is cloned into the path the go.mod replace directive expects",
+        "WORKDIR /workspace and USER 1001:0 are present"
+      ],
+      "pseudocode": "txt=read(); assert regex for each; assert replace path from go.mod appears in clone target"
+    },
+    {
+      "id": "TS-10-23",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-4.5"
+      ],
+      "title": "make build-tools-container tags version and latest and build-containers builds it after the sandbox image",
+      "given": [
+        "the Makefile"
+      ],
+      "when": "`make -n build-tools-container` and `make -n build-containers` are run",
+      "then": [
+        "the first prints tags $(CONTAINER_REGISTRY)/tools:$(VERSION) and /tools:latest",
+        "the second prints the sandbox build before the tools build"
+      ]
+    },
+    {
+      "id": "TS-10-24",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-5.1"
+      ],
+      "title": "none returns an in-place session over the checkout and other providers do not",
+      "given": [
+        "a temporary git checkout passing the top-level check"
+      ],
+      "when": "box.Open is called with none and with local",
+      "then": [
+        "none session InPlace is true and Root is the checkout path",
+        "none Spec has network host and Env as in 10-REQ-2",
+        "local InPlace is false and Root is the workspace root as seen inside the box"
+      ]
+    },
+    {
+      "id": "TS-10-25",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-5.2"
+      ],
+      "title": "An in-place session serves tools over the checkout and a read-only FS",
+      "given": [
+        "an in-place session with a file a.txt"
+      ],
+      "when": "Tools() is used to read a.txt and FS(ctx) is asked to read and then to write",
+      "then": [
+        "the tools see the checkout files",
+        "reading through FS works",
+        "a write through the FS view fails and the file is unchanged"
+      ]
+    },
+    {
+      "id": "TS-10-26",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-5.3"
+      ],
+      "title": "In-place WriteFile accepts only .agent-fox paths, writes atomically and keeps an existing .gitignore",
+      "given": [
+        "an in-place session with an existing .agent-fox/.gitignore with custom bytes"
+      ],
+      "when": "WriteFile is called for .agent-fox/run/x/brief.md, for README.md, for ../x, and for .agent-fox/.gitignore",
+      "then": [
+        "the first is written with no temporary file left behind",
+        "the second and third return spec 07's error and write nothing",
+        "the existing .gitignore bytes are unchanged"
+      ]
+    },
+    {
+      "id": "TS-10-27",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-5.4"
+      ],
+      "title": "In-place Sync records box_sync with head and copies nothing, Close records box_close",
+      "given": [
+        "an in-place session and a recording ledger"
+      ],
+      "when": "Sync and Close are called",
+      "then": [
+        "a box_sync entry with head exists",
+        "a box_close entry exists",
+        "no file in the checkout or temp dir was created or modified by Sync"
+      ]
+    },
+    {
+      "id": "TS-10-28",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-5.5"
+      ],
+      "title": "Export on an in-place session is an internal error and copies nothing",
+      "given": [
+        "an in-place session"
+      ],
+      "when": "Export is called",
+      "then": [
+        "the error message is 'in place: nothing to export'",
+        "the error is an internal failure",
+        "no af-export directory is created in os.TempDir"
+      ]
+    },
+    {
+      "id": "TS-10-29",
+      "kind": "integration",
+      "verifies": [
+        "10-REQ-5.6"
+      ],
+      "title": "Under an in-place session an accepted submission is rewritten with the same bytes after the earlier ones were kept",
+      "given": [
+        "an in-place session",
+        "<run_dir>/submission.json holds accepted bytes A",
+        "a stub brain that writes valid bytes B with this attempt's nonce"
+      ],
+      "when": "brain.Execute runs the attempt",
+      "then": [
+        "the submission is accepted",
+        "<run_dir>/submission.json holds B exactly as the host accepted it"
+      ]
+    },
+    {
+      "id": "TS-10-30",
+      "kind": "integration",
+      "verifies": [
+        "10-REQ-5.7"
+      ],
+      "title": "A rejected in-place submission is moved aside and the previous bytes restored",
+      "given": [
+        "an in-place session",
+        "case 1: accepted bytes A exist; case 2: no earlier submission",
+        "a stub brain that writes an invalid or wrong-nonce file R"
+      ],
+      "when": "brain.Execute runs attempt 2",
+      "then": [
+        "R is moved to submission.rejected.2.json when it differs from the kept bytes",
+        "case 1: submission.json holds A",
+        "case 2: no submission.json exists",
+        "an identical rewrite of A creates no rejected file"
+      ]
+    },
+    {
+      "id": "TS-10-31",
+      "kind": "property",
+      "verifies": [
+        "10-REQ-5.8"
+      ],
+      "title": "submission.json only ever holds a host-accepted submission for any attempt sequence",
+      "given": [
+        "an in-place session and a stub brain driven by a script"
+      ],
+      "when": "for any sequence of attempts, each scripted as accept, reject-invalid, reject-wrong-nonce or no-file",
+      "then": [
+        "after every attempt submission.json is absent or equals the bytes of the latest accepted attempt",
+        "behaviour equals the same sequence run under local"
+      ],
+      "pseudocode": "model=None; for a in seq: run(a); if a==accept: model=bytes; assert read(submission.json)==model; assert same as local run"
+    },
+    {
+      "id": "TS-10-32",
+      "kind": "integration",
+      "verifies": [
+        "10-REQ-6.1"
+      ],
+      "title": "Under local the apply step exports once and lands all four change kinds in one trailer commit without the in-box commit",
+      "given": [
+        "a git checkout with files to modify, delete and chmod",
+        "a scripted brain that edits, adds, deletes, flips an executable bit and commits inside the box",
+        "a gate that passes"
+      ],
+      "when": "af fix runs with --sandbox local",
+      "then": [
+        "one commit on fix/<N>-<slug> carries the Agent-Fox-Run trailer",
+        "it contains the modified, new, deleted and executable-bit changes",
+        "the in-box commit is not on the branch",
+        "files are owned by the host user",
+        "Export was called once"
+      ]
+    },
+    {
+      "id": "TS-10-33",
+      "kind": "integration",
+      "verifies": [
+        "10-REQ-6.2"
+      ],
+      "title": "af fix with scripted under none lands one trailer commit and never calls Export",
+      "given": [
+        "an httptest GitHub issue",
+        "a git checkout",
+        "a session wrapper counting Export calls",
+        "a gate that passes"
+      ],
+      "when": "af fix <issue URL> --brain scripted --sandbox none runs",
+      "then": [
+        "branch fix/<N>-<slug> exists with exactly one commit that carries the Agent-Fox-Run trailer",
+        "Export calls equal 0",
+        "the protected-path revert ran on the checkout"
+      ]
+    },
+    {
+      "id": "TS-10-34",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-6.3"
+      ],
+      "title": "RevParse returns the full hash and the loop records it with the branch before an in-place run",
+      "given": [
+        "a git repo with one commit on main",
+        "an in-place session"
+      ],
+      "when": "the loop prepares a brain run",
+      "then": [
+        "the recorded HEAD is 40 hex characters and equals git rev-parse HEAD",
+        "the recorded branch is main",
+        "RevParse of an unknown ref returns an error"
+      ]
+    },
+    {
+      "id": "TS-10-35",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-6.4"
+      ],
+      "title": "An unchanged branch and HEAD continues to measuring without any git mutation",
+      "given": [
+        "an in-place run whose stub brain edits files without committing",
+        "a recording git runner"
+      ],
+      "when": "the brain run ends",
+      "then": [
+        "no reset or other mutating git command was issued",
+        "no foreign_commits_reset warning",
+        "measuring proceeds"
+      ]
+    },
+    {
+      "id": "TS-10-36",
+      "kind": "integration",
+      "verifies": [
+        "10-REQ-6.5"
+      ],
+      "title": "A foreign commit on the same branch is soft-reset and its change lands inside af's commit",
+      "given": [
+        "a stub brain that edits a file, commits it on the base branch, and submits",
+        "IsAncestor returns true for the recorded HEAD"
+      ],
+      "when": "af fix runs with --sandbox none",
+      "then": [
+        "the foreign commit is not on the base branch afterwards",
+        "its change is inside af's single commit",
+        "one foreign_commits_reset warning with count 1 is raised",
+        "the ledger records foreign_commits_reset"
+      ],
+      "pseudocode": "assert not contains(git log base, foreignSha); assert file in diff(afCommit); assert warn.count==1"
+    },
+    {
+      "id": "TS-10-37",
+      "kind": "integration",
+      "verifies": [
+        "10-REQ-6.6",
+        "10-REQ-6.5"
+      ],
+      "title": "A branch switch, detached HEAD or rewritten history is refused with the tree untouched",
+      "given": [
+        "three stub brains: one checks out another branch, one detaches HEAD, one resets history and recommits"
+      ],
+      "when": "af fix runs with --sandbox none for each",
+      "then": [
+        "each is failed/git with retryable false",
+        "the message names the recorded and current branch and HEAD",
+        "the tree and refs are exactly as the brain left them",
+        "nothing is landed or parked",
+        "no foreign_commits_reset warning"
+      ]
+    },
+    {
+      "id": "TS-10-38",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-7.1"
+      ],
+      "title": "Exec returns exit code and capped output, and a non-zero exit is not an error",
+      "given": [
+        "a stub box session whose execute tool echoes output and a none session"
+      ],
+      "when": "Exec runs 'exit 3', 'echo hi' and a command printing more than the cap",
+      "then": [
+        "the code is 3 with a nil error",
+        "the output of echo is hi",
+        "oversized output is truncated to the cap",
+        "under none the command ran with sh -c at the checkout",
+        "the box provider ran through the execute tool at Root()"
+      ]
+    },
+    {
+      "id": "TS-10-39",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-7.2"
+      ],
+      "title": "The probe runs once per session before the first process-brain run and records each binary",
+      "given": [
+        "a session with fake af and claude that answer --version",
+        "a writable HOME"
+      ],
+      "when": "two process-brain runs happen in one session",
+      "then": [
+        "af --version and claude --version each ran once",
+        "box_probe entries have binary, ok and version",
+        "a claude run probes claude and an agentkit run does not"
+      ]
+    },
+    {
+      "id": "TS-10-40",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-7.3"
+      ],
+      "title": "A failed probe stops before the brain with a sandbox failure naming binary, provider and image",
+      "given": [
+        "claude --version exits 127, or HOME is unset, or HOME is unwritable"
+      ],
+      "when": "the process runner starts the first run",
+      "then": [
+        "status is failed/sandbox with retryable false",
+        "the message names the binary (or HOME), the provider and the image",
+        "the brain command was never started",
+        "box_probe is recorded with ok false"
+      ]
+    },
+    {
+      "id": "TS-10-41",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-7.4"
+      ],
+      "title": "af and claude are resolved per provider",
+      "given": [
+        "Options.AFPath overrides to /x/bin/af",
+        "claude is on the host PATH at /y/claude"
+      ],
+      "when": "the command is built under local, landlock, none and podman",
+      "then": [
+        "local, landlock and none use the AFPath absolute path, put /x/bin first on PATH and use the LookPath claude",
+        "podman calls af and claude by name and uses the box's PATH",
+        "without AFPath the running executable is used"
+      ]
+    },
+    {
+      "id": "TS-10-42",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-7.5"
+      ],
+      "title": "The command runs under env -i with an allowlist, credential parameters and single-quoted arguments",
+      "given": [
+        "host variables LANG, tz, HTTPS_PROXY, SSL_CERT_FILE, GITHUB_TOKEN, FOO and ANTHROPIC_API_KEY=sk-secret",
+        "AF_MODEL=m1"
+      ],
+      "when": "the process command text is built",
+      "then": [
+        "it starts with env -i",
+        "only PATH, HOME, the set allowlisted variables and ANTHROPIC_API_KEY=\"$ANTHROPIC_API_KEY\" style references appear",
+        "FOO and GITHUB_TOKEN are absent",
+        "AF_MODEL=m1 is inline",
+        "every argument is single-quoted",
+        "the secret value appears in neither the command text nor the ledger"
+      ]
+    },
+    {
+      "id": "TS-10-43",
+      "kind": "property",
+      "verifies": [
+        "10-REQ-7.6"
+      ],
+      "title": "The fake claude sees the vendor key and no forge token under local and none for any host environment",
+      "given": [
+        "GITHUB_TOKEN, GH_TOKEN, GITLAB_TOKEN and ANTHROPIC_API_KEY set on the host, plus generated extra variables",
+        "a fake claude recording its environment"
+      ],
+      "when": "for any generated extra host environment, a claude run under local and under none",
+      "then": [
+        "the recorded environment has ANTHROPIC_API_KEY with the host value",
+        "GITHUB_TOKEN, GH_TOKEN and GITLAB_TOKEN are absent",
+        "variables outside the allowlist are absent"
+      ],
+      "pseudocode": "for env in gen(): for p in [local,none]: rec=run(p,env); assert rec.env['ANTHROPIC_API_KEY']==key; assert no forge tokens in rec.env"
+    },
+    {
+      "id": "TS-10-44",
+      "kind": "integration",
+      "verifies": [
+        "10-REQ-7.7"
+      ],
+      "title": "A process brain gets brief.md on stdin, its output lands in the run dir and is copied to the host with caps",
+      "given": [
+        "a fake claude that writes a 2 MiB output JSON and 200 KiB of stderr"
+      ],
+      "when": "a claude run completes under local",
+      "then": [
+        "the fake received brief.md bytes on stdin",
+        "output and stderr were redirected to .agent-fox/run/<id>/claude.<attempt>.json and .stderr",
+        "the host copy of the JSON is at most 1 MiB and the stderr copy is the last 64 KiB",
+        "two brain_output artifacts are registered",
+        "a submission decision does not depend on these files"
+      ]
+    },
+    {
+      "id": "TS-10-45",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-7.8"
+      ],
+      "title": "A process that exceeds its timeout is killed with its group and brain_process is recorded",
+      "given": [
+        "a fake process that spawns a child and sleeps",
+        "Brief.Timeout of 1 second, and a second case with only a context deadline"
+      ],
+      "when": "the process runner executes it, and a normal run also executes",
+      "then": [
+        "the process and its child are dead after the timeout",
+        "brain_process {brain, exit_code, duration_ms} is recorded for the timed-out run",
+        "brain_process is recorded for the normal run too"
+      ]
+    },
+    {
+      "id": "TS-10-46",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-8.1"
+      ],
+      "title": "claude is registered with reported cost and the command submission route",
+      "given": [
+        "the brain registry"
+      ],
+      "when": "the claude entry is looked up and a triage and a fix brief are rendered for it",
+      "then": [
+        "CostSource is reported",
+        "the briefs contain 'af triage submit --run-id <id>' and 'af fix submit --run-id <id>'",
+        "the briefs do not use the in-process file_diagnosis route"
+      ]
+    },
+    {
+      "id": "TS-10-47",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-8.2"
+      ],
+      "title": "claude without ANTHROPIC_API_KEY fails with auth before any box opens, except under none",
+      "given": [
+        "ANTHROPIC_API_KEY unset",
+        "a recording provider"
+      ],
+      "when": "claude is constructed under local, landlock, podman and none",
+      "then": [
+        "local, landlock and podman give failed/auth with fix_hint {env: ANTHROPIC_API_KEY}",
+        "no box was opened",
+        "none constructs successfully"
+      ]
+    },
+    {
+      "id": "TS-10-48",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-8.3"
+      ],
+      "title": "claude missing from the host PATH fails construction under local, landlock and none",
+      "given": [
+        "PATH without claude, ANTHROPIC_API_KEY set"
+      ],
+      "when": "claude is constructed under local, landlock, none, and podman",
+      "then": [
+        "local, landlock and none give failed/brain with retryable false and a message naming claude",
+        "no box is opened",
+        "podman does not require claude on the host PATH"
+      ]
+    },
+    {
+      "id": "TS-10-49",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-8.4"
+      ],
+      "title": "guard.json and claude-settings.json are placed in the box with host copies",
+      "given": [
+        "a Brief with Hook protected_paths and allow_programs",
+        "a recording session"
+      ],
+      "when": "a claude attempt is prepared",
+      "then": [
+        "guard.json has version 1, the Hook's protected_paths and allow_programs, and no suite key",
+        "claude-settings.json has one hooks.PreToolUse entry with matcher * and a command of the form '<af> guard check --host claude --dir <root> --policy <root>/.agent-fox/run/<id>/guard.json' with timeout 30",
+        "both were written through WriteFile and copied to the host run directory"
+      ]
+    },
+    {
+      "id": "TS-10-50",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-8.5"
+      ],
+      "title": "The claude command line carries the required flags, the fixed note and --model only when AF_MODEL is set",
+      "given": [
+        "AF_MODEL unset, then set to m1"
+      ],
+      "when": "the claude command is built",
+      "then": [
+        "it contains -p --output-format json --max-turns <N> --permission-mode dontAsk --settings <path> --strict-mcp-config --allowedTools --disallowedTools --append-system-prompt",
+        "the note says headless, one submission through the briefed command, never commit/push/write to the forge, and a refusal is the next turn",
+        "--model m1 is present only when AF_MODEL is set",
+        "brief.md is fed on stdin and not as an argument"
+      ]
+    },
+    {
+      "id": "TS-10-51",
+      "kind": "property",
+      "verifies": [
+        "10-REQ-8.6"
+      ],
+      "title": "The tool mapping table drives allow and disallow lists for any tool set",
+      "given": [
+        "the single mapping table"
+      ],
+      "when": "for any subset of the seven box tools in Brief.Tools",
+      "then": [
+        "allowed tools equal the union of the mapped Claude tools plus Bash(af <agent> submit:*)",
+        "a navigation tool with no equivalent is dropped and the drop is in the ledger",
+        "WebFetch and WebSearch are always disallowed",
+        "Write, Edit, MultiEdit and NotebookEdit are disallowed when the set has no writer"
+      ],
+      "pseudocode": "for ts in subsets(tools): a,d=Map(ts); assert 'Bash(af triage submit:*)' in a; assert {'WebFetch','WebSearch'}<=d; if no writer: assert writers<=d"
+    },
+    {
+      "id": "TS-10-52",
+      "kind": "integration",
+      "verifies": [
+        "10-REQ-8.7"
+      ],
+      "title": "The settings hook command denies go test and submission writes and allows git diff",
+      "given": [
+        "a claude-settings.json produced for a run",
+        "Claude Code PreToolUse payloads"
+      ],
+      "when": "the hook command is run with Bash 'go test ./...', Write to .agent-fox/run/<id>/submission.json, and Bash 'git diff'",
+      "then": [
+        "the first stdout is a permissionDecision deny whose reason names af gate run",
+        "the second is a deny",
+        "the third is {}",
+        "every exit code is 0"
+      ]
+    },
+    {
+      "id": "TS-10-53",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-9.1"
+      ],
+      "title": "Claude output JSON maps to the outcome for success, max turns, budget and other subtypes",
+      "given": [
+        "fake claude outputs: success with total_cost_usd, error_max_turns, subtype error_budget, subtype other, one with only cost_usd and cache tokens"
+      ],
+      "when": "the claude brain's Run parses each",
+      "then": [
+        "CostUSD comes from total_cost_usd else cost_usd",
+        "Turns from num_turns",
+        "InputTokens is the sum of input, cache_creation and cache_read tokens, OutputTokens from output_tokens",
+        "StopReason is ended, turns, budget, error and error respectively",
+        "Submitted is true only when the box submission.json carries this attempt's nonce",
+        "Transcript is empty",
+        "claude_result is recorded and usage.cost_source is reported"
+      ]
+    },
+    {
+      "id": "TS-10-54",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-9.2"
+      ],
+      "title": "A missing or unparseable output file gives cost 0, cost_source none and one warning",
+      "given": [
+        "a fake claude that writes no output, and another that writes 'not json'",
+        "a valid submission is made"
+      ],
+      "when": "the claude brain and the in-box agentkit brain run",
+      "then": [
+        "CostUSD is 0 and usage.cost_source is none",
+        "one brain_usage_unavailable warning each",
+        "the submission decision still proceeds from the submission file"
+      ]
+    },
+    {
+      "id": "TS-10-55",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-9.3"
+      ],
+      "title": "A non-zero exit without a valid submission makes Run return an error carrying stderr's tail",
+      "given": [
+        "a fake claude that writes 5 KiB of stderr ending in 'TAIL-MARK' and exits 2 without submitting"
+      ],
+      "when": "Run is called",
+      "then": [
+        "the returned error is non-nil",
+        "it contains TAIL-MARK and no more than 2 KiB of stderr",
+        "with a valid submission and a non-zero exit, no error is returned"
+      ]
+    },
+    {
+      "id": "TS-10-56",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-9.4"
+      ],
+      "title": "A reported cost over MaxCostUSD raises budget_exceeded and sets budget only when nothing was submitted",
+      "given": [
+        "MaxCostUSD 1.00 and a fake claude reporting 2.50"
+      ],
+      "when": "it runs once without submitting and once with a submission",
+      "then": [
+        "one budget_exceeded warning each",
+        "StopReason is budget when nothing was submitted",
+        "StopReason is not changed to budget when something was submitted"
+      ]
+    },
+    {
+      "id": "TS-10-57",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-9.5"
+      ],
+      "title": "agentkit inside landlock or podman runs af <agent> run with only the vendor key",
+      "given": [
+        "a recording test provider and a fake af",
+        "ANTHROPIC_API_KEY set, then unset",
+        "AF_MODEL=m1"
+      ],
+      "when": "agentkit runs under landlock and podman without --borrowed-hands, and is constructed without the key",
+      "then": [
+        "the command is '<af> <agent> run --run-id <id> --dir <root> --budget … --max-turns … --timeout …' with AF_MODEL=m1 inline",
+        "Spec.Env is {ANTHROPIC_API_KEY}",
+        "without the key construction is failed/auth before any box opens"
+      ]
+    },
+    {
+      "id": "TS-10-58",
+      "kind": "integration",
+      "verifies": [
+        "10-REQ-9.6"
+      ],
+      "title": "Execute puts prefix_bytes in run.json and af <agent> run falls back to it when run-state is absent",
+      "given": [
+        "a Brief whose Prefix is N bytes",
+        "a run directory with brief.md and run.json but no triage.json or fix run-state file"
+      ],
+      "when": "Execute places the files and then af triage run and af fix run are started over that directory",
+      "then": [
+        "run.json has prefix_bytes equal to N",
+        "both commands take brief.md and prefix_bytes from run.json",
+        "the submit core ignores the extra field in run.json"
+      ]
+    },
+    {
+      "id": "TS-10-59",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-9.7"
+      ],
+      "title": "The in-box agentkit envelope maps to measured usage, the claim and the stop reason",
+      "given": [
+        "fake af envelopes: success with usage and result.submitted true, budget failure with fix_hint flag --budget, budget failure with flag --max-turns, another failure"
+      ],
+      "when": "the agentkit brain parses .agent-fox/run/<id>/agentkit.<attempt>.json",
+      "then": [
+        "cost, tokens and turns come from usage with CostSource measured",
+        "Submitted is result.submitted",
+        "StopReason is ended, budget, turns, error respectively"
+      ]
+    },
+    {
+      "id": "TS-10-60",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-9.8"
+      ],
+      "title": "agentkit stays host-placed over Session.Tools with empty Env under local, none and --borrowed-hands",
+      "given": [
+        "a recording provider"
+      ],
+      "when": "agentkit runs under local, under none, and under landlock with --borrowed-hands",
+      "then": [
+        "no process was executed through Session.Exec",
+        "the driver used Session.Tools()",
+        "Spec.Env is empty"
+      ]
+    },
+    {
+      "id": "TS-10-61",
+      "kind": "integration",
+      "verifies": [
+        "10-REQ-10.1"
+      ],
+      "title": "Scripted, agentkit on faux and fake claude leave identical diagnosis bytes and claude reports its cost",
+      "given": [
+        "an httptest GitHub issue",
+        "a fake claude first on PATH scripted to submit the same diagnosis and write cost 0.42 and 5 turns",
+        "af built in TestMain"
+      ],
+      "when": "af triage <issue URL> --sandbox local runs with --brain scripted, --brain agentkit and --brain claude",
+      "then": [
+        "the three <run_dir>/submission.json files hold the same normalised bytes",
+        "the claude result has usage.cost_source reported with cost 0.42 and 5 turns"
+      ]
+    },
+    {
+      "id": "TS-10-62",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-10.2"
+      ],
+      "title": "make check needs no key, engine or network and every legacy test passes --sandbox local",
+      "given": [
+        "a go/parser scan of cmd/af and internal tests",
+        "ANTHROPIC_API_KEY, CONTAINER engine and network absent"
+      ],
+      "when": "the scan looks for triage and fix invocations and the opt-in tests are run",
+      "then": [
+        "every af triage and af fix invocation in tests that does not exercise another provider passes --sandbox local",
+        "the opt-in tests are skipped",
+        "make check exits 0 offline"
+      ]
+    },
+    {
+      "id": "TS-10-63",
+      "kind": "integration",
+      "verifies": [
+        "10-REQ-10.3"
+      ],
+      "title": "Opt-in tests run box invariants, fix end to end and the real claude contract row when enabled",
+      "given": [
+        "AF_TEST_LANDLOCK=1 on Linux with ABI 4+, AF_TEST_PODMAN=1 with an engine and image, AF_TEST_CLAUDE=1 with ANTHROPIC_API_KEY and claude on PATH"
+      ],
+      "when": "the opt-in tests run",
+      "then": [
+        "spec 07's box invariant tests pass under each enabled provider",
+        "af fix with scripted under landlock and podman lands one trailer commit with edit, addition, deletion and executable-bit change, not the in-box commit",
+        "the contract row with real claude passes under local, and under podman when both variables are set"
+      ]
+    },
+    {
+      "id": "TS-10-64",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-10.4"
+      ],
+      "title": "An opt-in test with a missing variable or prerequisite is skipped with a named reason",
+      "given": [
+        "AF_TEST_LANDLOCK, AF_TEST_PODMAN and AF_TEST_CLAUDE unset, then set with the prerequisite absent"
+      ],
+      "when": "the opt-in gate helpers are called inside a test",
+      "then": [
+        "the test is reported as skipped, not failed",
+        "the skip reason names the missing variable or prerequisite"
+      ]
+    },
+    {
+      "id": "TS-10-65",
+      "kind": "unit",
+      "verifies": [
+        "10-REQ-10.5"
+      ],
+      "title": "The documents name what this scope ships",
+      "given": [
+        "docs and README after make doc"
+      ],
+      "when": "the files are read",
+      "then": [
+        "docs/cli.md names --sandbox values and default, --borrowed-hands, --brain claude, the four warnings, box_unconfined under none and the fix result box",
+        "docs/configuration.md and docs/model-usage.md name AF_SANDBOX, AF_SANDBOX_IMAGE, AF_MODEL to --model, claude's after-run cost check and the network per placement",
+        "docs/architecture.md has the placement table and tools image",
+        "docs/development.md names the opt-in variables and fake-claude script format",
+        "README.md mentions containers/tools/"
+      ]
+    },
+    {
+      "id": "TS-10-66",
+      "kind": "smoke",
+      "verifies": [
+        "10-PATH-1",
+        "10-REQ-9.1"
+      ],
+      "title": "A developer triages an issue with the claude brain in a local box end to end",
+      "given": [
+        "an httptest GitHub issue",
+        "a fake claude first on PATH that runs the hook and submits through the real af binary",
+        "ANTHROPIC_API_KEY set"
+      ],
+      "when": "af triage <issue URL> --brain claude --sandbox local runs",
+      "then": [
+        "box_unconfined is raised once and box_open records placement box and network host",
+        "brief.md, run.json with prefix_bytes, guard.json and claude-settings.json were placed",
+        "the claude process ran under env -i with only the vendor key",
+        "brain_output artifacts exist on the host",
+        "<run_dir>/submission.json holds the accepted diagnosis",
+        "usage.cost_source is reported with the fake's cost and turns"
+      ],
+      "real_components": [
+        "af binary",
+        "cmd/af triage",
+        "brain.Flags",
+        "box registry and local provider",
+        "brain.Execute",
+        "process runner",
+        "claude brain",
+        "af guard check",
+        "af triage submit",
+        "fake claude executable"
+      ]
+    },
+    {
+      "id": "TS-10-67",
+      "kind": "smoke",
+      "verifies": [
+        "10-PATH-2",
+        "10-REQ-6.5"
+      ],
+      "title": "A developer fixes in place with none and a foreign commit is folded into af's commit",
+      "given": [
+        "an httptest GitHub issue",
+        "a git checkout on main",
+        "a scripted brain that edits, commits on main, and submits"
+      ],
+      "when": "af fix <issue URL> --brain scripted --sandbox none runs",
+      "then": [
+        "box_unconfined says the hook is the only guard",
+        "Export is never called",
+        "foreign_commits_reset is raised with count 1",
+        "fix/<N>-<slug> has one commit with the Agent-Fox-Run trailer containing the foreign change",
+        "the foreign commit is not on main"
+      ],
+      "real_components": [
+        "af binary",
+        "cmd/af fix",
+        "none provider in-place session",
+        "fix loop",
+        "gitx with real git",
+        "protected-path revert",
+        "gate"
+      ]
+    },
+    {
+      "id": "TS-10-68",
+      "kind": "smoke",
+      "verifies": [
+        "10-PATH-3",
+        "10-REQ-6.1"
+      ],
+      "title": "A developer fixes an issue inside a landlock box with all four change kinds landing in one commit",
+      "given": [
+        "AF_TEST_LANDLOCK=1 on Linux with ABI 4 or newer, otherwise the test is skipped with a reason",
+        "an httptest GitHub issue and a git checkout"
+      ],
+      "when": "af fix <issue URL> --brain scripted --sandbox landlock runs with a brain that modifies, adds, deletes, flips an executable bit and commits inside the box",
+      "then": [
+        "one commit with the Agent-Fox-Run trailer holds all four changes",
+        "the in-box commit is not on the branch",
+        "files are owned by the host user"
+      ],
+      "real_components": [
+        "af binary",
+        "cmd/af fix",
+        "landlock provider with real agentkit sandbox",
+        "box.Session Sync and Export",
+        "fix apply step",
+        "gitx with real git"
+      ]
+    },
+    {
+      "id": "TS-10-69",
+      "kind": "smoke",
+      "verifies": [
+        "10-PATH-4",
+        "10-REQ-1.5"
+      ],
+      "title": "With the default box down af fails with sandbox and never falls back",
+      "given": [
+        "GOOS injected as darwin, no --sandbox and no AF_SANDBOX",
+        "the podman provider cannot reach its engine",
+        "an httptest GitHub issue"
+      ],
+      "when": "af fix <issue URL> runs",
+      "then": [
+        "status is failed/sandbox with retryable false",
+        "the message mentions podman machine start",
+        "fix_hint names --sandbox and AF_SANDBOX",
+        "no brain was started",
+        "local and none were never opened"
+      ],
+      "real_components": [
+        "af binary",
+        "cmd/af fix",
+        "brain.Flags default selection",
+        "box registry",
+        "podman provider failure mapping",
+        "result envelope"
+      ]
+    }
+  ]
+}
