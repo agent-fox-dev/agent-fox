@@ -36,8 +36,13 @@ change as the code: a document that is out of date is a regression.
 | `internal/conform` | The revert check: whether the tests of a change fail without it. |
 | `internal/policy` | The guard: the tokenizer, the rules, the policy files, and the decision for a tool call. |
 | `internal/repomap` | The repository map at a token budget. |
+| `internal/box` | The box that holds a brain's tree: a registry of providers (`local`), `Open` and `Sync` (the checkout goes in with its `.git`), a read-only `FS`, `WriteFile` under `.agent-fox/`, `Export` (without `.git`), `Close`, and `With`, which closes on every path. Every name of the hands' sandbox module that is not a type is in `adapter.go`. |
+| `internal/submission` | The submission protocol: `Kind`, `Submit` (the one path to a submission file, which validates before it writes), `RootWriter`, and `Command`, the `af <agent> submit` command of a kind. |
+| `internal/brain` | The `Brain` contract and its registry, the shared flags, `Execute` (place the brief, run the brain, decide from the file), the tool gate and the transcript, the `scripted` brain and the `agentkit` brain. |
 
-The five packages from `project` to `repomap` return plain Go results and
+The five packages from `project` to `repomap` (not the three after them, which are
+the library of the agent commands and use `toolio`'s failures and run directory)
+return plain Go results and
 errors. They never import `internal/toolio`, never call `os.Exit` or
 `log.Fatal`, and never panic on bad input; a test reads their sources to see
 that. The commands in `cmd/af` map their errors onto the failure categories of
@@ -86,6 +91,67 @@ so nothing in it changes a tree hash.
   `go test ./internal/toolio ./cmd/af -update`. A test also compares the
   top-level properties of each command's schema with the JSON fields of its Go
   result type, so the two cannot drift apart.
+
+## The scripted brain
+
+`--brain scripted --script <file>` replays a script on the host: no model, no cost,
+and a step can say what it expects, so a script is also a test of what a run
+does. The file is `{"steps": [...]}`, and a step is exactly one of two forms:
+
+```json
+{"steps": [
+  {"tool": "write_file", "args": {"path": "notes/a.txt", "content": "hello\n"}, "expect": "ok"},
+  {"tool": "write_file", "args": {"path": ".agent-fox/x", "content": "x"}, "expect": "denied"},
+  {"submit": {"summary": "done", "files": ["notes/a.txt"]}, "expect": "accepted"}
+]}
+```
+
+- `{"tool": name, "args": {...}}` calls a tool of the box through the gate, and
+  `expect` is `ok`, `error` (the tool failed) or `denied` (the gate or the guard
+  refused it, and it was not run).
+- `{"submit": payload}` submits against the tree, and `expect` is `accepted` or
+  `refused`.
+
+A file that cannot be read, that holds a field that is not described, a step with
+both forms or neither, `args` on a submit, an empty tool name or an `expect` that
+does not fit its step is a `usage` failure that names the file and the step
+(counted from 0), found when the brain is made, before any box opens. Each step is
+a turn: an accepted submission ends the replay, with the steps after it listed as
+skipped in the transcript; `--max-turns` ends it too (`turns`), and so does the
+end of the steps (`ended`). A result that is not the one a step expects stops the
+replay with an error that names the step, what was expected and what came.
+
+## Writing a test of a brain
+
+A test of a brain runs it through `brain.Execute` over a real `local` box on a
+temporary git repository (with an identity of its own, which a commit in the box
+needs, as the box has a private `HOME`), a real run directory, and a `Report`
+that remembers. The `agentkit` brain is driven by the hands' faux provider, which
+plays the turns of a model and records the requests it was sent:
+
+```go
+p := faux.New(
+    faux.ToolCall("c1", "write_file", `{"path":"a.txt","content":"x"}`), // outside the allowlist: denied
+    faux.ToolCall("c2", "submit_test", `{"summary":"done"}`),            // the terminating tool
+)
+b, _ := brain.Default.New("agentkit", brain.Options{
+    Model:       "faux-1",
+    Getenv:      func(string) (string, bool) { return "", false }, // no key is read
+    NewProvider: func(string) (core.ProviderClient, error) { return p, nil },
+})
+res, err := brain.Execute(ctx, brain.Request{ /* Session, Name, Brain: b, Brief, RunDir, Report, Tally */ })
+// p.Requests()[1] is what the model saw after its first turn: the denial.
+```
+
+Give a turn a cost with `faux.Turn.Usage` (`SetField` and `SetCost`) to see the
+cost bound, and a `Brief.MaxTurns` for the turn bound. What a test checks is the
+file and the ledger of the run, never what the brain printed: `res.Payload`, the
+`submission.json` of the run directory, the warnings and artifacts of the
+`Report`, and `RunDir.Ledger()`. A test of a kind gives `submission.Kind` a
+`Validate` that reads the tree it is given. The whole of `internal/brain`,
+`internal/box` and `internal/submission` runs with no key and no network
+(`TestTheBrainsNeedNoKeyAndNoNetwork_TS_07_79` replaces the HTTP transport with
+one that counts the requests).
 
 ## Adding a command
 

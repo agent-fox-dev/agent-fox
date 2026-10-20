@@ -508,7 +508,7 @@
       "done_when": [
         "`make check` exits 0 with ANTHROPIC_API_KEY unset and no network"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

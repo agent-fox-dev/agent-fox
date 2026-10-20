@@ -20,6 +20,20 @@ Without a token, `af` reads public issues and a 404 means the issue may be
 private (`failed`/`auth` with the token to set in `fix_hint`). Writing needs a
 token.
 
+### The brain
+
+| Variable | Used for |
+|---|---|
+| `AF_MODEL` | The model the `agentkit` brain runs, as the catalog of the hands names it. Empty is the catalog's default for the vendor, `claude-sonnet-5-5`. The commands that run a brain read it and give it to the brain as `brain.Options.Model`; no command of this release does yet. |
+| `ANTHROPIC_API_KEY` | The credential of the `agentkit` brain's provider, when no provider is injected. The provider resolves its credentials as the hands' does: `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` (and `ANTHROPIC_OAUTH_TOKEN`), optionally `ANTHROPIC_BASE_URL`, and Vertex AI or Bedrock when `CLAUDE_CODE_USE_VERTEX` or `CLAUDE_CODE_USE_BEDROCK` is `1`. Without any, the brain is not made: `failed`/`auth` with `fix_hint.env` `ANTHROPIC_API_KEY`, before a box is opened. |
+
+The key goes to the host process that runs the driver and to nothing else: the
+box's environment holds only the names the chosen brain asks for (none, for
+`agentkit` and `scripted`), so no host token, no forge token and no vendor key
+is in a box. The `scripted` brain reads no variable. The `local` box provider,
+the only one in this release, has no process or network isolation, and a run
+that opens it says so with the warning `box_unconfined`.
+
 **Which forge.** The forge of a command is the one the issue URL names, else
 the one `--repo` and the environment say, else the one the `origin` remote of
 `--dir` names. If only the GitHub variables are set, it is GitHub; if only

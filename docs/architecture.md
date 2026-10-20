@@ -147,6 +147,17 @@ the run directory, and a command adds its own beside them:
 | `ledger.jsonl` | the command, through `RunDir.Record` | append-only JSON lines `{seq, ts, kind, data}`, `seq` from 1; the shell records nothing in it |
 | `report.md` | the command, through `RunDir.WriteReport` | a report, listed in the envelope as an artifact |
 | `panic.txt` | the shell | the stack of a panic of the command |
+| `brief.<attempt>.md`, `hook.json` | `brain.Execute` | the brief a brain was given, and the hook configuration placed with it |
+| `submission.json` | `brain.Execute` | the accepted submission, copied from the box once it is validated again |
+| `transcript.<attempt>.jsonl` | an in-process brain | its tool calls, `{seq, tool, args, decision, reason, ok, result}` with `args` and `result` cut to 4096 bytes; af never reads it |
+| `brain-panic.<attempt>.txt` | `brain.Execute` | the stack of a brain that panicked |
+
+The box has run files of its own under `.agent-fox/run/<id>/`: `brief.md`,
+`run.json`, `hook.json` and `submission.json`, placed by `af` and not by the
+brain. The ledger of a run that has a brain holds the entries `box_open`,
+`box_sync`, `box_export`, `box_close`, `brief_placed`, `brain_start`,
+`brain_end` and the `submission_*` ones, which [cli.md](cli.md#the-ledger)
+lists.
 
 `toolio.OpenRunDir(dir, id)` opens an existing run for the commands that
 carry one on (`submit`, `land`); an id that is not of the form of a run id is
@@ -446,6 +457,82 @@ Three implementations:
 The interface is honest only if the three agree on the contract above. A
 test runs the same brief through each available brain against the scripted
 provider and checks that `af` saw the same submission.
+
+### The brain interface, as built
+
+`internal/brain`, `internal/box` and `internal/submission` hold the first two
+brains (`agentkit` and `scripted`) and what they run on. The sketch above is
+what was built, with these differences:
+
+```go
+type Brain interface {
+    Run(ctx context.Context, b Brief) (Outcome, error)
+}
+
+type Brief struct {
+    RunID, Attempt                // the run, and the attempt, from 1
+    Kind           submission.Kind // what the brain submits and how it is validated
+    Prefix, Task   string         // Document() is Prefix + Task; Prefix is byte-identical across attempts
+    Tools          []string       // the allowlist of box tool names
+    Hook           HookConfig     // {run_id, protected_paths, allow_programs}; always protects .agent-fox/
+    Box            *box.Session   // never nil in this release
+    Env            map[string]string // for a brain started inside the box; empty for the in-process brains
+    MaxCostUSD     float64
+    MaxTurns       int
+    Timeout        time.Duration
+    TranscriptPath string         // a host path the brain may write a transcript to
+    Observe        func(ToolCall) // told of every tool call
+}
+
+type Outcome struct {
+    Submitted    bool   // the brain's claim; af decides from the file
+    StopReason   string // submitted | ended | budget | turns | error
+    CostUSD      float64
+    CostSource   string // measured | reported | none
+    Turns, InputTokens, OutputTokens int
+    Transcript   string // a path; never read by af
+}
+```
+
+`Brief.Box` is a `*box.Session` and not the hands' `sandbox.Sandbox`, because a
+brain needs the run-file writes, the read view and the tools together, and the
+session keeps the sandbox's API behind one adapter file. `Outcome` is used for
+the envelope's `usage` and for one warning, `submission_claim_mismatch`:
+whether a submission exists is decided from the file alone.
+
+**Choosing.** `brain.Registry` holds `Entry{Name, CostSource, BoxEnv, New}`; the
+default has `agentkit` (cost source `measured`) and `scripted` (`none`).
+`BoxEnv` names the host variables that reach the box of that brain, and nothing
+else does: it is empty for both. `box` has a registry of providers of its own,
+with `local` in it. `brain.Flags` is the shared set of flags ([cli.md](cli.md#brains-and-boxes)).
+
+**Running.** `brain.Execute(ctx, Request{Session, Name, Brain, Brief, RunDir,
+Report, Tally, Heartbeat, Rand})` runs one brief in a held box
+(`box.With` opens it and closes it on every path). Before the brain it draws a
+16-hex nonce and writes into the box `.agent-fox/.gitignore`, `brief.md`,
+`run.json` (`{run_id, kind, attempt, nonce}`) and `hook.json`, and into the run
+directory `brief.<attempt>.md` and `hook.json`; then it runs the brain, adds its
+cost to the `Tally` (a failed attempt and a panic included) and decides from the
+box's `submission.json` whether there is a submission (see [cli.md](cli.md#brains-and-boxes)).
+The nonce makes a stale file, left by an earlier attempt or by a sync, count as
+no submission whatever the sync does with `.agent-fox/`.
+
+**The submission file** is written by one function, `submission.Submit`, which
+validates before it writes and never leaves a refused one: inside a box a brain
+reaches it through its terminating tool (`agentkit`), a step of its script
+(`scripted`), or `af <agent> submit` (a brain with its own hands).
+
+**The tool gate.** Both in-process brains send every call through one gate: the
+brief's allowlist, then the ring-1 policy (`policy.DecideAt`) with the brief's
+hook and the suite of the checkout, which is the same rule set that `af guard
+check` gives a hook. The `agentkit` brain uses it as the driver's `Guard` and
+`After`.
+
+**Placement.** In this release the `agentkit` brain always runs on the host,
+over the box's tools, which is the only placement that means anything with the
+`local` provider; running the driver inside a box with one `execute`, and the
+`claude` brain with its settings file and hook, belong to the scope that adds
+the other box providers.
 
 ## The hub
 
