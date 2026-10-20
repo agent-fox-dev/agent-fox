@@ -147,7 +147,7 @@
       "done_when": [
         "`go test ./internal/submission/... -count=1` passes offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
