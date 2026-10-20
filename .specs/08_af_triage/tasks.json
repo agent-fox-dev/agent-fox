@@ -536,7 +536,7 @@
         "`make check` passes",
         "docs/generated/skills.txt exists"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

@@ -27,7 +27,7 @@ change as the code: a document that is out of date is a regression.
 
 | Package | What it is |
 |---|---|
-| `cmd/af` | The binary. `main.go` hands the process to the shell; each command is a file here (`lang.go`, `gate.go`, `gate_compare.go`, `revert_check.go`, `guard.go`, `map.go`) that registers it, with its flags, its result and the JSON Schema of the result in `schemas/`. |
+| `cmd/af` | The binary. `main.go` hands the process to the shell; each command is a file here (`lang.go`, `gate.go`, `gate_compare.go`, `revert_check.go`, `guard.go`, `map.go`, and `triage.go` for the five of `af triage`) that registers it, with its flags, its result and the JSON Schema of the result in `schemas/`. |
 | `internal/toolio` | The command shell: the envelope, exit codes, coded warnings, `--dir` and `--timeout`, `--schema`, the positional input, the run directory. |
 | `internal/agentdir` | The `.agent-fox/` directory and its `.gitignore`, and the atomic write the files the host keeps in it are made with (the submission core's `RootWriter` is the root-confined variant of it). |
 | `internal/gitx` | The git and process invocations, hermetic and issued from Go: the runners, the NUL-separated listings of files and of changed paths. |
@@ -39,9 +39,12 @@ change as the code: a document that is out of date is a regression.
 | `internal/box` | The box that holds a brain's tree: a registry of providers (`local`), `Open` and `Sync` (the checkout goes in with its `.git`), a read-only `FS`, `WriteFile` under `.agent-fox/`, `Export` (without `.git`), `Close`, and `With`, which closes on every path. Every name of the hands' sandbox module that is not a type is in `adapter.go`. |
 | `internal/submission` | The submission protocol: `Kind`, `Submit` (the path to a submission file for a brain that is af's own: it validates before it writes), `Check` (what the host asks of a file it did not write), `RootWriter`, and `Command`, the `af <agent> submit` command of a kind. |
 | `internal/brain` | The `Brain` contract and its registry, the shared flags, `Execute` (place the brief, run the brain, decide from the file), the tool gate and the transcript, the `scripted` brain and the `agentkit` brain. |
+| `internal/triage` | `af triage` without the shell: the diagnosis, its validator and its rejections, the issue body (`Render`, `Extract`), the brief, the preflight, the landing on a forge, the submission kind and the tool allowlist. `fakeforge` is the GitHub and GitLab server (`httptest`) that its tests and those of `cmd/af` run against. |
+| `skills` | The skills of the repository (`skills/af-*`) and the Go package that embeds them (`//go:embed af-*`); `skills.Triage()` is the body of `af-triage` that the brief carries. `make install-skills` and `make uninstall-skills` loop over `skills/af-*` only. |
 
 The five packages from `project` to `repomap` (not the three after them, which are
-the library of the agent commands and use `toolio`'s failures and run directory)
+the library of the agent commands and use `toolio`'s failures and run directory;
+`internal/triage` imports none of the shell, the box or the brains itself)
 return plain Go results and
 errors. They never import `internal/toolio`, never call `os.Exit` or
 `log.Fatal`, and never panic on bad input; a test reads their sources to see
@@ -152,6 +155,21 @@ file and the ledger of the run, never what the brain printed: `res.Payload`, the
 `internal/box` and `internal/submission` runs with no key and no network
 (`TestTheBrainsNeedNoKeyAndNoNetwork_TS_07_79` replaces the HTTP transport with
 one that counts the requests).
+
+### Testing `af triage`
+
+The triage tests run offline. `internal/triage/fakeforge` serves the GitHub or the
+GitLab API of one repository over `httptest`, keeps every request (`Requests`,
+`Writes`, `Count`), can make an operation fail (`Fail`), and hands the shell its
+client (`NewForge(token)`, which a test gives to `App.NewForge`; an empty token is
+an unauthenticated client). The tests of `cmd/af` make a git repository, an app
+and a forge in one helper (`newTriageEnv`) and run commands through `app.Main`.
+A brain is one of three things: the `scripted` brain with a script (its steps
+call the tools of the box, and `submit` steps hand a payload over, with the
+outcome they expect), the `agentkit` brain on the `faux` provider (replace
+`triageBrainOptions`), or a spy of the test's own (put it in `triageRegistry`).
+`TestOnlyTheAllowedWarningCodesAndCategories_TS_08_64` checks the warning codes
+and failure categories of every envelope that the helper saw.
 
 ## Adding a command
 

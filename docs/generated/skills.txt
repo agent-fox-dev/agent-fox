@@ -1,0 +1,19 @@
+package skills // import "github.com/agent-fox-dev/agentfox/skills"
+
+Package skills embeds the skills that af itself uses: the af-* entries of
+this directory, each a Markdown file with YAML frontmatter. The Makefile's
+install-skills copies the same files to ~/.claude/skills for a coding agent;
+the binary reads them from here, so there is one source and no copy to drift.
+
+VARIABLES
+
+var FS embed.FS
+    FS holds the af-* skills.
+
+
+FUNCTIONS
+
+func Triage() string
+    Triage is the body of the af-triage skill without its frontmatter, which the
+    brief of a triage run carries.
+

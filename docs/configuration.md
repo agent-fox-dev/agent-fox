@@ -38,7 +38,7 @@ API URL is set. A request to any other host carries no token.
 
 | Variable | Used for |
 |---|---|
-| `AF_MODEL` | The model the `agentkit` brain runs, as the catalog of the hands names it. Empty is the catalog's default for the vendor, `claude-sonnet-5-5`. A model the catalog does not list has no price: the run reports no cost (`cost_source` `none`, with the warning `model_unpriced`), and with `--budget` it does not start (`failed`/`usage`, with `fix_hint.env` `AF_MODEL`). The commands that run a brain read the variable and give it to the brain as `brain.Options.Model`; no command of this release does yet. |
+| `AF_MODEL` | The model the `agentkit` brain runs, as the catalog of the hands names it. Empty is the catalog's default for the vendor, `claude-sonnet-5-5`. A model the catalog does not list has no price: the run reports no cost (`cost_source` `none`, with the warning `model_unpriced`), and with `--budget` it does not start (`failed`/`usage`, with `fix_hint.env` `AF_MODEL`). The commands that run a brain read the variable and give it to the brain as `brain.Options.Model`; `af triage` and `af triage run` do. |
 | `ANTHROPIC_API_KEY` | The credential of the `agentkit` brain's provider, when no provider is injected. The provider resolves its credentials as the hands' does: `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` (and `ANTHROPIC_OAUTH_TOKEN`), optionally `ANTHROPIC_BASE_URL`, and Vertex AI or Bedrock when `CLAUDE_CODE_USE_VERTEX` or `CLAUDE_CODE_USE_BEDROCK` is `1`. Without any, the brain is not made: `failed`/`auth` with `fix_hint.env` `ANTHROPIC_API_KEY`, before a box is opened. |
 
 The key goes to the host process that runs the driver and to nothing else: the
@@ -66,6 +66,27 @@ and the map read, and its `.gitignore` keeps it out of the repository.
 | `gate/labels.json` | Maps labels to those ids. `labels.json.lock` is beside it while a run writes it. |
 | `revert/<id>/` | The backup that [`revert-check`](cli.md#revert-check) keeps while it works and removes when the tree is back. One that is left means a check was killed, or the tree could not be put back, or something changed a path while the checks ran (what it held is in `changed/`): look at it before checking again. |
 | `run/<id>/` | One directory per invocation of a command that has one: the envelope, the event stream, the ledger, and a report or a panic's stack, and for a command that runs a brain its briefs, hook, accepted submission, transcripts and the stack of a brain's panic. Delete one when it is no use; nothing refers to one except the commands that carry a run on. The layout is in [cli.md](cli.md#the-run-directory). |
+
+### The files of a triage run
+
+`af triage` and `af triage brief` make a run directory, and the steps that follow
+(`run`, `submit`, `land`) carry it on by its id. Besides the files every run
+directory has, a triage run keeps in `.agent-fox/run/<id>/`:
+
+| File | What it is |
+|---|---|
+| `brief.md` | The brief that was rendered, which the brain read: the mandate, the `af-triage` skill, the repository map, the report, and the task block. |
+| `original.md` | The original report, exactly as `af` took it. The body of the issue keeps these bytes. |
+| `triage.json` | The facts of the run: `format_version` (1), the `input` (`kind`, `origin`, `fingerprint`), the `target` repository and its host, the `issue` or null, `original_report_sha256`, and the `prefix` (`bytes`, `sha256`) of the brief. |
+| `submission.json` | The diagnosis the brain handed over and `af` accepted, in its normalized form. |
+| `rejections.jsonl` | One line for each refused call to submit: `{ts, problems, unresolved_paths}`. |
+| `diagnosis.md` | The issue body, rendered from the submission; written before anything is sent to the forge, and the only output of `--land none`. |
+
+The triage commands read **no new environment variable**. The forge token and
+API URL are those above, and the model and its credential are `AF_MODEL` and
+`ANTHROPIC_API_KEY` of [the brain](#the-brain). The skill `af-triage` that the
+brief embeds is compiled into the binary, so no file is read for it. Everything
+else is a flag: [cli.md](cli.md#triage).
 
 ### gate.json
 
