@@ -6,7 +6,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"io/fs"
-	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -119,7 +118,7 @@ func fromSubmission(problems []submission.Problem) []Problem {
 // directory the submission would be written to, through the target the
 // submission was made with.
 func noteRefusal(ctx context.Context, target submission.Target, problems []submission.Problem) {
-	rel := path.Join(path.Dir(submission.SubmissionPath(target.RunID)), RejectionsFile)
+	rel := RejectionsPath(target.RunID)
 	existing, _ := fs.ReadFile(target.Tree, rel) // a file that is not there is an empty one
 	line := FormatRejection(time.Now(), fromSubmission(problems))
 	_ = target.Write(ctx, rel, append(existing, line...)) // noted if it can be; the refusal stands either way

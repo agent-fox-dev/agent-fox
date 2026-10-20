@@ -26,6 +26,7 @@ import (
 
 // registerTriage registers af triage and its subcommands.
 func registerTriage(app *toolio.App) {
+	registerTriageLoop(app)
 	registerTriageBrief(app)
 	registerTriageSubmit(app)
 	registerTriageRun(app)
@@ -347,7 +348,7 @@ func triageRun(r *toolio.Run, runID string, budget float64, maxTurns int) (tooli
 		return toolio.Outcome{}, err
 	}
 	pathCalls := countRejections(r, run)
-	recordIn(r, run, ledgerSubmission, map[string]any{"submission": res.Path})
+	recordSubmission(r, run, res)
 	return toolio.Outcome{
 		Status:  toolio.StatusDone,
 		Summary: fmt.Sprintf("the agentkit brain submitted a diagnosis for run %s", runID),
@@ -544,9 +545,15 @@ func triageLand(r *toolio.Run, runID, land, repoFlag string, labelFlags []string
 		}
 	}
 	listRunArtifacts(r, run)
+	return landRun(r, run, facts, tree, forge, land, labels)
+}
 
+// landRun writes the submission of a run to the forge, or to diagnosis.md alone,
+// and says how that came out. It is the landing that `af triage land` and the loop
+// share: both have checked the target and the credential by now.
+func landRun(r *toolio.Run, run *toolio.RunDir, facts triage.Facts, tree triage.Tree, forge issuex.Client, land string, labels []string) (toolio.Outcome, error) {
 	res, err := triage.Land(r.Ctx, triage.LandParams{
-		RunDir: run.Path, RunID: runID, Facts: facts, Forge: forge, Mode: land, Labels: labels,
+		RunDir: run.Path, RunID: run.ID, Facts: facts, Forge: forge, Mode: land, Labels: labels,
 		IsDryRun: func(err error) bool { return errors.Is(err, toolio.ErrDryRun) },
 		Tree:     tree, Created: createdIssue(run),
 		Record: run.Record,
@@ -625,4 +632,200 @@ func landSummary(res triage.LandResult) string {
 		return "planned the writes of the diagnosis; a dry run sent none"
 	}
 	return "wrote the diagnosis to diagnosis.md only"
+}
+
+// recordSubmission notes the submission a brain left in the ledger of its run.
+func recordSubmission(r *toolio.Run, run *toolio.RunDir, res brain.Result) {
+	recordIn(r, run, ledgerSubmission, map[string]any{"submission": res.Path, "sha256": submission.PayloadSHA256(res.Payload)})
+}
+
+// triageRegistry is where the loop finds the brain it was told to use. A test
+// puts a brain of its own in it.
+var triageRegistry = brain.Default
+
+// triageStep is the data of a step event of the loop.
+type triageStep struct {
+	Name string `json:"name"`
+}
+
+// The steps of the loop, in the order its events name them.
+const (
+	stepPreflight = "preflight"
+	stepBrief     = "brief"
+	stepBrain     = "brain"
+	stepLand      = "land"
+)
+
+// registerTriageLoop registers af triage: the input in, the diagnosis on the
+// forge, in one process.
+func registerTriageLoop(app *toolio.App) {
+	var settings *brain.Settings
+	var land string
+	var labels labelList
+	app.Register(toolio.Command{
+		Path:    "triage",
+		Summary: "Diagnose a report and write the diagnosis back to the forge",
+		Usage:   "af triage <issue|file|text|-> [--dir DIR] [--context ANSWER]... [--repo owner/name] [--land issue|none] [--label L]... [--dry-run] [--brain NAME] [--sandbox NAME] [--budget USD] [--max-turns N] [--timeout 15m]",
+		Flags: func(fs *flag.FlagSet) {
+			settings = brain.Flags(fs, brain.Defaults{Budget: triage.DefaultBudget, MaxTurns: triage.DefaultMaxTurns})
+			labels = nil
+			fs.StringVar(&land, "land", triage.LandIssue, "where the diagnosis goes: `issue` (write it to the forge) or none (write diagnosis.md only)")
+			fs.Var(&labels, "label", "add this `label` to the issue; may be repeated")
+		},
+		Input:          toolio.InputRequired,
+		UsesForge:      true,
+		UsesRunDir:     true,
+		Context:        true,
+		Repo:           true,
+		DryRun:         true,
+		Timeout:        true,
+		DefaultTimeout: triage.DefaultTimeout,
+		ResultSchema:   resultSchema("triage"),
+		Run:            func(r *toolio.Run) (toolio.Outcome, error) { return triageLoop(r, settings, land, labels) },
+	})
+}
+
+// triageLoop is a triage run from the report to the forge: it refuses what it can
+// before it spends, renders the brief, runs the brain over a box that holds the
+// tree, takes the submission and the refusals back from the box, checks the
+// submission against the host's tree once more, and lands it.
+func triageLoop(r *toolio.Run, s *brain.Settings, land string, labelFlags []string) (toolio.Outcome, error) {
+	r.Emit("step", triageStep{stepPreflight})
+	labels, entry, err := loopPreflight(r, s, land, labelFlags)
+	if err != nil {
+		return toolio.Outcome{}, err
+	}
+	opts := triageBrainOptions()
+	opts.Script = s.Script
+	b, err := entry.New(opts)
+	if err != nil {
+		return toolio.Outcome{}, err
+	}
+
+	r.Emit("step", triageStep{stepBrief})
+	// Every brain of this release runs in this process, and submits through the tool.
+	rendered, err := renderBrief(r, true, triage.Bounds{MaxTurns: s.MaxTurns, MaxCostUSD: s.Budget, Timeout: timeLeft(r)})
+	if err != nil {
+		return toolio.Outcome{}, err
+	}
+
+	r.Emit("step", triageStep{stepBrain})
+	res, err := runInBox(r, s, entry, b, opts, rendered.brief)
+	if err != nil {
+		return toolio.Outcome{}, err
+	}
+
+	tree, err := hostTree(r)
+	if err != nil {
+		return toolio.Outcome{}, err
+	}
+	if reason := triage.StaleReason(res.Payload, tree); reason != "" {
+		return toolio.Outcome{}, staleSubmission(r, res, reason)
+	}
+	r.Artifact(toolio.Artifact{Kind: "submission", Path: res.Path})
+	recordSubmission(r, r.RunDir, res)
+
+	r.Emit("step", triageStep{stepLand})
+	return landRun(r, r.RunDir, rendered.facts, tree, r.Forge, land, labels)
+}
+
+// loopPreflight is every refusal that needs no model, in the order flags, input,
+// landing: nothing is rendered and no brain is made before it passes. It returns
+// the labels, and the entry of the brain the run is for.
+func loopPreflight(r *toolio.Run, s *brain.Settings, land string, labelFlags []string) ([]string, brain.Entry, error) {
+	if err := s.Validate(); err != nil {
+		return nil, brain.Entry{}, err
+	}
+	entry, err := triageRegistry.Lookup(s.Brain)
+	if err != nil {
+		return nil, brain.Entry{}, err
+	}
+	if _, err := box.Default.Lookup(s.Sandbox); err != nil {
+		return nil, brain.Entry{}, err
+	}
+	pre, refusal := triage.Preflight(r.Ctx, triage.PreflightParams{
+		Flags:     triage.Flags{Budget: s.Budget, MaxTurns: s.MaxTurns, Labels: labelFlags, Land: land},
+		Report:    triageReport(r.Input),
+		Truncated: r.Input.Truncated,
+		LandCheck: triage.LandCheck{Forge: r.Forge, Target: r.Target, DryRun: r.DryRun},
+	})
+	if refusal != nil {
+		return nil, brain.Entry{}, refusalFailure(refusal)
+	}
+	for _, w := range pre.Warnings {
+		r.Warn(w.Code, w.Message)
+	}
+	return pre.Labels, entry, nil
+}
+
+// loopReport is the report that brain.Execute gets: the run's own, less what the
+// loop says itself. The stages of Execute are not the steps of a triage run, and
+// a submission is listed once the host has checked it again.
+type loopReport struct{ *toolio.Run }
+
+func (l loopReport) Emit(typ string, data any) {
+	if typ != "step" {
+		l.Run.Emit(typ, data)
+	}
+}
+
+func (l loopReport) Artifact(a toolio.Artifact) {
+	if a.Kind != "submission" {
+		l.Run.Artifact(a)
+	}
+}
+
+// runInBox opens the box over the checkout and runs the brain in it, with the
+// tools of the triage allowlist. The submission and the refused calls of the box
+// are in the run directory when it returns, whether the run came to a
+// submission or not.
+func runInBox(r *toolio.Run, s *brain.Settings, entry brain.Entry, b brain.Brain, opts brain.Options, brief triage.Brief) (brain.Result, error) {
+	var res brain.Result
+	err := box.With(r.Ctx, box.Request{
+		Provider: s.Sandbox, HostDir: r.Dir, RunID: r.RunDir.ID, Tool: "triage",
+		Env: brain.BuildBoxEnv(entry, opts.Getenv), Record: r.RunDir.Record, Warn: r.Warn,
+	}, func(sess *box.Session) error {
+		var offered []string
+		for _, tool := range sess.Tools() {
+			offered = append(offered, tool.Name)
+		}
+		prefix, task := brief.Document[:brief.PrefixBytes], brief.Document[brief.PrefixBytes:]
+		var err error
+		res, err = brain.Execute(r.Ctx, brain.Request{
+			Session: sess, Name: s.Brain, Brain: b, RunDir: r.RunDir, Report: loopReport{r}, Tally: &brain.Tally{},
+			Brief: brain.Brief{
+				RunID: r.RunDir.ID, Attempt: 1, Kind: triage.Kind(r.Dir), Prefix: prefix, Task: task,
+				Tools: triage.BoxTools(offered), Hook: brain.HookConfig{RunID: r.RunDir.ID},
+				MaxCostUSD: s.Budget, MaxTurns: s.MaxTurns, Timeout: timeLeft(r),
+			},
+		})
+		readBackRejections(r, sess)
+		return err
+	})
+	return res, err
+}
+
+// readBackRejections copies the refused calls of the box into the run directory.
+// A file that cannot be had is a warning: the count of refused calls is a report
+// and decides nothing.
+func readBackRejections(r *toolio.Run, sess *box.Session) {
+	data, err := triage.ReadBackRejections(sess.FS(r.Ctx), r.RunDir.ID)
+	if err == nil && len(data) > 0 {
+		err = agentdir.WriteFileAtomic(filepath.Join(r.RunDir.Path, triage.RejectionsFile), data)
+	}
+	if err != nil {
+		r.Warn(triage.WarnRejectionsUnreadable, fmt.Sprintf("the refused calls of run %s could not be brought out of the box, so they are counted as 0: %v", r.RunDir.ID, err))
+	}
+}
+
+// staleSubmission is the failure of a submission that the box accepted and the
+// host's tree no longer bears out: it is taken out of the run directory, as a
+// run without a valid submission has none.
+func staleSubmission(r *toolio.Run, res brain.Result, reason string) error {
+	message := "the submission no longer holds against the files of the checkout, so the run has no submission: " + reason
+	if err := os.Remove(res.Path); err != nil {
+		r.Warn("submission_not_removed", fmt.Sprintf("%s is not a submission af accepted, and could not be removed: %v", res.Path, err))
+	}
+	r.Warn("submission_invalid", message)
+	return &toolio.Failure{Category: toolio.CategoryNoResult, Retryable: true, Message: message}
 }
