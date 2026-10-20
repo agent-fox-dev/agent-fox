@@ -56,4 +56,5 @@ func register(app *toolio.App) {
 	registerGate(app)
 	registerGateCompare(app)
 	registerRevertCheck(app)
+	registerGuard(app)
 }

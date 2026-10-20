@@ -10,6 +10,7 @@ package policy
 
 import (
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -77,19 +78,102 @@ func deny(rule, segment, format string, args ...any) Decision {
 	return Decision{Decision: Deny, Rule: rule, Segment: segment, Reason: fmt.Sprintf(format, args...)}
 }
 
+// writeTools are the tools that write a file, and the field of their input that
+// names it.
+var writeTools = map[string]string{
+	"Write": "file_path", "Edit": "file_path", "MultiEdit": "file_path", "NotebookEdit": "notebook_path",
+	"write_file": "path", "edit_file": "path",
+}
+
 // Decide decides the tool call tool with the input input, made in the
 // checkout dir. A shell command is read as the shell would read it, every
 // command it runs is judged by the rules in order, and the first denial wins.
-// Every tool that is not a shell tool is allowed.
+// A call to a tool that writes a file is denied when the file is in a protected
+// path, or outside the checkout and outside the system temporary directory.
+// Every other tool is allowed.
 func Decide(p Policy, dir, tool string, input map[string]any) Decision {
-	if slices.Contains(shellTools, tool) {
-		return decideShell(p, dir, input)
+	return DecideAt(p, dir, dir, tool, input)
+}
+
+// DecideAt is Decide for a call made in the directory cwd, which may be below
+// the checkout: the shell of a session keeps the directory a cd went to, and a
+// relative path means what it means there. One that is not below the checkout
+// is not a place to judge from.
+func DecideAt(p Policy, dir, cwd, tool string, input map[string]any) Decision {
+	if dir == "" {
+		dir = "."
+	}
+	bases := baseDirs(dir, cwd)
+	switch {
+	case slices.Contains(shellTools, tool):
+		return decideShell(p, dir, bases, input)
+	case writeTools[tool] != "":
+		return decideWrite(p, dir, bases, tool, input)
 	}
 	return Decision{Decision: Allow}
 }
 
+// baseDirs are the directories a relative path may mean: the checkout, and the
+// directory the call is made in when that is below it.
+func baseDirs(dir, cwd string) []string {
+	if cwd == "" {
+		return []string{dir}
+	}
+	cwd = resolve(dir, cwd)
+	if cwd != filepath.Clean(dir) && within(dir, cwd) {
+		return []string{dir, cwd}
+	}
+	return []string{dir}
+}
+
+// decideWrite decides a call of a tool that writes the file its input names.
+func decideWrite(p Policy, dir string, bases []string, tool string, input map[string]any) Decision {
+	field := writeTools[tool]
+	file, ok := input[field].(string)
+	if !ok || strings.TrimSpace(file) == "" {
+		return deny(RuleUnparseable, "(no path)", "the %s call names no path in %s, so it cannot be judged and nothing may be written", tool, field)
+	}
+	if protected(p.ProtectedPaths, dir, bases, file, false) {
+		return deny(RuleProtectedPath, file, "%s is a protected path: only af writes there (%s).", file, strings.Join(p.ProtectedPaths, ", "))
+	}
+	where := resolve(bases[len(bases)-1], file)
+	if !within(dir, where) && !within(os.TempDir(), where) {
+		return deny(RuleOutsideDir, file, "%s is outside the checkout %s: a run may write there and in the system temporary directory, %s, and nowhere else.", file, dir, os.TempDir())
+	}
+	return Decision{Decision: Allow}
+}
+
+// within reports whether p is root or below it, links resolved if they must be.
+func within(root, p string) bool {
+	if lexicallyWithin(root, p) {
+		return true
+	}
+	return lexicallyWithin(realPath(root), realPath(p))
+}
+
+func lexicallyWithin(root, p string) bool {
+	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(p))
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// realPath is p with the links resolved of as much of it as exists.
+func realPath(p string) string {
+	for q := p; ; q = filepath.Dir(q) {
+		if resolved, err := filepath.EvalSymlinks(q); err == nil {
+			rel, err := filepath.Rel(q, p)
+			if err != nil {
+				return p
+			}
+			return filepath.Join(resolved, rel)
+		}
+		if q == filepath.Dir(q) {
+			return p
+		}
+	}
+}
+
 // decideShell decides a shell call.
-func decideShell(p Policy, dir string, input map[string]any) Decision {
+func decideShell(p Policy, dir string, bases []string, input map[string]any) Decision {
 	command, ok := input["command"].(string)
 	if !ok {
 		return deny(RuleUnparseable, "(no command)", "the call has no command to read, so nothing in it may run")
@@ -105,10 +189,7 @@ func decideShell(p Policy, dir string, input map[string]any) Decision {
 		return deny(RuleHandsGuard, shorten(command), "%s", reason)
 	}
 
-	if dir == "" {
-		dir = "."
-	}
-	bases := []string{dir}
+	bases = slices.Clone(bases)
 	for _, s := range segments {
 		if d, denied := judge(p, dir, bases, s); denied {
 			return d

@@ -8,10 +8,10 @@ exit codes, coded warnings, a stop on a question that is resumed with
 `--context`, a `--dry-run` that cannot write to the forge, a fetchable
 schema, and a git-ignored run directory.
 
-**This release registers four work commands, [`lang detect`](#lang-detect),
-[`gate run`](#gate-run), [`gate compare`](#gate-compare) and
-[`revert-check`](#revert-check).** The binary also answers `--version`,
-`--schema` and `help`; `af` with no arguments, or with a command it does not
+**This release registers five work commands, [`lang detect`](#lang-detect),
+[`gate run`](#gate-run), [`gate compare`](#gate-compare),
+[`revert-check`](#revert-check) and [`guard check`](#guard-check).** The
+binary also answers `--version`, `--schema` and `help`; `af` with no arguments, or with a command it does not
 know, prints a `usage` envelope and exits 2. The other commands of this scope
 and of later specs (`triage`, `fix`, …) register on the shell and get
 everything below.
@@ -361,6 +361,100 @@ reverted path is back.
 | `failed`/`config` | `.agent-fox/gate.json` cannot be used. |
 | `failed`/`timeout`, `failed`/`cancelled` | `--timeout` ran out or a signal arrived. The tree has been put back first. |
 | `failed`/`io` | A file could not be read or written. |
+
+### guard check
+
+```
+af guard check [--dir DIR] [--policy FILE] [--host claude] [--timeout DURATION]  < payload.json
+```
+
+Decides whether a brain may make one tool call, from a JSON payload on stdin.
+The same decision is made for the envelope, for a host's hook and, in
+process, for the loop (`policy.DecideAt`). It reads and decides; it changes
+nothing, calls no model and opens no network connection, and creates no run
+directory. The default `--timeout` is 10 seconds.
+
+| Flag | Meaning |
+|---|---|
+| `--policy <file>` | The policy to use instead of `.agent-fox/guard.json`; see [configuration](configuration.md#guardjson). The file must exist. |
+| `--host claude` | Answer in the format of Claude Code's `PreToolUse` hook instead of the envelope. |
+
+**The payload** is one JSON document of at most 1 MiB. It is read as it is, not
+as the positional input of other commands (`input.kind` is `none`): it is not
+trimmed or cut at 128 KiB. Two shapes are read:
+
+- a Claude Code hook payload, `{"hook_event_name", "tool_name", "tool_input",
+  "cwd", …}`; the other fields are ignored;
+- af's neutral form, `{"tool": "...", "input": {...}}`.
+
+A payload whose `hook_event_name` is there and is not `PreToolUse` is allowed
+with no opinion. `cwd` is the directory the session is in: a relative path
+means what it means there, and in `--dir` (the checkout) as well.
+
+**The decision** covers the calls to three kinds of tool:
+
+- *Shell tools* (`Bash`, and the hands' `execute`). The command is read as a
+  shell would read it, and every command it runs is judged: those joined by
+  `&&`, `||`, `;`, `|`, `&` and newlines, those in groups, in `$(…)`,
+  backticks and `<(…)`, in heredoc bodies that expand them, and in the script
+  of `sh|bash|zsh -c '…'` and `eval`. Assignments (`FOO=1 cmd`), the wrappers
+  `env`, `time`, `timeout`, `nice`, `nohup`, `command` and `exec`, and the
+  keywords that start a command are skipped to find the program. The rules
+  apply in this order to each command, and the first denial wins.
+- *Tools that write a file* (`Write`, `Edit`, `MultiEdit`, `NotebookEdit`, and
+  the hands' `write_file` and `edit_file`; the path is `file_path`,
+  `notebook_path` or `path`, whichever is the tool's own). A path under a
+  protected path is denied (`protected_path`), and so is one outside `--dir`
+  that is not under the system temporary directory (`outside_dir`). A call
+  that names no path is denied (`unparseable`).
+- *Every other tool* is allowed, with no rule: the host's own tool allowlist
+  decides which tools exist.
+
+| Rule | Denies |
+|---|---|
+| `unparseable` | A command with unbalanced quotes, an unterminated `$(` or `${`, nested more than 64 deep, longer than 64 KiB (the hands' guard takes time that grows with the square of the length, so a longer line is not read; write long content with a tool that writes files), or a shell call that has no command. |
+| `hands_guard` | What the hands' guard refuses, with its reason: an assignment of a variable that changes which program runs or what is loaded into it (`PATH`, `LD_PRELOAD`, `BASH_ENV`, …), a line it cannot read, and a line that runs no program. It can only deny. |
+| `git_mutation` | `git` with any subcommand but `status`, `log`, `diff`, `show`, `blame`, `ls-files`, `ls-tree`, `rev-parse`, `rev-list`, `grep`, `describe`, `cat-file`, `shortlog`, `merge-base`, `name-rev`, `for-each-ref` and `show-ref`; `branch` and `remote` only to list; and a global `-c`. The reason says that af makes every commit, branch and push. |
+| `suite_command` | A command equal to a suite form once every token that starts with `-` is removed from both: `make check`, `make -j4 check`, `go test ./...` and `go test -count=1 ./...` are the suite, `go test ./internal/x -run TestY` is not. The reason says to run `af gate run`, which caches the result by tree hash so that the landing reuses it, and that targeted runs are allowed. A flag that selects tests without a word of its own (`mvn -q test -Dtest=X`) is not told from the suite. |
+| `af_command` | Any `af` command but `lang detect`, `gate run`, `gate compare`, `revert-check`, `map`, `guard check`, `triage brief`, `triage submit`, `fix brief`, `fix submit`, `--version` and `--schema`: the rest belongs to the loop. |
+| `program_not_allowed` | With `allow_programs` set, a program that is not on it; `af` and `git` are always allowed. |
+| `protected_path` | A write into a protected path through an output redirection, or through an argument of `rm`, `mv`, `cp`, `tee`, `touch`, `mkdir`, `truncate`, `ln`, `chmod` or `sed -i`, resolved against `--dir` (and against the directory of the session and of any `cd` before it in the command). `rm` and `mv` also refuse a directory above a protected path, such as `rm -rf .`. |
+| `outside_dir` | A write tool call to a path outside `--dir` and the system temporary directory. |
+
+The policy is prevention, not a boundary. It reads the command and does not
+run it: a program named by a variable, a script a command writes and then
+runs, or a program that runs others (`xargs`, `find -exec`, `ssh`) is out of
+its sight, and the tool `run_command` (which takes an argument list) is not a
+shell tool here. The gate and the box are what holds.
+
+**Without `--host`** the answer is the envelope: `done` and exit 0 for an
+allow and for a deny, with the result (its schema is `guard_check` under
+`$defs`) `{decision, rule, reason, tool, segment}`. `rule`, `reason` and
+`segment` are empty for an allow. A payload that is malformed, empty or over 1
+MiB is `usage` (exit 2); a policy file that cannot be used is `failed`/`config`
+(exit 1). Neither emits a decision.
+
+**With `--host claude`** stdout is the document Claude Code reads, and nothing
+else, and the exit code is always 0:
+
+```json
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"…"}}
+```
+
+for a deny, and `{}` for an allow. `{}` is no opinion: the host's own
+permission settings still apply. The hook never prints `permissionDecision:
+"allow"`, which would bypass them. Neither document ends in a newline. Every
+error is answered as a deny that carries it, so that a hook that cannot decide
+does not let the call through: a payload that is malformed, empty or over 1
+MiB, a policy that does not parse, a panic of the policy engine, and a hook
+that does not decide within 80% of `--timeout` (the shell throws away what a
+command returns after its deadline, and reports a failure that the host does
+not act on). Only a wrong invocation (an unknown flag, an unknown `--host`)
+is still an envelope with exit 2, which the host treats as blocking.
+
+Without `.agent-fox/guard.json` or `--policy`, every call detects the
+repository to find the suite (the work of [lang detect](#lang-detect)); a loop
+that calls the hook often writes `guard.json` once.
 
 ## The envelope
 
