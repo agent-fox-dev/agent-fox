@@ -8,10 +8,10 @@ exit codes, coded warnings, a stop on a question that is resumed with
 `--context`, a `--dry-run` that cannot write to the forge, a fetchable
 schema, and a git-ignored run directory.
 
-**This release registers five work commands, [`lang detect`](#lang-detect),
+**This release registers six work commands, [`lang detect`](#lang-detect),
 [`gate run`](#gate-run), [`gate compare`](#gate-compare),
-[`revert-check`](#revert-check) and [`guard check`](#guard-check).** The
-binary also answers `--version`, `--schema` and `help`; `af` with no arguments, or with a command it does not
+[`revert-check`](#revert-check), [`guard check`](#guard-check) and
+[`map`](#map).** The binary also answers `--version`, `--schema` and `help`; `af` with no arguments, or with a command it does not
 know, prints a `usage` envelope and exits 2. The other commands of this scope
 and of later specs (`triage`, `fix`, …) register on the shell and get
 everything below.
@@ -456,6 +456,70 @@ Without `.agent-fox/guard.json` or `--policy`, every call detects the
 repository to find the suite (the work of [lang detect](#lang-detect)); a loop
 that calls the hook often writes `guard.json` once.
 
+### map
+
+```
+af map [--dir DIR] [--tokens N] [--timeout DURATION]
+```
+
+Renders a map of the repository that fits a token budget, for a brief to carry:
+the directories, the files in them and, as far as the budget allows, the
+declarations in the files. It reads files and runs nothing, calls no model,
+opens no network connection, creates no run directory and writes nothing. The
+default `--timeout` is 2 minutes.
+
+| Flag | Meaning |
+|---|---|
+| `--tokens <n>` | The budget, in tokens, estimated as the bytes of the map divided by 4, rounded up. From 200 to 100000, default 4000; any other value is a `usage` error (exit 2) that names the range. |
+
+The map is of the file view of `--dir` (see [lang detect](#lang-detect)). Each
+directory that has files is a header, `path/` (the root is `./`), in path
+order: the root first, a directory before its subdirectories, and the files of
+each by name. A file is indented two spaces, and its declarations follow it,
+each as `<kind> <name> L<line>` and joined by ` · `:
+
+```
+./
+  README.md
+  main.go: func main L3 · type Server L5
+pkg/
+  util.go: func Helper L3
+  util_test.go: func TestHelper L3
+```
+
+The declarations come from the hands' outline: Go files always, and the other
+languages it knows (Python, JavaScript, TypeScript, Rust, Java, Kotlin, C#, Ruby,
+C, C++, PHP, Scala, Lua and shell) when the binary is built with cgo, as `make
+build` does by default. A kind is `func`, `method`, `type`, `class`,
+`interface`, `enum`, `trait`, `const`, `var`, `module` or `macro`, and a method
+is named with its type (`Server.Close`). A file the outline cannot read is
+listed by name only and is not counted in `files_outlined`: a language it does
+not know, a binary file, one it cannot parse, and one over 1 MiB, which is not
+offered to it. A control character in a name is written as `?`.
+
+The map is the first level of this ladder whose output fits the budget:
+
+| Level | What the map holds |
+|---|---|
+| 1 | Every file, with every declaration. |
+| 2 | The same, but a test file (see [revert-check](#revert-check)) has no declarations. |
+| 3 | A test file has none, and any other file has its first 20, 10, 5, 2 or 1 declarations, the first of these caps that fits, followed by `· … +N more`. |
+| 4 | Every file by name only. |
+| 5 | Directories only, each as `path/ (N files)`, N being the files directly in it. |
+| 6 | As many of those lines as fit, and then `… N more directories`. |
+
+The outliner is not called at all when the names alone do not fit the budget
+(level 4 is too large) or the view has more than 5000 files. The warning
+`map_outline_skipped` says so, `files_outlined` is 0, and the map is level 4 or
+a later one.
+
+**The result** (its schema is `map` under `$defs`) holds `map` (the text),
+`tokens` (the budget), `estimated_tokens` (the size of the map, never more than
+the budget), `level`, `files_total`, `files_outlined` and `truncated` (true for
+any level above 1). The same tree and the same budget give the same bytes, in
+whatever order the files are read: a brief that carries the map can rely on it
+being the same on every attempt. The status is `done`.
+
 ## The envelope
 
 Every invocation other than `--version`, `--schema` and help writes exactly
@@ -619,6 +683,7 @@ A code matches `^[a-z][a-z0-9_]*$`; one that does not is reported under
 | `no_checks` | `gate run`: no check of the gate table can be run here, or the table has none. Nothing ran and `passed` is false. |
 | `tree_changed_during_gate` | `gate run`: the checks changed the tree. The result is kept under the hash of the tree they ran on. |
 | `fix_not_proven` | `revert-check`: the outcome is not `proven` and not `no_changes`, so the change must not close its issue. |
+| `map_outline_skipped` | `map`: the declarations were not read, because the names of the files alone do not fit the budget or the view has more than 5000 files. The map has the names only, or less. |
 | `check_unavailable` | `lang detect`: a check of the gate table names a program that cannot be run on this machine. The check stays in the table with `available: false`; the message names the check. |
 
 ## The positional input

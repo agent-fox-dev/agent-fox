@@ -360,6 +360,7 @@ func TestOnlyGuardCheckHostPrintsADocument_TS_06_73(t *testing.T) {
 		{"gate", "run", "--dir", dir},
 		{"gate", "compare", "--dir", dir, "--before", "nosuch", "--after", "nosuch"},
 		{"revert-check", "--dir", dir, "--since", base},
+		{"map", "--dir", dir},
 		{"guard", "check", "--dir", dir},
 	} {
 		_, stdout, _ := runWithStdin(t, strings.NewReader(payload), args...)
