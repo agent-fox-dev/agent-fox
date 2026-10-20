@@ -64,6 +64,17 @@ type Bounds struct {
 	Timeout    time.Duration
 }
 
+// The bounds of a run that gives none.
+const (
+	DefaultBudget   = 2.0
+	DefaultMaxTurns = 100
+	DefaultTimeout  = 15 * time.Minute
+)
+
+// DefaultBounds are the bounds a brief reminds the brain of when the command that
+// renders it has none of its own.
+var DefaultBounds = Bounds{MaxTurns: DefaultMaxTurns, MaxCostUSD: DefaultBudget, Timeout: DefaultTimeout}
+
 // BriefParams is what a brief is rendered from.
 type BriefParams struct {
 	// Dir is the checkout: its file view and its map.

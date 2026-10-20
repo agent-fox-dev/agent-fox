@@ -995,6 +995,75 @@
           "description": "True when the tree and the index are as they were: always, for a result that is not a failure."
         }
       }
+    },
+    "triage_brief": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "brief",
+        "prefix_bytes",
+        "prefix_sha256",
+        "document_bytes",
+        "estimated_tokens",
+        "map",
+        "report_truncated",
+        "previous_question"
+      ],
+      "description": "A triage brief, rendered and written to the run directory. Nothing was sent to a model or to the forge.",
+      "properties": {
+        "brief": {
+          "type": "string",
+          "description": "The brief, brief.md in the run directory, as an absolute path."
+        },
+        "prefix_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The length of the run-constant prefix of the brief: the mandate, the skill, the repository map and the report."
+        },
+        "prefix_sha256": {
+          "type": "string",
+          "description": "The hex SHA-256 of the prefix. It is the same for two briefs over the same tree and the same report, whatever the run, the answers or the brain."
+        },
+        "document_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The length of the whole brief, the task block included."
+        },
+        "estimated_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The size of the brief in tokens, estimated as its bytes divided by 4, rounded up."
+        },
+        "map": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "level",
+            "truncated"
+          ],
+          "description": "How much of the repository map the brief holds.",
+          "properties": {
+            "level": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 6,
+              "description": "The level of the map's ladder that fits its budget; 1 is every declaration."
+            },
+            "truncated": {
+              "type": "boolean",
+              "description": "True for any level above 1."
+            }
+          }
+        },
+        "report_truncated": {
+          "type": "boolean",
+          "description": "True when the report was cut at 131072 bytes in the brief."
+        },
+        "previous_question": {
+          "type": "boolean",
+          "description": "True when an earlier run's question, which the --context answers, was found and is in the task block."
+        }
+      }
     }
   }
 }
