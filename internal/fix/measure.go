@@ -74,8 +74,10 @@ type Measurement struct {
 	Landable bool
 	Lands    bool
 	// Closes is true for a revert check that proved the change.
-	Closes      bool
-	After       *GateRef
+	Closes bool
+	After  *GateRef
+	// Rows are the checks one by one: what each said before the change and after it.
+	Rows        []checks.Row
 	RevertCheck *RevertRef
 	// Changed are the paths of the change, the protected ones put back left out, and
 	// Reverted those that were put back.
@@ -288,7 +290,7 @@ func measureGate(ctx context.Context, p MeasureParams, m *Measurement) error {
 	case err != nil:
 		return &toolio.Failure{Category: toolio.CategoryIO, Message: fmt.Sprintf("cannot compare the gate after the change with the baseline: %v", err)}
 	}
-	m.Verdict, m.Landable, m.Lands = cmp.Verdict, cmp.Landable, cmp.Landable
+	m.Verdict, m.Landable, m.Lands, m.Rows = cmp.Verdict, cmp.Landable, cmp.Landable, cmp.Rows
 	if m.Lands {
 		return nil
 	}

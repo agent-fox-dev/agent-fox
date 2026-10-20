@@ -151,3 +151,316 @@ func forgeFailure(ctx context.Context, what string, err error) error {
 
 // oneLine is a subject as a single line.
 func singleLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// The outcome of a run that landed its change.
+const OutcomeLanded = "landed"
+
+// The warnings of a landing.
+const (
+	WarnCommitHookFailed = "commit_hook_failed"
+	WarnCriteriaUnmet    = "criteria_unmet"
+	WarnNotVerified      = "not_verified"
+	WarnReportUnwritable = "report_unwritable"
+)
+
+// maxChangeBytes is how much of the report's change the message of the commit holds.
+const maxChangeBytes = 2000
+
+// LandParams is what a measured change that lands is landed with.
+type LandParams struct {
+	Git   *gitx.Git
+	State State
+	// Input is the report as it was given, and Report the fix report that goes with the
+	// change.
+	Input  Input
+	Report Report
+	// Mode is pr, branch or none.
+	Mode   string
+	Forge  issuex.Client
+	Target issuex.Repo
+	// Measured is what af measured of the change.
+	Measured Measurement
+	// Brain, CostUSD and CostSource are what the run used, for the footer of the body.
+	Brain      string
+	CostUSD    float64
+	CostSource string
+	Reporter   Reporter
+	// WriteReport keeps the body as the report of the run; it may be nil.
+	WriteReport func(text string) error
+}
+
+// LandResult is what landing did.
+type LandResult struct {
+	// Outcome is landed, or parked when a hook of the repository stopped the commit.
+	Outcome string
+	// Status is done, or unverified for a change that was landed without the gate and for
+	// one that was parked.
+	Status       toolio.Status
+	Branch       string
+	Commit       string
+	Pushed       bool
+	PullRequest  *PullRequestRef
+	IssueCreated *IssueRef
+}
+
+// Land lands a change that was measured: the issue of a text or a file, a branch named by
+// it, one commit that af makes, with the hooks of the repository, the push and the pull
+// request that the mode asks for, and the checkout back on the base with a clean tree. A
+// commit that a hook stops is parked instead. A push that fails after its retries is a
+// failure, with the branch and the commit kept; a pull request that fails after the push
+// is a warning on a change that landed.
+func Land(ctx context.Context, p LandParams) (LandResult, error) {
+	l := newLanding(p.Git, p.Reporter, p.State, p.Input, p.Mode, p.Forge, p.Target, false)
+	rep := p.Reporter
+	l.subject = singleLine(p.Report.Subject)
+	if err := l.ensureIssue(ctx); err != nil {
+		return LandResult{}, err
+	}
+	if err := l.makeBranch(ctx); err != nil {
+		return LandResult{}, err
+	}
+	res := LandResult{Outcome: OutcomeLanded, Status: toolio.StatusDone, Branch: l.branch, IssueCreated: l.created}
+
+	typ := p.Report.Type
+	if typ == "" {
+		typ = DefaultType
+	}
+	closes := p.Measured.Closes
+	body := RenderBody(BodyFacts{
+		RunID: p.State.RunID, Verdict: p.Measured.Verdict, Rows: p.Measured.Rows, RevertCheck: p.Measured.RevertCheck, Reverted: p.Measured.Reverted,
+		NoVerify: p.State.NoVerify, Report: p.Report, Changed: p.Measured.Changed, IssueURL: l.issueURL, Closes: closes,
+		Brain: p.Brain, CostUSD: p.CostUSD, CostSource: p.CostSource,
+	}, issuex.MaxBodyLength(p.Forge))
+	if p.WriteReport != nil {
+		if err := p.WriteReport(body); err != nil {
+			rep.Warn(WarnReportUnwritable, fmt.Sprintf("report.md could not be written: %v", err))
+		}
+	}
+
+	if _, err := l.g.CommitAll(ctx, landMessage(typ, l.subject, p.Report.Change, l.issueURL, closes, p.State.RunID)); err != nil {
+		parked, perr := l.parkAfterRefusedCommit(ctx, p, err)
+		return parked, perr
+	}
+	if err := l.recordCommit(ctx); err != nil {
+		return res, l.finish(err)
+	}
+	res.Commit = l.commit
+
+	if p.Mode != LandNone {
+		if err := l.push(ctx); err != nil {
+			rep.Next(toolio.Next{Argv: []string{"git", "push", "-u", "origin", l.branch}, Reason: "publish the branch that is committed here"})
+			return res, l.finish(&toolio.Failure{Category: toolio.CategoryGit, Message: fmt.Sprintf("the branch %s is committed here, and could not be pushed: %v", l.branch, err)})
+		}
+		res.Pushed = true
+		if p.Mode == LandPR {
+			if l.skipPR || l.issueURL == "" {
+				rep.Warn(WarnPullRequestSkipped, "no pull request was opened: there is no issue for it to refer to")
+			} else {
+				draft := p.State.NoVerify
+				if unmet := unmetCriteria(p.Report); len(unmet) > 0 {
+					draft = true
+					rep.Warn(WarnCriteriaUnmet, "the pull request is a draft: "+strings.Join(unmet, "; "))
+				}
+				res.PullRequest = l.openPullRequest(ctx, typ+": "+l.subject, body, draft)
+			}
+		}
+	}
+	if err := l.backToBase(); err != nil {
+		return res, err
+	}
+	if p.State.NoVerify {
+		res.Status = toolio.StatusUnverified
+		rep.Warn(WarnNotVerified, "the change was landed without the gate (--no-verify): nothing was measured, and a person has to check it")
+	}
+	return res, nil
+}
+
+// unmetCriteria are the criteria the report says are unmet or only partly met.
+func unmetCriteria(r Report) []string {
+	var out []string
+	for _, c := range r.Criteria {
+		if c.Status == StatusUnmet || c.Status == StatusPartial {
+			out = append(out, fmt.Sprintf("%s (%s)", singleLine(c.Criterion), c.Status))
+		}
+	}
+	return out
+}
+
+// landMessage is the message of the commit that lands a change: the subject, the change as
+// far as it goes, the issue that is closed or referred to, and the trailer.
+func landMessage(typ, subject, change, issueURL string, closes bool, runID string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s: %s\n", typ, subject)
+	if change = strings.TrimSpace(cutAtRune(strings.TrimSpace(change), maxChangeBytes)); change != "" {
+		fmt.Fprintf(&b, "\n%s\n", change)
+	}
+	if issueURL != "" {
+		word := "Refs"
+		if closes {
+			word = "Closes"
+		}
+		fmt.Fprintf(&b, "\n%s %s\n", word, issueURL)
+	}
+	fmt.Fprintf(&b, "\n%s: %s\n", trailerName, runID)
+	return b.String()
+}
+
+// parkAfterRefusedCommit parks the change on the branch that the landing made, when the
+// commit was refused, on the guess that a hook of the repository did it: the same change is
+// committed without the hooks, and if that works the hook is named in a warning.
+func (l *landing) parkAfterRefusedCommit(ctx context.Context, p LandParams, refused error) (LandResult, error) {
+	verdict := p.Measured.Verdict
+	if _, err := l.g.CommitAllNoVerify(ctx, parkMessage(l.subject, verdict, nil, l.issueURL, p.State.RunID)); err != nil {
+		l.rep.SideEffect(toolio.SideEffect{Kind: EffectCommit, Target: l.branch, State: toolio.StateFailed, Detail: err.Error()})
+		l.undoBranch()
+		return LandResult{}, &toolio.Failure{Category: toolio.CategoryGit, Message: fmt.Sprintf("cannot commit the change: %v", refused)}
+	}
+	l.rep.Warn(WarnCommitHookFailed, fmt.Sprintf("the commit was refused, by a hook of the repository: %s; the change is parked", firstChars(refused.Error(), 300)))
+	parked, err := l.afterParkCommit(ctx, verdict, nil)
+	return LandResult{Outcome: parked.Outcome, Status: parked.Status, Branch: parked.Branch, Commit: parked.Commit, Pushed: parked.Pushed, PullRequest: parked.PullRequest, IssueCreated: parked.IssueCreated}, err
+}
+
+func firstChars(s string, n int) string {
+	s = singleLine(s)
+	if len(s) > n {
+		return cutAtRune(s, n) + "..."
+	}
+	return s
+}
+
+// landing is what Land and Park share: the issue, the branch, the commit that was made, the
+// push, the pull request and the way back to the base.
+type landing struct {
+	g      *gitx.Git
+	rep    Reporter
+	state  State
+	input  Input
+	mode   string
+	forge  issuex.Client
+	target issuex.Repo
+	// interrupted says the run was stopped: nothing goes beyond the machine.
+	interrupted bool
+
+	subject string
+	// number, title and issueURL name the issue; created is the one that was made.
+	number   int
+	title    string
+	issueURL string
+	created  *IssueRef
+	// skipPR says an issue was needed and could not be made.
+	skipPR bool
+	branch string
+	commit string
+	pushed bool
+	// back is a context that the cancellation of the run did not reach, for the way back.
+	back context.Context
+}
+
+func newLanding(g *gitx.Git, rep Reporter, state State, input Input, mode string, forge issuex.Client, target issuex.Repo, interrupted bool) *landing {
+	return &landing{g: g, rep: rep, state: state, input: input, mode: mode, forge: forge, target: target, interrupted: interrupted}
+}
+
+// ensureIssue makes the issue of a text or a file when the pull request is asked for, and
+// otherwise takes the issue the run is for. An issue that cannot be made is a warning: the
+// change goes on without one. Only a run that is stopped is an error.
+func (l *landing) ensureIssue(ctx context.Context) error {
+	l.title = l.subject
+	if l.state.Issue != nil {
+		l.number, l.title, l.issueURL = l.state.Issue.Number, l.state.Issue.Title, l.state.Issue.URL
+		return nil
+	}
+	if l.interrupted || !NeedsIssue(l.input.Kind, l.mode) {
+		return nil
+	}
+	ref, err := CreateIssue(ctx, IssueParams{Forge: l.forge, Target: l.target, Title: l.subject, Original: l.input.Body, RunID: l.state.RunID, Report: l.rep})
+	switch {
+	case err == nil:
+		l.created = &ref
+		l.number, l.issueURL = ref.Number, ref.URL
+	case ctx.Err() != nil:
+		return ctx.Err()
+	default:
+		l.rep.Warn(WarnIssueCreationFailed, err.Error()+"; the change goes on without an issue")
+		l.skipPR = true
+	}
+	return nil
+}
+
+// makeBranch makes the branch of the change, and the context the way back is made by.
+func (l *landing) makeBranch(ctx context.Context) error {
+	branch, err := MakeBranch(ctx, l.g, l.rep, l.number, l.title, l.state.BaseHead)
+	if err != nil {
+		return err
+	}
+	l.branch = branch
+	// Whatever else happens, the checkout goes back to the base: a context that is
+	// cancelled does not leave it on the branch.
+	l.back = context.WithoutCancel(ctx)
+	return nil
+}
+
+// undoBranch takes the branch away when nothing could be committed to it, and leaves the
+// change in the working tree of the base.
+func (l *landing) undoBranch() {
+	_ = l.g.Checkout(l.back, l.state.Base)
+	_ = l.g.DeleteBranch(l.back, l.branch)
+}
+
+// recordCommit reads the full hash of the commit that was made, and reports it.
+func (l *landing) recordCommit(ctx context.Context) error {
+	commit, err := l.g.RevParse(l.back, "HEAD")
+	if err != nil {
+		return &toolio.Failure{Category: toolio.CategoryGit, Message: fmt.Sprintf("cannot read the commit that was made: %v", err)}
+	}
+	l.commit = commit
+	l.rep.SideEffect(toolio.SideEffect{Kind: EffectCommit, Target: l.branch, State: toolio.StateDone})
+	l.rep.Artifact(toolio.Artifact{Kind: "commit", Name: commit})
+	return nil
+}
+
+// push publishes the branch with its retries, and reports how it went.
+func (l *landing) push(ctx context.Context) error {
+	err := l.g.Push(ctx, l.branch, maxPushAttempts, func(msg string) { l.rep.Warn(WarnPushRetried, msg) })
+	if err != nil {
+		l.rep.SideEffect(toolio.SideEffect{Kind: EffectPush, Target: "origin/" + l.branch, State: toolio.StateFailed, Detail: err.Error()})
+		return err
+	}
+	l.pushed = true
+	l.rep.SideEffect(toolio.SideEffect{Kind: EffectPush, Target: "origin/" + l.branch, State: toolio.StateDone})
+	return nil
+}
+
+// openPullRequest opens the pull request of the branch. A forge that refuses it is a
+// warning: the branch is pushed, and the change has landed.
+func (l *landing) openPullRequest(ctx context.Context, title, body string, draft bool) *PullRequestRef {
+	target := l.target.String()
+	pr, err := l.forge.CreatePullRequest(ctx, l.target, issuex.CreatePullRequestRequest{Title: title, Body: body, Head: l.branch, Base: l.state.Base, Draft: draft})
+	if err != nil {
+		l.rep.SideEffect(toolio.SideEffect{Kind: EffectCreatePullRequest, Target: target, State: toolio.StateFailed, Detail: err.Error()})
+		l.rep.Warn(WarnPullRequestFailed, fmt.Sprintf("the branch is pushed, but the pull request was not opened: %v", err))
+		return nil
+	}
+	ref := &PullRequestRef{Number: pr.Number, URL: firstNonEmpty(pr.HTMLURL, pr.URL), Draft: pr.Draft}
+	l.rep.SideEffect(toolio.SideEffect{Kind: EffectCreatePullRequest, Target: target, State: toolio.StateDone})
+	l.rep.Artifact(toolio.Artifact{Kind: "pull_request", URL: ref.URL, Number: ref.Number})
+	return ref
+}
+
+// backToBase puts the checkout on the base, and says if the tree is not clean.
+func (l *landing) backToBase() error {
+	if err := l.g.Checkout(l.back, l.state.Base); err != nil {
+		return &toolio.Failure{Category: toolio.CategoryGit, Message: fmt.Sprintf("the change is on the branch %s, but the checkout cannot go back to %s: %v", l.branch, l.state.Base, err)}
+	}
+	if left, err := l.g.DirtyFiles(l.back); err == nil && len(left) > 0 {
+		return &toolio.Failure{Category: toolio.CategoryGit, Message: fmt.Sprintf("the change is on the branch %s, but the tree of %s is not clean: %s", l.branch, l.state.Base, strings.Join(left, ", "))}
+	}
+	return nil
+}
+
+// finish puts the checkout back on the base after a failure, and returns the failure.
+func (l *landing) finish(failure error) error {
+	if err := l.backToBase(); err != nil {
+		return errors.Join(failure, err)
+	}
+	return failure
+}
