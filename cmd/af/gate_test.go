@@ -317,7 +317,7 @@ func pidOf(t *testing.T, path string) int {
 // waitGone waits for the process to end.
 func waitGone(pid int) bool {
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		if syscall.Kill(pid, 0) != nil {
+		if process, err := os.FindProcess(pid); err != nil || process.Signal(syscall.Signal(0)) != nil {
 			return true
 		}
 	}

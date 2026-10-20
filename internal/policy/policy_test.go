@@ -25,6 +25,11 @@ func bash(p Policy, command string) Decision {
 	return Decide(p, dir, "Bash", map[string]any{"command": command})
 }
 
+// parse reads src as a line of the shell, at the top level.
+func parse(src string) ([]command, error) {
+	return parseAt(src, 0)
+}
+
 // words lists the words of every command parse finds, in order.
 func words(t *testing.T, src string) [][]string {
 	t.Helper()
@@ -563,7 +568,7 @@ func TestShellCallWithoutACommand(t *testing.T) {
 func TestDeepNestingIsDeniedNotCrashed(t *testing.T) {
 	for _, src := range []string{
 		strings.Repeat("$(", 5000) + "ls" + strings.Repeat(")", 5000),
-		strings.Repeat("(", 5000) + "ls" + strings.Repeat(")", 5000),
+		strings.Repeat("( ", 5000) + "ls" + strings.Repeat(" )", 5000),
 		strings.Repeat("bash -c '", 1) + strings.Repeat("`", 1),
 		strings.Repeat("${x:-", 5000),
 	} {
@@ -575,6 +580,23 @@ func TestDeepNestingIsDeniedNotCrashed(t *testing.T) {
 		if time.Since(start) > 5*time.Second {
 			t.Errorf("%.30q... took %s", src, time.Since(start))
 		}
+	}
+}
+
+// TestDeepParensAreArithmetic guards 06-REQ-8.1: parentheses that the shell
+// reads as arithmetic run nothing and are read in good time, and a line of
+// them is denied all the same, as it runs no program.
+func TestDeepParensAreArithmetic(t *testing.T) {
+	src := strings.Repeat("(", 5000) + "ls" + strings.Repeat(")", 5000)
+	start := time.Now()
+
+	d := bash(defaultPolicy(), src)
+
+	if d.Decision != Deny || d.Rule == "" {
+		t.Errorf("%.30q...: %+v, want a denial", src, d)
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Errorf("%.30q... took %s", src, time.Since(start))
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -595,7 +596,7 @@ func requireGone(t *testing.T, pidFile string) {
 		t.Fatalf("pid file = %q", data)
 	}
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		if syscall.Kill(pid, 0) != nil {
+		if process, err := os.FindProcess(pid); err != nil || process.Signal(syscall.Signal(0)) != nil {
 			return
 		}
 	}
@@ -762,4 +763,234 @@ func TestCopyIndexKeepsTheModificationTime(t *testing.T) {
 	if err := copyIndex(filepath.Join(dir, "missing"), filepath.Join(dir, "copy2")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("copying an index that is not there = %v, want it to say so", err)
 	}
+}
+
+// TestOverlappingChecksDoNotDestroyEachOther guards 06-REQ-6.7 and 6.8: two
+// checks started together on one tree never leave it reverted, and never
+// delete the backup of the one that is working.
+func TestOverlappingChecksDoNotDestroyEachOther(t *testing.T) {
+	for round := range 4 {
+		dir, base, check := provenFixture(t, false)
+		before := snapshot(t, dir)
+		// Warm the gate cache, so that both checks reach the backup together.
+		mustRun := func() (Result, error) { return Check(context.Background(), dir, base, Options{Table: tableOf(check)}) }
+		var wg sync.WaitGroup
+		results := make([]error, 2)
+		for i := range results {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, results[i] = mustRun()
+			}()
+		}
+		wg.Wait()
+
+		requireState(t, dir, before)
+		if got, _ := os.ReadFile(filepath.Join(dir, "lib.txt")); string(got) != "fixed\n" {
+			t.Fatalf("round %d: lib.txt holds %q: the fix was lost (%v)", round, got, results)
+		}
+		// Each one either ran, or backed off and touched nothing: when both
+		// claim at the same instant, both back off, which is safe, and a retry
+		// settles it.
+		for _, err := range results {
+			var restore *RestoreError
+			if err != nil && !errors.As(err, &restore) {
+				t.Errorf("round %d: %v, want success or a refusal that names the other backup", round, err)
+			}
+		}
+	}
+}
+
+// TestACheckThatStartsDuringAnotherRefuses guards 06-REQ-6.8: while one check
+// has the tree reverted, another does not start from that state.
+func TestACheckThatStartsDuringAnotherRefuses(t *testing.T) {
+	dir, base, _ := provenFixture(t, false)
+	before := snapshot(t, dir)
+	aside := t.TempDir()
+	started, release := filepath.Join(aside, "started"), filepath.Join(aside, "release")
+	script := fmt.Sprintf(`if grep -q fixed lib.txt; then exit 0; fi; touch '%s'; while [ ! -e '%s' ]; do sleep 0.05; done; exit 1`, started, release)
+	table := tableOf(shCheck("tests", project.KindTest, script))
+	first := make(chan error, 1)
+	go func() {
+		_, err := Check(context.Background(), dir, base, Options{Table: table})
+		first <- err
+	}()
+	for i := 0; i < 400; i++ {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	_, err := Check(context.Background(), dir, base, Options{Table: table})
+
+	var restore *RestoreError
+	if !errors.As(err, &restore) {
+		t.Errorf("the second check = %v, want a refusal that names the first one's backup", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "lib.txt")); string(got) != "broken\n" {
+		t.Errorf("lib.txt holds %q while the first check works: the second touched it", got)
+	}
+	if err := os.WriteFile(release, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-first; err != nil {
+		t.Errorf("the first check = %v", err)
+	}
+	requireState(t, dir, before)
+}
+
+// TestAnIndexRefreshedByACheckIsPutBack guards 06-REQ-6.7: a check that runs
+// git, or a build that does, refreshes the stat data of the index and rewrites
+// it; the bytes the check started with are written back.
+func TestAnIndexRefreshedByACheckIsPutBack(t *testing.T) {
+	dir, base := newRepo(t, map[string]fileSpec{"lib.txt": plain("broken\n"), "other.txt": plain("unchanged\n")})
+	writeFile(t, dir, "lib.txt", "fixed\n", 0o644)
+	writeFile(t, dir, "tests/check.sh", "grep -q fixed lib.txt\n", 0o644)
+	script := `if grep -q fixed lib.txt; then exit 0; fi; touch other.txt; git status >/dev/null 2>&1; exit 1`
+	before := snapshot(t, dir)
+
+	res, err := Check(context.Background(), dir, base, Options{Table: tableOf(shCheck("tests", project.KindTest, script))})
+
+	if err != nil || res.Outcome != OutcomeProven || !res.Restored {
+		t.Fatalf("Check = %+v, %v; want proven and restored", res, err)
+	}
+	requireState(t, dir, before)
+}
+
+// TestWhatNeverChangedIsNotWrittenBack guards 06-REQ-6.7: a revert that cannot
+// write (a directory that is read-only) is an error of its own, and the
+// restore does not fail for writing back what was never changed.
+func TestWhatNeverChangedIsNotWrittenBack(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permissions do not stop root")
+	}
+	dir, base := newRepo(t, map[string]fileSpec{"ro/x.txt": plain("v1\n")})
+	writeFile(t, dir, "ro/x.txt", "v2\n", 0o644)
+	writeFile(t, dir, "tests/t.txt", "t\n", 0o644)
+	if err := os.Chmod(filepath.Join(dir, "ro"), 0o555); err != nil {
+		t.Skipf("cannot make a directory read-only: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "ro"), 0o755) })
+	before := snapshot(t, dir)
+
+	_, err := Check(context.Background(), dir, base, Options{Table: tableOf(shCheck("tests", project.KindTest, "exit 0"))})
+
+	var restore *RestoreError
+	if err == nil || errors.As(err, &restore) {
+		t.Fatalf("Check = %v, want the error of the write that could not be made, and no restore error", err)
+	}
+	requireState(t, dir, before)
+}
+
+// TestADirectoryThatBecameAFile guards 06-REQ-6.7: a tracked file under a
+// directory that is a file now is an error before anything is changed.
+func TestADirectoryThatBecameAFile(t *testing.T) {
+	dir, base := newRepo(t, map[string]fileSpec{"pkg/a.txt": plain("a\n")})
+	if err := os.RemoveAll(filepath.Join(dir, "pkg")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "pkg", "now a file\n", 0o644)
+	writeFile(t, dir, "tests/t.txt", "t\n", 0o644)
+	before := snapshot(t, dir)
+
+	_, err := Check(context.Background(), dir, base, Options{Table: tableOf(shCheck("tests", project.KindTest, "exit 0"))})
+
+	var restore *RestoreError
+	if err == nil || errors.As(err, &restore) {
+		t.Fatalf("Check = %v, want an error and no restore error", err)
+	}
+	requireState(t, dir, before)
+}
+
+// TestAFileEditedDuringTheRunIsKept guards 06-REQ-6.7: an edit to a path the
+// check reverted, made while it ran, is not silently overwritten by the
+// restore: the tree gets its old content back, the edit is kept in the backup,
+// and the check fails with a restore error that names it.
+func TestAFileEditedDuringTheRunIsKept(t *testing.T) {
+	dir, base, _ := provenFixture(t, false)
+	script := `if grep -q fixed lib.txt; then exit 0; fi; echo "my edit" > lib.txt; exit 1`
+
+	_, err := Check(context.Background(), dir, base, Options{Table: tableOf(shCheck("tests", project.KindTest, script))})
+
+	var restore *RestoreError
+	if !errors.As(err, &restore) || !strings.Contains(err.Error(), "lib.txt") {
+		t.Fatalf("Check = %v, want a restore error that names lib.txt", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "lib.txt")); string(got) != "fixed\n" {
+		t.Errorf("lib.txt holds %q, want the content it had", got)
+	}
+	if kept, err := os.ReadFile(filepath.Join(restore.Dir, "changed", "lib.txt")); err != nil || string(kept) != "my edit\n" {
+		t.Errorf("the edit in the backup = %q, %v; want it kept", kept, err)
+	}
+}
+
+// TestARevertThatChangesTheChecksIsInconclusive guards 06-REQ-6.6: when the
+// table of checks, found again on the reverted tree, is not the one that was
+// measured (a Makefile that the change added), the checks are not run: a
+// failure of a check that is not there says nothing about the tests.
+func TestARevertThatChangesTheChecksIsInconclusive(t *testing.T) {
+	dir, base, check := provenFixture(t, true)
+	before := snapshot(t, dir)
+	counter, counted := counterCheck(t, "counted", project.KindTest)
+	_ = check
+	changed := func(context.Context) (project.Table, error) { return tableOf(), nil }
+	same := func(context.Context) (project.Table, error) { return tableOf(counted), nil }
+
+	res := mustCheck(t, dir, base, Options{Table: tableOf(counted), TableNow: changed})
+
+	if res.Outcome != OutcomeInconclusive || res.Reason != "table_changed_by_revert" || res.Closes || res.Reverted != nil || !res.Restored {
+		t.Errorf("result = %+v, want inconclusive because the table changed, with nothing run on the reverted tree", res)
+	}
+	if !slices.Equal(res.RevertedFiles, []string{"lib.txt"}) {
+		t.Errorf("reverted files = %v", res.RevertedFiles)
+	}
+	if runs(t, counter) != 1 {
+		t.Errorf("the check ran %d times, want only the run on the current tree", runs(t, counter))
+	}
+	requireState(t, dir, before)
+
+	if res := mustCheck(t, dir, base, Options{Table: tableOf(counted), TableNow: same}); res.Outcome == OutcomeInconclusive && res.Reason == "table_changed_by_revert" {
+		t.Errorf("the same table is a change: %+v", res)
+	}
+}
+
+// TestAPanicWhileRevertedPutsTheTreeBack guards 06-REQ-6.3: the tree is given
+// back when the code that runs on the reverted tree panics, and the panic goes
+// on to whoever recovers it.
+func TestAPanicWhileRevertedPutsTheTreeBack(t *testing.T) {
+	dir, base, check := provenFixture(t, true)
+	before := snapshot(t, dir)
+	boom := func(context.Context) (project.Table, error) { panic("boom") }
+
+	func() {
+		defer func() {
+			if r := recover(); r != "boom" {
+				t.Errorf("recovered %v, want the panic of the code that ran", r)
+			}
+		}()
+		_, _ = Check(context.Background(), dir, base, Options{Table: tableOf(check), TableNow: boom})
+	}()
+
+	requireState(t, dir, before)
+	if left, _ := filepath.Glob(filepath.Join(dir, ".agent-fox", "revert", "*")); len(left) != 0 {
+		t.Errorf("a backup is left after the panic: %v", left)
+	}
+}
+
+// TestGitNoiseOnStderrIsNotParsed guards 06-REQ-6.1: what git writes to stderr
+// is not read as the answer it printed.
+func TestGitNoiseOnStderrIsNotParsed(t *testing.T) {
+	dir, base, check := provenFixture(t, false)
+	before := snapshot(t, dir)
+	t.Setenv("GIT_TRACE", "1")
+
+	res, err := Check(context.Background(), dir, base, Options{Table: tableOf(check)})
+
+	os.Unsetenv("GIT_TRACE")
+
+	if err != nil || res.Outcome != OutcomeProven {
+		t.Errorf("Check = %+v, %v; want proven although git traces to stderr", res, err)
+	}
+	requireState(t, dir, before)
 }

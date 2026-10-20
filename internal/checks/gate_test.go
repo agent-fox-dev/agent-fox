@@ -210,11 +210,13 @@ func TestHermeticRunHasAHomeOfItsOwn_TS_06_20(t *testing.T) {
 
 	t.Run("cancelled", func(t *testing.T) {
 		dir := newRepo(t)
+		homeFile := filepath.Join(t.TempDir(), "home")
+		saw := shCheck("home", fmt.Sprintf(`echo "$HOME" > '%s'; mkdir -p "$HOME/readonly/deep"; chmod -R a-w "$HOME/readonly"; sleep 60`, homeFile))
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		go func() {
 			for ctx.Err() == nil {
-				if logs, _ := filepath.Glob(filepath.Join(dir, ".agent-fox", "gate", "*", "01-home.log")); len(logs) > 0 {
+				if data, _ := os.ReadFile(homeFile); strings.Contains(string(data), "\n") {
 					cancel()
 					return
 				}
@@ -222,24 +224,45 @@ func TestHermeticRunHasAHomeOfItsOwn_TS_06_20(t *testing.T) {
 			}
 		}()
 
-		_, err := Run(ctx, dir, Options{Table: tableOf(home, shCheck("block", "sleep 60")), Hermetic: true})
+		_, err := Run(ctx, dir, Options{Table: tableOf(saw), Hermetic: true})
 
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("Run = %v, want context.Canceled", err)
 		}
-		logs, _ := filepath.Glob(filepath.Join(dir, ".agent-fox", "gate", "*", "01-home.log"))
-		if len(logs) != 1 {
-			t.Fatalf("logs = %v", logs)
-		}
-		data, _ := os.ReadFile(logs[0])
-		seen := strings.TrimPrefix(strings.SplitN(string(data), "\n", 2)[0], "home=")
+		data, _ := os.ReadFile(homeFile)
+		seen := strings.TrimSpace(string(data))
 		if seen == "" || seen == realHome {
 			t.Fatalf("HOME seen = %q", seen)
 		}
 		if _, err := os.Stat(seen); err == nil {
-			t.Errorf("the temporary HOME %s still exists after the run was cancelled", seen)
+			t.Errorf("the temporary HOME %s still exists after the run was cancelled, with a read-only directory in it", seen)
 		}
 	})
+}
+
+// TestRemoveTreeRemovesWhatIsReadOnly: a directory a program made unwritable,
+// as Go does with its module cache, does not stop the tree from going.
+func TestRemoveTreeRemovesWhatIsReadOnly(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "home")
+	deep := filepath.Join(root, "pkg", "mod", "x")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deep, "f.go"), []byte("x"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{deep, filepath.Join(root, "pkg", "mod"), filepath.Join(root, "pkg")} {
+		if err := os.Chmod(d, 0o555); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	removeTree(root)
+
+	if _, err := os.Stat(root); err == nil {
+		t.Error("the tree is still there")
+		_ = os.Chmod(filepath.Join(root, "pkg"), 0o755)
+	}
 }
 
 // TestResultFieldsAndPassed_TS_06_21 verifies TS-06-21:

@@ -181,3 +181,33 @@ func TestWriteFileAtomicNeedsTheDirectory(t *testing.T) {
 		t.Error("WriteFileAtomic created the directory")
 	}
 }
+
+// TestReplaceFileHasTheModeFromTheStart: the file is made with the mode it is
+// to have, replaces what is there, and leaves nothing behind. A file that is
+// private is never there with the mode of one that is not.
+func TestReplaceFileHasTheModeFromTheStart(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "secret.txt")
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, mode := range []os.FileMode{0o600, 0o755, 0o644} {
+		if err := ReplaceFile(path, []byte("new "+mode.String()), mode); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm() != mode {
+			t.Errorf("mode = %v (%v), want %v", info.Mode().Perm(), err, mode)
+		}
+		if data, _ := os.ReadFile(path); string(data) != "new "+mode.String() {
+			t.Errorf("content = %q", data)
+		}
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Errorf("the directory holds %d entries, want only secret.txt", len(entries))
+	}
+	if err := ReplaceFile(filepath.Join(dir, "missing", "x"), []byte("x"), 0o644); err == nil {
+		t.Error("ReplaceFile into a directory that does not exist succeeded")
+	}
+}

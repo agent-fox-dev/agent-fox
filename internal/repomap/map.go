@@ -358,8 +358,11 @@ func cutDirectories(dirs []directory, budget int) string {
 func isTest(p string) bool { return testPath(p) }
 
 // clean is a name as it is written in the map: a control character, which
-// would end the line or hide in it, is replaced by a question mark.
+// would end the line or hide in it, is replaced by a question mark, and bytes
+// that are no text by a replacement character, which is what the document that
+// carries the map would make of them, at three bytes for each.
 func clean(s string) string {
+	s = strings.ToValidUTF8(s, "\uFFFD")
 	if !strings.ContainsFunc(s, isUnsafe) {
 		return s
 	}

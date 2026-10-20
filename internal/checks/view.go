@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentdir"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
@@ -33,6 +34,11 @@ var skippedDirs = map[string]bool{
 // a walk of dir that skips the directories of skippedDirs. Both leave out
 // .git/ and .agent-fox/.
 func FileView(ctx context.Context, dir string) ([]string, error) {
+	if info, err := os.Stat(dir); err != nil {
+		return nil, fmt.Errorf("file view: %w", err)
+	} else if !info.IsDir() {
+		return nil, fmt.Errorf("file view: %s is not a directory", dir)
+	}
 	g := gitx.New(dir, gitx.ExecRunner)
 	if g.IsRepo(ctx) {
 		return gitView(ctx, g, dir)
@@ -53,8 +59,8 @@ func gitView(ctx context.Context, g *gitx.Git, dir string) ([]string, error) {
 		if p == "" || reserved(p) {
 			continue
 		}
-		if _, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(p))); errors.Is(err, fs.ErrNotExist) {
-			continue // tracked, and deleted from the working tree
+		if _, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(p))); errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+			continue // tracked, and deleted from the working tree, or under a directory that is a file now
 		}
 		view = append(view, p)
 	}
@@ -75,9 +81,14 @@ func reserved(p string) bool {
 
 // walkView is the walk of dir.
 func walkView(ctx context.Context, dir string) ([]string, error) {
-	root := filepath.Clean(dir)
+	// A walk does not follow a link at its root, and a link to a directory is
+	// that directory.
+	root, err := filepath.EvalSymlinks(filepath.Clean(dir))
+	if err != nil {
+		return nil, fmt.Errorf("file view: %w", err)
+	}
 	var view []string
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if path == root {
 				return err
@@ -100,6 +111,9 @@ func walkView(ctx context.Context, dir string) ([]string, error) {
 				return fs.SkipDir
 			}
 			return nil
+		}
+		if d.Name() == ".git" {
+			return nil // a file that points at a repository elsewhere
 		}
 		view = append(view, rel)
 		return nil

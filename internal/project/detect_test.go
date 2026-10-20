@@ -98,6 +98,18 @@ func TestDetectLanguages_TS_06_9(t *testing.T) {
 		t.Errorf("go's manifest = %q, want go.mod", d.Languages[0].Manifest)
 	}
 
+	// Two languages with as many files as each other come in the order of their
+	// names, and not in the order of the table of languages, which has
+	// javascript before java.
+	tie := detect(t, map[string]string{"a.js": "", "b.js": "", "a.java": "", "b.java": "", "c.rs": ""})
+	var order []string
+	for _, l := range tie.Languages {
+		order = append(order, l.Name)
+	}
+	if want := []string{"java", "javascript", "rust"}; !slices.Equal(order, want) {
+		t.Errorf("a tie in the count is ordered %v, want %v: by name", order, want)
+	}
+
 	empty := detect(t, nil)
 	if len(empty.Languages) != 0 || len(empty.Gate.Checks) != 0 || empty.Gate.Source != SourceDetected {
 		t.Errorf("an empty directory: languages %v, checks %v, source %q", empty.Languages, empty.Gate.Checks, empty.Gate.Source)

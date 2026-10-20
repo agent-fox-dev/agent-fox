@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/conform"
+	"github.com/agent-fox-dev/agentfox/internal/project"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -24,8 +26,11 @@ func registerRevertCheck(app *toolio.App) {
 		Dir:            true,
 		Timeout:        true,
 		DefaultTimeout: 30 * time.Minute,
-		ResultSchema:   resultSchema("revert_check"),
-		Run:            func(r *toolio.Run) (toolio.Outcome, error) { return revertCheck(r, since) },
+		// Once told to stop it has the tree to put back, which takes as long
+		// as the tree is big; the shell does not abandon it half way.
+		Grace:        10 * time.Minute,
+		ResultSchema: resultSchema("revert_check"),
+		Run:          func(r *toolio.Run) (toolio.Outcome, error) { return revertCheck(r, since) },
 	})
 }
 
@@ -41,7 +46,15 @@ func revertCheck(r *toolio.Run, since string) (toolio.Outcome, error) {
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
-	res, err := conform.Check(r.Ctx, r.Dir, since, conform.Options{Table: detection.Gate})
+	res, err := conform.Check(r.Ctx, r.Dir, since, conform.Options{
+		Table: detection.Gate,
+		// The table is found again on the reverted tree: a Makefile the change
+		// added is not there to run.
+		TableNow: func(context.Context) (project.Table, error) {
+			again, err := detect(r)
+			return again.Gate, err
+		},
+	})
 	if err != nil {
 		return toolio.Outcome{}, conformFailure(r, err)
 	}

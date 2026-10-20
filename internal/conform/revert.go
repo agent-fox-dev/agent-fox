@@ -6,6 +6,9 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +20,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentdir"
@@ -51,6 +55,11 @@ type Options struct {
 	Table project.Table
 	// CheckTimeout is the deadline of each check, as for the gate.
 	CheckTimeout time.Duration
+	// TableNow, when it is set, finds the table of checks again on the reverted
+	// tree. A table that is not the one that was measured (a Makefile that the
+	// change added is not there to run) makes the outcome inconclusive: a
+	// check that cannot run says nothing about the tests.
+	TableNow func(ctx context.Context) (project.Table, error)
 }
 
 // Reverted is what the checks said about the reverted tree.
@@ -156,7 +165,7 @@ func Check(ctx context.Context, dir, since string, opts Options) (Result, error)
 		return res, nil
 	}
 
-	rv := &reverter{g: g, dir: dir, commit: commit, table: opts.Table, timeout: opts.CheckTimeout, paths: code}
+	rv := &reverter{g: g, dir: dir, commit: commit, table: opts.Table, timeout: opts.CheckTimeout, tableNow: opts.TableNow, paths: code}
 	return rv.run(ctx, res)
 }
 
@@ -227,7 +236,7 @@ type git struct {
 // output runs git and returns what it printed, exactly, and its exit code. An
 // error is git that could not be run, or the context's.
 func (g git) output(ctx context.Context, args ...string) (string, int, error) {
-	out, code, err := gitx.ExecRunner(ctx, g.dir, append([]string{"git"}, args...))
+	out, code, err := gitx.ExecRunner(gitx.StdoutOnly(ctx), g.dir, append([]string{"git"}, args...))
 	if cerr := ctx.Err(); cerr != nil {
 		return "", code, cerr
 	}
@@ -424,6 +433,12 @@ type entry struct {
 	Copy   string      `json:"copy,omitempty"`
 
 	ref *treeEntry // what the commit has at the path; nil when it has nothing
+
+	// applied says that the revert has put the commit's content at the path,
+	// or removed the path where the commit has nothing; want is the SHA-256 of
+	// that content, or of the target of a link.
+	applied bool
+	want    [sha256.Size]byte
 }
 
 // manifest is what a backup says about itself.
@@ -436,12 +451,13 @@ type manifest struct {
 
 // reverter sets paths back to a commit, and puts them back as they were.
 type reverter struct {
-	g       git
-	dir     string
-	commit  string
-	table   project.Table
-	timeout time.Duration
-	paths   []string // the changed paths that are not tests
+	g        git
+	dir      string
+	commit   string
+	table    project.Table
+	timeout  time.Duration
+	tableNow func(ctx context.Context) (project.Table, error)
+	paths    []string // the changed paths that are not tests
 
 	entries   []entry
 	made      []string // the directories the revert makes, shallowest first
@@ -479,6 +495,13 @@ func (rv *reverter) run(ctx context.Context, res Result) (out Result, err error)
 	if err := rv.apply(ctx); err != nil {
 		return Result{}, err
 	}
+	for _, e := range rv.entries {
+		res.RevertedFiles = append(res.RevertedFiles, e.Path)
+	}
+	if rv.tableNow != nil && rv.tableChanged(ctx) {
+		res.Outcome, res.Reason = OutcomeInconclusive, "table_changed_by_revert"
+		return res, nil
+	}
 	reverted, err := checks.Run(ctx, rv.dir, checks.Options{Table: testChecks(rv.table), CheckTimeout: rv.timeout})
 	if err != nil {
 		return Result{}, err
@@ -486,11 +509,22 @@ func (rv *reverter) run(ctx context.Context, res Result) (out Result, err error)
 	return rv.conclude(res, reverted), nil
 }
 
+// tableChanged reports whether the checks that run tests, found again on the
+// reverted tree, are not the ones that were measured. When that cannot be told
+// they are taken to have changed.
+func (rv *reverter) tableChanged(ctx context.Context) bool {
+	now, err := rv.tableNow(ctx)
+	if err != nil {
+		return true
+	}
+	mine, theirs := testChecks(rv.table).Checks, testChecks(now).Checks
+	return !slices.EqualFunc(mine, theirs, func(a, b project.Check) bool {
+		return a.Name == b.Name && a.Kind == b.Kind && slices.Equal(a.Argv, b.Argv)
+	})
+}
+
 // conclude turns what the tests said on the reverted tree into the result.
 func (rv *reverter) conclude(res Result, reverted checks.Result) Result {
-	for _, e := range rv.entries {
-		res.RevertedFiles = append(res.RevertedFiles, e.Path)
-	}
 	res.Reverted = &Reverted{ID: reverted.ID, Passed: reverted.Passed, Checks: reverted.Checks}
 
 	failed, errored := false, false
@@ -523,7 +557,6 @@ func (rv *reverter) plan(ctx context.Context) error {
 		return err
 	}
 	rv.preIndex = readIfThere(rv.indexPath)
-	rv.backup = filepath.Join(rv.dir, agentdir.Name, revertDirName, rv.preTree[:12])
 
 	atCommit, err := rv.g.entriesAt(ctx, rv.commit, rv.paths)
 	if err != nil {
@@ -609,10 +642,49 @@ func (rv *reverter) dirsToMake() []string {
 	return made
 }
 
+// claim makes the directory of the backup, exclusively: it is the claim on the
+// tree that keeps two checks from working on it together, which would have the
+// second back up the state the first had made. A check that finds another
+// claim after making its own backs off and takes only its own directory away;
+// it never removes one it did not make.
+func (rv *reverter) claim() error {
+	root := filepath.Join(rv.dir, agentdir.Name, revertDirName)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return err
+	}
+	var id [6]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return err
+	}
+	mine := filepath.Join(root, hex.EncodeToString(id[:]))
+	if err := os.Mkdir(mine, 0o755); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		_ = os.Remove(mine)
+		return err
+	}
+	for _, e := range entries {
+		if other := filepath.Join(root, e.Name()); e.IsDir() && other != mine {
+			_ = os.Remove(mine) // empty, and made by this check
+			return &RestoreError{
+				Dir:   other,
+				Cause: errors.New("another revert-check is working on this checkout, or one was killed and left its backup. Wait for it, or look at the backup and put it back, before checking again"),
+			}
+		}
+	}
+	rv.backup = mine
+	return nil
+}
+
 // makeBackup copies every file the revert will change into the backup
 // directory, with the index and a manifest, before anything is changed. A
 // failure here has changed nothing, and takes the backup away again.
 func (rv *reverter) makeBackup() (err error) {
+	if err := rv.claim(); err != nil {
+		return err
+	}
 	defer func() {
 		if err != nil {
 			_ = os.RemoveAll(rv.backup)
@@ -666,18 +738,22 @@ func copyFile(src, dst string) error {
 }
 
 // apply sets each path to what the commit has: its content and mode, or gone
-// where the commit has nothing. The index is not touched.
+// where the commit has nothing. The index is not touched. It notes what it
+// put at each path, so that the restore can tell a path it changed from one
+// that something else did.
 func (rv *reverter) apply(ctx context.Context) error {
 	for _, d := range rv.made {
 		if err := os.Mkdir(rv.abs(d), 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
 			return err
 		}
 	}
-	for _, e := range rv.entries {
+	for i := range rv.entries {
+		e := &rv.entries[i]
 		if e.ref == nil {
 			if err := os.Remove(rv.abs(e.Path)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return err
 			}
+			e.applied = true
 			continue
 		}
 		content, err := rv.g.blob(ctx, e.ref.object)
@@ -687,6 +763,7 @@ func (rv *reverter) apply(ctx context.Context) error {
 		if err := rv.put(e.Path, e.ref.mode, content); err != nil {
 			return fmt.Errorf("%s: %w", e.Path, err)
 		}
+		e.applied, e.want = true, sha256.Sum256(content)
 	}
 	return nil
 }
@@ -702,29 +779,39 @@ func (rv *reverter) put(p, mode string, content []byte) error {
 		}
 		return os.Symlink(string(content), abs)
 	}
-	if err := agentdir.WriteFileAtomic(abs, content); err != nil {
-		return err
-	}
 	perm := os.FileMode(0o644)
 	if mode == "100755" {
 		perm = 0o755
 	}
-	return os.Chmod(abs, perm)
+	return agentdir.ReplaceFile(abs, content, perm)
 }
 
 // restore puts every path back as it was, from the backup, takes away the
-// directories the revert made, and checks that the tree hash and the index
-// are what they were. Only then is the backup removed: if anything fails it
-// stays, with the manifest that says what is in it.
+// directories the revert made, and writes the index back if a check rewrote
+// it. What was changed while the check ran, by it or by someone else, is kept
+// in the backup and reported. Then it checks that the tree hash and the index
+// are what they were. Only when all is well is the backup removed: if anything
+// fails it stays, with the manifest that says what is in it.
 func (rv *reverter) restore(ctx context.Context) error {
 	var problems []error
+	var edited []string
 	for _, e := range rv.entries {
-		if err := rv.putBack(e); err != nil {
+		kept, err := rv.keepEdit(e)
+		if kept {
+			edited = append(edited, e.Path)
+		}
+		if err == nil {
+			err = rv.putBack(e)
+		}
+		if err != nil {
 			problems = append(problems, fmt.Errorf("%s: %w", e.Path, err))
 		}
 	}
 	for i := len(rv.made) - 1; i >= 0; i-- {
 		_ = os.Remove(rv.abs(rv.made[i])) // only while it is empty
+	}
+	if err := rv.restoreIndex(); err != nil {
+		problems = append(problems, err)
 	}
 	if len(problems) == 0 {
 		if err := rv.verify(ctx); err != nil {
@@ -734,6 +821,9 @@ func (rv *reverter) restore(ctx context.Context) error {
 	if len(problems) > 0 {
 		return &RestoreError{Dir: rv.backup, Cause: fmt.Errorf("the tree could not be put back: %w", errors.Join(problems...))}
 	}
+	if len(edited) > 0 {
+		return &RestoreError{Dir: rv.backup, Cause: fmt.Errorf("the tree is put back, but %s changed while the check ran, and what they held is kept in %s", strings.Join(edited, ", "), filepath.Join(rv.backup, "changed"))}
+	}
 	if err := os.RemoveAll(rv.backup); err != nil {
 		return &RestoreError{Dir: rv.backup, Cause: fmt.Errorf("the tree was put back, but its backup could not be removed: %w", err)}
 	}
@@ -741,7 +831,57 @@ func (rv *reverter) restore(ctx context.Context) error {
 	return nil
 }
 
-// putBack puts one path back as the manifest says it was.
+// keepEdit copies what is at the path of an entry that the revert changed to
+// the backup, if it is not what the revert put there: something changed it
+// since, and putting back would overwrite that.
+func (rv *reverter) keepEdit(e entry) (kept bool, err error) {
+	if !e.applied {
+		return false, nil
+	}
+	abs := rv.abs(e.Path)
+	sum, exists, err := currentSum(abs)
+	if err != nil {
+		return false, err
+	}
+	if e.ref == nil && !exists || e.ref != nil && exists && sum == e.want {
+		return false, nil
+	}
+	if !exists {
+		return true, nil // removed since; there is nothing to keep
+	}
+	dst := filepath.Join(rv.backup, "changed", filepath.FromSlash(e.Path))
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return true, err
+	}
+	if target, lerr := os.Readlink(abs); lerr == nil {
+		return true, os.WriteFile(dst, []byte(target+"\n"), 0o600)
+	}
+	return true, copyFile(abs, dst)
+}
+
+// currentSum is the SHA-256 of what is at a path: a file's content, or the
+// target of a link. A path that is not there does not exist; anything else
+// that is there has a sum that matches nothing.
+func currentSum(abs string) (sum [sha256.Size]byte, exists bool, err error) {
+	info, err := os.Lstat(abs)
+	switch {
+	case errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR):
+		return sum, false, nil
+	case err != nil:
+		return sum, false, err
+	case info.Mode()&fs.ModeSymlink != 0:
+		target, err := os.Readlink(abs)
+		return sha256.Sum256([]byte(target)), true, err
+	case !info.Mode().IsRegular():
+		return sum, true, nil
+	}
+	data, err := os.ReadFile(abs)
+	return sha256.Sum256(data), true, err
+}
+
+// putBack puts one path back as the manifest says it was. A path that is as it
+// was already is not written: the directory it is in may not be writable, and
+// there is nothing to put back.
 func (rv *reverter) putBack(e entry) error {
 	abs := rv.abs(e.Path)
 	switch e.State {
@@ -751,6 +891,9 @@ func (rv *reverter) putBack(e entry) error {
 		}
 		return nil
 	case stateSymlink:
+		if target, err := os.Readlink(abs); err == nil && target == e.Target {
+			return nil
+		}
 		if err := os.Remove(abs); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
@@ -760,16 +903,49 @@ func (rv *reverter) putBack(e entry) error {
 	if err != nil {
 		return err
 	}
+	if info, err := os.Lstat(abs); err == nil && info.Mode().IsRegular() && info.Mode().Perm() == e.Mode {
+		if current, err := os.ReadFile(abs); err == nil && bytes.Equal(current, data) {
+			if info.ModTime().Equal(e.MTime) {
+				return nil
+			}
+			return os.Chtimes(abs, e.MTime, e.MTime)
+		}
+	}
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return err
 	}
-	if err := agentdir.WriteFileAtomic(abs, data); err != nil {
-		return err
-	}
-	if err := os.Chmod(abs, e.Mode); err != nil {
+	if err := agentdir.ReplaceFile(abs, data, e.Mode); err != nil {
 		return err
 	}
 	return os.Chtimes(abs, e.MTime, e.MTime)
+}
+
+// restoreIndex writes the bytes of the index back if a check changed them. A
+// check that runs git, or a build that does, refreshes the stat data of the
+// index and rewrites it, with the same entries and other bytes; the index is
+// written the way git writes it, through its lock, and a git that is running
+// holds the lock and makes this fail rather than lose a write.
+func (rv *reverter) restoreIndex() error {
+	if bytes.Equal(readIfThere(rv.indexPath), rv.preIndex) {
+		return nil
+	}
+	if rv.preIndex == nil {
+		return os.Remove(rv.indexPath)
+	}
+	lock := rv.indexPath + ".lock"
+	f, err := os.OpenFile(lock, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return fmt.Errorf("the index was rewritten while the check ran and cannot be written back: %w", err)
+	}
+	_, werr := f.Write(rv.preIndex)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		_ = os.Remove(lock)
+		return fmt.Errorf("the index cannot be written back: %w", werr)
+	}
+	return os.Rename(lock, rv.indexPath)
 }
 
 // verify checks that the tree is the one the revert started from: the same

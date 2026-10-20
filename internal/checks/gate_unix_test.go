@@ -63,6 +63,9 @@ func TestCancellationStopsTheGroupAndStoresNothing_TS_06_24(t *testing.T) {
 	if results, _ := filepath.Glob(filepath.Join(dir, ".agent-fox", "gate", "*", "result.json")); len(results) != 0 {
 		t.Errorf("a cancelled run stored %v", results)
 	}
+	if logs, _ := filepath.Glob(filepath.Join(dir, ".agent-fox", "gate", "*", "*.log")); len(logs) != 0 {
+		t.Errorf("a cancelled run wrote %v", logs)
+	}
 
 	if err := os.WriteFile(proceed, nil, 0o644); err != nil {
 		t.Fatal(err)
@@ -100,5 +103,48 @@ func TestPerCheckDeadlineKillsTheGroup(t *testing.T) {
 	}
 	if alive(pid) {
 		t.Errorf("the child of the timed-out check (pid %d) is still running", pid)
+	}
+}
+
+// TestACheckThatLeavesAChildBehindStillPasses: a check that exits 0 and starts
+// a process that keeps its output open (a server, a daemon) passed.
+func TestACheckThatLeavesAChildBehindStillPasses(t *testing.T) {
+	requireSh(t)
+	dir := newRepo(t)
+
+	res := mustRun(t, dir, Options{Table: tableOf(shCheck("daemon", "echo started; sleep 30 & exit 0"))})
+
+	if len(res.Checks) != 1 || res.Checks[0].Status != StatusPass || res.Checks[0].ExitCode != 0 || !res.Passed {
+		t.Errorf("checks = %+v, passed %v; want a pass", res.Checks, res.Passed)
+	}
+}
+
+// TestACancelledNoCacheRunLeavesTheStoredLogsAlone: the logs a stored result
+// names stay what they were when a run that would replace them is stopped.
+func TestACancelledNoCacheRunLeavesTheStoredLogsAlone(t *testing.T) {
+	requireSh(t)
+	dir := newRepo(t)
+	marker := filepath.Join(t.TempDir(), "second-run")
+	table := tableOf(
+		shCheck("one", fmt.Sprintf("if [ -e '%s' ]; then echo run 2; else echo run 1; fi", marker)),
+		shCheck("two", fmt.Sprintf("if [ -e '%s' ]; then sleep 60; fi", marker)),
+	)
+	first := mustRun(t, dir, Options{Table: table})
+	if err := os.WriteFile(marker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+
+	_, err := Run(ctx, dir, Options{Table: table, NoCache: true})
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Run = %v, want the deadline", err)
+	}
+	if log := readLog(t, dir, first.Checks[0]); !strings.Contains(log, "run 1") {
+		t.Errorf("the log of the stored result says %q after a run that was stopped", log)
+	}
+	if again := mustRun(t, dir, Options{Table: table}); !again.Cached || again.Checks[0].Tail != first.Checks[0].Tail {
+		t.Errorf("the stored result is no longer served as it was: cached %v, tail %q", again.Cached, again.Checks[0].Tail)
 	}
 }

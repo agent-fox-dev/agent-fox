@@ -224,7 +224,7 @@ func TestGateCompareRefusals_TS_06_36_and_37(t *testing.T) {
 		{"no --after", []string{"--before", "baseline"}, []string{"--after"}},
 		{"an unresolved --after", []string{"--before", "baseline", "--after", "nosuch"}, []string{"--after", "nosuch"}},
 		{"an unresolved --before", []string{"--before", "nosuch", "--after", "baseline"}, []string{"--before", "nosuch"}},
-		{"different checks", []string{"--before", "baseline", "--after", "other"}, []string{"lint", "build"}},
+		{"different checks", []string{"--before", "baseline", "--after", "other"}, []string{"only in --before: lint", "only in --after: build"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			code, env := compareRun(t, dir, tc.args...)

@@ -63,7 +63,7 @@ so nothing in it changes a tree hash.
 | `gate/<id>/NN-<slug>.log` | `gate run` | The full output of the NNth check that ran. |
 | `gate/<id>/result.json` | `gate run` | The result for the key `<id>`: the SHA-256 of the tree hash, the checks and the runner mode, 12 hex characters. Written after the logs, through a temporary file and a rename. |
 | `gate/labels.json` | `gate run --label` | `{label: id}`; the latest result for a label wins. |
-| `revert/<id>/` | `revert-check` | The backup that exists while the check is working: `manifest.json`, `index` (the index as it was) and `files/` (a copy of every file it changes). `<id>` is 12 characters of the tree hash. It is removed when the tree is back. One that is left was left by a check that was killed, and the next check refuses until someone has looked at it. |
+| `revert/<id>/` | `revert-check` | The backup that exists while the check is working: `manifest.json`, `index` (the index as it was) and `files/` (a copy of every file it changes). `<id>` is 12 random hex characters, and the directory, made exclusively, is the claim on the checkout. `changed/` holds what a path held when it was changed while the checks ran. It is removed when the tree is back. One that is left was left by a check that was killed or that could not put the tree back, and the next check refuses until someone has looked at it. |
 | `run/<id>/` | the shell | The run directory of a command that has one; see [cli.md](cli.md#the-run-directory). None of the ring-1 commands makes one. |
 
 ## Tests

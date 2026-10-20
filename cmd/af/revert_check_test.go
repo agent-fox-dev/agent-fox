@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -276,6 +277,12 @@ func TestRevertCheckSignal_TS_06_45(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("no signals to send")
 	}
+	for name, signal := range map[string]os.Signal{"SIGINT": os.Interrupt, "SIGTERM": syscall.SIGTERM, "SIGHUP": syscall.SIGHUP} {
+		t.Run(name, func(t *testing.T) { revertCheckSignal(t, signal) })
+	}
+}
+
+func revertCheckSignal(t *testing.T, signal os.Signal) {
 	binary := buildBinary(t)
 	dir, base, started, pidFile := slowRepo(t)
 	before := stateOf(t, dir)
@@ -291,7 +298,7 @@ func TestRevertCheckSignal_TS_06_45(t *testing.T) {
 			break
 		}
 	}
-	if err := cmd.Process.Signal(os.Interrupt); err != nil {
+	if err := cmd.Process.Signal(signal); err != nil {
 		t.Fatal(err)
 	}
 	err := cmd.Wait()
@@ -391,4 +398,54 @@ func expectFailure(t *testing.T, code int, env map[string]any, category string) 
 		t.Errorf("exit code %d, status %v, category %v, message %v; want 1, failed, %s",
 			code, env["status"], field(env, "error", "category"), field(env, "error", "message"), category)
 	}
+}
+
+// TestRevertCheckRedTree_TS_06_41 verifies TS-06-41 through the command: a red
+// current tree is a measured fact, done, inconclusive for the reason
+// after_not_green, with the warning, and nothing is reverted.
+// Verifies: 06-REQ-6.4
+func TestRevertCheckRedTree_TS_06_41(t *testing.T) {
+	requireSh(t)
+	dir, base := provenRepo(t, false)
+	writeGate(t, dir, []string{"tests", "sh", "-c", "echo red; exit 1"})
+	before := stateOf(t, dir)
+
+	code, env := revertRun(t, dir, "--since", base)
+
+	if code != 0 || env["status"] != "done" || field(env, "result", "outcome") != "inconclusive" || field(env, "result", "reason") != "after_not_green" {
+		t.Fatalf("exit code %d, status %v, result %v", code, env["status"], env["result"])
+	}
+	if !slicesContain(codes(env), "fix_not_proven") || field(env, "result", "after") == "" || field(env, "result", "reverted") != nil {
+		t.Errorf("warnings %v, after %v, reverted %v", codes(env), field(env, "result", "after"), field(env, "result", "reverted"))
+	}
+	requireGiven(t, dir, before)
+}
+
+// TestRevertCheckChangedTable guards 06-REQ-6.6: a Makefile that the change
+// added is the whole table of checks, and a revert takes it away; a check
+// that is not there to run is no proof that the tests fail without the fix.
+func TestRevertCheckChangedTable(t *testing.T) {
+	requireSh(t)
+	dir := gitRepo(t, map[string]string{"lib.txt": "broken\n"})
+	base := baseOf(t, dir)
+	if err := os.WriteFile(filepath.Join(dir, "lib.txt"), []byte("fixed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "tests"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tests", "t.txt"), []byte("t\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte("check:\n\t@true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before := stateOf(t, dir)
+
+	code, env := revertRun(t, dir, "--since", base)
+
+	if code != 0 || field(env, "result", "outcome") != "inconclusive" || field(env, "result", "reason") != "table_changed_by_revert" || field(env, "result", "closes") != false {
+		t.Errorf("exit code %d, result %v; want inconclusive because the table changed, and no proof", code, env["result"])
+	}
+	requireGiven(t, dir, before)
 }

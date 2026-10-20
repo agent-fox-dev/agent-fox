@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -158,5 +159,41 @@ func TestChangedPathsOnAPrivateIndexLeavesTheRealOne(t *testing.T) {
 	}
 	if after, _ := os.ReadFile(index); !bytes.Equal(after, before) {
 		t.Error("the real index changed although git was pointed at a copy")
+	}
+}
+
+// TestListingsAreNotSpoiledByGitWarnings: git can write a warning to stderr
+// and exit 0 (an untracked directory it may not open), and the warning must
+// not become part of a name, nor hide the name it was written in front of.
+func TestListingsAreNotSpoiledByGitWarnings(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permissions do not stop root")
+	}
+	g, dir := newRepo(t)
+	write(t, dir, "a.go", "package a")
+	write(t, dir, "private/secret.go", "package p")
+	if err := os.Chmod(filepath.Join(dir, "private"), 0o000); err != nil {
+		t.Skipf("cannot make a directory unreadable: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "private"), 0o755) })
+
+	files, err := g.ListFiles(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err := g.ChangedPaths(context.Background(), "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, got := range map[string][]string{"ListFiles": files, "ChangedPaths": changed} {
+		if !slices.Contains(got, "a.go") {
+			t.Errorf("%s = %q, lacks a.go: a warning swallowed it", name, got)
+		}
+		for _, p := range got {
+			if strings.Contains(p, "warning") || strings.Contains(p, "\n") {
+				t.Errorf("%s has an entry made of a warning: %q", name, p)
+			}
+		}
 	}
 }

@@ -328,6 +328,41 @@ func TestTimeoutIgnoredByCommandIsAbandoned(t *testing.T) {
 	}
 }
 
+// TestCommandGraceIsLongerThanTheShells: a command that declares its own grace
+// period, because it has something to put back when it is told to stop, gets
+// all of it: it is not abandoned at the shell's, and what it returns is
+// reported.
+func TestCommandGraceIsLongerThanTheShells(t *testing.T) {
+	finished := false
+	app := newTestApp()
+	app.Grace = 30 * time.Millisecond
+	app.Register(Command{Path: "X", Timeout: true, Grace: 5 * time.Second, Run: func(r *Run) (Outcome, error) {
+		<-r.Ctx.Done()
+		time.Sleep(300 * time.Millisecond) // the work of putting things back
+		finished = true
+		return Outcome{}, r.Ctx.Err()
+	}})
+	app.Register(Command{Path: "Y", Timeout: true, Run: func(r *Run) (Outcome, error) {
+		<-r.Ctx.Done()
+		time.Sleep(300 * time.Millisecond)
+		return Outcome{}, r.Ctx.Err()
+	}})
+
+	res := invokeWithin(t, 10*time.Second, app, "X", "--timeout", "50ms")
+	env := decode(t, res.stdout)
+	other := decode(t, invokeWithin(t, 10*time.Second, app, "Y", "--timeout", "50ms").stdout)
+
+	if !finished {
+		t.Error("the command was told to stop and was abandoned before it had finished")
+	}
+	if res.code != 1 || at(env, "error", "category") != CategoryTimeout || strings.Contains(at(env, "error", "message").(string), "abandoned") {
+		t.Errorf("exit code %d, error %v; want a timeout that is not an abandonment", res.code, env["error"])
+	}
+	if msg, _ := at(other, "error", "message").(string); !strings.Contains(msg, "abandoned") {
+		t.Errorf("a command with no grace of its own: %q, want the shell's: abandoned", msg)
+	}
+}
+
 // TestBadTimeoutRefused_TS_05_28 verifies TS-05-28:
 // An unparseable or negative --timeout is refused before the command runs.
 // Verifies: 05-REQ-4.5

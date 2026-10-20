@@ -45,7 +45,7 @@ func (g *Git) must(ctx context.Context, args ...string) (string, error) {
 
 // IsRepo reports whether Dir is inside a git work tree.
 func (g *Git) IsRepo(ctx context.Context) bool {
-	out, code, err := g.git(ctx, "rev-parse", "--is-inside-work-tree")
+	out, code, err := g.run(StdoutOnly(ctx), g.Dir, []string{"git", "rev-parse", "--is-inside-work-tree"})
 	return err == nil && code == 0 && strings.TrimSpace(out) == "true"
 }
 
@@ -460,7 +460,7 @@ func (g *Git) ShowFile(ctx context.Context, ref, path string) (string, bool, err
 		return "", false, err
 	}
 	// Not g.git: that trims the trailing newline, and this is file content.
-	out, code, err := g.run(ctx, g.Dir, []string{"git", "show", ref + ":" + path})
+	out, code, err := g.run(StdoutOnly(ctx), g.Dir, []string{"git", "show", ref + ":" + path})
 	if err != nil {
 		return "", false, err
 	}
@@ -538,10 +538,10 @@ func (g *Git) ChangedPaths(ctx context.Context, since string) ([]string, error) 
 	return sortedUnique(append(splitNUL(tracked), splitNUL(untracked)...)), nil
 }
 
-// raw runs git and returns its output exactly as it came, where Git.git trims
-// it. A non-zero exit is an error.
+// raw runs git and returns what it printed on stdout exactly as it came, where
+// Git.git trims it and mixes in stderr. A non-zero exit is an error.
 func (g *Git) raw(ctx context.Context, args ...string) (string, error) {
-	out, code, err := g.run(ctx, g.Dir, append([]string{"git"}, args...))
+	out, code, err := g.run(StdoutOnly(ctx), g.Dir, append([]string{"git"}, args...))
 	if err != nil {
 		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}

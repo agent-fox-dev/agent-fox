@@ -3,10 +3,13 @@ package checks
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentdir"
 )
@@ -64,6 +67,8 @@ func readLabels(dir string) map[string]string {
 // recordLabel maps label to the result id in labels.json, replacing the id it
 // had, and writes the file atomically.
 func recordLabel(dir, label, id string) error {
+	unlock := lockLabels(dir)
+	defer unlock()
 	labels := readLabels(dir)
 	labels[label] = id
 	var buf bytes.Buffer
@@ -77,4 +82,34 @@ func recordLabel(dir, label, id string) error {
 		return err
 	}
 	return agentdir.WriteFileAtomic(path, buf.Bytes())
+}
+
+// lockLabels takes the lock that keeps two runs from reading labels.json at
+// the same time and writing it one after the other, which would lose the
+// label of the first. It is a file made exclusively, held for as long as a
+// read and a write take; one that is older than ten seconds was left by a
+// process that was killed and is taken over, and when it cannot be taken in
+// five seconds the caller goes on without it: a label is worth a short wait and
+// never a failed run.
+func lockLabels(dir string) (unlock func()) {
+	path := labelsPath(dir) + ".lock"
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return func() {}
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err == nil {
+			_ = f.Close()
+			return func() { _ = os.Remove(path) }
+		}
+		if !errors.Is(err, fs.ErrExist) || time.Now().After(deadline) {
+			return func() {}
+		}
+		if info, err := os.Stat(path); err == nil && time.Since(info.ModTime()) > 10*time.Second {
+			_ = os.Remove(path)
+			continue
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }

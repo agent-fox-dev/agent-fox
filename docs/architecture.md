@@ -167,7 +167,7 @@ plain result, so that the loops of later specs call the same code in process:
 |---|---|---|
 | `internal/project` | `lang detect` | The languages, the gate table (`.agent-fox/gate.json`, else a Makefile with a `check` or `test` target, else the manifests), the suite forms, the programs, and the classification of a path as a test. |
 | `internal/checks` | `gate run`, `gate compare` | The file view and the tree hash; the gate engine, which runs the checks under the reduced or the hermetic runner; the cache keyed by tree hash, table and mode; the labels; the per-check comparison. |
-| `internal/conform` | `revert-check` | The revert check: backup, a revert that never writes the index, the tests on the reverted tree, and a restore that nothing cancels. |
+| `internal/conform` | `revert-check` | The revert check: a claimed backup, a revert that never writes the index, the tests on the reverted tree, and a restore that nothing cancels and that does not overwrite what someone else changed. |
 | `internal/policy` | `guard check` | The tokenizer, the seven rules, the policy files (`guard.json`) and the decision for a shell or a write tool. |
 | `internal/repomap` | `map` | The map at a token budget: a six-level ladder over the file view and the declarations the hands' outline gives. |
 
@@ -186,12 +186,18 @@ What `af` keeps for these commands is under `.agent-fox/`, git-ignored by a
   `.agent-fox/gate/labels.json` maps the labels the loop gives (`baseline`,
   `after`) to those ids. `<id>` is the first 12 hex characters of the SHA-256
   of the tree hash, the canonical JSON of the checks and the runner mode, so the
-  same tree and table give the same id on every machine. Nothing is locked:
-  writes are atomic (a temporary file and a rename) and the last writer wins.
+  same tree and table give the same id on every machine. A result is not
+  locked: writes are atomic (a temporary file and a rename) and the last
+  writer wins. `labels.json` is written under a lock file, held for a read and
+  a write, so that two runs that start together keep both labels.
 - `.agent-fox/revert/<id>/` is the backup that `af revert-check` keeps while
   it works: a copy of every file it changes, the index as it was, and a
-  manifest. It exists only during the check. A directory left there means a
-  check was killed, and the next one refuses until the tree has been looked at.
+  manifest. The directory is made exclusively and is the claim on the
+  checkout: a check that finds another beside its own backs off. It exists only
+  during the check. A directory left there means a check was killed, the tree
+  could not be put back, or a path was changed while the checks ran (what it
+  held is in `changed/`), and the next check refuses until the tree has been
+  looked at.
 - `.agent-fox/gate.json` and `.agent-fox/guard.json` are the files a loop
   writes to pin the gate table and the guard policy
   ([configuration](configuration.md)).
@@ -199,8 +205,15 @@ What `af` keeps for these commands is under `.agent-fox/`, git-ignored by a
 Three properties hold, and tests hold them. A result is a fact of the tree and
 the table and not of the machine: availability is reported and never changes
 which checks are selected or the key. A revert check gives back the tree hash
-and the bytes of `.git/index` in every outcome, including a signal, the timeout
-and a panic; git is made to refresh a copy of the index and not the real one.
+and the bytes of `.git/index` in every outcome the shell lets it finish:
+a result, an error, a signal (SIGINT, SIGTERM or SIGHUP), the timeout and a
+panic, with ten minutes for the restore after a signal or the deadline. A
+process that is killed outright, or abandoned after those ten minutes, leaves
+its backup, and the next check refuses until someone has looked at it. A path
+that something else changed meanwhile is kept in the backup and reported, not
+overwritten. Af's own listing of changes refreshes a copy of the index and not
+the real one; the checks run on the real one, and if they rewrote it the
+restore writes the bytes it had back.
 The hook fails closed: with `--host claude` an error, a panic or a late answer
 is a denial, because the exit code of a failed command is not one the host acts
 on. [development.md](development.md) has the layout and the conventions in

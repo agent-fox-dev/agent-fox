@@ -31,7 +31,7 @@ type parseError struct {
 
 func (e *parseError) Error() string { return fmt.Sprintf("%s (at byte %d)", e.msg, e.pos) }
 
-// parse reads a shell command line into every simple command it runs: the
+// parseAt reads a shell command line into every simple command it runs: the
 // ones separated by &&, ||, ;, |, & and newlines, the ones in groups and in
 // command and process substitutions, and the ones in the bodies of heredocs
 // that expand them. A command's words are those the shell would pass, with
@@ -40,12 +40,8 @@ func (e *parseError) Error() string { return fmt.Sprintf("%s (at byte %d)", e.ms
 //
 // It reads the grammar and does not run it: aliases, functions and variables
 // are not resolved, and the keywords of compound commands are words like any
-// other. A line it cannot read with certainty is an error.
-func parse(src string) ([]command, error) {
-	return parseAt(src, 0)
-}
-
-// parseAt is parse for a line that is nested depth levels deep in scripts.
+// other. A line it cannot read with certainty is an error. The line is nested
+// depth levels deep in scripts.
 func parseAt(src string, depth int) ([]command, error) {
 	p := &parser{src: src, depth: depth}
 	cmds, err := p.list(0)
@@ -88,8 +84,8 @@ func (p *parser) peek(n int) byte {
 	return 0
 }
 
-// list reads simple commands until the closer (')' or '`'), which it consumes,
-// or until the end of the source when closer is 0.
+// list reads simple commands until the closer (')'), which it consumes, or
+// until the end of the source when closer is 0.
 func (p *parser) list(closer byte) ([]command, error) {
 	var out []command
 	b := builder{start: -1}
@@ -121,7 +117,7 @@ func (p *parser) list(closer byte) ([]command, error) {
 			for p.pos < len(p.src) && p.src[p.pos] != '\n' {
 				p.pos++
 			}
-		case c == closer:
+		case closer != 0 && c == closer:
 			flush(p.pos)
 			p.pos++
 			return out, nil
@@ -130,6 +126,9 @@ func (p *parser) list(closer byte) ([]command, error) {
 			// would refuse. It ends a command.
 			flush(p.pos)
 			p.pos++
+		case c == '(' && p.peek(1) == '(' && (b.start < 0 || len(b.cmd.words) == 1 && b.cmd.words[0] == "for") && p.arithmetic(p.pos, &b):
+			// ((…)) is arithmetic and not a heredoc: the shell runs only what
+			// the substitutions in it run.
 		case c == '(':
 			flush(p.pos)
 			p.pos++
@@ -151,7 +150,7 @@ func (p *parser) list(closer byte) ([]command, error) {
 		}
 	}
 	if closer != 0 {
-		return nil, p.fail(fmt.Sprintf("unterminated %s", map[byte]string{')': "( or $(", '`': "backtick"}[closer]))
+		return nil, p.fail("unterminated ( or $(")
 	}
 	flush(len(p.src))
 	return out, nil
@@ -194,11 +193,11 @@ func (p *parser) item(closer byte, b *builder) error {
 	case c == '<' || c == '>' || c == '&':
 		return p.redirect(closer, b)
 	default:
-		w, err := p.word(closer, b)
+		ws, err := p.word(closer, b, true)
 		if err != nil {
 			return err
 		}
-		b.cmd.words = append(b.cmd.words, w)
+		b.cmd.words = append(b.cmd.words, ws...)
 		b.lastEnd = p.pos
 	}
 	return nil
@@ -215,56 +214,117 @@ func isMeta(c byte) bool {
 
 // word reads a word: unquoted text, quotes, escapes and expansions up to the
 // next character that ends a word. Whatever its expansions run is added to b.
-// A word that is only quotes is the empty word.
-func (p *parser) word(closer byte, b *builder) (string, error) {
-	var w strings.Builder
+// A word that is only quotes is the empty word. The words it makes are the
+// word itself, or what its brace expansion (when braces is set) and an
+// unquoted $IFS make of it: the shell splits there, so git${IFS}push is git
+// and push.
+func (p *parser) word(closer byte, b *builder, braces bool) ([]string, error) {
+	var out []string
+	var w wordBuf
+	split := false
+	finish := func() error {
+		words, ok := w.expand(braces)
+		if !ok {
+			return p.fail("a brace expansion that makes too many words")
+		}
+		out = append(out, words...)
+		w = wordBuf{}
+		return nil
+	}
 	begin := p.pos
+loop:
 	for p.pos < len(p.src) {
 		c := p.src[p.pos]
 		switch {
 		case isMeta(c) || c == closer && closer != 0:
-			return w.String(), nil
+			break loop
 		case c == '\\':
 			if p.peek(1) == '\n' {
 				p.pos += 2
 			} else if p.pos+1 < len(p.src) {
-				w.WriteByte(p.src[p.pos+1])
+				w.put(p.src[p.pos+1:p.pos+2], true)
 				p.pos += 2
 			} else {
-				w.WriteByte(c)
+				w.putByte(c, true)
 				p.pos++
 			}
 		case c == '\'':
 			end := strings.IndexByte(p.src[p.pos+1:], '\'')
 			if end < 0 {
-				return "", p.fail("unterminated single quote")
+				return nil, p.fail("unterminated single quote")
 			}
-			w.WriteString(p.src[p.pos+1 : p.pos+1+end])
+			w.put(p.src[p.pos+1:p.pos+1+end], true)
 			p.pos += end + 2
 		case c == '"':
 			if err := p.doubleQuoted(&w, b, '"'); err != nil {
-				return "", err
+				return nil, err
+			}
+		case c == '$' && p.peek(1) == '"':
+			p.pos++ // $"…" is "…" in the locale of the shell
+		case c == '$' && p.peek(1) == '\'':
+			if err := p.ansiC(&w); err != nil {
+				return nil, err
+			}
+		case c == '$' && ifsLength(p.src[p.pos:]) > 0:
+			p.pos += ifsLength(p.src[p.pos:])
+			split = true
+			if w.touched {
+				if err := finish(); err != nil {
+					return nil, err
+				}
 			}
 		case c == '`' || c == '$':
 			if err := p.expansion(&w, b); err != nil {
-				return "", err
+				return nil, err
 			}
 		default:
-			w.WriteByte(c)
+			w.putByte(c, false)
 			p.pos++
 		}
 	}
 	if p.pos == begin {
 		p.pos++ // never stand still
 	}
-	return w.String(), nil
+	if w.touched || !split {
+		if err := finish(); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// ifsLength is the length of $IFS or ${IFS} at the start of s, or 0.
+func ifsLength(s string) int {
+	if strings.HasPrefix(s, "${IFS}") {
+		return len("${IFS}")
+	}
+	if strings.HasPrefix(s, "$IFS") && (len(s) == len("$IFS") || !isNameByte(s[len("$IFS")])) {
+		return len("$IFS")
+	}
+	return 0
+}
+
+func isNameByte(c byte) bool {
+	return c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+}
+
+// ansiC reads $'…' at the current position, and writes what the string
+// stands for to w: it is quoted text with escapes, and \' does not end it.
+func (p *parser) ansiC(w *wordBuf) error {
+	text, n := ansiC(p.src[p.pos+2:])
+	if n < 0 {
+		return p.fail("unterminated $' quote")
+	}
+	w.put(text, true)
+	p.pos += 2 + n
+	return nil
 }
 
 // doubleQuoted reads the inside of a double-quoted string, from the opening
 // quote to the closing one (end is '"'), or the whole of the rest of the
 // source when end is 0, which is how a heredoc body is read. Substitutions in
 // it run, and their commands are added to b; everything else is data.
-func (p *parser) doubleQuoted(w *strings.Builder, b *builder, end byte) error {
+func (p *parser) doubleQuoted(w *wordBuf, b *builder, end byte) error {
 	if end != 0 {
 		p.pos++ // the opening quote
 	}
@@ -278,12 +338,12 @@ func (p *parser) doubleQuoted(w *strings.Builder, b *builder, end byte) error {
 			next := p.peek(1)
 			switch next {
 			case '$', '`', '"', '\\':
-				w.WriteByte(next)
+				w.putByte(next, true)
 				p.pos += 2
 			case '\n':
 				p.pos += 2
 			default:
-				w.WriteByte(c)
+				w.putByte(c, true)
 				p.pos++
 			}
 		case c == '`' || c == '$':
@@ -291,7 +351,7 @@ func (p *parser) doubleQuoted(w *strings.Builder, b *builder, end byte) error {
 				return err
 			}
 		default:
-			w.WriteByte(c)
+			w.putByte(c, true)
 			p.pos++
 		}
 	}
@@ -301,20 +361,17 @@ func (p *parser) doubleQuoted(w *strings.Builder, b *builder, end byte) error {
 	return nil
 }
 
-// expansion reads a $(...), $((...)), ${...} or backtick expansion at the
-// current position, or a lone $, and writes it to w as it was written. The
+// expansion reads a $(...), $((...)), $[...], ${...} or backtick expansion at
+// the current position, or a lone $, and writes it to w as it was written. The
 // commands it runs are added to b.
-func (p *parser) expansion(w *strings.Builder, b *builder) error {
+func (p *parser) expansion(w *wordBuf, b *builder) error {
 	start := p.pos
 	switch {
 	case p.src[p.pos] == '`':
-		p.pos++
-		nested, err := p.child('`')
-		if err != nil {
+		if err := p.backtick(b); err != nil {
 			return err
 		}
-		b.nested = append(b.nested, nested...)
-	case p.peek(1) == '(' && p.peek(2) == '(' && p.arithmetic(b):
+	case p.peek(1) == '(' && p.peek(2) == '(' && p.arithmetic(p.pos+1, b):
 	case p.peek(1) == '(':
 		p.pos += 2
 		nested, err := p.child(')')
@@ -322,6 +379,10 @@ func (p *parser) expansion(w *strings.Builder, b *builder) error {
 			return err
 		}
 		b.nested = append(b.nested, nested...)
+	case p.peek(1) == '[':
+		if !p.bracketed(b) {
+			return p.fail("unterminated $[")
+		}
 	case p.peek(1) == '{':
 		if err := p.braced(b); err != nil {
 			return err
@@ -329,27 +390,80 @@ func (p *parser) expansion(w *strings.Builder, b *builder) error {
 	default:
 		p.pos++
 	}
-	w.WriteString(p.src[start:p.pos])
+	w.put(p.src[start:p.pos], true)
 	return nil
 }
 
-// arithmetic reads $((...)) at the current position if that is what it is,
-// adding what the substitutions inside it run to b, and reports whether it
-// was: $((cd x && ls)) is a subshell in a substitution, which is not.
-func (p *parser) arithmetic(b *builder) bool {
+// backtick reads a `...` command substitution at the current position. The
+// shell takes the text up to the next backtick that is not escaped, removes
+// the backslash from \`, \$ and \\, and reads what is left as commands.
+func (p *parser) backtick(b *builder) error {
+	var body []byte
+	i := p.pos + 1
+	for ; i < len(p.src) && p.src[i] != '`'; i++ {
+		if c := p.src[i]; c == '\\' && i+1 < len(p.src) && (p.src[i+1] == '`' || p.src[i+1] == '$' || p.src[i+1] == '\\') {
+			i++
+		}
+		body = append(body, p.src[i])
+	}
+	if i >= len(p.src) {
+		return p.fail("unterminated backtick")
+	}
+	if p.depth+1 > maxDepth {
+		return p.fail("nested too deeply")
+	}
+	nested, err := parseAt(string(body), p.depth+1)
+	if err != nil {
+		return err
+	}
+	b.nested = append(b.nested, nested...)
+	p.pos = i + 1
+	return nil
+}
+
+// arithmetic reads ((...)) whose first ( is at open, as $((...)) or as a
+// command, if that is what it is, adding what the substitutions inside it run
+// to b, and reports whether it was. The shell takes it for arithmetic when the
+// ) that closes the second ( is followed at once by another: ((a); (b)) and
+// $((a) ) are subshells, which run commands, and (( 1 << 2 )) is a number.
+func (p *parser) arithmetic(open int, b *builder) bool {
 	depth := 0
-	for i := p.pos + 1; i < len(p.src); i++ {
+	for i := open + 1; i < len(p.src); i++ {
 		switch p.src[i] {
 		case '(':
 			depth++
 		case ')':
 			depth--
+			if depth > 0 {
+				continue
+			}
+			if i+1 >= len(p.src) || p.src[i+1] != ')' {
+				return false
+			}
+			nested, err := p.dataCommands(p.src[open+2 : i])
+			if err != nil {
+				return false
+			}
+			b.nested = append(b.nested, nested...)
+			p.pos = i + 2
+			return true
+		}
+	}
+	return false
+}
+
+// bracketed reads $[...], the old form of arithmetic, at the current
+// position if it is closed, adding what the substitutions in it run to b.
+func (p *parser) bracketed(b *builder) bool {
+	depth := 0
+	for i := p.pos + 1; i < len(p.src); i++ {
+		switch p.src[i] {
+		case '[':
+			depth++
+		case ']':
+			depth--
 			if depth == 0 {
-				if p.src[i-1] != ')' {
-					return false
-				}
-				inner := p.src[p.pos+3 : i-1]
-				nested, err := p.dataCommands(inner)
+				nested, err := p.dataCommands(p.src[p.pos+2 : i])
 				if err != nil {
 					return false
 				}
@@ -365,7 +479,7 @@ func (p *parser) arithmetic(b *builder) bool {
 // braced reads ${...} at the current position, adding what the substitutions
 // in it run to b.
 func (p *parser) braced(b *builder) error {
-	var skipped strings.Builder
+	var skipped wordBuf
 	p.pos += 2
 	depth := 1
 	for p.pos < len(p.src) {
@@ -379,11 +493,15 @@ func (p *parser) braced(b *builder) error {
 				return p.fail("unterminated single quote")
 			}
 			p.pos += end + 2
+		case c == '$' && p.peek(1) == '\'':
+			if err := p.ansiC(&skipped); err != nil {
+				return err
+			}
 		case c == '"':
 			if err := p.doubleQuoted(&skipped, b, '"'); err != nil {
 				return err
 			}
-		case c == '`' || c == '$' && p.peek(1) == '(':
+		case c == '`' || c == '$' && (p.peek(1) == '(' || p.peek(1) == '['):
 			if err := p.expansion(&skipped, b); err != nil {
 				return err
 			}
@@ -411,7 +529,7 @@ func (p *parser) dataCommands(text string) ([]command, error) {
 	}
 	q := &parser{src: text, depth: p.depth + 1}
 	b := builder{start: -1}
-	var w strings.Builder
+	var w wordBuf
 	if err := q.doubleQuoted(&w, &b, 0); err != nil {
 		return nil, err
 	}
@@ -439,16 +557,24 @@ func (p *parser) redirect(closer byte, b *builder) error {
 	if p.pos >= len(p.src) || isMeta(p.src[p.pos]) && p.src[p.pos] != '<' && p.src[p.pos] != '>' || closer != 0 && p.src[p.pos] == closer {
 		return p.fail(fmt.Sprintf("the redirection %s has no target", op))
 	}
-	target, err := p.word(closer, b)
+	heredocOp := op == "<<" || op == "<<-"
+	targets, err := p.word(closer, b, !heredocOp)
 	if err != nil {
 		return err
 	}
-	b.cmd.redirects = append(b.cmd.redirects, redirect{fd: fd, op: op, target: target})
+	if len(targets) == 0 {
+		return p.fail(fmt.Sprintf("the redirection %s has no target", op))
+	}
+	// A brace expansion that makes several words is an ambiguous redirect to
+	// the shell; every one of them is judged.
+	for _, target := range targets {
+		b.cmd.redirects = append(b.cmd.redirects, redirect{fd: fd, op: op, target: target})
+	}
 	b.lastEnd = p.pos
 
-	if op == "<<" || op == "<<-" {
+	if heredocOp {
 		p.pending = append(p.pending, heredoc{
-			delim:  target,
+			delim:  targets[0],
 			strip:  op == "<<-",
 			quoted: strings.ContainsAny(p.src[targetStart:p.pos], `'"\`),
 		})

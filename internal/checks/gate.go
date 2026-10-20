@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,7 +120,8 @@ func Run(ctx context.Context, dir string, opts Options) (Result, error) {
 		ID: key.ID, Tree: tree, TableSource: opts.Table.Source, Hermetic: opts.Hermetic, Label: opts.Label,
 		Checks: []CheckResult{}, Skipped: []Skipped{},
 	}
-	if err := execute(ctx, dir, key, opts, &res); err != nil {
+	logs, err := execute(ctx, dir, key, opts, &res)
+	if err != nil {
 		return Result{}, err
 	}
 	res.Passed = len(res.Checks) > 0
@@ -136,10 +138,34 @@ func Run(ctx context.Context, dir string, opts Options) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
+	// Nothing is on disk until the run has completed: a run that is stopped
+	// leaves the logs of the result that is stored as they were.
+	if err := writeLogs(dir, key, logs); err != nil {
+		return Result{}, err
+	}
 	if err := storeResult(dir, key, res); err != nil {
 		return Result{}, err
 	}
 	return labelled(dir, res)
+}
+
+// logFile is the full output of a check, to be written when the run is done.
+type logFile struct {
+	name    string
+	content string
+}
+
+// writeLogs writes the logs of a run that completed, each atomically.
+func writeLogs(dir string, key Key, logs []logFile) error {
+	if err := os.MkdirAll(key.Dir(dir), 0o755); err != nil {
+		return err
+	}
+	for _, l := range logs {
+		if err := agentdir.WriteFileAtomic(filepath.Join(key.Dir(dir), l.name), []byte(l.content)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // labelled records the label of a result that is stored, if it has one.
@@ -166,36 +192,38 @@ func measuresTable(res Result, table project.Table) bool {
 	return true
 }
 
-// execute runs the available checks of the table into res, writing their logs.
-func execute(ctx context.Context, dir string, key Key, opts Options, res *Result) error {
+// execute runs the available checks of the table into res, and returns their
+// logs for the caller to write once the run is complete.
+func execute(ctx context.Context, dir string, key Key, opts Options, res *Result) ([]logFile, error) {
 	run, cleanup, err := newRunner(opts.Hermetic)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer cleanup()
-	if err := os.MkdirAll(key.Dir(dir), 0o755); err != nil {
-		return err
-	}
 	limit := opts.CheckTimeout
 	if limit <= 0 {
 		limit = DefaultCheckTimeout
 	}
 
+	var logs []logFile
 	for _, c := range opts.Table.Checks {
 		if !c.Available {
 			res.Skipped = append(res.Skipped, Skipped{Name: c.Name, Reason: ReasonUnavailable})
 			continue
 		}
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, err
 		}
-		cr, err := runCheck(ctx, dir, key, run, c, len(res.Checks)+1, limit)
+		cr, log, err := runCheck(ctx, dir, run, c, limit)
 		if err != nil {
-			return err
+			return nil, err
 		}
+		log.name = fmt.Sprintf("%02d-%s.log", len(res.Checks)+1, slug(c.Name))
+		cr.Log = key.relDir() + "/" + log.name
 		res.Checks = append(res.Checks, cr)
+		logs = append(logs, log)
 	}
-	return nil
+	return logs, nil
 }
 
 // newRunner is the runner the checks run under, and what to call when they
@@ -209,12 +237,29 @@ func newRunner(hermetic bool) (gitx.Runner, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return gitx.HermeticRunner(home), func() { _ = os.RemoveAll(home) }, nil
+	return gitx.HermeticRunner(home), func() { removeTree(home) }, nil
 }
 
-// runCheck runs check number n under the deadline limit and writes its log. It
-// returns ctx's error when ctx stopped the check.
-func runCheck(ctx context.Context, dir string, key Key, run gitx.Runner, c project.Check, n int, limit time.Duration) (CheckResult, error) {
+// removeTree removes a directory and what is in it. A program may have left
+// directories in it that cannot be written to (Go's module cache is read-only),
+// and those are made writable first.
+func removeTree(root string) {
+	if os.RemoveAll(root) == nil {
+		return
+	}
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() {
+			_ = os.Chmod(path, 0o700)
+		}
+		return nil
+	})
+	_ = os.RemoveAll(root)
+}
+
+// runCheck runs one check under the deadline limit. It returns ctx's error when
+// ctx stopped the check, and otherwise the result and the log, which has no
+// name yet.
+func runCheck(ctx context.Context, dir string, run gitx.Runner, c project.Check, limit time.Duration) (CheckResult, logFile, error) {
 	cctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	started := time.Now()
@@ -223,7 +268,7 @@ func runCheck(ctx context.Context, dir string, key Key, run gitx.Runner, c proje
 
 	stopped := err != nil || code < 0 // a process that was killed has no exit code
 	if cerr := ctx.Err(); cerr != nil && stopped {
-		return CheckResult{}, cerr
+		return CheckResult{}, logFile{}, cerr
 	}
 
 	status, note := StatusPass, ""
@@ -242,19 +287,13 @@ func runCheck(ctx context.Context, dir string, key Key, run gitx.Runner, c proje
 		}
 		log += note + "\n"
 	}
-
-	name := fmt.Sprintf("%02d-%s.log", n, slug(c.Name))
-	if err := agentdir.WriteFileAtomic(filepath.Join(key.Dir(dir), name), []byte(log)); err != nil {
-		return CheckResult{}, err
-	}
 	return CheckResult{
 		Name:       c.Name,
 		Status:     status,
 		ExitCode:   code,
 		DurationMS: elapsed.Milliseconds(),
-		Log:        key.relDir() + "/" + name,
 		Tail:       tailOf(log),
-	}, nil
+	}, logFile{content: log}, nil
 }
 
 // slug is name as part of a file name: lower-case letters and digits, joined

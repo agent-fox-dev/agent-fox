@@ -188,3 +188,86 @@ func TestFileViewProperty_TS_06_3(t *testing.T) {
 		}
 	}
 }
+
+// TestFileViewOfASymlinkedDirectory: a --dir that is a link to a directory is
+// that directory; a walk does not follow a link at its root by itself.
+func TestFileViewOfASymlinkedDirectory(t *testing.T) {
+	real := t.TempDir()
+	writeFile(t, real, "src/a.go", "package a", 0o644)
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks are not available: %v", err)
+	}
+
+	view, err := FileView(context.Background(), link)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := []string{"src/a.go"}; !slices.Equal(view, want) {
+		t.Errorf("FileView = %q, want %q", view, want)
+	}
+	before := mustHash(t, link)
+	writeFile(t, real, "src/a.go", "package changed", 0o644)
+	if mustHash(t, link) == before {
+		t.Error("the tree hash of a linked directory does not see its content change")
+	}
+}
+
+// TestFileViewNeedsADirectory: something that is not a directory is an error
+// and not an empty tree.
+func TestFileViewNeedsADirectory(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "file.txt")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, dir := range map[string]string{"a file": file, "nothing": filepath.Join(t.TempDir(), "missing")} {
+		if view, err := FileView(context.Background(), dir); err == nil {
+			t.Errorf("%s: FileView = %q, want an error", name, view)
+		}
+		if _, err := TreeHash(context.Background(), dir); err == nil {
+			t.Errorf("%s: TreeHash succeeded", name)
+		}
+	}
+}
+
+// TestWalkViewLeavesOutGitFiles: a .git that is a file, which is how a linked
+// worktree or a submodule points at its repository, is no part of the tree and
+// holds a path of the machine.
+func TestWalkViewLeavesOutGitFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.go", "package a", 0o644)
+	writeFile(t, dir, ".git", "gitdir: /somewhere/on/this/machine\n", 0o644)
+	writeFile(t, dir, "sub/.git", "gitdir: /elsewhere\n", 0o644)
+
+	view, err := FileView(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := []string{"a.go"}; !slices.Equal(view, want) {
+		t.Errorf("FileView = %q, want %q", view, want)
+	}
+}
+
+// TestGitViewDropsWhatIsNoLongerThere: a tracked file under a directory that
+// became a file is deleted, as one that is simply gone is.
+func TestGitViewDropsWhatIsNoLongerThere(t *testing.T) {
+	dir := newRepo(t)
+	writeFile(t, dir, "pkg/a.go", "package a", 0o644)
+	gitIn(t, dir, "add", "-A")
+	gitIn(t, dir, "commit", "-q", "-m", "feat: a")
+	if err := os.RemoveAll(filepath.Join(dir, "pkg")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "pkg", "now a file", 0o644)
+
+	view, err := FileView(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := []string{"README.md", "pkg"}; !slices.Equal(view, want) {
+		t.Errorf("FileView = %q, want %q: pkg/a.go is deleted", view, want)
+	}
+}

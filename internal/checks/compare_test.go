@@ -9,7 +9,9 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 // fixtureID is the id the tests give their stored results: 12 hex digits made
@@ -97,18 +99,83 @@ func TestCompareVerdictsPerCheck_TS_06_32(t *testing.T) {
 	}
 }
 
-// TestCompareLabelOfAnIDIsTheStoredOne guards 06-REQ-5.4: a result addressed
-// by id reports the label it was stored under.
-func TestCompareLabelOfAnIDIsTheStoredOne(t *testing.T) {
+// TestCompareLabelOfAnIDIsALabelThatNamesIt guards 06-REQ-5.4: a result
+// addressed by id reports a label that names it now, and not the label of
+// whichever run happened to store it; none if no label does.
+func TestCompareLabelOfAnIDIsALabelThatNamesIt(t *testing.T) {
 	dir := t.TempDir()
 	res := storeFixture(t, dir, fixtureID(1), StatusPass)
-	res.Label = "earlier"
+	res.Label = "stale"
 	storeNamed(t, dir, res)
+	other := storeFixture(t, dir, fixtureID(2), StatusPass)
 
-	c := mustCompare(t, dir, res.ID, res.ID)
+	if c := mustCompare(t, dir, res.ID, other.ID); c.Before.Label != "" || c.After.Label != "" || c.Verdict != VerdictPass || !c.Landable {
+		t.Errorf("no label names either: %+v", c)
+	}
+	for _, rec := range [][2]string{{"zeta", res.ID}, {"after", res.ID}, {"other", other.ID}} {
+		if err := recordLabel(dir, rec[0], rec[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := mustCompare(t, dir, res.ID, other.ID)
+	if c.Before.Label != "after" || c.After.Label != "other" {
+		t.Errorf("labels %q and %q, want after (the first that names the result, of after and zeta) and other", c.Before.Label, c.After.Label)
+	}
+	if c := mustCompare(t, dir, "zeta", other.ID); c.Before.Label != "zeta" {
+		t.Errorf("an argument that is a label reports it: %q", c.Before.Label)
+	}
+}
 
-	if c.Before.Label != "earlier" || c.After.Label != "earlier" || c.Verdict != VerdictPass || !c.Landable {
-		t.Errorf("comparison = %+v", c)
+// TestRecordLabelDoesNotLoseLabelsToConcurrentRecords guards 06-REQ-4.6: runs
+// that record labels together each leave theirs.
+func TestRecordLabelDoesNotLoseLabelsToConcurrentRecords(t *testing.T) {
+	dir := t.TempDir()
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := recordLabel(dir, fmt.Sprintf("label%02d", i), fixtureID(i%10)); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	labels := readLabels(dir)
+	if len(labels) != 20 {
+		t.Errorf("%d labels survived 20 records: %v", len(labels), labels)
+	}
+	entries, _ := os.ReadDir(filepath.Dir(labelsPath(dir)))
+	for _, e := range entries {
+		if e.Name() != labelsFile {
+			t.Errorf("%s was left beside labels.json", e.Name())
+		}
+	}
+}
+
+// TestRecordLabelStealsAStaleLock: a lock left by a process that was killed
+// does not stop the labels for ever.
+func TestRecordLabelStealsAStaleLock(t *testing.T) {
+	dir := t.TempDir()
+	lock := labelsPath(dir) + ".lock"
+	if err := os.MkdirAll(filepath.Dir(lock), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lock, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(lock, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := recordLabel(dir, "baseline", fixtureID(1)); err != nil {
+		t.Fatal(err)
+	}
+
+	if labels := readLabels(dir); labels["baseline"] != fixtureID(1) {
+		t.Errorf("labels = %v", labels)
 	}
 }
 
@@ -199,7 +266,7 @@ func TestCompareRefusals_TS_06_36_and_37(t *testing.T) {
 		{"an unresolved after", "baseline", "nosuch", []string{"--after", "nosuch"}},
 		{"an unresolved before", "nosuch", "baseline", []string{"--before", "nosuch"}},
 		{"an id that is not stored", fixtureID(9), "baseline", []string{"--before", fixtureID(9)}},
-		{"different checks", "baseline", two.ID, []string{"lint", "build", "--before", "--after"}},
+		{"different checks", "baseline", two.ID, []string{"only in --before: lint", "only in --after: build"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := Compare(dir, tc.before, tc.after)

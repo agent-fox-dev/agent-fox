@@ -108,9 +108,27 @@ func rowVerdict(passedBefore, passedAfter bool) string {
 	return VerdictStillFailing
 }
 
+// labelOf is a label that names the result with the id: the first, by name, if
+// several do, and "" if none does. The label a run stored its result under is
+// not it: a result is served to many runs, and the label of the first says
+// nothing of the others.
+func labelOf(dir, id string) string {
+	var names []string
+	for label, target := range readLabels(dir) {
+		if target == id {
+			names = append(names, label)
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	slices.Sort(names)
+	return names[0]
+}
+
 // resolve finds the stored result that arg names, as the label it is in
 // labels.json first and as a gate id second, and returns the label to report
-// for it: arg itself when it was a label, else the label it was stored under.
+// for it: arg itself when it was a label, else a label that names the result.
 func resolve(dir, flag, arg string) (Result, string, error) {
 	if arg == "" {
 		return Result{}, "", &UsageError{fmt.Sprintf("%s is required: give a label or a gate id", flag)}
@@ -124,7 +142,7 @@ func resolve(dir, flag, arg string) (Result, string, error) {
 	}
 	if idPattern.MatchString(arg) {
 		if res, ok := loadResult(dir, Key{ID: arg}); ok {
-			return res, res.Label, nil
+			return res, labelOf(dir, arg), nil
 		}
 	}
 	return Result{}, "", &UsageError{fmt.Sprintf("%s %q is neither a label in .agent-fox/gate/labels.json nor the id of a stored gate result", flag, arg)}

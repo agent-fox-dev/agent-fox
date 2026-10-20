@@ -45,9 +45,9 @@ and the map read, and its `.gitignore` keeps it out of the repository.
 | `.gitignore` | Ignores the whole directory, without touching the repository's own `.gitignore`. |
 | `gate.json` | The table of checks that the gate runs; see [gate.json](#gatejson). |
 | `guard.json` | The policy of `af guard check`; see [guard.json](#guardjson). |
-| `gate/<id>/` | The logs and the stored result of a gate run (see [cli.md](cli.md#gate-run)). Safe to delete: the next run makes them again. |
-| `gate/labels.json` | Maps labels to those ids. |
-| `revert/<id>/` | The backup that [`revert-check`](cli.md#revert-check) keeps while it works and removes when the tree is back. One that is left means a check was killed: look at it before checking again. |
+| `gate/<id>/` | The logs and the stored result of a gate run (see [cli.md](cli.md#gate-run)). Safe to delete: the next run makes them again, but a label in `labels.json` that names a deleted id makes `gate compare` fail with `usage` until the label is set again. |
+| `gate/labels.json` | Maps labels to those ids. `labels.json.lock` is beside it while a run writes it. |
+| `revert/<id>/` | The backup that [`revert-check`](cli.md#revert-check) keeps while it works and removes when the tree is back. One that is left means a check was killed, or the tree could not be put back, or something changed a path while the checks ran (what it held is in `changed/`): look at it before checking again. |
 | `run/<id>/` | One directory per invocation of a command that has one: the envelope, the event stream, the ledger, and a report or a panic's stack. Delete one when it is no use; nothing refers to one except the commands that carry a run on. The layout is in [cli.md](cli.md#the-run-directory). |
 
 ### gate.json
@@ -76,7 +76,7 @@ or a loop may write it by hand.
 
 `available` is accepted in a check and ignored: whether a program can be run
 is a fact about the machine, worked out on every read and never stored. Any
-other field is an error.
+other field is an error, and so is more than the one document in the file.
 
 **Precedence.** The table is `gate.json` when that file exists. Otherwise it
 is detected from the files at the root: a Makefile with a `check` target, else
@@ -104,9 +104,9 @@ by hand.
 | Key | Meaning | Default when the key is missing |
 |---|---|---|
 | `version` | Must be `1`. | (required) |
-| `suite` | The command forms that count as the full test suite, each a non-empty list of words. A shell command equal to one of them, ignoring the words that start with `-`, is refused with a pointer to `af gate run`. | The `suite` that [lang detect](cli.md#lang-detect) reports for `--dir`: the gate checks, `make check` and `make test` where the Makefile has them, and the forms of each language. |
-| `protected_paths` | Paths relative to the checkout that only af writes. One that ends in `/` is a directory. A path may not be absolute or above the checkout. | `.git/`, `.agent-fox/`, `.specs/`, `.github/workflows/` and `.gitlab-ci.yml`. |
-| `allow_programs` | When it is not empty, the only programs a shell command may run, besides `af` and `git`. | Empty: no allowlist. |
+| `suite` | The command forms that count as the full test suite, each a non-empty list of words. A shell command equal to one of them, ignoring the words that start with `-`, the values of the options that take one (`-timeout 5m`, `-j 4`, `-f Makefile`) and the `NAME=value` words, is refused with a pointer to `af gate run`. | The `suite` that [lang detect](cli.md#lang-detect) reports for `--dir`: the gate checks, `make check` and `make test` where the Makefile has them, and the forms of each language. |
+| `protected_paths` | Paths relative to the checkout that only af writes. One that ends in `/` is a directory. A path may not be absolute or above the checkout; it is cleaned before it is matched (`./docs/`, `docs//` and `a/../docs` all protect `docs`), compared without regard to case, and a link that leads into it is it. | `.git/`, `.agent-fox/`, `.specs/`, `.github/workflows/` and `.gitlab-ci.yml`. |
+| `allow_programs` | When it is not empty, the only programs a shell command may run, as the command spells them (`/usr/bin/ls` is not `ls`), besides `af` and `git` (by name or absolute path) and the builtins that start no program (`cd`, `echo`, `test`, `for`, `eval`, `trap`, …). | Empty: no allowlist. |
 
 A key that is there is taken as it is, an empty list included: `"protected_paths": []` protects nothing. Any other key is an error.
 

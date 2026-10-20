@@ -46,8 +46,21 @@ func Ensure(dir string) (string, error) {
 // WriteFileAtomic writes data to path through a temporary file in the same
 // directory and a rename, so that a reader sees the old file or the new one
 // and never half of one, and runs that write together leave the last
-// writer's complete file. The directory must exist; the file is made 0644.
+// writer's complete file. The data is on disk before the rename. The
+// directory must exist; the file is made 0644.
 func WriteFileAtomic(path string, data []byte) error {
+	return replace(path, data, 0o644, true)
+}
+
+// ReplaceFile is WriteFileAtomic for a tree of files that is written back
+// whole: the file has the mode perm from the moment it exists, which a file
+// that is private needs, and the data is not synced, which a thousand files
+// cannot afford.
+func ReplaceFile(path string, data []byte, perm os.FileMode) error {
+	return replace(path, data, perm, false)
+}
+
+func replace(path string, data []byte, perm os.FileMode, sync bool) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-"+filepath.Base(path)+"-*")
 	if err != nil {
 		return err
@@ -59,16 +72,19 @@ func WriteFileAtomic(path string, data []byte) error {
 			_ = os.Remove(tmp.Name())
 		}
 	}()
+	// The temporary file is private until it is what it is to be.
 	if _, err := tmp.Write(data); err != nil {
 		return err
 	}
-	if err := tmp.Sync(); err != nil {
-		return err
+	if sync {
+		if err := tmp.Sync(); err != nil {
+			return err
+		}
 	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+	if err := os.Chmod(tmp.Name(), perm); err != nil {
 		return err
 	}
 	if err := os.Rename(tmp.Name(), path); err != nil {

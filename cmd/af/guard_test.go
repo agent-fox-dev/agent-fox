@@ -125,6 +125,14 @@ func TestGuardCheckPayloadForms_TS_06_58(t *testing.T) {
 	if _, stdout, _ := runWithStdin(t, strings.NewReader(absent), "guard", "check", "--dir", dir, "--host", "claude"); stdout == "{}" {
 		t.Error("a payload with no hook_event_name was allowed with no opinion; it is judged")
 	}
+	// A name that is empty or blank says no more than a missing one, and the
+	// call is judged: a hook that fails open on a blank field is no guard.
+	for _, name := range []string{"", " "} {
+		blank := claude(t, name, "Bash", command, dir)
+		if _, stdout, _ := runWithStdin(t, strings.NewReader(blank), "guard", "check", "--dir", dir, "--host", "claude"); stdout == "{}" {
+			t.Errorf("a payload whose hook_event_name is %q was allowed with no opinion; it is judged", name)
+		}
+	}
 }
 
 // TestGuardCheckCwd guards 06-REQ-8.4: the directory a Claude Code session is

@@ -2,6 +2,7 @@ package repomap
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 )
 
 // fakeOutliner answers from tables and counts its calls.
@@ -81,9 +83,10 @@ func TestBuildFormat_TS_06_63(t *testing.T) {
 	}
 
 	// A budget that forces a level above 1 says so.
-	cut := mustBuild(t, entries("pkg/b_test.go", "a.go", "pkg/b.go"), fake, MinTokens)
-	if cut.Level == 1 {
-		t.Skip("this view fits the smallest budget")
+	files, many := ladderView()
+	cut := mustBuild(t, files, many, MinTokens)
+	if cut.Level <= 1 || !cut.Truncated || estimate(cut.Map) > MinTokens {
+		t.Errorf("a budget of %d tokens for %d files: level %d, truncated %v, %d tokens", MinTokens, len(files), cut.Level, cut.Truncated, estimate(cut.Map))
 	}
 }
 
@@ -387,13 +390,97 @@ func TestBuildProperty_TS_06_67(t *testing.T) {
 		if bigger := mustBuild(t, files, fake, more); bigger.Level > a.Level {
 			t.Fatalf("#%d: budget %d gives level %d and %d gives %d", i, budget, a.Level, more, bigger.Level)
 		}
-		// And the level that is reported is one that fits: the next smaller
-		// budget than the map needs is a later level or the same level cut
-		// more finely, never an earlier one.
+		// The level reported is the first that fits: no level before it does.
+		requireFirstFit(t, i, files, fake, a, budget)
+		// And the next smaller budget than the map needs is a later level or
+		// the same level cut more finely, never an earlier one.
 		if need := a.EstimatedTokens; need > MinTokens {
 			if smaller := mustBuild(t, files, fake, need-1); smaller.Level < a.Level {
 				t.Fatalf("#%d: budget %d gives level %d, but %d gives %d", i, budget, a.Level, need-1, smaller.Level)
 			}
+		}
+	}
+}
+
+// TestBuildFirstFitAtEveryBoundary guards 06-REQ-9.5: at the budget that is
+// just enough for a level, and at one token less, the level is the first that
+// fits. Random budgets seldom land between two levels, which is where an
+// engine that skips one goes wrong.
+func TestBuildFirstFitAtEveryBoundary(t *testing.T) {
+	rng := rand.New(rand.NewPCG(6, 6767))
+	boundaries := 0
+	for i := range 30 {
+		files, fake := randomView(rng, 20+rng.IntN(300))
+		entries, dirs := group(files)
+		if _, err := outlineAll(context.Background(), entries, dirs, fake); err != nil {
+			t.Fatal(err)
+		}
+		var sizes []int
+		for _, show := range []shown{allDecls, untestedDecls(-1)} {
+			text, _ := render(dirs, MaxTokens*4, show)
+			sizes = append(sizes, len(text))
+		}
+		for _, k := range capsAtLevelThree {
+			text, _ := render(dirs, MaxTokens*4, untestedDecls(k))
+			sizes = append(sizes, len(text))
+		}
+		text, _ := render(dirs, MaxTokens*4, nil)
+		dirsOnly, _ := renderDirectories(dirs, MaxTokens*4)
+		sizes = append(sizes, len(text), len(dirsOnly))
+
+		for _, size := range sizes {
+			for _, tokens := range []int{(size + 3) / 4, (size+3)/4 - 1} {
+				if tokens < MinTokens || tokens > MaxTokens {
+					continue
+				}
+				boundaries++
+				res := mustBuild(t, files, fake, tokens)
+				requireFirstFit(t, i, files, fake, res, tokens)
+			}
+		}
+	}
+	if boundaries < 100 {
+		t.Errorf("only %d budgets at a boundary were tried", boundaries)
+	}
+}
+
+// requireFirstFit says that none of the levels before the one a build reported
+// fits the budget, rendered from the files and the declarations as the build
+// had them.
+func requireFirstFit(t *testing.T, i int, files []Entry, o Outliner, res Result, tokens int) {
+	t.Helper()
+	entries, dirs := group(files)
+	skipped := len(res.Warnings) > 0
+	if !skipped {
+		if _, err := outlineAll(context.Background(), entries, dirs, o); err != nil {
+			t.Fatal(err)
+		}
+	}
+	budget := tokens * 4
+	fits := func(show shown) bool { _, ok := render(dirs, budget, show); return ok }
+	levels := []struct {
+		level int
+		fits  func() bool
+	}{
+		{1, func() bool { return !skipped && fits(allDecls) }},
+		{2, func() bool { return !skipped && fits(untestedDecls(-1)) }},
+		{3, func() bool {
+			for _, k := range capsAtLevelThree {
+				if !skipped && fits(untestedDecls(k)) {
+					return true
+				}
+			}
+			return false
+		}},
+		{4, func() bool { return fits(nil) }},
+		{5, func() bool { _, ok := renderDirectories(dirs, budget); return ok }},
+	}
+	for _, l := range levels {
+		switch {
+		case l.level < res.Level && l.fits():
+			t.Fatalf("#%d: budget %d: level %d fits, but the build reported level %d", i, tokens, l.level, res.Level)
+		case l.level == res.Level && !l.fits():
+			t.Fatalf("#%d: budget %d: the build reported level %d, which does not fit", i, tokens, l.level)
 		}
 	}
 }
@@ -478,6 +565,34 @@ func TestLevelSixFitsWhateverTheNames(t *testing.T) {
 	}
 	if !strings.Contains(res.Map, "a/ (1 files)\n") {
 		t.Errorf("the directories that fit are not listed:\n%s", res.Map)
+	}
+}
+
+// TestNamesThatAreNotUTF8 guards 06-REQ-9.5: the budget holds for the map as a
+// consumer reads it, and a name with bytes that are no text is the same name
+// with a replacement character for each, so that the document that carries
+// the map does not grow past the budget when it is encoded.
+func TestNamesThatAreNotUTF8(t *testing.T) {
+	bad := strings.Repeat("\xff\xfe", 400)
+	files := []Entry{{bad + "/a.go", 10}, {"b\xffc/d.go", 10}, {"ok/e.go", 10}}
+
+	for _, budget := range []int{MinTokens, 500, 4000} {
+		res := mustBuild(t, files, &fakeOutliner{}, budget)
+
+		encoded, err := json.Marshal(res.Map)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded string
+		if err := json.Unmarshal(encoded, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		if !utf8.ValidString(res.Map) || decoded != res.Map {
+			t.Errorf("budget %d: the map is not text that survives encoding: %.80q", budget, res.Map)
+		}
+		if estimate(decoded) > budget {
+			t.Errorf("budget %d: the map decoded is %d tokens", budget, estimate(decoded))
+		}
 	}
 }
 

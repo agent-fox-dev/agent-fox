@@ -99,6 +99,11 @@ type Command struct {
 	Timeout bool
 	// DefaultTimeout is the deadline when --timeout is absent; zero is none.
 	DefaultTimeout time.Duration
+	// Grace is how long this command, once told to stop, gets to return before
+	// the shell abandons it, when that must be longer than the App's: a
+	// command that has something to put back (a tree it changed) needs it.
+	// Zero is the App's.
+	Grace time.Duration
 	// ResultSchema is the JSON Schema of the command's result, which
 	// af --schema prints under $defs. Nil if the command has none.
 	ResultSchema json.RawMessage
@@ -285,7 +290,7 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 		return inv.finish()
 	}
 
-	sigCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	sigCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	if err := inv.prepare(sigCtx, stdin); err != nil {
 		inv.env.fail(failureOf(err, stderr))

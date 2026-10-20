@@ -1,13 +1,15 @@
 # Erratum 05: cmd/af holds more than main.go
 
-**Spec:** `05_af_cli_envelope`, test `TS-05-7` (requirement 05-REQ-1.7),
-which asserts that `cmd/af` is "one file, which hands the process to
-`App.Main`".
+**Spec:** `05_af_cli_envelope`, requirement 05-REQ-1.7 and test `TS-05-7`:
+"`cmd/af` contains only package main wiring that exits with App.Main's return
+value".
 
 ## What the spec asks for
 
-`cmd/af` holds `main.go` alone: no other non-test Go file, because spec 05
-registers no command.
+That `cmd/af` is package main wiring and nothing else, and that it exits with
+the code `App.Main` returns. The test as first written (`TestMakeBuildWritesBinary_TS_05_7`
+in `internal/toolio/docs_test.go`) read that as a single file, `main.go`,
+because spec 05 registers no command. That is stricter than the sentence.
 
 ## What the code does
 

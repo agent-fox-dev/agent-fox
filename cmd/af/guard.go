@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/policy"
@@ -112,7 +113,7 @@ func evaluate(r *toolio.Run, policyPath string) (guardResult, error) {
 // readPayload reads one payload, in the form of Claude Code's hook or the
 // neutral form {"tool": …, "input": …}, from at most 1 MiB of stdin. A
 // payload whose hook_event_name is not PreToolUse is one this hook has no
-// opinion on.
+// opinion on; a blank name names no other event, and the call is judged.
 func readPayload(in io.Reader) (payload, error) {
 	usage := func(format string, args ...any) (payload, error) {
 		return payload{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf(format, args...)}
@@ -146,7 +147,7 @@ func readPayload(in io.Reader) (payload, error) {
 	if _, err := dec.Token(); err != io.EOF {
 		return usage("the payload on stdin holds more than one JSON document")
 	}
-	if raw.HookEventName != nil && *raw.HookEventName != "PreToolUse" {
+	if raw.HookEventName != nil && strings.TrimSpace(*raw.HookEventName) != "" && *raw.HookEventName != "PreToolUse" {
 		return payload{noOpinion: true}, nil
 	}
 
