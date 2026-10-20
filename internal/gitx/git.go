@@ -68,6 +68,16 @@ func (g *Git) UntrackedFiles(ctx context.Context) ([]string, error) {
 	return nonEmptyLines(out), nil
 }
 
+// TopLevel is the top level of the work tree that Dir is in, as git prints it:
+// an absolute path with the links of its own directories resolved.
+func (g *Git) TopLevel(ctx context.Context) (string, error) {
+	out, err := g.raw(ctx, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(out, "\r\n"), nil
+}
+
 // Head is the short hash of the current commit.
 func (g *Git) Head(ctx context.Context) (string, error) {
 	return g.must(ctx, "rev-parse", "--short", "HEAD")

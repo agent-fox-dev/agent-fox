@@ -17,6 +17,9 @@ const (
 	CategoryRestore = "restore"
 	// CategoryGit: git failed in a way the command cannot work around.
 	CategoryGit = "git"
+	// CategorySandbox: the box could not be opened, or its tree could not be
+	// synced in or exported out.
+	CategorySandbox = "sandbox"
 )
 
 // Failure is the error a command returns to set the envelope's error object.
