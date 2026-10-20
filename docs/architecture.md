@@ -549,6 +549,80 @@ over the box's tools, which is the only placement that means anything with the
 `claude` brain with its settings file and hook, belong to the scope that adds
 the other box providers.
 
+### Triage, as built
+
+This document left open whether triage moves to the same shape as the other
+agent commands. It does: `triage` is a brain run like `fix` and `impl` will be,
+with fewer hands. The
+reasons are what it shares. It runs in a box over the same file view, submits
+through the same protocol (`internal/submission`), is bounded and costed by the
+same loop (`brain.Execute`), speaks the same envelope, and keeps the same run
+directory and ledger; a person can drive it a step at a time, and a service can
+drive the same steps. What it needs of its own is small: a mandate, a skill, a
+validator, a body format and a landing.
+
+**Where it lives.**
+
+| Path | What it holds |
+|---|---|
+| `internal/triage/` | The part with no shell in it: the diagnosis and its validator (`Validate`, which checks every path against the file view and collects every problem), the body (`Render`, `Extract`), the brief (`BuildBrief`), the preflight, the landing on a forge (`Land`), the submission kind (`Kind`) and the tool allowlist. It imports `issuex`, `submission`, `checks`, `repomap`, `agentdir` and the `skills` package, and none of `toolio`, `box` or `brain` itself. |
+| `cmd/af/triage.go` | The five commands on the shell: the loop, `brief`, `run`, `submit` and `land`. It does what needs the shell, the box and the brains: the run directory and its ledger, the forge client, `box.With` and `brain.Execute`, the envelope. |
+| `skills/af-triage` and `skills/skills.go` | The skill that says how to diagnose. The `skills` package embeds every `af-*` entry (`//go:embed af-*`), and `skills.Triage()` is the body that the brief carries, so the skill a person installs with `make install-skills` and the one the brain reads are the same file. |
+| `internal/triage/fakeforge/` | The GitHub and GitLab server of the tests, over `httptest`. |
+
+**The loop** is a preflight that spends nothing, the brief, a bounded brain run,
+the host's second look at what the brain handed over, and the landing; see
+[cli.md](cli.md#triage). The brain has the read-only hands and one terminating
+tool, `file_diagnosis`, whose schema is the diagnosis; it never writes, and `af`
+does every write after it has checked the diagnosis against the host's tree. A
+diagnosis that cites a file that does not exist is refused as the brain's next
+turn, with the files that have the same name; a refusal is counted in
+`rejections.jsonl` and decides nothing.
+
+**The body of the issue** is the contract between `af triage` and what reads an
+issue after it (`af fix`, and `af triage` itself the next time). It is rendered
+the same way every time, and the person's report is kept in it:
+
+```
+<!-- agent-fox:triage v1 run=<run_id> -->
+## Diagnosis … ## Affected files … ## Suggested fix … ## Acceptance Criteria … ## Question
+<sub>Diagnosed by agent-fox `af triage` (run <run_id>). The original report is kept below.</sub>
+
+## Original report
+
+<details>
+<summary>Original report</summary>
+
+<!-- agent-fox:original-report:begin -->
+<the original report, byte for byte>
+<!-- agent-fox:original-report:end -->
+
+</details>
+```
+
+The first line, the headings and the two markers are what is read back. The
+original is what lies between the first begin marker and the newline before the
+last end marker, so `Extract(Render(d, s))` is `s` for every string `s`, a second
+triage replaces the old diagnosis and keeps the first report, and a body that
+`af` did not write is wholly the original. So is one that starts with the marker
+and has been changed in a way that would lose words (text after the original
+report, a broken first line), with a warning; a body saved with CRLF line endings,
+as a browser does, is read as if it had LF endings. No string of a diagnosis may hold the
+text `<!-- agent-fox:`, which keeps a diagnosis from forging a marker. When the
+body would be longer than the forge allows, the diagnosis goes in one comment and
+the issue is left as it is.
+
+**Where it differs from the sketch above.** The loop runs the brain on the host
+over a box, which is the only placement the `local` provider means anything for;
+`af triage run` is the same brain in the process that a box would execute, over
+the directory itself and with no box. The refusals of the diagnosis are written
+by a hook of the submission kind (`Kind.OnRefused`), which the submission
+protocol gained for this, and `submission.CommandWith` lets a command make its
+kind from `--dir`. The shell gained `Run.ForgeFor`, a forge client for a
+repository that the command learns at run time (`land` reads it from
+`triage.json`). The divergences from the spec, with the code of each, are in
+`docs/errata/08_af_triage_divergences.md`.
+
 ## The hub
 
 [hub](https://github.com/agent-fox-dev/hub) owns what one machine cannot:
@@ -649,7 +723,7 @@ involved beyond landing the branch.
 | `internal/checks`, `internal/conform`, `internal/gitx`, the untracked snapshots, parking, the PR body | `af`'s effect layer, on the hands' runner and outline |
 | `afspec`, `issuex`, `internal/project` (later the language profiles) | unchanged, inside `af`; `issuex` is imported from `github.com/agent-fox-dev/aflib/issuex` |
 | prompts as Go strings | the briefs, as templated documents rendered by `af task brief` and `af review brief` |
-| `issuetriage` | unchanged for now; it is single-phase and the cost of the current shape is small. *To be decided.* |
+| `issuetriage` | `af triage`: a read-only brain run in a box, with the toolbelt around it (see [Triage, as built](#triage-as-built)) |
 | the `af-impl` skill | shrinks to the attended loop over `af` commands |
 | `cmd/impl`, `cmd/fix` | thin entry points that become `af impl`, `af fix`; the envelope, flags and exit codes are those of `docs/cli.md`, whose envelope is a new shape (`docs/errata/05_old_envelope_fields.md`) |
 | `containers/tools` | `Spec.Image` for a brain with its own hands: the overlay line, Codex and OpenCode added |
@@ -671,9 +745,6 @@ involved beyond landing the branch.
   Code owns its system prompt; the brief is the first user message. The
   AgentKit driver puts it in `Config.Prefix` with a cache breakpoint. Pi:
   *to be written.*
-- **Whether `triage` moves to the same shape.** It is one phase and
-  already fits the current design; moving it buys uniformity and little
-  else.
 - **What `af serve` exposes beyond the toolbelt.** The hands' navigation
   tools (`file_outline`, `find_symbol`, `find_references`, `code_search`)
   could be served to a brain that lacks them. Pi and Claude Code have their

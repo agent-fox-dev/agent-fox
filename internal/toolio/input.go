@@ -22,6 +22,10 @@ const (
 	// truncationMarker ends a body that was cut at MaxInputBytes.
 	truncationMarker = "\n[... input truncated at 131072 bytes ...]\n"
 
+	// TruncationMarker is truncationMarker, for a command that cuts a text of
+	// its own the way the shell cuts an input.
+	TruncationMarker = truncationMarker
+
 	// binarySniffBytes is how much of a file is looked at for a NUL byte.
 	binarySniffBytes = 8 << 10
 

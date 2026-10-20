@@ -24,7 +24,7 @@ repository.
 
 | Path | Purpose |
 |---|---|
-| `cmd/af/` | The `af` binary: it registers the commands on the shell and hands the process to it. Six commands: `lang detect`, `gate run`, `gate compare`, `revert-check`, `guard check` and `map`. [`docs/cli.md`](docs/cli.md) describes them. |
+| `cmd/af/` | The `af` binary: it registers the commands on the shell and hands the process to it. Eleven commands: `lang detect`, `gate run`, `gate compare`, `revert-check`, `guard check` and `map`, and the five of `af triage` (`triage`, `triage brief`, `triage run`, `triage submit` and `triage land`). [`docs/cli.md`](docs/cli.md) describes them. |
 | `internal/toolio/` | The command shell behind `af`: the envelope and its exit codes, `needs_human` and `--context`, `--dry-run`, `--schema`, the positional input, and the run directory with its events and ledger. [`docs/cli.md`](docs/cli.md) describes it. |
 | `internal/gitx/` | The git and shell invocations the tools make, hermetic and issued from Go. |
 | `internal/agentdir/` | The git-ignored `.agent-fox/` directory and the atomic write of its files. |
@@ -36,7 +36,8 @@ repository.
 | `internal/box/` | The box that holds a brain's tree: the checkout goes in with its `.git`, run files are placed under `.agent-fox/`, the tree comes out without `.git`. One provider, `local`, which has no isolation. |
 | `internal/submission/` | The submission protocol: a brain hands back one validated JSON object through the submit core, and the host checks the file again. |
 | `internal/brain/` | The `Brain` interface, its registry and shared flags, `Execute` (run a brief and decide from the file), the tool gate, and two brains: `scripted` and the AgentKit driver on the host. |
-| `skills/` | The coding-agent skills (`af-prd`, `af-impl`, `af-fix`, `af-bug-hunter`, `af-code-quality`, `af-code-simplifier`). `make install-skills` copies them to `~/.claude/skills`. |
+| `internal/triage/` | `af triage` without the shell: the diagnosis and its validator, the issue body and its markers, the brief, the preflight, the landing on a forge, the submission kind and the tool allowlist, with `fakeforge`, the GitHub and GitLab server of its tests. |
+| `skills/` | The coding-agent skills (`af-prd`, `af-impl`, `af-fix`, `af-triage`, `af-bug-hunter`, `af-code-quality`, `af-code-simplifier`), and the Go package `skills` that embeds every `af-*` entry, so that the brief of `af triage` carries the same `af-triage` that a person installs. `make install-skills` copies each `af-*` file to `~/.claude/skills/<name>/SKILL.md`. |
 | `containers/sandbox/` | The sandbox image. |
 | `.specs/` | `steering.md` holds the directives every session follows; `archive/` holds the specs of `issuex`, which now lives in `aflib`. |
 | `docs/` | `cli.md`, `configuration.md` and `model-usage.md` describe `af` as it is, and [`docs/development.md`](docs/development.md) how to work on it; `architecture.md` is the proposed target architecture, `prd/` holds the product requirements, `drafts/` holds design drafts, `errata/` holds the errata of the specs, `generated/` the Go package docs (`make doc`). |

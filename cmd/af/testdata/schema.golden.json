@@ -995,6 +995,486 @@
           "description": "True when the tree and the index are as they were: always, for a result that is not a failure."
         }
       }
+    },
+    "triage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "issue",
+        "action",
+        "diagnosis",
+        "rejected_path_calls",
+        "rejected_submissions",
+        "labels",
+        "original_report_sha256"
+      ],
+      "description": "What a triage run came to: the diagnosis, and where it was written. A submission that carries a question lands nothing and has the action none.",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "description": "The run."
+        },
+        "issue": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "repo",
+            "host",
+            "number",
+            "url"
+          ],
+          "description": "The issue the diagnosis was written to or would have been, or null when nothing was.",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "owner/name."
+            },
+            "host": {
+              "type": "string",
+              "description": "The host of the forge, or an empty string when the run did not record one."
+            },
+            "number": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The number of the issue."
+            },
+            "url": {
+              "type": "string",
+              "description": "The URL of the issue."
+            }
+          }
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "replaced_body",
+            "commented",
+            "created_issue",
+            "planned",
+            "none"
+          ],
+          "description": "replaced_body: the body of the issue is the diagnosis around the original report. commented: the body would have been too long for the forge, so the diagnosis is a comment and the body is as it was. created_issue: a new issue holds the diagnosis. planned: a dry run, which sent nothing. none: nothing was written, for --land none or a question."
+        },
+        "diagnosis": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "title",
+            "severity",
+            "confidence",
+            "root_cause",
+            "affected_files",
+            "suggested_fix",
+            "acceptance_criteria"
+          ],
+          "description": "The diagnosis as it was stored: its paths cleaned and path:N split into a path and a line.",
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "critical",
+                "high",
+                "medium",
+                "low"
+              ]
+            },
+            "confidence": {
+              "type": "string",
+              "enum": [
+                "confirmed",
+                "probable",
+                "suspected",
+                "not_reproducible"
+              ]
+            },
+            "root_cause": {
+              "type": "string"
+            },
+            "affected_files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "note"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "line": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "suggested_fix": {
+              "type": "string"
+            },
+            "acceptance_criteria": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "question": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "text",
+                "options"
+              ],
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "rejected_path_calls": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many refused submit calls of the run cited a path that is no file of the repository. Reported, and never a reason to land or not."
+        },
+        "rejected_submissions": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many submit calls of the run were refused."
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The labels that were added, exact duplicates collapsed in the order they were given."
+        },
+        "original_report_sha256": {
+          "type": "string",
+          "description": "The hex SHA-256 of the person's original report, which the body of the issue keeps byte for byte."
+        }
+      }
+    },
+    "triage_brief": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "brief",
+        "prefix_bytes",
+        "prefix_sha256",
+        "document_bytes",
+        "estimated_tokens",
+        "map",
+        "report_truncated",
+        "previous_question"
+      ],
+      "description": "A triage brief, rendered and written to the run directory. Nothing was sent to a model or to the forge.",
+      "properties": {
+        "brief": {
+          "type": "string",
+          "description": "The brief, brief.md in the run directory, as an absolute path."
+        },
+        "prefix_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The length of the run-constant prefix of the brief: the mandate, the skill, the repository map and the report."
+        },
+        "prefix_sha256": {
+          "type": "string",
+          "description": "The hex SHA-256 of the prefix. It is the same for two briefs over the same tree and the same report, whatever the run, the answers or the brain."
+        },
+        "document_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The length of the whole brief, the task block included."
+        },
+        "estimated_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The size of the brief in tokens, estimated as its bytes divided by 4, rounded up."
+        },
+        "map": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "level",
+            "truncated"
+          ],
+          "description": "How much of the repository map the brief holds.",
+          "properties": {
+            "level": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 6,
+              "description": "The level of the map's ladder that fits its budget; 1 is every declaration."
+            },
+            "truncated": {
+              "type": "boolean",
+              "description": "True for any level above 1."
+            }
+          }
+        },
+        "report_truncated": {
+          "type": "boolean",
+          "description": "True when the report was cut at 131072 bytes in the brief."
+        },
+        "previous_question": {
+          "type": "boolean",
+          "description": "True when an earlier run's question, which the --context answers, was found and is in the task block."
+        }
+      }
+    },
+    "triage_land": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "issue",
+        "action",
+        "diagnosis",
+        "rejected_path_calls",
+        "rejected_submissions",
+        "labels",
+        "original_report_sha256"
+      ],
+      "description": "What a triage run came to: the diagnosis, and where it was written. A submission that carries a question lands nothing and has the action none.",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "description": "The run."
+        },
+        "issue": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "repo",
+            "host",
+            "number",
+            "url"
+          ],
+          "description": "The issue the diagnosis was written to or would have been, or null when nothing was.",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "owner/name."
+            },
+            "host": {
+              "type": "string",
+              "description": "The host of the forge, or an empty string when the run did not record one."
+            },
+            "number": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The number of the issue."
+            },
+            "url": {
+              "type": "string",
+              "description": "The URL of the issue."
+            }
+          }
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "replaced_body",
+            "commented",
+            "created_issue",
+            "planned",
+            "none"
+          ],
+          "description": "replaced_body: the body of the issue is the diagnosis around the original report. commented: the body would have been too long for the forge, so the diagnosis is a comment and the body is as it was. created_issue: a new issue holds the diagnosis. planned: a dry run, which sent nothing. none: nothing was written, for --land none or a question."
+        },
+        "diagnosis": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "title",
+            "severity",
+            "confidence",
+            "root_cause",
+            "affected_files",
+            "suggested_fix",
+            "acceptance_criteria"
+          ],
+          "description": "The diagnosis as it was stored: its paths cleaned and path:N split into a path and a line.",
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "critical",
+                "high",
+                "medium",
+                "low"
+              ]
+            },
+            "confidence": {
+              "type": "string",
+              "enum": [
+                "confirmed",
+                "probable",
+                "suspected",
+                "not_reproducible"
+              ]
+            },
+            "root_cause": {
+              "type": "string"
+            },
+            "affected_files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "note"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "line": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "suggested_fix": {
+              "type": "string"
+            },
+            "acceptance_criteria": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "question": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "text",
+                "options"
+              ],
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "rejected_path_calls": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many refused submit calls of the run cited a path that is no file of the repository. Reported, and never a reason to land or not."
+        },
+        "rejected_submissions": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many submit calls of the run were refused."
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The labels that were added, exact duplicates collapsed in the order they were given."
+        },
+        "original_report_sha256": {
+          "type": "string",
+          "description": "The hex SHA-256 of the person's original report, which the body of the issue keeps byte for byte."
+        }
+      }
+    },
+    "triage_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "submitted",
+        "rejected_path_calls"
+      ],
+      "description": "A triage run executed in this process over --dir: the agentkit brain ran on the brief of the run and submitted a diagnosis.",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "description": "The run that was executed."
+        },
+        "submitted": {
+          "type": "boolean",
+          "const": true,
+          "description": "Always true: a run in which the brain submitted nothing valid is a failure and has no result."
+        },
+        "rejected_path_calls": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many refused submit calls of the run cited a path that is no file of the repository."
+        }
+      }
+    },
+    "triage_submit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "accepted",
+        "submission",
+        "rejected_path_calls"
+      ],
+      "description": "A diagnosis that was accepted and stored.",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "description": "The run the diagnosis is for."
+        },
+        "accepted": {
+          "type": "boolean",
+          "const": true,
+          "description": "Always true: a diagnosis that is refused is a failure and has no result."
+        },
+        "submission": {
+          "type": "string",
+          "description": "The submission file, as an absolute path. It holds the normalized diagnosis: paths cleaned and path:N split into a path and a line."
+        },
+        "rejected_path_calls": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many refused submit calls of the run cited a path that is no file of the repository. It is counted from rejections.jsonl, and never decides a landing."
+        }
+      }
     }
   }
 }

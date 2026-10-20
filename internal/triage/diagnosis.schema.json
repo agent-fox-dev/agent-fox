@@ -1,0 +1,44 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "severity", "confidence", "root_cause", "affected_files", "suggested_fix", "acceptance_criteria"],
+  "description": "The one diagnosis of a reported problem. A refusal lists every problem at once, with the JSON pointer of each field.",
+  "properties": {
+    "title": { "type": "string", "minLength": 1, "maxLength": 120, "description": "One line, 1 to 120 characters, that names the problem. It becomes the title of an issue only when the report was no issue." },
+    "severity": { "type": "string", "enum": ["critical", "high", "medium", "low"], "description": "How much the problem costs the people who meet it." },
+    "confidence": { "type": "string", "enum": ["confirmed", "probable", "suspected", "not_reproducible"], "description": "How sure the diagnosis is: confirmed when you read the code that fails, probable when one link is inferred, suspected when the cause is plausible but not tied to the report, not_reproducible when the code you read does not produce the problem." },
+    "root_cause": { "type": "string", "minLength": 1, "maxLength": 6000, "description": "What is wrong and why it produces what was reported, 1 to 6000 bytes." },
+    "affected_files": {
+      "type": "array",
+      "maxItems": 30,
+      "description": "1 to 30 files you read. May be empty only when the confidence is not_reproducible or there is a question.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "note"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1, "description": "A regular file of the repository, relative to its root. It must exist; a path that does not is refused." },
+          "line": { "type": "integer", "minimum": 1, "description": "A line of the file, from 1 to its number of lines." },
+          "note": { "type": "string", "maxLength": 300, "description": "What the file has to do with the problem, at most 300 bytes." }
+        }
+      }
+    },
+    "suggested_fix": { "type": "string", "maxLength": 6000, "description": "What to change, 1 to 6000 bytes. May be empty only when the confidence is not_reproducible or there is a question." },
+    "acceptance_criteria": {
+      "type": "array",
+      "maxItems": 15,
+      "description": "1 to 15 criteria, each something a person or a test can observe when the problem is gone. May be empty only when the confidence is not_reproducible or there is a question.",
+      "items": { "type": "string", "minLength": 1, "maxLength": 300 }
+    },
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "description": "Only when two readings of the report lead to opposite fixes, and only with the confidence suspected or not_reproducible.",
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "maxLength": 2000, "description": "The question, 1 to 2000 bytes." },
+        "options": { "type": "array", "maxItems": 6, "description": "No option, for an answer in words, or 2 to 6 options of 1 to 200 bytes.", "items": { "type": "string", "minLength": 1, "maxLength": 200 } }
+      }
+    }
+  }
+}

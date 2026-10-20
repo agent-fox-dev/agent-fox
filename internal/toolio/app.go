@@ -151,6 +151,10 @@ type Run struct {
 	// document is the Document of the outcome, which stdout gets in place of
 	// the envelope.
 	document []byte
+	// app is the shell that runs the command, and closers what is closed when
+	// the command has returned: the clients ForgeFor built.
+	app     *App
+	closers []func()
 
 	mu          sync.Mutex
 	warnings    []Warning
@@ -336,6 +340,7 @@ func (inv *invocation) setup(cmd *Command, words []string, values *flagValues, p
 		Dir:     values.dir,
 		Context: slices.Clone(values.context),
 		Stderr:  inv.stderr,
+		app:     inv.app,
 	}
 	if values.emitEvents != "" || cmd.UsesRunDir {
 		inv.events = newEventStream(inv.app.now, inv.run.Warn)
@@ -409,6 +414,9 @@ func (inv *invocation) beginEvents() {
 func (inv *invocation) finish() int {
 	if inv.closeForge != nil {
 		inv.closeForge()
+	}
+	if inv.run != nil {
+		inv.run.closeClients()
 	}
 	env := inv.env
 	if inv.run != nil && inv.run.RunDir != nil {
