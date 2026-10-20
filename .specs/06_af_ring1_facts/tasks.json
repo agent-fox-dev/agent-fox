@@ -96,7 +96,7 @@
         "`go test ./internal/project/... -count=1` passes",
         "Detect on this repository returns go first and exactly [make check]"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
