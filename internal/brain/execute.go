@@ -98,6 +98,7 @@ func Execute(ctx context.Context, req Request) (Result, error) {
 	stopBeats := r.heartbeat()
 	outcome, runErr, panicked := r.runBrain(runCtx, b)
 	stopBeats()
+	runCtxErr := runCtx.Err() // whether the brief's own deadline passed, before it is cancelled
 	cancel()
 
 	r.record("brain_end", map[string]any{
@@ -112,7 +113,7 @@ func Execute(ctx context.Context, req Request) (Result, error) {
 		return Result{Outcome: outcome}, r.panicFailure(panicked)
 	}
 	req.Report.Emit("step", stepEvent{Name: "submission"})
-	return decide(ctx, r, outcome, runErr)
+	return r.decide(ctx, outcome, runCtxErr, runErr)
 }
 
 // newRun checks the request and fills in what it leaves out.
@@ -312,10 +313,4 @@ func (r *run) panicFailure(p *panicInfo) error {
 		where = fmt.Sprintf("%s (which could not be written: %v)", name, err)
 	}
 	return &toolio.Failure{Category: CategoryBrain, Message: fmt.Sprintf("the %s brain panicked: %v; the stack is in %s", r.req.Name, p.value, where)}
-}
-
-// decide is the host's decision, after the brain, whether a submission exists
-// and what the run came to. Until it reads the submission file, a run has none.
-func decide(ctx context.Context, r *run, outcome Outcome, runErr error) (Result, error) {
-	return Result{Outcome: outcome}, &toolio.Failure{Category: CategoryNoResult, Retryable: true, Message: "the run has no submission"}
 }
