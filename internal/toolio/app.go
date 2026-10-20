@@ -110,6 +110,9 @@ type Run struct {
 	Dir string
 	// Context holds the --context values, verbatim and in order.
 	Context []string
+	// DryRun is set when the command was given --dry-run. Run.Forge then
+	// refuses every write; the command should not attempt other effects.
+	DryRun bool
 	// Forge is the forge client; nil for a command that does not use one.
 	// The shell closes it when the command returns.
 	Forge issuex.Client
@@ -257,6 +260,10 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 			return a.write(stdout, env, started)
 		}
 		run.Forge, run.Target = client, target
+		if values.dryRun {
+			run.DryRun = true
+			run.Forge = DryRunForge(client, run.SideEffect)
+		}
 		// A client that fails to close its idle connections has nothing
 		// more to tell.
 		closeForge = func() { _ = client.Close() }

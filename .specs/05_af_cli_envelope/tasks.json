@@ -250,7 +250,7 @@
         "internal/toolio/app.go",
         "internal/toolio/dryrun_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 7,
