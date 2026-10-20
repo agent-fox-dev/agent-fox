@@ -143,37 +143,35 @@ func fixLoop(r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 
 	state := start.state
 	var ended fix.LoopResult
+	var loopErr error
 	var info fix.BoxInfo
 	err = box.With(r.Ctx, box.Request{
 		Provider: o.settings.Sandbox, HostDir: r.Dir, RunID: r.RunDir.ID, Tool: "fix",
 		Env: brain.BuildBoxEnv(entry, opts.Getenv), Record: r.RunDir.Record, Warn: r.Warn,
 	}, func(sess *box.Session) error {
 		info = fix.NewBoxInfo(boxEntry, sess.Spec())
-		var err error
-		ended, err = fix.RunLoop(r.Ctx, fix.LoopParams{
+		ended, loopErr = fix.RunLoop(r.Ctx, fix.LoopParams{
 			Dir: r.Dir, Git: pre.Git, Session: sess, Name: o.settings.Brain, Brain: pre.Brain, Tally: &brain.Tally{}, RunDir: r.RunDir, Report: r, Reporter: r,
 			State: &state, Prefix: start.prefix.Text, Attempts: int(o.attempts), Budget: o.settings.Budget, MaxTurns: o.settings.MaxTurns, Gate: fixGate,
 		})
-		return err
+		return nil
+	})
+	if err != nil { // the box could not be opened: nothing was done
+		return toolio.Outcome{}, err
+	}
+
+	fin, err := fix.Finish(r.Ctx, fix.FinishParams{
+		Git: pre.Git, State: state, Input: fix.Input{Kind: string(r.Input.Kind), Origin: r.Input.Origin, Body: r.Input.Body},
+		Mode: string(o.land), DryRun: r.DryRun, Forge: r.Forge, Target: repoOfState(state.Target), Ended: ended, LoopErr: loopErr,
+		AttemptsMax: int(o.attempts), Box: &info, Reporter: r, WriteReport: r.RunDir.WriteReport,
 	})
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
-	return endFixLoop(r, o, state, ended, info)
-}
-
-// endFixLoop turns what the rounds came to into the outcome of the run. A question is the
-// end of the run, with nothing applied to the checkout.
-func endFixLoop(r *toolio.Run, o fixOptions, state fix.State, ended fix.LoopResult, info fix.BoxInfo) (toolio.Outcome, error) {
-	if q := ended.Question; q != nil {
+	out := toolio.Outcome{Status: fin.Status, Summary: fin.Summary, Result: fin.Result}
+	if q := fin.Question; q != nil {
 		record(r, ledgerFixQuestion, q)
-		result := fix.NewResult(fix.ResultInput{
-			State: state, Attempts: ended.Attempts, Rounds: ended.Rounds, AttemptsMax: int(o.attempts), Outcome: fix.OutcomeNeedsHuman, Land: string(o.land), Box: &info,
-		})
-		return toolio.Outcome{
-			Status: toolio.StatusNeedsHuman, Summary: "the brain asks a question, and nothing was applied to the checkout",
-			Result: result, NeedsHuman: &toolio.Question{Text: q.Text, Options: q.Options},
-		}, nil
+		out.NeedsHuman = &toolio.Question{Text: q.Text, Options: q.Options}
 	}
-	return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryInternal, Message: "the endings of the fix loop are not wired"}
+	return out, nil
 }
