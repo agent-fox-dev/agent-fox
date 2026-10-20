@@ -68,6 +68,9 @@ type Command struct {
 	// MaxArgs is how many positional arguments the command takes. Zero means
 	// one; NoArgs means none. Another is a usage error.
 	MaxArgs int
+	// Input says whether the first positional argument is an input to
+	// resolve.
+	Input InputMode
 	// Dir, Context, DryRun, Repo and Timeout opt the command into the flags
 	// --dir, --context, --dry-run, --repo and --timeout. Every command
 	// accepts --output and --emit-events.
@@ -94,6 +97,8 @@ type Run struct {
 	Argv []string
 	// Args are the positional arguments, in order.
 	Args []string
+	// Input is the resolved input; Kind none for a command without one.
+	Input Input
 	// Dir is --dir, made absolute; empty for a command without the flag.
 	Dir string
 	// Context holds the --context values, verbatim and in order.
@@ -219,9 +224,22 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 		Tool:    cmd.Path,
 		Argv:    append([]string{a.name()}, words...),
 		Args:    positional,
+		Input:   Input{Kind: KindNone},
 		Dir:     values.dir,
 		Context: slices.Clone(values.context),
 		Stderr:  stderr,
+	}
+	if cmd.Input != InputNone {
+		in, err := resolveInput(sigCtx, cmd.Input, positional, stdin, nil)
+		if err != nil {
+			env.fail(failureOf(err, stderr))
+			return a.write(stdout, env, started)
+		}
+		run.Input = in
+		env.Input = InputInfo{Kind: in.Kind, Origin: in.Origin, Truncated: in.Truncated}
+		if in.Truncated {
+			run.Warn(WarnInputTruncated, fmt.Sprintf("the input was cut at %d bytes", MaxInputBytes))
+		}
 	}
 	out, err := a.execute(sigCtx, cmd, run, values.timeout)
 	a.settle(env, run, out, err, stderr)
