@@ -2,9 +2,15 @@ package box
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -26,6 +32,10 @@ type Session struct {
 	hostDir  string
 
 	ledgerWarned sync.Once
+
+	mu      sync.Mutex
+	closed  bool
+	exports []string // the export directories Close removes
 }
 
 // Provider is the name of the provider.
@@ -107,4 +117,92 @@ func (s *Session) record(kind string, data any) {
 			s.req.Warn("ledger_unwritable", fmt.Sprintf("the ledger entry %s could not be written: %v", kind, err))
 		})
 	}
+}
+
+// agentDir is where af keeps its files in the tree.
+const agentDir = ".agent-fox/"
+
+// WriteFile writes a run file into the box, through the box's write tool. It
+// writes only paths that pass fs.ValidPath and lie under .agent-fox/, and only
+// text: the session writes run files (the brief, the run's number, the hook's
+// configuration) and nothing else, so another path, or bytes the tool would
+// change, is a bug of the caller and an internal error, not a usage failure.
+func (s *Session) WriteFile(ctx context.Context, rel string, data []byte) error {
+	if !fs.ValidPath(rel) || !strings.HasPrefix(rel, agentDir) {
+		return fmt.Errorf("box: WriteFile writes only under %s, not %q", agentDir, rel)
+	}
+	if !utf8.Valid(data) {
+		return fmt.Errorf("box: WriteFile writes text, and the content of %s is not valid UTF-8", rel)
+	}
+	r, err := s.call(ctx, toolWriteFile, map[string]any{"path": rel, "content": string(data)})
+	if err != nil {
+		return err
+	}
+	if !r.OK {
+		return &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the %s box could not write %s: %s %s", s.provider, rel, r.Error, r.Detail)}
+	}
+	return nil
+}
+
+// Export exports the box's tree into a fresh directory under the temporary
+// directory of the OS, af-export-<run_id>-*, never inside the checkout, and
+// records box_export. The directory is removed by Close. The tree comes out
+// without .git, and without what the hands' rules ignore, the run files of
+// .agent-fox/ among it. An export that carries a .git is removed and fails: it
+// breaks what the box is for.
+func (s *Session) Export(ctx context.Context) (string, error) {
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
+		return "", errors.New("box: Export on a closed session")
+	}
+	pattern := "af-export-" + strings.NewReplacer("/", "_", string(filepath.Separator), "_").Replace(s.req.RunID) + "-*"
+	dir, err := os.MkdirTemp("", pattern)
+	if err != nil {
+		return "", &toolio.Failure{Category: toolio.CategoryIO, Message: fmt.Sprintf("cannot make a directory for the export of the box: %v", err)}
+	}
+	if err := s.sb.Export(ctx, ".", sandbox.LocalDir{Path: dir}); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the %s box could not be exported: %v", s.provider, err)}
+	}
+	if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
+		_ = os.RemoveAll(dir)
+		return "", &toolio.Failure{Category: toolio.CategorySandbox, Message: fmt.Sprintf("the %s box's export carried .git, which no export may: the run stops", s.provider)}
+	}
+	s.mu.Lock()
+	s.exports = append(s.exports, dir)
+	s.mu.Unlock()
+	s.record("box_export", map[string]any{"path": dir})
+	return dir, nil
+}
+
+// Close closes the sandbox, removes every export directory the session made
+// and records box_close. It is idempotent: later calls do nothing and return
+// nil. The close is bounded to 30 seconds, on a context of its own.
+func (s *Session) Close() error { return s.closeWith(context.Background()) }
+
+// closeWith is Close on a context that carries the values of ctx but not its
+// cancellation.
+func (s *Session) closeWith(ctx context.Context) error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil
+	}
+	s.closed = true
+	exports := s.exports
+	s.exports = nil
+	s.mu.Unlock()
+
+	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)
+	defer cancel()
+	err := s.sb.Close(closeCtx)
+	for _, dir := range exports {
+		if rerr := os.RemoveAll(dir); rerr != nil {
+			err = errors.Join(err, rerr)
+		}
+	}
+	s.record("box_close", map[string]any{"provider": s.provider})
+	return err
 }

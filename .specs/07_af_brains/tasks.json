@@ -105,7 +105,7 @@
       "done_when": [
         "`go test ./internal/box/... -count=1` passes offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

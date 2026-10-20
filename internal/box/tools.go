@@ -11,7 +11,10 @@ import (
 // The names of the hands' tools that the session itself uses, as the host's
 // own hands and not as a brain's: they are not asked of the gate.
 const (
-	toolExecute = "execute"
+	toolExecute   = "execute"
+	toolReadFile  = "read_file"
+	toolWriteFile = "write_file"
+	toolListFiles = "list_files"
 )
 
 // call runs one of the box's tools with the arguments and returns its result.
