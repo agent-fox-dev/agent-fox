@@ -38,9 +38,8 @@ func (s *spyBrain) Run(ctx context.Context, b brain.Brief) (brain.Outcome, error
 	return brain.Outcome{StopReason: brain.StopEnded}, nil
 }
 
-// useSpy puts the spy in the registry of the loop as the brain "spy", beside the
-// brains of the release.
-func useSpy(t *testing.T, s *spyBrain) {
+// spyRegistry is a registry with the brains of the release and the spy, as "spy".
+func spyRegistry(t *testing.T, s *spyBrain) *brain.Registry {
 	t.Helper()
 	reg := brain.NewRegistry()
 	for _, name := range []string{brain.AgentkitName, brain.ScriptedName} {
@@ -51,8 +50,15 @@ func useSpy(t *testing.T, s *spyBrain) {
 		reg.Register(entry)
 	}
 	reg.Register(brain.Entry{Name: "spy", CostSource: brain.CostNone, New: func(brain.Options) (brain.Brain, error) { s.news++; return s, nil }})
+	return reg
+}
+
+// useSpy puts the spy in the registry of the loop as the brain "spy", beside the
+// brains of the release.
+func useSpy(t *testing.T, s *spyBrain) {
+	t.Helper()
 	old := triageRegistry
-	triageRegistry = reg
+	triageRegistry = spyRegistry(t, s)
 	t.Cleanup(func() { triageRegistry = old })
 }
 

@@ -196,7 +196,7 @@ func (f *Forge) IssueURL(number int) string {
 
 var (
 	githubPath = regexp.MustCompile(`^/repos/([^/]+/[^/]+)(?:/issues(?:/(\d+))?(/comments|/labels)?)?$`)
-	gitlabPath = regexp.MustCompile(`^/api/v4/projects/([^/]+/[^/]+)(?:/issues(?:/(\d+))?(/notes)?)?$`)
+	gitlabPath = regexp.MustCompile(`^/api/v4/projects/([^/]+/[^/]+)(?:/(?:issues|merge_requests)(?:/(\d+))?(/notes)?)?$`)
 )
 
 // serve answers a request.
@@ -282,8 +282,9 @@ func (f *Forge) classify(r *http.Request, raw []byte) (op string, number int) {
 	number, _ = strconv.Atoi(m[2])
 	tail := m[3]
 	isIssues := strings.Contains(r.URL.Path, "/issues")
+	isThread := isIssues || strings.Contains(r.URL.Path, "/merge_requests") // a merge request is read as the issue of its number
 	switch {
-	case r.Method == http.MethodGet && !isIssues:
+	case r.Method == http.MethodGet && !isThread:
 		return OpRepo, 0
 	case r.Method == http.MethodGet && tail == "":
 		return OpRead, number

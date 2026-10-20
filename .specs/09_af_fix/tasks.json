@@ -109,7 +109,7 @@
         "cmd/af/fix_test.go",
         "cmd/af/schemas/fix.json"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,

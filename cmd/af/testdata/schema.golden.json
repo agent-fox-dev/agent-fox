@@ -420,6 +420,9 @@
     }
   ],
   "$defs": {
+    "fix": {
+      "type": "object"
+    },
     "gate_compare": {
       "type": "object",
       "additionalProperties": false,

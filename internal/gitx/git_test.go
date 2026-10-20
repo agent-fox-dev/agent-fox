@@ -608,3 +608,81 @@ func TestDiffSinceIncludesUntrackedFiles(t *testing.T) {
 		t.Errorf("patch = %q", patch)
 	}
 }
+
+// TestRevParseGivesTheFullHash guards the hash that a fix run records as its base:
+// 40 hex digits, of the commit a ref names, and an error for one that names none.
+func TestRevParseGivesTheFullHash(t *testing.T) {
+	g, dir := newRepo(t)
+	ctx := context.Background()
+
+	full, err := g.RevParse(ctx, "HEAD")
+
+	if err != nil || len(full) != 40 || strings.Trim(full, "0123456789abcdef") != "" {
+		t.Fatalf("RevParse(HEAD) = %q, %v, want 40 hex digits", full, err)
+	}
+	short, _ := g.Head(ctx)
+	if !strings.HasPrefix(full, short) {
+		t.Errorf("RevParse = %s, and the short head is %s", full, short)
+	}
+	if byName, err := g.RevParse(ctx, "main"); err != nil || byName != full {
+		t.Errorf("RevParse(main) = %q, %v, want %s", byName, err, full)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "second.txt"), []byte("2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.CommitAll(ctx, "chore: second\n"); err != nil {
+		t.Fatal(err)
+	}
+	if parent, err := g.RevParse(ctx, "HEAD~1"); err != nil || parent != full {
+		t.Errorf("RevParse(HEAD~1) = %q, %v, want the first commit, %s", parent, err, full)
+	}
+	if got, err := g.RevParse(ctx, "no-such-ref"); err == nil {
+		t.Errorf("RevParse of a ref that names nothing = %q, want an error", got)
+	}
+}
+
+// TestIgnoredNamesWhatTheRulesIgnore guards the paths a fix run does not copy to the
+// host: the ignored ones, and not a tracked one that a rule matches.
+func TestIgnoredNamesWhatTheRulesIgnore(t *testing.T) {
+	g, dir := newRepo(t)
+	ctx := context.Background()
+	for name, content := range map[string]string{
+		".gitignore": "*.log\nbuild/\n", "a.go": "package a\n", "kept.log": "tracked\n", "x.log": "ignored\n", "build/out.bin": "bin\n", "docs/n.md": "n\n",
+	} {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out, code, err := g.git(ctx, "add", "-f", ".gitignore", "kept.log"); err != nil || code != 0 {
+		t.Fatalf("git add: %v %d %s", err, code, out)
+	}
+	if _, err := g.CommitAll(ctx, "chore: files\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := g.Ignored(ctx, []string{"a.go", "x.log", "build/out.bin", "kept.log", "docs/n.md", "sub/new.log"})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(got)
+	if want := []string{"build/out.bin", "sub/new.log", "x.log"}; !slices.Equal(got, want) {
+		t.Errorf("Ignored = %v, want %v: the tracked kept.log is not ignored", got, want)
+	}
+	if none, err := g.Ignored(ctx, []string{"a.go", "docs/n.md"}); err != nil || len(none) != 0 {
+		t.Errorf("Ignored of paths that none ignores = %v, %v, want none", none, err)
+	}
+	if none, err := g.Ignored(ctx, nil); err != nil || len(none) != 0 {
+		t.Errorf("Ignored of no path = %v, %v", none, err)
+	}
+	if _, err := New(t.TempDir(), ExecRunner).Ignored(ctx, []string{"a"}); err == nil {
+		t.Error("Ignored outside a repository succeeded")
+	}
+	if odd, err := g.Ignored(ctx, []string{"with space.log", "new\nline.log", "ünï.log"}); err != nil || len(odd) != 3 {
+		t.Errorf("Ignored of odd names = %v, %v, want all three: no name is quoted", odd, err)
+	}
+}

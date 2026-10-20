@@ -589,3 +589,28 @@ func sortedUnique(paths []string) []string {
 	slices.Sort(paths)
 	return slices.Compact(paths)
 }
+
+// RevParse is the full 40-hex hash of the commit that ref names.
+func (g *Git) RevParse(ctx context.Context, ref string) (string, error) {
+	return g.must(ctx, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+}
+
+// Ignored is the paths among paths that git's ignore rules ignore. A tracked
+// path is not ignored, whatever the rules say, since the rules do not apply to
+// it. Paths are slash-separated and relative to the root of the work tree, and
+// are given to git and read back NUL-separated, so that no name is quoted.
+func (g *Git) Ignored(ctx context.Context, paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	out, code, err := g.run(StdoutOnly(ctx), g.Dir, []string{"git", "check-ignore", "-z", "--stdin"}, strings.Join(paths, "\x00")+"\x00")
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("git check-ignore: %w", err)
+	case code == 1:
+		return nil, nil // none of them is ignored
+	case code != 0:
+		return nil, fmt.Errorf("git check-ignore exited %d: %s", code, strings.TrimSpace(out))
+	}
+	return splitNUL(out), nil
+}
