@@ -142,7 +142,7 @@
         "internal/toolio/run.go",
         "internal/toolio/lifecycle_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 4,

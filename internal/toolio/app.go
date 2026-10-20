@@ -11,10 +11,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
 	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -39,6 +42,10 @@ type App struct {
 	// BuildInfo reads the binary's build information;
 	// runtime/debug.ReadBuildInfo when nil.
 	BuildInfo func() (*debug.BuildInfo, bool)
+	// Grace is how long a command that has been told to stop, by a signal or
+	// by its deadline, gets to return before the shell gives up on it; 10
+	// seconds when zero.
+	Grace time.Duration
 
 	commands []*Command
 }
@@ -103,11 +110,15 @@ type Run struct {
 	usage       Usage
 }
 
-// Warn records a warning. The code matches ^[a-z][a-z0-9_]*$.
+// Warn records a warning. The code matches ^[a-z][a-z0-9_]*$. A warning
+// already recorded, with the same code and message, is recorded once.
 func (r *Run) Warn(code, message string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.warnings = append(r.warnings, Warning{Code: code, Message: message})
+	w := Warning{Code: code, Message: message}
+	if !slices.Contains(r.warnings, w) {
+		r.warnings = append(r.warnings, w)
+	}
 }
 
 // Artifact records something the run produced.
@@ -196,8 +207,15 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 		return a.write(stdout, env, started)
 	}
 
+	if values.timeout < 0 {
+		env.fail(&Failure{Category: CategoryUsage, Message: fmt.Sprintf("--timeout %s is negative; use 0 for no limit", values.timeout)})
+		return a.write(stdout, env, started)
+	}
+
+	sigCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	run := &Run{
-		Ctx:     ctx,
 		Tool:    cmd.Path,
 		Argv:    append([]string{a.name()}, words...),
 		Args:    positional,
@@ -205,7 +223,7 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 		Context: slices.Clone(values.context),
 		Stderr:  stderr,
 	}
-	out, err := call(cmd, run)
+	out, err := a.execute(sigCtx, cmd, run, values.timeout)
 	a.settle(env, run, out, err, stderr)
 	run.collect(env)
 	return a.write(stdout, env, started)
@@ -414,6 +432,10 @@ func (a *App) write(stdout io.Writer, env *Envelope, started time.Time) int {
 	env.FinishedAt = stamp(finished)
 	env.DurationMS = finished.Sub(started).Milliseconds()
 	env.ExitCode = ExitCode(env.Status)
+	env.Summary = oneLine(env.Summary)
+	if env.Summary == "" && env.Error != nil {
+		env.Summary = defaultSummary(env.Error.Category)
+	}
 
 	data, err := env.marshal()
 	if err != nil {
