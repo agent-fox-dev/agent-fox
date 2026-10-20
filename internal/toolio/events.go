@@ -116,6 +116,7 @@ func (s *eventStream) emit(typ string, data any) {
 		}
 		if _, err := sk.f.Write(encoded); err != nil {
 			sk.dead = true
+			_ = sk.f.Close()
 			failed = append(failed, failure{sk.path, err})
 		}
 	}
@@ -160,7 +161,7 @@ func (s *eventStream) end(env *Envelope) {
 	defer s.mu.Unlock()
 	s.closed = true
 	for _, sk := range s.sinks {
-		if sk.f != nil {
+		if sk.f != nil && !sk.dead {
 			_ = sk.f.Close()
 		}
 	}

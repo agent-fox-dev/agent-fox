@@ -132,17 +132,17 @@ func TestDryRunFlagWiresDecorator_TS_05_56(t *testing.T) {
 // forgeCase is one forge the decorator is tried against.
 type forgeCase struct {
 	name  string
-	build func(url string) issuex.Client
+	build func(url, token string) issuex.Client
 	limit int
 }
 
 var forgeCases = []forgeCase{
-	{"github", func(url string) issuex.Client {
-		c, _ := issuex.NewGitHub(issuex.Options{BaseURL: url, Token: "t"})
+	{"github", func(url, token string) issuex.Client {
+		c, _ := issuex.NewGitHub(issuex.Options{BaseURL: url, Token: token})
 		return c
 	}, 65536},
-	{"gitlab", func(url string) issuex.Client {
-		c, _ := issuex.NewGitLab(issuex.Options{BaseURL: url, Token: "t"})
+	{"gitlab", func(url, token string) issuex.Client {
+		c, _ := issuex.NewGitLab(issuex.Options{BaseURL: url, Token: token})
 		return c
 	}, 1048576},
 }
@@ -159,7 +159,7 @@ func TestDryRunPassesReadsThrough_TS_05_57(t *testing.T) {
 	for _, fc := range forgeCases {
 		t.Run(fc.name, func(t *testing.T) {
 			forge := newRecordingForge(t)
-			inner := &closeCounter{Client: fc.build(forge.URL)}
+			inner := &closeCounter{Client: fc.build(forge.URL, "t")}
 			dry := DryRunForge(inner)
 
 			reads := []struct {
@@ -193,6 +193,9 @@ func TestDryRunPassesReadsThrough_TS_05_57(t *testing.T) {
 
 			if dry.Authenticated() != inner.Authenticated() || !dry.Authenticated() {
 				t.Errorf("Authenticated() = %v, want the inner client's (true)", dry.Authenticated())
+			}
+			if anonymous := DryRunForge(fc.build(forge.URL, "")); anonymous.Authenticated() {
+				t.Error("the decorator of a client with no token reports it is authenticated")
 			}
 			if got := issuex.MaxBodyLength(dry); got != fc.limit {
 				t.Errorf("MaxBodyLength = %d, want %d", got, fc.limit)
@@ -266,7 +269,7 @@ func TestDryRunNeverWrites_TS_05_58(t *testing.T) {
 		t.Run(fc.name, func(t *testing.T) {
 			forge := newRecordingForge(t)
 			var effects []SideEffect
-			dry := DryRunForge(fc.build(forge.URL), func(s SideEffect) { effects = append(effects, s) })
+			dry := DryRunForge(fc.build(forge.URL, "t"), func(s SideEffect) { effects = append(effects, s) })
 
 			var want []SideEffect
 			for i := range 150 {
@@ -296,7 +299,7 @@ func TestDryRunNeverWrites_TS_05_58(t *testing.T) {
 
 	// Without a recorder the writes are still refused.
 	forge := newRecordingForge(t)
-	dry := DryRunForge(forgeCases[0].build(forge.URL))
+	dry := DryRunForge(forgeCases[0].build(forge.URL, "t"))
 	if err := dryRunWrites[3].call(dry, issuex.Repo{Owner: "o", Name: "r"}, issuex.IssueRef{Number: 1}); !errors.Is(err, ErrDryRun) || forge.count() != 0 {
 		t.Errorf("without a recorder: error %v, %d requests; want ErrDryRun and none", err, forge.count())
 	}
@@ -342,5 +345,25 @@ func TestRefusedWritesAreSideEffects_TS_05_59(t *testing.T) {
 		if !errors.Is(err, ErrDryRun) {
 			t.Errorf("write %d returned %v, want an error wrapping ErrDryRun", i, err)
 		}
+	}
+}
+
+// TestDryRunWithoutAForge guards the rule behind TS-05-56: a command that
+// opts into --dry-run is told so even when it uses no forge, so that it can
+// skip the effects of its own, such as a commit.
+func TestDryRunWithoutAForge(t *testing.T) {
+	var dry bool
+	var forge issuex.Client
+	app := newTestApp()
+	app.Register(Command{Path: "X", DryRun: true, Run: func(r *Run) (Outcome, error) {
+		dry, forge = r.DryRun, r.Forge
+		return Outcome{Status: StatusDone}, nil
+	}})
+
+	if code, _, _ := invoke(t, app, "X", "--dry-run"); code != 0 || !dry || forge != nil {
+		t.Errorf("--dry-run: exit code %d, Run.DryRun %v, Run.Forge %v; want 0, true, nil", code, dry, forge)
+	}
+	if invoke(t, app, "X"); dry {
+		t.Error("Run.DryRun is true without the flag")
 	}
 }

@@ -53,7 +53,8 @@ af --schema
 - `-h`, `--help`, `--version` and `--schema` are answered wherever they stand
   before a `--`, without resolving input, building a forge client, reading
   stdin or creating a run directory. If more than one is given, help wins
-  over version, and version over schema.
+  over version, and version over schema. The word after a flag that takes a
+  value is that value: in `--context --help` the answer is `--help`.
 
 ### Flags
 
@@ -101,8 +102,8 @@ order; arrays are `[]`, never null, and an object that does not apply is
   "error": null,
   "warnings": [
     {
-      "code": "input_truncated",
-      "message": "the thread has more comments than were read"
+      "code": "label_missing",
+      "message": "the label triaged does not exist yet"
     }
   ],
   "artifacts": [
@@ -158,7 +159,7 @@ the shell under a test command, with the path of the checkout shortened.)
 | `needs_human` | object or null | The question the command stopped on. Non-null exactly when `status` is `needs_human`. |
 | `error` | object or null | `{category, message, retryable, fix_hint}`. Non-null exactly when `status` is `failed` or `usage`. `fix_hint` is null, or an object with any of `flag`, `env`, `var` and `suggest`. |
 | `warnings` | array | `[{code, message}]`, in the order they were raised. |
-| `artifacts` | array | `[{kind, path?, url?, name?, number?}]`. Paths are absolute. |
+| `artifacts` | array | `[{kind, path?, url?, name?, number?}]`. Paths are absolute; a relative path a command records is made absolute. |
 | `side_effects` | array | `[{kind, target, state, detail?}]`. `state` is `done`, `planned` or `failed`. |
 | `next` | array | `[{argv, reason}]`: suggested follow-up commands. |
 | `usage` | object | `{brain, cost_usd, cost_source, input_tokens, output_tokens, turns}`. With no brain, `brain` is `""`, the numbers are 0 and `cost_source` is `none`; it is otherwise `measured` or `reported`. |
@@ -181,7 +182,7 @@ panic.
 | `failed` | 1 | It could not, for a reason given in `error`. |
 | `usage` | 2 | The invocation was wrong: flags, arguments or the form of the input. |
 | `needs_human` | 3 | It stopped on a question. |
-| `unverified` | 4 | Work exists but could not be verified. A warning says what was not. |
+| `unverified` | 4 | Work exists but could not be verified. A command that returns it raises a warning that says what was not verified. |
 
 A command returns an outcome (`done`, `unverified` or `needs_human`, with a
 summary, a result and, for a question, the question) or an error. An error
@@ -211,7 +212,8 @@ Later specs add categories of their own to this list.
 
 A warning never changes the status: a run that is done stays done. A warning
 that repeats another one exactly (same code, same message) is recorded once.
-A code matches `^[a-z][a-z0-9_]*$`.
+A code matches `^[a-z][a-z0-9_]*$`; one that does not is reported under
+`invalid_warning_code`.
 
 | Code | Raised when |
 |---|---|
@@ -220,6 +222,7 @@ A code matches `^[a-z][a-z0-9_]*$`.
 | `envelope_unwritable` | `<run_dir>/envelope.json` could not be written. |
 | `output_unwritable` | The file named by `--output` could not be written. |
 | `events_unwritable` | An event could not be written to the run directory or to `--emit-events`. Raised once. |
+| `invalid_warning_code` | A command raised a warning whose code does not match the pattern; the message begins with the code it gave. |
 
 ## The positional input
 
@@ -275,6 +278,11 @@ the values reach the command verbatim and in order, and answers accumulate
 because the earlier `--context` values stay in `argv`. An empty value is a
 `usage` error. What an answer such as `B` means is up to the command.
 
+One input cannot be resumed this way: if the invocation used `--` to give an
+input that begins with a dash, `resume.argv` ends with that input, and a
+`--context` appended after the `--` is read as part of it. Put the answer
+before the `--` in that case.
+
 ## --dry-run
 
 A command that opts into `--dry-run` and is given it gets a forge client that
@@ -292,20 +300,23 @@ at an HTTP server shows that no write request reaches the forge whatever the
 command does.
 
 The run directory is created under `--dry-run` too: it is local, ignored
-state, and the brief that a dry run exists to show is written there. The shell
-enforces `--dry-run` for the forge only; a command that commits or pushes
-honours the flag itself.
+state, and the brief that a dry run exists to show is written there. A command
+that opted into `--dry-run` is told so (`Run.DryRun`) even when it uses no
+forge. The shell enforces `--dry-run` for the forge only; a command that
+commits or pushes honours the flag itself.
 
 ## --timeout and signals
 
-A command that opts into `--timeout` runs under that deadline. When it runs
-out, the command's context is cancelled, and if the command then returns an
-error the envelope is `failed`/`timeout`. SIGINT and SIGTERM cancel the
-command's context in the same way, and the envelope is `failed`/`cancelled`.
-A command that returns an outcome after being cancelled has finished its job,
-and its outcome stands. A command that has not returned 10 seconds after being
-cancelled, by a signal or by its deadline, is abandoned: the shell prints
-`failed`/`cancelled` or `failed`/`timeout` itself and exits 1.
+A command that opts into `--timeout` runs under that deadline; the deadline
+covers the command, not the reading of its input. When it runs out, the
+command's context is cancelled, and the envelope is `failed`/`timeout`
+whatever the command returns after that. SIGINT and SIGTERM cancel the
+command's context in the same way; if the command then returns an error the
+envelope is `failed`/`cancelled`, and a command that returns an outcome has
+finished its job, so its outcome stands. A command that has not returned 10
+seconds after being cancelled, by a signal or by its deadline, is abandoned:
+the shell prints `failed`/`cancelled` or `failed`/`timeout` itself and exits
+1. A second signal during those 10 seconds is ignored.
 
 ## --schema
 
@@ -343,7 +354,7 @@ A command that declares one gets `<dir>/.agent-fox/run/<id>/` before it runs,
 with `<dir>` the `--dir`. It is created once the command is about to run, so
 an invocation that is refused leaves nothing behind. `<id>` is
 `YYYYMMDD_HHMMSS_<6 lowercase hex>`: the UTC time and three random bytes,
-redrawn up to five times if the directory exists. The envelope's `run_id` is
+drawn again if the directory exists, for up to five ids in all. The envelope's `run_id` is
 the id, and its artifacts list `{kind: "run_dir", path}`.
 
 `<dir>/.agent-fox/.gitignore` contains `*`, so Git ignores everything under

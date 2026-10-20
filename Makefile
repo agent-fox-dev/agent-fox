@@ -7,8 +7,8 @@ BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 # The identity of the af binary, set with -ldflags -X on cmd/af's variables.
 LDFLAGS    := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildTime=$(BUILD_TIME)
 
-# Where make build writes af. A test that builds the binary sets it, so that
-# tests running side by side do not write the same file.
+# Where make build writes af. The tests that build the binary set it, so that
+# they do not replace bin/af or write the same file side by side.
 BIN_DIR    ?= bin
 
 CONTAINER_REGISTRY ?= quay.io/agentfox

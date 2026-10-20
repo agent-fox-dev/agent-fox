@@ -158,9 +158,10 @@ submission that later specs keep in the run directory join these files.
 From weakest to strongest. The first must work on its own, because it is
 the one every host has.
 
-**Shell.** Every `af` command reads JSON on stdin where it takes input,
-writes one envelope on stdout, and uses the exit-code table of
-[`docs/cli.md`](cli.md). Any brain with a shell tool can drive it.
+**Shell.** Every `af` command takes its input as one positional argument (an
+issue URL, a file, text, or `-` for stdin), writes one envelope on stdout, and
+uses the exit-code table of [`docs/cli.md`](cli.md). Any brain with a shell
+tool can drive it.
 
 **MCP.** `af serve` exposes the same commands as typed tools over stdio, on
 the official MCP Go SDK. Claude Code attaches it with one `claude mcp add`
@@ -482,7 +483,7 @@ involved beyond landing the branch.
 | prompts as Go strings | the briefs, as templated documents rendered by `af task brief` and `af review brief` |
 | `issuetriage` | unchanged for now; it is single-phase and the cost of the current shape is small. *To be decided.* |
 | the `af-impl` skill | shrinks to the attended loop over `af` commands |
-| `cmd/impl`, `cmd/fix` | thin entry points that become `af impl`, `af fix`; the envelope, flags and exit codes stay as documented |
+| `cmd/impl`, `cmd/fix` | thin entry points that become `af impl`, `af fix`; the envelope, flags and exit codes are those of `docs/cli.md`, whose envelope is a new shape (`docs/errata/05_old_envelope_fields.md`) |
 | `containers/tools` | `Spec.Image` for a brain with its own hands: the overlay line, Codex and OpenCode added |
 
 ## Open decisions

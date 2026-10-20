@@ -379,3 +379,32 @@ func TestNeedsHumanOptionsAreLettered_TS_05_29(t *testing.T) {
 		t.Errorf("options without choices = %v, want []", at(decode(t, stdout), "needs_human", "options"))
 	}
 }
+
+// TestOutcomeAfterTheDeadlineIsATimeout guards TS-05-27: a command that
+// ignores its deadline and returns an outcome after it has run out is
+// reported as timed out, not as done. A command that is cancelled by a
+// signal and still returns an outcome has finished its job, and keeps it.
+func TestOutcomeAfterTheDeadlineIsATimeout(t *testing.T) {
+	app := newTestApp()
+	app.Register(Command{Path: "X", Timeout: true, Run: func(r *Run) (Outcome, error) {
+		time.Sleep(150 * time.Millisecond)
+		return Outcome{Status: StatusDone, Summary: "late"}, nil
+	}})
+	app.Register(Command{Path: "quick", Timeout: true, Run: func(r *Run) (Outcome, error) {
+		return Outcome{Status: StatusDone, Summary: "in time"}, nil
+	}})
+
+	res := invokeWithin(t, 5*time.Second, app, "X", "--timeout", "30ms")
+	env := decode(t, res.stdout)
+	if res.code != 1 || at(env, "error", "category") != CategoryTimeout {
+		t.Errorf("a late outcome: exit code %d, category %v; want 1, timeout", res.code, at(env, "error", "category"))
+	}
+	if got := at(env, "error", "fix_hint", "suggest"); got != "60ms" {
+		t.Errorf("fix_hint.suggest = %v, want 60ms", got)
+	}
+
+	res = invokeWithin(t, 5*time.Second, app, "quick", "--timeout", "30s")
+	if env := decode(t, res.stdout); res.code != 0 || env["status"] != "done" {
+		t.Errorf("an outcome in time: exit code %d, status %v; want 0, done", res.code, env["status"])
+	}
+}

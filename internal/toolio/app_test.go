@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
@@ -299,5 +300,27 @@ func TestCategoryConstants_TS_05_22(t *testing.T) {
 	_, stdout, _ = invoke(t, app, "nosuch")
 	if c := at(decode(t, stdout), "error", "category"); c != CategoryUsage {
 		t.Errorf("unknown command category = %v, want %s", c, CategoryUsage)
+	}
+}
+
+// TestArtifactPathsAreAbsolute guards the envelope's rule that artifact paths
+// are absolute: a relative path a command records is made absolute.
+func TestArtifactPathsAreAbsolute(t *testing.T) {
+	app := newTestApp()
+	app.Register(Command{Path: "X", Run: func(r *Run) (Outcome, error) {
+		r.Artifact(Artifact{Kind: "file", Path: filepath.Join("out", "result.txt")})
+		r.Artifact(Artifact{Kind: "issue", URL: "https://example.com/o/r/issues/1", Number: 1})
+		return Outcome{Status: StatusDone}, nil
+	}})
+
+	_, stdout, _ := invoke(t, app, "X")
+	artifacts, _ := decode(t, stdout)["artifacts"].([]any)
+
+	want, _ := filepath.Abs(filepath.Join("out", "result.txt"))
+	if len(artifacts) != 2 || artifacts[0].(map[string]any)["path"] != want {
+		t.Errorf("artifacts = %v, want the first with the path %s", artifacts, want)
+	}
+	if _, has := artifacts[1].(map[string]any)["path"]; has {
+		t.Errorf("an artifact without a path got one: %v", artifacts[1])
 	}
 }

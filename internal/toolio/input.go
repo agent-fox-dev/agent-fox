@@ -202,7 +202,7 @@ func tokenVariable(ref issuex.IssueRef) string {
 	forge, err := issuex.DetectForge(issuex.Options{Repo: ref.Repo})
 	if err != nil {
 		forge = issuex.ForgeTypeUnknown
-		if strings.Contains(strings.ToLower(ref.Repo.Host), "gitlab") {
+		if forgeName(ref.Repo.Host) == "GitLab" {
 			forge = issuex.ForgeTypeGitLab
 		}
 	}

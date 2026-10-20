@@ -12,6 +12,9 @@ const (
 	// WarnEventsUnwritable: an event could not be written to the run
 	// directory or to the file named by --emit-events. It is raised once.
 	WarnEventsUnwritable = "events_unwritable"
+	// WarnInvalidCode: a command raised a warning whose code does not match
+	// the pattern of a code. The message begins with that code.
+	WarnInvalidCode = "invalid_warning_code"
 )
 
 // WarningCodes lists the warning codes the shell itself raises. Later specs
@@ -22,6 +25,7 @@ var WarningCodes = []string{
 	WarnEnvelopeUnwritable,
 	WarnOutputUnwritable,
 	WarnEventsUnwritable,
+	WarnInvalidCode,
 }
 
 // warningCodeFormat is what every warning code looks like.

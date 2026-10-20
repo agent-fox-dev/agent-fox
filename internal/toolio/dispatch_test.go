@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -151,6 +153,8 @@ func TestBadFlagOrExtraPositional_TS_05_4(t *testing.T) {
 		{"extra positional", []string{"X", "a", "b"}, `"b"`},
 		{"flag without a value", []string{"X", "a", "--dir"}, "--dir"},
 		{"extra positional for a command without any", []string{"N", "a"}, `"a"`},
+		// The one kind of error the flag package finds and words itself.
+		{"a value the flag package rejects", []string{"T", "--timeout", "abc"}, "timeout"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -158,8 +162,13 @@ func TestBadFlagOrExtraPositional_TS_05_4(t *testing.T) {
 			app := newTestApp()
 			app.Register(r.command("X", withDir))
 			app.Register(r.command("N", func(c *Command) { c.MaxArgs = NoArgs }))
+			app.Register(r.command("T", func(c *Command) { c.Timeout = true }))
 
-			code, stdout, stderr := invoke(t, app, tc.args...)
+			var code int
+			var stdout, stderr string
+			// The flag package prints to the process's stderr unless it is told
+			// not to, which no buffer handed to Main can show.
+			processStderr := captureProcessStderr(t, func() { code, stdout, stderr = invoke(t, app, tc.args...) })
 			env := decode(t, stdout)
 
 			if code != 2 || env["status"] != "usage" {
@@ -168,13 +177,49 @@ func TestBadFlagOrExtraPositional_TS_05_4(t *testing.T) {
 			if msg, _ := at(env, "error", "message").(string); !strings.Contains(msg, tc.want) {
 				t.Errorf("error.message = %q, want it to name %s", msg, tc.want)
 			}
-			if stderr != "" {
-				t.Errorf("stderr = %q, want nothing", stderr)
+			if stderr != "" || processStderr != "" {
+				t.Errorf("stderr = %q and the process's stderr = %q, want nothing", stderr, processStderr)
 			}
 			if r.ran != 0 {
 				t.Error("the command ran")
 			}
 		})
+	}
+}
+
+// captureProcessStderr returns what f writes to the process's os.Stderr.
+func captureProcessStderr(t *testing.T, f func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = saved }()
+	f()
+	w.Close()
+	data, _ := io.ReadAll(r)
+	return string(data)
+}
+
+// TestHelpWordAsAFlagValue guards the rule behind TS-05-3 and TS-05-5: a
+// word that is the value of a flag is the value, even if it is "--help".
+func TestHelpWordAsAFlagValue(t *testing.T) {
+	var r recorder
+	app := newTestApp()
+	app.Register(r.command("X", withContext, withDir))
+
+	code, stdout, _ := invoke(t, app, "X", "text", "--context", "--help")
+	if code != 0 || r.ran != 1 || !reflect.DeepEqual(r.context, []string{"--help"}) || !json.Valid([]byte(stdout)) {
+		t.Errorf("--context --help: exit code %d, ran %d, context %q; want 0, 1, [--help]", code, r.ran, r.context)
+	}
+
+	// Anywhere else it is a request for help.
+	r.ran = 0
+	code, stdout, _ = invoke(t, app, "X", "--context", "answer", "--help")
+	if code != 0 || r.ran != 0 || json.Valid([]byte(stdout)) {
+		t.Errorf("--help after a flag with its value: exit code %d, ran %d; want 0, 0 and plain text", code, r.ran)
 	}
 }
 

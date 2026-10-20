@@ -86,7 +86,11 @@ func TestHTTPURLThatIsNotAnIssue_TS_05_36(t *testing.T) {
 		t.Run(arg, func(t *testing.T) {
 			var r inputRecorder
 			app := newTestApp()
-			app.Register(r.command(InputRequired))
+			// A command that uses a forge, with a real client whose forge is
+			// the counting server: a request is possible, and none is made.
+			command := r.command(InputRequired)
+			command.UsesForge = true
+			app.Register(command)
 
 			code, stdout, _ := invoke(t, app, "X", arg)
 			env := decode(t, stdout)
@@ -295,10 +299,14 @@ func TestEnvelopeInputReflectsResolvedInput_TS_05_42(t *testing.T) {
 	app.Register(r.command(InputRequired))
 	app.Register(Command{Path: "bare", Run: func(*Run) (Outcome, error) { return Outcome{Status: StatusDone}, nil }})
 
-	_, stdout, _ := invoke(t, app, "X", path)
+	t.Chdir(dir)
+	_, stdout, _ := invoke(t, app, "X", "bug.md")
 	input, _ := decode(t, stdout)["input"].(map[string]any)
-	if input["kind"] != "file" || input["origin"] != path && !strings.HasSuffix(input["origin"].(string), "bug.md") || input["truncated"] != false {
-		t.Errorf("input = %v, want kind file, an origin ending in bug.md, truncated false", input)
+	origin, _ := input["origin"].(string)
+	wantOrigin, _ := filepath.EvalSymlinks(path)
+	gotOrigin, _ := filepath.EvalSymlinks(origin)
+	if input["kind"] != "file" || !filepath.IsAbs(origin) || gotOrigin != wantOrigin || input["truncated"] != false {
+		t.Errorf("input = %v, want kind file, the absolute path of %s as origin, truncated false", input, path)
 	}
 
 	_, stdout, _ = invoke(t, app, "bare")

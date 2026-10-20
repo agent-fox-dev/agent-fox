@@ -6,6 +6,7 @@
 package toolio
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -146,6 +148,11 @@ type Run struct {
 // Warn records a warning. The code matches ^[a-z][a-z0-9_]*$. A warning
 // already recorded, with the same code and message, is recorded once.
 func (r *Run) Warn(code, message string) {
+	if !warningCodeFormat.MatchString(code) {
+		// A warning never fails a run; a code that is not one is reported as
+		// such, with the code it was given.
+		code, message = WarnInvalidCode, fmt.Sprintf("%q: %s", code, message)
+	}
 	w := Warning{Code: code, Message: message}
 	r.mu.Lock()
 	recorded := slices.Contains(r.warnings, w)
@@ -168,6 +175,11 @@ func (r *Run) Emit(typ string, data any) {
 
 // Artifact records something the run produced.
 func (r *Run) Artifact(a Artifact) {
+	if a.Path != "" && !filepath.IsAbs(a.Path) {
+		if abs, err := filepath.Abs(a.Path); err == nil {
+			a.Path = abs
+		}
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.artifacts = append(r.artifacts, a)
@@ -247,102 +259,31 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 
 	cmd, rest := a.match(words)
 	if cmd == nil {
-		inv := a.newInvocation(stdout, a.name(), started)
+		inv := a.newInvocation(stdout, stderr, a.name(), started)
 		inv.env.fail(&Failure{Category: CategoryUsage, Message: a.unknownCommand(words)})
 		return inv.finish()
 	}
 
-	inv := a.newInvocation(stdout, cmd.Path, started)
-	env := inv.env
+	inv := a.newInvocation(stdout, stderr, cmd.Path, started)
 	values, positional, failure := parse(cmd, rest)
+	inv.setup(cmd, words, values, positional)
+	if failure == nil {
+		failure = checkValues(cmd, values)
+	}
 	if failure != nil {
-		env.fail(failure)
-		return inv.finish()
-	}
-	inv.values = values
-
-	if cmd.UsesRunDir {
-		if failure := checkDir(values.dir); failure != nil {
-			env.fail(failure)
-			return inv.finish()
-		}
-	}
-	if values.timeout < 0 {
-		env.fail(&Failure{Category: CategoryUsage, Message: fmt.Sprintf("--timeout %s is negative; use 0 for no limit", values.timeout)})
+		inv.env.fail(failure)
 		return inv.finish()
 	}
 
 	sigCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-
-	run := &Run{
-		Tool:    cmd.Path,
-		Argv:    append([]string{a.name()}, words...),
-		Args:    positional,
-		Input:   Input{Kind: KindNone},
-		Dir:     values.dir,
-		Context: slices.Clone(values.context),
-		Stderr:  stderr,
-	}
-	inv.run = run
-	if values.emitEvents != "" || cmd.UsesRunDir {
-		inv.events = newEventStream(a.now, run.Warn)
-		run.events = inv.events
-		if values.emitEvents != "" {
-			inv.events.addFile(values.emitEvents)
-		}
+	if err := inv.prepare(sigCtx, stdin); err != nil {
+		inv.env.fail(failureOf(err, stderr))
+		return inv.finish()
 	}
 
-	if cmd.UsesForge {
-		client, target, err := a.forgeFor(cmd, values, positional)
-		if err != nil {
-			env.fail(failureOf(err, stderr))
-			return inv.finish()
-		}
-		run.Forge, run.Target = client, target
-		if values.dryRun {
-			run.DryRun = true
-			run.Forge = DryRunForge(client, run.SideEffect)
-		}
-		// A client that fails to close its idle connections has nothing
-		// more to tell.
-		inv.closeForge = func() { _ = client.Close() }
-	}
-
-	if cmd.Input != InputNone {
-		in, err := resolveInput(sigCtx, cmd.Input, positional, stdin, run.Forge)
-		if err != nil {
-			env.fail(failureOf(err, stderr))
-			return inv.finish()
-		}
-		run.Input = in
-		env.Input = InputInfo{Kind: in.Kind, Origin: in.Origin, Truncated: in.Truncated}
-		for _, w := range in.warnings() {
-			run.Warn(w.Code, w.Message)
-		}
-	}
-
-	if cmd.UsesRunDir {
-		rd, err := NewRunDir(values.dir, a.now, a.Rand)
-		if err != nil {
-			env.fail(failureOf(err, stderr))
-			return inv.finish()
-		}
-		run.RunDir = rd
-		env.RunID = &rd.ID
-		run.Artifact(Artifact{Kind: "run_dir", Path: rd.Path})
-		inv.events.setRunID(rd.ID)
-		inv.events.addFile(rd.file("events.jsonl"))
-	}
-	inv.beginEvents()
-
-	out, err := a.execute(sigCtx, cmd, run, values.timeout)
-	a.settle(env, run, out, err, stderr)
-	if run.RunDir != nil {
-		if path := run.RunDir.reportPath(); path != "" {
-			run.Artifact(Artifact{Kind: "report", Path: path})
-		}
-	}
+	out, err := a.execute(sigCtx, cmd, inv.run, values.timeout)
+	a.settle(inv.env, inv.run, out, err, stderr)
 	return inv.finish()
 }
 
@@ -351,17 +292,89 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 type invocation struct {
 	app     *App
 	stdout  io.Writer
+	stderr  io.Writer
 	started time.Time
 	env     *Envelope
 
-	values     *flagValues // nil until the flags are parsed
-	run        *Run        // nil until the flags are parsed
+	cmd        *Command    // nil if the words named no command
+	values     *flagValues // nil if the words named no command
+	run        *Run        // nil if the words named no command
 	events     *eventStream
 	closeForge func()
 }
 
-func (a *App) newInvocation(stdout io.Writer, tool string, started time.Time) *invocation {
-	return &invocation{app: a, stdout: stdout, started: started, env: a.newEnvelope(tool)}
+func (a *App) newInvocation(stdout, stderr io.Writer, tool string, started time.Time) *invocation {
+	return &invocation{app: a, stdout: stdout, stderr: stderr, started: started, env: a.newEnvelope(tool)}
+}
+
+// setup makes the Run of the command from what was parsed, and the event
+// stream if there is a file for it, so that an invocation that is refused
+// before its command can run is reported to them too.
+func (inv *invocation) setup(cmd *Command, words []string, values *flagValues, positional []string) {
+	inv.cmd, inv.values = cmd, values
+	inv.run = &Run{
+		Tool:    cmd.Path,
+		Argv:    append([]string{inv.app.name()}, words...),
+		Args:    positional,
+		Input:   Input{Kind: KindNone},
+		DryRun:  values.dryRun,
+		Dir:     values.dir,
+		Context: slices.Clone(values.context),
+		Stderr:  inv.stderr,
+	}
+	if values.emitEvents != "" || cmd.UsesRunDir {
+		inv.events = newEventStream(inv.app.now, inv.run.Warn)
+		inv.run.events = inv.events
+		if values.emitEvents != "" {
+			inv.events.addFile(values.emitEvents)
+		}
+	}
+}
+
+// prepare gives the command what it declared it uses, in this order: a forge
+// client (the decorator that refuses writes under --dry-run), the resolved
+// input, and a run directory; then it starts the events.
+func (inv *invocation) prepare(ctx context.Context, stdin io.Reader) error {
+	cmd, run, values := inv.cmd, inv.run, inv.values
+	if cmd.UsesForge {
+		client, target, err := inv.app.forgeFor(cmd, values, run.Args)
+		if err != nil {
+			return err
+		}
+		run.Forge, run.Target = client, target
+		if values.dryRun {
+			run.Forge = DryRunForge(client, run.SideEffect)
+		}
+		// A client that fails to close its idle connections has nothing
+		// more to tell.
+		inv.closeForge = func() { _ = client.Close() }
+	}
+
+	if cmd.Input != InputNone {
+		in, err := resolveInput(ctx, cmd.Input, run.Args, stdin, run.Forge)
+		if err != nil {
+			return err
+		}
+		run.Input = in
+		inv.env.Input = InputInfo{Kind: in.Kind, Origin: in.Origin, Truncated: in.Truncated}
+		for _, w := range in.warnings() {
+			run.Warn(w.Code, w.Message)
+		}
+	}
+
+	if cmd.UsesRunDir {
+		rd, err := NewRunDir(values.dir, inv.app.now, inv.app.Rand)
+		if err != nil {
+			return err
+		}
+		run.RunDir = rd
+		inv.env.RunID = &rd.ID
+		run.Artifact(Artifact{Kind: "run_dir", Path: rd.Path})
+		inv.events.setRunID(rd.ID)
+		inv.events.addFile(rd.file("events.jsonl"))
+	}
+	inv.beginEvents()
+	return nil
 }
 
 // beginEvents starts the event stream, if there is one to write to, with
@@ -373,15 +386,18 @@ func (inv *invocation) beginEvents() {
 	inv.events.begin(inv.run.Tool, inv.run.Argv, inv.run.Input.Kind, inv.run.warningList())
 }
 
-// finish ends the invocation: it closes the forge client, stamps the
-// envelope with its times and exit code, ends the events, and writes the
-// envelope to the run directory, to --output and to stdout, in that order.
-// It returns the exit code.
+// finish ends the invocation: it closes the forge client, makes the envelope
+// what it is to be, and publishes it. It returns the exit code.
 func (inv *invocation) finish() int {
 	if inv.closeForge != nil {
 		inv.closeForge()
 	}
 	env := inv.env
+	if inv.run != nil && inv.run.RunDir != nil {
+		if path := inv.run.RunDir.reportPath(); path != "" {
+			inv.run.Artifact(Artifact{Kind: "report", Path: path})
+		}
+	}
 	inv.collect()
 	env.ensureEncodable()
 
@@ -394,13 +410,7 @@ func (inv *invocation) finish() int {
 	if env.Summary == "" && env.Error != nil {
 		env.Summary = defaultSummary(env.Error.Category)
 	}
-
-	if inv.events != nil && inv.events.active() {
-		inv.beginEvents()
-		inv.events.end(env)
-		inv.collect() // the events may have raised a warning
-	}
-	return inv.print()
+	return inv.publish()
 }
 
 // collect copies what the run recorded into the envelope.
@@ -410,37 +420,49 @@ func (inv *invocation) collect() {
 	}
 }
 
-// print writes the envelope to <run_dir>/envelope.json, to the file named by
-// --output, and to stdout. A copy that cannot be written is a warning of the
-// envelope, which stdout then carries, and the status stays what it was.
-func (inv *invocation) print() int {
-	env := inv.env
-	data, _ := env.marshal() // ensureEncodable made sure it can be
+// encode renders the envelope as it is now.
+func (inv *invocation) encode() []byte {
+	data, _ := inv.env.marshal() // ensureEncodable made sure it can be
+	return data
+}
 
-	type target struct{ path, code string }
-	var targets []target
+// publish writes the envelope to <run_dir>/envelope.json, to the file named
+// by --output, and to stdout, and ends the events, in this order: the
+// copies, so that one that cannot be written is a warning and a warning event
+// like any other; run_end; stdout. A copy that was written before the
+// envelope last changed (the events can raise a warning of their own) is
+// written again, so that every copy is the envelope stdout gets.
+func (inv *invocation) publish() int {
+	env := inv.env
+	inv.beginEvents()
+
+	type copyTo struct{ path, code string }
+	var copies []copyTo
 	if inv.run != nil && inv.run.RunDir != nil {
-		targets = append(targets, target{inv.run.RunDir.file("envelope.json"), WarnEnvelopeUnwritable})
+		copies = append(copies, copyTo{inv.run.RunDir.file("envelope.json"), WarnEnvelopeUnwritable})
 	}
 	if inv.values != nil && inv.values.output != "" {
-		targets = append(targets, target{inv.values.output, WarnOutputUnwritable})
+		copies = append(copies, copyTo{inv.values.output, WarnOutputUnwritable})
 	}
+	data := inv.encode()
 	var written []string
-	for _, t := range targets {
-		if err := os.WriteFile(t.path, data, 0o644); err != nil {
-			w := Warning{Code: t.code, Message: fmt.Sprintf("cannot write the envelope to %s: %v", t.path, err)}
-			if !slices.Contains(env.Warnings, w) {
-				env.Warnings = append(env.Warnings, w)
-			}
+	for _, c := range copies {
+		if err := os.WriteFile(c.path, data, 0o644); err != nil {
+			inv.run.Warn(c.code, fmt.Sprintf("cannot write the envelope to %s: %v", c.path, err))
 			continue
 		}
-		written = append(written, t.path)
+		written = append(written, c.path)
 	}
-	if len(written) < len(targets) {
-		// The warning is in the envelope now; the copies that were written
-		// are written again so that every copy is the one stdout gets.
-		data, _ = env.marshal()
+	inv.collect()
+
+	if inv.events != nil {
+		inv.events.end(env)
+		inv.collect() // the events may have raised a warning
+	}
+	if final := inv.encode(); !bytes.Equal(final, data) {
+		data = final
 		for _, path := range written {
+			// A copy that cannot be written again stays as it was written.
 			_ = os.WriteFile(path, data, 0o644)
 		}
 	}
@@ -496,20 +518,7 @@ func (a *App) unknownCommand(words []string) string {
 // wherever on the command line it stands, and reports that it did. None of
 // them reads input, builds a forge client or creates anything.
 func (a *App) answer(words []string, started time.Time, stdout io.Writer) (code int, answered bool) {
-	var wantHelp, wantVersion, wantSchema bool
-	for _, w := range words {
-		if w == "--" {
-			break
-		}
-		switch w {
-		case "-h", "-help", "--help":
-			wantHelp = true
-		case "-version", "--version":
-			wantVersion = true
-		case "-schema", "--schema":
-			wantSchema = true
-		}
-	}
+	wantHelp, wantVersion, wantSchema := a.requests(words)
 
 	switch {
 	case len(words) > 0 && words[0] == "help":
@@ -517,7 +526,7 @@ func (a *App) answer(words []string, started time.Time, stdout io.Writer) (code 
 		// one reply to a help request that is not plain text.
 		cmd, _ := a.match(words[1:])
 		if cmd == nil && len(leadingWords(words[1:])) > 0 {
-			inv := a.newInvocation(stdout, a.name(), started)
+			inv := a.newInvocation(stdout, io.Discard, a.name(), started)
 			inv.env.fail(&Failure{Category: CategoryUsage, Message: a.unknownCommand(words[1:])})
 			return inv.finish(), true
 		}
@@ -536,7 +545,7 @@ func (a *App) answer(words []string, started time.Time, stdout io.Writer) (code 
 		}
 		data, err := a.schema(cmd)
 		if err != nil {
-			inv := a.newInvocation(stdout, a.name(), started)
+			inv := a.newInvocation(stdout, io.Discard, a.name(), started)
 			inv.env.fail(&Failure{Category: CategoryInternal, Message: err.Error()})
 			return inv.finish(), true
 		}
@@ -544,6 +553,35 @@ func (a *App) answer(words []string, started time.Time, stdout io.Writer) (code 
 		return 0, true
 	}
 	return 0, false
+}
+
+// requests reports which of help, the version and the schema the words ask
+// for. They are asked for wherever they stand before a "--", except where
+// they are the value of a flag that takes one: in "--context --help" the
+// answer is "--help".
+func (a *App) requests(words []string) (help, version, schema bool) {
+	var fs *flag.FlagSet
+	scan := words
+	if cmd, rest := a.match(words); cmd != nil {
+		fs, scan = flagSet(cmd, &flagValues{}), rest
+	}
+	for i := 0; i < len(scan); i++ {
+		switch w := scan[i]; w {
+		case "--":
+			return
+		case "-h", "-help", "--help":
+			help = true
+		case "-version", "--version":
+			version = true
+		case "-schema", "--schema":
+			schema = true
+		default:
+			if fs != nil && takesValue(fs, w) {
+				i++
+			}
+		}
+	}
+	return
 }
 
 // printHelp prints the help of cmd, or of the program when cmd is nil.

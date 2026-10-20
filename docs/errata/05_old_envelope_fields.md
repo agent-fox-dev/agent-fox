@@ -1,4 +1,4 @@
-# Erratum 05: the old envelope's fields this scope does not carry
+# Erratum 05: the old envelope, its version and the fields this scope does not carry
 
 **Spec:** `05_af_cli_envelope`, Design Decision 2 ("Define the envelope here
 rather than 'revive as it was'").
@@ -12,7 +12,7 @@ erratum lists what it had that the delivered envelope does not.
 ## Top-level fields
 
 The old `Envelope` (`1e6458d:internal/toolio/envelope.go:327`) had these
-fields the delivered `Envelope` (`internal/toolio/envelope.go:70`) does not:
+fields the delivered `Envelope` (`internal/toolio/envelope.go:71`) does not:
 
 | Old field | Where the information is now |
 |---|---|
@@ -37,6 +37,39 @@ left them out when empty.
 | `artifacts[]` | one shape per kind (`branch`, `commit`, `pull_request`, `comment`, `issue`, `report_file`, `events_file`) | `{kind, path?, url?, name?, number?}`, `kind` an open string |
 | `next[]` | `{tool, input, flags, why}` | `{argv, reason}` |
 | `needs_human.resume` | a placeholder command (`<same input>`, `"<answer>"`) | `{argv, flag}` with the real argv |
+
+Inside the objects they share, the old shapes also had fields the delivered
+ones do not:
+
+| Object | Fields of the old shape that are gone |
+|---|---|
+| `error` | `stage`, `resumable` |
+| `fix_hint` | `valid`, `current`; `env` was a list of variable names and is one name; `suggest` was a number and is text |
+| `needs_human` | `needed`, `stage`; `options[].text` is now `options[].label`; `resume` was a command line with placeholders and is `{argv, flag}` |
+| `warnings[]` | `severity`, `stage` |
+| `input` | `bytes`, `comments_truncated`, `context_bytes` |
+| `usage` | `cache_read_tokens`, `cache_creation_tokens`, `phases` |
+
+## The schema version is the old one
+
+Design Decision 3 sets `schema_version` to `"4.0.0"` as "the next major
+version after the old one", on the ground that "the only recorded old value is
+the hub tasks draft's `"3.0.0"`". The old code records another:
+`1e6458d:internal/toolio/envelope.go:319` is `const SchemaVersion = "4.0.0"`,
+and `1e6458d:docs/cli.md` calls 4.0.0 "the current version". The same
+document makes removing or renaming a field, changing its type, or narrowing
+a closed enum a breaking change that bumps the major version, and the tables
+above are such changes.
+
+The delivered envelope therefore says `"4.0.0"`, as the criteria, the schema
+and the tests of the spec require, and is not compatible with the 4.0.0 that
+the old tools printed: a consumer that keys on `schema_version` cannot tell
+the two apart. Nothing was changed on this account. If the two must be told
+apart, `toolio.SchemaVersion`, the `const` in
+`internal/toolio/schema/envelope.schema.json` and the two golden files change
+together (`TestSchemaMatchesEnvelope_TS_05_71` and the golden tests fail until
+they do), and so do the spec's criteria and tests, which this scope does not
+edit.
 
 ## Consequence
 

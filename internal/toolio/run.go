@@ -30,8 +30,9 @@ type commandResult struct {
 // stop, by the signal or by the deadline, has the grace period to return;
 // after that the shell stops waiting for it and answers for it, so that the
 // process always ends with an envelope. A command that returns an error
-// after being told to stop is reported as cancelled or timed out, whatever
-// the error was.
+// after a signal is reported as cancelled, whatever the error was; one that
+// returns an outcome has finished its job. A command that returns after its
+// deadline ran out is reported as timed out, whatever it returned.
 func (a *App) execute(sigCtx context.Context, cmd *Command, run *Run, timeout time.Duration) (Outcome, error) {
 	ctx := sigCtx
 	if timeout > 0 {
@@ -60,14 +61,11 @@ func (a *App) execute(sigCtx context.Context, cmd *Command, run *Run, timeout ti
 		}
 	}
 
-	if res.err == nil {
-		return res.out, nil
-	}
 	var panicked *panicError
 	if errors.As(res.err, &panicked) {
 		return res.out, res.err
 	}
-	if f := stopped(sigCtx, ctx, timeout, a.grace(), false); f != nil {
+	if f := stopped(sigCtx, ctx, timeout, a.grace(), false); f != nil && (res.err != nil || f.Category == CategoryTimeout) {
 		return Outcome{}, f
 	}
 	return res.out, res.err

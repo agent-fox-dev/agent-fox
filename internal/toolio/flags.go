@@ -78,43 +78,62 @@ func (c *Command) maxArgs() int {
 }
 
 // parse parses the words after the command path into cmd's flags and
-// positional arguments. A failure is a usage failure.
+// positional arguments. A failure is a usage failure. The values are returned
+// whatever happens, with the flags that were understood set, so that
+// --output and --emit-events are honoured for an invocation that is refused.
 func parse(cmd *Command, words []string) (*flagValues, []string, *Failure) {
 	v := &flagValues{}
 	fs := flagSet(cmd, v)
 	args, err := parseInterspersed(fs, words)
 	if err != nil {
-		return nil, nil, &Failure{Category: CategoryUsage, Message: err.Error()}
+		return v, nil, &Failure{Category: CategoryUsage, Message: err.Error()}
 	}
 	if max := cmd.maxArgs(); len(args) > max {
 		msg := fmt.Sprintf("unexpected argument %q", args[max])
 		if max == 0 {
 			msg += ": the command takes no argument"
 		}
-		return nil, nil, &Failure{Category: CategoryUsage, Message: msg}
+		return v, nil, &Failure{Category: CategoryUsage, Message: msg}
 	}
 	for _, c := range v.context {
 		if c == "" {
-			return nil, nil, &Failure{Category: CategoryUsage, Message: "a --context value is empty; give the answer after the flag"}
+			return v, nil, &Failure{Category: CategoryUsage, Message: "a --context value is empty; give the answer after the flag"}
 		}
 	}
 	if cmd.hasDir() {
 		abs, err := filepath.Abs(v.dir)
 		if err != nil {
-			return nil, nil, &Failure{Category: CategoryUsage, Message: fmt.Sprintf("--dir %q: %v", v.dir, err)}
+			return v, nil, &Failure{Category: CategoryUsage, Message: fmt.Sprintf("--dir %q: %v", v.dir, err)}
 		}
 		v.dir = abs
 	}
 	return v, args, nil
 }
 
+// checkValues refuses the values of the flags that cannot be used: a --dir
+// that is no directory for a command with a run directory, and a negative
+// --timeout.
+func checkValues(cmd *Command, v *flagValues) *Failure {
+	if cmd.UsesRunDir {
+		if failure := checkDir(v.dir); failure != nil {
+			return failure
+		}
+	}
+	if v.timeout < 0 {
+		return &Failure{Category: CategoryUsage, Message: fmt.Sprintf("--timeout %s is negative; use 0 for no limit", v.timeout)}
+	}
+	return nil
+}
+
 // parseInterspersed parses words into fs the way the flag package would if
 // it did not stop at the first positional argument: flags may come before or
 // after the positional arguments, a flag that takes a value takes the next
 // word whatever it looks like, and "--" ends the flags. It returns the
-// positional arguments.
+// positional arguments. The flags that are understood are set even when
+// another is not; the error is the first one found.
 func parseInterspersed(fs *flag.FlagSet, words []string) ([]string, error) {
 	var flagWords, positional []string
+	var first error
 	for i := 0; i < len(words); i++ {
 		w := words[i]
 		if w == "--" {
@@ -128,22 +147,40 @@ func parseInterspersed(fs *flag.FlagSet, words []string) ([]string, error) {
 		}
 		f := fs.Lookup(name)
 		if f == nil {
-			return nil, fmt.Errorf("unknown flag --%s", name)
+			if first == nil {
+				first = fmt.Errorf("unknown flag --%s", name)
+			}
+			continue
 		}
 		flagWords = append(flagWords, w)
 		if hasValue || isBoolFlag(f) {
 			continue
 		}
 		if i+1 >= len(words) {
-			return nil, fmt.Errorf("flag --%s needs a value", name)
+			if first == nil {
+				first = fmt.Errorf("flag --%s needs a value", name)
+			}
+			flagWords = flagWords[:len(flagWords)-1]
+			continue
 		}
 		i++
 		flagWords = append(flagWords, words[i])
 	}
-	if err := fs.Parse(flagWords); err != nil {
-		return nil, err
+	if err := fs.Parse(flagWords); err != nil && first == nil {
+		first = err
 	}
-	return positional, nil
+	return positional, first
+}
+
+// takesValue reports whether w is a flag of fs that takes the word after it
+// as its value.
+func takesValue(fs *flag.FlagSet, w string) bool {
+	name, hasValue, isFlag := splitFlag(w)
+	if !isFlag || hasValue {
+		return false
+	}
+	f := fs.Lookup(name)
+	return f != nil && !isBoolFlag(f)
 }
 
 // splitFlag reads w as a flag: its name, and whether it carries its value

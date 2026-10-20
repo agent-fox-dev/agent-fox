@@ -54,6 +54,8 @@ func readRepoFile(t *testing.T, path string) string {
 
 // TestMakeBuildWritesBinary_TS_05_7 verifies TS-05-7:
 // make build writes bin/af with the Makefile's version and cmd/af compiles.
+// The binary is built into a directory of the test's own (BIN_DIR), and the
+// default location is read from the commands make would run.
 // Verifies: 05-REQ-1.7
 func TestMakeBuildWritesBinary_TS_05_7(t *testing.T) {
 	if _, err := exec.LookPath("make"); err != nil {
@@ -65,14 +67,26 @@ func TestMakeBuildWritesBinary_TS_05_7(t *testing.T) {
 		t.Fatalf("go build ./cmd/af: %v\n%s", err, out)
 	}
 
-	make := exec.Command("make", "build", "VERSION=9.9.9-test")
+	// The default of make build is bin/af; it is not run for it, so that a
+	// test does not replace the binary a developer built there.
+	plan := exec.Command("make", "-n", "build", "VERSION=9.9.9-test")
+	plan.Dir = repoRoot
+	planned, err := plan.CombinedOutput()
+	if err != nil || !strings.Contains(string(planned), "-o bin/af ./cmd/af") ||
+		!strings.Contains(string(planned), "-X main.version=9.9.9-test") ||
+		!strings.Contains(string(planned), "-X main.commit=") || !strings.Contains(string(planned), "-X main.buildTime=") {
+		t.Fatalf("make -n build: %v\n%s", err, planned)
+	}
+
+	bin := t.TempDir()
+	make := exec.Command("make", "build", "VERSION=9.9.9-test", "BIN_DIR="+bin)
 	make.Dir = repoRoot
 	if out, err := make.CombinedOutput(); err != nil {
 		t.Fatalf("make build: %v\n%s", err, out)
 	}
-	out, err := exec.Command(filepath.Join(repoRoot, "bin", "af"), "--version").Output()
+	out, err := exec.Command(filepath.Join(bin, "af"), "--version").Output()
 	if err != nil {
-		t.Fatalf("bin/af --version: %v", err)
+		t.Fatalf("af --version: %v", err)
 	}
 	var version struct {
 		Name      string `json:"name"`
@@ -81,10 +95,10 @@ func TestMakeBuildWritesBinary_TS_05_7(t *testing.T) {
 		BuildTime string `json:"build_time"`
 	}
 	if err := json.Unmarshal(out, &version); err != nil {
-		t.Fatalf("bin/af --version is not JSON: %v\n%s", err, out)
+		t.Fatalf("af --version is not JSON: %v\n%s", err, out)
 	}
 	if version.Name != "af" || version.Version != "9.9.9-test" || version.Commit == "" || version.BuildTime == "" {
-		t.Errorf("bin/af --version = %+v, want af, 9.9.9-test, and the Makefile's commit and build time", version)
+		t.Errorf("af --version = %+v, want af, 9.9.9-test, and the Makefile's commit and build time", version)
 	}
 
 	// cmd/af is wiring: one file, which hands the process to App.Main.

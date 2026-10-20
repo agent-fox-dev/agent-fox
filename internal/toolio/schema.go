@@ -90,13 +90,15 @@ func (o object) MarshalJSON() ([]byte, error) {
 
 // rawJSON encodes v compactly, without escaping <, > and &.
 func rawJSON(v any) (json.RawMessage, error) {
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
+	indented, err := encodeIndented(v)
+	if err != nil {
 		return nil, err
 	}
-	return bytes.TrimSpace(b.Bytes()), nil
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, indented); err != nil {
+		return nil, err
+	}
+	return compact.Bytes(), nil
 }
 
 // defName is the key of a command's result schema under $defs: its path with
