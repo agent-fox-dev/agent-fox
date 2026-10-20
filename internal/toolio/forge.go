@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/agent-fox-dev/agentfox/issuex"
+	"github.com/agent-fox-dev/aflib/issuex"
 )
 
 // newForge is the function that builds forge clients.

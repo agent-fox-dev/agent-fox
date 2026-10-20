@@ -15,7 +15,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/agent-fox-dev/agentfox/issuex"
+	"github.com/agent-fox-dev/aflib/issuex"
 )
 
 // TestSmokeDryRunReadsAnIssueAndIsRefusedEveryWrite_TS_05_75 verifies TS-05-75:

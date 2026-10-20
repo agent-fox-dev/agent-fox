@@ -1,7 +1,8 @@
 # Configuration
 
 `af` has no configuration file. What it reads from the environment, it reads
-through `issuex`, the forge client; everything else is a flag (see
+through `issuex`, the forge client of
+[aflib](https://github.com/agent-fox-dev/aflib); everything else is a flag (see
 [cli.md](cli.md)).
 
 ## Environment variables

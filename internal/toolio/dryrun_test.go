@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/agent-fox-dev/agentfox/issuex"
+	"github.com/agent-fox-dev/aflib/issuex"
 )
 
 // recordingForge is an httptest forge that answers the read endpoints of both
