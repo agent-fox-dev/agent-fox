@@ -145,14 +145,9 @@ func fromFile(dir string, in []fileCheck) ([]Check, error) {
 	return checks, nil
 }
 
-// WriteGateFile writes checks to <dir>/.agent-fox/gate.json, through a
-// temporary file in the same directory and a rename, so that a reader sees
-// the old file or the new one and never half of one.
-func WriteGateFile(dir string, checks []Check) error {
-	agent, err := agentdir.Ensure(dir)
-	if err != nil {
-		return err
-	}
+// MarshalGateFile is the content of a gate.json that holds checks: the table without
+// anything that depends on the machine.
+func MarshalGateFile(checks []Check) ([]byte, error) {
 	file := gateFile{Version: gateFileVersion, Checks: make([]fileCheck, len(checks))}
 	for i, c := range checks {
 		file.Checks[i] = fileCheck{Name: c.Name, Argv: slices.Clone(c.Argv), Kind: c.Kind, Source: c.Source}
@@ -162,10 +157,24 @@ func WriteGateFile(dir string, checks []Check) error {
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(file); err != nil {
+		return nil, err
+	}
+	return doc.Bytes(), nil
+}
+
+// WriteGateFile writes checks to <dir>/.agent-fox/gate.json, through a
+// temporary file in the same directory and a rename, so that a reader sees
+// the old file or the new one and never half of one.
+func WriteGateFile(dir string, checks []Check) error {
+	agent, err := agentdir.Ensure(dir)
+	if err != nil {
 		return err
 	}
-
-	return agentdir.WriteFileAtomic(filepath.Join(agent, gateFileName), doc.Bytes())
+	doc, err := MarshalGateFile(checks)
+	if err != nil {
+		return err
+	}
+	return agentdir.WriteFileAtomic(filepath.Join(agent, gateFileName), doc)
 }
 
 // available reports whether program can be run from dir: a name is looked up

@@ -41,6 +41,34 @@ type policyFile struct {
 	AllowPrograms  *[]string   `json:"allow_programs"`
 }
 
+// MarshalGuardFile is the content of a guard.json that holds the policy: every key is
+// written, an empty list as an empty list, which LoadPolicy takes as it is.
+func MarshalGuardFile(p Policy) ([]byte, error) {
+	file := struct {
+		Version        int        `json:"version"`
+		Suite          [][]string `json:"suite"`
+		ProtectedPaths []string   `json:"protected_paths"`
+		AllowPrograms  []string   `json:"allow_programs"`
+	}{guardFileVersion, p.Suite, p.ProtectedPaths, p.AllowPrograms}
+	if file.Suite == nil {
+		file.Suite = [][]string{}
+	}
+	if file.ProtectedPaths == nil {
+		file.ProtectedPaths = []string{}
+	}
+	if file.AllowPrograms == nil {
+		file.AllowPrograms = []string{}
+	}
+	var doc bytes.Buffer
+	enc := json.NewEncoder(&doc)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(file); err != nil {
+		return nil, err
+	}
+	return doc.Bytes(), nil
+}
+
 // LoadPolicy loads the policy for the checkout dir from the first source that
 // exists: the file policyPath, which must be there; <dir>/.agent-fox/guard.json;
 // or the defaults, with the suite that detection finds in dir. A key a file

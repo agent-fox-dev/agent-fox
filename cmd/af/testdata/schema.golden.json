@@ -539,6 +539,99 @@
         }
       }
     },
+    "fix_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "round",
+        "submission",
+        "submission_path",
+        "question",
+        "apply"
+      ],
+      "description": "One round of a brain on the brief of a fix run. The tree of an accepted report is in the working tree of the checkout, uncommitted and not measured.",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "description": "The run the round belongs to."
+        },
+        "round": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number of the round in the run, counted across every round of it."
+        },
+        "submission": {
+          "type": "string",
+          "enum": [
+            "report",
+            "question"
+          ],
+          "description": "What the brain handed over: a fix report, or a question for a person."
+        },
+        "submission_path": {
+          "type": "string",
+          "description": "The submission file of the round, as an absolute path."
+        },
+        "question": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "text",
+            "options"
+          ],
+          "description": "The question, when the brain asked one, else null.",
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "options": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "root_cause": {
+              "type": "string",
+              "description": "The analysis so far, when the brain gave it."
+            }
+          }
+        },
+        "apply": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "written",
+            "deleted",
+            "ignored"
+          ],
+          "description": "What was applied to the checkout, or null when the round asked a question and nothing was.",
+          "properties": {
+            "written": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Files written to the checkout: new, changed in content or mode, or links made again."
+            },
+            "deleted": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Files of the checkout that the box's tree no longer had."
+            },
+            "ignored": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Files of the box's tree left out: under .git/ or .agent-fox/, ignored by the checkout's git rules, or no file or link."
+            }
+          }
+        }
+      }
+    },
     "fix_submit": {
       "type": "object",
       "additionalProperties": false,

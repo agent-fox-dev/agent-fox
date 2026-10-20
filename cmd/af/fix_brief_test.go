@@ -26,16 +26,6 @@ func redFixFiles() map[string]string {
 	return files
 }
 
-// result is the result object of an envelope.
-func result(t *testing.T, env map[string]any) map[string]any {
-	t.Helper()
-	res, _ := env["result"].(map[string]any)
-	if res == nil {
-		t.Fatalf("no result in %v", env)
-	}
-	return res
-}
-
 // runDirOf is the run directory of an envelope's run.
 func runDirOf(e *fixEnv, env map[string]any) string {
 	id, _ := env["run_id"].(string)
@@ -79,7 +69,7 @@ func TestFixBriefRecordsTheBaseTheBaselineAndTheWarnings_TS_09_16(t *testing.T) 
 	if code != 0 || env["status"] != "done" {
 		t.Fatalf("exit code %d, status %v, error %v", code, env["status"], env["error"])
 	}
-	res := result(t, env)
+	res := resultOf(t, env)
 	head := strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "HEAD"))
 	if got, _ := res["base_head"].(string); !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(got) || got != head || res["base"] != "main" {
 		t.Errorf("base %v, base_head %v, want main at the full hash %s", res["base"], res["base_head"], head)
@@ -230,7 +220,7 @@ func TestFixBriefWritesTheBriefAndRunJSONAndNothingElse_TS_09_25(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res := result(t, env)
+	res := resultOf(t, env)
 	if res["brief_path"] != filepath.Join(dir, "brief.md") {
 		t.Errorf("brief_path = %v, want %s", res["brief_path"], filepath.Join(dir, "brief.md"))
 	}
@@ -385,8 +375,8 @@ func TestTheAnswerComesBackWithItsQuestionAndTheSamePrefix_TS_09_21(t *testing.T
 	if slices.Contains(warningCodes(env), "question_not_found") {
 		t.Errorf("warnings = %v: the question was found", warningCodes(env))
 	}
-	if result(t, env)["prefix_sha256"] != result(t, first)["prefix_sha256"] {
-		t.Errorf("prefix_sha256 %v, want the %v of the run it resumes", result(t, env)["prefix_sha256"], result(t, first)["prefix_sha256"])
+	if resultOf(t, env)["prefix_sha256"] != resultOf(t, first)["prefix_sha256"] {
+		t.Errorf("prefix_sha256 %v, want the %v of the run it resumes", resultOf(t, env)["prefix_sha256"], resultOf(t, first)["prefix_sha256"])
 	}
 }
 
@@ -501,7 +491,7 @@ func TestFixSubmitValidatesWithTheFixReportKindAndWritesTheNormalisedPayload_TS_
 	if s.Type != "fix" || strings.Contains(s.Change, "\r") || s.Change != "line one\nline two" || len(s.Files) != 2 || s.Files[0].Path != "Makefile" || s.Files[1].Path != "src/greet.sh" {
 		t.Errorf("payload = %s, want type fix, LF line ends and sorted files", file.Payload)
 	}
-	res := result(t, env)
+	res := resultOf(t, env)
 	if res["run_id"] != id || res["kind"] != "fix_report" {
 		t.Errorf("result = %v", res)
 	}

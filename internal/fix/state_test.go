@@ -20,7 +20,7 @@ func sampleState() State {
 		Target: StateTarget{Repo: "o/r", Host: "github.com"}, Base: "main", BaseHead: "0123456789abcdef0123456789abcdef01234567",
 		Table:          project.Table{Source: "detected", Checks: []project.Check{{Name: "make check", Argv: []string{"make", "check"}, Kind: "check", Source: "Makefile:check", Available: true}}},
 		BaselineGateID: "abc123", BaselinePassed: true, BaselineMS: 1200,
-		PrefixSHA256: "feed", Context: []string{"A", "B"}, Rounds: 0,
+		PrefixSHA256: "feed", PrefixBytes: 1234, Suite: [][]string{{"make", "check"}}, Programs: []string{"make", "sh"}, Context: []string{"A", "B"}, Rounds: 0,
 	}
 }
 
@@ -44,7 +44,7 @@ func TestFixJSONHoldsEveryFieldAndIsWrittenAtomically_TS_09_17(t *testing.T) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"run_id", "input", "issue", "target", "base", "base_head", "table", "baseline_gate_id", "no_verify", "prefix_sha256", "context", "rounds"} {
+	for _, key := range []string{"run_id", "input", "issue", "target", "base", "base_head", "table", "baseline_gate_id", "no_verify", "prefix_sha256", "prefix_bytes", "suite", "programs", "context", "rounds"} {
 		if _, ok := raw[key]; !ok {
 			t.Errorf("fix.json has no %s: %s", key, data)
 		}
@@ -140,5 +140,37 @@ func TestTheInputKeyIdentifiesTheInputAcrossRuns(t *testing.T) {
 	}
 	if InputKey("text", "", "a") == InputKey("text", "", "b") {
 		t.Error("two texts have the same key")
+	}
+}
+
+// TestSplitBriefSplitsWhereTheBriefWasRenderedAndChecksThePrefix guards what a round reads
+// of a brief: the prefix is the bytes fix.json says it is, with the hash it holds, and a
+// brief that was changed is refused.
+func TestSplitBriefSplitsWhereTheBriefWasRenderedAndChecksThePrefix(t *testing.T) {
+	const prefix, task = "# Fix mandate\n\n## Report\n\n## Task\n(in the report)\n\n", "## Task\n\nThis is run x.\n"
+	sum, emptySum := sha256.Sum256([]byte(prefix)), sha256.Sum256(nil)
+	s := State{PrefixBytes: len(prefix), PrefixSHA256: hex.EncodeToString(sum[:])}
+
+	gotPrefix, gotTask, err := SplitBrief(prefix+task, s)
+
+	if err != nil || gotPrefix != prefix || gotTask != task {
+		t.Errorf("SplitBrief = %q, %q, %v, want the prefix and the task block where fix.json says", gotPrefix, gotTask, err)
+	}
+	for name, tc := range map[string]struct {
+		document string
+		state    State
+	}{
+		"a prefix that was edited":       {"# Fix mandate!\n\n## Report\n\n## Task\n(in the report)\n\n" + task, s},
+		"a brief that is shorter":        {prefix[:10], s},
+		"no length":                      {prefix + task, State{PrefixSHA256: s.PrefixSHA256}},
+		"no length, the hash of nothing": {prefix + task, State{PrefixSHA256: hex.EncodeToString(emptySum[:])}},
+		"a hash of another":              {prefix + task, State{PrefixBytes: len(prefix), PrefixSHA256: "feed"}},
+	} {
+		if _, _, err := SplitBrief(tc.document, tc.state); err == nil {
+			t.Errorf("%s: SplitBrief took it", name)
+		}
+	}
+	if _, gotTask, err := SplitBrief(prefix, s); err != nil || gotTask != "" {
+		t.Errorf("a brief that is only its prefix: %q, %v", gotTask, err)
 	}
 }

@@ -320,3 +320,40 @@ func TestUnknownToolsAreAllowed_TS_06_57(t *testing.T) {
 		}
 	}
 }
+
+// TestMarshalGuardFileIsAPolicyLoadPolicyTakes guards the guard.json that a loop places
+// in a box: read from a file by LoadPolicy it is the policy it was made of, an empty list
+// included, which a file takes as it is.
+func TestMarshalGuardFileIsAPolicyLoadPolicyTakes(t *testing.T) {
+	want := Policy{
+		Suite:          [][]string{{"make", "check"}, {"go", "test", "./..."}},
+		ProtectedPaths: DefaultProtectedPaths(),
+		AllowPrograms:  []string{"git", "make"},
+	}
+	for name, p := range map[string]Policy{
+		"a full policy": want,
+		"empty lists":   {Suite: [][]string{{"make", "test"}}, ProtectedPaths: []string{}, AllowPrograms: []string{}},
+		"no lists":      {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			doc, err := MarshalGuardFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := t.TempDir()
+			writeFile(t, dir, ".agent-fox/guard.json", string(doc))
+
+			got, err := LoadPolicy(context.Background(), dir, "")
+
+			if err != nil {
+				t.Fatalf("LoadPolicy of %s: %v", doc, err)
+			}
+			if len(got.Suite) != len(p.Suite) || len(got.Suite) > 0 && !reflect.DeepEqual(got.Suite, p.Suite) || !slices.Equal(got.ProtectedPaths, p.ProtectedPaths) || !slices.Equal(got.AllowPrograms, p.AllowPrograms) {
+				t.Errorf("read back %+v from %s, want %+v", got, doc, p)
+			}
+			if !strings.Contains(string(doc), `"version": 1`) || strings.Contains(string(doc), "null") {
+				t.Errorf("guard.json = %s, want the version and no null", doc)
+			}
+		})
+	}
+}

@@ -571,3 +571,38 @@ func TestDetectFreshIgnoresTheGateFile(t *testing.T) {
 		})
 	}
 }
+
+// TestMarshalGateFileIsWhatWriteGateFileWrites guards that the box gets the file the
+// host writes: the bytes are the content of gate.json, and read from a file by
+// Detect they are the table they were made of, with the source file.
+func TestMarshalGateFileIsWhatWriteGateFileWrites(t *testing.T) {
+	dir, list := fixture(t, map[string]string{"go.mod": "module x\n"})
+	detected, err := Detect(dir, list)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	doc, err := MarshalGateFile(detected.Gate.Checks)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteGateFile(dir, detected.Gate.Checks); err != nil {
+		t.Fatal(err)
+	}
+	if written, _ := os.ReadFile(GatePath(dir)); string(written) != string(doc) {
+		t.Errorf("WriteGateFile wrote %s, MarshalGateFile gave %s", written, doc)
+	}
+	other := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(other, ".agent-fox"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(GatePath(other), doc, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Detect(other, nil)
+	if err != nil || again.Gate.Source != SourceFile || len(again.Gate.Checks) != len(detected.Gate.Checks) || again.Gate.Checks[0].Name != detected.Gate.Checks[0].Name ||
+		!reflect.DeepEqual(again.Gate.Checks[0].Argv, detected.Gate.Checks[0].Argv) {
+		t.Errorf("read back %+v (%v), want the checks that were marshalled", again.Gate, err)
+	}
+}

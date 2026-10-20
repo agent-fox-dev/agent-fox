@@ -148,7 +148,8 @@ func startRun(r *toolio.Run, pre fix.Preflighted, noVerify bool) (startedRun, er
 	state := fix.State{
 		RunID: r.RunDir.ID, Input: fix.StateInput{Kind: in.Kind, Origin: in.Origin, Key: fix.InputKey(in.Kind, in.Origin, in.Body)},
 		Base: pre.Base, BaseHead: pre.BaseHead, Table: pre.Detection.Gate, NoVerify: noVerify,
-		PrefixSHA256: prefix.SHA256, Context: append([]string{}, r.Context...),
+		PrefixSHA256: prefix.SHA256, PrefixBytes: len(prefix.Text), Suite: pre.Detection.Suite, Programs: pre.Detection.Programs,
+		Context: append([]string{}, r.Context...),
 	}
 	if r.Input.Kind == toolio.KindIssue && r.Input.Issue != nil && r.Input.Thread != nil {
 		state.Issue = &fix.StateIssue{URL: r.Input.Issue.URL(), Title: r.Input.Thread.Issue.Title}

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,8 +29,16 @@ type State struct {
 	BaselineMS     int64         `json:"baseline_ms"`
 	NoVerify       bool          `json:"no_verify"`
 	PrefixSHA256   string        `json:"prefix_sha256"`
-	Context        []string      `json:"context"`
-	Rounds         int           `json:"rounds"`
+	// PrefixBytes is the length of the prefix in brief.md, which the task block
+	// follows, so that a later step can split the brief where it was rendered.
+	PrefixBytes int `json:"prefix_bytes"`
+	// Suite and Programs are what the gate detected beside the table: the command
+	// forms that count as the full test suite, and the programs the checks run. The
+	// box's guard.json is made of them.
+	Suite    [][]string `json:"suite"`
+	Programs []string   `json:"programs"`
+	Context  []string   `json:"context"`
+	Rounds   int        `json:"rounds"`
 }
 
 // StateInput is the input of a run, and the key that finds it again.
@@ -65,6 +74,22 @@ func InputKey(kind, origin, body string) string {
 	}
 	sum := sha256.Sum256([]byte(body))
 	return hex.EncodeToString(sum[:])
+}
+
+// SplitBrief splits the brief of a run, as brief.md holds it, into the prefix and the
+// task block, where fix.json says the prefix ends. A brief that is not the one the run
+// was made with, because it is shorter or because its prefix is not the one whose hash
+// fix.json holds, is an error: the rounds of a run share one prefix.
+func SplitBrief(document string, s State) (prefix, task string, err error) {
+	if s.PrefixBytes <= 0 || s.PrefixBytes > len(document) {
+		return "", "", fmt.Errorf("brief.md is %d bytes, and fix.json says its prefix is %d", len(document), s.PrefixBytes)
+	}
+	prefix, task = document[:s.PrefixBytes], document[s.PrefixBytes:]
+	sum := sha256.Sum256([]byte(prefix))
+	if hex.EncodeToString(sum[:]) != s.PrefixSHA256 {
+		return "", "", errors.New("the prefix of brief.md is not the one fix.json holds the hash of: the brief was changed after it was rendered")
+	}
+	return prefix, task, nil
 }
 
 // GateMS is how long the checks of a gate run took, added up: the time a measuring of
