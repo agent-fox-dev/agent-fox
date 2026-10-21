@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -65,7 +66,14 @@ type Session struct {
 	mu      sync.Mutex
 	closed  bool
 	exports []string // the export directories Close removes
+
+	exportCalls atomic.Int32 // how many times Export was asked for, whether or not it made one
 }
+
+// ExportCalls is how many times Export was asked of the session, whether or not it made an
+// export. Under a provider that works in place it counts calls that nothing should make,
+// which is what a test of the apply step reads.
+func (s *Session) ExportCalls() int { return int(s.exportCalls.Load()) }
 
 // Provider is the name of the provider.
 func (s *Session) Provider() string { return s.provider }
@@ -300,6 +308,7 @@ func (s *Session) WriteFile(ctx context.Context, rel string, data []byte) error 
 // .agent-fox/ among it. An export that carries a .git is removed and fails: it
 // breaks what the box is for.
 func (s *Session) Export(ctx context.Context) (string, error) {
+	s.exportCalls.Add(1)
 	if s.none {
 		return "", &toolio.Failure{Category: toolio.CategoryInternal, Message: "in place: nothing to export"}
 	}

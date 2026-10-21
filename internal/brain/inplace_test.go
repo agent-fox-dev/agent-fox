@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -121,6 +122,49 @@ func TestAnAcceptedSubmissionIsRewrittenWithTheBytesTheHostAccepted_TS_10_29(t *
 	}
 	if matches, _ := filepath.Glob(filepath.Join(w.run.Path, "submission.rejected.*")); len(matches) != 0 {
 		t.Errorf("an accepted submission left %v", matches)
+	}
+}
+
+// TestTheHostWritesWhatItCheckedAndNotWhatTheBrainLeftInTheFile guards 10-REQ-5.6 against a
+// brain that is more than af's submit core: under an in-place session its file is the host's,
+// and the file the host keeps is written from what the host checked, so a field the brain
+// added and the layout it gave the file do not stay.
+func TestTheHostWritesWhatItCheckedAndNotWhatTheBrainLeftInTheFile(t *testing.T) {
+	w := newNoneWorld(t)
+	brain := stubBrain(func(ctx context.Context, b Brief) (Outcome, error) {
+		out, err := brainDoing(acceptOne, 1)(ctx, b)
+		if err != nil {
+			return out, err
+		}
+		path := submission.SubmissionPath(b.RunID)
+		data, err := fs.ReadFile(b.Box.FS(ctx), path)
+		if err != nil {
+			return out, err
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(data, &doc); err != nil {
+			return out, err
+		}
+		doc["smuggled"] = "a field af did not write"
+		spread, _ := json.MarshalIndent(doc, "\t", "      ")
+		return out, b.Box.WriteFile(ctx, path, spread)
+	})
+
+	res, err := Execute(context.Background(), w.request(w.brief(1), brain))
+
+	if err != nil || !res.Outcome.Submitted {
+		t.Fatalf("Execute = %+v, %v", res, err)
+	}
+	got, ok := hostFile(t, w)
+	if !ok {
+		t.Fatal("no submission.json")
+	}
+	var file submission.File
+	if err := json.Unmarshal(got, &file); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, submission.Marshal(file)) || bytes.Contains(got, []byte("smuggled")) {
+		t.Errorf("submission.json = %q, want the file as the host writes what it accepted, without the field of the brain", got)
 	}
 }
 

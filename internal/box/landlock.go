@@ -23,7 +23,18 @@ const landlockMinABI = 4
 var LandlockABI = landlockABI
 
 // landlockEntry is the provider that confines a process of the host with Landlock.
-func landlockEntry() Entry { return Entry{Name: "landlock", Build: buildLandlock} }
+func landlockEntry() Entry {
+	return Entry{Name: "landlock", Build: buildLandlock, Explain: explainLandlock}
+}
+
+// explainLandlock says what an error of the landlock provider is: a host the provider itself
+// finds unable to confine, when it creates the box, is refused as the checks of af refuse it.
+func explainLandlock(req Request, err error) error {
+	if isNoLandlock(err) {
+		return landlockRefusal(fmt.Sprintf("the landlock provider cannot confine a box on this host: %v", err))
+	}
+	return &toolio.Failure{Category: toolio.CategorySandbox, Message: fmt.Sprintf("the landlock provider could not create the box: %v", err)}
+}
 
 // buildLandlock makes the provider after the checks that decide whether this host can
 // confine a box: it must be Linux, and its kernel must have Landlock ABI 4 or newer.

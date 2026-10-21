@@ -3,11 +3,14 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/agent-fox-dev/agentkit-go/provider/faux"
+	"github.com/agent-fox-dev/agentkit-go/sandbox"
 
 	"github.com/agent-fox-dev/agentfox/internal/brain"
 	"github.com/agent-fox-dev/agentfox/internal/fakeclaude"
@@ -151,7 +154,7 @@ func claudeEnvIsTheVendorKeyAndNoForgeToken(t *testing.T, e *triageEnv, env map[
 // at the commands: af triage and af fix with --brain claude and no ANTHROPIC_API_KEY fail
 // as auth, naming the variable, before any box is opened, except under --sandbox none,
 // where a person at their own checkout may be logged in to Claude Code and the run goes on.
-// Verifies: 10-REQ-8.1
+// Verifies: 10-REQ-8.2
 func TestTheClaudeBrainNeedsTheVendorKeyUnlessItRunsAtTheCheckout_TS_10_47(t *testing.T) {
 	requireGit(t)
 	requireSh(t)
@@ -187,4 +190,85 @@ func TestTheClaudeBrainNeedsTheVendorKeyUnlessItRunsAtTheCheckout_TS_10_47(t *te
 	if errObj, _ = env["error"].(map[string]any); errObj["category"] == "auth" {
 		t.Errorf("af fix under none without the key failed as auth: %v", errObj)
 	}
+}
+
+// TestTheLandlockBoxOfAProcessBrainIsOpenedWithTheDirectoriesOfAfAndClaude guards the
+// wiring of programDirs at the commands: af triage and af fix with the claude brain under
+// landlock give the provider the directories of the af they will run and of the claude on
+// PATH, which landlock would otherwise not let the process run, and a brain on the host
+// gives it none.
+func TestTheLandlockBoxOfAProcessBrainIsOpenedWithTheDirectoriesOfAfAndClaude(t *testing.T) {
+	requireGit(t)
+	requireSh(t)
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	testDir, err := filepath.EvalSymlinks(filepath.Dir(exe))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	te := newTriageEnv(t, fakeforge.GitHub)
+	in := isolatingStandIn(t, "landlock")
+	useFakeClaude(t, claudeSubmits(diagnosisPayload(nil)))
+	bin := filepath.Dir(mustLookPath(t, "claude"))
+	// The af the commands run is in a directory of its own, so that the directory of the claude
+	// and the one of the running executable (which is what an af nobody named would be) are
+	// not the answer.
+	afDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(exe, filepath.Join(afDir, "af")); err != nil {
+		t.Skipf("cannot link the test binary as af: %v", err)
+	}
+	for _, vars := range []*func() brain.Options{&triageBrainOptions, &fixBrainOptions} {
+		old := *vars
+		*vars = func() brain.Options {
+			opts := old()
+			opts.AFPath = filepath.Join(afDir, "af")
+			return opts
+		}
+		t.Cleanup(func() { *vars = old })
+	}
+	args := []string{te.forge.IssueURL(7), "--dir", te.dir, "--land", "none", "--sandbox", "landlock"}
+
+	code, env := te.loop(append(args, "--brain", "claude")...)
+
+	if code != 0 || env["status"] != "done" {
+		t.Fatalf("af triage: exit code %d, error %v", code, env["error"])
+	}
+	for _, want := range []string{afDir, bin, testDir} {
+		if !slices.Contains(in.extraRO, want) {
+			t.Errorf("af triage gave landlock %v, want it to hold %s", in.extraRO, want)
+		}
+	}
+	if in.spec.Network.Mode != sandbox.NetworkUnrestricted || in.spec.Env["ANTHROPIC_API_KEY"] != "sk-fake-key" || len(in.spec.Env) != 1 {
+		t.Errorf("the spec = %+v, want the key of the vendor and nothing else, on an open network", in.spec)
+	}
+
+	*in = standIn{}
+	te2 := newTriageEnv(t, fakeforge.GitHub)
+	code, env = te2.loop(te2.forge.IssueURL(7), "--dir", te2.dir, "--land", "none", "--sandbox", "landlock", "--brain", "scripted", "--script", script(t, submitStep(diagnosisPayload(nil), "accepted")))
+	if code != 0 || len(in.extraRO) != 0 || in.builds != 1 {
+		t.Errorf("a scripted brain: exit code %d (%v), ExtraRO %v after %d builds, want a landlock box made with no directories", code, env["error"], in.extraRO, in.builds)
+	}
+
+	*in = standIn{}
+	fe := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
+	t.Setenv("ANTHROPIC_API_KEY", "sk-fake-key") // the setup of the environment cleared it
+	fe.fix(fe.forge.IssueURL(7), "--brain", "claude", "--sandbox", "landlock", "--land", "none")
+	if in.builds != 1 || !slices.Contains(in.extraRO, afDir) || !slices.Contains(in.extraRO, bin) || !slices.Contains(in.extraRO, testDir) {
+		t.Errorf("af fix gave landlock %v after %d builds, want the directories of af and claude", in.extraRO, in.builds)
+	}
+}
+
+func mustLookPath(t *testing.T, name string) string {
+	t.Helper()
+	path, err := exec.LookPath(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

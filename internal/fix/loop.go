@@ -129,9 +129,11 @@ func RunLoop(ctx context.Context, p LoopParams) (LoopResult, error) {
 	res := LoopResult{}
 	earlier := FindEarlier(p.Dir, st.Input.Key, st.Context, st.RunID)
 	baseline := time.Duration(st.BaselineMS) * time.Millisecond
+	placed := &Placed{}
 	end := func(kind string, err error) (LoopResult, error) {
 		res.End = kind
 		res.HoldsChange = p.holdsChange(ctx)
+		placed.Remove(p.Dir) // under none, the files af made for the rounds are not left as the person's
 		return res, err
 	}
 
@@ -168,7 +170,7 @@ func RunLoop(ctx context.Context, p LoopParams) (LoopResult, error) {
 			rr, err := RunRound(ctx, RoundParams{
 				Dir: p.Dir, Git: p.Git, Session: p.Session, Name: p.Name, Brain: p.Brain, Tally: p.Tally, RunDir: p.RunDir, Report: p.Report,
 				State: *st, Prefix: p.Prefix, Task: task, Round: round, MaxCostUSD: costLeft, MaxTurns: turnsLeft, Timeout: brainTimeout(ctx, baseline),
-				DriverInBox: p.DriverInBox,
+				DriverInBox: p.DriverInBox, Placed: placed,
 			})
 			after := p.Tally.Usage(p.Name)
 			st.Rounds = round
@@ -177,12 +179,12 @@ func RunLoop(ctx context.Context, p LoopParams) (LoopResult, error) {
 				return end(EndExhausted, &toolio.Failure{Category: toolio.CategoryIO, Message: werr.Error()})
 			}
 			if err != nil {
-				if ctx.Err() != nil {
-					return end(EndExhausted, ctx.Err())
-				}
 				var moved *MovedError
 				if errors.As(err, &moved) {
-					return end(EndExhausted, err) // the checkout is not where the run began: it stops, and nothing is landed or parked
+					return end(EndExhausted, err) // the checkout is not where the run began: it stops, and nothing is landed or parked, also when the run was stopped as well
+				}
+				if ctx.Err() != nil {
+					return end(EndExhausted, ctx.Err())
 				}
 				res.LastFailure = err
 				previous = "a round ended without a fix report: " + err.Error()
@@ -198,6 +200,9 @@ func RunLoop(ctx context.Context, p LoopParams) (LoopResult, error) {
 
 			measured, err := Measure(ctx, MeasureParams{Dir: p.Dir, Git: p.Git, State: *st, Report: res.Report, Warn: p.Reporter.Warn, Gate: p.Gate, Conform: p.Conform})
 			if err != nil {
+				if ctx.Err() != nil { // a measuring that the stop kept from reading git is the stop
+					return end(EndExhausted, ctx.Err())
+				}
 				return end(EndExhausted, err)
 			}
 			RecordMeasurement(p.record, measured)

@@ -869,7 +869,7 @@ func runInBox(r *toolio.Run, s *brain.Settings, entry brain.Entry, boxEntry box.
 	deadline, _ := r.Ctx.Deadline()
 	err := box.With(r.Ctx, brain.BoxRequest(brain.BoxParams{
 		Brain: entry, Provider: boxEntry, BorrowedHands: s.BorrowedHands, Tools: triage.BriefTools(), Getenv: opts.Getenv,
-		Deadline: deadline, Defaulted: s.SandboxSource != brain.SandboxFlag,
+		Deadline: deadline, Defaulted: s.SandboxSource != brain.SandboxFlag, AFPath: opts.AFPath,
 		HostDir: r.Dir, RunID: r.RunDir.ID, Tool: "triage", Record: r.RunDir.Record, Warn: r.Warn,
 	}), func(sess *box.Session) error {
 		var offered []string

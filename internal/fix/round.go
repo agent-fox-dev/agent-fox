@@ -1,10 +1,13 @@
 package fix
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io/fs"
+	"os"
 	"path"
+	"path/filepath"
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/box"
@@ -36,6 +39,8 @@ type RoundParams struct {
 	MaxCostUSD float64
 	MaxTurns   int
 	Timeout    time.Duration
+	// Placed notes the files that the round puts on a checkout that is the box; nil notes none.
+	Placed *Placed
 	// DriverInBox says the brain is the driver of AgentKit, run as a process in the box. The
 	// run directory of the box must have no fix.json then, which would make the af fix run
 	// that the box executes the round of the host, with a box of its own.
@@ -67,6 +72,36 @@ func GuardFile(s State) ([]byte, error) {
 	return policy.MarshalGuardFile(policy.Policy{Suite: s.Suite, ProtectedPaths: policy.DefaultProtectedPaths(), AllowPrograms: AllowPrograms(s.Programs)})
 }
 
+// Placed are the files that af put on a checkout that is the box, for a run: the ones to take
+// off it when the run ends, if they are as af wrote them. The checkout of a person is not to
+// keep, as the person's own, a file that af made for the run.
+type Placed struct{ files map[string][]byte }
+
+func (p *Placed) note(rel string, data []byte) {
+	if p == nil {
+		return
+	}
+	if p.files == nil {
+		p.files = map[string][]byte{}
+	}
+	p.files[rel] = data
+}
+
+// Remove takes the files off the checkout at dir, those of them that are as af wrote them: a
+// file that someone has changed since is theirs, and stays.
+func (p *Placed) Remove(dir string) {
+	if p == nil {
+		return
+	}
+	for rel, data := range p.files {
+		path := filepath.Join(dir, filepath.FromSlash(rel))
+		if current, err := os.ReadFile(path); err == nil && bytes.Equal(current, data) {
+			_ = os.Remove(path) // a file that stays is a stale table at the next run, and nothing to stop this one for
+		}
+	}
+	p.files = nil
+}
+
 // WriteBoxFiles places gate.json and guard.json in the box, so that a brain's own gate
 // run and the hook use the host's table and rules, and not what the box would detect, and
 // fix.json in the run directory of the box, so that a brain with hands of its own can run
@@ -76,7 +111,7 @@ func GuardFile(s State) ([]byte, error) {
 // person's own, perhaps: the run's are placed only where there are none, and those that
 // are there are left as they are. The driver of AgentKit that runs in the box has no
 // fix.json (see RoundParams.DriverInBox).
-func WriteBoxFiles(ctx context.Context, sess *box.Session, s State, driverInBox bool) error {
+func WriteBoxFiles(ctx context.Context, sess *box.Session, s State, driverInBox bool, placed *Placed) error {
 	for _, f := range []struct {
 		rel   string
 		make  func(State) ([]byte, error)
@@ -100,6 +135,9 @@ func WriteBoxFiles(ctx context.Context, sess *box.Session, s State, driverInBox 
 		if err := sess.WriteFile(ctx, f.rel, data); err != nil {
 			return err
 		}
+		if sess.InPlace() && !f.state {
+			placed.note(f.rel, data)
+		}
 	}
 	return nil
 }
@@ -111,7 +149,7 @@ func WriteBoxFiles(ctx context.Context, sess *box.Session, s State, driverInBox 
 // the brain has worked on the tree that is measured next, and the commits it made on the
 // branch are taken off it first (see Checkout.Check), or the run is stopped.
 func RunRound(ctx context.Context, p RoundParams) (RoundResult, error) {
-	if err := WriteBoxFiles(ctx, p.Session, p.State, p.DriverInBox); err != nil {
+	if err := WriteBoxFiles(ctx, p.Session, p.State, p.DriverInBox, p.Placed); err != nil {
 		return RoundResult{}, err
 	}
 	var tools []string
@@ -136,8 +174,13 @@ func RunRound(ctx context.Context, p RoundParams) (RoundResult, error) {
 		}),
 	})
 	if inPlace {
-		// Before anything is measured, and whether or not the brain came to a report.
-		if _, cerr := before.Check(ctx, ForeignParams{Git: p.Git, Warn: warnOf(p.Report), Record: p.RunDir.Record}); cerr != nil {
+		// Before anything is measured, and whether or not the brain came to a report. A run
+		// that is stopped still gets its checkout back: what the brain committed is not for the
+		// branch of the person, so this does not wait on the context that the stop has reached.
+		checkCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ParkTimeout)
+		_, cerr := before.Check(checkCtx, ForeignParams{Git: p.Git, Warn: warnOf(p.Report), Record: p.RunDir.Record})
+		cancel()
+		if cerr != nil {
 			return RoundResult{}, cerr
 		}
 	}

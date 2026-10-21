@@ -46,7 +46,7 @@ func submitToTheContractKind(runID string, payload []byte) fakeSubmit {
 	if err != nil {
 		return fakeSubmit{Problems: []string{err.Error()}}
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	target := submission.Target{Tree: root.FS(), Write: submission.RootWriter(root), RunID: runID}
 	_, err = submission.Submit(context.Background(), target, contractKind(), payload, time.Now())
 	var refused *submission.Refused

@@ -119,7 +119,7 @@ func mapsEqual(a, b map[string]string) bool {
 // TestTheDefaultBoxOfTheCommandsComesFromAFSandbox_TS_10_3 verifies, at the commands, that
 // they pin no provider of their own: without --sandbox the box is the one AF_SANDBOX
 // names, for af triage, af fix and af fix run alike.
-// Verifies: 10-REQ-1.2
+// Verifies: 10-REQ-1.3
 func TestTheDefaultBoxOfTheCommandsComesFromAFSandbox_TS_10_3(t *testing.T) {
 	requireMake(t)
 	isoboxFor(t)
@@ -130,6 +130,9 @@ func TestTheDefaultBoxOfTheCommandsComesFromAFSandbox_TS_10_3(t *testing.T) {
 	_, env := te.run("", "triage", te.forge.IssueURL(7), "--dir", te.dir, "--brain", "spy", "--land", "none")
 	if seen.provider != "isobox" {
 		t.Errorf("af triage opened the box %q, want isobox from AF_SANDBOX (error %v)", seen.provider, env["error"])
+	}
+	if opened := ledgerEntries(t, te.runDir(env), "box_open"); len(opened) != 1 || opened[0]["provider"] != "isobox" {
+		t.Errorf("box_open = %v, want the provider that AF_SANDBOX named", opened)
 	}
 
 	fe := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
@@ -142,6 +145,9 @@ func TestTheDefaultBoxOfTheCommandsComesFromAFSandbox_TS_10_3(t *testing.T) {
 	_, env = fe.run("", "fix", fe.forge.IssueURL(7), "--dir", fe.dir, "--brain", "spy", "--land", "none")
 	if fixProvider != "isobox" {
 		t.Errorf("af fix opened the box %q, want isobox from AF_SANDBOX (error %v)", fixProvider, env["error"])
+	}
+	if opened := ledgerEntries(t, runDirOf(fe, env), "box_open"); len(opened) != 1 || opened[0]["provider"] != "isobox" {
+		t.Errorf("box_open = %v, want the provider that AF_SANDBOX named", opened)
 	}
 
 	// So does af fix run, on the run that a brief made.
@@ -173,7 +179,7 @@ func brokenboxFor(t *testing.T) {
 // at af triage and af fix, 10-REQ-1.3: the provider that AF_SANDBOX names cannot open, so
 // the run fails as a sandbox failure whose hint names --sandbox and AF_SANDBOX, and no
 // brain runs in another box. With --sandbox the hint is the provider's own.
-// Verifies: 10-REQ-1.3
+// Verifies: 10-REQ-1.5
 func TestADefaultBoxThatCannotOpenIsAFailureThatNamesTheFlagAndTheVariable_TS_10_5(t *testing.T) {
 	requireMake(t)
 	brokenboxFor(t)

@@ -1,6 +1,8 @@
 package box
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -26,12 +28,28 @@ var imageProblems = []string{
 	"initializing source",
 }
 
-// explainPodman says what an error of the podman provider is. An image that is
-// missing and cannot be pulled is a failure that another run may get past, once the
-// image is there; anything else is an engine that cannot be reached (it is not
-// running, it is not installed, a machine is not started), and no other run will do
-// better until someone has looked.
+// explainPodman says what an error of the podman provider is. A run that was stopped is
+// the error of its context, not a fault of the engine. An image that has no agent in it
+// (the provider's own error) is a failure of the image, which no other run will mend.
+// An image that is missing and cannot be pulled is a failure that another run may get
+// past, once the image is there; anything else is an engine that cannot be reached (it
+// is not running, it is not installed, a machine is not started), and no other run will
+// do better until someone has looked.
 func explainPodman(req Request, err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	if errors.Is(err, sandbox.ErrNoAgent) {
+		image := req.Image
+		if image == "" {
+			image = "of the sandbox"
+		}
+		return &toolio.Failure{
+			Category: toolio.CategorySandbox,
+			Message:  fmt.Sprintf("the image %s has no agent to run the tools of the box with: %v; build the tools image (make build-tools-container) or name another with AF_SANDBOX_IMAGE", image, err),
+			FixHint:  &toolio.FixHint{Env: "AF_SANDBOX_IMAGE"},
+		}
+	}
 	text := strings.ToLower(err.Error())
 	for _, problem := range imageProblems {
 		if strings.Contains(text, problem) {

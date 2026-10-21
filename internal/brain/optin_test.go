@@ -247,6 +247,12 @@ func realClaudeContract(t *testing.T, provider string, stub bool) {
 	res, err := Execute(context.Background(), req)
 
 	if err != nil || !res.Outcome.Submitted {
+		// What the process left, so that a run that fails says why: the output of claude and its
+		// errors in the run directory, and the files of a fake in the box.
+		for _, name := range []string{"claude.1.json", "claude.1.stderr"} {
+			data, _ := os.ReadFile(filepath.Join(rd.Path, name))
+			t.Logf("%s: %.2048s", name, data)
+		}
 		for _, rel := range []string{fakeclaude.CommandsPath, fakeclaude.RecordPath} {
 			data, _ := w.boxFile(rel)
 			t.Logf("%s: %s", rel, data)

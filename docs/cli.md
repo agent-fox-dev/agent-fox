@@ -599,7 +599,7 @@ defaults that command supplies):
 | Flag | Meaning |
 |---|---|
 | `--brain <name>` | `agentkit` (the AgentKit driver; inside the box under `landlock` and `podman`, on the host over the box's tools under `local` and `none`), `scripted` (a replay of a script, with no model; see [development.md](development.md#the-scripted-brain)) or `claude` (headless Claude Code; see [The claude brain](#the-claude-brain)). An unknown name is a `usage` failure that lists the registered ones. |
-| `--sandbox <provider>` | The box provider: `landlock`, `podman`, `local` or `none` (see [The providers](#the-providers)). Without it the provider is the one `AF_SANDBOX` names, and without that `landlock` on Linux and `podman` on any other operating system. An unknown name is a `usage` failure that lists all four; an unknown `AF_SANDBOX` is a `usage` failure that names the variable. When the default provider cannot open, `af` does not fall back to `local` or `none`: the `sandbox` failure carries a `fix_hint` that names `--sandbox` and `AF_SANDBOX`. |
+| `--sandbox <provider>` | The box provider: `landlock`, `podman`, `local` or `none` (see [The providers](#the-providers)). Without it the provider is the one `AF_SANDBOX` names, and without that `landlock` on Linux and `podman` on any other operating system. An unknown name is a `usage` failure that lists all four; an unknown `AF_SANDBOX` is a `usage` failure that names the variable. When the default provider cannot open, `af` does not fall back to `local` or `none`: the `sandbox` failure carries a `fix_hint` that names `--sandbox` and `AF_SANDBOX` (in place of the hint of the failure itself, so that a missing image is told by the message, which names `AF_SANDBOX_IMAGE`). |
 | `--borrowed-hands` | Only with `--brain agentkit`: run the driver on the host over the box's tools, and not inside the box. It changes something only under `landlock` and `podman`, since `local` and `none` always run the driver on the host. With any other brain it is a `usage` failure. |
 | `--budget <usd>` | Stop the brain after this much model cost. A finite number above 0. It needs a model whose price the catalog knows: with another, the `agentkit` brain fails as `usage` and names `AF_MODEL`, since no cost could be counted against it. |
 | `--max-turns <n>` | Stop the brain after this many turns. At least 1. |
@@ -641,8 +641,8 @@ brain and a cancellation; a close that fails is the warning `box_close_failed`.
 
 | Provider | Isolates | In place | What it is |
 |---|---|---|---|
-| `landlock` | yes | no | A confined child process on a copy of the tree. Linux only, and only with Landlock ABI 4 or newer, the first with rules for the network. On another operating system the status is `failed`/`sandbox`, not retryable, with the message "landlock needs Linux"; on a Linux with an older ABI, or none, the message names the ABI found and the one needed. Both carry `fix_hint` `{flag: "--sandbox", suggest: "podman"}`. A process started inside runs from the host's file system, so its binaries are the host's. |
-| `podman` | yes | no | A container of the image `AF_SANDBOX_IMAGE`, or `quay.io/agentfox/tools:latest` without it (see [configuration.md](configuration.md#the-box)). An engine that cannot be reached is `failed`/`sandbox`, not retryable, with the error of the provider (and, off Linux, a pointer to `podman machine start`); an image that is missing and cannot be pulled is `failed`/`sandbox`, retryable, and the message names the image and `AF_SANDBOX_IMAGE`. |
+| `landlock` | yes | no | A confined child process on a copy of the tree. Linux only, and only with Landlock ABI 4 or newer, the first with rules for the network. On another operating system the status is `failed`/`sandbox`, not retryable, with the message "landlock needs Linux"; on a Linux with an older ABI, or none, the message names the ABI found and the one needed. Both carry `fix_hint` `{flag: "--sandbox", suggest: "podman"}`. A process started inside runs from the host's file system, where landlock opens only the system directories, so the request carries the directories of the `af` and the `claude` it will run (and of what a link leads to) for the box to let it read and run them; a `claude` that needs a runtime outside the system directories, such as `node` in a version manager's directory, is not covered. The provider also needs `agentkit-sandboxd` beside `af` or on `PATH`. |
+| `podman` | yes | no | A container of the image `AF_SANDBOX_IMAGE`, or `quay.io/agentfox/tools:latest` without it (see [configuration.md](configuration.md#the-box)); the key of the vendor is on the engine's command line on the host while the box lives. An engine that cannot be reached is `failed`/`sandbox`, not retryable, with the error of the provider (and, off Linux, a pointer to `podman machine start`); an image that is missing and cannot be pulled is `failed`/`sandbox`, retryable, and the message names the image and `AF_SANDBOX_IMAGE`. |
 | `local` | no | no | The tools run in this process, with its privileges, on a copy of the tree. |
 | `none` | no | yes | No box: the brain works on the checkout itself. |
 
@@ -709,11 +709,15 @@ bytes of the output; a command that exits with a code is not an error.
 - **The binaries.** Under `local`, `landlock` and `none`, `af` is the running
   executable, by its absolute path, and its directory is first on `PATH`; `claude` is
   the one on this machine's `PATH`. Under `podman` both are the image's.
-- **The environment.** The command runs under `env -i` with `PATH`, `HOME`, the ones
-  of `LANG`, `LC_ALL`, `TZ`, `TMPDIR`, `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`
-  (in either case), `SSL_CERT_FILE`, `SSL_CERT_DIR` and `NODE_EXTRA_CA_CERTS` that
-  are set, and the credentials of `Spec.Env`, which the command refers to by name so
-  that no secret is in its text or in the ledger. Every argument is single-quoted.
+- **The environment.** The command runs under `env -i` with `PATH`, `HOME` (the
+  box's own), the ones of `LANG`, `LC_ALL`, `TZ`, `HTTPS_PROXY`, `HTTP_PROXY` and
+  `NO_PROXY` (in either case), `SSL_CERT_FILE`, `SSL_CERT_DIR` and
+  `NODE_EXTRA_CA_CERTS` that are set on the host, with their values (the shell of a
+  box has not the environment of the host), `TMPDIR` as the box's own when the host
+  has one, and the credentials of `Spec.Env`, which the command refers to by name
+  so that no secret is in its text or in the ledger. A password in the URL of a
+  proxy is not a credential of `Spec.Env`: it is in the text of the command, with
+  the rest of the proxy settings. Every argument and every value is single-quoted.
 - **Input and output.** The brief is on its standard input. Its standard output and
   error are redirected to `.agent-fox/run/<id>/<brain>.<attempt>.json` and
   `.stderr` in the box, and copied to the run directory (the output up to 1 MiB, the
@@ -759,12 +763,14 @@ submit --run-id <id>`: the briefs of such a brain name that command, not the too
   `input_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens`, and
   the output tokens `output_tokens`. The stop reason follows `subtype`: `success` is
   `ended`, `error_max_turns` is `turns`, one that contains `budget` is `budget`, and
-  anything else is `error`. The brain claims a submission when the box's
+  anything else is `error` (Claude Code prints an API failure, such as a key that is
+  refused, as the subtype `success` with `is_error` true and an exit code of 1). The
+  brain claims a submission when the box's
   `submission.json` carries this attempt's nonce, and the host decides from the file
   all the same. The ledger entry is `claude_result`. An output that is missing or does
   not parse is cost 0, `cost_source` `none` and the warning `brain_usage_unavailable`.
   A non-zero exit with no submission is an error that carries the last 2 KiB of the
-  errors.
+  errors, or the `result` text of the output when the errors are empty.
 - **The budget.** The cost is known only after the run, so `--budget` is checked then:
   a cost above it raises the warning `budget_exceeded` (and, when nothing was
   submitted, the stop reason `budget`). While the run goes on, `--max-turns` and the
@@ -788,12 +794,17 @@ of its payload, and the payload must pass what a submission passes (at most 1
 MiB, valid UTF-8, one JSON object, and the kind's own check against the box's
 tree, in which a panic is a problem with the payload). Then the host writes
 `<run dir>/submission.json` from what it checked and nothing else the file held
-(no extra field, no second `payload`). A file left by an earlier attempt (another
+(no extra field, no second `payload`; under `none` this is also what makes the file the
+host's, since the brain's file and the host's are one). A file left by an earlier attempt (another
 nonce) is not this attempt's, and counts as no submission. The last valid
 submission wins; a refused one never replaces anything. A run directory that has
 no accepted submission has no `submission.json`: the one an earlier attempt
 accepted is removed when the next attempt starts, and one that anything but af
-wrote there is removed (the warning `submission_not_removed` if it cannot be).
+wrote there is removed (the warning `submission_not_removed` if it cannot be). Under
+`none` the file is the brain's as well as the host's, so the bytes the host last
+accepted are kept while the attempt runs and put back if the attempt's file is not
+accepted, and a file that is refused is moved to `submission.rejected.<attempt>.json`
+(the same warning if that, or the putting back, fails).
 Because the `local` box has no isolation, a process of the brain that outlives
 its run could still rewrite the file; consumers take the payload from the result
 of the run, or check the file's `payload_sha256` against the ledger's
@@ -1326,7 +1337,8 @@ failure, since a fix takes an issue, a file or text. `fix land` takes no
    make its `af fix run` the round of the host), or one question. `af` takes the box's
    tree out and **applies** it to the checkout (see below), then **measures** it.
    Under `none` a `gate.json` or a `guard.json` that is there is the person's, and is
-   left as it is.
+   left as it is; those that af places for the rounds (where there are none) are taken
+   off the checkout when the run ends, if they are as af wrote them.
 4. **Apply.** The export is mirrored onto the checkout, uncommitted: the files
    it lacks are deleted first, then the new and changed files and links are
    written; `.git/` and `.agent-fox/` (whatever their case), ignored paths, anything
@@ -1707,7 +1719,7 @@ A code matches `^[a-z][a-z0-9_]*$`; one that does not is reported under
 | `map_outline_skipped` | `map`: the declarations were not read, because the names of the files alone do not fit the budget or the view has more than 5000 files. The map has the names only, or less. |
 | `check_unavailable` | `lang detect`: a check of the gate table names a program that cannot be run on this machine. The check stays in the table with `available: false`; the message names the check. |
 | `box_unconfined` | A box was opened with the `local` provider, once for each box: it has no process or network isolation, because the tools run in this process with its privileges. Also with the `none` provider, with a message of its own: the brain works on the checkout itself, with no copy of it and no box around it, and the hook is the only guard. Also `triage run`, which reads the directory in place, with no copy of it: the files git ignores and `.git/config` are within reach of the tools. |
-| `box_af_version_mismatch` | A process brain's `af` in a `podman` box has another version or commit than the running one. The run goes on, since the host checks every submission again; the message names both. |
+| `box_af_version_mismatch` | The `af` of a box that a process brain runs (in practice the one of a `podman` image, since the other providers run this very executable) has another version, or another commit when both are known, than the running one. The run goes on, since the host checks every submission again; the message names both. |
 | `brain_usage_unavailable` | A process brain left no output that could be read (the JSON of `claude`, the envelope of `af <agent> run`), so the run has no cost to report: the cost is 0 and `cost_source` is `none`. |
 | `budget_exceeded` | The `claude` brain reported a cost above `--budget`. Its cost is known only after the run, so only its turns and its time held it while it ran; with no submission, the stop reason is `budget`. |
 | `foreign_commits_reset` | `fix`, under `none`: the brain made commits on the branch of the checkout, and `af` took them off it with a soft reset to where the branch was. The message has their number; their change is inside the commit of `af`. |
@@ -1715,7 +1727,8 @@ A code matches `^[a-z][a-z0-9_]*$`; one that does not is reported under
 | `submission_invalid` | The submission file in the box did not count: it did not parse, is not for this run's kind, run, attempt or payload hash, or the kind refused its payload against the box's tree. The message lists the problems, and the run has no submission. |
 | `submission_claim_mismatch` | A brain says it submitted and there is no valid submission file, or says it did not and there is one. The file decides. |
 | `brain_error` | A brain returned an error, or panicked, after it had submitted, which does not change the submission. The message carries the error. |
-| `submission_not_removed` | The run directory held a `submission.json` that af did not accept (one of an earlier attempt, or one that a process of the brain wrote), and it could not be removed. |
+| `submission_not_removed` | The run directory held a `submission.json` that af did not accept (one of an earlier attempt, or one that a process of the brain wrote), and it could not be removed; under `none` also when a refused file could not be moved aside, or the bytes the host had accepted could not be put back. |
+| `brain_output_unreadable` | A process brain's output or errors could not be read out of the box or copied to the run directory; the run goes on, and the file is not among the artifacts. |
 | `model_unpriced` | The `agentkit` brain's model is not in the catalog, so the run has no cost to report (`cost_source` is `none`). With `--budget` the run does not start: it is a `usage` failure. |
 | `transcript_unwritable` | The transcript of an in-process brain could not be written whole. The run goes on and the file is partial. |
 | `ledger_unwritable` | A ledger entry could not be written: at most once for the box and once for the brain run, since each reports its own. |
@@ -1926,11 +1939,14 @@ edited.
     submission.json          the accepted submission, if there is one
     transcript.<attempt>.jsonl   the tool calls of an in-process brain, listed as {kind: "transcript", path}
     brain-panic.<attempt>.txt    the stack of a brain that panicked
+    guard.json, claude-settings.json    the policy and the settings the claude brain ran with, copied from the box
+    <brain>.<attempt>.json, <brain>.<attempt>.stderr    what a brain that runs as a process printed, listed as {kind: "brain_output", path}
+    submission.rejected.<attempt>.json    a file refused as a submission, moved aside under none
     brief.md, original.md, triage.json, rejections.jsonl, diagnosis.md    the files of a triage run
     brief.md, original.md, run.json, fix.json, report.md    the files of a fix run
 ```
 
-The five before the last are written by a command that runs a brain
+The ones from `brief.<attempt>.md` to the process files are written by a command that runs a brain
 ([below](#brains-and-boxes)); `af` itself never reads a transcript. The files of
 a triage run are in [the files of a triage run](#the-files-of-a-triage-run), and
 those of a fix run in [the files of a fix run](#the-files-of-a-fix-run).

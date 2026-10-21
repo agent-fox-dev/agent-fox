@@ -2,6 +2,8 @@ package brain
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -69,6 +71,10 @@ type BoxParams struct {
 	// Defaulted says the provider was chosen by AF_SANDBOX or by the platform, and not
 	// with --sandbox (Settings.SandboxSource is not SandboxFlag).
 	Defaulted bool
+	// AFPath is the af a process runs (Options.AFPath), and LookPath finds claude on the
+	// host; empty and nil are the running executable and exec.LookPath.
+	AFPath   string
+	LookPath func(string) (string, error)
 
 	// The rest is passed to the request as it is: the checkout, the run and the
 	// tool that label the box, the ledger and the warnings of the run, and the
@@ -106,6 +112,9 @@ func BoxRequest(p BoxParams) box.Request {
 		Warn:            p.Warn,
 		Registry:        p.Registry,
 	}
+	if p.Provider.Name == "landlock" && placement != PlacementHost {
+		req.ExtraRO = programDirs(p)
+	}
 	if p.Provider.Name == "podman" {
 		req.Image = DefaultImage
 		get := p.Getenv
@@ -120,6 +129,47 @@ func BoxRequest(p BoxParams) box.Request {
 		req.TTL = max(time.Until(p.Deadline), 0) + ttlMargin
 	}
 	return req
+}
+
+// programDirs are the directories of the programs that a process in a landlock box runs,
+// for the box to let it read and run them: a landlock process runs from the host's file
+// system, where only the system directories are open to it. They are the directories of
+// the af it runs, and of the claude when the brain is claude, and where a program is a
+// link the directory of what it leads to. The directories of a program that cannot be
+// found are left out: the probe of the run says so.
+func programDirs(p BoxParams) []string {
+	var programs []string
+	af := p.AFPath
+	if af == "" {
+		if exe, err := os.Executable(); err == nil {
+			af = exe
+		}
+	}
+	if af != "" {
+		programs = append(programs, af)
+	}
+	if p.Brain.OwnHands {
+		look := p.LookPath
+		if look == nil {
+			look = exec.LookPath
+		}
+		if found, err := look(ProgramClaude); err == nil {
+			programs = append(programs, found)
+		}
+	}
+	var dirs []string
+	add := func(dir string) {
+		if dir != "" && !slices.Contains(dirs, dir) {
+			dirs = append(dirs, dir)
+		}
+	}
+	for _, program := range programs {
+		add(filepath.Dir(program))
+		if resolved, err := filepath.EvalSymlinks(program); err == nil {
+			add(filepath.Dir(resolved))
+		}
+	}
+	return dirs
 }
 
 // networkFor is the network of a box: host under a provider that enforces nothing,

@@ -159,8 +159,9 @@ The box has run files of its own under `.agent-fox/run/<id>/`: `brief.md`,
 `hook.json` and `submission.json`, placed by `af` and not by the brain; for `claude`
 also `guard.json` and `claude-settings.json`. The ledger of a run that has a brain holds the entries `box_open`,
 `box_sync`, `box_export`, `box_close`, `brief_placed`, `brain_start`,
-`brain_end` and the `submission_*` ones, which [cli.md](cli.md#the-ledger)
-lists.
+`brain_end` and the `submission_*` ones, and for a brain that runs as a process
+`box_probe`, `brain_process` and `claude_result`; under `none` a fix run also holds
+`foreign_commits_reset`. [cli.md](cli.md#the-ledger) lists them.
 
 `toolio.OpenRunDir(dir, id)` opens an existing run for the commands that
 carry one on (`submit`, `land`); an id that is not of the form of a run id is
@@ -327,7 +328,10 @@ The three things the hook could only ask for, the box enforces:
   commit on the host's clone, and the next sync carries that commit back
   in, so the box's history is the host's again. ADR 09's foreign-commit
   check becomes a tree comparison: there is no branch inside for a foreign
-  commit to be on.
+  commit to be on. (Under the `none` provider there is no box, so there is
+  such a branch: the checkout's own. `af` records HEAD before the brain runs,
+  takes the commits it made off the branch afterwards, and refuses a checkout
+  that was moved; see *Placement, as built*.)
 - **The brain never reaches the spec state.** `tasks.json` is written by
   the host after the landing; the copy in the box is overwritten by the
   next sync. The protected-path revert still runs, on the exported tree,
@@ -520,7 +524,7 @@ its own, `Entry{Name, Unconfined, InPlace, New, Build, Explain}`, with `landlock
 `brain.Flags` is the shared set of flags ([cli.md](cli.md#brains-and-boxes)).
 
 **Running.** `brain.Execute(ctx, Request{Session, Name, Brain, Brief, RunDir,
-Report, Tally, Heartbeat, Rand})` runs one brief in a held box (the caller opens
+Report, Tally, Heartbeat, Rand, Nonce})` runs one brief in a held box (the caller opens
 it with `box.With`, which closes it on every path). Before the brain it draws a
 16-hex nonce and writes into the box `.agent-fox/.gitignore`, `brief.md`,
 `run.json` (`{run_id, kind, attempt, nonce}`) and `hook.json`, and into the run

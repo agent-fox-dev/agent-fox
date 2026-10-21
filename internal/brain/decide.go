@@ -107,7 +107,7 @@ func (r *run) dropHostSubmission() {
 		return
 	}
 	path := r.hostSubmission()
-	if current, err := os.ReadFile(path); err == nil && !(r.hasKept && bytes.Equal(current, r.kept)) {
+	if current, err := os.ReadFile(path); err == nil && (!r.hasKept || !bytes.Equal(current, r.kept)) {
 		rejected := filepath.Join(r.req.RunDir.Path, fmt.Sprintf("submission.rejected.%d.json", r.brief.Attempt))
 		if err := os.Rename(path, rejected); err != nil {
 			r.req.Report.Warn("submission_not_removed", fmt.Sprintf("%s is not a submission af accepted, and could not be moved aside: %v", path, err))

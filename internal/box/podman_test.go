@@ -3,6 +3,7 @@ package box
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -136,6 +137,43 @@ func TestAnImageThatCannotBePulledIsARetryableSandboxFailure_TS_10_20(t *testing
 		}
 		if strings.Contains(f.Message, "podman machine start") {
 			t.Errorf("%q: an image that is missing is not an engine that is down: %q", message, f.Message)
+		}
+	}
+}
+
+// TestPodmanFailuresThatAreNeitherAnEngineNorAMissingImageAreNotCalledSo guards the
+// classification of what the provider says: an image that is there and has no agent in
+// it (the provider's own error, matched through wrapping) is a failure that names the
+// image and AF_SANDBOX_IMAGE and does not send the person to a machine; a run that was
+// cancelled or timed out is its context's error, not an engine that is down.
+func TestPodmanFailuresThatAreNeitherAnEngineNorAMissingImageAreNotCalledSo(t *testing.T) {
+	withPodman(t, "darwin", func() (sandbox.Provider, error) {
+		return podmanThatFails{err: fmt.Errorf("podman: create: %w", sandbox.ErrNoAgent)}, nil
+	})
+
+	_, err := openPodman(t, nil)
+
+	f := asFailure(t, err)
+	if f.Category != toolio.CategorySandbox || f.Retryable || f.FixHint == nil || f.FixHint.Env != "AF_SANDBOX_IMAGE" {
+		t.Errorf("failure = %+v, want sandbox, not retryable, with a hint that names AF_SANDBOX_IMAGE", f)
+	}
+	if !strings.Contains(f.Message, "example.test/img:1") || !strings.Contains(f.Message, "AF_SANDBOX_IMAGE") || strings.Contains(f.Message, "podman machine start") || strings.Contains(f.Message, "cannot be reached") {
+		t.Errorf("message = %q, want one that names the image and the variable, and says nothing of an engine", f.Message)
+	}
+
+	for _, ctxErr := range []error{context.Canceled, context.DeadlineExceeded} {
+		withPodman(t, "darwin", func() (sandbox.Provider, error) {
+			return podmanThatFails{err: fmt.Errorf("podman: create: %w", ctxErr)}, nil
+		})
+
+		_, err := openPodman(t, nil)
+
+		if !errors.Is(err, ctxErr) {
+			t.Errorf("%v: err = %v, want the error of the context to be matched through the failure", ctxErr, err)
+		}
+		var failure *toolio.Failure
+		if errors.As(err, &failure) && strings.Contains(failure.Message, "podman machine start") {
+			t.Errorf("%v: %q sends the person to a machine that is not the problem", ctxErr, failure.Message)
 		}
 	}
 }

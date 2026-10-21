@@ -1,6 +1,7 @@
 package brain
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -119,7 +120,7 @@ func (c *claudeBrain) Run(ctx context.Context, b Brief) (Outcome, error) {
 		}
 	}
 	if res.ExitCode != 0 && !out.Submitted {
-		return out, processError("claude", res)
+		return out, claudeError(res)
 	}
 	return out, nil
 }
@@ -133,6 +134,8 @@ type claudeResult struct {
 	CostUSD      *float64        `json:"cost_usd"`
 	Usage        json.RawMessage `json:"usage"`
 	SessionID    string          `json:"session_id"`
+	// Result is the text of the run's end: its answer, or what went wrong.
+	Result string `json:"result"`
 }
 
 // claudeUsage is its usage.
@@ -182,6 +185,20 @@ func (c *claudeBrain) outcome(b Brief, res ProcessResult) Outcome {
 		"usage": json.RawMessage(orEmptyObject(r.Usage)), "session_id": r.SessionID,
 	})
 	return out
+}
+
+// claudeError is the error of a claude that exited with a code and submitted nothing. Claude
+// Code says what went wrong in the result of its JSON output, with nothing on stderr (an API
+// key that is refused is exit code 1, the subtype success and "Invalid API key" there), so
+// when the errors are empty that text is what the error carries.
+func claudeError(res ProcessResult) error {
+	if len(bytes.TrimSpace(res.Stderr)) == 0 {
+		var r claudeResult
+		if json.Unmarshal(bytes.TrimSpace(res.Output), &r) == nil && strings.TrimSpace(r.Result) != "" {
+			res.Stderr = []byte("claude said: " + strings.TrimSpace(r.Result))
+		}
+	}
+	return processError("claude", res)
 }
 
 func orEmptyObject(raw json.RawMessage) json.RawMessage {

@@ -180,7 +180,7 @@ func fixBoxRequest(r *toolio.Run, run *toolio.RunDir, entry brain.Entry, provide
 	deadline, _ := r.Ctx.Deadline()
 	return brain.BoxRequest(brain.BoxParams{
 		Brain: entry, Provider: provider, BorrowedHands: s.BorrowedHands, Getenv: opts.Getenv, Deadline: deadline,
-		Defaulted: s.SandboxSource != brain.SandboxFlag,
-		HostDir:   r.Dir, RunID: run.ID, Tool: "fix", Record: run.Record, Warn: r.Warn,
+		Defaulted: s.SandboxSource != brain.SandboxFlag, AFPath: opts.AFPath,
+		HostDir: r.Dir, RunID: run.ID, Tool: "fix", Record: run.Record, Warn: r.Warn,
 	})
 }

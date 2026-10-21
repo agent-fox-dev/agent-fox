@@ -190,6 +190,30 @@ func TestANonZeroExitWithNoSubmissionIsAnErrorWithTheEndOfStderr_TS_10_55(t *tes
 	}
 }
 
+// TestClaudeThatFailsAndSaysWhyOnItsStdoutIsAnErrorThatSaysIt guards 10-REQ-9.3 against the
+// real Claude Code, which prints what went wrong (an API key that is refused, for one) in the
+// result of its JSON output, with the subtype success and an exit code of 1, and nothing on
+// stderr: the error of the run carries that text when the errors are empty.
+func TestClaudeThatFailsAndSaysWhyOnItsStdoutIsAnErrorThatSaysIt(t *testing.T) {
+	w := newClaudeWorld(t, "local", map[string]string{"ANTHROPIC_API_KEY": "sk-test"}, "", false)
+	w.script(fakeScript{Exit: 1, OutputJSON: `{"type":"result","subtype":"success","is_error":true,"api_error_status":401,"num_turns":1,"total_cost_usd":0,"usage":{"input_tokens":0,"output_tokens":0},"result":"Invalid API key · Fix external API key"}`})
+	w.placeSubmission(1, "")
+
+	out, err := w.runClaude(1, nil)
+
+	if err == nil || !strings.Contains(err.Error(), "Invalid API key") || !strings.Contains(err.Error(), "code 1") {
+		t.Errorf("Run = %+v, %v, want an error with the exit code and what claude said", out, err)
+	}
+
+	// With errors on stderr, those are the words of the error, as before.
+	w2 := newClaudeWorld(t, "local", map[string]string{"ANTHROPIC_API_KEY": "sk-test"}, "", false)
+	w2.script(fakeScript{Exit: 1, Stderr: "STDERR-WORDS", OutputJSON: `{"subtype":"success","is_error":true,"result":"STDOUT-WORDS"}`})
+	w2.placeSubmission(1, "")
+	if _, err := w2.runClaude(1, nil); err == nil || !strings.Contains(err.Error(), "STDERR-WORDS") || strings.Contains(err.Error(), "STDOUT-WORDS") {
+		t.Errorf("error = %v, want the words of stderr when there are some", err)
+	}
+}
+
 // TestACostAboveTheBoundIsAWarningAndABudgetStopOnlyWithoutASubmission_TS_10_56 verifies
 // TS-10-56: a reported cost above the bound raises budget_exceeded once, and sets the
 // stop reason to budget when nothing was submitted and leaves it alone when something

@@ -104,7 +104,6 @@ func TestWithoutSandboxTheProviderIsAFSandboxElseTheOSDefault_TS_10_3(t *testing
 		{"--sandbox beats AF_SANDBOX", "linux", map[string]string{"AF_SANDBOX": "local"}, []string{"--sandbox", "none"}, "none", SandboxFlag},
 		{"--sandbox beats the default", "linux", nil, []string{"--sandbox", "podman"}, "podman", SandboxFlag},
 		{"an empty AF_SANDBOX is unset", "linux", map[string]string{"AF_SANDBOX": ""}, nil, "landlock", SandboxDefault},
-		{"AF_SANDBOX that nothing reads", "linux", map[string]string{"AF_SANDBOX": "bogus"}, []string{"--sandbox", "local"}, "local", SandboxFlag},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			reg, _ := recordingRegistry()
@@ -165,6 +164,15 @@ func TestAnInvalidAFSandboxIsUsageNamingTheVariable_TS_10_4(t *testing.T) {
 	if n := made.Load(); n != 0 {
 		t.Errorf("%d providers were made while the flags were resolved", n)
 	}
+
+	// The criterion has no exception for a run that says --sandbox: a variable that is
+	// wrong is wrong, and is not left to surface on the day the flag is dropped.
+	_, err = resolve(t, reg, "linux", map[string]string{"AF_SANDBOX": "bogus"}, "--sandbox", "local")
+	if err == nil {
+		t.Fatal("AF_SANDBOX=bogus was accepted with --sandbox local")
+	}
+	usageNaming(t, err, "AF_SANDBOX")
+	namesAll(t, err.Error())
 }
 
 // TestBorrowedHandsGoesOnlyWithAgentkit_TS_10_7 verifies TS-10-7:
@@ -176,6 +184,9 @@ func TestBorrowedHandsGoesOnlyWithAgentkit_TS_10_7(t *testing.T) {
 		{"--borrowed-hands", "--brain", "scripted", "--script", "x.json"},
 		{"--borrowed-hands", "--brain", "claude"},
 		{"--borrowed-hands", "--brain", "claude", "--sandbox", "local"},
+		// The flag is named whatever else is wrong with the invocation.
+		{"--borrowed-hands", "--brain", "scripted"},
+		{"--borrowed-hands", "--brain", "claude", "--script", "x.json"},
 	} {
 		reg, made := recordingRegistry()
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"maps"
 	"math/rand/v2"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -20,14 +22,14 @@ import (
 func matrixBrains(t *testing.T) []Entry {
 	t.Helper()
 	var out []Entry
-	for _, name := range []string{ScriptedName, AgentkitName} {
+	for _, name := range []string{ScriptedName, AgentkitName, ClaudeName} {
 		e, err := Default.Lookup(name)
 		if err != nil {
 			t.Fatal(err)
 		}
 		out = append(out, e)
 	}
-	return append(out, Entry{Name: "claude", CostSource: CostReported, Credentials: []string{VendorKeyVar}, OwnHands: true})
+	return out
 }
 
 func providerEntry(t *testing.T, name string) box.Entry {
@@ -329,5 +331,77 @@ func TestTheRequestSaysWhetherTheProviderWasChosenByDefault(t *testing.T) {
 		if req.Defaulted != defaulted {
 			t.Errorf("Defaulted = %v, want %v", req.Defaulted, defaulted)
 		}
+	}
+}
+
+// TestALandlockRequestForAProcessCarriesTheDirectoriesOfAfAndClaude guards 10-REQ-7.4 and
+// 10-REQ-3.4 where they meet: a process in a landlock box runs from the host's file system,
+// which landlock lets it read and run only in the system directories, so the request carries
+// the directories of the af and the claude it will run, and where they are links, of what
+// they lead to. A brain on the host, and any other provider, has none.
+func TestALandlockRequestForAProcessCarriesTheDirectoriesOfAfAndClaude(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"bin", "local/bin", "versions/2"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, f := range []string{"bin/af", "versions/2/claude"} {
+		if err := os.WriteFile(filepath.Join(root, f), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join(root, "versions/2/claude"), filepath.Join(root, "local/bin/claude")); err != nil {
+		t.Skipf("cannot make a link: %v", err)
+	}
+	claudeAt := func(path string) func(string) (string, error) {
+		return func(name string) (string, error) {
+			if name != "claude" {
+				t.Errorf("looked for %q, want claude", name)
+			}
+			return path, nil
+		}
+	}
+	entry := func(name string) Entry {
+		e, err := Default.Lookup(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	bin, local, versions := filepath.Join(root, "bin"), filepath.Join(root, "local/bin"), filepath.Join(root, "versions/2")
+
+	for _, tc := range []struct {
+		name     string
+		brain    Entry
+		provider string
+		borrowed bool
+		af       string
+		look     func(string) (string, error)
+		want     []string
+	}{
+		{"claude: the directory of each, and what the link of claude leads to", entry(ClaudeName), "landlock", false, filepath.Join(bin, "af"), claudeAt(filepath.Join(local, "claude")), []string{bin, local, versions}},
+		{"claude in the directory of af: once", entry(ClaudeName), "landlock", false, filepath.Join(bin, "af"), claudeAt(filepath.Join(bin, "claude")), []string{bin}},
+		{"claude and an af that does not exist", entry(ClaudeName), "landlock", false, "/nowhere/bin/af", claudeAt("/nowhere/other/claude"), []string{"/nowhere/bin", "/nowhere/other"}},
+		{"the driver in the box: af alone", entry(AgentkitName), "landlock", false, filepath.Join(bin, "af"), claudeAt(filepath.Join(local, "claude")), []string{bin}},
+		{"the driver with borrowed hands: on the host", entry(AgentkitName), "landlock", true, filepath.Join(bin, "af"), claudeAt(filepath.Join(local, "claude")), nil},
+		{"scripted: on the host", entry(ScriptedName), "landlock", false, filepath.Join(bin, "af"), claudeAt(filepath.Join(local, "claude")), nil},
+		{"claude under local", entry(ClaudeName), "local", false, filepath.Join(bin, "af"), claudeAt(filepath.Join(local, "claude")), nil},
+		{"claude under podman", entry(ClaudeName), "podman", false, filepath.Join(bin, "af"), claudeAt(filepath.Join(local, "claude")), nil},
+		{"claude under none", entry(ClaudeName), "none", false, filepath.Join(bin, "af"), claudeAt(filepath.Join(local, "claude")), nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := BoxRequest(BoxParams{
+				Brain: tc.brain, Provider: providerEntry(t, tc.provider), BorrowedHands: tc.borrowed, AFPath: tc.af, LookPath: tc.look,
+				Getenv: envOf(nil), HostDir: "/x", RunID: "20261021_090000_abcdef", Tool: "fix",
+			})
+
+			if !slices.Equal(req.ExtraRO, tc.want) {
+				t.Errorf("ExtraRO = %v, want %v", req.ExtraRO, tc.want)
+			}
+		})
 	}
 }

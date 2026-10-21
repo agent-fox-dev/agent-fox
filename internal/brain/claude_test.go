@@ -468,6 +468,9 @@ func TestWhatTheOutputSaysDoesNotMakeASubmission(t *testing.T) {
 // Verifies: 10-REQ-7.6
 func TestTheEnvironmentOfTheProcessIsTheVendorKeyAndNoForgeTokenUnderLocalAndNone_TS_10_43(t *testing.T) {
 	rng := rand.New(rand.NewPCG(10, 43))
+	for _, name := range allowlistedNames() { // what the machine has of these is not what the test is about
+		unsetForTheTest(t, name)
+	}
 	for i := range 4 {
 		host := map[string]string{
 			"GITHUB_TOKEN": fmt.Sprintf("ghp-%d", i), "GH_TOKEN": fmt.Sprintf("gh-%d", i), "GITLAB_TOKEN": fmt.Sprintf("glpat-%d", i),
@@ -504,7 +507,7 @@ func TestTheEnvironmentOfTheProcessIsTheVendorKeyAndNoForgeTokenUnderLocalAndNon
 				if slices.Contains([]string{"GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN"}, name) {
 					t.Fatalf("#%d %s: the process saw %s", i, provider, name)
 				}
-				if !slices.Contains([]string{"PATH", "HOME", "ANTHROPIC_API_KEY", "LANG", "TMPDIR", "TZ", "LC_ALL", "HTTPS_PROXY", "SSL_CERT_FILE"}, name) {
+				if !slices.Contains(append(allowlistedNames(), "PATH", "HOME", "ANTHROPIC_API_KEY"), name) {
 					t.Fatalf("#%d %s: the process saw %s=%s, which is not on the list", i, provider, name, value)
 				}
 			}

@@ -172,8 +172,9 @@ func (p *Process) program(provider, name string) (string, error) {
 func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 // environment is the part of a command that sets the environment of the process: env
-// -i, PATH, HOME, the variables of the host that may be had and are set, the credentials
-// of the box's spec as shell parameters, and the settings in the text.
+// -i, PATH, HOME, the settings of the host that may be had and are set (locale, time zone,
+// proxies and certificates, with their values; the box's own temporary directory), the
+// credentials of the box's spec as shell parameters, and the settings in the text.
 func (p *Process) environment(provider string, credentials []string, inline map[string]string) (string, error) {
 	var parts []string
 	if provider == "podman" {
@@ -191,17 +192,26 @@ func (p *Process) environment(provider string, credentials []string, inline map[
 	}
 	parts = append(parts, `HOME="$HOME"`)
 	get := p.getenv()
-	for _, base := range allowed {
-		for _, name := range []string{base, strings.ToLower(base)} {
-			if _, ok := get(name); ok {
-				parts = append(parts, name+`="$`+name+`"`)
-			}
+	// The settings of the host that are set go with their values: the shell of a box has not
+	// the environment of the host, so a parameter would be empty there. The temporary
+	// directory is the exception, since a path of the host means nothing in a box: the box's
+	// own is referred to.
+	setting := func(name string) {
+		value, ok := get(name)
+		switch {
+		case !ok:
+		case strings.EqualFold(name, "TMPDIR"):
+			parts = append(parts, name+`="$`+name+`"`)
+		default:
+			parts = append(parts, name+"="+quote(value))
 		}
 	}
+	for _, base := range allowed {
+		setting(base)
+		setting(strings.ToLower(base))
+	}
 	for _, name := range allowedExact {
-		if _, ok := get(name); ok {
-			parts = append(parts, name+`="$`+name+`"`)
-		}
+		setting(name)
 	}
 	for _, name := range slices.Sorted(slices.Values(credentials)) {
 		if !variableName.MatchString(name) {
@@ -283,12 +293,14 @@ func (p *Process) Run(ctx context.Context, b Brief, spec ProcessSpec) (ProcessRe
 	}
 
 	timeout := b.Timeout
-	if timeout <= 0 {
-		if deadline, ok := ctx.Deadline(); ok {
-			// A little under what is left, so that the process is ended and says so before
-			// the context cancels the call, and the result is a timeout and not a lost call.
-			left := time.Until(deadline)
-			timeout = max(left-min(left/10, 5*time.Second), time.Second)
+	if deadline, ok := ctx.Deadline(); ok {
+		// Never more than a little under what is left, so that the process is ended and says
+		// so before the context cancels the call, and the result is a timeout, with its output
+		// to be copied, and not a lost call: brain.Execute gives the context the deadline of
+		// the brief's timeout, which is already running when the process starts.
+		left := time.Until(deadline)
+		if limit := max(left-min(left/10, 5*time.Second), time.Second); timeout <= 0 || timeout > limit {
+			timeout = limit
 		}
 	}
 	start := time.Now()

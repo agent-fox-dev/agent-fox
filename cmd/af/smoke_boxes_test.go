@@ -175,10 +175,11 @@ func TestSmokeADeveloperFixesInPlaceWithNoneAndAForeignCommitIsFolded_TS_10_67(t
 	requireMake(t)
 	e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
 	var foreign string
-	spyRounds(t, shellRound(t, `printf 'echo hello\n' > src/greet.sh
+	watched := &sessions{}
+	spyRounds(t, watchRound(watched, shellRound(t, `printf 'echo hello\n' > src/greet.sh
 cat > tests/hello_test.sh <<'EOF'
 [ "$(sh src/greet.sh)" = hello ] || { echo "FAIL: not hello"; exit 1; }
-EOF`+commitTheWork, spyReport, &foreign))
+EOF`+commitTheWork, spyReport, &foreign)))
 
 	code, env := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", "none")
 
@@ -196,6 +197,9 @@ EOF`+commitTheWork, spyReport, &foreign))
 	}
 	if n := len(ledgerEntries(t, runDirOf(e, env), "box_export")); n != 0 {
 		t.Errorf("%d box_export entries, want none: Export is never called in place", n)
+	}
+	if calls, boxes := watched.exports(); calls != 0 || boxes == 0 {
+		t.Errorf("Export was asked %d times of the %d boxes the brain was given, want none", calls, boxes)
 	}
 	if opened := ledgerEntries(t, runDirOf(e, env), "box_open"); len(opened) != 1 || opened[0]["provider"] != "none" || opened[0]["placement"] != "host" || opened[0]["network"] != "host" || opened[0]["image"] != "" {
 		t.Errorf("box_open = %v, want none, placement host, network host", opened)

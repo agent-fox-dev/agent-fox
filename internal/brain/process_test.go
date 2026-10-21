@@ -333,6 +333,30 @@ func commandFor(t *testing.T, provider string, cfg ProcessConfig, spec ProcessSp
 	return cmd
 }
 
+// allowlistedNames are the names of the settings of the host that a process may have, in
+// either case, and the ones with a fixed spelling: the allowlist of the runner itself.
+func allowlistedNames() []string {
+	var out []string
+	for _, base := range allowed {
+		out = append(out, base, strings.ToLower(base))
+	}
+	return append(out, allowedExact...)
+}
+
+// unsetForTheTest takes the variable out of the environment of the process until the test is
+// over; t.Setenv with an empty value would leave it set.
+func unsetForTheTest(t *testing.T, name string) {
+	t.Helper()
+	old, had := os.LookupEnv(name)
+	if !had {
+		return
+	}
+	if err := os.Unsetenv(name); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Setenv(name, old) })
+}
+
 func hostEnvOf(m map[string]string) Getenv {
 	return func(name string) (string, bool) { v, ok := m[name]; return v, ok }
 }
@@ -383,7 +407,7 @@ func TestTheCommandRunsUnderEnvIWithAnAllowlist_TS_10_42(t *testing.T) {
 	cfg := ProcessConfig{
 		AFPath: "/x/bin/af", LookPath: func(string) (string, error) { return "/y/claude", nil },
 		Getenv: hostEnvOf(map[string]string{
-			"PATH": "/usr/bin", "LANG": "C.UTF-8", "tz": "UTC", "HTTPS_PROXY": "http://user:proxy-secret@proxy:3128", "SSL_CERT_FILE": "/etc/ca.pem",
+			"PATH": "/usr/bin", "LANG": "C.UTF-8", "tz": "UTC", "HTTPS_PROXY": "http://proxy:3128", "SSL_CERT_FILE": "/etc/ca.pem", "TMPDIR": "/host/tmp", "http_proxy": "a'b $(touch pwned) `id`",
 			"GITHUB_TOKEN": "ghp-secret", "FOO": "bar", "ANTHROPIC_API_KEY": "sk-secret",
 		}),
 	}
@@ -397,8 +421,11 @@ func TestTheCommandRunsUnderEnvIWithAnAllowlist_TS_10_42(t *testing.T) {
 	if !strings.HasPrefix(cmd, "env -i ") {
 		t.Errorf("command = %s, want it to start with env -i", cmd)
 	}
+	// The settings of the host are given with their values, since the shell of a box has not
+	// the environment of the host; the home and the temporary directory are the box's own, and
+	// the credentials are named and never given.
 	for _, want := range []string{
-		`HOME="$HOME"`, `LANG="$LANG"`, `tz="$tz"`, `HTTPS_PROXY="$HTTPS_PROXY"`, `SSL_CERT_FILE="$SSL_CERT_FILE"`,
+		`HOME="$HOME"`, `TMPDIR="$TMPDIR"`, `LANG='C.UTF-8'`, `tz='UTC'`, `HTTPS_PROXY='http://proxy:3128'`, `SSL_CERT_FILE='/etc/ca.pem'`, `http_proxy='a'\''b $(touch pwned) ` + "`id`" + `'`,
 		`ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"`, `AF_MODEL='m1'`,
 		` '/y/claude' '-p' 'it'\''s' 'two words' '$(touch pwned)'`,
 		` < '.agent-fox/run/20261021_160000_abcdef/brief.md'`,
@@ -409,7 +436,7 @@ func TestTheCommandRunsUnderEnvIWithAnAllowlist_TS_10_42(t *testing.T) {
 			t.Errorf("command = %s, want it to contain %s", cmd, want)
 		}
 	}
-	for _, banned := range []string{"GITHUB_TOKEN", "ghp-secret", "FOO", "bar", "sk-secret", "proxy-secret", "LC_ALL", "NO_PROXY", "TMPDIR", "SSL_CERT_DIR"} {
+	for _, banned := range []string{"GITHUB_TOKEN", "ghp-secret", "FOO", "bar", "sk-secret", "/host/tmp", "LC_ALL", "NO_PROXY", "SSL_CERT_DIR"} {
 		if strings.Contains(cmd, banned) {
 			t.Errorf("command = %s, want no %s", cmd, banned)
 		}
@@ -427,6 +454,19 @@ func TestAProcessSeesTheVendorKeyAndNoOtherCredentialOfTheHost_TS_10_42(t *testi
 	t.Setenv("GITLAB_TOKEN", "gl-host")
 	t.Setenv("FOO", "bar")
 	t.Setenv("ANTHROPIC_API_KEY", "sk-host")
+	// The settings of the host that may be had, as a developer behind a proxy has them: the
+	// process sees these values, which the shell of the box does not have of its own. Every
+	// other setting of the allowlist is out of the host's environment, whatever the machine has.
+	settings := map[string]string{"HTTPS_PROXY": "http://proxy.example:3128", "NO_PROXY": "localhost", "TZ": "UTC", "LANG": "C.UTF-8", "SSL_CERT_FILE": "/etc/ssl/ca.pem"}
+	for _, name := range allowlistedNames() {
+		if value, ok := settings[name]; ok {
+			t.Setenv(name, value)
+		} else {
+			unsetForTheTest(t, name)
+		}
+	}
+	hostTmp := t.TempDir()
+	t.Setenv("TMPDIR", hostTmp)
 	for _, provider := range []string{"local", "none"} {
 		t.Run(provider, func(t *testing.T) {
 			w := newProcWorld(t, provider, map[string]string{"ANTHROPIC_API_KEY": "sk-secret"}, nil)
@@ -450,9 +490,17 @@ func TestAProcessSeesTheVendorKeyAndNoOtherCredentialOfTheHost_TS_10_42(t *testi
 				t.Errorf("the process saw %v, want PATH with the directory of af first, HOME, the key of the box and AF_MODEL", seen)
 			}
 			for name := range seen {
-				if !slices.Contains([]string{"PATH", "HOME", "ANTHROPIC_API_KEY", "AF_MODEL", "LANG", "TMPDIR", "TZ", "LC_ALL"}, name) {
+				if !slices.Contains(append(allowlistedNames(), "PATH", "HOME", "ANTHROPIC_API_KEY", "AF_MODEL"), name) {
 					t.Errorf("the process saw %s, which is not on the list", name)
 				}
+			}
+			for name, want := range settings {
+				if seen[name] != want {
+					t.Errorf("the process saw %s=%q, want the host's %q", name, seen[name], want)
+				}
+			}
+			if provider == "local" && seen["TMPDIR"] == hostTmp {
+				t.Errorf("the process was given the temporary directory of the host, %s, and not that of its box", seen["TMPDIR"])
 			}
 			ledger, _ := os.ReadFile(filepath.Join(w.run.Path, "ledger.jsonl"))
 			for _, secret := range []string{"sk-secret", "sk-host", "ghp-host", "gh-host", "gl-host"} {
@@ -466,6 +514,43 @@ func TestAProcessSeesTheVendorKeyAndNoOtherCredentialOfTheHost_TS_10_42(t *testi
 
 // pidIsGone says whether the process no longer exists.
 func pidIsGone(pid int) bool { return errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) }
+
+// TestAProcessEndsAsATimeoutWithItsOutputWhenTheContextHasTheSameDeadline guards the way
+// brain.Execute calls a brain: the context has the deadline of the brief's timeout, a little
+// earlier than the process could be started with it. The process is told to stop before the
+// context cancels the call, so that the result is a timeout, with what the process wrote
+// copied to the host, and not a lost call.
+func TestAProcessEndsAsATimeoutWithItsOutputWhenTheContextHasTheSameDeadline(t *testing.T) {
+	for _, provider := range []string{"local", "none"} {
+		t.Run(provider, func(t *testing.T) {
+			w := newProcWorld(t, provider, nil, nil)
+			w.script(fakeScript{SleepMS: 30000})
+			b := w.processBrief(1)
+			b.Timeout = 3 * time.Second
+			ctx, cancel := context.WithTimeout(context.Background(), b.Timeout)
+			defer cancel()
+			var outputs []string
+			b.Artifact = func(a toolio.Artifact) {
+				if a.Kind == "brain_output" {
+					outputs = append(outputs, filepath.Base(a.Path))
+				}
+			}
+
+			res, err := w.p.Run(ctx, b, claudeSpec())
+
+			if err != nil || !res.TimedOut {
+				t.Fatalf("Run = %+v, %v, want a timeout and no error", res, err)
+			}
+			slices.Sort(outputs)
+			if !slices.Equal(outputs, []string{"claude.1.json", "claude.1.stderr"}) {
+				t.Errorf("brain_output artifacts = %v, want what the process wrote, copied", outputs)
+			}
+			if entry := w.entry("brain_process"); entry["exit_code"] != float64(box.ExitTimeout) {
+				t.Errorf("brain_process = %v, want the code of a timeout", entry)
+			}
+		})
+	}
+}
 
 // TestAProcessThatOutlivesItsTimeoutIsKilledWithItsGroup_TS_10_45 verifies TS-10-45:
 // a process that starts a child and sleeps is killed with the child when the timeout of

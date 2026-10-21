@@ -296,6 +296,15 @@ func TestExportOfAnInPlaceSessionIsAnInternalError_TS_10_28(t *testing.T) {
 	if entries, _ := os.ReadDir(tmp); len(entries) != 0 {
 		t.Errorf("Export made %v in the temporary directory", entries)
 	}
+	if n := s.ExportCalls(); n != 1 {
+		t.Errorf("ExportCalls = %d after one call, want 1: the count is of the asking, whether or not an export was made", n)
+	}
+	if _, err := s.Export(context.Background()); err == nil || s.ExportCalls() != 2 {
+		t.Errorf("a second Export: err %v, ExportCalls %d, want an error and 2", err, s.ExportCalls())
+	}
+	if s := open(t, Default, "local", newRepo(t, 1, "main"), &ledger{}); s.ExportCalls() != 0 {
+		t.Errorf("a session that was never exported says ExportCalls = %d", s.ExportCalls())
+	}
 }
 
 // TestBoxUnconfinedIsRaisedOnceForLocalAndForNone_TS_10_6 verifies TS-10-6: a run that

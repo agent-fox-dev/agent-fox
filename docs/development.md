@@ -131,7 +131,11 @@ runs `af triage` or `af fix` passes `--sandbox local`: the helpers `triageEnv.lo
 of a test, such as `--sandbox none`, is the one that counts), and a test that calls
 `run` with the command words passes it. `TestEveryTestThatRunsTriageOrFixSaysWhichBox_TS_10_62`
 reads the sources of the tests with `go/parser` and finds the invocations that do not.
-A test of the default selection sets `AF_SANDBOX`, which the scan accepts.
+A test of the default selection names `AF_SANDBOX` (sets it, or clears it to get the default of
+the platform), which the scan accepts. The scan finds the calls of `run`, `runCtx`, `Main`, the
+three helpers and the helpers that take the test and a command line (`afJSON(t, bin, "fix", url,
+"--dir", dir)`), and the `[]string` lists of arguments written to be run later; it does not find a
+call whose command word is held in a variable.
 
 ## The fake claude
 

@@ -32,8 +32,9 @@ raises the warning `budget_exceeded` (and, when nothing was submitted, the run
 fails as `budget`), and while Claude Code runs only `--max-turns` and the timeout
 bound it, since `af` cannot stop the process mid-run. A run whose output cannot be
 read has cost 0, `cost_source` `none` and the warning `brain_usage_unavailable`. The
-`agentkit` brain needs `ANTHROPIC_API_KEY` or another credential the hands' provider
-accepts, and the `claude` brain needs `ANTHROPIC_API_KEY` (see
+`agentkit` brain on the host needs `ANTHROPIC_API_KEY` or another credential the hands'
+provider accepts; in a box, and for the `claude` brain, it is `ANTHROPIC_API_KEY` and nothing
+else (see
 [configuration.md](configuration.md#the-brain)); the tests run them on a scripted
 provider and a fake `claude`, and need none.
 

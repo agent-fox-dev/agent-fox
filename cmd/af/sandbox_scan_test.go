@@ -253,29 +253,54 @@ func mentions(call *ast.CallExpr, match func(string) bool) bool {
 	return slices.ContainsFunc(literals(call), match)
 }
 
-// hasVariableArgs says whether the call takes its arguments from a variable: a
-// spread slice, or a name that is neither a literal nor a call.
-func hasVariableArgs(call *ast.CallExpr) bool {
-	if call.Ellipsis.IsValid() {
-		return true
+// hasVariableArgs says whether the call takes the rest of its arguments from a variable:
+// a spread slice. A name among the arguments is an input or a value and says nothing of
+// the flags.
+func hasVariableArgs(call *ast.CallExpr) bool { return call.Ellipsis.IsValid() }
+
+// isHelp says the argument asks for a text and not for a run.
+func isHelp(s string) bool { return s == "--help" || s == "-h" || s == "--schema" || s == "--version" }
+
+// takesTheTest says whether the first argument of the call is the test, t.
+func takesTheTest(call *ast.CallExpr) bool {
+	if len(call.Args) == 0 {
+		return false
 	}
-	return slices.ContainsFunc(call.Args, func(a ast.Expr) bool {
-		id, ok := a.(*ast.Ident)
-		return ok && id.Name != "nil"
-	})
+	id, ok := call.Args[0].(*ast.Ident)
+	return ok && (id.Name == "t" || id.Name == "tb")
+}
+
+// argsOpenBox says whether the arguments of a call of a test hold the command word of af
+// triage or af fix as a string and, after it, a flag of the command line: a call that is
+// given a name among others, such as checkSchema(t, "fix", result), is no invocation.
+func argsOpenBox(args []ast.Expr) bool {
+	for i, arg := range args {
+		if b, ok := arg.(*ast.BasicLit); ok && b.Kind == token.STRING && (unquote(b) == "triage" || unquote(b) == "fix") {
+			return listOpensBox(args[i:]) && slices.ContainsFunc(args[i:], func(a ast.Expr) bool {
+				flag, ok := a.(*ast.BasicLit)
+				return ok && flag.Kind == token.STRING && strings.HasPrefix(unquote(flag), "--")
+			})
+		}
+	}
+	return false
 }
 
 // opensBox says whether the call runs af triage or af fix in the way that opens a box.
 func opensBox(call *ast.CallExpr, bare []string) bool {
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return false
-	}
-	name := sel.Sel.Name
-	if !slices.Contains(runners, name) && !slices.Contains(bare, name) {
-		return false
+	var name string
+	switch fun := call.Fun.(type) {
+	case *ast.SelectorExpr:
+		name = fun.Sel.Name
+	case *ast.Ident:
+		name = fun.Name
 	}
 	lits := literals(call)
+	if !slices.Contains(runners, name) && !slices.Contains(bare, name) {
+		// Any other call of a test that is given the command words, such as a helper that runs
+		// the built binary (afJSON(t, bin, dir, "fix", url)), is an invocation when it has them
+		// the way a command line does: the command word, then the input or a flag.
+		return takesTheTest(call) && !slices.ContainsFunc(lits, isHelp) && argsOpenBox(call.Args)
+	}
 	if slices.ContainsFunc(lits, func(s string) bool { return s == "--help" || s == "-h" || s == "--schema" || s == "--version" }) {
 		return false
 	}
@@ -345,6 +370,11 @@ func TestTheScanFindsTheInvocationsThatDoNotSayWhichBox_TS_10_62(t *testing.T) {
 		{"a variable after a pin", `args := []string{"--sandbox", "local"}; e.loop(args...)`, nil, false},
 		{"a variable with no pin", `args := []string{"--brain", "spy"}; e.loop(args...)`, []int{3}, false},
 		{"a pin after the call is none", `e.loop(args...); _ = "--sandbox"`, []int{3}, false},
+		{"an earlier pin does not pin a call of literals", `e.run("", "fix", url, "--sandbox", "local"); e.run("", "fix", url)`, []int{3}, false},
+		{"a plain function with a command line", `afJSON(t, bin, "fix", e.u(), "--dir", dir)`, []int{3}, false},
+		{"a plain function with a command line, pinned", `afJSON(t, bin, "fix", e.u(), "--dir", dir, "--sandbox", "local")`, nil, false},
+		{"a plain function that is given a name", `checkSchema(t, "fix", fix.Result{}); valid(t, "triage", resultOf(t, env))`, nil, false},
+		{"a function that does not take the test", `hasNext(env, "af", "fix", e.u(), "--dir", dir)`, nil, false},
 		{"AF_SANDBOX in the function", `t.Setenv("AF_SANDBOX", "none"); e.loop("--brain", "spy")`, nil, false},
 		{"a list of arguments for a later run", `args := []string{"triage", e.forge.IssueURL(7), "--dir", dir}; e.run("", args...)`, []int{3}, false},
 		{"a list that is pinned", `args := []string{"triage", url, "--sandbox", "local"}; e.run("", args...)`, nil, false},

@@ -11,10 +11,14 @@ ARG BASE_IMAGE=quay.io/agentfox/sandbox:latest
 
 FROM registry.redhat.io/ubi10/go-toolset:latest AS build
 
+# AGENTKIT_REF is a branch or a tag of agentkit-go: git clone --branch takes no commit.
 ARG AGENTKIT_REF=main
 ARG VERSION=dev
 ARG BUILD=dev
 ARG BUILD_TIME=
+
+# go.mod names a newer Go than the toolset may be, as the sandbox image's build does.
+ENV GOTOOLCHAIN=auto
 
 USER root
 WORKDIR /build

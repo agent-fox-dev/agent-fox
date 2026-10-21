@@ -3,6 +3,7 @@ package box
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/agent-fox-dev/agentkit-go/sandbox"
+	"github.com/agent-fox-dev/agentkit-go/sandbox/landlock"
 	"github.com/agent-fox-dev/agentkit-go/sandbox/local"
 
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -130,7 +132,7 @@ func TestAnABIBelow4OrNoLandlockIsRefused_TS_10_17(t *testing.T) {
 		if s != nil {
 			t.Fatalf("ABI %d: a session was returned", tc.abi)
 		}
-		refusedAs(t, err, tc.found)
+		_ = refusedAs(t, err, tc.found)
 		f := asFailure(t, err)
 		if !strings.Contains(f.Message, "ABI 4") {
 			t.Errorf("ABI %d: message %q does not name the ABI that is needed, 4", tc.abi, f.Message)
@@ -157,7 +159,21 @@ func TestAProviderThatCannotBeMadeIsASandboxFailure(t *testing.T) {
 
 	_, err := openLandlock(t)
 
-	refusedAs(t, err, "agentkit-sandboxd is not beside af or on PATH")
+	_ = refusedAs(t, err, "agentkit-sandboxd is not beside af or on PATH")
+}
+
+// TestALandlockThatTheProviderRefusesToCreateIsRefusedLikeOneThatFailedTheChecks guards the
+// other way a host can turn out unable to confine: the provider's own probe says so when the box
+// is created (the error ErrNoLandlock, through wrapping), after the checks of af passed. It is
+// the same refusal: a sandbox failure that is not retryable and suggests podman.
+func TestALandlockThatTheProviderRefusesToCreateIsRefusedLikeOneThatFailedTheChecks(t *testing.T) {
+	hostWithLandlock(t, "linux", 4, func(ProviderConfig) (sandbox.Provider, error) {
+		return podmanThatFails{err: fmt.Errorf("landlock: create: %w: agentkit-sandboxd reported Landlock ABI 3", landlock.ErrNoLandlock)}, nil
+	})
+
+	_, err := openLandlock(t)
+
+	_ = refusedAs(t, err, "ABI 3")
 }
 
 // landlockStub is the sandbox provider of agentkit's landlock, as a local one that

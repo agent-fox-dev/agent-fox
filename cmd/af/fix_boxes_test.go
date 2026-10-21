@@ -9,9 +9,13 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/agent-fox-dev/agentkit-go/sandbox"
+	"github.com/agent-fox-dev/agentkit-go/sandbox/local"
 
 	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/brain"
@@ -20,11 +24,15 @@ import (
 )
 
 // boxFixFiles are the files of the repository of these tests: the red fixture, a file to
-// delete and a script whose executable bit is to be flipped.
+// delete and a script whose executable bit is to be flipped, and a check of the gate that the
+// files the apply step wrote are owned by the user who runs af: the check runs on the tree
+// that was applied, before the commit, so a file that a box's user left owned by another
+// fails the run where it matters (a landlock or podman box), and not after git has rewritten it.
 func boxFixFiles() map[string]string {
 	files := redFixFiles()
 	files["docs/old.txt"] = "old\n"
 	files["bin/run.sh"] = "#!/bin/sh\necho run\n"
+	files["tests/owner_test.sh"] = "bad=$(find src tests docs bin -not -user \"$(id -un)\" 2>/dev/null | head -3)\n[ -z \"$bad\" ] || { echo \"not owned by the host user: $bad\"; exit 1; }\n"
 	return files
 }
 
@@ -166,6 +174,70 @@ func assertFourChangesLanded(t *testing.T, e *fixEnv, code int, env map[string]a
 	gitDo(t, e.dir, "checkout", "-q", "main")
 }
 
+// sessions are the boxes that the brains of a test were given, to ask them afterwards what the
+// loop did to them.
+type sessions struct {
+	mu   sync.Mutex
+	seen []*box.Session
+}
+
+func (s *sessions) note(b *box.Session) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seen = append(s.seen, b)
+}
+
+// exports is how many times Export was asked of those boxes.
+func (s *sessions) exports() (calls, boxes int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, b := range s.seen {
+		calls += b.ExportCalls()
+	}
+	return calls, len(s.seen)
+}
+
+// watching is a brain that notes the box it is given and runs another.
+type watching struct {
+	inner brain.Brain
+	s     *sessions
+}
+
+func (w watching) Run(ctx context.Context, b brain.Brief) (brain.Outcome, error) {
+	w.s.note(b.Box)
+	return w.inner.Run(ctx, b)
+}
+
+// watchScripted puts the scripted brain in the registry of the fix commands behind a wrapper
+// that keeps the box it is given.
+func watchScripted(t *testing.T) *sessions {
+	t.Helper()
+	s := &sessions{}
+	entry, err := brain.Default.Lookup(brain.ScriptedName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	made := entry.New
+	entry.New = func(o brain.Options) (brain.Brain, error) {
+		inner, err := made(o)
+		return watching{inner: inner, s: s}, err
+	}
+	old := fixRegistry
+	reg := brain.NewRegistry()
+	reg.Register(entry)
+	fixRegistry = reg
+	t.Cleanup(func() { fixRegistry = old })
+	return s
+}
+
+// watchRounds wraps the rounds of a spy so that each notes the box it is given.
+func watchRound(s *sessions, round func(context.Context, brain.Brief) (brain.Outcome, error)) func(context.Context, brain.Brief) (brain.Outcome, error) {
+	return func(ctx context.Context, b brain.Brief) (brain.Outcome, error) {
+		s.note(b.Box)
+		return round(ctx, b)
+	}
+}
+
 // TestFixUnderNoneLandsFromTheCheckoutAndNeverExports_TS_10_33 verifies TS-10-33: a
 // scripted brain under none lands one commit with the trailer, no tree is exported, and
 // what the brain wrote under a protected path is put back on the checkout.
@@ -174,6 +246,7 @@ func TestFixUnderNoneLandsFromTheCheckoutAndNeverExports_TS_10_33(t *testing.T) 
 	requireMake(t)
 	t.Run("scripted", func(t *testing.T) {
 		e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
+		watched := watchScripted(t)
 		steps := script(t, writeStep("src/greet.sh", "echo hello\n"), writeStep("tests/hello_test.sh", helloTest), submitStep(spyReport, "accepted"))
 
 		code, env := e.fix(e.forge.IssueURL(7), "--brain", "scripted", "--script", steps, "--sandbox", "none")
@@ -196,6 +269,14 @@ func TestFixUnderNoneLandsFromTheCheckoutAndNeverExports_TS_10_33(t *testing.T) 
 		if n := len(ledgerEntries(t, runDirOf(e, env), "box_export")); n != 0 {
 			t.Errorf("%d box_export entries, want none: Export is never called in place", n)
 		}
+		if calls, boxes := watched.exports(); calls != 0 || boxes == 0 {
+			t.Errorf("Export was asked %d times of the %d boxes the brain was given, want none", calls, boxes)
+		}
+		for _, name := range []string{"gate.json", "guard.json"} {
+			if _, err := os.Stat(filepath.Join(e.dir, ".agent-fox", name)); err == nil {
+				t.Errorf(".agent-fox/%s, which af placed for the rounds, is left on the checkout as if it were the person's", name)
+			}
+		}
 		if box, _ := res["box"].(map[string]any); box["provider"] != "none" || box["network"] != "host" || box["image"] != "" {
 			t.Errorf("box = %v, want none, no image, network host", res["box"])
 		}
@@ -204,10 +285,28 @@ func TestFixUnderNoneLandsFromTheCheckoutAndNeverExports_TS_10_33(t *testing.T) 
 		}
 		e.onBase(t)
 	})
+	t.Run("a gate.json of the person's", func(t *testing.T) {
+		e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
+		if code, env := e.run("", "lang", "detect", "--write", "--dir", e.dir); code != 0 {
+			t.Fatalf("lang detect --write: exit code %d, error %v", code, env["error"])
+		}
+		mine := readFile(t, filepath.Join(e.dir, ".agent-fox", "gate.json"))
+		steps := script(t, writeStep("src/greet.sh", "echo hello\n"), writeStep("tests/hello_test.sh", helloTest), submitStep(spyReport, "accepted"))
+
+		code, env := e.fix(e.forge.IssueURL(7), "--brain", "scripted", "--script", steps, "--sandbox", "none")
+
+		if code != 0 || env["status"] != "done" {
+			t.Fatalf("exit code %d, status %v, error %v", code, env["status"], env["error"])
+		}
+		if got := readFile(t, filepath.Join(e.dir, ".agent-fox", "gate.json")); string(got) != string(mine) {
+			t.Errorf("gate.json = %q, want the person's file as it was: af placed none of its own", got)
+		}
+	})
 	t.Run("a protected path", func(t *testing.T) {
 		e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
 		files := map[string]string{"src/greet.sh": "echo hello\n", "tests/hello_test.sh": helloTest, ".github/workflows/ci.yml": "name: planted\n"}
-		spyRounds(t, spyRound(t, files, spyReport, 0, 1))
+		watched := &sessions{}
+		spyRounds(t, watchRound(watched, spyRound(t, files, spyReport, 0, 1)))
 
 		code, env := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", "none")
 
@@ -224,6 +323,9 @@ func TestFixUnderNoneLandsFromTheCheckoutAndNeverExports_TS_10_33(t *testing.T) 
 		}
 		if n := len(ledgerEntries(t, runDirOf(e, env), "box_export")); n != 0 {
 			t.Errorf("%d box_export entries, want none", n)
+		}
+		if calls, boxes := watched.exports(); calls != 0 || boxes == 0 {
+			t.Errorf("Export was asked %d times of the %d boxes the brain was given, want none", calls, boxes)
 		}
 		e.onBase(t)
 	})
@@ -278,6 +380,18 @@ git add -A && git commit -q -m 'brain: committed on the base branch'`, spyReport
 	e.onBase(t)
 }
 
+// checkoutState is the state of the repository that a run must not change once the brain has
+// left it: every ref with what it points at, the branch HEAD is on, the index and the tree.
+func checkoutState(t *testing.T, dir string) string {
+	t.Helper()
+	return strings.Join([]string{
+		gitDo(t, dir, "for-each-ref", "--format=%(refname) %(objectname)"),
+		gitDo(t, dir, "rev-parse", "--abbrev-ref", "HEAD"), gitDo(t, dir, "rev-parse", "HEAD"),
+		gitDo(t, dir, "status", "--porcelain=v1", "--untracked-files=all"),
+		gitDo(t, dir, "diff", "--cached", "--raw"), gitDo(t, dir, "diff", "--raw"),
+	}, "\n--\n")
+}
+
 // TestABranchSwitchADetachedHeadOrRewrittenHistoryIsRefusedWithTheTreeUntouched_TS_10_37
 // verifies TS-10-37: each of the three stops the run as failed/git, not retryable, names
 // where the checkout was and where it is, leaves the tree and the refs as the brain left
@@ -293,7 +407,15 @@ func TestABranchSwitchADetachedHeadOrRewrittenHistoryIsRefusedWithTheTreeUntouch
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
-			spyRounds(t, shellRound(t, move, spyReport, nil))
+			// What the brain left, as git shows it the moment it ends: the refs, where HEAD
+			// is, the index and the tree.
+			var left string
+			round := shellRound(t, move, spyReport, nil)
+			spyRounds(t, func(ctx context.Context, b brain.Brief) (brain.Outcome, error) {
+				out, err := round(ctx, b)
+				left = checkoutState(t, e.dir)
+				return out, err
+			})
 			base := strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "HEAD"))
 
 			code, env := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", "none")
@@ -328,7 +450,85 @@ func TestABranchSwitchADetachedHeadOrRewrittenHistoryIsRefusedWithTheTreeUntouch
 					t.Errorf("src/greet.sh = %q, want what the brain left", data)
 				}
 			}
+			if after := checkoutState(t, e.dir); after != left {
+				t.Errorf("the checkout is not as the brain left it:\nleft:\n%s\nafter:\n%s", left, after)
+			}
 		})
+	}
+}
+
+// TestAForeignCommitIsTakenOffTheBranchEvenWhenTheRunIsStopped guards 10-REQ-6.5 for the
+// stop: a person who interrupts the run as the brain ends has not asked for its commit to stay
+// on their branch. The check of the checkout runs on a context the stop did not reach, the
+// commit is taken off main, and the run parks the change it holds on a local branch, as it
+// parks one when it is stopped under any other box.
+// Verifies: 10-REQ-6.5
+func TestAForeignCommitIsTakenOffTheBranchEvenWhenTheRunIsStopped(t *testing.T) {
+	requireMake(t)
+	e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
+	baseHead := strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "HEAD"))
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	var foreign string
+	round := shellRound(t, `printf 'echo hello\n' > src/greet.sh
+git add -A && git commit -q -m 'brain: committed on the base branch'`, spyReport, &foreign)
+	spyRounds(t, func(c context.Context, b brain.Brief) (brain.Outcome, error) {
+		out, err := round(c, b)
+		cancel() // the run is stopped as the brain ends
+		return out, err
+	})
+
+	code, env := e.runCtx(ctx, "", "fix", e.forge.IssueURL(7), "--dir", e.dir, "--brain", "spy", "--sandbox", "none")
+
+	if errObj, _ := env["error"].(map[string]any); code == 0 || errObj["category"] != "cancelled" {
+		t.Errorf("exit code %d, error %v, want the run to end as cancelled", code, env["error"])
+	}
+	if foreign == "" {
+		t.Fatal("the brain recorded no commit")
+	}
+	if got := strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "main")); got != baseHead {
+		t.Errorf("main is at %s, want the base %s: the commit of the brain stayed on the branch of the person", got, baseHead)
+	}
+	if on := gitDo(t, e.dir, "branch", "--contains", foreign); strings.Contains(on, "main") {
+		t.Errorf("the foreign commit %s is on %q", foreign, on)
+	}
+	var parked []string
+	for _, b := range e.branches() {
+		if b != "main" {
+			parked = append(parked, b)
+		}
+	}
+	if len(parked) != 1 || !strings.Contains(gitDo(t, e.dir, "show", "--stat", "--format=", parked[0]), "src/greet.sh") {
+		t.Errorf("branches %v: want the change parked on one local branch", e.branches())
+	}
+}
+
+// TestACheckoutThatTheBrainMovedIsNotParkedWhenTheRunIsStoppedToo guards 10-REQ-6.6 for the
+// stop: a checkout on another branch is left as the brain left it and nothing is committed on
+// it, whether or not the run was stopped as well.
+// Verifies: 10-REQ-6.6
+func TestACheckoutThatTheBrainMovedIsNotParkedWhenTheRunIsStoppedToo(t *testing.T) {
+	requireMake(t)
+	e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	round := shellRound(t, `git checkout -q -b elsewhere && printf 'echo hello\n' > src/greet.sh`, spyReport, nil)
+	spyRounds(t, func(c context.Context, b brain.Brief) (brain.Outcome, error) {
+		out, err := round(c, b)
+		cancel()
+		return out, err
+	})
+
+	e.runCtx(ctx, "", "fix", e.forge.IssueURL(7), "--dir", e.dir, "--brain", "spy", "--sandbox", "none")
+
+	if now := strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "--abbrev-ref", "HEAD")); now != "elsewhere" {
+		t.Errorf("checked out %q, want the branch the brain left", now)
+	}
+	if got := strings.Fields(gitDo(t, e.dir, "rev-list", "--all")); len(got) != 1 {
+		t.Errorf("%d commits in the repository, want only the first: nothing is committed or parked on a checkout that was moved", len(got))
+	}
+	if status := gitDo(t, e.dir, "status", "--porcelain"); !strings.Contains(status, "src/greet.sh") {
+		t.Errorf("status = %q, want the edit of the brain left in the tree", status)
 	}
 }
 
@@ -338,10 +538,16 @@ func TestABranchSwitchADetachedHeadOrRewrittenHistoryIsRefusedWithTheTreeUntouch
 // Verifies: 10-REQ-2.6
 func TestTheBoxOfTheRunIsInTheLedgerAndTheResult_TS_10_14(t *testing.T) {
 	requireMake(t)
-	isoboxFor(t) // a provider that isolates: the shell of the fix brief is a tool, so its network is open
-	for _, tc := range []struct{ provider, network string }{{"local", "host"}, {"none", "host"}, {"isobox", "open"}} {
-		t.Run(tc.provider, func(t *testing.T) {
+	isoboxFor(t)                  // a provider that isolates: the shell of the fix brief is a tool, so its network is open
+	isolatingStandIn(t, "podman") // the name that gets an image, over a box that is the local one
+	const named = "registry.example/tools:v1"
+	for _, tc := range []struct{ name, provider, network, image, imageVar string }{
+		{"local", "local", "host", "", ""}, {"none", "none", "host", "", ""}, {"isobox", "isobox", "open", "", ""},
+		{"podman", "podman", "open", brain.DefaultImage, ""}, {"podman with AF_SANDBOX_IMAGE", "podman", "open", named, named},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
+			t.Setenv("AF_SANDBOX_IMAGE", tc.imageVar)
 			spyRounds(t, spyRound(t, spyFixed, spyReport, 0, 1))
 
 			code, env := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", tc.provider)
@@ -350,8 +556,8 @@ func TestTheBoxOfTheRunIsInTheLedgerAndTheResult_TS_10_14(t *testing.T) {
 				t.Fatalf("exit code %d, error %v", code, env["error"])
 			}
 			box, _ := resultOf(t, env)["box"].(map[string]any)
-			if box["provider"] != tc.provider || box["image"] != "" || box["network"] != tc.network || len(box) != 3 {
-				t.Errorf("box = %v, want {provider: %s, image: \"\", network: %s}", box, tc.provider, tc.network)
+			if box["provider"] != tc.provider || box["image"] != tc.image || box["network"] != tc.network || len(box) != 3 {
+				t.Errorf("box = %v, want {provider: %s, image: %q, network: %s}", box, tc.provider, tc.image, tc.network)
 			}
 			entries := ledgerEntries(t, runDirOf(e, env), "box_open")
 			if len(entries) != 1 {
@@ -362,11 +568,51 @@ func TestTheBoxOfTheRunIsInTheLedgerAndTheResult_TS_10_14(t *testing.T) {
 					t.Errorf("box_open = %v, has no %s", entries[0], key)
 				}
 			}
-			if entries[0]["provider"] != tc.provider || entries[0]["network"] != tc.network || entries[0]["placement"] != "host" {
-				t.Errorf("box_open = %v, want %s, network %s, placement host", entries[0], tc.provider, tc.network)
+			if entries[0]["provider"] != tc.provider || entries[0]["network"] != tc.network || entries[0]["image"] != tc.image || entries[0]["placement"] != "host" {
+				t.Errorf("box_open = %v, want %s, image %q, network %s, placement host", entries[0], tc.provider, tc.image, tc.network)
 			}
 		})
 	}
+}
+
+// standIn notes what a stand-in provider was made and asked for.
+type standIn struct {
+	builds  int
+	extraRO []string
+	spec    sandbox.Spec
+}
+
+// capturing is the local provider under the name of an isolating one: it notes the spec it is
+// asked for and creates without the parts only the real provider can honour.
+type capturing struct {
+	sandbox.Provider
+	in *standIn
+}
+
+func (c capturing) Create(ctx context.Context, spec sandbox.Spec) (sandbox.Sandbox, error) {
+	c.in.spec = spec
+	spec.Image, spec.RequireLandlock = "", false
+	spec.Network = sandbox.Network{Mode: sandbox.NetworkUnrestricted}
+	return c.Provider.Create(ctx, spec)
+}
+
+// isolatingStandIn replaces the provider of the name, for the rest of the test, with the
+// local one that says it isolates, so that a run that names landlock or podman gets the
+// request it computes and no kernel or engine is asked for.
+func isolatingStandIn(t *testing.T, name string) *standIn {
+	t.Helper()
+	original, err := box.Default.Lookup(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := &standIn{}
+	box.Default.Register(box.Entry{Name: name, Build: func(cfg box.ProviderConfig) (sandbox.Provider, error) {
+		in.builds++
+		in.extraRO = cfg.ExtraRO
+		return capturing{Provider: local.Unisolated(), in: in}, nil
+	}})
+	t.Cleanup(func() { box.Default.Register(original) })
+	return in
 }
 
 // isoboxFor registers a box provider that is the local one and says it isolates, so that a

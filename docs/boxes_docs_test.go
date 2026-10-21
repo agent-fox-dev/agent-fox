@@ -18,12 +18,16 @@ func TestTheDocumentsNameWhatTheBoxesAndTheClaudeBrainShip_TS_10_65(t *testing.T
 			"| `foreign_commits_reset` |", "| `box_af_version_mismatch` |", "| `brain_usage_unavailable` |", "| `budget_exceeded` |", "| `box_unconfined` |",
 			"the hook is the only guard", "`box` | `{provider, image, network}`",
 			"box_open {provider, image, network, placement}", "claude_result",
+			"| `brain_output_unreadable` |", "`submission.rejected.<attempt>.json`", "agentkit-sandboxd", "on the engine's command line on the host",
 		},
 		"docs/configuration.md": {
 			"`AF_SANDBOX`", "`AF_SANDBOX_IMAGE`", "quay.io/agentfox/tools:latest", "Which credential enters which box", "`--model`", "No forge token",
+			// the network of each placement
+			"| Where the brain runs | The box holds | Network |", "| on the host (`scripted`", "| in the box (`claude` under `local`", "| at the checkout (`claude` under `none`)", "command line of the engine",
 		},
 		"docs/model-usage.md": {
 			"`claude`", "`reported`", "`--model`", "**after the run**", "`budget_exceeded`", "`AF_SANDBOX`", "`AF_SANDBOX_IMAGE`", "Podman",
+			"such a brain has the whole network", "a brain on the host whose brief has no tool that", "`ANTHROPIC_API_KEY` and nothing\nelse",
 		},
 		"docs/architecture.md": {
 			"Placement, as built", "| `claude` | box | box | checkout |", "The `Spec` of a box, for each brain", "The host settings, for each brain", "The tools image.", "containers/tools/Containerfile",

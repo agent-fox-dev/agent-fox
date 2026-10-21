@@ -84,8 +84,8 @@ func (s *Settings) Validate() error { return s.ValidateWith(os.LookupEnv) }
 // first of: --sandbox (or the default a command pinned for it), AF_SANDBOX, and
 // landlock on Linux and podman on any other operating system. Choosing opens no box
 // and never falls back to another provider; Sandbox and SandboxSource say what was
-// chosen. An empty AF_SANDBOX is unset, and one that --sandbox makes unused is not
-// read.
+// chosen. An empty AF_SANDBOX is unset; one that is not a provider is refused even when
+// --sandbox says which to use.
 func (s *Settings) ValidateWith(get Getenv) error {
 	usage := func(format string, args ...any) error {
 		return &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf(format, args...)}
@@ -95,12 +95,12 @@ func (s *Settings) ValidateWith(get Getenv) error {
 		return usage("--budget must be a finite number of dollars above 0, not %v", s.Budget)
 	case s.MaxTurns < 1:
 		return usage("--max-turns must be at least 1, not %d", s.MaxTurns)
+	case s.BorrowedHands && s.Brain != AgentkitName:
+		return usage("--borrowed-hands goes only with --brain %s, the driver that has hands to borrow, not with --brain %s", AgentkitName, s.Brain)
 	case s.Brain == ScriptedName && s.Script == "":
 		return usage("--script is required with --brain scripted: the file of steps to replay")
 	case s.Brain != ScriptedName && s.Script != "":
 		return usage("--script goes only with --brain scripted, not with --brain %s", s.Brain)
-	case s.BorrowedHands && s.Brain != AgentkitName:
-		return usage("--borrowed-hands goes only with --brain %s, the driver that has hands to borrow, not with --brain %s", AgentkitName, s.Brain)
 	}
 	return s.chooseSandbox(get)
 }
@@ -112,13 +112,16 @@ func (s *Settings) chooseSandbox(get Getenv) error {
 	if reg == nil {
 		reg = box.Default
 	}
+	env, _ := get(sandboxVar)
+	if env != "" {
+		if _, err := reg.Lookup(env); err != nil {
+			return &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("%s=%q is not a box provider; the providers are %s", sandboxVar, env, strings.Join(reg.Names(), ", "))}
+		}
+	}
 	name, source := s.Sandbox, SandboxFlag
 	if name == "" {
-		if v, ok := get(sandboxVar); ok && v != "" {
-			if _, err := reg.Lookup(v); err != nil {
-				return &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("%s=%q is not a box provider; the providers are %s", sandboxVar, v, strings.Join(reg.Names(), ", "))}
-			}
-			name, source = v, SandboxEnv
+		if env != "" {
+			name, source = env, SandboxEnv
 		} else {
 			name, source = defaultSandbox(), SandboxDefault
 		}
