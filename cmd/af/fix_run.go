@@ -102,7 +102,8 @@ func fixRun(r *toolio.Run, runID string, s *brain.Settings) (toolio.Outcome, err
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
-	if _, err := box.Default.Lookup(s.Sandbox); err != nil {
+	boxEntry, err := box.Default.Lookup(s.Sandbox)
+	if err != nil {
 		return toolio.Outcome{}, err
 	}
 	document, err := os.ReadFile(filepath.Join(run.Path, "brief.md"))
@@ -114,7 +115,7 @@ func fixRun(r *toolio.Run, runID string, s *brain.Settings) (toolio.Outcome, err
 		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("the brief of run %s is not the one fix.json was made with: %v", runID, err)}
 	}
 	opts := fixBrainOptions()
-	opts.Script = s.Script
+	opts.Script, opts.Provider, opts.BorrowedHands = s.Script, s.Sandbox, s.BorrowedHands
 	b, err := entry.New(opts)
 	if err != nil {
 		return toolio.Outcome{}, err
@@ -123,15 +124,14 @@ func fixRun(r *toolio.Run, runID string, s *brain.Settings) (toolio.Outcome, err
 	round := state.Rounds + 1
 	tally := &brain.Tally{}
 	var out fix.RoundResult
-	err = box.With(r.Ctx, box.Request{
-		Provider: s.Sandbox, HostDir: r.Dir, RunID: runID, Tool: "fix",
-		Env: brain.BuildBoxEnv(entry, brain.PlacementHost, opts.Getenv), Record: run.Record, Warn: r.Warn,
-	}, func(sess *box.Session) error {
+	placement := brain.PlacementOf(entry, boxEntry, s.BorrowedHands)
+	err = box.With(r.Ctx, fixBoxRequest(r, run, entry, boxEntry, s, opts), func(sess *box.Session) error {
 		var err error
 		out, err = fix.RunRound(r.Ctx, fix.RoundParams{
 			Dir: r.Dir, Git: gitx.New(r.Dir, gitx.ExecRunner), Session: sess, Name: s.Brain, Brain: b, Tally: tally,
 			RunDir: run, Report: r, State: state, Prefix: prefix, Task: task, Round: round,
 			MaxCostUSD: s.Budget, MaxTurns: s.MaxTurns, Timeout: timeLeft(r),
+			DriverInBox: placement == brain.PlacementBox && !entry.OwnHands,
 		})
 		return err
 	})

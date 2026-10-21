@@ -3,6 +3,7 @@ package fix
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"path"
 	"time"
 
@@ -35,6 +36,10 @@ type RoundParams struct {
 	MaxCostUSD float64
 	MaxTurns   int
 	Timeout    time.Duration
+	// DriverInBox says the brain is the driver of AgentKit, run as a process in the box. The
+	// run directory of the box must have no fix.json then, which would make the af fix run
+	// that the box executes the round of the host, with a box of its own.
+	DriverInBox bool
 }
 
 // RoundResult is what a round left.
@@ -66,14 +71,28 @@ func GuardFile(s State) ([]byte, error) {
 // run and the hook use the host's table and rules, and not what the box would detect, and
 // fix.json in the run directory of the box, so that a brain with hands of its own can run
 // af fix submit there, which refuses a run directory that is no fix run.
-func WriteBoxFiles(ctx context.Context, sess *box.Session, s State) error {
+//
+// A box that is the checkout (the none provider) has gate.json and guard.json of the
+// person's own, perhaps: the run's are placed only where there are none, and those that
+// are there are left as they are. The driver of AgentKit that runs in the box has no
+// fix.json (see RoundParams.DriverInBox).
+func WriteBoxFiles(ctx context.Context, sess *box.Session, s State, driverInBox bool) error {
 	for _, f := range []struct {
-		rel  string
-		make func(State) ([]byte, error)
+		rel   string
+		make  func(State) ([]byte, error)
+		state bool
 	}{
-		{boxGatePath, GateFile}, {boxGuardPath, GuardFile},
-		{path.Join(".agent-fox", "run", s.RunID, StateFile), State.Marshal},
+		{boxGatePath, GateFile, false}, {boxGuardPath, GuardFile, false},
+		{path.Join(".agent-fox", "run", s.RunID, StateFile), State.Marshal, true},
 	} {
+		if f.state && driverInBox {
+			continue
+		}
+		if sess.InPlace() && !f.state {
+			if _, err := fs.Stat(sess.FS(ctx), f.rel); err == nil {
+				continue
+			}
+		}
 		data, err := f.make(s)
 		if err != nil {
 			return &toolio.Failure{Category: toolio.CategoryInternal, Message: fmt.Sprintf("cannot make %s: %v", f.rel, err)}
@@ -88,14 +107,26 @@ func WriteBoxFiles(ctx context.Context, sess *box.Session, s State) error {
 // RunRound runs one round: the files of the box are placed, the brain runs on the brief of
 // the run, and the tree of an accepted report is exported and applied to the checkout. A
 // round that ends without an accepted submission applies nothing, and neither does one
-// that asks a question.
+// that asks a question. Where the box is the checkout, nothing is exported or applied:
+// the brain has worked on the tree that is measured next, and the commits it made on the
+// branch are taken off it first (see Checkout.Check), or the run is stopped.
 func RunRound(ctx context.Context, p RoundParams) (RoundResult, error) {
-	if err := WriteBoxFiles(ctx, p.Session, p.State); err != nil {
+	if err := WriteBoxFiles(ctx, p.Session, p.State, p.DriverInBox); err != nil {
 		return RoundResult{}, err
 	}
 	var tools []string
 	for _, tool := range p.Session.Tools() {
 		tools = append(tools, tool.Name)
+	}
+	// The brain of a box that is the checkout works on the checkout itself, so what it
+	// commits is on the branch; where the checkout stands is recorded before it runs.
+	inPlace := p.Session.InPlace()
+	var before Checkout
+	if inPlace {
+		var err error
+		if before, err = RecordCheckout(ctx, p.Git); err != nil {
+			return RoundResult{}, err
+		}
 	}
 	res, err := brain.Execute(ctx, brain.Request{
 		Session: p.Session, Name: p.Name, Brain: p.Brain, RunDir: p.RunDir, Report: p.Report, Tally: p.Tally,
@@ -104,6 +135,12 @@ func RunRound(ctx context.Context, p RoundParams) (RoundResult, error) {
 			MaxCostUSD: p.MaxCostUSD, MaxTurns: p.MaxTurns, Timeout: p.Timeout,
 		}),
 	})
+	if inPlace {
+		// Before anything is measured, and whether or not the brain came to a report.
+		if _, cerr := before.Check(ctx, ForeignParams{Git: p.Git, Warn: warnOf(p.Report), Record: p.RunDir.Record}); cerr != nil {
+			return RoundResult{}, cerr
+		}
+	}
 	if err != nil {
 		return RoundResult{}, err
 	}
@@ -111,8 +148,8 @@ func RunRound(ctx context.Context, p RoundParams) (RoundResult, error) {
 	if out.Submission, err = Decode(res.Payload); err != nil {
 		return out, &toolio.Failure{Category: toolio.CategoryInternal, Message: err.Error()}
 	}
-	if out.Submission.Question != nil {
-		return out, nil
+	if out.Submission.Question != nil || inPlace {
+		return out, nil // the tree of a box that is the checkout is the checkout: nothing to export or apply
 	}
 	export, err := p.Session.Export(ctx)
 	if err != nil {

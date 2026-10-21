@@ -716,7 +716,7 @@
             },
             "network": {
               "type": "string",
-              "description": "host for a provider that puts no boundary around the tools."
+              "description": "none for a box with no network, open for one with the network of the machine, and host for a provider that puts no boundary around the tools (local and none)."
             }
           }
         }

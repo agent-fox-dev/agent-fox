@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"os"
 	"slices"
 	"strconv"
 	"time"
@@ -22,7 +21,7 @@ var fixRegistry = brain.Default
 // fixBrainOptions are what the brain of a run is made of: the model from AF_MODEL,
 // and the provider and the credentials the brain finds for itself. A test
 // replaces it with a brain on the faux provider.
-var fixBrainOptions = func() brain.Options { return brain.Options{Model: os.Getenv("AF_MODEL")} }
+var fixBrainOptions = baseOptions
 
 // fixGate runs the checks of the baseline; a test counts the runs with its own.
 var fixGate = checks.Run
@@ -126,7 +125,7 @@ func fixLoop(r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 	}
 
 	opts := fixBrainOptions()
-	opts.Script = o.settings.Script
+	opts.Script, opts.Provider, opts.BorrowedHands = o.settings.Script, o.settings.Sandbox, o.settings.BorrowedHands
 	pre, err := fix.Preflight(r.Ctx, fix.PreflightParams{
 		Dir: r.Dir, Base: o.base, Land: string(o.land), NoVerify: o.noVerify, DryRun: r.DryRun,
 		Forge: r.Forge, Target: r.Target, Warn: r.Warn, Gate: fixGate,
@@ -145,14 +144,13 @@ func fixLoop(r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 	var ended fix.LoopResult
 	var loopErr error
 	var info fix.BoxInfo
-	err = box.With(r.Ctx, box.Request{
-		Provider: o.settings.Sandbox, HostDir: r.Dir, RunID: r.RunDir.ID, Tool: "fix",
-		Env: brain.BuildBoxEnv(entry, brain.PlacementHost, opts.Getenv), Record: r.RunDir.Record, Warn: r.Warn,
-	}, func(sess *box.Session) error {
-		info = fix.NewBoxInfo(boxEntry, sess.Spec())
+	placement := brain.PlacementOf(entry, boxEntry, o.settings.BorrowedHands)
+	err = box.With(r.Ctx, fixBoxRequest(r, r.RunDir, entry, boxEntry, o.settings, opts), func(sess *box.Session) error {
+		info = fix.NewBoxInfo(sess)
 		ended, loopErr = fix.RunLoop(r.Ctx, fix.LoopParams{
 			Dir: r.Dir, Git: pre.Git, Session: sess, Name: o.settings.Brain, Brain: pre.Brain, Tally: &brain.Tally{}, RunDir: r.RunDir, Report: r, Reporter: r,
 			State: &state, Prefix: start.prefix.Text, Attempts: int(o.attempts), Budget: o.settings.Budget, MaxTurns: o.settings.MaxTurns, Gate: fixGate,
+			DriverInBox: placement == brain.PlacementBox && !entry.OwnHands, CommandOnly: entry.CommandRoute,
 		})
 		return nil
 	})
@@ -174,4 +172,15 @@ func fixLoop(r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 		out.NeedsHuman = &toolio.Question{Text: q.Text, Options: q.Options}
 	}
 	return out, nil
+}
+
+// fixBoxRequest is the request for the box of a fix run of the brain: what the brain, the
+// provider, borrowed hands and the tools of a fix brief (all of the hands') come to.
+func fixBoxRequest(r *toolio.Run, run *toolio.RunDir, entry brain.Entry, provider box.Entry, s *brain.Settings, opts brain.Options) box.Request {
+	deadline, _ := r.Ctx.Deadline()
+	return brain.BoxRequest(brain.BoxParams{
+		Brain: entry, Provider: provider, BorrowedHands: s.BorrowedHands, Getenv: opts.Getenv, Deadline: deadline,
+		Defaulted: s.SandboxSource != brain.SandboxFlag,
+		HostDir:   r.Dir, RunID: run.ID, Tool: "fix", Record: run.Record, Warn: r.Warn,
+	})
 }

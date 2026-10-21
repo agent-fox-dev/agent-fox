@@ -739,3 +739,53 @@ func TestCreateBranchFromStartsAtTheRefAndCarriesTheWorkingTree(t *testing.T) {
 		t.Error("a ref that is an option was taken")
 	}
 }
+
+// TestIsAncestorTellsTheDescendantsFromTheRest guards the question a fix run asks of the
+// checkout when a brain worked on it in place: is the commit it began at an ancestor of
+// where the checkout is now. Exit code 1 of git is an answer, not an error.
+func TestIsAncestorTellsTheDescendantsFromTheRest(t *testing.T) {
+	g, dir := newRepo(t)
+	ctx := context.Background()
+	base, err := g.RevParse(ctx, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{"a.txt": "a\n", "b.txt": "b\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := g.CommitAll(ctx, "add "+name+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tip, _ := g.RevParse(ctx, "HEAD")
+	if out, code, err := ExecRunner(ctx, dir, []string{"git", "checkout", "-q", "-b", "side", base}); err != nil || code != 0 {
+		t.Fatalf("%s %v", out, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "c.txt"), []byte("c\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.CommitAll(ctx, "add c.txt\n"); err != nil {
+		t.Fatal(err)
+	}
+	side, _ := g.RevParse(ctx, "HEAD")
+
+	for _, tc := range []struct {
+		name, a, b string
+		want       bool
+	}{
+		{"the base of the tip", base, tip, true},
+		{"the tip of itself", tip, tip, true},
+		{"the tip of the base", tip, base, false},
+		{"the other branch", side, tip, false},
+		{"the tip of the other branch", tip, side, false},
+	} {
+		got, err := g.IsAncestor(ctx, tc.a, tc.b)
+		if err != nil || got != tc.want {
+			t.Errorf("%s: IsAncestor = %v, %v, want %v", tc.name, got, err, tc.want)
+		}
+	}
+	if _, err := g.IsAncestor(ctx, "not-a-commit", tip); err == nil {
+		t.Error("IsAncestor of a commit that is not there succeeded: only exit code 1 means no")
+	}
+}

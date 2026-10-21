@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/agent-fox-dev/agentfox/internal/brain"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -32,6 +33,13 @@ func newApp() *toolio.App {
 	app := &toolio.App{Version: version, Commit: commit, BuildTime: buildTime}
 	register(app)
 	return app
+}
+
+// baseOptions are the options every brain is made from: the model of AF_MODEL, and which af
+// this is, so that the af of an image that is another can be told.
+func baseOptions() brain.Options {
+	v, c := (&toolio.App{Version: version, Commit: commit, BuildTime: buildTime}).Identity()
+	return brain.Options{Model: os.Getenv("AF_MODEL"), AFVersion: v, AFCommit: c}
 }
 
 // schemaFiles are the JSON Schemas of the commands' results, embedded in the
