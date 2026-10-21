@@ -149,12 +149,15 @@ the run directory, and a command adds its own beside them:
 | `panic.txt` | the shell | the stack of a panic of the command |
 | `brief.<attempt>.md`, `hook.json` | `brain.Execute` | the brief a brain was given, and the hook configuration placed with it |
 | `submission.json` | `brain.Execute` | the accepted submission, written from what the host checked again in the box's file, and only if there is one: an attempt that has none leaves no such file |
+| `guard.json`, `claude-settings.json` | the `claude` brain | the policy file and the settings (the `PreToolUse` hook) it ran with, copied from the box |
+| `claude.<attempt>.json`, `claude.<attempt>.stderr`, `agentkit.<attempt>.json`, `agentkit.<attempt>.stderr` | a brain that runs as a process | what the process printed (the JSON up to 1 MiB, the last 64 KiB of the errors), copied from the box and listed as `brain_output` artifacts; nothing in them decides whether there is a submission |
 | `transcript.<attempt>.jsonl` | an in-process brain | its tool calls that reached the gate, `{seq, tool, args, decision, reason, ok, result}` with `args` and `result` cut to 4096 bytes, and the steps of a script that were skipped, `{seq, skipped, step, what}`; af never reads it |
 | `brain-panic.<attempt>.txt` | `brain.Execute` | the stack of a brain that panicked |
 
 The box has run files of its own under `.agent-fox/run/<id>/`: `brief.md`,
-`run.json`, `hook.json` and `submission.json`, placed by `af` and not by the
-brain. The ledger of a run that has a brain holds the entries `box_open`,
+`run.json` (which also holds `prefix_bytes`, the length of the brief's prefix),
+`hook.json` and `submission.json`, placed by `af` and not by the brain; for `claude`
+also `guard.json` and `claude-settings.json`. The ledger of a run that has a brain holds the entries `box_open`,
 `box_sync`, `box_export`, `box_close`, `brief_placed`, `brain_start`,
 `brain_end` and the `submission_*` ones, which [cli.md](cli.md#the-ledger)
 lists.
@@ -461,8 +464,8 @@ provider and checks that `af` saw the same submission.
 
 ### The brain interface, as built
 
-`internal/brain`, `internal/box` and `internal/submission` hold the first two
-brains (`agentkit` and `scripted`) and what they run on. The sketch above is
+`internal/brain`, `internal/box` and `internal/submission` hold the three brains
+(`agentkit`, `scripted` and `claude`) and what they run on. The sketch above is
 what was built, with these differences:
 
 ```go
@@ -506,11 +509,15 @@ box's own tools: a directory is listed with the list tool and a file is
 exported, one file at a time, because the read tool shows lines, caps them, and
 takes the box down on a file that is not UTF-8.
 
-**Choosing.** `brain.Registry` holds `Entry{Name, CostSource, BoxEnv, New}`; the
-default has `agentkit` (cost source `measured`) and `scripted` (`none`).
-`BoxEnv` names the host variables that reach the box of that brain, and nothing
-else does: it is empty for both. `box` has a registry of providers of its own,
-with `local` in it. `brain.Flags` is the shared set of flags ([cli.md](cli.md#brains-and-boxes)).
+**Choosing.** `brain.Registry` holds `Entry{Name, CostSource, Credentials, OwnHands,
+DriverInBox, CommandRoute, New}`; the default has `agentkit` (cost source `measured`;
+`DriverInBox`), `scripted` (`none`) and `claude` (`reported`; `OwnHands`,
+`CommandRoute`). `Credentials` names the host variables that reach the box of a brain
+that runs as a process, and nothing else does: `ANTHROPIC_API_KEY` for `agentkit` and
+`claude`, and none ever for a brain on the host. `box` has a registry of providers of
+its own, `Entry{Name, Unconfined, InPlace, New, Build, Explain}`, with `landlock`,
+`podman`, `local` and `none` in it; a provider isolates unless it is `Unconfined`.
+`brain.Flags` is the shared set of flags ([cli.md](cli.md#brains-and-boxes)).
 
 **Running.** `brain.Execute(ctx, Request{Session, Name, Brain, Brief, RunDir,
 Report, Tally, Heartbeat, Rand})` runs one brief in a held box (the caller opens
@@ -543,11 +550,71 @@ call the driver answers itself (a tool that does not exist, arguments that do
 not fit) never reaches it. The policy is prevention and not a boundary, as its
 package says.
 
-**Placement.** In this release the `agentkit` brain always runs on the host,
-over the box's tools, which is the only placement that means anything with the
-`local` provider; running the driver inside a box with one `execute`, and the
-`claude` brain with its settings file and hook, belong to the scope that adds
-the other box providers.
+**Placement, as built.** `brain.PlacementOf(brain, provider, borrowedHands)` is the one
+function that says where a brain runs, and `brain.BoxRequest` the one that turns it,
+with the provider and the tools of the agent's brief, into the request for the box:
+
+| Brain | `landlock`, `podman` | `local` | `none` |
+|---|---|---|---|
+| `scripted` | host | host | host |
+| `agentkit` | box; with `--borrowed-hands`, host | host | host |
+| `claude` | box | box | checkout |
+
+*Host* is `af`'s process over `Session.Tools`; *box* is a process started in the box with
+`Session.Exec`; *checkout* is such a process on the host, in the checkout, which is the
+tree under `none`. The default provider is `AF_SANDBOX`, else `landlock` on Linux and
+`podman` elsewhere, and it never falls back to `local` or `none`.
+
+**The `Spec` of a box, for each brain.** `Spec.Env` holds credentials and nothing else:
+the host's `ANTHROPIC_API_KEY` for a brain in the box or at the checkout, and nothing for a
+brain on the host. `Spec.Network` is `none` for a brain on the host whose brief has no tool
+that runs a command (all of `af triage`), and `open` for the rest, since a process in the
+box needs its vendor and Podman filters nothing narrower; `host` is what the ledger and
+the `fix` result record for `local` and `none`, where nothing is enforced.
+`Spec.Image` is `AF_SANDBOX_IMAGE`, else `quay.io/agentfox/tools:latest`, for `podman` only;
+`Spec.TTL` is the time left on the command's deadline and ten minutes; `RequireLandlock` is
+set for `landlock`, which also refuses a host with a Landlock ABI below 4, the first with
+rules for the network, since a box that cannot confine the network it was asked to would
+break the guarantee of borrowed hands. The labels are `af.run_id` and `af.tool`. The
+ledger entry `box_open {provider, image, network, placement}` and the `box` of the `fix`
+result say what was built.
+
+**The host settings, for each brain.** `scripted` and the `agentkit` driver on the host need
+none beyond the files `Execute` places. For a process in a box:
+
+- `claude` gets, for each attempt, `.agent-fox/run/<id>/guard.json` (spec 06's policy file,
+  generated from the brief's hook: `protected_paths` and `allow_programs`, no `suite`) and
+  `claude-settings.json`, whose one `PreToolUse` hook, for every tool, is `af guard check
+  --host claude --dir <root> --policy <root>/.agent-fox/run/<id>/guard.json` with a timeout
+  of 30 seconds; the brief is its prompt on stdin, and the command line has
+  `--permission-mode dontAsk`, `--strict-mcp-config`, an allowlist and a denylist made from
+  one table of the box's tools, `--append-system-prompt` with a fixed note, and `--model`
+  from `AF_MODEL`. Its cost is read from the JSON it prints, after it has stopped.
+- The `agentkit` driver inside `landlock` and `podman` is `af <agent> run --run-id <id>
+  --dir <root> …`: the box gets only what `Execute` places, so `run.json` also holds the
+  `prefix_bytes` of the brief, and `af <agent> run` takes the brief and the prefix from it
+  when the run directory has no state of its own. Its cost, tokens and claim are read from
+  the envelope it wrote to `.agent-fox/run/<id>/agentkit.<attempt>.json`.
+
+Both are started by `brain.Process`: a probe once for each box (`af --version`, `claude
+--version`, a writable `HOME`), then one command under `env -i` with an explicit allowlist, the
+credentials of `Spec.Env` by reference, its output and errors redirected to files of the run
+directory in the box and copied to the host afterwards.
+
+**Under `none`, the checkout is the tree.** `Session.InPlace()` is the one question the apply
+step asks: it skips the export, and the loop checks the checkout for commits the brain made
+(see [cli.md](cli.md#the-steps-of-a-fix-run)). The protected-path revert runs on the checkout,
+and the hook and the checks `af` makes afterwards are the boundary, since no box is.
+
+**The tools image.** `containers/tools/Containerfile` builds `quay.io/agentfox/tools` from
+this repository's sandbox image (`ARG BASE_IMAGE`): `af` is built from this repository's
+build context, with agentkit-go cloned at `ARG AGENTKIT_REF` where the `replace` directive
+of `go.mod` expects it, and Claude Code is installed at `ARG CLAUDE_CODE_VERSION`; it keeps
+`WORKDIR /workspace` and `USER 1001:0`. `make build-tools-container` tags it
+`$(CONTAINER_REGISTRY)/tools:$(VERSION)` and `:latest`, and `make build-containers` builds it
+after the sandbox image. An image whose `af` has another version or commit than the running
+`af` raises `box_af_version_mismatch` and the run goes on, since the host checks every
+submission again.
 
 ### Triage, as built
 
@@ -877,11 +944,10 @@ involved beyond landing the branch.
 - The reference of each `af` command, in `docs/cli.md`, as the commands
   land. The shell's contract (the envelope, the exit codes, `--dry-run`,
   `--context`, `--schema`) is documented there already.
-- The host settings `af run start` writes for each brain.
-- The `Spec` `af run start` builds for each brain: image, environment,
-  network, resources, TTL, and `RequireLandlock`.
-- The tools image after the overlay line: what is pinned, and how the
-  hands' version and `af`'s are kept in step.
+- The tools image after the overlay line (the hands' agent at `AgentPath`,
+  Codex and OpenCode): what is pinned, and how the hands' version and `af`'s are
+  kept in step. The recipe that exists builds `af` and Claude Code on the sandbox image.
+- The resources of a box (CPU and memory), which no flag sets yet.
 - Hub's task templates for `impl`, `fix`, the stack gate and the conflict
   fix, once the tasks draft is reconciled with *The hub*.
 - The measured comparison this design has to win: tokens per landed task

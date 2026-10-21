@@ -36,9 +36,12 @@ change as the code: a document that is out of date is a regression.
 | `internal/conform` | The revert check: whether the tests of a change fail without it. |
 | `internal/policy` | The guard: the tokenizer, the rules, the policy files, and the decision for a tool call. |
 | `internal/repomap` | The repository map at a token budget. |
-| `internal/box` | The box that holds a brain's tree: a registry of providers (`local`), `Open` and `Sync` (the checkout goes in with its `.git`), a read-only `FS`, `WriteFile` under `.agent-fox/`, `Export` (without `.git`), `Close`, and `With`, which closes on every path. Every name of the hands' sandbox module that is not a type is in `adapter.go`. |
+| `internal/box` | The box that holds a brain's tree: a registry of providers (`landlock`, `podman`, `local` and `none`), `Open` and `Sync` (the checkout goes in with its `.git`), a read-only `FS`, `WriteFile` under `.agent-fox/`, `Export` (without `.git`), `Exec` (a command in the box, at its root), `Close`, and `With`, which closes on every path. `none` is a session in place over the checkout. Every name of the hands' sandbox module that is not a type is in `adapter.go`. |
 | `internal/submission` | The submission protocol: `Kind`, `Submit` (the path to a submission file for a brain that is af's own: it validates before it writes), `Check` (what the host asks of a file it did not write), `RootWriter`, and `Command`, the `af <agent> submit` command of a kind. |
-| `internal/brain` | The `Brain` contract and its registry, the shared flags, `Execute` (place the brief, run the brain, decide from the file), the tool gate and the transcript, the `scripted` brain and the `agentkit` brain. |
+| `internal/brain` | The `Brain` contract and its registry, the shared flags, `BoxRequest` (the request for a box from the brain, the provider and the tools), `Execute` (place the brief, run the brain, decide from the file), the tool gate and the transcript, the `scripted` brain, the `agentkit` brain and the `claude` brain, and `Process`, which runs a brain that is a process (probe, environment, output). |
+| `internal/fakeclaude` | The fake Claude Code and the fake `af` of the tests: the test binary run under those names (see [the fake claude](#the-fake-claude)). |
+| `internal/optin` | The gates of the opt-in tests (see [Opt-in tests](#opt-in-tests)). |
+| `containers` | The Containerfiles of the sandbox image (`containers/sandbox/`) and of the tools image (`containers/tools/`: the sandbox image with `af` and Claude Code), built by `make build-containers`. |
 | `internal/triage` | `af triage` without the shell: the diagnosis, its validator and its rejections, the issue body (`Render`, `Extract`), the brief, the preflight, the landing on a forge, the submission kind and the tool allowlist. `fakeforge` is the GitHub and GitLab server (`httptest`) that its tests and those of `cmd/af` run against. |
 | `skills` | The skills of the repository (`skills/af-*`) and the Go package that embeds them (`//go:embed af-*`); `skills.Triage()` is the body of `af-triage` that the brief carries. `make install-skills` and `make uninstall-skills` loop over `skills/af-*` only. |
 
@@ -94,6 +97,70 @@ so nothing in it changes a tree hash.
   `go test ./internal/toolio ./cmd/af -update`. A test also compares the
   top-level properties of each command's schema with the JSON fields of its Go
   result type, so the two cannot drift apart.
+
+## Opt-in tests
+
+`make check` needs no key, no container engine and no recent kernel, so the tests that
+do are opt-in. Each is gated by a function of `internal/optin` that skips it, with a
+reason that names what is missing, and never fails it:
+
+| Variable | Set to 1 to run | Needs |
+|---|---|---|
+| `AF_TEST_LANDLOCK` | spec 07's box invariants and `af fix` end to end under `landlock` | Linux with Landlock ABI 4 or newer |
+| `AF_TEST_PODMAN` | the same under `podman` | `podman info` answering, and the image (`AF_SANDBOX_IMAGE`, else `quay.io/agentfox/tools:latest`; `make build-tools-container` builds it) |
+| `AF_TEST_CLAUDE` | the contract row with the real Claude Code, under `local`, and under `podman` when `AF_TEST_PODMAN` is set too | `ANTHROPIC_API_KEY`, and `claude` on `PATH` |
+
+```bash
+AF_TEST_LANDLOCK=1 go test ./internal/brain ./cmd/af -run TS_10_63 -v
+AF_TEST_CLAUDE=1 ANTHROPIC_API_KEY=… go test ./internal/brain -run RealClaude -v
+```
+
+The tests are `TestSpec07sBoxInvariantsHoldUnderTheRealBoxes_TS_10_63` and
+`TestTheContractRowOfTheRealClaude_TS_10_63` in `internal/brain/optin_test.go`, and
+`TestFixUnderTheRealBoxesLandsAllFourChanges_TS_10_63` in `cmd/af/fix_optin_test.go`.
+What they run is also run offline, so that `make check` proves it: the invariants
+under `local`, the real-claude test with a fake `claude`, and the scripted `af fix`
+under `local`.
+
+## The tests and the box
+
+The default box is the isolating provider of the platform (`landlock` on Linux, `podman`
+elsewhere), which a test must not need. Every test of `cmd/af` and `internal/*` that
+runs `af triage` or `af fix` passes `--sandbox local`: the helpers `triageEnv.loop`,
+`fixEnv.fix` and `fixEnv.fixRun` add it themselves (a later `--sandbox` in the arguments
+of a test, such as `--sandbox none`, is the one that counts), and a test that calls
+`run` with the command words passes it. `TestEveryTestThatRunsTriageOrFixSaysWhichBox_TS_10_62`
+reads the sources of the tests with `go/parser` and finds the invocations that do not.
+A test of the default selection sets `AF_SANDBOX`, which the scan accepts.
+
+## The fake claude
+
+A fake `claude` (and a fake `af`) is the test binary linked under that name. The
+`TestMain` of a package that wants them calls `fakeclaude.Name()` and, when the binary
+was run as `af` or `claude`, hands the process to `fakeclaude.Run` instead of running
+the tests (`internal/brain` does it for both; `cmd/af` makes `af` the real app, so that
+`af triage submit` is the real thing, and `claude` the fake). `fakeclaude.Install(t)`
+makes the directory with the two links, which a test puts first on `PATH`.
+
+What a fake does is told by a JSON script, because a process started with `env -i`
+has none of the test's environment. It reads `.agent-fox/fake.json` in the tree it runs
+in (the cwd, which a test of the box places with `Session.WriteFile`) and, if there is
+none, `fake.json` beside the program (`fakeclaude.WriteScript`). Every field is
+optional:
+
+| Field | What the fake does |
+|---|---|
+| `af_version`, `af_commit`, `claude_version`, `version_exit` | What `--version` prints (the JSON document of `af`, a line for `claude`), and the exit code of it for each program. |
+| `sleep_ms`, `spawn_child` | Waits, and starts a `sleep 30` child (its pid is noted), for the timeout and the process group. |
+| `stdout`, `stdout_bytes`, `stderr`, `stderr_bytes`, `exit` | What it prints (a text, and that many bytes) and how it ends. |
+| `env_to_stderr` | Prints its environment to stderr, a line for each variable. |
+| `hook_payloads` | The `PreToolUse` payloads it runs through the hook command of the file named by `--settings`, one after the other; the answers are `{stdout, exit}` in `.agent-fox/fake-hooks.json`. |
+| `submits` | Payloads it submits to the contract kind of the package, through the submit core; `{accepted, problems}` of each in `.agent-fox/fake-submits.json`. |
+| `commands` | Shell commands it runs at the tree (`{run_id}` is the id of the run its settings are in), such as `af triage submit --run-id {run_id} <<'EOF' … EOF`; `{command, exit, output}` of each in `.agent-fox/fake-commands.json`. |
+| `output_json` | What it prints last: the JSON that Claude Code prints, with `total_cost_usd`, `num_turns` and `usage`. |
+
+It records each run (argv, environment, cwd, the size of its standard input, its pid and
+the settings file it was given) in `.agent-fox/fake-record.jsonl`.
 
 ## The scripted brain
 
@@ -164,10 +231,12 @@ GitLab API of one repository over `httptest`, keeps every request (`Requests`,
 client (`NewForge(token)`, which a test gives to `App.NewForge`; an empty token is
 an unauthenticated client). The tests of `cmd/af` make a git repository, an app
 and a forge in one helper (`newTriageEnv`) and run commands through `app.Main`.
-A brain is one of three things: the `scripted` brain with a script (its steps
+A brain is one of four things: the `scripted` brain with a script (its steps
 call the tools of the box, and `submit` steps hand a payload over, with the
 outcome they expect), the `agentkit` brain on the `faux` provider (replace
-`triageBrainOptions`), or a spy of the test's own (put it in `triageRegistry`).
+`triageBrainOptions`), the `claude` brain with a fake `claude` first on `PATH`
+(`useFakeClaude`, which also points `triageBrainOptions` at the test binary as `af`),
+or a spy of the test's own (put it in `triageRegistry`).
 `TestOnlyTheAllowedWarningCodesAndCategories_TS_08_64` checks the warning codes
 and failure categories of every envelope that the helper saw.
 

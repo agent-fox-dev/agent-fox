@@ -83,12 +83,36 @@ func ledgerEntries(t *testing.T, runDir, kind string) []map[string]any {
 // Verifies: 10-REQ-6.1
 func TestFixUnderLocalAppliesTheExportOnceAndLandsAllFourChanges_TS_10_32(t *testing.T) {
 	requireMake(t)
+	fixFourChangesUnder(t, "local")
+}
+
+// fixFourChangesUnder runs af fix in the box of the provider with a brain that makes the four
+// kinds of change in the box, and a commit of its own, and holds what lands to what 10-REQ-6.1
+// says: one commit with the trailer, the four changes in it, the commit of the box not on the
+// branch, the files the host user's, and the tree exported once.
+func fixFourChangesUnder(t *testing.T, provider string) {
+	t.Helper()
 	e := newFixEnvWith(t, fakeforge.GitHub, boxFixFiles(), true)
 	var inBox string
 	spyRounds(t, shellRound(t, fourChanges+commitTheWork, spyReport, &inBox))
 
-	code, env := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", "local")
+	code, env := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", provider)
 
+	if inBox == "" {
+		t.Fatal("the brain recorded no commit")
+	}
+	assertFourChangesLanded(t, e, code, env, inBox)
+	if n := len(ledgerEntries(t, runDirOf(e, env), "box_export")); n != 1 {
+		t.Errorf("%d box_export entries, want one: the apply step reads the tree through Export once", n)
+	}
+}
+
+// assertFourChangesLanded holds the result of a run to the landing of the four changes: an
+// edit, an addition, a deletion and the executable bit, in one commit with the trailer, the
+// commit made in the box (when there is one) not in the repository, and the files owned by
+// the host user. It leaves the checkout on main.
+func assertFourChangesLanded(t *testing.T, e *fixEnv, code int, env map[string]any, inBox string) {
+	t.Helper()
 	if code != 0 || env["status"] != "done" {
 		t.Fatalf("exit code %d, status %v, error %v", code, env["status"], env["error"])
 	}
@@ -123,11 +147,10 @@ func TestFixUnderLocalAppliesTheExportOnceAndLandsAllFourChanges_TS_10_32(t *tes
 			t.Errorf("%s: %q in the commit, want %q (all: %v)", path, changes[path], want, changes)
 		}
 	}
-	if inBox == "" {
-		t.Fatal("the brain recorded no commit")
-	}
-	if err := exec.Command("git", "-C", e.dir, "cat-file", "-e", inBox+"^{commit}").Run(); err == nil {
-		t.Errorf("the commit made in the box, %s, is in the host's repository", inBox)
+	if inBox != "" {
+		if err := exec.Command("git", "-C", e.dir, "cat-file", "-e", inBox+"^{commit}").Run(); err == nil {
+			t.Errorf("the commit made in the box, %s, is in the host's repository", inBox)
+		}
 	}
 	e.onBase(t)
 	for _, path := range []string{"src/greet.sh", "tests/hello_test.sh", "bin/run.sh"} {
@@ -141,9 +164,6 @@ func TestFixUnderLocalAppliesTheExportOnceAndLandsAllFourChanges_TS_10_32(t *tes
 		}
 	}
 	gitDo(t, e.dir, "checkout", "-q", "main")
-	if n := len(ledgerEntries(t, runDirOf(e, env), "box_export")); n != 1 {
-		t.Errorf("%d box_export entries, want one: the apply step reads the tree through Export once", n)
-	}
 }
 
 // TestFixUnderNoneLandsFromTheCheckoutAndNeverExports_TS_10_33 verifies TS-10-33: a

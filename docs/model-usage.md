@@ -13,27 +13,44 @@ vendors' keys, the variables of the clouds and anything that ends in `_TOKEN`,
 [cli.md](cli.md#gate-run)), because a test suite is the repository's code. The shell they
 are built on makes no call to a model provider either.
 
-There are two brains in the library (`internal/brain`), for the agent commands;
+There are three brains in the library (`internal/brain`), for the agent commands;
 `af triage` and `af fix` run them.
 
 | Brain | Model | Where it runs | Cost source |
 |---|---|---|---|
-| `agentkit` | the AgentKit driver, on the model `AF_MODEL` names (`claude-sonnet-5-5` by default), through the hands' Anthropic provider | on the host, over the tools of the box | `measured`: the driver counts the tokens and prices them from the catalog; a model the catalog does not list has no price, so the run reports `none` and `--budget` is refused |
+| `agentkit` | the AgentKit driver, on the model `AF_MODEL` names (`claude-sonnet-5-5` by default), through the hands' Anthropic provider | inside the box under `landlock` and `podman`, as `af <agent> run`; on the host, over the tools of the box, under `local` and `none` and with `--borrowed-hands` | `measured`: the driver counts the tokens and prices them from the catalog; a model the catalog does not list has no price, so the run reports `none` and `--budget` is refused |
 | `scripted` | none: it replays a script | on the host | `none`: cost 0 |
+| `claude` | Claude Code, headless, on its own default model, or the one `AF_MODEL` names, passed as `--model` | in the box, or at the checkout under `none` | `reported`: the cost is the `total_cost_usd` of Claude Code's own output, and its tokens are those of its `usage` (the cache tokens count as input) |
 
 The cost of a run is the sum over its attempts, counted also for an attempt that
 failed or panicked, because it was spent; a bound (`--budget`, `--max-turns`)
 stops the driver, and a run that stopped on one and left no submission fails as
 `budget` with the flag to raise. A brain that runs inside a box with its own
-hands (a later scope) is `reported`: it says what it cost. The `agentkit` brain
-needs `ANTHROPIC_API_KEY` or another credential the hands' provider accepts (see
-[configuration.md](configuration.md#the-brain)); the tests run it on a scripted
-provider and need none.
+hands is `reported`: it says what it cost, and only when it has stopped. So for
+`claude` the dollars of `--budget` are checked **after the run**: a cost above it
+raises the warning `budget_exceeded` (and, when nothing was submitted, the run
+fails as `budget`), and while Claude Code runs only `--max-turns` and the timeout
+bound it, since `af` cannot stop the process mid-run. A run whose output cannot be
+read has cost 0, `cost_source` `none` and the warning `brain_usage_unavailable`. The
+`agentkit` brain needs `ANTHROPIC_API_KEY` or another credential the hands' provider
+accepts, and the `claude` brain needs `ANTHROPIC_API_KEY` (see
+[configuration.md](configuration.md#the-brain)); the tests run them on a scripted
+provider and a fake `claude`, and need none.
 
-The box that holds the tree has no model credential, and the `local` provider,
-the only one in this release, is not isolated: its tools run in the `af` process
-with its privileges, on this machine's files and network. That is why every run
-that opens it carries the warning `box_unconfined`.
+**Who holds the vendor's key.** The box that holds the tree has no model
+credential when the brain is on the host: the key stays in the process that runs the
+driver. A brain that runs as a process (`claude`; `agentkit` inside `landlock` or
+`podman`) has the host's `ANTHROPIC_API_KEY` in its box, and no other credential:
+no forge token, which is the rule that makes the box safe to give a model. Under
+`landlock` and `podman` such a brain has the whole network (it needs its vendor, and
+Podman filters nothing narrower), and a brain on the host whose brief has no tool that
+runs a command (`af triage`) has none. The `local` and `none` providers are not
+isolated: their tools run with the privileges of `af`, on this machine's files and
+network, which is why every run that opens either carries the warning
+`box_unconfined`. `AF_SANDBOX` chooses the provider when `--sandbox` does not, and a
+`podman` box runs the image `AF_SANDBOX_IMAGE` names, else the tools image with `af`
+and Claude Code in it. See [configuration.md](configuration.md#the-box) for which
+credential enters which box.
 
 ## Triage
 
@@ -43,7 +60,8 @@ read-only: its tools read and search the repository (`read_file`, `list_files`,
 `find_files`, `search_files`, `file_outline`, `find_symbol`, `find_references`
 and `code_search` where the box has it), and the one tool that ends the run,
 `file_diagnosis`. Everything the brain reads goes to the model provider, and so
-does what it is told; the box holds no token and no key.
+does what it is told; the box holds no token and no key (a brain that runs in it, such
+as `claude`, has the key of the model vendor and nothing else).
 
 **What the brief sends.** The brief is one document. The `agentkit` brain gives
 the model the part before the task block as the first message of the
@@ -84,7 +102,8 @@ commands (`execute`) that the policy of the box allows, which are the checks of
 the gate, `af`, `git` for reading and a few utilities that only read or make a
 directory; it can neither commit nor write under a protected path. The one tool that ends a round is `submit_fix`. Everything
 the brain reads goes to the model provider, and so does what it is told; the box
-holds no token and no key.
+holds no token and no key (a brain that runs in it, such as `claude`, has the key of
+the model vendor and nothing else).
 
 **What the brief sends.** As for triage, the part before the task block is the
 first message of the conversation, which a provider can cache, and the task block

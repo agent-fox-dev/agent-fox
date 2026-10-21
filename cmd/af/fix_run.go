@@ -41,11 +41,11 @@ func registerFixRun(app *toolio.App) {
 	app.Register(toolio.Command{
 		Path:    "fix run",
 		Summary: "Run one round of a brain on the brief of a fix run, and apply its tree to the checkout without measuring it",
-		Usage:   "af fix run --run-id ID [--dir DIR] [--brain NAME] [--sandbox NAME] [--budget USD] [--max-turns N] [--timeout 45m]",
+		Usage:   "af fix run --run-id ID [--dir DIR] [--brain NAME] [--sandbox NAME] [--borrowed-hands] [--budget USD] [--max-turns N] [--timeout 45m]",
 		Flags: func(fs *flag.FlagSet) {
 			runID = ""
 			fs.StringVar(&runID, "run-id", "", "the `id` of the run, made by af fix brief")
-			settings = brain.Flags(fs, brain.Defaults{Sandbox: "local", Budget: fixDefaultBudget, MaxTurns: fixDefaultMaxTurns})
+			settings = brain.Flags(fs, brain.Defaults{Budget: fixDefaultBudget, MaxTurns: fixDefaultMaxTurns})
 		},
 		MaxArgs:        toolio.NoArgs,
 		Dir:            true,

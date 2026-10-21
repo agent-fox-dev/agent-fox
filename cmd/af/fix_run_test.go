@@ -21,7 +21,7 @@ const helloReport = `{"subject":"say hello","root_cause":"the script says helo",
 // fixRun runs af fix run on the run of an envelope.
 func (e *fixEnv) fixRun(brief map[string]any, args ...string) (int, map[string]any) {
 	e.t.Helper()
-	return e.run("", append([]string{"fix", "run", "--run-id", brief["run_id"].(string), "--dir", e.dir}, args...)...)
+	return e.run("", append([]string{"fix", "run", "--run-id", brief["run_id"].(string), "--dir", e.dir, "--sandbox", "local"}, args...)...)
 }
 
 // TestFixRunAppliesOneRoundWithoutMeasuringBranchingOrCommitting_TS_09_8 verifies

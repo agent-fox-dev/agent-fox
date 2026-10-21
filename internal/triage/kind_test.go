@@ -94,6 +94,32 @@ func diagnosisFor(path string, mutate func(map[string]any)) []byte {
 	return data
 }
 
+// TestBriefToolsAreTheReadOnlyToolsOfTheHandsAndACopy guards the list that the request
+// for a triage box is computed from, before any box is open to say what it offers: the
+// read-only tools, none that writes or runs a command (so a brain on the host needs no
+// network), and a list that the caller may change.
+func TestBriefToolsAreTheReadOnlyToolsOfTheHandsAndACopy(t *testing.T) {
+	tools := BriefTools()
+
+	for _, want := range []string{"read_file", "list_files", "find_files", "search_files"} {
+		if !slices.Contains(tools, want) {
+			t.Errorf("BriefTools = %v, want %s", tools, want)
+		}
+	}
+	for _, never := range []string{"write_file", "edit_file", "execute", "run_command", ToolName} {
+		if slices.Contains(tools, never) {
+			t.Errorf("BriefTools = %v, want no %s: the tool of the box ends the run in the brain, and the rest write or run", tools, never)
+		}
+	}
+	if allowed := BoxTools(tools); !slices.Equal(allowed, tools) {
+		t.Errorf("BoxTools(BriefTools()) = %v, want all of %v: the allowlist keeps every one", allowed, tools)
+	}
+	tools[0] = "changed"
+	if again := BriefTools(); again[0] == "changed" {
+		t.Error("BriefTools returned the list it keeps, not a copy")
+	}
+}
+
 // TestTheKindMakesFileDiagnosisWriteTheSubmission_TS_08_27 verifies TS-08-27:
 // the kind has the tool name and the schema of a diagnosis, and a call with a
 // valid diagnosis writes submission.json in the brain's tree, normalized.

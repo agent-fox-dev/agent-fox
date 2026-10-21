@@ -284,9 +284,9 @@ func countRejections(r *toolio.Run, run *toolio.RunDir) int {
 }
 
 // triageBrainOptions are what the brain of a run is made of: the model from
-// AF_MODEL, and the provider and the credentials the brain finds for itself. A
-// test replaces it with a brain on the faux provider.
-var triageBrainOptions = func() brain.Options { return brain.Options{Model: os.Getenv("AF_MODEL")} }
+// AF_MODEL, which af this is, and the provider and the credentials the brain finds
+// for itself. A test replaces it with a brain on the faux provider.
+var triageBrainOptions = baseOptions
 
 // triageRunResult is the result of af triage run.
 type triageRunResult struct {
@@ -741,9 +741,9 @@ func registerTriageLoop(app *toolio.App) {
 	app.Register(toolio.Command{
 		Path:    "triage",
 		Summary: "Diagnose a report and write the diagnosis back to the forge",
-		Usage:   "af triage <issue|file|text|-> [--dir DIR] [--context ANSWER]... [--repo owner/name] [--land issue|none] [--label L]... [--dry-run] [--brain NAME] [--sandbox NAME] [--budget USD] [--max-turns N] [--timeout 15m]",
+		Usage:   "af triage <issue|file|text|-> [--dir DIR] [--context ANSWER]... [--repo owner/name] [--land issue|none] [--label L]... [--dry-run] [--brain NAME] [--sandbox NAME] [--borrowed-hands] [--budget USD] [--max-turns N] [--timeout 15m]",
 		Flags: func(fs *flag.FlagSet) {
-			settings = brain.Flags(fs, brain.Defaults{Sandbox: "local", Budget: triage.DefaultBudget, MaxTurns: triage.DefaultMaxTurns})
+			settings = brain.Flags(fs, brain.Defaults{Budget: triage.DefaultBudget, MaxTurns: triage.DefaultMaxTurns})
 			labels = nil
 			fs.StringVar(&land, "land", triage.LandIssue, "where the diagnosis goes: `issue` (write it to the forge) or none (write diagnosis.md only)")
 			fs.Var(&labels, "label", "add this `label` to the issue; may be repeated")
@@ -768,26 +768,27 @@ func registerTriageLoop(app *toolio.App) {
 func triageLoop(r *toolio.Run, s *brain.Settings, land string, labelFlags []string) (toolio.Outcome, error) {
 	r.Emit("step", triageStep{stepPreflight})
 	report, facts := resolveInput(r)
-	labels, entry, err := loopPreflight(r, report, s, land, labelFlags)
+	labels, entry, boxEntry, err := loopPreflight(r, report, s, land, labelFlags)
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
 	opts := triageBrainOptions()
-	opts.Script = s.Script
+	opts.Script, opts.Provider, opts.BorrowedHands = s.Script, s.Sandbox, s.BorrowedHands
 	b, err := entry.New(opts)
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
 
 	r.Emit("step", triageStep{stepBrief})
-	// Every brain of this release runs in this process, and submits through the tool.
-	rendered, err := renderBrief(r, report, facts, true, triage.Bounds{MaxTurns: s.MaxTurns, MaxCostUSD: s.Budget, Timeout: timeLeft(r)})
+	// A brain that submits with the command alone is told the command; every other brain
+	// submits through the tool, in this process or in the box that runs its driver.
+	rendered, err := renderBrief(r, report, facts, !entry.CommandRoute, triage.Bounds{MaxTurns: s.MaxTurns, MaxCostUSD: s.Budget, Timeout: timeLeft(r)})
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
 
 	r.Emit("step", triageStep{stepBrain})
-	res, err := runInBox(r, s, entry, b, opts, rendered.brief)
+	res, err := runInBox(r, s, entry, boxEntry, b, opts, rendered.brief)
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
@@ -813,17 +814,18 @@ func triageLoop(r *toolio.Run, s *brain.Settings, land string, labelFlags []stri
 
 // loopPreflight is every refusal that needs no model, in the order flags, input,
 // landing: nothing is rendered and no brain is made before it passes. It returns
-// the labels, and the entry of the brain the run is for.
-func loopPreflight(r *toolio.Run, report triage.Report, s *brain.Settings, land string, labelFlags []string) ([]string, brain.Entry, error) {
+// the labels, the entry of the brain the run is for and the entry of its box provider.
+func loopPreflight(r *toolio.Run, report triage.Report, s *brain.Settings, land string, labelFlags []string) ([]string, brain.Entry, box.Entry, error) {
 	if err := s.Validate(); err != nil {
-		return nil, brain.Entry{}, err
+		return nil, brain.Entry{}, box.Entry{}, err
 	}
 	entry, err := triageRegistry.Lookup(s.Brain)
 	if err != nil {
-		return nil, brain.Entry{}, err
+		return nil, brain.Entry{}, box.Entry{}, err
 	}
-	if _, err := box.Default.Lookup(s.Sandbox); err != nil {
-		return nil, brain.Entry{}, err
+	boxEntry, err := box.Default.Lookup(s.Sandbox)
+	if err != nil {
+		return nil, brain.Entry{}, box.Entry{}, err
 	}
 	pre, refusal := triage.Preflight(r.Ctx, triage.PreflightParams{
 		Flags:     triage.Flags{Budget: s.Budget, MaxTurns: s.MaxTurns, Labels: labelFlags, Land: land},
@@ -832,12 +834,12 @@ func loopPreflight(r *toolio.Run, report triage.Report, s *brain.Settings, land 
 		LandCheck: triage.LandCheck{Forge: r.Forge, Target: r.Target, DryRun: r.DryRun},
 	})
 	if refusal != nil {
-		return nil, brain.Entry{}, refusalFailure(refusal)
+		return nil, brain.Entry{}, box.Entry{}, refusalFailure(refusal)
 	}
 	for _, w := range pre.Warnings {
 		r.Warn(w.Code, w.Message)
 	}
-	return pre.Labels, entry, nil
+	return pre.Labels, entry, boxEntry, nil
 }
 
 // loopReport is the report that brain.Execute gets: the run's own, less what the
@@ -858,15 +860,18 @@ func (l loopReport) Artifact(a toolio.Artifact) {
 }
 
 // runInBox opens the box over the checkout and runs the brain in it, with the
-// tools of the triage allowlist. The submission and the refused calls of the box
-// are in the run directory when it returns, whether the run came to a
-// submission or not.
-func runInBox(r *toolio.Run, s *brain.Settings, entry brain.Entry, b brain.Brain, opts brain.Options, brief triage.Brief) (brain.Result, error) {
+// tools of the triage allowlist. The request for the box is the one the brain, the
+// provider, borrowed hands and those tools come to (brain.BoxRequest). The
+// submission and the refused calls of the box are in the run directory when it
+// returns, whether the run came to a submission or not.
+func runInBox(r *toolio.Run, s *brain.Settings, entry brain.Entry, boxEntry box.Entry, b brain.Brain, opts brain.Options, brief triage.Brief) (brain.Result, error) {
 	var res brain.Result
-	err := box.With(r.Ctx, box.Request{
-		Provider: s.Sandbox, HostDir: r.Dir, RunID: r.RunDir.ID, Tool: "triage",
-		Env: brain.BuildBoxEnv(entry, brain.PlacementHost, opts.Getenv), Record: r.RunDir.Record, Warn: r.Warn,
-	}, func(sess *box.Session) error {
+	deadline, _ := r.Ctx.Deadline()
+	err := box.With(r.Ctx, brain.BoxRequest(brain.BoxParams{
+		Brain: entry, Provider: boxEntry, BorrowedHands: s.BorrowedHands, Tools: triage.BriefTools(), Getenv: opts.Getenv,
+		Deadline: deadline, Defaulted: s.SandboxSource != brain.SandboxFlag,
+		HostDir: r.Dir, RunID: r.RunDir.ID, Tool: "triage", Record: r.RunDir.Record, Warn: r.Warn,
+	}), func(sess *box.Session) error {
 		var offered []string
 		for _, tool := range sess.Tools() {
 			offered = append(offered, tool.Name)
