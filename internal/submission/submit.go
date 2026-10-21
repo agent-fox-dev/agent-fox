@@ -46,6 +46,10 @@ type Run struct {
 	Kind    string `json:"kind"`
 	Attempt int    `json:"attempt"`
 	Nonce   string `json:"nonce"`
+	// PrefixBytes is the length of the run-constant prefix of brief.md, which a
+	// process that runs the brief in the box splits it at. The submit core does not
+	// use it.
+	PrefixBytes int `json:"prefix_bytes"`
 }
 
 // File is what submission.json holds. PayloadSHA256 is the hex SHA-256 of

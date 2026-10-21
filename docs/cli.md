@@ -598,14 +598,16 @@ defaults that command supplies):
 
 | Flag | Meaning |
 |---|---|
-| `--brain <name>` | `agentkit` (the AgentKit driver, on the host, over the box's tools) or `scripted` (a replay of a script, with no model; see [development.md](development.md#the-scripted-brain)). An unknown name is a `usage` failure that lists the registered ones. |
-| `--sandbox <provider>` | The box provider. `local` is the only one in this release, and the default. An unknown name is a `usage` failure that lists the registered ones. |
+| `--brain <name>` | `agentkit` (the AgentKit driver; inside the box under `landlock` and `podman`, on the host over the box's tools under `local` and `none`), `scripted` (a replay of a script, with no model; see [development.md](development.md#the-scripted-brain)) or `claude` (headless Claude Code; see [The claude brain](#the-claude-brain)). An unknown name is a `usage` failure that lists the registered ones. |
+| `--sandbox <provider>` | The box provider: `landlock`, `podman`, `local` or `none` (see [The providers](#the-providers)). Without it the provider is the one `AF_SANDBOX` names, and without that `landlock` on Linux and `podman` on any other operating system. An unknown name is a `usage` failure that lists all four; an unknown `AF_SANDBOX` is a `usage` failure that names the variable. When the default provider cannot open, `af` does not fall back to `local` or `none`: the `sandbox` failure carries a `fix_hint` that names `--sandbox` and `AF_SANDBOX` (in place of the hint of the failure itself, so that a missing image is told by the message, which names `AF_SANDBOX_IMAGE`). |
+| `--borrowed-hands` | Only with `--brain agentkit`: run the driver on the host over the box's tools, and not inside the box. It changes something only under `landlock` and `podman`, since `local` and `none` always run the driver on the host. With any other brain it is a `usage` failure. |
 | `--budget <usd>` | Stop the brain after this much model cost. A finite number above 0. It needs a model whose price the catalog knows: with another, the `agentkit` brain fails as `usage` and names `AF_MODEL`, since no cost could be counted against it. |
 | `--max-turns <n>` | Stop the brain after this many turns. At least 1. |
 | `--script <file>` | The script of `--brain scripted`, and only with it. |
 
-A value that is out of range, `--brain scripted` without `--script` and
-`--script` with another brain are `usage` failures (exit 2) that name the flag.
+A value that is out of range, `--brain scripted` without `--script`, `--script`
+with another brain and `--borrowed-hands` with another brain than `agentkit` are
+`usage` failures (exit 2) that name the flag.
 `Flags.Validate` and `Registry.New` report them, with a script that cannot be
 used (it is read whole: text after its object is refused) and a missing
 credential for the model, and a command that calls them first finds all of
@@ -627,12 +629,152 @@ not on the host's branch, and what could carry a credential in the box's
 rewrites) is taken out when the box is opened and again after each sync. The
 environment of the box's tools is what the provider gives them, which for
 `local` is the host's `PATH`, `LANG` and `TERM` and a `HOME` and `TMPDIR` of the
-box's own, and the host values of the names the chosen brain asks for (none, for
-`agentkit` and `scripted`): no token and no key is among them. The `local`
-provider runs the tools in this process, with its privileges: it has no process
-or network isolation, and every box opened raises the warning `box_unconfined`
-once. A box is closed after a result, a failure, a panic of the brain and a
-cancellation; a close that fails is the warning `box_close_failed`.
+box's own, and the host values of the names the brain asks for where it runs
+(none for a brain on the host, and `ANTHROPIC_API_KEY` for one that runs as a
+process): no forge token is among them, and no key but the model vendor's. The
+`local` provider runs the tools in this process, with its privileges: it has no
+process or network isolation, and every box opened raises the warning
+`box_unconfined` once. A box is closed after a result, a failure, a panic of the
+brain and a cancellation; a close that fails is the warning `box_close_failed`.
+
+#### The providers
+
+| Provider | Isolates | In place | What it is |
+|---|---|---|---|
+| `landlock` | yes | no | A confined child process on a copy of the tree. Linux only, and only with Landlock ABI 4 or newer, the first with rules for the network. On another operating system the status is `failed`/`sandbox`, not retryable, with the message "landlock needs Linux"; on a Linux with an older ABI, or none, the message names the ABI found and the one needed. Both carry `fix_hint` `{flag: "--sandbox", suggest: "podman"}`. A process started inside runs from the host's file system, where landlock opens only the system directories, so the request carries the directories of the `af` and the `claude` it will run (and of what a link leads to) for the box to let it read and run them; a `claude` that needs a runtime outside the system directories, such as `node` in a version manager's directory, is not covered. The provider also needs `agentkit-sandboxd` beside `af` or on `PATH`. |
+| `podman` | yes | no | A container of the image `AF_SANDBOX_IMAGE`, or `quay.io/agentfox/tools:latest` without it (see [configuration.md](configuration.md#the-box)); the key of the vendor is on the engine's command line on the host while the box lives. An engine that cannot be reached is `failed`/`sandbox`, not retryable, with the error of the provider (and, off Linux, a pointer to `podman machine start`); an image that is missing and cannot be pulled is `failed`/`sandbox`, retryable, and the message names the image and `AF_SANDBOX_IMAGE`. |
+| `local` | no | no | The tools run in this process, with its privileges, on a copy of the tree. |
+| `none` | no | yes | No box: the brain works on the checkout itself. |
+
+`landlock` and `podman` isolate, and `none` works in place. Every box obeys the
+rules above (`.git` in and never out, the commit on the host); `none` obeys them
+by other means, since there is no copy: its session has the hands' tools over the
+checkout, a read-only view of it, and `Sync` copies nothing. Its `Export` is an
+internal error ("in place: nothing to export"), so that a caller that forgets to
+branch fails loudly. The run files of the box are written to the checkout under
+`.agent-fox/`, and an `.agent-fox/.gitignore` that is there is left as it is. The
+host's `submission.json` is the box's file, so `brain.Execute` keeps the bytes of
+the one the host last accepted, and moves a submission it refuses to
+`submission.rejected.<attempt>.json` and puts the kept bytes back: under `none` too
+`<run dir>/submission.json` holds a submission the host accepted and nothing else.
+`box_unconfined` is raised once for a run on `local` or on `none`; for `none` it
+says that the brain works on the checkout itself, with no copy of it and no box
+around it, and that the hook is the only guard.
+
+#### Where the brain runs
+
+A brain is on the host, in the box, or at the checkout:
+
+| Brain | `landlock`, `podman` | `local` | `none` |
+|---|---|---|---|
+| `scripted` | host | host | host |
+| `agentkit` | box; with `--borrowed-hands`, host | host | host |
+| `claude` | box | box | checkout |
+
+*Host* is `af`'s process over the box's tools. *Box* is a process that `af` starts
+in the box with one command (below). *Checkout* is such a process on the host, in
+the checkout. What reaches the box follows from this, and is the same in the
+ledger entry `box_open {provider, image, network, placement}` and, for `af fix`,
+in the result's `box`:
+
+- **Credentials.** `Spec.Env` is nothing for a brain on the host, and for a process
+  the host's value of `ANTHROPIC_API_KEY`, if it is set. A process also gets the
+  few settings listed [below](#brains-that-run-as-a-process), and nothing else of
+  the host's environment.
+- **Network.** `none` for a brain on the host that has no tool that runs a command
+  (every tool of `af triage` only reads), and `open` otherwise: a process in the box
+  needs its vendor, and a gate that fetches modules needs the network. Podman has
+  all of it or none, so a brain in a box on a developer's machine has the whole
+  network. Under `local` and `none` nothing is enforced, and the network is recorded
+  as `host`.
+- **Image and lifetime.** The image is `podman`'s only. The box lives until the
+  deadline of the command and ten minutes more.
+
+#### Brains that run as a process
+
+`claude` runs as a process, and so does the `agentkit` driver inside `landlock` and
+`podman`: `af <agent> run --run-id <id> --dir <root> --budget … --max-turns …
+--timeout …`, with `AF_MODEL` given on the command line. `Session.Exec` runs a
+command in the box, at its root, through the box's `execute` tool (and with `sh -c`
+on the host, at the checkout, under `none`), and returns the exit code and the last
+bytes of the output; a command that exits with a code is not an error.
+
+- **The probe.** Once for each box, before the first process, `af --version` runs in
+  it, and `claude --version` for `claude`, and `HOME` is checked to be set and
+  writable. A failure is `failed`/`sandbox`, not retryable, and the message names
+  the binary, the provider and the image. Each probe is the ledger entry
+  `box_probe {binary, ok, version}`. When the `af` of a `podman` image has another
+  version or commit than the running one, the warning `box_af_version_mismatch` is
+  raised and the run goes on: the host checks every submission again.
+- **The binaries.** Under `local`, `landlock` and `none`, `af` is the running
+  executable, by its absolute path, and its directory is first on `PATH`; `claude` is
+  the one on this machine's `PATH`. Under `podman` both are the image's.
+- **The environment.** The command runs under `env -i` with `PATH`, `HOME` (the
+  box's own), the ones of `LANG`, `LC_ALL`, `TZ`, `HTTPS_PROXY`, `HTTP_PROXY` and
+  `NO_PROXY` (in either case), `SSL_CERT_FILE`, `SSL_CERT_DIR` and
+  `NODE_EXTRA_CA_CERTS` that are set on the host, with their values (the shell of a
+  box has not the environment of the host), `TMPDIR` as the box's own when the host
+  has one, and the credentials of `Spec.Env`, which the command refers to by name
+  so that no secret is in its text or in the ledger. A password in the URL of a
+  proxy is not a credential of `Spec.Env`: it is in the text of the command, with
+  the rest of the proxy settings. Every argument and every value is single-quoted.
+- **Input and output.** The brief is on its standard input. Its standard output and
+  error are redirected to `.agent-fox/run/<id>/<brain>.<attempt>.json` and
+  `.stderr` in the box, and copied to the run directory (the output up to 1 MiB, the
+  last 64 KiB of the errors) as the artifacts `brain_output`. Nothing in them decides
+  whether there is a submission. The ledger entry is `brain_process {brain,
+  exit_code, duration_ms}`.
+- **The time.** The command is killed, with its process group, when the time of the
+  brief or the time left on the command runs out.
+
+#### The claude brain
+
+`--brain claude` runs Claude Code headless in the box (or at the checkout, under
+`none`) on the brief, and takes back one submission, which it makes with `af <agent>
+submit --run-id <id>`: the briefs of such a brain name that command, not the tool.
+
+- **Construction.** Before a box opens: except under `none`, where a person at their
+  own checkout may be logged in, `ANTHROPIC_API_KEY` must be set (`failed`/`auth`,
+  with `fix_hint` `{env: "ANTHROPIC_API_KEY"}`), since a box has a private `HOME`
+  with no login; and, except under `podman`, `claude` must be on this machine's
+  `PATH` (`failed`/`brain`, not retryable).
+- **The files.** For each attempt `af` places `guard.json` (version 1, with the
+  `protected_paths` and `allow_programs` of the brief's hook, and no `suite`, which
+  is then detected) and `claude-settings.json` in `.agent-fox/run/<id>/` of the box,
+  with copies in the run directory. The settings have one `PreToolUse` hook that
+  matches every tool: `af guard check --host claude --dir <root> --policy
+  <root>/.agent-fox/run/<id>/guard.json`, with a timeout of 30 seconds, so that the
+  hook and the in-process gate decide from the same rules.
+- **The command line.** `claude -p --output-format json --max-turns <n>
+  --permission-mode dontAsk --settings <settings> --strict-mcp-config --allowedTools …
+  --disallowedTools … --append-system-prompt <note>`, with `--model` when `AF_MODEL`
+  is set. The note says that the run is headless, that the only deliverable is one
+  submission, that nothing is committed or pushed, and that a refusal is the next
+  turn. The skill is not appended again: the brief, which carries it, is the prompt.
+- **The tools.** The tools of the brief map to those of Claude Code, from one table:
+  `read_file` to `Read`, `list_files` to `LS` and `Glob`, `find_files` to `Glob`,
+  `search_files` to `Grep`, `write_file` to `Write`, `edit_file` to `Edit` and
+  `MultiEdit`, and `execute` to `Bash`. A tool with no equivalent is left out and
+  noted in the ledger (`claude_tool_dropped`). `Bash(af <agent> submit:*)` is always
+  allowed; `WebFetch` and `WebSearch` are always denied, and so are `Write`, `Edit`,
+  `MultiEdit` and `NotebookEdit` for an agent whose brief has no tool that writes.
+- **The outcome.** The cost is `total_cost_usd` (else `cost_usd`) of the output, with
+  `cost_source` `reported`; the turns are `num_turns`; the input tokens are the sum of
+  `input_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens`, and
+  the output tokens `output_tokens`. The stop reason follows `subtype`: `success` is
+  `ended`, `error_max_turns` is `turns`, one that contains `budget` is `budget`, and
+  anything else is `error` (Claude Code prints an API failure, such as a key that is
+  refused, as the subtype `success` with `is_error` true and an exit code of 1). The
+  brain claims a submission when the box's
+  `submission.json` carries this attempt's nonce, and the host decides from the file
+  all the same. The ledger entry is `claude_result`. An output that is missing or does
+  not parse is cost 0, `cost_source` `none` and the warning `brain_usage_unavailable`.
+  A non-zero exit with no submission is an error that carries the last 2 KiB of the
+  errors, or the `result` text of the output when the errors are empty.
+- **The budget.** The cost is known only after the run, so `--budget` is checked then:
+  a cost above it raises the warning `budget_exceeded` (and, when nothing was
+  submitted, the stop reason `budget`). While the run goes on, `--max-turns` and the
+  timeout are the bounds.
 
 The host reads the box through its tools: it lists a directory with the list tool
 (at most 500 entries) and takes a file out by exporting that file, so that any
@@ -652,12 +794,17 @@ of its payload, and the payload must pass what a submission passes (at most 1
 MiB, valid UTF-8, one JSON object, and the kind's own check against the box's
 tree, in which a panic is a problem with the payload). Then the host writes
 `<run dir>/submission.json` from what it checked and nothing else the file held
-(no extra field, no second `payload`). A file left by an earlier attempt (another
+(no extra field, no second `payload`; under `none` this is also what makes the file the
+host's, since the brain's file and the host's are one). A file left by an earlier attempt (another
 nonce) is not this attempt's, and counts as no submission. The last valid
 submission wins; a refused one never replaces anything. A run directory that has
 no accepted submission has no `submission.json`: the one an earlier attempt
 accepted is removed when the next attempt starts, and one that anything but af
-wrote there is removed (the warning `submission_not_removed` if it cannot be).
+wrote there is removed (the warning `submission_not_removed` if it cannot be). Under
+`none` the file is the brain's as well as the host's, so the bytes the host last
+accepted are kept while the attempt runs and put back if the attempt's file is not
+accepted, and a file that is refused is moved to `submission.rejected.<attempt>.json`
+(the same warning if that, or the putting back, fails).
 Because the `local` box has no isolation, a process of the brain that outlives
 its run could still rewrite the file; consumers take the payload from the result
 of the run, or check the file's `payload_sha256` against the ledger's
@@ -712,7 +859,7 @@ and `af` checks it, and does every write itself.
 ```
 af triage <issue|file|text|-> [--dir DIR] [--context ANSWER]... [--repo owner/name]
           [--land issue|none] [--label L]... [--dry-run]
-          [--brain NAME] [--sandbox NAME] [--budget USD] [--max-turns N] [--timeout 15m]
+          [--brain NAME] [--sandbox NAME] [--borrowed-hands] [--budget USD] [--max-turns N] [--timeout 15m]
 af triage brief  <issue|file|text|-> [--dir DIR] [--context ANSWER]... [--repo owner/name]
 af triage run    --run-id ID [--dir DIR] [--budget USD] [--max-turns N] [--timeout 15m]
 af triage submit --run-id ID [--dir DIR]                          < diagnosis.json
@@ -729,7 +876,7 @@ to the forge.
 
 | Command | Takes | Default `--timeout` |
 |---|---|---|
-| `triage` | the input; `--dir`, `--context`, `--repo`, `--land`, `--label`, `--dry-run`, `--brain`, `--sandbox`, `--budget`, `--max-turns`, `--script` | 15 minutes |
+| `triage` | the input; `--dir`, `--context`, `--repo`, `--land`, `--label`, `--dry-run`, `--brain`, `--sandbox`, `--borrowed-hands`, `--budget`, `--max-turns`, `--script` | 15 minutes |
 | `triage brief` | the input; `--dir`, `--context`, `--repo` | 2 minutes |
 | `triage run` | `--run-id`, `--dir`, `--budget`, `--max-turns` | 15 minutes |
 | `triage submit` | `--run-id`, `--dir`; the diagnosis on stdin | 30 seconds |
@@ -745,7 +892,7 @@ git write, and creates nothing in the checkout outside `.agent-fox/`.
 | `--repo <owner/name>` | For an input that is not an issue: the repository the issue is created in. For `land`: it must be the repository the run recorded. |
 | `--context <answer>` | An answer to the question that an earlier run stopped on; see [Questions](#questions-and-answers). |
 | `--dry-run` | Run the brain as usual and send no write to the forge; the writes are planned, not made. |
-| `--brain`, `--sandbox`, `--budget`, `--max-turns`, `--script` | The [shared flags](#brains-and-boxes). `--brain` defaults to `agentkit`, `--budget` to `2` (dollars) and `--max-turns` to `100`. |
+| `--brain`, `--sandbox`, `--borrowed-hands`, `--budget`, `--max-turns`, `--script` | The [shared flags](#brains-and-boxes). `--brain` defaults to `agentkit`, `--budget` to `2` (dollars) and `--max-turns` to `100`; `--sandbox` has no default of its own (`AF_SANDBOX`, else the platform's). |
 
 #### The loop
 
@@ -893,7 +1040,12 @@ work on `--dir` itself, and `file_diagnosis` submits into the run directory unde
 it. `--budget` and `--max-turns` are the loop's. The result is `{run_id,
 submitted, rejected_path_calls}`, and the status is `done` when a diagnosis was
 accepted; the envelope's `usage` is the brain's. A run with no `brief.md` or no
-`triage.json` is `usage`, "run `af triage brief` first".
+`triage.json` is `usage`, "run `af triage brief` first", except in a box that was
+started by [a process brain](#brains-that-run-as-a-process): `brain.Execute` places
+there the `brief.md` and a `run.json` that also holds `prefix_bytes` (the length of
+the brief's prefix), and the command takes the brief and the prefix from them, and
+the attempt and the nonce of the host, and needs nothing else of the host's run
+directory.
 
 It reads the directory as it is, with no copy of it: a box keeps out the files that
 git ignores (a `.env`) and takes the credentials out of `.git/config`, and a
@@ -1094,9 +1246,9 @@ does every other effect, and measures the change before it lands.
 ```
 af fix <issue|file|text|-> [--dir DIR] [--base BRANCH] [--context ANSWER]... [--repo owner/name]
        [--land pr|branch|none] [--attempts N] [--no-verify] [--dry-run]
-       [--brain NAME] [--sandbox NAME] [--budget USD] [--max-turns N] [--timeout 45m]
+       [--brain NAME] [--sandbox NAME] [--borrowed-hands] [--budget USD] [--max-turns N] [--timeout 45m]
 af fix brief  <issue|file|text|-> [--dir DIR] [--base BRANCH] [--context ANSWER]... [--repo owner/name]
-af fix run    --run-id ID [--dir DIR] [--brain NAME] [--sandbox NAME] [--budget USD] [--max-turns N] [--timeout 45m]
+af fix run    --run-id ID [--dir DIR] [--brain NAME] [--sandbox NAME] [--borrowed-hands] [--budget USD] [--max-turns N] [--timeout 45m]
 af fix submit --run-id ID [--dir DIR]                                   < report.json
 af fix land   --run-id ID [--dir DIR] [--land pr|branch|none] [--timeout 45m]
 ```
@@ -1111,9 +1263,9 @@ executes a brain: they share a run directory (see
 
 | Command | Takes | Default `--timeout` |
 |---|---|---|
-| `fix` | the input; `--dir`, `--base`, `--context`, `--repo`, `--land`, `--attempts`, `--no-verify`, `--dry-run`, `--brain`, `--sandbox`, `--budget`, `--max-turns`, `--script` | 45 minutes |
+| `fix` | the input; `--dir`, `--base`, `--context`, `--repo`, `--land`, `--attempts`, `--no-verify`, `--dry-run`, `--brain`, `--sandbox`, `--borrowed-hands`, `--budget`, `--max-turns`, `--script` | 45 minutes |
 | `fix brief` | the input; `--dir`, `--base`, `--context`, `--repo` | 45 minutes |
-| `fix run` | `--run-id`, `--dir`, `--brain`, `--sandbox`, `--budget`, `--max-turns`, `--script` | 45 minutes |
+| `fix run` | `--run-id`, `--dir`, `--brain`, `--sandbox`, `--borrowed-hands`, `--budget`, `--max-turns`, `--script` | 45 minutes |
 | `fix submit` | `--run-id`, `--dir`; the report on stdin | 30 seconds |
 | `fix land` | `--run-id`, `--dir`, `--land` | 45 minutes |
 
@@ -1126,9 +1278,10 @@ executes a brain: they share a run directory (see
 | `--context <answer>` | An answer to the question that an earlier run stopped on; see [Questions](#questions-and-answers). |
 | `--repo <owner/name>` | The repository the pull request is opened in, when the checkout's origin does not name it. |
 | `--dry-run` | Run the brain and the measuring as usual and write nothing beyond the working tree: no issue, branch, commit, push or pull request, which are planned and listed as side effects. The change is discarded. |
-| `--brain`, `--sandbox`, `--budget`, `--max-turns`, `--script` | The [shared flags](#brains-and-boxes). `--budget` and `--max-turns` bound each attempt. |
+| `--brain`, `--sandbox`, `--borrowed-hands`, `--budget`, `--max-turns`, `--script` | The [shared flags](#brains-and-boxes). `--budget` and `--max-turns` bound each attempt. |
 
-The defaults are `--brain` to `agentkit`, `--sandbox` to `local`,
+The defaults are `--brain` to `agentkit`, `--sandbox` to the provider that
+`AF_SANDBOX` names, and without it `landlock` on Linux and `podman` anywhere else,
 `--budget` to `10` (dollars), `--max-turns` to `150`, `--attempts` to `2`,
 `--land` to `pr` and `--timeout` to 45 minutes. A pull or merge request as the input is a `usage`
 failure, since a fix takes an issue, a file or text. `fix land` takes no
@@ -1178,9 +1331,14 @@ failure, since a fix takes an issue, a file or text. `fix land` takes no
    is synced from the host's tree (the first round has it from opening), and
    `.agent-fox/gate.json` and `.agent-fox/guard.json` are written into it: the
    table of checks that `af` will measure by, and the policy of the brain's tool
-   gate. The brain edits the box and submits one report with `submit_fix`, or one
-   question. `af` takes the box's tree out and **applies** it to the checkout
-   (see below), then **measures** it.
+   gate. The brain edits the box and submits one report with `submit_fix` (a brain that
+   submits with `af fix submit` alone, like `claude`, is not told of the tool, and the
+   driver that runs in the box finds no `fix.json` in its run directory, which would
+   make its `af fix run` the round of the host), or one question. `af` takes the box's
+   tree out and **applies** it to the checkout (see below), then **measures** it.
+   Under `none` a `gate.json` or a `guard.json` that is there is the person's, and is
+   left as it is; those that af places for the rounds (where there are none) are taken
+   off the checkout when the run ends, if they are as af wrote them.
 4. **Apply.** The export is mirrored onto the checkout, uncommitted: the files
    it lacks are deleted first, then the new and changed files and links are
    written; `.git/` and `.agent-fox/` (whatever their case), ignored paths, anything
@@ -1190,6 +1348,28 @@ failure, since a fix takes an issue, a file or text. `fix land` takes no
    accepted report applies nothing, and an export with no file that can be applied is
    `failed`/`sandbox`. `fix run` is these steps for one round, without the
    measuring.
+
+   Under `none` there is no box to take a tree out of, so nothing is exported or
+   applied: the brain worked on the checkout itself. What a checkout cannot keep out
+   is a commit of the brain's own, so before each run `af` records HEAD (the full
+   hash) and the branch that is checked out, and after the run, before anything is
+   measured, compares them with the checkout:
+
+   - **Unchanged**: the run goes on, and git is not touched.
+   - **The same branch, and the recorded HEAD is an ancestor of the HEAD now**: the
+     commits are taken off the branch with `git reset --soft` to the recorded HEAD,
+     the warning `foreign_commits_reset` is raised with their count, and the ledger
+     records `foreign_commits_reset {count, from, to, branch}`. Their change is the
+     change that is measured, and `af` commits it, so that its commit is the one that
+     counts.
+   - **Anything else** (another branch, a detached HEAD, rewritten history):
+     `failed`/`git`, not retryable. The message names the branch and HEAD that were
+     recorded and those it found; the tree and the refs are left as the brain left
+     them, and nothing is landed or parked.
+
+   A round under `none` that comes to no report leaves what the brain did in the
+   checkout, since there is no box to throw away: the next round starts from it, and a
+   run that ends with no change that lands parks it.
 5. **Measure.** In order: a commit that is not the base's, or a branch that is not
    the base, is `failed`/`git`; a change under a protected path (`.git/`,
    `.agent-fox/`, `.specs/`, `.github/workflows/`, `.gitlab-ci.yml`) is put back
@@ -1274,7 +1454,7 @@ for a run with no issue is skipped (`pull_request_skipped`).
 | `land` | `pr`, `branch` or `none`. |
 | `branch`, `commit`, `pushed` | The branch and the full hash of the commit, `null` when none was made, and whether the branch is on the remote. |
 | `pull_request` | `{number, url, draft}` or `null`. |
-| `box` | `{provider, image, network}` of the box the brain worked in, or `null`. `network` is `host` for a provider with no boundary, like `local`. |
+| `box` | `{provider, image, network}` of the box the brain worked in, or `null`. `image` is the image of a `podman` box and `""` for any other provider. `network` is `open` for a provider that isolates (the brief of a fix has a tool that runs a command), and `host` for `local` and `none`, where nothing is enforced. |
 
 The side effects are `create_issue`, `branch`, `commit`, `push` and
 `create_pull_request`, each `done`, `planned` or `failed`; the artifacts are the
@@ -1319,9 +1499,14 @@ artifact `{kind: "brief", path}`. The result:
 `af fix run --run-id ID` runs one round of a brain on the `brief.md` of the run
 and applies the tree it leaves to the checkout, without measuring it, branching or
 committing: it is the second step of a person's flow when the brain is a model.
-The result is `{run_id, round, submission, submission_path, question, apply}`,
-where `submission` is `report` or `question` and `apply` is `{written, deleted,
-ignored}` (null for a question). It records `fix.run`.
+The result is `{run_id, round, submission, submission_path, question, apply,
+submitted}`, where `submission` is `report` or `question`, `apply` is `{written,
+deleted, ignored}` (null for a question) and `submitted` says that the brain handed
+over a submission that was accepted. It records `fix.run`. Like `triage run`, it
+takes the brief and the prefix from `run.json` when the run directory has no
+`fix.json`, which is how the driver of the `agentkit` brain runs it in a `landlock`
+or `podman` box: it then runs the brain over the tree it is in, applies nothing, and
+the host reads its submission from the box.
 
 ### fix submit
 
@@ -1495,7 +1680,7 @@ outcome, and a run that fails after the command returned prints the envelope.
 | `error.category` | Used for |
 |---|---|
 | `usage` | The invocation is wrong. Status `usage`. |
-| `auth` | An issue was not found without a token, so it may be private, or the `agentkit` brain has no credential for its model. `fix_hint.env` names the variable to set (a forge token, or `ANTHROPIC_API_KEY`). |
+| `auth` | An issue was not found without a token, so it may be private, or the `agentkit` brain has no credential for its model, or the `claude` brain has no `ANTHROPIC_API_KEY` for its box (not under `none`). `fix_hint.env` names the variable to set (a forge token, or `ANTHROPIC_API_KEY`). |
 | `forge` | The forge could not be reached, refused, or the client could not be built. `retryable` is true after a rate limit, a server error or a lost connection, and false after a refusal (a write of `triage` that gets a server error is not retryable). |
 | `io` | A file, stdin or the run directory could not be read or written. |
 | `cancelled` | The process was sent SIGINT, SIGTERM or SIGHUP. |
@@ -1503,9 +1688,9 @@ outcome, and a run that fails after the command returned prints the envelope.
 | `internal` | A bug: a plain error, a panic, an inconsistent outcome, a result that is not JSON. |
 | `config` | A configuration file `af` reads cannot be used, for example a `.agent-fox/gate.json` that does not parse, or the `.agent-fox/guard.json` that a brain's tool gate loads. The message names the file. The `agentkit` brain also uses it when the model provider cannot be configured from the environment. |
 | `restore` | A tree that a command changed in order to measure it could not be put back, or a leftover of an earlier measurement stands in the way. The message names the directory that holds what is left. |
-| `git` | git failed in a way the command cannot work around. |
-| `sandbox` | The box could not be opened, synced or exported. The provider could not create it (not retryable); the checkout could not be synced in, or the tree could not be exported out (retryable); or an export carried a `.git`, which stops the run. |
-| `brain` | A brain failed: it returned an error and left no submission (retryable), or it panicked (not retryable; the stack is in `brain-panic.<attempt>.txt` in the run directory). |
+| `git` | git failed in a way the command cannot work around; also, under `none`, a checkout that the brain left on another branch, detached, or with its history rewritten (see [the steps of a fix run](#the-steps-of-a-fix-run)). |
+| `sandbox` | The box could not be opened, synced or exported. The provider could not create it (not retryable: `landlock` on a host without Linux or without Landlock ABI 4, `podman` without a reachable engine, see [the providers](#the-providers)); the image of a `podman` box is missing and cannot be pulled, the checkout could not be synced in, or the tree could not be exported out (retryable); a process brain's binary or `HOME` fails the probe in the box (not retryable); or an export carried a `.git`, which stops the run. When the provider was chosen by default, `fix_hint` names `--sandbox` and `AF_SANDBOX`. |
+| `brain` | A brain failed: it returned an error and left no submission (retryable), or it panicked (not retryable; the stack is in `brain-panic.<attempt>.txt` in the run directory); or the `claude` brain cannot find `claude` on the `PATH` of this machine (not retryable). |
 | `no_result` | A brain ended without a valid submission: it stopped for another reason than the cost or the turns, or the submission file did not count. Retryable. |
 | `budget` | A brain used its cost bound or its turn bound and left no submission. Not retryable; `fix_hint` is `{flag: "--budget"` or `"--max-turns", suggest: <twice the bound>}`. |
 | `submission` | A submission was refused (the `submit` command, [below](#the-submit-command-of-an-agent)); nothing was written, and the message names every problem. Retryable. Also `fix land` on a run whose submission is a question. |
@@ -1533,12 +1718,17 @@ A code matches `^[a-z][a-z0-9_]*$`; one that does not is reported under
 | `fix_not_proven` | `revert-check`, `fix`, `fix land`: the outcome is not `proven` and not `no_changes`, so the change must not close its issue; the commit says `Refs`. |
 | `map_outline_skipped` | `map`: the declarations were not read, because the names of the files alone do not fit the budget or the view has more than 5000 files. The map has the names only, or less. |
 | `check_unavailable` | `lang detect`: a check of the gate table names a program that cannot be run on this machine. The check stays in the table with `available: false`; the message names the check. |
-| `box_unconfined` | A box was opened with the `local` provider, once for each box: it has no process or network isolation, because the tools run in this process with its privileges. Also `triage run`, which reads the directory in place, with no copy of it: the files git ignores and `.git/config` are within reach of the tools. |
+| `box_unconfined` | A box was opened with the `local` provider, once for each box: it has no process or network isolation, because the tools run in this process with its privileges. Also with the `none` provider, with a message of its own: the brain works on the checkout itself, with no copy of it and no box around it, and the hook is the only guard. Also `triage run`, which reads the directory in place, with no copy of it: the files git ignores and `.git/config` are within reach of the tools. |
+| `box_af_version_mismatch` | The `af` of a box that a process brain runs (in practice the one of a `podman` image, since the other providers run this very executable) has another version, or another commit when both are known, than the running one. The run goes on, since the host checks every submission again; the message names both. |
+| `brain_usage_unavailable` | A process brain left no output that could be read (the JSON of `claude`, the envelope of `af <agent> run`), so the run has no cost to report: the cost is 0 and `cost_source` is `none`. |
+| `budget_exceeded` | The `claude` brain reported a cost above `--budget`. Its cost is known only after the run, so only its turns and its time held it while it ran; with no submission, the stop reason is `budget`. |
+| `foreign_commits_reset` | `fix`, under `none`: the brain made commits on the branch of the checkout, and `af` took them off it with a soft reset to where the branch was. The message has their number; their change is inside the commit of `af`. |
 | `box_close_failed` | The box could not be closed, also one that could not be synced and was closed for that. The result of the run is what it was; the message carries the error. |
 | `submission_invalid` | The submission file in the box did not count: it did not parse, is not for this run's kind, run, attempt or payload hash, or the kind refused its payload against the box's tree. The message lists the problems, and the run has no submission. |
 | `submission_claim_mismatch` | A brain says it submitted and there is no valid submission file, or says it did not and there is one. The file decides. |
 | `brain_error` | A brain returned an error, or panicked, after it had submitted, which does not change the submission. The message carries the error. |
-| `submission_not_removed` | The run directory held a `submission.json` that af did not accept (one of an earlier attempt, or one that a process of the brain wrote), and it could not be removed. |
+| `submission_not_removed` | The run directory held a `submission.json` that af did not accept (one of an earlier attempt, or one that a process of the brain wrote), and it could not be removed; under `none` also when a refused file could not be moved aside, or the bytes the host had accepted could not be put back. |
+| `brain_output_unreadable` | A process brain's output or errors could not be read out of the box or copied to the run directory; the run goes on, and the file is not among the artifacts. |
 | `model_unpriced` | The `agentkit` brain's model is not in the catalog, so the run has no cost to report (`cost_source` is `none`). With `--budget` the run does not start: it is a `usage` failure. |
 | `transcript_unwritable` | The transcript of an in-process brain could not be written whole. The run goes on and the file is partial. |
 | `ledger_unwritable` | A ledger entry could not be written: at most once for the box and once for the brain run, since each reports its own. |
@@ -1749,11 +1939,14 @@ edited.
     submission.json          the accepted submission, if there is one
     transcript.<attempt>.jsonl   the tool calls of an in-process brain, listed as {kind: "transcript", path}
     brain-panic.<attempt>.txt    the stack of a brain that panicked
+    guard.json, claude-settings.json    the policy and the settings the claude brain ran with, copied from the box
+    <brain>.<attempt>.json, <brain>.<attempt>.stderr    what a brain that runs as a process printed, listed as {kind: "brain_output", path}
+    submission.rejected.<attempt>.json    a file refused as a submission, moved aside under none
     brief.md, original.md, triage.json, rejections.jsonl, diagnosis.md    the files of a triage run
     brief.md, original.md, run.json, fix.json, report.md    the files of a fix run
 ```
 
-The five before the last are written by a command that runs a brain
+The ones from `brief.<attempt>.md` to the process files are written by a command that runs a brain
 ([below](#brains-and-boxes)); `af` itself never reads a transcript. The files of
 a triage run are in [the files of a triage run](#the-files-of-a-triage-run), and
 those of a fix run in [the files of a fix run](#the-files-of-a-fix-run).
@@ -1785,15 +1978,19 @@ A command records what it measured with `RunDir.Record(kind, data)` and reads
 it back with `RunDir.Ledger()`; `toolio.OpenRunDir(dir, id)` opens an
 existing run, for the commands that carry one on, and refuses an id that is
 not of the form of a run id. The shell records nothing in the ledger. A command
-that runs a brain records `box_open {provider}`, `box_sync {head}` (the host's
+that runs a brain records `box_open {provider, image, network, placement}`, `box_sync {head}` (the host's
 short HEAD, or "" for a repository with no commit, also at every later sync), `box_export {path}`, `box_close
 {provider}`, `brief_placed {attempt, bytes, sha256, prefix_sha256}`,
 `brain_start {brain, attempt}`, `brain_end {brain, stop_reason,
-submitted_claim, cost_usd, cost_source, turns, duration_ms}` and, for what it
+submitted_claim, cost_usd, cost_source, turns, duration_ms}`, for a brain that runs
+as a process `box_probe {binary, ok, version}`, `brain_process {brain, exit_code,
+duration_ms}` and, for `claude`, `claude_result {subtype, is_error, num_turns,
+total_cost_usd, usage, session_id}` and `claude_tool_dropped {tool}`, and, for what it
 found in the box after the brain, `submission_accepted {attempt, sha256}`,
 `submission_invalid {attempt, problems}`, `submission_stale {attempt,
 file_attempt}` or `submission_absent {attempt}`. `triage` adds `triage.input`,
 `triage.brief`, `triage.submission`, `triage.question` and `triage.land` (see
 [the files of a triage run](#the-files-of-a-triage-run)), and `fix` adds
-`fix.brief`, `fix.run`, `fix.question`, `apply`, `measure` and `refusal` (see
+`fix.brief`, `fix.run`, `fix.question`, `apply`, `measure`, `refusal` and, under `none`,
+`foreign_commits_reset {count, from, to, branch}` (see
 [the files of a fix run](#the-files-of-a-fix-run)).

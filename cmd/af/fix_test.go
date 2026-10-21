@@ -109,10 +109,11 @@ func (e *fixEnv) run(stdin string, args ...string) (int, map[string]any) {
 	return code, oneDocument(e.t, out.String())
 }
 
-// fix runs af fix on the input, in the checkout.
+// fix runs af fix on the input, in the checkout, in the local box: the tests that
+// are about another provider say so after it, and the last --sandbox is the one that counts.
 func (e *fixEnv) fix(input string, args ...string) (int, map[string]any) {
 	e.t.Helper()
-	return e.run("", append([]string{"fix", input, "--dir", e.dir}, args...)...)
+	return e.run("", append([]string{"fix", input, "--dir", e.dir, "--sandbox", "local"}, args...)...)
 }
 
 // branches are the local branches of the checkout.
@@ -312,10 +313,10 @@ func TestADirOrBaseThatIsNotRightIsUsage_TS_09_10(t *testing.T) {
 	e := newFixEnv(t, fakeforge.GitHub)
 	sub := filepath.Join(e.dir, "src")
 
-	code, env := e.run("", "fix", e.forge.IssueURL(7), "--dir", sub, "--land", "none")
+	code, env := e.run("", "fix", e.forge.IssueURL(7), "--dir", sub, "--land", "none", "--sandbox", "local")
 	refusedBy(t, code, env, 2, "usage")
 
-	code, env = e.run("", "fix", e.forge.IssueURL(7), "--dir", t.TempDir(), "--land", "none")
+	code, env = e.run("", "fix", e.forge.IssueURL(7), "--dir", t.TempDir(), "--land", "none", "--sandbox", "local")
 	refusedBy(t, code, env, 2, "usage")
 
 	code, env = e.fix(e.forge.IssueURL(7), "--base", "other", "--land", "none")
@@ -549,14 +550,25 @@ func TestTheHelpOfFixShowsItsDefaults(t *testing.T) {
 	e.app.Main(context.Background(), []string{"af", "help", "fix"}, strings.NewReader(""), &out, &out)
 	help := out.String()
 
-	for flag, def := range map[string]string{"brain": "agentkit", "sandbox": "local", "budget": "10", "max-turns": "150", "attempts": "2", "land": "pr", "timeout": "45m0s"} {
+	for flag, def := range map[string]string{"brain": "agentkit", "budget": "10", "max-turns": "150", "attempts": "2", "land": "pr", "timeout": "45m0s"} {
 		if !regexp.MustCompile(`(?m)^\s+--` + flag + ` .*\(default ` + regexp.QuoteMeta(def) + `\)$`).MatchString(help) {
 			t.Errorf("af help fix does not show --%s with the default %s:\n%s", flag, def, help)
 		}
 	}
-	for _, want := range []string{"--base branch", "--no-verify", "--dry-run", "--context", "--repo"} {
+	for _, want := range []string{"--base branch", "--no-verify", "--dry-run", "--context", "--repo", "--borrowed-hands"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("af help fix does not show %q:\n%s", want, help)
 		}
+	}
+	// The box has no default of its own that the help could print: it is chosen by AF_SANDBOX,
+	// and without that by the platform.
+	sandbox := regexp.MustCompile(`(?m)^\s+--sandbox .*$`).FindString(help)
+	for _, want := range []string{"landlock, podman, local or none", "AF_SANDBOX", "landlock on Linux", "podman anywhere else"} {
+		if !strings.Contains(sandbox, want) {
+			t.Errorf("the --sandbox line of af help fix = %q, want it to say %q", sandbox, want)
+		}
+	}
+	if strings.Contains(sandbox, "(default") {
+		t.Errorf("the --sandbox line of af help fix = %q, want no default printed", sandbox)
 	}
 }

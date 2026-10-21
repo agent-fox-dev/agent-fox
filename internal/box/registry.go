@@ -20,9 +20,38 @@ type Entry struct {
 	// Unconfined says the provider puts no process or network boundary around
 	// the tools, so that every run that opens it raises box_unconfined.
 	Unconfined bool
+	// InPlace says the provider works on the checkout itself, with no copy of it:
+	// only `none` does.
+	InPlace bool
 	// New returns the provider.
 	New func() sandbox.Provider
+	// Build, when it is set, makes the provider instead of New, for one that can
+	// refuse to be made (it checks the host it is on) or needs paths of the run.
+	Build func(ProviderConfig) (sandbox.Provider, error)
+	// Explain, when it is set, turns an error of making the provider, or of creating
+	// a sandbox with it, that is not a failure already, into the failure to report.
+	Explain func(req Request, err error) error
 }
+
+// ProviderConfig is what a provider is made with, beyond what its spec says.
+type ProviderConfig struct {
+	// ExtraRO are the directories a process started in the box has to read and run:
+	// the provider grants them read and execute. A provider that does not confine
+	// has no use for them.
+	ExtraRO []string
+}
+
+// provider makes the provider of the entry.
+func (e Entry) provider(cfg ProviderConfig) (sandbox.Provider, error) {
+	if e.Build != nil {
+		return e.Build(cfg)
+	}
+	return e.New(), nil
+}
+
+// Isolates says the provider puts a process and network boundary around the
+// tools: `landlock` and `podman` do, `local` and `none` do not.
+func (e Entry) Isolates() bool { return !e.Unconfined }
 
 // Registry holds providers by name.
 type Registry struct {
@@ -33,11 +62,14 @@ type Registry struct {
 // NewRegistry returns a registry with no provider.
 func NewRegistry() *Registry { return &Registry{entries: map[string]Entry{}} }
 
-// Default is the registry that a Request without a Registry uses: `local`
-// until later scopes register more providers.
+// Default is the registry that a Request without a Registry uses: the four
+// providers, landlock, podman, local and none.
 var Default = func() *Registry {
 	r := NewRegistry()
+	r.Register(landlockEntry())
+	r.Register(podmanEntry())
 	r.Register(localEntry())
+	r.Register(noneEntry())
 	return r
 }()
 

@@ -33,13 +33,15 @@ repository.
 | `internal/conform/` | The revert check: do the tests of a change fail without it, with the tree and the index given back. |
 | `internal/policy/` | The guard policy: whether a brain may make a tool call. |
 | `internal/repomap/` | The repository map at a token budget. |
-| `internal/box/` | The box that holds a brain's tree: the checkout goes in with its `.git`, run files are placed under `.agent-fox/`, the tree comes out without `.git`. One provider, `local`, which has no isolation. |
+| `internal/box/` | The box that holds a brain's tree: the checkout goes in with its `.git`, run files are placed under `.agent-fox/`, the tree comes out without `.git`. Four providers: `landlock` and `podman`, which isolate, `local`, which does not, and `none`, which is no box but the checkout itself. |
 | `internal/submission/` | The submission protocol: a brain hands back one validated JSON object through the submit core, and the host checks the file again. |
-| `internal/brain/` | The `Brain` interface, its registry and shared flags, `Execute` (run a brief and decide from the file), the tool gate, and two brains: `scripted` and the AgentKit driver on the host. |
+| `internal/brain/` | The `Brain` interface, its registry and shared flags, `Execute` (run a brief and decide from the file), the tool gate, and three brains: `scripted`, the AgentKit driver, and headless Claude Code (`claude`), with `Process`, which runs a brain that is a process. |
 | `internal/triage/` | `af triage` without the shell: the diagnosis and its validator, the issue body and its markers, the brief, the preflight, the landing on a forge, the submission kind and the tool allowlist, with `fakeforge`, the GitHub and GitLab server of its tests. |
 | `internal/fix/` | `af fix` without the shell: the preflight and the baseline, the brief, the `fix_report` submission kind, apply (the box's tree onto the checkout), measure (protected paths, scope, the gate against the baseline, the revert check), land and park (branch, commit, push, pull request), the rounds, attempts and bounds of the loop, and the result. |
 | `skills/` | The coding-agent skills (`af-prd`, `af-impl`, `af-fix`, `af-triage`, `af-bug-hunter`, `af-code-quality`, `af-code-simplifier`), and the Go package `skills` that embeds every `af-*` entry, so that the briefs of `af triage` and `af fix` carry the same `af-triage` and `af-fix` that a person installs. `make install-skills` copies each `af-*` file to `~/.claude/skills/<name>/SKILL.md`. |
+| `internal/fakeclaude/`, `internal/optin/` | Test support: the fake `claude` and `af` that the tests run as, and the gates of the tests that need a real Landlock kernel, a container engine or the real Claude Code (`AF_TEST_LANDLOCK`, `AF_TEST_PODMAN`, `AF_TEST_CLAUDE`). |
 | `containers/sandbox/` | The sandbox image. |
+| `containers/tools/` | The tools image, `quay.io/agentfox/tools`: the sandbox image with `af` and Claude Code in it, which a `podman` box runs by default (`AF_SANDBOX_IMAGE` names another). `make build-tools-container` builds it. |
 | `.specs/` | `steering.md` holds the directives every session follows; `archive/` holds the specs of `issuex`, which now lives in `aflib`. |
 | `docs/` | `cli.md`, `configuration.md` and `model-usage.md` describe `af` as it is, and [`docs/development.md`](docs/development.md) how to work on it; `architecture.md` is the proposed target architecture, `prd/` holds the product requirements, `drafts/` holds design drafts, `errata/` holds the errata of the specs, `generated/` the Go package docs (`make doc`). |
 
@@ -71,6 +73,6 @@ make build          # go build ./..., and bin/af
 bin/af --version
 ```
 
-The test suite needs no API key, no token and no network. It does start
+The test suite needs no API key, no token, no container engine and no network. It does start
 `httptest` servers on the loopback interface, so a sandbox that forbids
 binding a local port fails it.

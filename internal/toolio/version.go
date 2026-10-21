@@ -14,6 +14,13 @@ type versionInfo struct {
 	GoVersion string `json:"go_version"`
 }
 
+// Identity is the version and the commit of the build, as --version prints them: what the
+// build set, else what its build information has. A commit that nothing knows is empty.
+func (a *App) Identity() (version, commit string) {
+	v := a.version()
+	return v.Version, v.Commit
+}
+
 // version is the build's identity. A value the build did not set with
 // -ldflags comes from the binary's build information (the main module's
 // version, vcs.revision and vcs.time); with neither, the version is "dev"

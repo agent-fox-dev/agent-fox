@@ -98,9 +98,11 @@ func submitStep(payload string, expect string) map[string]any {
 	return step
 }
 
+// loop runs af triage with args, in the local box: a test about another provider
+// says so in its args, and the last --sandbox is the one that counts.
 func (e *triageEnv) loop(args ...string) (int, map[string]any) {
 	e.t.Helper()
-	return e.run("", append([]string{"triage"}, args...)...)
+	return e.run("", append([]string{"triage", "--sandbox", "local"}, args...)...)
 }
 
 // TestTheCommandsAreRegisteredWithTheirTimeoutsAndFlags_TS_08_1 verifies TS-08-1:
@@ -115,7 +117,7 @@ func TestTheCommandsAreRegisteredWithTheirTimeoutsAndFlags_TS_08_1(t *testing.T)
 		timeout string
 		flags   []string
 	}{
-		{"triage", "15m0s", []string{"--brain", "--budget", "--context", "--dir", "--dry-run", "--label", "--land", "--max-turns", "--repo", "--sandbox", "--script"}},
+		{"triage", "15m0s", []string{"--borrowed-hands", "--brain", "--budget", "--context", "--dir", "--dry-run", "--label", "--land", "--max-turns", "--repo", "--sandbox", "--script"}},
 		{"triage brief", "2m0s", []string{"--context", "--dir", "--repo"}},
 		{"triage run", "15m0s", []string{"--budget", "--dir", "--max-turns", "--run-id"}},
 		{"triage submit", "30s", []string{"--dir", "--run-id"}},
@@ -150,7 +152,7 @@ func TestTheCommandsAreRegisteredWithTheirTimeoutsAndFlags_TS_08_1(t *testing.T)
 
 	// What the commands declare of themselves shows in what they do: the input, the
 	// forge client and the run directory of the loop and of brief.
-	for _, args := range [][]string{{"triage", "brief"}, {"triage", "--brain", "scripted", "--script", script(t, submitStep(diagnosisPayload(nil), "accepted")), "--land", "none"}} {
+	for _, args := range [][]string{{"triage", "brief"}, {"triage", "--sandbox", "local", "--brain", "scripted", "--script", script(t, submitStep(diagnosisPayload(nil), "accepted")), "--land", "none"}} {
 		before := len(e.forge.Requests())
 		code, env := e.run("", append(append(slices.Clone(args[:1]), args[1:]...), e.forge.IssueURL(7), "--dir", e.dir)...)
 		input, _ := env["input"].(map[string]any)
@@ -267,7 +269,7 @@ func TestTriageRunsOnADirtyTreeAndChangesNothingInIt_TS_08_5(t *testing.T) {
 		return out
 	}
 	before := files()
-	scripted := []string{"--brain", "scripted", "--script", script(t, submitStep(diagnosisPayload(nil), "accepted"))}
+	scripted := []string{"--sandbox", "local", "--brain", "scripted", "--script", script(t, submitStep(diagnosisPayload(nil), "accepted"))}
 
 	for name, args := range map[string][]string{
 		"brief":           {"triage", "brief", e.forge.IssueURL(7), "--dir", e.dir},
@@ -314,10 +316,10 @@ func TestARefusedPreflightRendersNoBriefAndCostsNothing_TS_08_8(t *testing.T) {
 		args    []string
 		mention string
 	}{
-		"a bad label":                    {[]string{"triage", e.forge.IssueURL(7), "--label", "a,b"}, "a,b"},
-		"a pull request":                 {[]string{"triage", pull}, "pull or merge request"},
-		"a bad label and a pull request": {[]string{"triage", pull, "--label", "a,b"}, "a,b"},
-		"no credential":                  {[]string{"triage", e.forge.IssueURL(7)}, "needs a credential"},
+		"a bad label":                    {[]string{"triage", e.forge.IssueURL(7), "--label", "a,b", "--sandbox", "local"}, "a,b"},
+		"a pull request":                 {[]string{"triage", pull, "--sandbox", "local"}, "pull or merge request"},
+		"a bad label and a pull request": {[]string{"triage", pull, "--label", "a,b", "--sandbox", "local"}, "a,b"},
+		"no credential":                  {[]string{"triage", e.forge.IssueURL(7), "--sandbox", "local"}, "needs a credential"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if name == "no credential" {
@@ -830,7 +832,7 @@ func TestAClosedIssueRaisesAWarningAndTheRunGoesOn(t *testing.T) {
 func TestAReportTheShellCutCannotLandWhole(t *testing.T) {
 	e := newTriageEnv(t, fakeforge.GitHub)
 
-	code, env := e.run(strings.Repeat("a crash\n", 20000), "triage", "-", "--repo", "o/r", "--dir", e.dir)
+	code, env := e.run(strings.Repeat("a crash\n", 20000), "triage", "-", "--repo", "o/r", "--dir", e.dir, "--sandbox", "local")
 
 	errObj, _ := env["error"].(map[string]any)
 	if code != 2 || errObj["category"] != "usage" || !strings.Contains(errObj["message"].(string), "after it was cut") {

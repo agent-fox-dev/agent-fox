@@ -1,8 +1,12 @@
 package box
 
 import (
+	"errors"
+
 	"github.com/agent-fox-dev/agentkit-go/sandbox"
+	"github.com/agent-fox-dev/agentkit-go/sandbox/landlock"
 	"github.com/agent-fox-dev/agentkit-go/sandbox/local"
+	"github.com/agent-fox-dev/agentkit-go/sandbox/podman"
 )
 
 // This file is the one place that names the sandbox module of agentkit-go by
@@ -15,23 +19,62 @@ func localEntry() Entry {
 	return Entry{Name: "local", Unconfined: true, New: local.Unisolated}
 }
 
+// newLandlockProvider is agentkit's landlock provider, which runs agentkit-sandboxd
+// as a confined child process: it checks the platform and the kernel itself, and
+// finds the agent binary beside this executable or on PATH. The directories of the
+// config are the ones a process started in the box may read and run. A test replaces
+// it.
+var newLandlockProvider = func(cfg ProviderConfig) (sandbox.Provider, error) {
+	return landlock.New(landlock.Options{ExtraRO: cfg.ExtraRO})
+}
+
+// isNoLandlock says an error of the landlock provider is its own refusal to confine on this
+// host, whenever it came: the ABI it found is too old, or Landlock is not there.
+func isNoLandlock(err error) bool { return errors.Is(err, landlock.ErrNoLandlock) }
+
+// newPodmanProvider is agentkit's podman provider, which runs the tools of a box in a
+// container of the engine on PATH. A test replaces it.
+var newPodmanProvider = func() (sandbox.Provider, error) { return podman.New(podman.Options{}) }
+
 // syncSource is the source of a sync: the host's work tree with its .git, as
 // the hands' ignore rules see it, and what the host no longer has removed.
 func syncSource(hostDir string) sandbox.Source {
 	return sandbox.LocalDir{Path: hostDir, Delete: true}
 }
 
-// networkFor is the network a spec asks for: none when the provider can honour
-// that, and otherwise the first mode it offers (the local provider offers only
-// an unrestricted one, which is part of why it raises box_unconfined).
-func networkFor(caps sandbox.Capabilities) sandbox.Network {
+// networkFor is the network a spec asks for: an unrestricted one for NetworkOpen
+// and none for anything else, when the provider can honour that, and otherwise the
+// first mode it offers (the local provider offers only an unrestricted one, which is
+// part of why it raises box_unconfined).
+func networkFor(caps sandbox.Capabilities, want string) sandbox.Network {
+	prefer := sandbox.NetworkNone
+	if want == NetworkOpen {
+		prefer = sandbox.NetworkUnrestricted
+	}
 	for _, mode := range caps.Network {
-		if mode == sandbox.NetworkNone {
-			return sandbox.Network{Mode: sandbox.NetworkNone}
+		if mode == prefer {
+			return sandbox.Network{Mode: prefer}
 		}
 	}
 	if len(caps.Network) > 0 {
 		return sandbox.Network{Mode: caps.Network[0]}
 	}
 	return sandbox.Network{}
+}
+
+// networkName is the network of a box as its ledger entry and the result of a run
+// say it: the one the request asked for, else host for a provider that enforces
+// nothing, else the mode the sandbox was given.
+func networkName(requested string, entry Entry, mode sandbox.NetworkMode) string {
+	switch {
+	case requested != "":
+		return requested
+	case entry.Unconfined:
+		return NetworkHost
+	case mode == sandbox.NetworkNone:
+		return NetworkNone
+	case mode == sandbox.NetworkUnrestricted:
+		return NetworkOpen
+	}
+	return mode.String()
 }

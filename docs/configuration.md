@@ -42,18 +42,37 @@ API URL is set. A request to any other host carries no token.
 
 | Variable | Used for |
 |---|---|
-| `AF_MODEL` | The model the `agentkit` brain runs, as the catalog of the hands names it. Empty is the catalog's default for the vendor, `claude-sonnet-5-5`. A model the catalog does not list has no price: the run reports no cost (`cost_source` `none`, with the warning `model_unpriced`), and with `--budget` it does not start (`failed`/`usage`, with `fix_hint.env` `AF_MODEL`). The commands that run a brain read the variable and give it to the brain as `brain.Options.Model`; `af triage`, `af triage run`, `af fix` and `af fix run` do. |
-| `ANTHROPIC_API_KEY` | The credential of the `agentkit` brain's provider, when no provider is injected. The provider resolves its credentials as the hands' does: `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` (and `ANTHROPIC_OAUTH_TOKEN`), optionally `ANTHROPIC_BASE_URL`, and Vertex AI or Bedrock when `CLAUDE_CODE_USE_VERTEX` or `CLAUDE_CODE_USE_BEDROCK` is `1`. Without any, the brain is not made: `failed`/`auth` with `fix_hint.env` `ANTHROPIC_API_KEY`, before a box is opened. |
+| `AF_MODEL` | The model the `agentkit` brain runs, as the catalog of the hands names it. Empty is the catalog's default for the vendor, `claude-sonnet-5-5`. A model the catalog does not list has no price: the run reports no cost (`cost_source` `none`, with the warning `model_unpriced`), and with `--budget` it does not start (`failed`/`usage`, with `fix_hint.env` `AF_MODEL`). The commands that run a brain read the variable and give it to the brain as `brain.Options.Model`; `af triage`, `af triage run`, `af fix` and `af fix run` do. The `claude` brain gives it to Claude Code as `--model`, when it is set, and the `agentkit` driver that runs in a box has it on its command line as `AF_MODEL`. |
+| `ANTHROPIC_API_KEY` | The credential of the `agentkit` brain's provider, when no provider is injected. The provider resolves its credentials as the hands' does: `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` (and `ANTHROPIC_OAUTH_TOKEN`), optionally `ANTHROPIC_BASE_URL`, and Vertex AI or Bedrock when `CLAUDE_CODE_USE_VERTEX` or `CLAUDE_CODE_USE_BEDROCK` is `1`. Without any, the brain is not made: `failed`/`auth` with `fix_hint.env` `ANTHROPIC_API_KEY`, before a box is opened. The `claude` brain needs `ANTHROPIC_API_KEY` itself, except under `--sandbox none`, where a person at their own checkout may be logged in to Claude Code; a brain that runs in a box has no other way to authenticate (a subscription token, Bedrock, Vertex and `ANTHROPIC_BASE_URL` are not supported there). |
 
-The key goes to the host process that runs the driver and to nothing else: the
-host values the box's tools are given beside what the provider gives them
-(`PATH`, `LANG` and `TERM` for `local`, and a `HOME` and a `TMPDIR` of the box's
-own) are the names the chosen brain asks for (none, for `agentkit` and
-`scripted`), so no host token, no forge token and no vendor key is in a box, and
-the credentials in the checkout's `.git/config` are taken out of the box's copy.
-The `scripted` brain reads no variable. The `local` box provider, the only one in
-this release, has no process or network isolation, and a box opened with it says
-so with the warning `box_unconfined`.
+### The box
+
+| Variable | Used for |
+|---|---|
+| `AF_SANDBOX` | The box provider, when `--sandbox` is not given: `landlock`, `podman`, `local` or `none`. An empty value is unset, and an unknown one is a `usage` failure that names the variable. Without it the provider is `landlock` on Linux and `podman` on any other operating system. When that provider cannot open, `af` fails with the reason and never falls back to `local` or `none`. |
+| `AF_SANDBOX_IMAGE` | The image of a `podman` box. Without it, `quay.io/agentfox/tools:latest`: the sandbox image with `af` and Claude Code in it, built from `containers/tools/Containerfile` by `make build-tools-container`. There is no flag for it: the image is configuration of the machine. |
+
+**Which credential enters which box.** Nothing of the host's environment reaches a
+box but what the brain asks for, and that is decided by where the brain runs (see
+[the placements](cli.md#where-the-brain-runs)):
+
+| Where the brain runs | The box holds | Network |
+|---|---|---|
+| on the host (`scripted`; `agentkit` under `local` and `none`, or with `--borrowed-hands`) | no credential at all | `none` when the brief has no tool that runs a command (`af triage`), `open` when it has (`af fix`); under `local` and `none` nothing is enforced and the network is `host` |
+| in the box (`claude` under `local`, `landlock` and `podman`; `agentkit` under `landlock` and `podman`) | `ANTHROPIC_API_KEY`, if the host has it | `open` under `landlock` and `podman`, `host` under `local` |
+| at the checkout (`claude` under `none`) | `ANTHROPIC_API_KEY`, if the host has it | `host` |
+
+No forge token (`GITHUB_TOKEN`, `GH_TOKEN`, `GITLAB_TOKEN`) is in any box. A process
+brain is started under `env -i` with only `PATH`, `HOME`, the locale and time zone,
+the proxy and certificate settings that are set, and the key (see [the process
+brains](cli.md#brains-that-run-as-a-process)); a podman box has the whole network or
+none, so a brain in one on a developer's machine has all of it. The credentials in
+the checkout's `.git/config` are taken out of the box's copy (there is no copy under
+`none`). Under `podman` the key of the vendor is on the command line of the engine on the host
+while the box lives, as `--env`, which another user of the machine can read; `landlock` runs
+a confined child process, `agentkit-sandboxd`, that must be beside `af` or on `PATH`. The `scripted` brain
+reads no variable. The `local` and the `none` providers have no process or network
+isolation, and a box opened with either says so with the warning `box_unconfined`.
 
 ## The `.agent-fox` directory
 
@@ -69,7 +88,7 @@ and the map read, and its `.gitignore` keeps it out of the repository.
 | `gate/<id>/` | The logs and the stored result of a gate run (see [cli.md](cli.md#gate-run)). Safe to delete: the next run makes them again, but a label in `labels.json` that names a deleted id makes `gate compare` fail with `usage` until the label is set again. |
 | `gate/labels.json` | Maps labels to those ids. `labels.json.lock` is beside it while a run writes it. |
 | `revert/<id>/` | The backup that [`revert-check`](cli.md#revert-check) keeps while it works and removes when the tree is back. One that is left means a check was killed, or the tree could not be put back, or something changed a path while the checks ran (what it held is in `changed/`): look at it before checking again. |
-| `run/<id>/` | One directory per invocation of a command that has one: the envelope, the event stream, the ledger, and a report or a panic's stack, and for a command that runs a brain its briefs, hook, accepted submission, transcripts and the stack of a brain's panic. Delete one when it is no use; nothing refers to one except the commands that carry a run on. The layout is in [cli.md](cli.md#the-run-directory). |
+| `run/<id>/` | One directory per invocation of a command that has one: the envelope, the event stream, the ledger, and a report or a panic's stack, and for a command that runs a brain its briefs, hook, accepted submission, transcripts and the stack of a brain's panic, and what a brain that runs as a process printed (`claude.<attempt>.json`, `claude.<attempt>.stderr`, `agentkit.<attempt>.json`, `agentkit.<attempt>.stderr`) with the `guard.json` and `claude-settings.json` of `claude`. Delete one when it is no use; nothing refers to one except the commands that carry a run on. The layout is in [cli.md](cli.md#the-run-directory). |
 
 ### The files of a triage run
 
@@ -108,13 +127,15 @@ directory has, a fix run keeps in `.agent-fox/run/<id>/`:
 | `report.md` | The body of the pull request of a change that landed, rendered from what `af` measured and what the report says; written once the issue of a text or a file is made and before the commit. A change that was parked has none. |
 
 A round of a brain runs in a box, and `af` places three files in it before each
-round: `.agent-fox/run/<id>/fix.json`, the state of the run, so that `af fix submit`
+round (under `none` the box is the checkout, and `gate.json` and `guard.json` are
+placed only where there are none, and taken off again when the run ends): `.agent-fox/run/<id>/fix.json`, the state of the run, so that `af fix submit`
 can be run in the box (it refuses a run directory that has none); `.agent-fox/gate.json`, the table of checks the run was pinned to, so that
 the brain's own `af gate run` measures what `af` will, and `.agent-fox/guard.json`,
 the policy of the tool gate (the `suite` of the gate, the default protected paths
 and, as `allow_programs`, the programs of the gate together with `af`, `git` and
 a few utilities that only read or make a directory). They are the host's table and rules, and not what the
-box would detect; the files of the checkout itself are not changed, and the
+box would detect; the files of the checkout itself are not changed (under `none` the
+brain works on them, and `af` checks and measures what it did), and the
 `.agent-fox/` directory of the box never comes back out (see
 [gate.json](#gatejson) and [guard.json](#guardjson)).
 

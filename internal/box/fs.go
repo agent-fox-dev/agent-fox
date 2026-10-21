@@ -37,7 +37,12 @@ import (
 // entries the list tool gives, and a longer one is an error, not a part of the
 // truth. A file is read whole, up to maxReadBytes. The size of a file is found
 // when it is asked for, because it takes a read.
-func (s *Session) FS(ctx context.Context) fs.FS { return &treeFS{s: s, ctx: ctx} }
+func (s *Session) FS(ctx context.Context) fs.FS {
+	if s.none {
+		return s.root.FS()
+	}
+	return &treeFS{s: s, ctx: ctx}
+}
 
 type treeFS struct {
 	s   *Session

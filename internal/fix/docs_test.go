@@ -101,7 +101,7 @@ var docNeeds = map[string][]string{
 		// the flags
 		"--land", "--attempts", "--no-verify", "--base", "--run-id", "--dry-run", "--repo", "--context", "--brain", "--sandbox", "--budget", "--max-turns", "--timeout",
 		// the defaults
-		"`--brain` to `agentkit`", "`--sandbox` to `local`", "`--budget` to `10`", "`--max-turns` to `150`", "`--attempts` to `2`", "`--land` to `pr`", "45 minutes",
+		"`--brain` to `agentkit`", "`--sandbox` to the provider that\n`AF_SANDBOX` names, and without it `landlock` on Linux and `podman` anywhere else", "`--budget` to `10`", "`--max-turns` to `150`", "`--attempts` to `2`", "`--land` to `pr`", "45 minutes",
 		// the result
 		"attempts_max", "revert_check", "reverted_paths", "issue_created", "pull_request", "changed_files", "pass_was_already_failing",
 		// the warnings

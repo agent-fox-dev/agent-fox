@@ -69,7 +69,7 @@
       "done_when": [
         "`make lint` and `make test` pass offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -113,7 +113,7 @@
       "done_when": [
         "`make lint` and `make test` pass offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -152,7 +152,7 @@
       "done_when": [
         "`make lint` and `make test` pass offline on this OS"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -199,7 +199,7 @@
       "done_when": [
         "`make -n build-containers` prints the sandbox build before the tools build"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -246,7 +246,7 @@
       "done_when": [
         "`make lint` and `make test` pass offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -290,7 +290,7 @@
       "done_when": [
         "`make lint` and `make test` pass offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -341,7 +341,7 @@
       "done_when": [
         "`make lint` and `make test` pass offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -392,7 +392,7 @@
       "done_when": [
         "`make lint` and `make test` pass offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -441,7 +441,7 @@
       "done_when": [
         "`make lint` and `make test` pass offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -491,7 +491,7 @@
       "done_when": [
         "`make lint` and `make test` pass offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -544,7 +544,7 @@
       "done_when": [
         "`make check` passes offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -577,7 +577,7 @@
         "`make check` passes offline",
         "no stub marker remains in any touched file"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     }
   ]

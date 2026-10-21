@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -43,6 +44,8 @@ type Session struct {
 	tools    []core.Tool
 	provider string
 	hostDir  string
+	network  string
+	image    string
 
 	ledgerWarned sync.Once
 
@@ -54,10 +57,23 @@ type Session struct {
 	// nothing to sync, and no state of the directory is touched.
 	inPlace bool
 
+	// none says the session is the one of the none provider: the checkout is the
+	// tree, root is the checkout opened so that nothing leads out of it, and a sync
+	// copies nothing.
+	none bool
+	root *os.Root
+
 	mu      sync.Mutex
 	closed  bool
 	exports []string // the export directories Close removes
+
+	exportCalls atomic.Int32 // how many times Export was asked for, whether or not it made one
 }
+
+// ExportCalls is how many times Export was asked of the session, whether or not it made an
+// export. Under a provider that works in place it counts calls that nothing should make,
+// which is what a test of the apply step reads.
+func (s *Session) ExportCalls() int { return int(s.exportCalls.Load()) }
 
 // Provider is the name of the provider.
 func (s *Session) Provider() string { return s.provider }
@@ -68,6 +84,27 @@ func (s *Session) Spec() sandbox.Spec { return s.sb.Spec() }
 // Tools is the box's tool set, for brains: one proxy for each of the hands'
 // built-in tools, whose every call runs inside the box.
 func (s *Session) Tools() []core.Tool { return s.tools }
+
+// Network is what the box's tools may reach: none, open, or host for a provider
+// that enforces nothing.
+func (s *Session) Network() string { return s.network }
+
+// Tool is the agent the box was opened for, af.tool in its labels: triage or fix.
+func (s *Session) Tool() string { return s.req.Tool }
+
+// Image is the image the box was made from, as the box_open entry of the ledger says
+// it; empty for a provider that has none.
+func (s *Session) Image() string { return s.image }
+
+// InPlace says the session works on the checkout itself, as the one of the `none`
+// provider does: nothing is synced or exported, and the box-side and the host-side
+// run directories are one. A session over a directory where it is (Here), which a
+// process that is in a box already uses, is not one.
+func (s *Session) InPlace() bool { return s.none }
+
+// Root is the root of the tree as a process in the box sees it: the checkout for a
+// session in place, and the workspace of the sandbox for the others.
+func (s *Session) Root() string { return s.sb.Spec().Workdir }
 
 // HostDir is the host checkout the box was synced from, the top level of its
 // work tree with its links resolved.
@@ -88,6 +125,14 @@ func (s *Session) HostDir() string { return s.hostDir }
 // content of the same length within the second of the host's modification of it
 // is still not put back; a checkout does not come to that outside a test.
 func (s *Session) Sync(ctx context.Context) error {
+	if s.none {
+		head, err := gitx.New(s.hostDir, nil).Head(ctx)
+		if err != nil {
+			head = ""
+		}
+		s.record("box_sync", map[string]any{"head": head})
+		return nil
+	}
 	if s.inPlace {
 		return &toolio.Failure{Category: toolio.CategoryInternal, Message: "box: Sync on a session over a directory in place: there is nothing to sync"}
 	}
@@ -243,6 +288,9 @@ func (s *Session) WriteFile(ctx context.Context, rel string, data []byte) error 
 	if !utf8.Valid(data) {
 		return fmt.Errorf("box: WriteFile writes text, and the content of %s is not valid UTF-8", rel)
 	}
+	if s.none {
+		return s.writeInPlace(ctx, rel, data)
+	}
 	r, err := s.call(ctx, toolWriteFile, map[string]any{"path": rel, "content": string(data)})
 	if err != nil {
 		return err
@@ -260,6 +308,10 @@ func (s *Session) WriteFile(ctx context.Context, rel string, data []byte) error 
 // .agent-fox/ among it. An export that carries a .git is removed and fails: it
 // breaks what the box is for.
 func (s *Session) Export(ctx context.Context) (string, error) {
+	s.exportCalls.Add(1)
+	if s.none {
+		return "", &toolio.Failure{Category: toolio.CategoryInternal, Message: "in place: nothing to export"}
+	}
 	s.mu.Lock()
 	closed := s.closed
 	s.mu.Unlock()
@@ -313,6 +365,9 @@ func (s *Session) closeWith(ctx context.Context) error {
 	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)
 	defer cancel()
 	err := s.sb.Close(closeCtx)
+	if s.root != nil {
+		err = errors.Join(err, s.root.Close())
+	}
 	for _, dir := range exports {
 		if rerr := os.RemoveAll(dir); rerr != nil {
 			err = errors.Join(err, rerr)

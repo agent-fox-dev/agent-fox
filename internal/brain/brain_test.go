@@ -136,28 +136,37 @@ func TestScriptGoesWithScripted_TS_07_4(t *testing.T) {
 }
 
 // TestSandboxDefaultsToLocal_TS_07_6 verifies TS-07-6:
-// without --sandbox the shared flags select local.
+// without --sandbox the shared flags select the sandbox the command pinned. A
+// command that pins none chooses by AF_SANDBOX and the operating system instead
+// (10-REQ-1.3, TS-10-3), which replaced the default of local.
 // Verifies: 07-REQ-1.6
 func TestSandboxDefaultsToLocal_TS_07_6(t *testing.T) {
-	for _, d := range []Defaults{{Sandbox: "local"}, {}} {
-		fs := flag.NewFlagSet("test", flag.ContinueOnError)
-		s := Flags(fs, d)
-		if err := fs.Parse(nil); err != nil {
-			t.Fatal(err)
-		}
-		if s.Sandbox != "local" {
-			t.Errorf("defaults %+v: sandbox = %q, want local", d, s.Sandbox)
-		}
-	}
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	s := Flags(fs, Defaults{Sandbox: "local", Brain: "scripted", Budget: 2.5, MaxTurns: 9})
+	s := Flags(fs, Defaults{Sandbox: "local"})
+	if err := fs.Parse(nil); err != nil {
+		t.Fatal(err)
+	}
+	if s.Sandbox != "local" {
+		t.Errorf("a command that pins local: sandbox = %q, want local", s.Sandbox)
+	}
+	fs = flag.NewFlagSet("test", flag.ContinueOnError)
+	s = Flags(fs, Defaults{})
+	if err := fs.Parse(nil); err != nil {
+		t.Fatal(err)
+	}
+	if s.Sandbox != "" {
+		t.Errorf("a command that pins none: sandbox = %q before Validate, want it left to Validate to choose", s.Sandbox)
+	}
+	fs = flag.NewFlagSet("test", flag.ContinueOnError)
+	s = Flags(fs, Defaults{Sandbox: "local", Brain: "scripted", Budget: 2.5, MaxTurns: 9})
 	if err := fs.Parse([]string{"--sandbox", "podman"}); err != nil || s.Sandbox != "podman" || s.Brain != "scripted" || s.Budget != 2.5 || s.MaxTurns != 9 {
 		t.Errorf("settings = %+v, %v; want the command's defaults, and the sandbox that was asked for", s, err)
 	}
 }
 
 // TestBoxEnvIsTheHostValuesOfBoxEnv_TS_07_8 verifies TS-07-8:
-// the box environment equals exactly the host values of BoxEnv names.
+// the box environment equals exactly the host values of the credential names
+// of the placement (10-REQ-2.2 replaced the static BoxEnv list by them).
 // Verifies: 07-REQ-1.8
 func TestBoxEnvIsTheHostValuesOfBoxEnv_TS_07_8(t *testing.T) {
 	rng := rand.New(rand.NewPCG(7, 8))
@@ -181,7 +190,7 @@ func TestBoxEnvIsTheHostValuesOfBoxEnv_TS_07_8(t *testing.T) {
 			}
 		}
 
-		got := BuildBoxEnv(Entry{BoxEnv: names}, func(name string) (string, bool) { v, ok := host[name]; return v, ok })
+		got := BuildBoxEnv(Entry{Credentials: names}, PlacementBox, func(name string) (string, bool) { v, ok := host[name]; return v, ok })
 
 		if len(got) != len(want) {
 			t.Fatalf("#%d: names %v, host %v: env = %v, want %v", i, names, host, got, want)
@@ -192,8 +201,8 @@ func TestBoxEnvIsTheHostValuesOfBoxEnv_TS_07_8(t *testing.T) {
 			}
 		}
 	}
-	if env := BuildBoxEnv(Entry{}, func(string) (string, bool) { return "x", true }); env == nil || len(env) != 0 {
-		t.Errorf("an entry with no BoxEnv gets %#v, want an empty map", env)
+	if env := BuildBoxEnv(Entry{}, PlacementBox, func(string) (string, bool) { return "x", true }); env == nil || len(env) != 0 {
+		t.Errorf("an entry with no Credentials gets %#v, want an empty map", env)
 	}
 }
 

@@ -1,9 +1,6 @@
 package fix
 
-import (
-	"github.com/agent-fox-dev/agentfox/internal/box"
-	"github.com/agent-fox-dev/agentkit-go/sandbox"
-)
+import "github.com/agent-fox-dev/agentfox/internal/box"
 
 // The outcomes of a run, as a result names them.
 const (
@@ -16,18 +13,15 @@ const (
 type BoxInfo struct {
 	Provider string `json:"provider"`
 	Image    string `json:"image"`
-	// Network is host for a provider that puts no boundary around the tools, and the mode
-	// of the network the box was given otherwise.
+	// Network is host for a provider that puts no boundary around the tools, none for a box
+	// with no network and open for one with the network of the machine.
 	Network string `json:"network"`
 }
 
-// NewBoxInfo describes the box of a provider that was opened with the spec.
-func NewBoxInfo(entry box.Entry, spec sandbox.Spec) BoxInfo {
-	network := spec.Network.Mode.String()
-	if entry.Unconfined {
-		network = "host"
-	}
-	return BoxInfo{Provider: entry.Name, Image: spec.Image, Network: network}
+// NewBoxInfo describes the box of a session: its provider, the image it was made from and
+// its network, as the ledger says them.
+func NewBoxInfo(sess *box.Session) BoxInfo {
+	return BoxInfo{Provider: sess.Provider(), Image: sess.Image(), Network: sess.Network()}
 }
 
 // Result is the result of `af fix` and of `af fix land`: what the run did, and the facts it

@@ -5,10 +5,17 @@ import (
 	"errors"
 	"io/fs"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/agent-fox-dev/agentfox/internal/submission"
 )
+
+// BriefTools are the tools of the hands that a triage brief allows, by name, before
+// any box is open to say which of them it offers: the read-only ones. None of them
+// runs a command or writes a file, so a brain on the host that has no more needs no
+// network.
+func BriefTools() []string { return slices.Clone(readOnlyTools) }
 
 // RejectionsPath is where the refused calls of a run are noted in a tree, beside
 // its submission.

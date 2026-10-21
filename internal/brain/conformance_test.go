@@ -405,7 +405,7 @@ func TestAScriptWithTextAfterItsObjectIsRefused(t *testing.T) {
 func TestBuildBoxEnvReadsTheProcessEnvironmentWhenGivenNoLookup(t *testing.T) {
 	t.Setenv("AF_TEST_BOX_ENV", "value")
 
-	env := BuildBoxEnv(Entry{BoxEnv: []string{"AF_TEST_BOX_ENV", "AF_TEST_BOX_ENV_UNSET"}}, nil)
+	env := BuildBoxEnv(Entry{Credentials: []string{"AF_TEST_BOX_ENV", "AF_TEST_BOX_ENV_UNSET"}}, PlacementBox, nil)
 
 	if len(env) != 1 || env["AF_TEST_BOX_ENV"] != "value" {
 		t.Errorf("env = %v, want only the variable that is set", env)

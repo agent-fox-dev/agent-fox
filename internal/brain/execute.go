@@ -11,6 +11,7 @@ import (
 	"io"
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime/debug"
 	"slices"
 	"sync"
@@ -42,6 +43,11 @@ type Request struct {
 	Heartbeat time.Duration
 	// Rand is where the nonce comes from; crypto/rand when nil.
 	Rand io.Reader
+	// Nonce, when it is not empty, is the nonce of the run instead of one drawn from
+	// Rand: the one a process that runs inside the box was given with the run.json
+	// that an earlier Execute placed, since a submission with another nonce is not
+	// this attempt's.
+	Nonce string
 }
 
 // Result is what a run that submitted leaves.
@@ -60,6 +66,12 @@ type run struct {
 	nonce   string
 	started time.Time
 	warned  sync.Once
+
+	// kept are the bytes of the submission.json the host accepted before this
+	// attempt, when the session is in place and there is one: the box-side file and
+	// the host's are then one, and a brain that runs on the checkout can write it.
+	kept    []byte
+	hasKept bool
 }
 
 // Execute runs one brief through one brain in a held box, and returns what the
@@ -82,7 +94,7 @@ func Execute(ctx context.Context, req Request) (Result, error) {
 	req = r.req
 
 	req.Report.Emit("step", stepEvent{Name: "brief"})
-	r.clearHostSubmission() // one of an earlier attempt is not this attempt's
+	r.startHostSubmission() // one of an earlier attempt is not this attempt's
 	if err := r.place(ctx); err != nil {
 		if ctx.Err() != nil {
 			return Result{}, ctx.Err() // a box that could not be written to because the run was cancelled
@@ -151,12 +163,25 @@ func newRun(req Request, started time.Time) (*run, error) {
 		return nil, fmt.Errorf("brain.Execute: attempt %d, and attempts count from 1", b.Attempt)
 	}
 	b.Box = req.Session
+	if req.Nonce != "" {
+		if !ValidNonce(req.Nonce) {
+			return nil, fmt.Errorf("brain.Execute: the nonce to adopt, %q, is not 8 to 64 lower-case hex digits", req.Nonce)
+		}
+		return &run{req: req, brief: b, nonce: req.Nonce, started: started}, nil
+	}
 	var nonce [8]byte
 	if _, err := io.ReadFull(req.Rand, nonce[:]); err != nil {
 		return nil, fmt.Errorf("brain.Execute: cannot draw a nonce: %w", err)
 	}
 	return &run{req: req, brief: b, nonce: hex.EncodeToString(nonce[:]), started: started}, nil
 }
+
+// adoptable is what a nonce taken from a run.json that is already placed looks like.
+var adoptable = regexp.MustCompile(`^[0-9a-f]{8,64}$`)
+
+// ValidNonce says whether s can be the nonce of a run: the 16 hex digits that Execute
+// draws, or another run.json's, which are 8 to 64 lower-case hex digits.
+func ValidNonce(s string) bool { return adoptable.MatchString(s) }
 
 // discardReport is a Report for a caller that has none.
 type discardReport struct{}
@@ -211,7 +236,7 @@ func (r *run) place(ctx context.Context) error {
 		return err
 	}
 	hookJSON = append(hookJSON, '\n')
-	runJSON, err := json.MarshalIndent(submission.Run{RunID: b.RunID, Kind: b.Kind.Name, Attempt: b.Attempt, Nonce: r.nonce}, "", "  ")
+	runJSON, err := json.MarshalIndent(submission.Run{RunID: b.RunID, Kind: b.Kind.Name, Attempt: b.Attempt, Nonce: r.nonce, PrefixBytes: len(b.Prefix)}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -243,6 +268,9 @@ func (r *run) place(ctx context.Context) error {
 
 	r.brief.TranscriptPath = filepath.Join(req.RunDir.Path, fmt.Sprintf("transcript.%d.jsonl", b.Attempt))
 	r.brief.Warn = req.Report.Warn
+	r.brief.RunDir = req.RunDir.Path
+	r.brief.Record = r.record
+	r.brief.Artifact = req.Report.Artifact
 	observe := b.Observe
 	r.brief.Observe = func(c ToolCall) {
 		req.Report.Emit("tool_call", toolCallEvent(c))

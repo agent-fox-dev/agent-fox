@@ -282,20 +282,20 @@ func TestUnknownProviderIsUsage_TS_07_5(t *testing.T) {
 	r, c := testRegistry()
 	l := &ledger{}
 
-	s, err := Open(context.Background(), Request{Provider: "podman", HostDir: t.TempDir(), RunID: "r", Tool: "fix", Record: l.record, Warn: l.warn, Registry: r})
+	s, err := Open(context.Background(), Request{Provider: "docker", HostDir: t.TempDir(), RunID: "r", Tool: "fix", Record: l.record, Warn: l.warn, Registry: r})
 
 	if s != nil {
 		t.Error("a session was returned for an unknown provider")
 	}
 	f := asFailure(t, err)
-	if f.Category != toolio.CategoryUsage || !strings.Contains(f.Message, "counting") || !strings.Contains(f.Message, "failcreate") || !strings.Contains(f.Message, "podman") {
-		t.Errorf("failure = %+v, want usage naming podman and listing the registered providers", f)
+	if f.Category != toolio.CategoryUsage || !strings.Contains(f.Message, "counting") || !strings.Contains(f.Message, "failcreate") || !strings.Contains(f.Message, "docker") {
+		t.Errorf("failure = %+v, want usage naming docker and listing the registered providers", f)
 	}
 	if c.creates.Load() != 0 {
 		t.Errorf("%d sandboxes were created", c.creates.Load())
 	}
-	if _, err := Default.Lookup("podman"); asFailure(t, err).Category != toolio.CategoryUsage || !strings.Contains(err.Error(), "local") {
-		t.Errorf("the default registry says %v, want a usage failure that lists local", err)
+	if _, err := Default.Lookup("docker"); asFailure(t, err).Category != toolio.CategoryUsage || !strings.Contains(err.Error(), "landlock, local, none, podman") {
+		t.Errorf("the default registry says %v, want a usage failure that lists the four providers", err)
 	}
 }
 

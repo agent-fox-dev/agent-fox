@@ -48,7 +48,7 @@ func (r *run) decide(ctx context.Context, outcome Outcome, runCtxErr, runErr, pa
 
 	res, found, err := r.readSubmission(readCtx)
 	if err != nil || !found {
-		r.clearHostSubmission()
+		r.dropHostSubmission()
 	}
 	if err != nil {
 		return Result{Outcome: outcome}, err
@@ -79,6 +79,48 @@ func (r *run) hostSubmission() string { return filepath.Join(r.req.RunDir.Path, 
 func (r *run) clearHostSubmission() {
 	if err := os.Remove(r.hostSubmission()); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		r.req.Report.Warn("submission_not_removed", fmt.Sprintf("%s is not a submission af accepted, and could not be removed: %v", r.hostSubmission(), err))
+	}
+}
+
+// startHostSubmission readies the host's submission.json for an attempt. Where the box
+// has a tree of its own the file is a stale one of an earlier attempt, and goes. Where
+// the box is the checkout it is the same file the brain writes, and the bytes the host
+// accepted last are kept, to be put back if this attempt is not accepted.
+func (r *run) startHostSubmission() {
+	if !r.req.Session.InPlace() {
+		r.clearHostSubmission()
+		return
+	}
+	if data, err := os.ReadFile(r.hostSubmission()); err == nil {
+		r.kept, r.hasKept = data, true
+	}
+}
+
+// dropHostSubmission is what an attempt without a valid submission leaves in the run
+// directory. With a tree of its own, no submission.json. In place, the file holds only
+// what the host accepted: what the brain left there is moved to
+// submission.rejected.<attempt>.json, unless it is the kept bytes, and the kept bytes
+// are put back, or no file is left when there were none.
+func (r *run) dropHostSubmission() {
+	if !r.req.Session.InPlace() {
+		r.clearHostSubmission()
+		return
+	}
+	path := r.hostSubmission()
+	if current, err := os.ReadFile(path); err == nil && (!r.hasKept || !bytes.Equal(current, r.kept)) {
+		rejected := filepath.Join(r.req.RunDir.Path, fmt.Sprintf("submission.rejected.%d.json", r.brief.Attempt))
+		if err := os.Rename(path, rejected); err != nil {
+			r.req.Report.Warn("submission_not_removed", fmt.Sprintf("%s is not a submission af accepted, and could not be moved aside: %v", path, err))
+			return
+		}
+	}
+	if r.hasKept {
+		if _, err := os.Stat(path); err == nil {
+			return // it is the kept bytes
+		}
+		if err := agentdir.WriteFileAtomic(path, r.kept); err != nil {
+			r.req.Report.Warn("submission_not_removed", fmt.Sprintf("the submission af accepted before could not be put back in %s: %v", path, err))
+		}
 	}
 }
 

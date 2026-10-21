@@ -1,13 +1,13 @@
 package fix
 
 import (
+	"context"
 	"encoding/json"
 	"slices"
 	"testing"
 
 	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
-	"github.com/agent-fox-dev/agentkit-go/sandbox"
 )
 
 // resultKeys are the fields of a result, in the order of the spec.
@@ -37,16 +37,12 @@ func asMap(t *testing.T, r Result) map[string]any {
 // Verifies: 09-REQ-10.1
 func TestAResultCarriesEveryFieldWhateverTheRunDid_TS_09_67(t *testing.T) {
 	state := sampleState()
-	local, err := box.Default.Lookup("local")
-	if err != nil {
-		t.Fatal(err)
-	}
-	info := NewBoxInfo(local, sandbox.Spec{Image: "img", Network: sandbox.Network{Mode: sandbox.NetworkUnrestricted}})
-	if info != (BoxInfo{Provider: "local", Image: "img", Network: "host"}) {
+	info := sessionBoxInfo(t, "local")
+	if info != (BoxInfo{Provider: "local", Network: "host"}) {
 		t.Errorf("NewBoxInfo(local) = %+v, want network host", info)
 	}
-	if got := NewBoxInfo(box.Entry{Name: "container"}, sandbox.Spec{Network: sandbox.Network{Mode: sandbox.NetworkAllowlist}}); got != (BoxInfo{Provider: "container", Network: "allowlist"}) {
-		t.Errorf("NewBoxInfo(container) = %+v", got)
+	if got := sessionBoxInfo(t, "none"); got != (BoxInfo{Provider: "none", Network: "host"}) {
+		t.Errorf("NewBoxInfo(none) = %+v, want network host", got)
 	}
 
 	landed := NewResult(ResultInput{
@@ -82,7 +78,7 @@ func TestAResultCarriesEveryFieldWhateverTheRunDid_TS_09_67(t *testing.T) {
 	if r, _ := m["revert_check"].(map[string]any); r["outcome"] != "proven" {
 		t.Errorf("revert_check = %v", m["revert_check"])
 	}
-	if bx, _ := m["box"].(map[string]any); bx["provider"] != "local" || bx["network"] != "host" || bx["image"] != "img" {
+	if bx, _ := m["box"].(map[string]any); bx["provider"] != "local" || bx["network"] != "host" || bx["image"] != "" {
 		t.Errorf("box = %v", m["box"])
 	}
 	if s, _ := m["scope"].(map[string]any); len(s["undeclared"].([]any)) != 1 || s["unchanged"] == nil {
@@ -107,11 +103,7 @@ func TestAResultCarriesEveryFieldWhateverTheRunDid_TS_09_67(t *testing.T) {
 // Verifies: 09-REQ-10.1
 func TestAResultOfARunThatParkedOrAskedCarriesEveryField_TS_09_67(t *testing.T) {
 	state := sampleState()
-	local, err := box.Default.Lookup("local")
-	if err != nil {
-		t.Fatal(err)
-	}
-	info := NewBoxInfo(local, sandbox.Spec{Image: "img", Network: sandbox.Network{Mode: sandbox.NetworkUnrestricted}})
+	info := sessionBoxInfo(t, "local")
 
 	// A run that parked, with an issue that was made for a text.
 	state.Issue, state.NoVerify = nil, false
@@ -164,4 +156,16 @@ func TestAResultOfARunThatParkedOrAskedCarriesEveryField_TS_09_67(t *testing.T) 
 	}); !slices.Equal(keys, slices.Sorted(slices.Values(resultKeys))) {
 		t.Errorf("keys = %v", keys)
 	}
+}
+
+// sessionBoxInfo is the box info of an open session of the provider over a new checkout.
+func sessionBoxInfo(t *testing.T, provider string) BoxInfo {
+	t.Helper()
+	r := newTestRepo(t, map[string]string{"a.txt": "a\n"}, false)
+	sess, err := box.Open(context.Background(), box.Request{Provider: provider, HostDir: r.Dir, RunID: "20261021_180000_abcdef", Tool: "fix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sess.Close() })
+	return NewBoxInfo(sess)
 }

@@ -112,6 +112,22 @@ func output(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
 	return stdout.Bytes(), err
 }
 
+// ExplicitEnvRunner is ExecRunner with exactly the environment given, each variable
+// "name=value", and nothing of the process's own: no environment is an empty one, and
+// not the process's. The command keeps the process group of ExecRunner, which is
+// killed when the context ends.
+//
+// It is how a command that must not see this process's credentials is run: the
+// caller builds the environment from what the command may have.
+func ExplicitEnvRunner(env []string) Runner {
+	if env == nil {
+		env = []string{}
+	}
+	return func(ctx context.Context, dir string, argv []string, stdin ...string) (string, int, error) {
+		return run(ctx, dir, argv, env, stdin...)
+	}
+}
+
 // EnvRunner is ExecRunner with extra variables, each "name=value", added to
 // the environment of every command. It is how a command is pointed at
 // another index (GIT_INDEX_FILE) so that what git refreshes is a copy.

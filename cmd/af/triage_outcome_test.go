@@ -530,7 +530,7 @@ func TestOnlyTheAllowedWarningCodesAndCategories_TS_08_64(t *testing.T) {
 	e.forge.AddIssue(fakeforge.Issue{Number: 9, Title: "Old", Body: "It broke.", State: "closed"})
 	scriptedLoop(e, e.forge.IssueURL(9), diagnosisPayload(nil), "--land", "none")
 	e.loop("-", "--dir", e.dir) // an input with nothing in it
-	e.run(strings.Repeat("a crash\n", 20000), "triage", "-", "--repo", "o/r", "--dir", e.dir)
+	e.run(strings.Repeat("a crash\n", 20000), "triage", "-", "--repo", "o/r", "--dir", e.dir, "--sandbox", "local")
 	e.forge.Fail(fakeforge.OpLabels, fakeforge.Failure{Status: 500, Message: "boom"})
 	scriptedLoop(e, e.forge.IssueURL(7), diagnosisPayload(nil), "--label", "x")
 	e.forge.Fail(fakeforge.OpBody, fakeforge.Failure{Status: 401, Message: "bad credentials"})

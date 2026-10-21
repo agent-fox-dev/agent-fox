@@ -623,6 +623,21 @@ func (g *Git) RevParse(ctx context.Context, ref string) (string, error) {
 	return g.must(ctx, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
 }
 
+// IsAncestor says whether the commit a is an ancestor of the commit b (a commit is its
+// own ancestor).
+func (g *Git) IsAncestor(ctx context.Context, a, b string) (bool, error) {
+	out, code, err := g.git(ctx, "merge-base", "--is-ancestor", a, b)
+	switch {
+	case err != nil:
+		return false, err
+	case code == 0:
+		return true, nil
+	case code == 1:
+		return false, nil
+	}
+	return false, fmt.Errorf("git merge-base --is-ancestor exited %d: %s", code, strings.TrimSpace(out))
+}
+
 // Ignored is the paths among paths that git's ignore rules ignore. A tracked
 // path is not ignored, whatever the rules say, since the rules do not apply to
 // it. Paths are slash-separated and relative to the root of the work tree, and

@@ -13,6 +13,7 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/submission"
+	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
 // Brain runs one brief to a submission. It must not depend on anything inside
@@ -54,6 +55,12 @@ type Brief struct {
 	// Warn, when it is not nil, raises a warning of the run: what the brain
 	// could not do that does not stop it, such as a transcript it cannot write.
 	Warn func(code, message string)
+	// RunDir is the run's directory on the host, where a process brain copies what
+	// its process wrote; Record notes an entry in the run's ledger, and Artifact lists
+	// a file the run left. Execute sets all three.
+	RunDir   string
+	Record   func(kind string, data any)
+	Artifact func(toolio.Artifact)
 }
 
 // Document is the brief as the brain reads it: the prefix, then the task.

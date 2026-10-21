@@ -4,25 +4,36 @@ import (
 	"flag"
 	"fmt"
 	"math"
+	"os"
+	"strings"
 
+	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+)
+
+// Where the sandbox of a run was chosen: --sandbox, AF_SANDBOX or the default.
+const (
+	SandboxFlag    = "flag"
+	SandboxEnv     = "env"
+	SandboxDefault = "default"
 )
 
 // The names of the brains this release has.
 const (
 	AgentkitName = "agentkit"
 	ScriptedName = "scripted"
+	ClaudeName   = "claude"
 )
 
-// DefaultSandbox is the box provider that is chosen without --sandbox, until
-// the scope that adds more providers makes another the default where it can.
-const DefaultSandbox = "local"
+// sandboxVar is the variable that names the box provider when --sandbox does not.
+const sandboxVar = "AF_SANDBOX"
 
 // Defaults are what a command supplies for the shared flags.
 type Defaults struct {
 	// Brain is the brain that is chosen without --brain; agentkit when empty.
 	Brain string
-	// Sandbox is the provider chosen without --sandbox; local when empty.
+	// Sandbox is the provider chosen without --sandbox, in place of AF_SANDBOX and of
+	// the default of the operating system; empty is to choose by those.
 	Sandbox string
 	// Budget is the cost bound in dollars, and MaxTurns the turn bound.
 	Budget   float64
@@ -36,6 +47,13 @@ type Settings struct {
 	Budget   float64
 	MaxTurns int
 	Script   string
+	// BorrowedHands says the agentkit driver runs on the host over the box's tools
+	// instead of inside the box.
+	BorrowedHands bool
+	// SandboxSource says where Sandbox came from once Validate has chosen it.
+	SandboxSource string
+
+	registry *box.Registry
 }
 
 // Flags registers --brain, --sandbox, --budget, --max-turns and --script on a
@@ -45,22 +63,30 @@ func Flags(fs *flag.FlagSet, d Defaults) *Settings {
 	if d.Brain == "" {
 		d.Brain = AgentkitName
 	}
-	if d.Sandbox == "" {
-		d.Sandbox = DefaultSandbox
-	}
 	s := &Settings{}
-	fs.StringVar(&s.Brain, "brain", d.Brain, "the `brain` that runs the brief: agentkit or scripted")
-	fs.StringVar(&s.Sandbox, "sandbox", d.Sandbox, "the box `provider` that holds the tree; local has no isolation")
+	fs.StringVar(&s.Brain, "brain", d.Brain, "the `brain` that runs the brief: agentkit, scripted or claude")
+	fs.StringVar(&s.Sandbox, "sandbox", d.Sandbox, "the box `provider` that holds the tree: landlock, podman, local or none; without it AF_SANDBOX, else landlock on Linux and podman anywhere else. local and none have no isolation")
 	fs.Float64Var(&s.Budget, "budget", d.Budget, "stop the brain after this many `dollars` of model cost")
 	fs.IntVar(&s.MaxTurns, "max-turns", d.MaxTurns, "stop the brain after this many `turns`")
 	fs.StringVar(&s.Script, "script", "", "the `file` the scripted brain replays; only with --brain scripted")
+	fs.BoolVar(&s.BorrowedHands, "borrowed-hands", false, "run the agentkit driver on the host over the box's tools, not inside the box; only with --brain agentkit")
 	return s
 }
 
 // Validate checks the values of the flags, before any box is opened: a budget
-// that is not a finite number of dollars above 0, fewer than 1 turn, and a
-// script that does not go with the brain.
-func (s *Settings) Validate() error {
+// that is not a finite number of dollars above 0, fewer than 1 turn, a script that
+// does not go with the brain, borrowed hands with a brain that has none to
+// borrow, and a box provider that is not one. It then chooses the provider (see
+// ValidateWith).
+func (s *Settings) Validate() error { return s.ValidateWith(os.LookupEnv) }
+
+// ValidateWith is Validate with the host's environment given. The provider is the
+// first of: --sandbox (or the default a command pinned for it), AF_SANDBOX, and
+// landlock on Linux and podman on any other operating system. Choosing opens no box
+// and never falls back to another provider; Sandbox and SandboxSource say what was
+// chosen. An empty AF_SANDBOX is unset; one that is not a provider is refused even when
+// --sandbox says which to use.
+func (s *Settings) ValidateWith(get Getenv) error {
 	usage := func(format string, args ...any) error {
 		return &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf(format, args...)}
 	}
@@ -69,10 +95,49 @@ func (s *Settings) Validate() error {
 		return usage("--budget must be a finite number of dollars above 0, not %v", s.Budget)
 	case s.MaxTurns < 1:
 		return usage("--max-turns must be at least 1, not %d", s.MaxTurns)
+	case s.BorrowedHands && s.Brain != AgentkitName:
+		return usage("--borrowed-hands goes only with --brain %s, the driver that has hands to borrow, not with --brain %s", AgentkitName, s.Brain)
 	case s.Brain == ScriptedName && s.Script == "":
 		return usage("--script is required with --brain scripted: the file of steps to replay")
 	case s.Brain != ScriptedName && s.Script != "":
 		return usage("--script goes only with --brain scripted, not with --brain %s", s.Brain)
 	}
+	return s.chooseSandbox(get)
+}
+
+// chooseSandbox sets Sandbox and SandboxSource from --sandbox, AF_SANDBOX or the
+// default of the operating system, and refuses a name that is not a provider.
+func (s *Settings) chooseSandbox(get Getenv) error {
+	reg := s.registry
+	if reg == nil {
+		reg = box.Default
+	}
+	env, _ := get(sandboxVar)
+	if env != "" {
+		if _, err := reg.Lookup(env); err != nil {
+			return &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("%s=%q is not a box provider; the providers are %s", sandboxVar, env, strings.Join(reg.Names(), ", "))}
+		}
+	}
+	name, source := s.Sandbox, SandboxFlag
+	if name == "" {
+		if env != "" {
+			name, source = env, SandboxEnv
+		} else {
+			name, source = defaultSandbox(), SandboxDefault
+		}
+	}
+	if _, err := reg.Lookup(name); err != nil {
+		return err
+	}
+	s.Sandbox, s.SandboxSource = name, source
 	return nil
+}
+
+// defaultSandbox is the provider of an operating system: landlock on Linux, where
+// it confines a process with no engine, and podman anywhere else.
+func defaultSandbox() string {
+	if box.GOOS == "linux" {
+		return "landlock"
+	}
+	return "podman"
 }
