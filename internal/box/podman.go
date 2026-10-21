@@ -48,7 +48,7 @@ func explainPodman(req Request, err error) error {
 		}
 	}
 	message := fmt.Sprintf("the podman engine cannot be reached: %v", err)
-	if goos != "linux" {
+	if GOOS != "linux" {
 		message += "; if its machine is not running, start it with `podman machine start`"
 	}
 	return &toolio.Failure{Category: toolio.CategorySandbox, Message: message, FixHint: &toolio.FixHint{Flag: "--sandbox"}}

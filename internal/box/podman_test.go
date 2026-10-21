@@ -32,9 +32,9 @@ func (podmanThatFails) Reap(context.Context) ([]string, error) { return nil, nil
 // withPodman sets the operating system and the provider that podman is made as.
 func withPodman(t *testing.T, goosName string, makeProvider func() (sandbox.Provider, error)) {
 	t.Helper()
-	oldGoos, oldNew := goos, newPodmanProvider
-	t.Cleanup(func() { goos, newPodmanProvider = oldGoos, oldNew })
-	goos, newPodmanProvider = goosName, makeProvider
+	oldGoos, oldNew := GOOS, newPodmanProvider
+	t.Cleanup(func() { GOOS, newPodmanProvider = oldGoos, oldNew })
+	GOOS, newPodmanProvider = goosName, makeProvider
 }
 
 // withPodmanCreateError makes podman a provider whose engine answers err.

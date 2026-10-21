@@ -577,7 +577,7 @@
         "`make check` passes offline",
         "no stub marker remains in any touched file"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     }
   ]

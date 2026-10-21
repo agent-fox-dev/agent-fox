@@ -63,19 +63,34 @@ type Script struct {
 	Exit        int    `json:"exit"`
 	// EnvToStderr makes it print its environment, a line for each variable, to its stderr.
 	EnvToStderr bool `json:"env_to_stderr"`
+	// NotesToStderr makes it print the answers of the hooks it ran to its stderr, as a line
+	// "hooks: " and the JSON that HooksPath holds, for a test that cannot read the tree it ran in.
+	NotesToStderr bool `json:"notes_to_stderr"`
 
 	// What a fake claude does with the hook of its settings: it runs the hook command
-	// with each payload and notes the answers.
+	// with each payload and notes the answers. {run_id} and {root} in a payload are the id
+	// of the run its settings file is in and the tree it runs in.
 	HookPayloads []json.RawMessage `json:"hook_payloads"`
 	// Submits are the payloads it submits through Options.Submit, one after the other,
 	// and notes whether each was accepted.
 	Submits []json.RawMessage `json:"submits"`
 	// Commands are shell commands it runs at the tree, one after the other, and notes
-	// the exit code and the output of each: {run_id} in a command is the id of the run
-	// its settings file is in. They are how a fake claude runs af <agent> submit.
+	// the exit code and the output of each: {run_id} and {root} in a command are as in a
+	// hook payload. They are how a fake claude runs af <agent> submit.
 	Commands []string `json:"commands"`
+	// ShowFiles are files of the tree it prints to its stderr, one line "file: " and the JSON
+	// {path, content, missing} for each ({run_id} and {root} as above), for a test that cannot
+	// read the tree it ran in.
+	ShowFiles []string `json:"show_files"`
 	// OutputJSON is what it prints last.
 	OutputJSON string `json:"output_json"`
+}
+
+// shownFile is a line of what ShowFiles prints.
+type shownFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Missing bool   `json:"missing"`
 }
 
 // Answer is what the hook that a fake claude ran printed, and how it ended.
@@ -171,9 +186,14 @@ func Run(program string, args []string, opts Options) int {
 	if len(script.HookPayloads) > 0 {
 		var answers []Answer
 		for _, payload := range script.HookPayloads {
+			payload = []byte(strings.NewReplacer("{run_id}", runID, "{root}", cwd).Replace(string(payload)))
 			answers = append(answers, runHook(string(settings), payload))
 		}
 		writeJSON(HooksPath, answers)
+		if script.NotesToStderr {
+			data, _ := json.Marshal(answers)
+			fmt.Fprintf(os.Stderr, "hooks: %s\n", data)
+		}
 	}
 	if len(script.Submits) > 0 && opts.Submit != nil {
 		var results []Submit
@@ -185,7 +205,7 @@ func Run(program string, args []string, opts Options) int {
 	if len(script.Commands) > 0 {
 		var results []CommandResult
 		for _, command := range script.Commands {
-			command = strings.ReplaceAll(command, "{run_id}", runID)
+			command = strings.NewReplacer("{run_id}", runID, "{root}", cwd).Replace(command)
 			cmd := exec.Command("sh", "-c", command)
 			out, err := cmd.CombinedOutput()
 			result := CommandResult{Command: command, Output: string(out)}
@@ -197,6 +217,12 @@ func Run(program string, args []string, opts Options) int {
 			results = append(results, result)
 		}
 		writeJSON(CommandsPath, results)
+	}
+	for _, path := range script.ShowFiles {
+		path = strings.NewReplacer("{run_id}", runID, "{root}", cwd).Replace(path)
+		data, err := os.ReadFile(path)
+		line, _ := json.Marshal(shownFile{Path: path, Content: string(data), Missing: err != nil})
+		fmt.Fprintf(os.Stderr, "file: %s\n", line)
 	}
 	fmt.Print(script.Stdout)
 	fmt.Print(strings.Repeat("o", script.StdoutBytes))

@@ -9,9 +9,9 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
-// goos is the operating system the checks of a provider are made for; a test
-// replaces it.
-var goos = runtime.GOOS
+// GOOS is the operating system the checks of a provider are made for, and the default
+// provider is chosen for; a test replaces it.
+var GOOS = runtime.GOOS
 
 // landlockMinABI is the first Landlock ABI with rules for the network. A box that
 // is asked for no network must not leave one open, so a host with less has no
@@ -29,7 +29,7 @@ func landlockEntry() Entry { return Entry{Name: "landlock", Build: buildLandlock
 // confine a box: it must be Linux, and its kernel must have Landlock ABI 4 or newer.
 // A host that fails them is not given another provider, and nothing is created.
 func buildLandlock(cfg ProviderConfig) (sandbox.Provider, error) {
-	if goos != "linux" {
+	if GOOS != "linux" {
 		return nil, landlockRefusal("landlock needs Linux")
 	}
 	abi := LandlockABI()

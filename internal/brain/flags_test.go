@@ -35,9 +35,9 @@ func recordingRegistry() (*box.Registry, *atomic.Int32) {
 // error of Validate.
 func resolve(t *testing.T, reg *box.Registry, goosName string, env map[string]string, args ...string) (*Settings, error) {
 	t.Helper()
-	old := goos
-	goos = goosName
-	t.Cleanup(func() { goos = old })
+	old := box.GOOS
+	box.GOOS = goosName
+	t.Cleanup(func() { box.GOOS = old })
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	fs.SetOutput(discard{})
 	s := Flags(fs, Defaults{Budget: 5, MaxTurns: 40})
@@ -220,9 +220,9 @@ func TestACommandMayPinItsDefaultSandbox(t *testing.T) {
 		want string
 	}{{nil, "local"}, {[]string{"--sandbox", "none"}, "none"}} {
 		reg, _ := recordingRegistry()
-		old := goos
-		goos = "linux"
-		t.Cleanup(func() { goos = old })
+		old := box.GOOS
+		box.GOOS = "linux"
+		t.Cleanup(func() { box.GOOS = old })
 		fs := flag.NewFlagSet("test", flag.ContinueOnError)
 		s := Flags(fs, Defaults{Sandbox: "local", Budget: 5, MaxTurns: 40})
 		if err := fs.Parse(tc.args); err != nil {

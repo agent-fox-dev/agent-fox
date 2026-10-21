@@ -154,9 +154,11 @@ optional:
 | `sleep_ms`, `spawn_child` | Waits, and starts a `sleep 30` child (its pid is noted), for the timeout and the process group. |
 | `stdout`, `stdout_bytes`, `stderr`, `stderr_bytes`, `exit` | What it prints (a text, and that many bytes) and how it ends. |
 | `env_to_stderr` | Prints its environment to stderr, a line for each variable. |
-| `hook_payloads` | The `PreToolUse` payloads it runs through the hook command of the file named by `--settings`, one after the other; the answers are `{stdout, exit}` in `.agent-fox/fake-hooks.json`. |
+| `hook_payloads` | The `PreToolUse` payloads it runs through the hook command of the file named by `--settings`, one after the other (`{run_id}` and `{root}` in a payload are the id of the run and the tree); the answers are `{stdout, exit}` in `.agent-fox/fake-hooks.json`. |
 | `submits` | Payloads it submits to the contract kind of the package, through the submit core; `{accepted, problems}` of each in `.agent-fox/fake-submits.json`. |
-| `commands` | Shell commands it runs at the tree (`{run_id}` is the id of the run its settings are in), such as `af triage submit --run-id {run_id} <<'EOF' … EOF`; `{command, exit, output}` of each in `.agent-fox/fake-commands.json`. |
+| `show_files` | Prints files of the tree to its stderr, a line `file: ` and `{path, content, missing}` for each (`{run_id}` and `{root}` are as in a hook payload). |
+| `notes_to_stderr` | Prints the answers of the hooks to its stderr, as `hooks: ` and their JSON, for a test that cannot read the tree it ran in. |
+| `commands` | Shell commands it runs at the tree (`{run_id}` and `{root}` are as in a hook payload), such as `af triage submit --run-id {run_id} <<'EOF' … EOF`; `{command, exit, output}` of each in `.agent-fox/fake-commands.json`. |
 | `output_json` | What it prints last: the JSON that Claude Code prints, with `total_cost_usd`, `num_turns` and `usage`. |
 
 It records each run (argv, environment, cwd, the size of its standard input, its pid and

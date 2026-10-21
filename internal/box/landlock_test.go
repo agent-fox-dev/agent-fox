@@ -26,9 +26,9 @@ type landlockHost struct {
 func hostWithLandlock(t *testing.T, goosName string, abi int, makeProvider func(ProviderConfig) (sandbox.Provider, error)) *landlockHost {
 	t.Helper()
 	h := &landlockHost{}
-	oldGoos, oldABI, oldNew := goos, LandlockABI, newLandlockProvider
-	t.Cleanup(func() { goos, LandlockABI, newLandlockProvider = oldGoos, oldABI, oldNew })
-	goos = goosName
+	oldGoos, oldABI, oldNew := GOOS, LandlockABI, newLandlockProvider
+	t.Cleanup(func() { GOOS, LandlockABI, newLandlockProvider = oldGoos, oldABI, oldNew })
+	GOOS = goosName
 	LandlockABI = func() int { h.abiReads.Add(1); return abi }
 	newLandlockProvider = func(cfg ProviderConfig) (sandbox.Provider, error) {
 		h.made = append(h.made, cfg)

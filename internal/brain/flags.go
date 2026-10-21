@@ -5,15 +5,11 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"runtime"
 	"strings"
 
 	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
-
-// goos is the operating system the default sandbox is chosen for; a test replaces it.
-var goos = runtime.GOOS
 
 // Where the sandbox of a run was chosen: --sandbox, AF_SANDBOX or the default.
 const (
@@ -137,7 +133,7 @@ func (s *Settings) chooseSandbox(get Getenv) error {
 // defaultSandbox is the provider of an operating system: landlock on Linux, where
 // it confines a process with no engine, and podman anywhere else.
 func defaultSandbox() string {
-	if goos == "linux" {
+	if box.GOOS == "linux" {
 		return "landlock"
 	}
 	return "podman"
