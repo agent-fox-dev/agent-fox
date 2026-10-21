@@ -8,6 +8,7 @@ import (
 	"github.com/agent-fox-dev/agentkit-go/sandbox"
 	"github.com/agent-fox-dev/agentkit-go/sandbox/landlock"
 	"github.com/agent-fox-dev/agentkit-go/sandbox/local"
+	"github.com/agent-fox-dev/agentkit-go/sandbox/podman"
 )
 
 // This file is the one place that names the sandbox module of agentkit-go by
@@ -29,10 +30,13 @@ var newLandlockProvider = func(cfg ProviderConfig) (sandbox.Provider, error) {
 	return landlock.New(landlock.Options{ExtraRO: cfg.ExtraRO})
 }
 
+// newPodmanProvider is agentkit's podman provider, which runs the tools of a box in a
+// container of the engine on PATH. A test replaces it.
+var newPodmanProvider = func() (sandbox.Provider, error) { return podman.New(podman.Options{}) }
+
 // podmanEntry and noneEntry are the providers that run a container and work on the
 // checkout itself. Each is a provider that cannot create a box until its scope is
 // wired.
-func podmanEntry() Entry { return Entry{Name: "podman", New: unwired("podman")} }
 func noneEntry() Entry {
 	return Entry{Name: "none", Unconfined: true, InPlace: true, New: unwired("none")}
 }

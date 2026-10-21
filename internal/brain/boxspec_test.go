@@ -319,3 +319,15 @@ func TestACredentialIsOnlyForAPlacementInABoxOrOnTheCheckout(t *testing.T) {
 		}
 	}
 }
+
+// TestTheRequestSaysWhetherTheProviderWasChosenByDefault guards the flag that makes the
+// failure to open a default provider name --sandbox and AF_SANDBOX (TS-10-5).
+func TestTheRequestSaysWhetherTheProviderWasChosenByDefault(t *testing.T) {
+	scripted := matrixBrains(t)[0]
+	for _, defaulted := range []bool{false, true} {
+		req := BoxRequest(BoxParams{Brain: scripted, Provider: providerEntry(t, "podman"), Defaulted: defaulted})
+		if req.Defaulted != defaulted {
+			t.Errorf("Defaulted = %v, want %v", req.Defaulted, defaulted)
+		}
+	}
+}

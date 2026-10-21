@@ -40,6 +40,10 @@ type Request struct {
 	// RequireLandlock makes the creation fail unless the sandbox confines itself
 	// with Landlock.
 	RequireLandlock bool
+	// Defaulted says the provider was not asked for with --sandbox but chosen by
+	// AF_SANDBOX or by the platform, so that the failure to open it says how to choose
+	// another.
+	Defaulted bool
 	// ExtraRO are the directories a process started in the box has to read and run
 	// (af, claude), for a provider that confines the box to its workspace.
 	ExtraRO []string
@@ -69,6 +73,43 @@ const unconfinedMessage = "the box has no process or network isolation: the loca
 // retryable. A sandbox that cannot be synced or given its tools is closed
 // before Open returns, and a sync failure is retryable.
 func Open(ctx context.Context, req Request) (*Session, error) {
+	s, err := openBox(ctx, req)
+	return s, req.defaultHint(err)
+}
+
+// defaultHint adds to the fix_hint of a sandbox failure how to choose another
+// provider, when the provider was chosen by default: the flag and the variable.
+func (r Request) defaultHint(err error) error {
+	var failure *toolio.Failure
+	if !r.Defaulted || !errors.As(err, &failure) || failure.Category != toolio.CategorySandbox {
+		return err
+	}
+	out := *failure
+	hint := toolio.FixHint{}
+	if failure.FixHint != nil {
+		hint = *failure.FixHint
+	}
+	hint.Flag, hint.Env = "--sandbox", "AF_SANDBOX"
+	out.FixHint = &hint
+	return &out
+}
+
+// explain is the failure of an error of the provider: a failure already is one, and
+// otherwise the entry says what it was, and failing that it is a sandbox failure
+// that carries the error.
+func (e Entry) explain(req Request, what string, err error) error {
+	var failure *toolio.Failure
+	if errors.As(err, &failure) {
+		return err
+	}
+	if e.Explain != nil {
+		return e.Explain(req, err)
+	}
+	return &toolio.Failure{Category: toolio.CategorySandbox, Message: fmt.Sprintf("the %s provider %s: %v", e.Name, what, err)}
+}
+
+// openBox is Open before the hint of a default provider is added to its failure.
+func openBox(ctx context.Context, req Request) (*Session, error) {
 	registry := req.Registry
 	if registry == nil {
 		registry = Default
@@ -84,11 +125,7 @@ func Open(ctx context.Context, req Request) (*Session, error) {
 
 	provider, err := entry.provider(ProviderConfig{ExtraRO: req.ExtraRO})
 	if err != nil {
-		var failure *toolio.Failure
-		if errors.As(err, &failure) {
-			return nil, err
-		}
-		return nil, &toolio.Failure{Category: toolio.CategorySandbox, Message: fmt.Sprintf("the %s provider cannot be made: %v", entry.Name, err)}
+		return nil, entry.explain(req, "cannot be made", err)
 	}
 	spec := sandbox.Spec{
 		Env:             req.Env,
@@ -100,7 +137,7 @@ func Open(ctx context.Context, req Request) (*Session, error) {
 	}
 	sb, err := provider.Create(ctx, spec)
 	if err != nil {
-		return nil, &toolio.Failure{Category: toolio.CategorySandbox, Message: fmt.Sprintf("the %s provider could not create the box: %v", entry.Name, err)}
+		return nil, entry.explain(req, "could not create the box", err)
 	}
 	made := sb.Spec()
 	s := &Session{req: req, sb: sb, provider: entry.Name, hostDir: hostDir, network: networkName(req.Network, entry, made.Network.Mode)}

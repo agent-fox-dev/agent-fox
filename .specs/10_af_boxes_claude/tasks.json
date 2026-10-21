@@ -199,7 +199,7 @@
       "done_when": [
         "`make -n build-containers` prints the sandbox build before the tools build"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

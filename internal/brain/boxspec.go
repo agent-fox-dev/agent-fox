@@ -66,6 +66,9 @@ type BoxParams struct {
 	Getenv Getenv
 	// Deadline is the deadline of the command; the zero time is none.
 	Deadline time.Time
+	// Defaulted says the provider was chosen by AF_SANDBOX or by the platform, and not
+	// with --sandbox (Settings.SandboxSource is not SandboxFlag).
+	Defaulted bool
 
 	// The rest is passed to the request as it is: the checkout, the run and the
 	// tool that label the box, the ledger and the warnings of the run, and the
@@ -98,6 +101,7 @@ func BoxRequest(p BoxParams) box.Request {
 		Network:         networkFor(p, placement),
 		Placement:       string(placement),
 		RequireLandlock: p.Provider.Name == "landlock",
+		Defaulted:       p.Defaulted,
 		Record:          p.Record,
 		Warn:            p.Warn,
 		Registry:        p.Registry,

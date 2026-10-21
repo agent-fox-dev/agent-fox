@@ -1,0 +1,50 @@
+# The tools image: the sandbox image with af and Claude Code in it. It is what a
+# podman box runs in (AF_SANDBOX_IMAGE, quay.io/agentfox/tools:latest without it),
+# so that a brain that brings its own hands finds both next to the tree.
+#
+#   make build-tools-container
+#
+# af is built from this repository, and agentkit-go is cloned where the replace
+# directive of go.mod looks for it: ../agentkit-go from the directory af is built in.
+
+ARG BASE_IMAGE=quay.io/agentfox/sandbox:latest
+
+FROM registry.redhat.io/ubi10/go-toolset:latest AS build
+
+ARG AGENTKIT_REF=main
+ARG VERSION=dev
+ARG BUILD=dev
+ARG BUILD_TIME=
+
+USER root
+WORKDIR /build
+
+RUN git clone --depth 1 --branch ${AGENTKIT_REF} https://github.com/agent-fox-dev/agentkit-go /build/agentkit-go
+
+WORKDIR /build/agent-fox
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=0 go build \
+    -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${BUILD} -X main.buildTime=${BUILD_TIME}" \
+    -o /out/af ./cmd/af
+
+# ---------- runtime ----------
+FROM ${BASE_IMAGE}
+
+ARG CLAUDE_CODE_VERSION=latest
+
+USER root
+
+COPY --from=build /out/af /usr/local/bin/af
+
+# Claude Code, at the version the image is built for.
+RUN dnf install -y --setopt=tsflags=nodocs nodejs npm \
+ && npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
+ && dnf -y clean all \
+ && rm -rf /var/cache/dnf
+
+WORKDIR /workspace
+USER 1001:0

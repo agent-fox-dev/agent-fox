@@ -28,6 +28,9 @@ type Entry struct {
 	// Build, when it is set, makes the provider instead of New, for one that can
 	// refuse to be made (it checks the host it is on) or needs paths of the run.
 	Build func(ProviderConfig) (sandbox.Provider, error)
+	// Explain, when it is set, turns an error of making the provider, or of creating
+	// a sandbox with it, that is not a failure already, into the failure to report.
+	Explain func(req Request, err error) error
 }
 
 // ProviderConfig is what a provider is made with, beyond what its spec says.
