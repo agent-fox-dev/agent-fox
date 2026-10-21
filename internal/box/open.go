@@ -123,6 +123,9 @@ func openBox(ctx context.Context, req Request) (*Session, error) {
 		return nil, err
 	}
 
+	if entry.InPlace {
+		return openInPlace(req, entry, hostDir)
+	}
 	provider, err := entry.provider(ProviderConfig{ExtraRO: req.ExtraRO})
 	if err != nil {
 		return nil, entry.explain(req, "cannot be made", err)

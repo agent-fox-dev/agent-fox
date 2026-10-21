@@ -186,7 +186,6 @@ func (p landlockStub) Create(ctx context.Context, spec sandbox.Spec) (sandbox.Sa
 // TestWithABI4TheSessionSyncsGitInAndExportsWithoutIt_TS_10_18 verifies TS-10-18:
 // the provider is given the spec of 10-REQ-2 with RequireLandlock, the tree goes in
 // with its .git, comes out without it, and an export that carries .git fails.
-// (That the session does not work in place is asserted with InPlace, in TS-10-24.)
 // Verifies: 10-REQ-3.4
 func TestWithABI4TheSessionSyncsGitInAndExportsWithoutIt_TS_10_18(t *testing.T) {
 	var got sandbox.Spec
@@ -212,6 +211,9 @@ func TestWithABI4TheSessionSyncsGitInAndExportsWithoutIt_TS_10_18(t *testing.T) 
 	}
 	t.Cleanup(func() { _ = s.Close() })
 
+	if s.InPlace() || s.Root() == "" || s.Root() == dir {
+		t.Errorf("InPlace() = %v and Root() = %q, want a session that is not in place, with the workspace of the box as its root", s.InPlace(), s.Root())
+	}
 	if !got.RequireLandlock || got.Network.Mode != sandbox.NetworkNone || got.Env["ANTHROPIC_API_KEY"] != "k" || got.Labels["af.tool"] != "fix" {
 		t.Errorf("the spec the provider got = %+v, want RequireLandlock, no network, the key and the labels of the request", got)
 	}

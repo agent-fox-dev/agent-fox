@@ -38,15 +38,11 @@ func Here(ctx context.Context, req Request) (*Session, error) {
 	if err != nil {
 		return nil, &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("--dir %s: %v", req.HostDir, err)}
 	}
-	ws, err := workspace.Open(abs, workspace.Options{})
+	set, err := handsOver(abs)
 	if err != nil {
-		return nil, &toolio.Failure{Category: toolio.CategorySandbox, Message: fmt.Sprintf("cannot open %s as a workspace: %v", abs, err)}
+		return nil, err
 	}
-	set, err := tools.For(ws, tools.Options{})
-	if err != nil {
-		return nil, &toolio.Failure{Category: toolio.CategorySandbox, Message: fmt.Sprintf("cannot make the tools of %s: %v", abs, err)}
-	}
-	s := &Session{req: req, sb: &inPlace{dir: abs}, tools: set, provider: "here", hostDir: abs, inPlace: true, network: NetworkHost}
+	s := &Session{req: req, sb: &inPlace{dir: abs, spec: sandbox.Spec{Workdir: abs}}, tools: set, provider: "here", hostDir: abs, inPlace: true, network: NetworkHost}
 	s.record("box_open", map[string]any{"provider": s.provider, "image": "", "network": s.network, "placement": req.Placement})
 	if req.Warn != nil {
 		req.Warn("box_unconfined", inPlaceMessage)
@@ -54,15 +50,31 @@ func Here(ctx context.Context, req Request) (*Session, error) {
 	return s, nil
 }
 
+// handsOver is the tool set of the hands over a directory, with no box around it.
+func handsOver(dir string) ([]core.Tool, error) {
+	ws, err := workspace.Open(dir, workspace.Options{})
+	if err != nil {
+		return nil, &toolio.Failure{Category: toolio.CategorySandbox, Message: fmt.Sprintf("cannot open %s as a workspace: %v", dir, err)}
+	}
+	set, err := tools.For(ws, tools.Options{})
+	if err != nil {
+		return nil, &toolio.Failure{Category: toolio.CategorySandbox, Message: fmt.Sprintf("cannot make the tools of %s: %v", dir, err)}
+	}
+	return set, nil
+}
+
 // inPlaceMessage is what box_unconfined says of a tree in place.
 const inPlaceMessage = "the tree is read in place, with no copy of it and no box: the tools reach every file of the directory that this process can, the files git ignores (a .env) and .git/config, which a box keeps out, included"
 
 // inPlace is the sandbox of a session over a directory in place: the directory,
 // and nothing around it.
-type inPlace struct{ dir string }
+type inPlace struct {
+	dir  string
+	spec sandbox.Spec
+}
 
 func (p *inPlace) ID() string                  { return "here" }
-func (p *inPlace) Spec() sandbox.Spec          { return sandbox.Spec{Workdir: p.dir} }
+func (p *inPlace) Spec() sandbox.Spec          { return p.spec }
 func (p *inPlace) Agent() sandbox.AgentInfo    { return sandbox.AgentInfo{Workdir: p.dir} }
 func (p *inPlace) Close(context.Context) error { return nil }
 
