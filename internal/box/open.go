@@ -2,6 +2,7 @@ package box
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,6 +40,9 @@ type Request struct {
 	// RequireLandlock makes the creation fail unless the sandbox confines itself
 	// with Landlock.
 	RequireLandlock bool
+	// ExtraRO are the directories a process started in the box has to read and run
+	// (af, claude), for a provider that confines the box to its workspace.
+	ExtraRO []string
 	// Record notes what happened in the run's ledger.
 	Record func(kind string, data any) error
 	// Warn raises a warning of the run.
@@ -78,7 +82,14 @@ func Open(ctx context.Context, req Request) (*Session, error) {
 		return nil, err
 	}
 
-	provider := entry.New()
+	provider, err := entry.provider(ProviderConfig{ExtraRO: req.ExtraRO})
+	if err != nil {
+		var failure *toolio.Failure
+		if errors.As(err, &failure) {
+			return nil, err
+		}
+		return nil, &toolio.Failure{Category: toolio.CategorySandbox, Message: fmt.Sprintf("the %s provider cannot be made: %v", entry.Name, err)}
+	}
 	spec := sandbox.Spec{
 		Env:             req.Env,
 		Labels:          map[string]string{"af.run_id": req.RunID, "af.tool": req.Tool},

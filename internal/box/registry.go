@@ -25,6 +25,25 @@ type Entry struct {
 	InPlace bool
 	// New returns the provider.
 	New func() sandbox.Provider
+	// Build, when it is set, makes the provider instead of New, for one that can
+	// refuse to be made (it checks the host it is on) or needs paths of the run.
+	Build func(ProviderConfig) (sandbox.Provider, error)
+}
+
+// ProviderConfig is what a provider is made with, beyond what its spec says.
+type ProviderConfig struct {
+	// ExtraRO are the directories a process started in the box has to read and run:
+	// the provider grants them read and execute. A provider that does not confine
+	// has no use for them.
+	ExtraRO []string
+}
+
+// provider makes the provider of the entry.
+func (e Entry) provider(cfg ProviderConfig) (sandbox.Provider, error) {
+	if e.Build != nil {
+		return e.Build(cfg)
+	}
+	return e.New(), nil
 }
 
 // Isolates says the provider puts a process and network boundary around the

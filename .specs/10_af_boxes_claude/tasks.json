@@ -152,7 +152,7 @@
       "done_when": [
         "`make lint` and `make test` pass offline on this OS"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

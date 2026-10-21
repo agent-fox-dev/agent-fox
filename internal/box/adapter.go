@@ -6,6 +6,7 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentkit-go/sandbox"
+	"github.com/agent-fox-dev/agentkit-go/sandbox/landlock"
 	"github.com/agent-fox-dev/agentkit-go/sandbox/local"
 )
 
@@ -19,11 +20,19 @@ func localEntry() Entry {
 	return Entry{Name: "local", Unconfined: true, New: local.Unisolated}
 }
 
-// landlockEntry, podmanEntry and noneEntry are the providers that confine a
-// process on Linux, run a container, and work on the checkout itself. Each is a
-// provider that cannot create a box until its scope is wired.
-func landlockEntry() Entry { return Entry{Name: "landlock", New: unwired("landlock")} }
-func podmanEntry() Entry   { return Entry{Name: "podman", New: unwired("podman")} }
+// newLandlockProvider is agentkit's landlock provider, which runs agentkit-sandboxd
+// as a confined child process: it checks the platform and the kernel itself, and
+// finds the agent binary beside this executable or on PATH. The directories of the
+// config are the ones a process started in the box may read and run. A test replaces
+// it.
+var newLandlockProvider = func(cfg ProviderConfig) (sandbox.Provider, error) {
+	return landlock.New(landlock.Options{ExtraRO: cfg.ExtraRO})
+}
+
+// podmanEntry and noneEntry are the providers that run a container and work on the
+// checkout itself. Each is a provider that cannot create a box until its scope is
+// wired.
+func podmanEntry() Entry { return Entry{Name: "podman", New: unwired("podman")} }
 func noneEntry() Entry {
 	return Entry{Name: "none", Unconfined: true, InPlace: true, New: unwired("none")}
 }
