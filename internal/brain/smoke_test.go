@@ -74,7 +74,7 @@ func (s *smoke) attempt(n int, mutate func(*Brief)) (Result, error) {
 
 func (s *smoke) inBox(fn func(*box.Session) (Result, error)) (Result, error) {
 	s.t.Helper()
-	env := BuildBoxEnv(s.entry, s.envOf)
+	env := BuildBoxEnv(s.entry, PlacementHost, s.envOf)
 	var res Result
 	var err error
 	werr := box.With(context.Background(), box.Request{
@@ -100,7 +100,7 @@ func (s *smoke) execute(sess *box.Session, n int, mutate func(*Brief)) (Result, 
 	b := Brief{
 		RunID: s.run.ID, Attempt: n, Kind: contractKind(), Prefix: "PREFIX\n", Task: "TASK\n", Tools: []string{"read_file", "list_files"},
 		Hook: HookConfig{RunID: s.run.ID, ProtectedPaths: []string{".agent-fox/", ".specs/"}}, MaxCostUSD: s.settings.Budget, MaxTurns: s.settings.MaxTurns,
-		Env: BuildBoxEnv(s.entry, s.envOf),
+		Env: BuildBoxEnv(s.entry, PlacementHost, s.envOf),
 	}
 	if mutate != nil {
 		mutate(&b)

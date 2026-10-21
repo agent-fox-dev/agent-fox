@@ -28,6 +28,17 @@ type Request struct {
 	Env map[string]string
 	// TTL bounds the box's lifetime; zero is the provider's default.
 	TTL time.Duration
+	// Image is the image of a provider that runs one; empty is the provider's own.
+	Image string
+	// Network is what the tools may reach: NetworkNone, NetworkOpen, or
+	// NetworkHost, which says the provider enforces nothing. Empty asks for none
+	// where the provider can, and takes the mode it offers otherwise.
+	Network string
+	// Placement is where the brain runs for this run, as the ledger records it.
+	Placement string
+	// RequireLandlock makes the creation fail unless the sandbox confines itself
+	// with Landlock.
+	RequireLandlock bool
 	// Record notes what happened in the run's ledger.
 	Record func(kind string, data any) error
 	// Warn raises a warning of the run.
@@ -35,6 +46,13 @@ type Request struct {
 	// Registry is where Provider is looked up; nil is Default.
 	Registry *Registry
 }
+
+// The networks a request asks for, and a session reports.
+const (
+	NetworkNone = "none"
+	NetworkOpen = "open"
+	NetworkHost = "host"
+)
 
 // unconfinedMessage is what box_unconfined says.
 const unconfinedMessage = "the box has no process or network isolation: the local provider runs the tools in this process, with its privileges, on this machine's file system and network"
@@ -62,17 +80,24 @@ func Open(ctx context.Context, req Request) (*Session, error) {
 
 	provider := entry.New()
 	spec := sandbox.Spec{
-		Env:     req.Env,
-		Labels:  map[string]string{"af.run_id": req.RunID, "af.tool": req.Tool},
-		TTL:     req.TTL,
-		Network: networkFor(provider.Capabilities()),
+		Env:             req.Env,
+		Labels:          map[string]string{"af.run_id": req.RunID, "af.tool": req.Tool},
+		TTL:             req.TTL,
+		Image:           req.Image,
+		RequireLandlock: req.RequireLandlock,
+		Network:         networkFor(provider.Capabilities(), req.Network),
 	}
 	sb, err := provider.Create(ctx, spec)
 	if err != nil {
 		return nil, &toolio.Failure{Category: toolio.CategorySandbox, Message: fmt.Sprintf("the %s provider could not create the box: %v", entry.Name, err)}
 	}
-	s := &Session{req: req, sb: sb, provider: entry.Name, hostDir: hostDir}
-	s.record("box_open", map[string]any{"provider": entry.Name})
+	made := sb.Spec()
+	s := &Session{req: req, sb: sb, provider: entry.Name, hostDir: hostDir, network: networkName(req.Network, entry, made.Network.Mode)}
+	image := made.Image
+	if image == "" {
+		image = req.Image
+	}
+	s.record("box_open", map[string]any{"provider": entry.Name, "image": image, "network": s.network, "placement": req.Placement})
 
 	if err := s.sync(ctx); err != nil {
 		return nil, s.abandon(ctx, err)

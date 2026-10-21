@@ -44,10 +44,27 @@ type Entry struct {
 	// CostSource says where the cost of its runs comes from: measured, reported
 	// or none.
 	CostSource string
-	// BoxEnv names the host variables that reach the box of this brain, and no
-	// others do. It is empty for the brains that run in the process.
-	BoxEnv []string
-	New    func(Options) (Brain, error)
+	// Credentials names the host variables that reach the box of this brain when it
+	// runs as a process, in a box or on the checkout, and no others do. It is empty
+	// for a brain that never runs as one.
+	Credentials []string
+	// OwnHands says the brain brings its own hands and always runs as a process: in
+	// the box, or on the checkout under a provider that works in place.
+	OwnHands bool
+	// DriverInBox says the brain is a driver that borrows the box's hands on the
+	// host, and runs as a process inside an isolating box unless it is told to
+	// borrow them.
+	DriverInBox bool
+	New         func(Options) (Brain, error)
+}
+
+// CredentialNames are the host variables a brain placed as p is given: none on the
+// host, where it holds no credential, and its Credentials otherwise.
+func (e Entry) CredentialNames(p Placement) []string {
+	if p == PlacementHost {
+		return nil
+	}
+	return e.Credentials
 }
 
 // Registry holds the brains by name.
@@ -106,14 +123,14 @@ func (r *Registry) New(name string, opts Options) (Brain, error) {
 	return e.New(opts)
 }
 
-// BuildBoxEnv is the environment of the box of a brain: the host values of the
-// names in the entry's BoxEnv that are set, and nothing else. It is never nil.
-func BuildBoxEnv(e Entry, getenv Getenv) map[string]string {
+// BuildBoxEnv is the environment of the box of a brain placed as p: the host values
+// of the names the entry gives for p that are set, and nothing else. It is never nil.
+func BuildBoxEnv(e Entry, p Placement, getenv Getenv) map[string]string {
 	env := map[string]string{}
 	if getenv == nil {
 		getenv = os.LookupEnv
 	}
-	for _, name := range e.BoxEnv {
+	for _, name := range e.CredentialNames(p) {
 		if v, ok := getenv(name); ok {
 			env[name] = v
 		}

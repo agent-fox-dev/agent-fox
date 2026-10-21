@@ -36,6 +36,10 @@ import (
 //     does not allow are registered, to be denied by the gate, and are hidden
 //     from the model by a wrapper over the provider (see visibleTools).
 
+// VendorKeyVar is the variable that holds the key of the model vendor, the one
+// credential that reaches the box of a brain that runs as a process.
+const VendorKeyVar = "ANTHROPIC_API_KEY"
+
 // defaultModel is the model of a run that names none: the default of the
 // catalog for the vendor of the production provider.
 func defaultModel() string {

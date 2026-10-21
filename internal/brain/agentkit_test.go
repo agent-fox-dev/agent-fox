@@ -113,8 +113,8 @@ func TestTheDefaultRegistryHasBothBrains_TS_07_2(t *testing.T) {
 		t.Errorf("New = %v, %v; want a usage failure that lists agentkit and scripted", b, err)
 	}
 	for _, name := range []string{AgentkitName, ScriptedName} {
-		if e, err := Default.Lookup(name); err != nil || len(e.BoxEnv) != 0 {
-			t.Errorf("%s: %+v, %v; want no box environment", name, e, err)
+		if e, err := Default.Lookup(name); err != nil || len(e.CredentialNames(PlacementHost)) != 0 {
+			t.Errorf("%s: %+v, %v; want no box environment for a brain on the host", name, e, err)
 		}
 	}
 	if e, _ := Default.Lookup(AgentkitName); e.CostSource != CostMeasured {
@@ -136,7 +136,7 @@ func TestHostTokensDoNotReachTheBox_TS_07_9(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			env := BuildBoxEnv(entry, os.LookupEnv)
+			env := BuildBoxEnv(entry, PlacementHost, os.LookupEnv)
 			dir := newRepo(t)
 			rd, err := toolio.NewRunDir(dir, nil, nil)
 			if err != nil {

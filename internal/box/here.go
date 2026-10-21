@@ -46,8 +46,8 @@ func Here(ctx context.Context, req Request) (*Session, error) {
 	if err != nil {
 		return nil, &toolio.Failure{Category: toolio.CategorySandbox, Message: fmt.Sprintf("cannot make the tools of %s: %v", abs, err)}
 	}
-	s := &Session{req: req, sb: &inPlace{dir: abs}, tools: set, provider: "here", hostDir: abs, inPlace: true}
-	s.record("box_open", map[string]any{"provider": s.provider})
+	s := &Session{req: req, sb: &inPlace{dir: abs}, tools: set, provider: "here", hostDir: abs, inPlace: true, network: NetworkHost}
+	s.record("box_open", map[string]any{"provider": s.provider, "image": "", "network": s.network, "placement": req.Placement})
 	if req.Warn != nil {
 		req.Warn("box_unconfined", inPlaceMessage)
 	}

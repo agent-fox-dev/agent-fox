@@ -113,7 +113,7 @@ func TestAScriptThatCannotBeUsedIsRefusedAtConstruction_TS_07_65(t *testing.T) {
 	if b, err := Default.New(ScriptedName, Options{Script: writeScript(t, `{"steps":[]}`)}); err != nil || b == nil {
 		t.Errorf("an empty script: %v, %v", b, err)
 	}
-	if e, err := Default.Lookup(ScriptedName); err != nil || e.CostSource != CostNone || len(e.BoxEnv) != 0 {
+	if e, err := Default.Lookup(ScriptedName); err != nil || e.CostSource != CostNone || len(e.Credentials) != 0 {
 		t.Errorf("the entry = %+v, %v; want no cost and no box environment", e, err)
 	}
 }

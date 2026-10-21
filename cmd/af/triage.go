@@ -842,7 +842,7 @@ func runInBox(r *toolio.Run, s *brain.Settings, entry brain.Entry, b brain.Brain
 	var res brain.Result
 	err := box.With(r.Ctx, box.Request{
 		Provider: s.Sandbox, HostDir: r.Dir, RunID: r.RunDir.ID, Tool: "triage",
-		Env: brain.BuildBoxEnv(entry, opts.Getenv), Record: r.RunDir.Record, Warn: r.Warn,
+		Env: brain.BuildBoxEnv(entry, brain.PlacementHost, opts.Getenv), Record: r.RunDir.Record, Warn: r.Warn,
 	}, func(sess *box.Session) error {
 		var offered []string
 		for _, tool := range sess.Tools() {

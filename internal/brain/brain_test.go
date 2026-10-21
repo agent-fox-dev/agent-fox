@@ -165,7 +165,8 @@ func TestSandboxDefaultsToLocal_TS_07_6(t *testing.T) {
 }
 
 // TestBoxEnvIsTheHostValuesOfBoxEnv_TS_07_8 verifies TS-07-8:
-// the box environment equals exactly the host values of BoxEnv names.
+// the box environment equals exactly the host values of the credential names
+// of the placement (10-REQ-2.2 replaced the static BoxEnv list by them).
 // Verifies: 07-REQ-1.8
 func TestBoxEnvIsTheHostValuesOfBoxEnv_TS_07_8(t *testing.T) {
 	rng := rand.New(rand.NewPCG(7, 8))
@@ -189,7 +190,7 @@ func TestBoxEnvIsTheHostValuesOfBoxEnv_TS_07_8(t *testing.T) {
 			}
 		}
 
-		got := BuildBoxEnv(Entry{BoxEnv: names}, func(name string) (string, bool) { v, ok := host[name]; return v, ok })
+		got := BuildBoxEnv(Entry{Credentials: names}, PlacementBox, func(name string) (string, bool) { v, ok := host[name]; return v, ok })
 
 		if len(got) != len(want) {
 			t.Fatalf("#%d: names %v, host %v: env = %v, want %v", i, names, host, got, want)
@@ -200,8 +201,8 @@ func TestBoxEnvIsTheHostValuesOfBoxEnv_TS_07_8(t *testing.T) {
 			}
 		}
 	}
-	if env := BuildBoxEnv(Entry{}, func(string) (string, bool) { return "x", true }); env == nil || len(env) != 0 {
-		t.Errorf("an entry with no BoxEnv gets %#v, want an empty map", env)
+	if env := BuildBoxEnv(Entry{}, PlacementBox, func(string) (string, bool) { return "x", true }); env == nil || len(env) != 0 {
+		t.Errorf("an entry with no Credentials gets %#v, want an empty map", env)
 	}
 }
 

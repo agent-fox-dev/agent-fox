@@ -147,7 +147,7 @@ func fixLoop(r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 	var info fix.BoxInfo
 	err = box.With(r.Ctx, box.Request{
 		Provider: o.settings.Sandbox, HostDir: r.Dir, RunID: r.RunDir.ID, Tool: "fix",
-		Env: brain.BuildBoxEnv(entry, opts.Getenv), Record: r.RunDir.Record, Warn: r.Warn,
+		Env: brain.BuildBoxEnv(entry, brain.PlacementHost, opts.Getenv), Record: r.RunDir.Record, Warn: r.Warn,
 	}, func(sess *box.Session) error {
 		info = fix.NewBoxInfo(boxEntry, sess.Spec())
 		ended, loopErr = fix.RunLoop(r.Ctx, fix.LoopParams{

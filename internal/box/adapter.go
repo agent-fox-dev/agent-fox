@@ -52,17 +52,39 @@ func syncSource(hostDir string) sandbox.Source {
 	return sandbox.LocalDir{Path: hostDir, Delete: true}
 }
 
-// networkFor is the network a spec asks for: none when the provider can honour
-// that, and otherwise the first mode it offers (the local provider offers only
-// an unrestricted one, which is part of why it raises box_unconfined).
-func networkFor(caps sandbox.Capabilities) sandbox.Network {
+// networkFor is the network a spec asks for: an unrestricted one for NetworkOpen
+// and none for anything else, when the provider can honour that, and otherwise the
+// first mode it offers (the local provider offers only an unrestricted one, which is
+// part of why it raises box_unconfined).
+func networkFor(caps sandbox.Capabilities, want string) sandbox.Network {
+	prefer := sandbox.NetworkNone
+	if want == NetworkOpen {
+		prefer = sandbox.NetworkUnrestricted
+	}
 	for _, mode := range caps.Network {
-		if mode == sandbox.NetworkNone {
-			return sandbox.Network{Mode: sandbox.NetworkNone}
+		if mode == prefer {
+			return sandbox.Network{Mode: prefer}
 		}
 	}
 	if len(caps.Network) > 0 {
 		return sandbox.Network{Mode: caps.Network[0]}
 	}
 	return sandbox.Network{}
+}
+
+// networkName is the network of a box as its ledger entry and the result of a run
+// say it: the one the request asked for, else host for a provider that enforces
+// nothing, else the mode the sandbox was given.
+func networkName(requested string, entry Entry, mode sandbox.NetworkMode) string {
+	switch {
+	case requested != "":
+		return requested
+	case entry.Unconfined:
+		return NetworkHost
+	case mode == sandbox.NetworkNone:
+		return NetworkNone
+	case mode == sandbox.NetworkUnrestricted:
+		return NetworkOpen
+	}
+	return mode.String()
 }

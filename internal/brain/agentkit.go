@@ -16,7 +16,7 @@ import (
 )
 
 func init() {
-	Default.Register(Entry{Name: AgentkitName, CostSource: CostMeasured, New: newAgentkit})
+	Default.Register(Entry{Name: AgentkitName, CostSource: CostMeasured, Credentials: []string{VendorKeyVar}, DriverInBox: true, New: newAgentkit})
 }
 
 // agentkitBrain runs the AgentKit driver on the host, over the tools of the

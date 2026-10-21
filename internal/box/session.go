@@ -43,6 +43,7 @@ type Session struct {
 	tools    []core.Tool
 	provider string
 	hostDir  string
+	network  string
 
 	ledgerWarned sync.Once
 
@@ -68,6 +69,10 @@ func (s *Session) Spec() sandbox.Spec { return s.sb.Spec() }
 // Tools is the box's tool set, for brains: one proxy for each of the hands'
 // built-in tools, whose every call runs inside the box.
 func (s *Session) Tools() []core.Tool { return s.tools }
+
+// Network is what the box's tools may reach: none, open, or host for a provider
+// that enforces nothing.
+func (s *Session) Network() string { return s.network }
 
 // HostDir is the host checkout the box was synced from, the top level of its
 // work tree with its links resolved.

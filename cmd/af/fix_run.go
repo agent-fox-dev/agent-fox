@@ -116,7 +116,7 @@ func fixRun(r *toolio.Run, runID string, s *brain.Settings) (toolio.Outcome, err
 	var out fix.RoundResult
 	err = box.With(r.Ctx, box.Request{
 		Provider: s.Sandbox, HostDir: r.Dir, RunID: runID, Tool: "fix",
-		Env: brain.BuildBoxEnv(entry, opts.Getenv), Record: run.Record, Warn: r.Warn,
+		Env: brain.BuildBoxEnv(entry, brain.PlacementHost, opts.Getenv), Record: run.Record, Warn: r.Warn,
 	}, func(sess *box.Session) error {
 		var err error
 		out, err = fix.RunRound(r.Ctx, fix.RoundParams{
