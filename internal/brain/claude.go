@@ -5,14 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentdir"
+	"github.com/agent-fox-dev/agentfox/internal/submission"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -99,12 +102,114 @@ func (c *claudeBrain) Run(ctx context.Context, b Brief) (Outcome, error) {
 		b.note("claude_tool_dropped", map[string]any{"tool": tool})
 	}
 	args := claudeArgs(path.Join(root, dir, "claude-settings.json"), b.MaxTurns, lists, c.model)
-	if _, err := c.proc.Run(ctx, b, ProcessSpec{
+	res, err := c.proc.Run(ctx, b, ProcessSpec{
 		Brain: ClaudeName, Program: ProgramClaude, Args: args, Probes: []string{ProgramAF, ProgramClaude}, StdinBrief: true,
-	}); err != nil {
+	})
+	if err != nil {
 		return Outcome{StopReason: StopError}, err
 	}
-	return Outcome{StopReason: StopEnded, CostSource: CostReported}, nil
+
+	out := c.outcome(b, res)
+	out.Submitted = submissionCarriesNonce(ctx, b)
+	if b.MaxCostUSD > 0 && out.CostUSD > b.MaxCostUSD {
+		b.warn("budget_exceeded", fmt.Sprintf("claude reported $%s for a run bounded to $%s: its cost is known after the run, so only its turns and its time held it while it ran",
+			decimal(out.CostUSD), decimal(b.MaxCostUSD)))
+		if !out.Submitted {
+			out.StopReason = StopBudget
+		}
+	}
+	if res.ExitCode != 0 && !out.Submitted {
+		return out, processError("claude", res)
+	}
+	return out, nil
+}
+
+// claudeResult is the part of the JSON a headless Claude Code prints that the brain reads.
+type claudeResult struct {
+	Subtype      string          `json:"subtype"`
+	IsError      bool            `json:"is_error"`
+	NumTurns     int             `json:"num_turns"`
+	TotalCostUSD *float64        `json:"total_cost_usd"`
+	CostUSD      *float64        `json:"cost_usd"`
+	Usage        json.RawMessage `json:"usage"`
+	SessionID    string          `json:"session_id"`
+}
+
+// claudeUsage is its usage.
+type claudeUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+// outcome is what the output of the process says of the run. An output that is missing,
+// or is not a JSON object, says nothing: the cost is 0, its source none, and the warning
+// brain_usage_unavailable says so. The cost is the one claude reports, from total_cost_usd
+// or else cost_usd; the input tokens count what was written to the cache and read from it.
+func (c *claudeBrain) outcome(b Brief, res ProcessResult) Outcome {
+	var r claudeResult
+	trimmed := strings.TrimSpace(string(res.Output))
+	if !strings.HasPrefix(trimmed, "{") || json.Unmarshal([]byte(trimmed), &r) != nil {
+		b.warn("brain_usage_unavailable", "claude left no output that could be read, so the run has no cost to report")
+		return Outcome{StopReason: StopEnded, CostSource: CostNone}
+	}
+	var usage claudeUsage
+	_ = json.Unmarshal(r.Usage, &usage) // a usage that is not one counts as none
+	out := Outcome{
+		Turns: r.NumTurns, CostSource: CostReported,
+		InputTokens:  usage.InputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens,
+		OutputTokens: usage.OutputTokens,
+	}
+	switch {
+	case r.TotalCostUSD != nil:
+		out.CostUSD = *r.TotalCostUSD
+	case r.CostUSD != nil:
+		out.CostUSD = *r.CostUSD
+	}
+	switch {
+	case r.Subtype == "success":
+		out.StopReason = StopEnded
+	case r.Subtype == "error_max_turns":
+		out.StopReason = StopTurns
+	case strings.Contains(r.Subtype, "budget"):
+		out.StopReason = StopBudget
+	default:
+		out.StopReason = StopError
+	}
+	b.note("claude_result", map[string]any{
+		"subtype": r.Subtype, "is_error": r.IsError, "num_turns": r.NumTurns, "total_cost_usd": out.CostUSD,
+		"usage": json.RawMessage(orEmptyObject(r.Usage)), "session_id": r.SessionID,
+	})
+	return out
+}
+
+func orEmptyObject(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return json.RawMessage("{}")
+	}
+	return raw
+}
+
+// submissionCarriesNonce says whether the box has a submission.json that carries the
+// nonce of this attempt, from the run.json that was placed. Claude Code makes no claim of
+// its own, so this is the claim of the brain; the host decides from the file all the same.
+func submissionCarriesNonce(ctx context.Context, b Brief) bool {
+	fsys := b.Box.FS(ctx)
+	runData, err := fs.ReadFile(fsys, submission.RunPath(b.RunID))
+	if err != nil {
+		return false
+	}
+	var run submission.Run
+	if json.Unmarshal(runData, &run) != nil || run.Nonce == "" {
+		return false
+	}
+	fileData, err := fs.ReadFile(fsys, submission.SubmissionPath(b.RunID))
+	if err != nil {
+		return false
+	}
+	var file submission.File
+	return json.Unmarshal(fileData, &file) == nil && file.Nonce == run.Nonce
 }
 
 // claudeArgs are the arguments of claude: headless, JSON output, the turn bound, no

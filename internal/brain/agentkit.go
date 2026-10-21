@@ -30,10 +30,14 @@ type agentkitBrain struct {
 	priced bool
 }
 
-// newAgentkit makes the brain. The provider is Options.NewProvider's, or the
-// vendor's for the model with the credentials of the environment, and a missing
-// credential is failed/auth, before any box opens.
+// newAgentkit makes the brain. Under landlock and podman, unless it borrows the box's
+// hands, it is the driver in the box (see agentkitInBox). Otherwise the provider is
+// Options.NewProvider's, or the vendor's for the model with the credentials of the
+// environment, and a missing credential is failed/auth, before any box opens.
 func newAgentkit(opts Options) (Brain, error) {
+	if driverInBox(opts) {
+		return newAgentkitInBox(opts)
+	}
 	model := opts.Model
 	if model == "" {
 		model = defaultModel()

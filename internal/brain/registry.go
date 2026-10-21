@@ -28,6 +28,9 @@ type Options struct {
 	NewProvider func(model string) (core.ProviderClient, error)
 	// Getenv reads the host's environment; nil is os.LookupEnv.
 	Getenv Getenv
+	// BorrowedHands says the agentkit driver runs on the host over the box's tools, and
+	// not inside the box.
+	BorrowedHands bool
 	// Provider is the box provider of the run, which decides what a brain needs of the
 	// host before a box is opened: under none a person may be logged in to Claude Code
 	// already, and under podman claude is the image's.

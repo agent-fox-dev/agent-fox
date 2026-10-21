@@ -21,19 +21,23 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
-// standInPodman is the local provider under another name: it takes the image and the
-// network of the request, which it cannot honour, and makes the sandbox without them.
-type standInPodman struct{ sandbox.Provider }
+// standIn is the local provider under the name of one that isolates: it takes the image,
+// the network and the Landlock requirement of the request, which it cannot honour, and
+// makes the sandbox without them.
+type standIn struct {
+	sandbox.Provider
+	name string
+}
 
-func (standInPodman) Capabilities() sandbox.Capabilities {
+func (p standIn) Capabilities() sandbox.Capabilities {
 	return sandbox.Capabilities{
-		Provider: "podman", Isolation: sandbox.IsolationContainer, Image: true,
+		Provider: p.name, Isolation: sandbox.IsolationContainer, Image: true, Landlock: true,
 		Network: []sandbox.NetworkMode{sandbox.NetworkNone, sandbox.NetworkUnrestricted},
 	}
 }
 
-func (p standInPodman) Create(ctx context.Context, spec sandbox.Spec) (sandbox.Sandbox, error) {
-	spec.Image = ""
+func (p standIn) Create(ctx context.Context, spec sandbox.Spec) (sandbox.Sandbox, error) {
+	spec.Image, spec.RequireLandlock = "", false
 	spec.Network = sandbox.Network{Mode: sandbox.NetworkUnrestricted}
 	return p.Provider.Create(ctx, spec)
 }
@@ -54,10 +58,13 @@ func newProcWorld(t *testing.T, provider string, boxEnv map[string]string, geten
 	dir := newRepo(t)
 	rd := newRunDir(t, dir)
 	req := box.Request{Provider: provider, HostDir: dir, RunID: rd.ID, Tool: "fix", Record: rd.Record, Warn: func(string, string) {}, Env: boxEnv}
-	if provider == "podman" {
+	if provider == "podman" || provider == "landlock" {
 		reg := box.NewRegistry()
-		reg.Register(box.Entry{Name: "podman", New: func() sandbox.Provider { return standInPodman{local.Unisolated()} }})
-		req.Registry, req.Image, req.Network = reg, "example.test/img:1", box.NetworkOpen
+		reg.Register(box.Entry{Name: provider, New: func() sandbox.Provider { return standIn{Provider: local.Unisolated(), name: provider} }})
+		req.Registry, req.Network = reg, box.NetworkOpen
+		if provider == "podman" {
+			req.Image = "example.test/img:1"
+		}
 		t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	}
 	s, err := box.Open(context.Background(), req)
@@ -76,8 +83,11 @@ func newProcWorld(t *testing.T, provider string, boxEnv map[string]string, geten
 }
 
 // processBrief is the brief of an attempt as Execute leaves it for a brain.
-func (w *procWorld) processBrief(attempt int) Brief {
+func (w *procWorld) processBrief(attempt int, mutate ...func(*Brief)) Brief {
 	b := w.brief(attempt)
+	for _, m := range mutate {
+		m(&b)
+	}
 	// Execute places the brief in the run directory of the box before a brain runs.
 	if err := w.session.WriteFile(context.Background(), path.Join(".agent-fox", "run", w.run.ID, "brief.md"), []byte(b.Document())); err != nil {
 		w.t.Fatal(err)
