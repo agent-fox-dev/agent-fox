@@ -333,9 +333,15 @@ func triageRun(r *toolio.Run, runID string, budget float64, maxTurns int) (tooli
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
-	prefix, task, err := briefOf(run, budget, maxTurns, r)
+	prefix, task, placed, err := briefOf(run, budget, maxTurns, r)
 	if err != nil {
 		return toolio.Outcome{}, err
+	}
+	// A run placed in a box is run under the attempt and the nonce it was placed with,
+	// since the process that placed it accepts a submission made under no other.
+	attempt, nonce := 1, ""
+	if placed != nil {
+		attempt, nonce = placed.Run.Attempt, placed.Run.Nonce
 	}
 
 	sess, err := box.Here(r.Ctx, box.Request{HostDir: r.Dir, RunID: runID, Tool: "triage", Record: run.Record, Warn: r.Warn})
@@ -353,9 +359,9 @@ func triageRun(r *toolio.Run, runID string, budget float64, maxTurns int) (tooli
 	}
 
 	res, err := brain.Execute(r.Ctx, brain.Request{
-		Session: sess, Name: brain.AgentkitName, Brain: b, RunDir: run, Report: r, Tally: &brain.Tally{},
+		Session: sess, Name: brain.AgentkitName, Brain: b, RunDir: run, Report: r, Tally: &brain.Tally{}, Nonce: nonce,
 		Brief: brain.Brief{
-			RunID: runID, Attempt: 1, Kind: triage.Kind(r.Dir), Prefix: prefix, Task: task,
+			RunID: runID, Attempt: attempt, Kind: triage.Kind(r.Dir), Prefix: prefix, Task: task,
 			Tools: triage.BoxTools(offered), Hook: brain.HookConfig{RunID: runID},
 			MaxCostUSD: budget, MaxTurns: maxTurns, Timeout: timeLeft(r),
 		},
@@ -374,23 +380,40 @@ func triageRun(r *toolio.Run, runID string, budget float64, maxTurns int) (tooli
 
 // briefOf reads the brief of a run, and splits it into the prefix, which is kept
 // as it was rendered, and the task block, adapted for a brain that submits
-// through the tool.
-func briefOf(run *toolio.RunDir, budget float64, maxTurns int, r *toolio.Run) (prefix, task string, err error) {
+// through the tool. The prefix ends where triage.json says; a run directory that
+// has none is one that brain.Execute placed in a box, and run.json says it (placed is
+// then its content).
+func briefOf(run *toolio.RunDir, budget float64, maxTurns int, r *toolio.Run) (prefix, task string, placed *placedRun, err error) {
 	data, err := os.ReadFile(filepath.Join(run.Path, "brief.md"))
 	if err != nil {
-		return "", "", &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("run %s has no brief (%v): run af triage brief first", run.ID, err)}
+		return "", "", nil, &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("run %s has no brief (%v): run af triage brief first", run.ID, err)}
+	}
+	noFacts := func() error {
+		return &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("run %s has no triage.json that goes with its brief: run af triage brief first", run.ID)}
 	}
 	var facts triage.Facts
 	factsData, err := os.ReadFile(filepath.Join(run.Path, "triage.json"))
-	if err == nil {
-		err = json.Unmarshal(factsData, &facts)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		p, ok, perr := readPlaced(run, triage.KindName)
+		if perr != nil {
+			return "", "", nil, perr
+		}
+		if !ok {
+			return "", "", nil, noFacts()
+		}
+		placed, prefix, task = &p, p.Prefix, p.Task
+	default:
+		if err == nil {
+			err = json.Unmarshal(factsData, &facts)
+		}
+		if err != nil || facts.Prefix.Bytes <= 0 || facts.Prefix.Bytes > len(data) {
+			return "", "", nil, noFacts()
+		}
+		prefix, task = string(data[:facts.Prefix.Bytes]), string(data[facts.Prefix.Bytes:])
 	}
-	if err != nil || facts.Prefix.Bytes <= 0 || facts.Prefix.Bytes > len(data) {
-		return "", "", &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("run %s has no triage.json that goes with its brief: run af triage brief first", run.ID)}
-	}
-	prefix = string(data[:facts.Prefix.Bytes])
 	bounds := triage.Bounds{MaxTurns: maxTurns, MaxCostUSD: budget, Timeout: timeLeft(r)}
-	return prefix, triage.AdaptTask(string(data[facts.Prefix.Bytes:]), run.ID, bounds), nil
+	return prefix, triage.AdaptTask(task, run.ID, bounds), placed, nil
 }
 
 // timeLeft is the time until the deadline of the command, or 0 when it has none.

@@ -1149,7 +1149,8 @@
         "submission",
         "submission_path",
         "question",
-        "apply"
+        "apply",
+        "submitted"
       ],
       "description": "One round of a brain on the brief of a fix run. The tree of an accepted report is in the working tree of the checkout, uncommitted and not measured.",
       "properties": {
@@ -1212,7 +1213,7 @@
             "deleted",
             "ignored"
           ],
-          "description": "What was applied to the checkout, or null when the round asked a question and nothing was.",
+          "description": "What was applied to the checkout, or null when the round asked a question and nothing was, and for a round that a process in a box ran: the host applies the tree of the box.",
           "properties": {
             "written": {
               "type": "integer",
@@ -1230,6 +1231,10 @@
               "description": "Files of the box's tree left out: under .git/ or .agent-fox/, ignored by the checkout's git rules, or no file or link."
             }
           }
+        },
+        "submitted": {
+          "type": "boolean",
+          "description": "True when the brain handed over a submission that was accepted: the host that runs af fix run in a box reads it from the result."
         }
       }
     },
