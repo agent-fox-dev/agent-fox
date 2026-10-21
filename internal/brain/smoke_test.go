@@ -44,7 +44,7 @@ func newSmoke(t *testing.T, args []string, opts Options) *smoke {
 		t.Fatal(err)
 	}
 	fs := flag.NewFlagSet("smoke", flag.ContinueOnError)
-	settings := Flags(fs, Defaults{Budget: 2, MaxTurns: 8})
+	settings := Flags(fs, Defaults{Sandbox: "local", Budget: 2, MaxTurns: 8})
 	if err := fs.Parse(args); err != nil {
 		t.Fatal(err)
 	}

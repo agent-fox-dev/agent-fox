@@ -41,7 +41,7 @@ func registerFixRun(app *toolio.App) {
 		Flags: func(fs *flag.FlagSet) {
 			runID = ""
 			fs.StringVar(&runID, "run-id", "", "the `id` of the run, made by af fix brief")
-			settings = brain.Flags(fs, brain.Defaults{Budget: fixDefaultBudget, MaxTurns: fixDefaultMaxTurns})
+			settings = brain.Flags(fs, brain.Defaults{Sandbox: "local", Budget: fixDefaultBudget, MaxTurns: fixDefaultMaxTurns})
 		},
 		MaxArgs:        toolio.NoArgs,
 		Dir:            true,

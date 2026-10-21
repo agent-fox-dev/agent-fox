@@ -720,7 +720,7 @@ func registerTriageLoop(app *toolio.App) {
 		Summary: "Diagnose a report and write the diagnosis back to the forge",
 		Usage:   "af triage <issue|file|text|-> [--dir DIR] [--context ANSWER]... [--repo owner/name] [--land issue|none] [--label L]... [--dry-run] [--brain NAME] [--sandbox NAME] [--budget USD] [--max-turns N] [--timeout 15m]",
 		Flags: func(fs *flag.FlagSet) {
-			settings = brain.Flags(fs, brain.Defaults{Budget: triage.DefaultBudget, MaxTurns: triage.DefaultMaxTurns})
+			settings = brain.Flags(fs, brain.Defaults{Sandbox: "local", Budget: triage.DefaultBudget, MaxTurns: triage.DefaultMaxTurns})
 			labels = nil
 			fs.StringVar(&land, "land", triage.LandIssue, "where the diagnosis goes: `issue` (write it to the forge) or none (write diagnosis.md only)")
 			fs.Var(&labels, "label", "add this `label` to the issue; may be repeated")

@@ -20,9 +20,16 @@ type Entry struct {
 	// Unconfined says the provider puts no process or network boundary around
 	// the tools, so that every run that opens it raises box_unconfined.
 	Unconfined bool
+	// InPlace says the provider works on the checkout itself, with no copy of it:
+	// only `none` does.
+	InPlace bool
 	// New returns the provider.
 	New func() sandbox.Provider
 }
+
+// Isolates says the provider puts a process and network boundary around the
+// tools: `landlock` and `podman` do, `local` and `none` do not.
+func (e Entry) Isolates() bool { return !e.Unconfined }
 
 // Registry holds providers by name.
 type Registry struct {
@@ -33,11 +40,14 @@ type Registry struct {
 // NewRegistry returns a registry with no provider.
 func NewRegistry() *Registry { return &Registry{entries: map[string]Entry{}} }
 
-// Default is the registry that a Request without a Registry uses: `local`
-// until later scopes register more providers.
+// Default is the registry that a Request without a Registry uses: the four
+// providers, landlock, podman, local and none.
 var Default = func() *Registry {
 	r := NewRegistry()
+	r.Register(landlockEntry())
+	r.Register(podmanEntry())
 	r.Register(localEntry())
+	r.Register(noneEntry())
 	return r
 }()
 

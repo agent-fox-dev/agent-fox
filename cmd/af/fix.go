@@ -85,7 +85,7 @@ func registerFix(app *toolio.App) {
 		Usage:   "af fix <issue|file|text|-> [--dir DIR] [--base BRANCH] [--context ANSWER]... [--repo owner/name] [--land pr|branch|none] [--attempts N] [--no-verify] [--dry-run] [--brain NAME] [--sandbox NAME] [--budget USD] [--max-turns N] [--timeout 45m]",
 		Flags: func(fs *flag.FlagSet) {
 			o = fixOptions{attempts: fixDefaultAttempts, land: fix.LandPR}
-			o.settings = brain.Flags(fs, brain.Defaults{Budget: fixDefaultBudget, MaxTurns: fixDefaultMaxTurns})
+			o.settings = brain.Flags(fs, brain.Defaults{Sandbox: "local", Budget: fixDefaultBudget, MaxTurns: fixDefaultMaxTurns})
 			fs.StringVar(&o.base, "base", "", baseUsage)
 			fs.Var(&o.attempts, "attempts", "up to `n` attempts, each with a budget of its own; from 1 to 5")
 			fs.Var(&o.land, "land", "where the change goes, as a `mode`: pr (push the branch and open a pull request), branch (push it), or none (keep it on a local branch)")
