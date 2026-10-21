@@ -62,6 +62,18 @@ func DefaultProtectedPaths() []string {
 	return []string{".git/", ".agent-fox/", ".specs/", ".github/workflows/", ".gitlab-ci.yml"}
 }
 
+// IsProtected reports whether the path rel of the checkout, slash-separated, is one of
+// the protected paths or below one, by the rules a write is judged by.
+func IsProtected(protected []string, rel string) bool {
+	rel = path.Clean(filepath.ToSlash(rel))
+	for _, prot := range protected {
+		if covers(rel, prot, false) {
+			return true
+		}
+	}
+	return false
+}
+
 // shellTools are the tools whose input is a line for a shell: Claude Code's
 // Bash and the hands' execute.
 var shellTools = []string{"Bash", "execute"}

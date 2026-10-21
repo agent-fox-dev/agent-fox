@@ -59,4 +59,9 @@ func register(app *toolio.App) {
 	registerGuard(app)
 	registerMap(app)
 	registerTriage(app)
+	registerFix(app)
+	registerFixBrief(app)
+	registerFixRun(app)
+	registerFixSubmit(app)
+	registerFixLand(app)
 }

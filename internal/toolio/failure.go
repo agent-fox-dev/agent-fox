@@ -26,6 +26,10 @@ const (
 	CategoryBrain = "brain"
 	// CategoryNoResult: the brain stopped and left no valid submission.
 	CategoryNoResult = "no_result"
+	// CategoryPreflight: a fact about the repository stops the run before it
+	// spends anything: a tree that is not clean, no gate to measure by, no origin
+	// to push to. It is not an error of the invocation, so it is not usage.
+	CategoryPreflight = "preflight"
 	// CategoryBudget: the brain used the cost bound or the turn bound and left
 	// no submission.
 	CategoryBudget = "budget"

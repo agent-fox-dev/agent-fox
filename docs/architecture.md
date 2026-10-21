@@ -34,7 +34,7 @@ unchanged; what changes is who owns the loop.
    ring 1  facts    af spec validate · af lang detect · af map · af gate run/compare
                     af revert-check · af conform scan · af scope check · af task brief
    ring 2  effects  af run start · af task start/land · af run land · af review submit
-                    af fix start/submit/land · af forge ...
+                    af fix brief/run/submit/land · af forge ...
    state            .agent-fox/run/<id>/ (ledger, baseline, briefs) + tasks.json + git
         |
         v
@@ -105,7 +105,7 @@ the spec state.
 | `af task land <id>` | gate, compare, revert check, ledger classification, protected-path revert, scope; then the state write and the commit with the `Spec:` trailer | a non-landable verdict, a foreign commit on the branch, a report that says `fail` |
 | `af review submit` | validates the review: every requirement, test and decision in scope answered, every `file:line` real | the skipped ids |
 | `af run land` | the hermetic gate, push, the pull request rendered from facts, draft when findings remain | a red hermetic gate |
-| `af fix start <input>`, `af fix submit-analysis`, `af fix land` | the same for a fix: preflight and baseline; the diagnosis; gate, revert check, `Closes` or `Refs`, commit, push, PR | as above |
+| `af fix brief <input>`, `af fix run`, `af fix submit`, `af fix land` | the same for a fix: preflight and baseline; the brief; a round of a brain whose tree is applied to the checkout; the report; gate, revert check, `Closes` or `Refs`, commit, push, PR (see [Fix, as built](#fix-as-built)) | a dirty tree, no gate, a foreign commit on the branch, a change that regressed |
 | `af forge ...` | issue, comment, PR, labels | `--dry-run` |
 | `af guard check` | reads a host's hook payload, answers allow or deny | see *The policy hook* |
 
@@ -623,6 +623,95 @@ repository that the command learns at run time (`land` reads it from
 `triage.json`). The divergences from the spec, with the code of each, are in
 `docs/errata/08_af_triage_divergences.md`.
 
+### Fix, as built
+
+`af fix` is the second agent command, and the first whose brain writes. It has the
+shape of triage (a preflight that spends nothing, a brief, a bounded brain run in a
+box, the host's second look at what came back, a landing), and what it adds is the
+part that triage never needed: the brain's changes have to come out of the box and
+be judged before anything is committed. The rule that makes it safe is the one the
+whole design rests on: the brain edits files and nothing else, and `af` makes every
+other effect, from the tree the brain left and from checks that `af` ran on it.
+
+**Where it lives.**
+
+| Path | What it holds |
+|---|---|
+| `internal/fix/` | The feature with no shell in it: the preflight (`Preflight`, `CheckLanding`), the state of a run (`State`, `fix.json`), the brief (`BuildPrefix`, `TaskBlock`, `NewBrief`), the submission kind (`Kind`, the `fix_report` and its validator), `Apply`, `Measure`, `Land`, `Park`, the body of the pull request (`RenderBody`), the loop (`RunLoop`) and its ending (`Finish`), and the result (`Result`). It imports `gitx`, `checks`, `conform`, `policy`, `project`, `repomap`, `box`, `brain`, `submission`, `issuex` and the `skills` package. |
+| `cmd/af/fix.go`, `fix_brief.go`, `fix_run.go`, `fix_land.go` | The five commands on the shell: the loop, `brief` and `submit`, `run`, and `land`. They do what needs the shell: the run directory and its ledger, the forge client, `box.With`, the envelope and its schemas (`cmd/af/schemas/fix*.json`). |
+| `skills/af-fix` | The skill that says how to fix, compiled into the binary and carried by the brief (`skills.Fix()`), and the file a person installs with `make install-skills`. |
+| `internal/triage/fakeforge/` | The server of the tests, which gained pull and merge requests. |
+
+What the other packages gained for it: `gitx` can read a full hash, ask whether a
+path is ignored and make a branch from a commit; `repomap.BuildDir` makes the map of
+a directory; `project.MarshalGateFile` and `policy.MarshalGuardFile` write the two
+files a box is given; `policy.IsProtected` says whether a path is one only `af`
+writes; `toolio` has the failure category `preflight`; the scripted brain replays a
+script of rounds, one for each run of the brain.
+
+**The loop.** The preflight runs first (a clean tree on a branch, a gate to measure
+by, the landing's needs, a brain that can be made), then the baseline, once, on the
+tree as it is, and the full hash of the base is recorded as `base_head`. `fix.json`
+holds the state; it is written last and atomically, so a run directory that has one
+is a run that can be carried on. One box is held for every round of the run, and
+before each round after the first it is synced from the host's tree, which carries
+the change `af` has already applied. Each round places `gate.json` and `guard.json`
+in the box, runs `brain.Execute` on the brief, and takes the tree out of the box.
+
+**Apply.** The export is mirrored onto the checkout, and not committed. The files
+the export lacks are deleted first, then new and changed files, modes and links are
+written, through an `os.Root` of the checkout so that no path can leave it. `.git/`,
+`.agent-fox/` (whatever their case, since on a file system that does not tell `.GIT`
+from `.git` an export could write a hook that the landing runs), ignored paths,
+anything that is not a file or a link, and everything under a submodule are left
+alone; a path beyond a link of the checkout is judged after the links the export
+replaces are deleted (and left out if the checkout keeps the link). A file that git
+tracks and a rule ignores is never deleted, since the export never has it: the
+rules of the box's hands leave it out. The deletions cover the other files of the
+checkout's file view, and the directories they empty. A round that did not
+submit a report, and one that asked a question, applies nothing, and a run that ends on
+a question later puts back what an earlier round applied; an export with no
+file that can be applied fails as `sandbox`. It is the host that writes, never the
+box, and a box that cheats gets nothing past what the host's own rules let through.
+
+**Measure.** The checkout must still be the base at `base_head`, since `af` makes
+the commit that counts, and a commit or a switched branch is `git`. A change under
+a protected path is put back to the base's content, or deleted, and reported; a
+change that is nothing after that is refused as `no_change` with no gate run. The
+report's files are compared with the paths git sees changed (a mismatch warns). The
+gate runs again on the table the run was pinned to and is compared with the
+baseline by check id, so a check that failed before is not counted against the
+change; only on a verdict that may land does the revert check run, and only a
+proven one makes the commit say `Closes`. A refusal is recorded and is the next
+round's task block, with the tail of each failing check, in the same box and the
+same tree.
+
+**Land or park.** A landable change gets, in order, an issue (for a text or a file,
+so that the pull request has something to refer to), a branch `fix/<N>-<slug>` from
+`base_head`, one commit with the hooks of the repository, a push with retries and
+the pull request, whose body is rendered from facts: what `af` measured is never
+cut and what the brain reported is quoted. The checkout always ends on the base,
+clean. A change that cannot land is parked: a `wip:` commit made without the hooks,
+so that nothing can lose it, pushed and offered as a draft that says `Refs`. An
+interrupted run parks what it applied on a local branch, on a context the signal
+did not reach and within 10 seconds; a dry run discards it. `fix land` is the end
+of the loop for a change a person made: it measures and lands or parks, with no
+round of a brain.
+
+**The run files** are `brief.md`, `original.md`, `run.json`, `fix.json`,
+`submission.json` and `report.md`, which is the body of the pull request as it was
+rendered (see [configuration.md](configuration.md#the-files-of-a-fix-run)). The
+prefix of the brief (mandate, skill, report, gate and baseline, map, schema) is
+byte-identical for every round of every attempt, and its hash is in `fix.json`, so
+that a provider that caches a prefix serves the whole run from one write.
+
+**Where it differs from the sketch above.** The sketch gave a fix a start, a
+separate submission of its analysis and a land; the built commands are `brief`,
+`run`, `submit` and `land`, because the analysis is not a separate submission any
+more (the report is one object, and a question is the other form of it), and
+`run` is the round of a brain that a person's own checkout does without. The divergences from the spec,
+with the code of each, are in `docs/errata/09_af_fix_divergences.md`.
+
 ## The hub
 
 [hub](https://github.com/agent-fox-dev/hub) owns what one machine cannot:
@@ -717,15 +806,16 @@ involved beyond landing the branch.
 
 | Today | In this architecture |
 |---|---|
-| `codeimpl` and `codefix` phase loops | `af impl` and `af fix`: a loop over briefs calling a `Brain` |
+| `codeimpl` and `codefix` phase loops | `af impl` and `af fix`: a loop over briefs calling a `Brain` (`af fix` is built; see [Fix, as built](#fix-as-built)) |
 | `internal/agentrun` (phase runner, guard, policy, scratch) | gone; `guard.Check` from the hands behind `af guard check`; scratch is the run directory |
 | the `submit_*` tools and their handlers | `af ... submit` commands over the same schemas |
 | `internal/checks`, `internal/conform`, `internal/gitx`, the untracked snapshots, parking, the PR body | `af`'s effect layer, on the hands' runner and outline |
 | `afspec`, `issuex`, `internal/project` (later the language profiles) | unchanged, inside `af`; `issuex` is imported from `github.com/agent-fox-dev/aflib/issuex` |
 | prompts as Go strings | the briefs, as templated documents rendered by `af task brief` and `af review brief` |
 | `issuetriage` | `af triage`: a read-only brain run in a box, with the toolbelt around it (see [Triage, as built](#triage-as-built)) |
+| `codefix` | `af fix`: a brain run in a box that edits, with `af` applying its tree, measuring the change and landing or parking it (see [Fix, as built](#fix-as-built)) |
 | the `af-impl` skill | shrinks to the attended loop over `af` commands |
-| `cmd/impl`, `cmd/fix` | thin entry points that become `af impl`, `af fix`; the envelope, flags and exit codes are those of `docs/cli.md`, whose envelope is a new shape (`docs/errata/05_old_envelope_fields.md`) |
+| `cmd/impl`, `cmd/fix` | thin entry points that become `af impl`, `af fix` (the second is built: `cmd/af/fix*.go`); the envelope, flags and exit codes are those of `docs/cli.md`, whose envelope is a new shape (`docs/errata/05_old_envelope_fields.md`) |
 | `containers/tools` | `Spec.Image` for a brain with its own hands: the overlay line, Codex and OpenCode added |
 
 ## Open decisions

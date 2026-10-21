@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/submission"
@@ -38,17 +39,29 @@ type step struct {
 	Expect string           `json:"expect"`
 }
 
-// scriptFile is the file --script names.
+// scriptFile is the file --script names: the steps of one run, or the steps of
+// each of several rounds, one for each run of the same brain.
 type scriptFile struct {
+	Steps  []step       `json:"steps"`
+	Rounds *[]roundFile `json:"rounds"`
+}
+
+// roundFile is a round of a script of rounds.
+type roundFile struct {
 	Steps []step `json:"steps"`
 }
 
 // scripted is a brain that replays a script: the steps of a run, in order, with
 // no model. It is a test oracle (a step says what it expects) and a way to run
-// af without a model.
+// af without a model. A script of rounds is replayed one round for each run of
+// the same brain, and a run past the last round ends at once; a plain script is
+// one round.
 type scripted struct {
-	file  string
-	steps []step
+	file   string
+	rounds [][]step
+
+	mu   sync.Mutex
+	runs int
 }
 
 // newScripted reads and checks the script, so that a script that cannot be
@@ -73,12 +86,40 @@ func newScripted(opts Options) (Brain, error) {
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return nil, usage("holds more than one JSON document, or text after its object")
 	}
+	if file.Rounds != nil {
+		if file.Steps != nil {
+			return nil, usage("has both steps and rounds: a script is the steps of one run, or the rounds of several")
+		}
+		rounds := make([][]step, len(*file.Rounds))
+		for k, round := range *file.Rounds {
+			for i, st := range round.Steps {
+				if msg := st.check(); msg != "" {
+					return nil, usage("round %d step %d %s", k+1, i, msg)
+				}
+			}
+			rounds[k] = round.Steps
+		}
+		return &scripted{file: opts.Script, rounds: rounds}, nil
+	}
 	for i, st := range file.Steps {
 		if msg := st.check(); msg != "" {
 			return nil, usage("step %d %s", i, msg)
 		}
 	}
-	return &scripted{file: opts.Script, steps: file.Steps}, nil
+	return &scripted{file: opts.Script, rounds: [][]step{file.Steps}}, nil
+}
+
+// nextRound is the steps of the round this run replays, and whether there is
+// one: the k-th run of a brain replays round k.
+func (s *scripted) nextRound() ([]step, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	k := s.runs
+	s.runs++
+	if k >= len(s.rounds) {
+		return nil, false
+	}
+	return s.rounds[k], true
 }
 
 // check says what is wrong with a step, or "".
@@ -120,6 +161,10 @@ func (s *scripted) Run(ctx context.Context, b Brief) (Outcome, error) {
 	if b.Box == nil {
 		return Outcome{StopReason: StopError}, errors.New("the scripted brain needs a box")
 	}
+	steps, ok := s.nextRound()
+	if !ok {
+		return Outcome{StopReason: StopEnded, CostSource: CostNone}, nil // every round has been replayed
+	}
 	if err := ValidateTools(b.Tools, b.Box.Tools()); err != nil {
 		return Outcome{StopReason: StopError}, err
 	}
@@ -134,7 +179,7 @@ func (s *scripted) Run(ctx context.Context, b Brief) (Outcome, error) {
 	}
 
 	out := Outcome{CostSource: CostNone, Transcript: b.TranscriptPath}
-	for i, st := range s.steps {
+	for i, st := range steps {
 		if err := ctx.Err(); err != nil {
 			out.StopReason = StopError
 			return out, err
@@ -154,8 +199,8 @@ func (s *scripted) Run(ctx context.Context, b Brief) (Outcome, error) {
 			return out, fmt.Errorf("script %s: step %d: expected %s, actual %s", s.file, i, st.Expect, actual)
 		}
 		if actual == resultAccepted {
-			for j := i + 1; j < len(s.steps) && tr != nil; j++ {
-				tr.Skipped(j, s.steps[j].describe())
+			for j := i + 1; j < len(steps) && tr != nil; j++ {
+				tr.Skipped(j, steps[j].describe())
 			}
 			out.Submitted, out.StopReason = true, StopSubmitted
 			return out, nil

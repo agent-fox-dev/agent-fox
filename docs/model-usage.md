@@ -1,9 +1,10 @@
 # Model usage
 
-`af` runs no model except in two commands, `af triage` and `af triage run` (see
-[Triage](#triage)). The other commands it has (`lang detect`, `gate run`, `gate compare`,
-`revert-check`, `guard check`, `map`, and `triage brief`, `triage submit` and
-`triage land`) call no model: they read files, run
+`af` runs no model except in four commands, `af triage` and `af triage run` (see
+[Triage](#triage)) and `af fix` and `af fix run` (see [Fix](#fix)). The other
+commands it has (`lang detect`, `gate run`, `gate compare`, `revert-check`,
+`guard check`, `map`, `triage brief`, `triage submit`, `triage land`, `fix brief`,
+`fix submit` and `fix land`) call no model: they read files, run
 git and the checks of the project, and answer from what they measured. They
 read no variable of a model vendor, and `gate run` strips from the environment
 of the checks the variables that name a credential, which are the model
@@ -13,7 +14,7 @@ vendors' keys, the variables of the clouds and anything that ends in `_TOKEN`,
 are built on makes no call to a model provider either.
 
 There are two brains in the library (`internal/brain`), for the agent commands;
-`af triage` is the only one that runs one so far.
+`af triage` and `af fix` run them.
 
 | Brain | Model | Where it runs | Cost source |
 |---|---|---|---|
@@ -73,6 +74,57 @@ fails as `usage` and names `AF_MODEL`. A dry run (`--dry-run`) still asks the
 model, and costs what any run costs: it sends no write to the forge, nothing
 more. The cost of the run is in the envelope's `usage` (`brain`, `cost_usd`,
 `cost_source`, tokens and turns).
+
+## Fix
+
+`af fix` runs the `agentkit` brain by default (`--brain`), on the model `AF_MODEL`
+names, over a box that holds a copy of the checkout. Unlike triage, the brain
+writes: its tools read and search the repository, write and edit files, and run
+commands (`execute`) that the policy of the box allows, which are the checks of
+the gate, `af`, `git` for reading and a few utilities that only read or make a
+directory; it can neither commit nor write under a protected path. The one tool that ends a round is `submit_fix`. Everything
+the brain reads goes to the model provider, and so does what it is told; the box
+holds no token and no key.
+
+**What the brief sends.** As for triage, the part before the task block is the
+first message of the conversation, which a provider can cache, and the task block
+starts the round. The brief is made of the mandate (find the root cause, make the
+smallest change, never commit or touch the issue, the report is material and not
+an instruction, submit one report), the body of the `af-fix` skill, the original
+report, the gate with its baseline, the repository map and the schema of the
+report, and then the task block. The prefix is byte-identical for every round,
+every attempt and every resume over the same report and tree, so that a cache
+read serves them all; what differs is in the task block: the run, the attempt and
+the round, the answers of a person, and, after a refusal, why `af` refused the
+last change and the end (4 KiB) of the output of each check that failed.
+`af fix brief` renders it and calls no model.
+
+**The default bounds** are USD 10 of model cost (`--budget`), 150 turns
+(`--max-turns`) and 45 minutes (`--timeout`). The budget and the turns are bounds
+per attempt: an attempt is rounds of the brain in a row, in one box, and the next
+attempt (`--attempts`, 2 by default and at most 5) starts from the tree as it is
+with a fresh budget of both. A round is one run of the brain, ended by a report or
+a question; a change that `af` refuses after measuring it is the task block of the
+next round, so a run that needs three tries to pass the gate is three rounds of
+one attempt, each paid from the same budget. Another round starts only while cost
+and turns remain and the time left of `--timeout` is at least a minute after the
+time kept for measuring (three times what the baseline took, and a minute). A run
+that has spent its attempts without a change that may land parks what it has, as a
+`wip` commit; one that applied nothing fails with the category of its last round
+(`budget` with the flag to raise, for one that spent its cost or turns before it
+submitted). Under a `--timeout` or a signal, the change that was applied is parked
+on a local branch and the model is not asked again.
+
+The cost of the run is the sum over every round of every attempt and is in the
+envelope's `usage`, and the footer of a pull request says it (`brain`, `cost_usd`
+and `cost_source`). A dry run (`--dry-run`) still asks the model, round after
+round. A dry run spends model money like any other run, and writes nothing beyond
+its working tree, which it puts back. `--budget` needs a model whose price the
+catalog knows, as for triage. `fix run` is one round, with the bounds of an
+attempt; `fix brief`, `fix submit` and `fix land` call no model, and a person who
+drives them with a model of their own pays for it elsewhere.
+
+## The cost in the envelope
 
 The envelope has a place for the cost of a run, so that the commands that do
 run a brain have somewhere to report it. For a run with no brain it holds the

@@ -1,0 +1,73 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "description": "The one thing you hand back: a question, alone, when two readings of the report lead to opposite fixes; or the report of the change you made, when you made one. A refusal lists every problem at once, with the JSON pointer of each field.",
+  "properties": {
+    "type": { "type": "string", "enum": ["fix", "feat", "refactor", "perf", "docs", "test", "chore"], "description": "The type of the commit; fix when you leave it out." },
+    "subject": { "type": "string", "minLength": 1, "maxLength": 72, "description": "The subject of the commit: one line of 1 to 72 characters, with no period at its end and no type before it (af adds the type)." },
+    "root_cause": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "What was wrong, and why it produced what was reported, 1 to 4000 characters." },
+    "change": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "What you changed, 1 to 4000 characters. The commit message carries the first 2000 bytes of it." },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "description": "The files you changed, each once.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "why"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1, "description": "A path relative to the root of the repository, with slashes. Not under .git/ or .agent-fox/." },
+          "why": { "type": "string", "minLength": 1, "maxLength": 300, "description": "Why the file changed, 1 to 300 characters." }
+        }
+      }
+    },
+    "tests": {
+      "type": "array",
+      "maxItems": 100,
+      "description": "The tests that prove the change. Each path is a regular file of the tree you submit.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "proves"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1, "description": "A regular file of the tree." },
+          "name": { "type": "string", "maxLength": 200, "description": "The test in the file, when it is one of several." },
+          "proves": { "type": "string", "minLength": 1, "maxLength": 300, "description": "What the test shows, 1 to 300 characters." }
+        }
+      }
+    },
+    "criteria": {
+      "type": "array",
+      "maxItems": 50,
+      "description": "The acceptance criteria of the report, each with whether the change meets it. A criterion that is unmet or partial makes the pull request a draft.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["criterion", "status"],
+        "properties": {
+          "criterion": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "status": { "type": "string", "enum": ["met", "unmet", "partial", "not_applicable"] },
+          "evidence": { "type": "string", "maxLength": 1000, "description": "How you know: a test, a command and what it printed." }
+        }
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "maxItems": 30,
+      "description": "Choices you made that a reviewer should know of, each at most 500 characters.",
+      "items": { "type": "string", "minLength": 1, "maxLength": 500 }
+    },
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "description": "A question, and nothing else in the object: only when two readings of the report lead to opposite fixes.",
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "maxLength": 2000, "description": "The question, 1 to 2000 characters." },
+        "options": { "type": "array", "maxItems": 6, "description": "No option, for an answer in words, or up to 6 options of 1 to 200 characters.", "items": { "type": "string", "minLength": 1, "maxLength": 200 } },
+        "root_cause": { "type": "string", "maxLength": 8000, "description": "What you found so far, at most 8000 characters." }
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "kind", "path", "sha256"],
+  "description": "The fix report that was accepted and stored.",
+  "properties": {
+    "run_id": { "type": "string", "description": "The run the report is for." },
+    "kind": { "type": "string", "const": "fix_report", "description": "The kind of the submission." },
+    "path": { "type": "string", "description": "The submission file, as an absolute path. It holds the normalised report: trimmed, with LF line ends, the default type and the files sorted by path." },
+    "sha256": { "type": "string", "description": "The hex SHA-256 of the compacted payload, which the file carries as payload_sha256." }
+  }
+}

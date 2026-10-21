@@ -150,6 +150,17 @@ func (g *Git) CreateBranch(ctx context.Context, name string) error {
 	return err
 }
 
+// CreateBranchFrom creates name at ref and checks it out, carrying the working tree
+// along: a fix is made on the tree of the base, and its branch starts at the commit the
+// base was at when the run began, whatever HEAD has moved to since.
+func (g *Git) CreateBranchFrom(ctx context.Context, name, ref string) error {
+	if strings.HasPrefix(name, "-") || strings.HasPrefix(ref, "-") {
+		return fmt.Errorf("git checkout: %q from %q: a name or a ref may not start with a hyphen", name, ref)
+	}
+	_, err := g.must(ctx, "checkout", "-b", name, ref)
+	return err
+}
+
 // Checkout switches to an existing branch.
 func (g *Git) Checkout(ctx context.Context, name string) error {
 	_, err := g.must(ctx, "checkout", name)
@@ -540,6 +551,23 @@ func (g *Git) TrackedIgnored(ctx context.Context) ([]string, error) {
 	return sortedUnique(splitNUL(out)), nil
 }
 
+// Gitlinks lists the paths that are submodules: the entries of the index whose mode is
+// 160000, NUL-separated, byte for byte, de-duplicated and sorted. What is under one is
+// another repository's.
+func (g *Git) Gitlinks(ctx context.Context) ([]string, error) {
+	out, err := g.raw(ctx, "ls-files", "-z", "--stage")
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, record := range splitNUL(out) {
+		if meta, path, ok := strings.Cut(record, "\t"); ok && strings.HasPrefix(meta, "160000 ") {
+			paths = append(paths, path)
+		}
+	}
+	return sortedUnique(paths), nil
+}
+
 // ChangedPaths lists the paths that differ from since, staged or not, and the
 // untracked files that are not ignored, NUL-separated and byte for byte,
 // de-duplicated and sorted. A renamed file is both of its paths, so that a
@@ -588,4 +616,29 @@ func splitNUL(out string) []string {
 func sortedUnique(paths []string) []string {
 	slices.Sort(paths)
 	return slices.Compact(paths)
+}
+
+// RevParse is the full 40-hex hash of the commit that ref names.
+func (g *Git) RevParse(ctx context.Context, ref string) (string, error) {
+	return g.must(ctx, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+}
+
+// Ignored is the paths among paths that git's ignore rules ignore. A tracked
+// path is not ignored, whatever the rules say, since the rules do not apply to
+// it. Paths are slash-separated and relative to the root of the work tree, and
+// are given to git and read back NUL-separated, so that no name is quoted.
+func (g *Git) Ignored(ctx context.Context, paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	out, code, err := g.run(StdoutOnly(ctx), g.Dir, []string{"git", "check-ignore", "-z", "--stdin"}, strings.Join(paths, "\x00")+"\x00")
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("git check-ignore: %w", err)
+	case code == 1:
+		return nil, nil // none of them is ignored
+	case code != 0:
+		return nil, fmt.Errorf("git check-ignore exited %d: %s", code, strings.TrimSpace(out))
+	}
+	return splitNUL(out), nil
 }

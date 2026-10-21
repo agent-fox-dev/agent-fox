@@ -420,6 +420,849 @@
     }
   ],
   "$defs": {
+    "fix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "issue",
+        "issue_created",
+        "base",
+        "base_head",
+        "attempts",
+        "rounds",
+        "attempts_max",
+        "outcome",
+        "verdict",
+        "landable",
+        "closes",
+        "baseline",
+        "after",
+        "revert_check",
+        "changed_files",
+        "reverted_paths",
+        "scope",
+        "land",
+        "branch",
+        "commit",
+        "pushed",
+        "pull_request",
+        "box"
+      ],
+      "description": "What a fix run came to: the change landed as a commit, a branch and a pull request, parked as wip, or the question it ended on, with the facts af measured.",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "description": "The run."
+        },
+        "issue": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The URL of the issue the report is, or null for a text or a file."
+        },
+        "issue_created": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "number",
+            "url"
+          ],
+          "description": "The issue that was made for a text or a file under --land pr, else null.",
+          "properties": {
+            "number": {
+              "type": "integer"
+            },
+            "url": {
+              "type": "string"
+            }
+          }
+        },
+        "base": {
+          "type": "string",
+          "description": "The branch the fix was made on and goes back to."
+        },
+        "base_head": {
+          "type": "string",
+          "description": "The full hash of the commit of the base when the run began."
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many attempts the run made; 0 for a land, which runs no brain."
+        },
+        "rounds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many rounds of a brain the run made, across its attempts."
+        },
+        "attempts_max": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The most attempts the run could make (--attempts); 0 for a land."
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "landed",
+            "parked",
+            "needs_human",
+            "failed",
+            "dry_run"
+          ],
+          "description": "What the run came to: landed as a commit, parked as wip, ended on a question, failed, or a dry run that wrote nothing."
+        },
+        "verdict": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "pass",
+            "pass_was_already_failing",
+            "regressed",
+            "still_failing",
+            "unverified",
+            "no_change",
+            null
+          ],
+          "description": "What af measured of the change against the baseline, or null for a run that measured nothing."
+        },
+        "landable": {
+          "type": "boolean",
+          "description": "Whether the verdict lets the change land."
+        },
+        "closes": {
+          "type": "boolean",
+          "description": "True when the revert check proved the change, so that the commit says Closes and not Refs."
+        },
+        "baseline": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "gate_id",
+            "passed"
+          ],
+          "description": "The gate on the tree as it was, or null when it was not measured.",
+          "properties": {
+            "gate_id": {
+              "type": "string",
+              "description": "The id of the gate run, under .agent-fox/gate/."
+            },
+            "passed": {
+              "type": "boolean",
+              "description": "Whether every check of the run passed."
+            }
+          }
+        },
+        "after": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "gate_id",
+            "passed"
+          ],
+          "description": "The gate on the tree with the change, or null when it was not run.",
+          "properties": {
+            "gate_id": {
+              "type": "string",
+              "description": "The id of the gate run, under .agent-fox/gate/."
+            },
+            "passed": {
+              "type": "boolean",
+              "description": "Whether every check of the run passed."
+            }
+          }
+        },
+        "revert_check": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "outcome",
+            "reason"
+          ],
+          "description": "The revert check, which runs on a change that may land, else null.",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "description": "proven, not_proven, inconclusive, no_changes, no_code_changes or no_test_changes."
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        },
+        "changed_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The paths git sees changed, the protected ones that were put back left out."
+        },
+        "reverted_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The protected paths that the change touched and af put back."
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "undeclared",
+            "unchanged"
+          ],
+          "description": "The files the report declared against the paths that changed.",
+          "properties": {
+            "undeclared": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Changed, and not in the report."
+            },
+            "unchanged": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "In the report, and not changed."
+            }
+          }
+        },
+        "land": {
+          "type": "string",
+          "enum": [
+            "pr",
+            "branch",
+            "none"
+          ],
+          "description": "Where the change was to go."
+        },
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The branch the change is on, or null when none was made."
+        },
+        "commit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The full hash of the commit, or null when none was made."
+        },
+        "pushed": {
+          "type": "boolean",
+          "description": "Whether the branch is on the remote."
+        },
+        "pull_request": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "number",
+            "url",
+            "draft"
+          ],
+          "description": "The pull request that was opened, or null.",
+          "properties": {
+            "number": {
+              "type": "integer"
+            },
+            "url": {
+              "type": "string"
+            },
+            "draft": {
+              "type": "boolean"
+            }
+          }
+        },
+        "box": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "image",
+            "network"
+          ],
+          "description": "The box the brain worked in, or null for a run that used none.",
+          "properties": {
+            "provider": {
+              "type": "string"
+            },
+            "image": {
+              "type": "string"
+            },
+            "network": {
+              "type": "string",
+              "description": "host for a provider that puts no boundary around the tools."
+            }
+          }
+        }
+      }
+    },
+    "fix_brief": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "brief_path",
+        "prefix_sha256",
+        "base",
+        "base_head",
+        "baseline",
+        "table",
+        "submit_argv"
+      ],
+      "description": "A fix brief, rendered and written to the run directory, with the preflight and the baseline it was made after. Nothing was sent to a model, to the forge or to git.",
+      "properties": {
+        "brief_path": {
+          "type": "string",
+          "description": "The brief, brief.md in the run directory, as an absolute path."
+        },
+        "prefix_sha256": {
+          "type": "string",
+          "description": "The hex SHA-256 of the prefix of the brief. It is the same for two briefs over the same report and the same tree, whatever the run, the answers or the brain."
+        },
+        "base": {
+          "type": "string",
+          "description": "The branch the fix is made on."
+        },
+        "base_head": {
+          "type": "string",
+          "description": "The full hash of the commit of the base, which HEAD must still be at when the change is measured."
+        },
+        "baseline": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "gate_id",
+            "passed"
+          ],
+          "description": "The gate on the tree as it was, or null when it was not measured.",
+          "properties": {
+            "gate_id": {
+              "type": "string",
+              "description": "The id of the gate run, under .agent-fox/gate/."
+            },
+            "passed": {
+              "type": "boolean",
+              "description": "False when a check already fails before any change."
+            }
+          }
+        },
+        "table": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "checks"
+          ],
+          "description": "The table of checks of the gate, which is pinned for the run.",
+          "properties": {
+            "source": {
+              "type": "string",
+              "description": "Where the table came from: gate.json, the Makefile or the language manifests."
+            },
+            "checks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "argv",
+                  "kind",
+                  "source",
+                  "available"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "argv": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "lint",
+                      "test",
+                      "check"
+                    ]
+                  },
+                  "source": {
+                    "type": "string"
+                  },
+                  "available": {
+                    "type": "boolean",
+                    "description": "Whether the program of the check can be run on this machine."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "submit_argv": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The command that submits the fix report of this run, which takes the report as JSON on stdin."
+        }
+      }
+    },
+    "fix_land": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "issue",
+        "issue_created",
+        "base",
+        "base_head",
+        "attempts",
+        "rounds",
+        "attempts_max",
+        "outcome",
+        "verdict",
+        "landable",
+        "closes",
+        "baseline",
+        "after",
+        "revert_check",
+        "changed_files",
+        "reverted_paths",
+        "scope",
+        "land",
+        "branch",
+        "commit",
+        "pushed",
+        "pull_request",
+        "box"
+      ],
+      "description": "What landing a run came to: the change in the checkout, measured once and landed or parked, with the facts af measured. No brain ran, so there are no attempts and no box.",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "description": "The run."
+        },
+        "issue": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The URL of the issue the report is, or null for a text or a file."
+        },
+        "issue_created": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "number",
+            "url"
+          ],
+          "description": "The issue that was made for a text or a file under --land pr, else null.",
+          "properties": {
+            "number": {
+              "type": "integer"
+            },
+            "url": {
+              "type": "string"
+            }
+          }
+        },
+        "base": {
+          "type": "string",
+          "description": "The branch the fix was made on and goes back to."
+        },
+        "base_head": {
+          "type": "string",
+          "description": "The full hash of the commit of the base when the run began."
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many attempts the run made; 0 for a land, which runs no brain."
+        },
+        "rounds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many rounds of a brain the run made, across its attempts."
+        },
+        "attempts_max": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The most attempts the run could make (--attempts); 0 for a land."
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "landed",
+            "parked",
+            "needs_human",
+            "failed",
+            "dry_run"
+          ],
+          "description": "What the run came to: landed as a commit, parked as wip, ended on a question, failed, or a dry run that wrote nothing."
+        },
+        "verdict": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "pass",
+            "pass_was_already_failing",
+            "regressed",
+            "still_failing",
+            "unverified",
+            "no_change",
+            null
+          ],
+          "description": "What af measured of the change against the baseline, or null for a run that measured nothing."
+        },
+        "landable": {
+          "type": "boolean",
+          "description": "Whether the verdict lets the change land."
+        },
+        "closes": {
+          "type": "boolean",
+          "description": "True when the revert check proved the change, so that the commit says Closes and not Refs."
+        },
+        "baseline": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "gate_id",
+            "passed"
+          ],
+          "description": "The gate on the tree as it was, or null when it was not measured.",
+          "properties": {
+            "gate_id": {
+              "type": "string",
+              "description": "The id of the gate run, under .agent-fox/gate/."
+            },
+            "passed": {
+              "type": "boolean",
+              "description": "Whether every check of the run passed."
+            }
+          }
+        },
+        "after": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "gate_id",
+            "passed"
+          ],
+          "description": "The gate on the tree with the change, or null when it was not run.",
+          "properties": {
+            "gate_id": {
+              "type": "string",
+              "description": "The id of the gate run, under .agent-fox/gate/."
+            },
+            "passed": {
+              "type": "boolean",
+              "description": "Whether every check of the run passed."
+            }
+          }
+        },
+        "revert_check": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "outcome",
+            "reason"
+          ],
+          "description": "The revert check, which runs on a change that may land, else null.",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "description": "proven, not_proven, inconclusive, no_changes, no_code_changes or no_test_changes."
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        },
+        "changed_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The paths git sees changed, the protected ones that were put back left out."
+        },
+        "reverted_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The protected paths that the change touched and af put back."
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "undeclared",
+            "unchanged"
+          ],
+          "description": "The files the report declared against the paths that changed.",
+          "properties": {
+            "undeclared": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Changed, and not in the report."
+            },
+            "unchanged": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "In the report, and not changed."
+            }
+          }
+        },
+        "land": {
+          "type": "string",
+          "enum": [
+            "pr",
+            "branch",
+            "none"
+          ],
+          "description": "Where the change was to go."
+        },
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The branch the change is on, or null when none was made."
+        },
+        "commit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The full hash of the commit, or null when none was made."
+        },
+        "pushed": {
+          "type": "boolean",
+          "description": "Whether the branch is on the remote."
+        },
+        "pull_request": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "number",
+            "url",
+            "draft"
+          ],
+          "description": "The pull request that was opened, or null.",
+          "properties": {
+            "number": {
+              "type": "integer"
+            },
+            "url": {
+              "type": "string"
+            },
+            "draft": {
+              "type": "boolean"
+            }
+          }
+        },
+        "box": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "image",
+            "network"
+          ],
+          "description": "The box the brain worked in, or null for a run that used none.",
+          "properties": {
+            "provider": {
+              "type": "string"
+            },
+            "image": {
+              "type": "string"
+            },
+            "network": {
+              "type": "string",
+              "description": "host for a provider that puts no boundary around the tools."
+            }
+          }
+        }
+      }
+    },
+    "fix_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "round",
+        "submission",
+        "submission_path",
+        "question",
+        "apply"
+      ],
+      "description": "One round of a brain on the brief of a fix run. The tree of an accepted report is in the working tree of the checkout, uncommitted and not measured.",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "description": "The run the round belongs to."
+        },
+        "round": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number of the round in the run, counted across every round of it."
+        },
+        "submission": {
+          "type": "string",
+          "enum": [
+            "report",
+            "question"
+          ],
+          "description": "What the brain handed over: a fix report, or a question for a person."
+        },
+        "submission_path": {
+          "type": "string",
+          "description": "The submission file of the round, as an absolute path."
+        },
+        "question": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "text",
+            "options"
+          ],
+          "description": "The question, when the brain asked one, else null.",
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "options": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "root_cause": {
+              "type": "string",
+              "description": "The analysis so far, when the brain gave it."
+            }
+          }
+        },
+        "apply": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "written",
+            "deleted",
+            "ignored"
+          ],
+          "description": "What was applied to the checkout, or null when the round asked a question and nothing was.",
+          "properties": {
+            "written": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Files written to the checkout: new, changed in content or mode, or links made again."
+            },
+            "deleted": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Files of the checkout that the box's tree no longer had."
+            },
+            "ignored": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Files of the box's tree left out: under .git/ or .agent-fox/, ignored by the checkout's git rules, or no file or link."
+            }
+          }
+        }
+      }
+    },
+    "fix_submit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "kind",
+        "path",
+        "sha256"
+      ],
+      "description": "The fix report that was accepted and stored.",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "description": "The run the report is for."
+        },
+        "kind": {
+          "type": "string",
+          "const": "fix_report",
+          "description": "The kind of the submission."
+        },
+        "path": {
+          "type": "string",
+          "description": "The submission file, as an absolute path. It holds the normalised report: trimmed, with LF line ends, the default type and the files sorted by path."
+        },
+        "sha256": {
+          "type": "string",
+          "description": "The hex SHA-256 of the compacted payload, which the file carries as payload_sha256."
+        }
+      }
+    },
     "gate_compare": {
       "type": "object",
       "additionalProperties": false,

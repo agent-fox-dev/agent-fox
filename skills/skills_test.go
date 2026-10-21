@@ -154,3 +154,22 @@ func TestTheMakefileInstallsOnlyAfSkills_TS_08_67(t *testing.T) {
 		}
 	}
 }
+
+// TestFixIsTheBodyOfTheFixSkill guards what the brief of a fix run carries: the
+// af-fix skill without its frontmatter, the same file a person installs.
+func TestFixIsTheBodyOfTheFixSkill(t *testing.T) {
+	data, err := os.ReadFile("af-fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, want := frontmatter(t, string(data))
+
+	got := Fix()
+
+	if got != want || got == "" || strings.HasPrefix(got, "---") || strings.Contains(got, "argument-hint:") {
+		t.Errorf("Fix() = %.80q..., want the body of skills/af-fix, %.80q...", got, want)
+	}
+	if Fix() == Triage() {
+		t.Error("Fix() is the triage skill")
+	}
+}

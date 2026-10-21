@@ -681,3 +681,22 @@ func FuzzDecide(f *testing.F) {
 		}
 	})
 }
+
+// TestIsProtectedIsTheRuleAWriteIsJudgedBy guards the question a measuring asks of the
+// paths of a change: which of them are protected, by the rules the hook applies to writes.
+func TestIsProtectedIsTheRuleAWriteIsJudgedBy(t *testing.T) {
+	protected := DefaultProtectedPaths()
+	for rel, want := range map[string]bool{
+		".specs/a.md": true, ".specs/deep/er/b.md": true, ".specs": true, ".agent-fox/gate.json": true, ".git/config": true,
+		".github/workflows/ci.yml": true, ".gitlab-ci.yml": true, ".SPECS/a.md": true, ".Github/Workflows/ci.yml": true,
+		"./.specs/a.md": true, "src/../.specs/a.md": true,
+		".github/CODEOWNERS": false, ".github": false, "src/.specs/a.md": false, ".gitlab-ci.yml.bak": false, "specs/a.md": false, "README.md": false, ".gitignore": false,
+	} {
+		if got := IsProtected(protected, rel); got != want {
+			t.Errorf("IsProtected(%q) = %v, want %v", rel, got, want)
+		}
+	}
+	if IsProtected(nil, ".specs/a.md") || IsProtected([]string{"docs/"}, ".specs/a.md") || !IsProtected([]string{"docs/"}, "docs/a.md") || !IsProtected([]string{"go.lock"}, "go.lock") {
+		t.Error("IsProtected does not follow the list it is given")
+	}
+}

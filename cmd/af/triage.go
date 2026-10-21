@@ -229,7 +229,7 @@ func registerTriageSubmit(app *toolio.App) {
 	cmd := submission.CommandWith("triage submit", triage.Kind(""), submission.Options{
 		Kind:         func(dir string) submission.Kind { return triage.Kind(dir) },
 		ResultSchema: resultSchema("triage_submit"),
-		Prepare:      placeRunJSON,
+		Prepare:      func(_ *toolio.Run, run *toolio.RunDir) error { return placeRunJSON(run, triage.KindName) },
 		Result:       submitResult,
 	})
 	cmd.Summary = "Submit the diagnosis of a triage run, as JSON on stdin"
@@ -242,7 +242,7 @@ func registerTriageSubmit(app *toolio.App) {
 // of a submission from, when the run has none: a person who drives the steps at
 // their own checkout has no loop to place it. A box that runs a brain has it
 // placed already, and it is left as it is.
-func placeRunJSON(_ *toolio.Run, run *toolio.RunDir) error {
+func placeRunJSON(run *toolio.RunDir, kind string) error {
 	path := filepath.Join(run.Path, "run.json")
 	if _, err := os.Stat(path); err == nil {
 		return nil
@@ -253,7 +253,7 @@ func placeRunJSON(_ *toolio.Run, run *toolio.RunDir) error {
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return &toolio.Failure{Category: toolio.CategoryInternal, Message: err.Error()}
 	}
-	data, err := json.MarshalIndent(submission.Run{RunID: run.ID, Kind: triage.KindName, Attempt: 1, Nonce: hex.EncodeToString(nonce[:])}, "", "  ")
+	data, err := json.MarshalIndent(submission.Run{RunID: run.ID, Kind: kind, Attempt: 1, Nonce: hex.EncodeToString(nonce[:])}, "", "  ")
 	if err == nil {
 		err = agentdir.WriteFileAtomic(path, append(data, '\n'))
 	}

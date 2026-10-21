@@ -8,14 +8,16 @@ exit codes, coded warnings, a stop on a question that is resumed with
 `--context`, a `--dry-run` that cannot write to the forge, a fetchable
 schema, and a git-ignored run directory.
 
-**This release registers eleven commands: [`lang detect`](#lang-detect),
+**This release registers sixteen commands: [`lang detect`](#lang-detect),
 [`gate run`](#gate-run), [`gate compare`](#gate-compare),
 [`revert-check`](#revert-check), [`guard check`](#guard-check) and
-[`map`](#map), and the five of [triage](#triage): `triage`, `triage brief`,
-`triage run`, `triage submit` and `triage land`.** The binary also answers
-`--version`, `--schema` and `help`; `af` with no arguments, or with a command it
-does not know, prints a `usage` envelope and exits 2. The other commands of
-later specs (`fix`, …) register on the shell and get everything below.
+[`map`](#map), the five of [triage](#triage): `triage`, `triage brief`,
+`triage run`, `triage submit` and `triage land`, and the five of [fix](#fix):
+`fix`, `fix brief`, `fix run`, `fix submit` and `fix land`.** The binary also
+answers `--version`, `--schema` and `help`; `af` with no arguments, or with a
+command it does not know, prints a `usage` envelope and exits 2. The other
+commands of later specs (`impl`, …) register on the shell and get everything
+below.
 
 ```
 $ af --version
@@ -585,11 +587,11 @@ being the same on every attempt. The status is `done`.
 
 ### Brains and boxes
 
-The agent commands (`af triage` in this release, `af fix` in a later one) run a
-brief through a *brain* in a *box* and take back one submission. The pieces they
-are built from are in `internal/brain`, `internal/box` and `internal/submission`,
-and this is the contract they share. [`af triage`](#triage) is the one command
-that uses them so far.
+The agent commands (`af triage` and `af fix` in this release, `af impl` in a later
+one) run a brief through a *brain* in a *box* and take back one submission. The
+pieces they are built from are in `internal/brain`, `internal/box` and
+`internal/submission`, and this is the contract they share. [`af triage`](#triage)
+and [`af fix`](#fix) are the commands that use them so far.
 
 **The shared flags** (`brain.Flags`, registered on a command's flags with the
 defaults that command supplies):
@@ -1083,6 +1085,283 @@ sha256}` when a diagnosis is accepted, `triage.question {text, options}` when it
 carries a question, and `triage.land {action, issue, labels}` when a landing
 ends, in that order for a full loop, among the entries of the box and the brain.
 
+### fix
+
+`af fix` fixes a reported problem: a verified change on a branch of its own, and a
+pull request. The brain edits files in a box and hands over one report; `af`
+does every other effect, and measures the change before it lands.
+
+```
+af fix <issue|file|text|-> [--dir DIR] [--base BRANCH] [--context ANSWER]... [--repo owner/name]
+       [--land pr|branch|none] [--attempts N] [--no-verify] [--dry-run]
+       [--brain NAME] [--sandbox NAME] [--budget USD] [--max-turns N] [--timeout 45m]
+af fix brief  <issue|file|text|-> [--dir DIR] [--base BRANCH] [--context ANSWER]... [--repo owner/name]
+af fix run    --run-id ID [--dir DIR] [--brain NAME] [--sandbox NAME] [--budget USD] [--max-turns N] [--timeout 45m]
+af fix submit --run-id ID [--dir DIR]                                   < report.json
+af fix land   --run-id ID [--dir DIR] [--land pr|branch|none] [--timeout 45m]
+```
+
+The loop, `af fix`, is the steps below in one process. The other four commands are
+the steps one at a time, for a person at their own checkout and for a box that
+executes a brain: they share a run directory (see
+[below](#the-files-of-a-fix-run)), and `run`, `submit` and `land` take the
+`--run-id` that `brief` (or the loop) made. A missing, malformed or unknown
+`--run-id`, and a run directory without `fix.json` (a triage run's, for one), is a
+`usage` failure (exit 2) that writes nothing and sends nothing to the forge.
+
+| Command | Takes | Default `--timeout` |
+|---|---|---|
+| `fix` | the input; `--dir`, `--base`, `--context`, `--repo`, `--land`, `--attempts`, `--no-verify`, `--dry-run`, `--brain`, `--sandbox`, `--budget`, `--max-turns`, `--script` | 45 minutes |
+| `fix brief` | the input; `--dir`, `--base`, `--context`, `--repo` | 45 minutes |
+| `fix run` | `--run-id`, `--dir`, `--brain`, `--sandbox`, `--budget`, `--max-turns`, `--script` | 45 minutes |
+| `fix submit` | `--run-id`, `--dir`; the report on stdin | 30 seconds |
+| `fix land` | `--run-id`, `--dir`, `--land` | 45 minutes |
+
+| Flag | Meaning |
+|---|---|
+| `--land pr\|branch\|none` | Where the change goes. `pr` pushes the branch and opens a pull request; `branch` pushes it; `none` keeps it on a local branch and sends nothing to the forge or the remote. |
+| `--attempts <n>` | Up to `n` attempts, each with a budget of its own; from 1 to 5. An out-of-range value is a `usage` failure before anything is read. |
+| `--no-verify` | Land without the gate: no baseline and no check after, a draft pull request that says `Refs`, the status `unverified` and the warning `not_verified`. |
+| `--base <branch>` | The branch to fix on; it must be the one that is checked out, since a fix is made on the base as it stands. |
+| `--context <answer>` | An answer to the question that an earlier run stopped on; see [Questions](#questions-and-answers). |
+| `--repo <owner/name>` | The repository the pull request is opened in, when the checkout's origin does not name it. |
+| `--dry-run` | Run the brain and the measuring as usual and write nothing beyond the working tree: no issue, branch, commit, push or pull request, which are planned and listed as side effects. The change is discarded. |
+| `--brain`, `--sandbox`, `--budget`, `--max-turns`, `--script` | The [shared flags](#brains-and-boxes). `--budget` and `--max-turns` bound each attempt. |
+
+The defaults are `--brain` to `agentkit`, `--sandbox` to `local`,
+`--budget` to `10` (dollars), `--max-turns` to `150`, `--attempts` to `2`,
+`--land` to `pr` and `--timeout` to 45 minutes. A pull or merge request as the input is a `usage`
+failure, since a fix takes an issue, a file or text. `fix land` takes no
+`--dry-run` and no `--repo`: it lands what the run recorded.
+
+#### The steps of a fix run
+
+1. **Preflight.** The checks that need no model run in this order, and the first
+   refusal ends the run with no model call, no box, no branch and no write to the
+   forge.
+   1. *The flags and the input*: as above, with the brain and the box provider
+      known. A violation is `usage` and names the flag.
+   2. *The checkout*: `--dir` is the top level of a git work tree on a branch (a
+      detached `HEAD` is `usage`, and so is a `--base` that is not the branch
+      checked out).
+   3. *A clean tree*: every change in the tree must be the run's own. A dirty tree
+      is `failed`/`preflight` and names at most 20 paths.
+   4. *A gate*: at least one check that can be run here (see
+      [`lang detect`](#lang-detect)), else `failed`/`preflight` with `fix_hint`
+      `{flag: "--no-verify"}`. A `.agent-fox/gate.json` that cannot be used is
+      `config`.
+   5. *The landing*, unless `--land none`: an `origin` remote to push to
+      (`failed`/`preflight`; a dry run does not need one) and, for `pr`, a
+      repository for the pull request (`usage`, `fix_hint` `--repo`), a
+      credential for it (`failed`/`auth`, `fix_hint.env` `GITHUB_TOKEN` or
+      `GITLAB_TOKEN`; under `--dry-run` the warning `no_forge_token`; a credential
+      that the forge rejects is `failed`/`auth` too) and a repository that can be read
+      and is not archived (`failed`/`forge`).
+   6. *The brain*: it can be made, which needs the credential of its model
+      (`failed`/`auth`, before a box is opened).
+   7. *The baseline*: the full hash of the base is recorded as `base_head`, and
+      the gate runs once on the tree as it is. A red baseline raises
+      `baseline_failing` and the run goes on: a check that already fails is not
+      counted against the change. `--no-verify` makes no baseline. A closed issue
+      raises `issue_closed`, and the run goes on.
+2. **The brief.** The prefix is the mandate, the body of the
+   [`af-fix` skill](../skills/af-fix), the report in a fence, the gate with its
+   baseline, the repository map and the schema of the report; it is the same for
+   every round, attempt and resume over the same report and tree, whatever the
+   run id, so that a provider can cache it. The task block at the end holds what
+   changes: the run, attempt and round, the answers of a person, why the last
+   round was refused (4 KiB of the end of each failing check) or why the last
+   attempt ended, and how to submit. `brief.md`, `original.md`, `run.json` and, last,
+   `fix.json` are written under `.agent-fox/run/<id>/`, and nothing outside
+   `.agent-fox/` is (the baseline gate keeps its result in `.agent-fox/gate/<id>/`).
+3. **The rounds.** One box is held for the whole run. Before each round the box
+   is synced from the host's tree (the first round has it from opening), and
+   `.agent-fox/gate.json` and `.agent-fox/guard.json` are written into it: the
+   table of checks that `af` will measure by, and the policy of the brain's tool
+   gate. The brain edits the box and submits one report with `submit_fix`, or one
+   question. `af` takes the box's tree out and **applies** it to the checkout
+   (see below), then **measures** it.
+4. **Apply.** The export is mirrored onto the checkout, uncommitted: the files
+   it lacks are deleted first, then the new and changed files and links are
+   written; `.git/` and `.agent-fox/` (whatever their case), ignored paths, anything
+   that is not a file or a link, and everything under a submodule are left alone (and
+   counted as `ignored`), and so are the files of the checkout that git tracks and a rule
+   ignores, which the export never has and the brain does not delete. A round with no
+   accepted report applies nothing, and an export with no file that can be applied is
+   `failed`/`sandbox`. `fix run` is these steps for one round, without the
+   measuring.
+5. **Measure.** In order: a commit that is not the base's, or a branch that is not
+   the base, is `failed`/`git`; a change under a protected path (`.git/`,
+   `.agent-fox/`, `.specs/`, `.github/workflows/`, `.gitlab-ci.yml`) is put back
+   (`protected_path_reverted`); a tree with nothing left is refused as
+   `no_change`, and the gate is not run; the files the report declares are
+   compared with the paths git sees changed (`scope_mismatch` lists both sides
+   and refuses nothing); the gate runs again and is compared with the baseline by
+   check; and, only on a verdict that may land, the revert check runs. The
+   verdicts are `pass`, `pass_was_already_failing`, `regressed`, `still_failing`,
+   `unverified` and `no_change`. Only a change whose tests the revert check
+   proves **closes** the issue; any other says `Refs` (`fix_not_proven`). Under
+   `--no-verify` neither the gate nor the revert check runs: the verdict is
+   `unverified`, and the change lands.
+6. **A refusal** (`regressed`, `still_failing`, `no_change`, and `unverified` when no
+   check could be compared) is recorded in the
+   ledger and is the task block of the next round, in the same box and the same
+   tree, with the end of the output of each failing check.
+7. **The bounds.** `--budget` and `--max-turns` hold for an attempt, which is
+   rounds of one brain run in a row. Another round starts only while cost and
+   turns remain and `--timeout` leaves the brain a minute after the time kept for
+   measuring (three times what the baseline took, and a minute). An attempt that
+   ends without a change that may land is followed by another, up to `--attempts`,
+   from the tree as it is, with a fresh budget, and its task block says why the
+   last attempt ended; a failure that cannot be retried starts none.
+8. **Land** (below), or **park**.
+
+`fix land` is steps 5 and 8 for the change that is in the checkout, whoever made
+it, from the report that `fix submit` stored: it checks what landing needs, then
+measures once, and lands the change or parks it.
+
+#### How a fix run ends
+
+| The run | `status` | Exit | `outcome` | What is left |
+|---|---|---|---|---|
+| A change that may land | `done` | 0 | `landed` | The issue (for a text or a file under `--land pr`), the branch, one commit, the push and the pull request; the checkout is back on the base with a clean tree. |
+| The same, under `--no-verify` | `unverified` | 4 | `landed` | As above, a draft pull request, and the warning `not_verified`. |
+| No attempt left, and a change in the tree that was refused or never reported | `unverified` | 4 | `parked` | A `wip:` commit on its branch; the branch is pushed unless `--land none`, and under `pr` a draft pull request that says `Refs` is opened. The warning `fix_not_landed`, and `attempt_failed` when the last round came to no report; `next` says how to look at the branch. |
+| A question | `needs_human` | 3 | `needs_human` | The checkout is as the run found it: the question's round applied nothing, and a change that an earlier round applied and was refused is put back (`question_tree_kept` if it cannot be). See [Questions](#questions-and-answers). |
+| No attempt left, and nothing applied | `failed` | 1 | | `result` null, and the category of the last failure of a round (`brain`, `no_result`, `budget`, `timeout`, `sandbox`, …); a last round refused as having changed nothing is `no_result`. |
+| `--dry-run` | `done`, or `unverified` as above | 0 or 4 | `dry_run` | The change is discarded; every write is planned. |
+| A signal, or `--timeout` that ends the command | `failed` | 1 | | `cancelled` or `timeout`. A change that was applied is parked on a local branch within 10 seconds, also when the stop comes while the change is landing (`dry_run_tree_kept` if a dry run could not discard it, `park_failed` if parking failed), so that nothing a model paid for is lost. |
+| `--timeout` that ends a round first | as the rows above | | | The brain of a round has the time that is left less the time kept for measuring, so `--timeout` usually ends a round and not the command: the round is a failed one (`timeout`), and the run ends as it does when no attempt is left, parked or failed. |
+
+**Landing** is, in order: the issue (a text or a file under `--land pr` gets one,
+with the original report, since the pull request needs something to refer to); the
+branch `fix/<N>-<slug>` for issue number `N`, or `fix/<slug>`, made unique against
+the local and remote branches (`-2`, `-3`) and created from `base_head`; one
+commit, which runs the repository's hooks, with the message `<type>: <subject>`,
+the first 2000 bytes of the change, `Closes <issue URL>` or `Refs <issue URL>` and
+the trailer `Agent-Fox-Run: <run id>`; the push (up to 3 attempts, each retry
+raising `push_retried`); and, under `pr`, the pull request, whose body is the
+comment that names the run, what `af` measured, what the brain reported (quoted,
+and cut first if the body is over the limit of the forge), the files git sees
+changed and the line that closes or refers to the issue. The pull request is a
+draft when `--no-verify` was given or a criterion of the report is `unmet` or
+`partial` (`criteria_unmet`). The body is kept as `report.md`.
+
+A commit that a hook of the repository refuses parks the change instead
+(`commit_hook_failed`). A push that still fails after its retries is
+`failed`/`git`, with the branch and the commit kept and `next` naming the push to
+run. A pull request that the forge refuses after the push is the warning
+`pull_request_failed`, and the run still ends `done`: the change landed.
+
+**Parking** commits `wip: <subject>` with the verdict, the failing checks, `Refs`
+and the trailer, without running the hooks, so that a hook cannot lose the work.
+A failed push, issue or pull request after that commit is a warning
+(`push_failed`, `issue_creation_failed`, `pull_request_failed`), and a pull request
+for a run with no issue is skipped (`pull_request_skipped`).
+
+**The result** of `fix` and `fix land` (`$defs` `fix` and `fix_land`):
+
+| Field | Meaning |
+|---|---|
+| `issue`, `issue_created` | The URL of the issue the report is, or `null`; `{number, url}` of the issue that was made for a text or a file, else `null`. |
+| `base`, `base_head` | The branch the fix was made on and goes back to, and the full hash of its commit when the run began. |
+| `attempts`, `rounds`, `attempts_max` | How many attempts and rounds the run made, and the most it could (`--attempts`); `attempts` and `attempts_max` are 0 for `fix land`, which runs no brain, and its `rounds` are the rounds of `fix run` that the run made before. `rounds` counts across attempts. |
+| `outcome` | `landed`, `parked`, `needs_human`, `failed` or `dry_run`. |
+| `verdict`, `landable`, `closes` | What `af` measured, whether it lets the change land, and whether the revert check proved it. `verdict` is `null` when nothing was measured. |
+| `baseline`, `after`, `revert_check` | `{gate_id, passed}` of the gate before and after, and `{outcome, reason}` of the revert check, each `null` when it did not run. |
+| `changed_files`, `reverted_paths` | The paths git sees changed, and the protected ones that were put back. |
+| `scope` | `{undeclared, unchanged}`: the paths that changed without being declared, and the declared ones that did not. |
+| `land` | `pr`, `branch` or `none`. |
+| `branch`, `commit`, `pushed` | The branch and the full hash of the commit, `null` when none was made, and whether the branch is on the remote. |
+| `pull_request` | `{number, url, draft}` or `null`. |
+| `box` | `{provider, image, network}` of the box the brain worked in, or `null`. `network` is `host` for a provider with no boundary, like `local`. |
+
+The side effects are `create_issue`, `branch`, `commit`, `push` and
+`create_pull_request`, each `done`, `planned` or `failed`; the artifacts are the
+`issue` (when one was made), the `branch`, the `commit` and the `pull_request`, with
+`brief`, `submission`, `report`, `run_dir` and the `transcript` of a brain that keeps
+one. The envelope's `usage` is the brain's, summed over the rounds, and a
+dry run spends model money like any other.
+
+**Warnings** the fix commands raise besides the shell's and those of
+[Brains and boxes](#brains-and-boxes): `baseline_failing`, `issue_closed`,
+`question_not_found`, `protected_path_reverted`, `scope_mismatch`,
+`fix_not_proven`, `push_retried`, `criteria_unmet`, `pull_request_failed`,
+`fix_not_landed`, `not_verified`, `attempt_failed`, `commit_hook_failed`,
+`no_forge_token`, `park_failed`, `push_failed`, `issue_creation_failed`,
+`pull_request_skipped`, `dry_run_tree_kept`, `question_tree_kept` and `report_unwritable` (see
+[Warning codes](#warning-codes)). The new failure category is `preflight`.
+
+### fix brief
+
+`af fix brief <input>` makes the checks of steps 1 to 4 and the baseline of step 7
+(not the checks of the landing and of the brain, which `fix land` and `fix run`
+make when they need them), renders the brief of a run, and stops. It calls no model and writes
+nothing to the forge, to git or outside `.agent-fox/`. It takes `--context`
+and `--repo`, and the forge client of the shell for an issue.
+
+It records `fix.brief {brief, prefix_sha256, document_bytes}` and lists the
+artifact `{kind: "brief", path}`. The result:
+
+| Field | Meaning |
+|---|---|
+| `brief_path` | The path of `brief.md`. |
+| `prefix_sha256` | The SHA-256 of the prefix of the brief, which is the same for two briefs over the same report and tree. |
+| `base`, `base_head` | The branch and the full hash of its commit, where `HEAD` must still be when the change is measured. |
+| `baseline` | `{gate_id, passed}` of the gate on the tree as it was. |
+| `table` | The table of checks of the gate, pinned for the run. |
+| `submit_argv` | The command that submits the report: `af fix submit --run-id <id> --dir <dir>`. |
+
+`next` suggests `af fix submit` and `af fix land`.
+
+### fix run
+
+`af fix run --run-id ID` runs one round of a brain on the `brief.md` of the run
+and applies the tree it leaves to the checkout, without measuring it, branching or
+committing: it is the second step of a person's flow when the brain is a model.
+The result is `{run_id, round, submission, submission_path, question, apply}`,
+where `submission` is `report` or `question` and `apply` is `{written, deleted,
+ignored}` (null for a question). It records `fix.run`.
+
+### fix submit
+
+`af fix submit --run-id ID` reads the report of a fix on stdin and stores it: it
+is [the submit command of an agent](#the-submit-command-of-an-agent) for the
+`fix_report` kind. One JSON object is either a question (`question` alone) or a
+report (`subject`, `root_cause`, `change` and `files`, with `type`, `tests`,
+`criteria` and `decisions`); a refusal lists every problem at once, each with the
+JSON pointer of its field. The report is stored normalised (trimmed, LF line
+ends, the type `fix` by default, the files sorted by path) in `submission.json`,
+and its result is `{run_id, kind, path, sha256}`.
+
+### fix land
+
+`af fix land --run-id ID` measures the change that is in the checkout, once, and
+lands it or parks it: the steps 5 and 8 above, for a change a person made or a
+round of a brain left, with no brain and no box. It needs a stored report (a
+question is refused as `failed`/`submission`, and the message points at
+`fix brief --context`), checks what
+the landing needs before it measures, and its result is that of `fix`, with
+`attempts` and `attempts_max` at 0, its `rounds` those of `fix run`, and `box` null. A tree with no change
+left is a `usage` failure; a refused change is parked, with no further round.
+
+#### The files of a fix run
+
+| File in `.agent-fox/run/<id>/` | Written by | What it is |
+|---|---|---|
+| `brief.md` | the loop, `brief` | The brief of the first round: the prefix, then the task block. |
+| `original.md` | the loop, `brief` | The original report, exactly. |
+| `run.json` | the loop, `brief`, `submit` | The attempt and the nonce that the submission protocol reads. |
+| `fix.json` | the loop, `brief` | The state of the run: `run_id`, `input {kind, origin, key}`, `issue {url, title, number}` or null, `target {repo, host}`, `base`, `base_head`, `table`, `baseline_gate_id`, `baseline_passed`, `baseline_ms`, `no_verify`, `prefix_sha256`, `prefix_bytes`, `suite`, `programs`, `context`, `rounds`, and the `brain`, `cost_usd` and `cost_source` the rounds so far used. It is written last and atomically. |
+| `submission.json` | the brain, `submit` | The accepted report (see [Brains and boxes](#brains-and-boxes)). |
+| `report.md` | the loop, `land` | The body of the pull request, as it was rendered. |
+
+The ledger of a run holds `fix.brief`, `fix.run {round, submission,
+submission_path}`, `fix.question {text, options}` when a run ends on a question,
+and, for each round, `apply {written, deleted, ignored}`, `measure {verdict,
+closes, changed, reverted, after_gate_id, revert_outcome}` and `refusal {kind}`
+when the change was refused, among the entries of the box and the brain.
+
 ## The envelope
 
 Every invocation other than `--version`, `--schema` and help writes exactly
@@ -1229,7 +1508,8 @@ outcome, and a run that fails after the command returned prints the envelope.
 | `brain` | A brain failed: it returned an error and left no submission (retryable), or it panicked (not retryable; the stack is in `brain-panic.<attempt>.txt` in the run directory). |
 | `no_result` | A brain ended without a valid submission: it stopped for another reason than the cost or the turns, or the submission file did not count. Retryable. |
 | `budget` | A brain used its cost bound or its turn bound and left no submission. Not retryable; `fix_hint` is `{flag: "--budget"` or `"--max-turns", suggest: <twice the bound>}`. |
-| `submission` | A submission was refused (the `submit` command, [below](#the-submit-command-of-an-agent)); nothing was written, and the message names every problem. Retryable. |
+| `submission` | A submission was refused (the `submit` command, [below](#the-submit-command-of-an-agent)); nothing was written, and the message names every problem. Retryable. Also `fix land` on a run whose submission is a question. |
+| `preflight` | A fact about the repository stops `fix` before it spends anything, and it is not an error of the invocation: the working tree is not clean (the message names up to 20 paths), no check of the gate can be run here (`fix_hint` `{flag: "--no-verify"}`), or `--land` needs an `origin` remote and there is none. Not retryable. |
 
 Later specs add categories of their own to this list.
 
@@ -1249,8 +1529,8 @@ A code matches `^[a-z][a-z0-9_]*$`; one that does not is reported under
 | `events_unwritable` | An event could not be written to the run directory or to `--emit-events`. Raised once. |
 | `invalid_warning_code` | A command raised a warning whose code does not match the pattern; the message begins with the code it gave. |
 | `no_checks` | `gate run`: no check of the gate table can be run here, or the table has none. Nothing ran and `passed` is false. |
-| `tree_changed_during_gate` | `gate run`: the checks changed the tree. The result is kept under the hash of the tree they ran on. |
-| `fix_not_proven` | `revert-check`: the outcome is not `proven` and not `no_changes`, so the change must not close its issue. |
+| `tree_changed_during_gate` | `gate run`, `fix`, `fix land`: the checks changed the tree. The result is kept under the hash of the tree they ran on. |
+| `fix_not_proven` | `revert-check`, `fix`, `fix land`: the outcome is not `proven` and not `no_changes`, so the change must not close its issue; the commit says `Refs`. |
 | `map_outline_skipped` | `map`: the declarations were not read, because the names of the files alone do not fit the budget or the view has more than 5000 files. The map has the names only, or less. |
 | `check_unavailable` | `lang detect`: a check of the gate table names a program that cannot be run on this machine. The check stays in the table with `available: false`; the message names the check. |
 | `box_unconfined` | A box was opened with the `local` provider, once for each box: it has no process or network isolation, because the tools run in this process with its privileges. Also `triage run`, which reads the directory in place, with no copy of it: the files git ignores and `.git/config` are within reach of the tools. |
@@ -1262,12 +1542,31 @@ A code matches `^[a-z][a-z0-9_]*$`; one that does not is reported under
 | `model_unpriced` | The `agentkit` brain's model is not in the catalog, so the run has no cost to report (`cost_source` is `none`). With `--budget` the run does not start: it is a `usage` failure. |
 | `transcript_unwritable` | The transcript of an in-process brain could not be written whole. The run goes on and the file is partial. |
 | `ledger_unwritable` | A ledger entry could not be written: at most once for the box and once for the brain run, since each reports its own. |
-| `issue_closed` | `triage`: the issue is closed; the run goes on. |
+| `issue_closed` | `triage`, `fix`, `fix brief`: the issue is closed; the run goes on. |
 | `report_changed_during_triage` | `triage`, `triage land`: the body of the issue is not the report the brief had. The report as the issue has it now is the one kept in the body. |
 | `body_too_long` | `triage`, `triage land`: the body with the diagnosis would be longer than the forge allows, so the diagnosis was posted as one comment and the body was left. |
 | `labels_failed` | `triage`, `triage land`: the diagnosis was written and adding the labels failed. The side effect `add_labels` is `failed`. |
 | `original_report_unparsed` | `triage`, `triage land`: a body starts with the triage marker and is not what `af` wrote (the markers of its original report cannot be paired, a heading is missing, or text follows the original report), so the whole body is taken as the report. |
 | `rejections_unreadable` | `triage`, `triage submit`, `triage land`: `rejections.jsonl` cannot be read, or holds a line that is not JSON, so the refused calls are counted as 0; also when it could not be brought out of the box. |
+| `baseline_failing` | `fix`, `fix brief`: the gate fails on the tree as it is, before any change. A check that already fails is not counted against the change, and a change that makes it pass is `pass_was_already_failing`. |
+| `question_not_found` | `fix`, `fix brief`: no earlier run asked the question that a `--context` answers, so the answer stands alone in the brief. |
+| `protected_path_reverted` | `fix`, `fix land`: the change touched a protected path (`.git/`, `.agent-fox/`, `.specs/`, `.github/workflows/`, `.gitlab-ci.yml`), and `af` put it back to the base's content or deleted it. One for each path. |
+| `scope_mismatch` | `fix`, `fix land`: the report declares files that did not change, or the change has files the report does not declare. Both lists are in the message, and nothing is refused. |
+| `criteria_unmet` | `fix`, `fix land`: a criterion of the report is `unmet` or `partial`, so the pull request is a draft that says the work is unfinished. |
+| `not_verified` | `fix`, `fix land`: the change was landed without the gate (`--no-verify`): nothing was measured, and a person has to check it. The status is `unverified`. |
+| `no_forge_token` | `fix` with `--dry-run` and `--land pr`: opening a pull request needs a credential and none is set; a dry run goes on without one. Without `--dry-run` it is `failed`/`auth`. |
+| `push_retried` | `fix`, `fix land`: a push failed and is tried again, up to 3 attempts in all. |
+| `commit_hook_failed` | `fix`, `fix land`: a hook of the repository refused the commit, so the change was parked as `wip` without the hooks. |
+| `pull_request_failed` | `fix`, `fix land`: the branch is pushed and the forge refused the pull request. The change landed, and the status is not changed. |
+| `pull_request_skipped` | `fix`, `fix land`: no pull request was opened, because there is no issue for it to refer to (the issue of a text or a file could not be made). |
+| `issue_creation_failed` | `fix`, `fix land`: the issue for a text or a file could not be made; the change goes on without one. |
+| `fix_not_landed` | `fix`, `fix land`: the change did not land and is parked on a branch of its own; the message names the verdict and the branch. The status is `unverified`, or `failed` with `cancelled` or `timeout` for a run that was stopped and parked. |
+| `push_failed` | `fix`, `fix land`: a parked branch could not be pushed and is kept here; `next` names the push. |
+| `attempt_failed` | `fix`: the last round of the run came to no report, and the change in the tree is parked as it is. The message carries why. |
+| `park_failed` | `fix`: the run was stopped and the change that was applied could not be parked; it is in the working tree. |
+| `dry_run_tree_kept` | `fix --dry-run`: the change of the dry run could not be discarded (the checkout is not at the base any more, or git failed), and is left in the working tree. |
+| `question_tree_kept` | `fix`: the run ended on a question and the change that an earlier round applied could not be put back (the checkout is not at the base any more, or git failed), and is left in the working tree. |
+| `report_unwritable` | `fix`, `fix land`: `report.md` could not be written; the pull request has its body all the same. |
 
 ## The positional input
 
@@ -1451,11 +1750,13 @@ edited.
     transcript.<attempt>.jsonl   the tool calls of an in-process brain, listed as {kind: "transcript", path}
     brain-panic.<attempt>.txt    the stack of a brain that panicked
     brief.md, original.md, triage.json, rejections.jsonl, diagnosis.md    the files of a triage run
+    brief.md, original.md, run.json, fix.json, report.md    the files of a fix run
 ```
 
 The five before the last are written by a command that runs a brain
 ([below](#brains-and-boxes)); `af` itself never reads a transcript. The files of
-a triage run are in [the files of a triage run](#the-files-of-a-triage-run).
+a triage run are in [the files of a triage run](#the-files-of-a-triage-run), and
+those of a fix run in [the files of a fix run](#the-files-of-a-fix-run).
 
 ### Events
 
@@ -1493,4 +1794,6 @@ found in the box after the brain, `submission_accepted {attempt, sha256}`,
 `submission_invalid {attempt, problems}`, `submission_stale {attempt,
 file_attempt}` or `submission_absent {attempt}`. `triage` adds `triage.input`,
 `triage.brief`, `triage.submission`, `triage.question` and `triage.land` (see
-[the files of a triage run](#the-files-of-a-triage-run)).
+[the files of a triage run](#the-files-of-a-triage-run)), and `fix` adds
+`fix.brief`, `fix.run`, `fix.question`, `apply`, `measure` and `refusal` (see
+[the files of a fix run](#the-files-of-a-fix-run)).
