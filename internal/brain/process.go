@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/agent-fox-dev/agentfox/internal/agentdir"
 	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
@@ -28,6 +30,13 @@ const (
 const (
 	// probeTimeout bounds each probe of a binary.
 	probeTimeout = 30 * time.Second
+	// maxOutputCopy and maxStderrCopy are the most of the output file, and the most of
+	// the end of the error file, that are copied to the host.
+	maxOutputCopy = 1 << 20
+	maxStderrCopy = 64 << 10
+	// collectTimeout bounds the read of the output files of a process that has ended,
+	// on a context the end of the run did not reach.
+	collectTimeout = 30 * time.Second
 )
 
 // allowed are the variables of the host a process is given, in either case, when they
@@ -84,6 +93,10 @@ type ProcessResult struct {
 	ExitCode int
 	// TimedOut says the process was killed because its time ran out.
 	TimedOut bool
+	// Output is the file the process wrote its standard output to, whole, and nil if it
+	// left none; Stderr is the end of the file of its standard error.
+	Output   []byte
+	Stderr   []byte
 	Duration time.Duration
 }
 
@@ -251,8 +264,10 @@ func (p *Process) command(provider string, b Brief, spec ProcessSpec, credential
 // Run runs the process in the box of the brief. Before the first run of a session the
 // programs are probed. The process gets Brief.Timeout, or the time left on the context,
 // and is killed with the processes it started when it is over. Whatever happens a
-// brain_process entry is noted. A process that exits with a code other than 0 is a
-// result, not an error.
+// brain_process entry is noted. What the process wrote is read through the box and
+// copied to the host run directory (the output up to 1 MiB, the end of the errors up to
+// 64 KiB), each as a brain_output artifact; neither file decides whether the run has a
+// submission. A process that exits with a code other than 0 is a result, not an error.
 func (p *Process) Run(ctx context.Context, b Brief, spec ProcessSpec) (ProcessResult, error) {
 	if b.Box == nil {
 		return ProcessResult{}, errors.New("brain: a process needs a box")
@@ -287,7 +302,48 @@ func (p *Process) Run(ctx context.Context, b Brief, spec ProcessSpec) (ProcessRe
 		return ProcessResult{}, err
 	}
 
-	return ProcessResult{ExitCode: code, TimedOut: code == box.ExitTimeout, Duration: took}, nil
+	res := ProcessResult{ExitCode: code, TimedOut: code == box.ExitTimeout, Duration: took}
+	outRel, errRel := files(b, spec)
+	res.Output, res.Stderr = p.collect(ctx, b, outRel, errRel)
+	return res, nil
+}
+
+// collect reads what the process wrote out of the box, copies it to the host, and
+// returns the output whole and the end of the errors.
+func (p *Process) collect(ctx context.Context, b Brief, outRel, errRel string) (output, stderr []byte) {
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), collectTimeout)
+	defer cancel()
+	fsys := b.Box.FS(rctx)
+	read := func(rel string) []byte {
+		data, err := fs.ReadFile(fsys, rel)
+		if err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				b.warn("brain_output_unreadable", fmt.Sprintf("%s could not be read out of the box: %v", rel, err))
+			}
+			return nil
+		}
+		return data
+	}
+	output, stderr = read(outRel), read(errRel)
+	if len(stderr) > maxStderrCopy {
+		stderr = stderr[len(stderr)-maxStderrCopy:]
+	}
+	copyOut := func(rel string, data []byte, found bool) {
+		if !found || b.RunDir == "" {
+			return
+		}
+		dst := filepath.Join(b.RunDir, path.Base(rel))
+		if err := agentdir.WriteFileAtomic(dst, data); err != nil {
+			b.warn("brain_output_unreadable", fmt.Sprintf("%s could not be copied to the run directory: %v", rel, err))
+			return
+		}
+		if b.Artifact != nil {
+			b.Artifact(toolio.Artifact{Kind: "brain_output", Path: dst})
+		}
+	}
+	copyOut(outRel, output[:min(len(output), maxOutputCopy)], output != nil)
+	copyOut(errRel, stderr, stderr != nil)
+	return output, stderr
 }
 
 // afVersion is what af --version prints.

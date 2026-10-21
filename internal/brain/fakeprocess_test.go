@@ -23,7 +23,9 @@ func TestMain(m *testing.M) {
 	case ProgramAF, ProgramClaude:
 		os.Exit(fakeProcess(filepath.Base(os.Args[0]), os.Args[1:]))
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	removeBuiltAF()
+	os.Exit(code)
 }
 
 // fakeScript is what a fake process is told to do.
@@ -42,6 +44,17 @@ type fakeScript struct {
 	Stderr      string `json:"stderr"`
 	StderrBytes int    `json:"stderr_bytes"`
 	Exit        int    `json:"exit"`
+
+	// What a fake claude does with the hook of its settings: it runs the hook command
+	// with each payload and notes the answers. OutputJSON is what it prints last.
+	HookPayloads []json.RawMessage `json:"hook_payloads"`
+	OutputJSON   string            `json:"output_json"`
+}
+
+// fakeAnswer is what the hook that a fake claude ran printed, and how it ended.
+type fakeAnswer struct {
+	Stdout string `json:"stdout"`
+	Exit   int    `json:"exit"`
 }
 
 // fakeRecord is a line of the record of a fake process.
@@ -52,12 +65,15 @@ type fakeRecord struct {
 	Cwd        string   `json:"cwd"`
 	StdinBytes int      `json:"stdin_bytes"`
 	PID        int      `json:"pid"`
+	// Settings is the content of the file that --settings names, when there is one.
+	Settings string `json:"settings"`
 }
 
 const (
 	fakeScriptPath = ".agent-fox/fake.json"
 	fakeRecordPath = ".agent-fox/fake-record.jsonl"
 	fakeChildPath  = ".agent-fox/fake-child.pid"
+	fakeHooksPath  = ".agent-fox/fake-hooks.json"
 )
 
 // fakeProcess is the program: it returns the exit code of the process.
@@ -72,7 +88,9 @@ func fakeProcess(program string, args []string) int {
 		stdinBytes = int(n)
 	}
 	cwd, _ := os.Getwd()
-	line, _ := json.Marshal(fakeRecord{Program: program, Argv: args, Env: os.Environ(), Cwd: cwd, StdinBytes: stdinBytes, PID: os.Getpid()})
+	settingsPath := argAfter(args, "--settings")
+	settings, _ := os.ReadFile(settingsPath)
+	line, _ := json.Marshal(fakeRecord{Program: program, Argv: args, Env: os.Environ(), Cwd: cwd, StdinBytes: stdinBytes, PID: os.Getpid(), Settings: string(settings)})
 	if f, err := os.OpenFile(fakeRecordPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
 		_, _ = f.Write(append(line, '\n'))
 		_ = f.Close()
@@ -97,10 +115,65 @@ func fakeProcess(program string, args []string) int {
 	if script.SleepMS > 0 {
 		sleepMS(script.SleepMS)
 	}
+	if len(script.HookPayloads) > 0 {
+		var answers []fakeAnswer
+		for _, payload := range script.HookPayloads {
+			answers = append(answers, runHook(string(settings), payload))
+		}
+		writeJSON(fakeHooksPath, answers)
+	}
 	fmt.Print(script.Stdout)
 	fmt.Print(strings.Repeat("o", script.StdoutBytes))
 	fmt.Fprint(os.Stderr, strings.Repeat("e", script.StderrBytes)+script.Stderr)
+	fmt.Print(script.OutputJSON)
 	return script.Exit
+}
+
+// argAfter is the argument that follows the flag.
+func argAfter(args []string, flag string) string {
+	for i, a := range args {
+		if a == flag && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+// runHook runs the command of the PreToolUse hook of the settings with the payload on
+// its standard input.
+func runHook(settings string, payload []byte) fakeAnswer {
+	var s struct {
+		Hooks struct {
+			PreToolUse []struct {
+				Hooks []struct {
+					Command string `json:"command"`
+				} `json:"hooks"`
+			} `json:"PreToolUse"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(settings), &s); err != nil || len(s.Hooks.PreToolUse) == 0 || len(s.Hooks.PreToolUse[0].Hooks) == 0 {
+		return fakeAnswer{Stdout: "no hook in the settings", Exit: -1}
+	}
+	return runCommand(exec.Command("sh", "-c", s.Hooks.PreToolUse[0].Hooks[0].Command), string(payload))
+}
+
+// runCommand runs the command with the text on its standard input.
+func runCommand(cmd *exec.Cmd, stdin string) fakeAnswer {
+	cmd.Stdin = strings.NewReader(stdin)
+	out, err := cmd.Output()
+	answer := fakeAnswer{Stdout: string(out)}
+	if ee, ok := err.(*exec.ExitError); ok {
+		answer.Exit = ee.ExitCode()
+	} else if err != nil {
+		answer.Exit, answer.Stdout = -1, err.Error()
+	}
+	return answer
+}
+
+func writeJSON(path string, v any) {
+	if data, err := json.Marshal(v); err == nil {
+		_ = os.WriteFile(path, data, 0o644)
+	}
 }
 
 func sleepMS(ms int) { time.Sleep(time.Duration(ms) * time.Millisecond) }

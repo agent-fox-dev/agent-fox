@@ -52,10 +52,7 @@ func newProcWorld(t *testing.T, provider string, boxEnv map[string]string, geten
 	t.Helper()
 	bin, af, claude := fakeBin(t)
 	dir := newRepo(t)
-	rd, err := toolio.NewRunDir(dir, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	rd := newRunDir(t, dir)
 	req := box.Request{Provider: provider, HostDir: dir, RunID: rd.ID, Tool: "fix", Record: rd.Record, Warn: func(string, string) {}, Env: boxEnv}
 	if provider == "podman" {
 		reg := box.NewRegistry()
@@ -527,4 +524,14 @@ func TestAProcessThatOutlivesItsTimeoutIsKilledWithItsGroup_TS_10_45(t *testing.
 	if entry := w.entry("brain_process"); entry["exit_code"] != float64(3) || entry["brain"] != "claude" {
 		t.Errorf("brain_process = %v, want exit_code 3", entry)
 	}
+}
+
+// newRunDir makes the run directory of a run in the checkout.
+func newRunDir(t *testing.T, dir string) *toolio.RunDir {
+	t.Helper()
+	rd, err := toolio.NewRunDir(dir, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rd
 }

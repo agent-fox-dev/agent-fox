@@ -81,6 +81,9 @@ func (s *Session) Tools() []core.Tool { return s.tools }
 // that enforces nothing.
 func (s *Session) Network() string { return s.network }
 
+// Tool is the agent the box was opened for, af.tool in its labels: triage or fix.
+func (s *Session) Tool() string { return s.req.Tool }
+
 // Image is the image the box was made from, as the box_open entry of the ledger says
 // it; empty for a provider that has none.
 func (s *Session) Image() string { return s.image }

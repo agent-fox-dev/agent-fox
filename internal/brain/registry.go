@@ -28,6 +28,10 @@ type Options struct {
 	NewProvider func(model string) (core.ProviderClient, error)
 	// Getenv reads the host's environment; nil is os.LookupEnv.
 	Getenv Getenv
+	// Provider is the box provider of the run, which decides what a brain needs of the
+	// host before a box is opened: under none a person may be logged in to Claude Code
+	// already, and under podman claude is the image's.
+	Provider string
 	// AFPath is the af that a process brain runs under local, landlock and none; empty
 	// is the running executable. A test points it at a fake.
 	AFPath string
@@ -61,7 +65,10 @@ type Entry struct {
 	// host, and runs as a process inside an isolating box unless it is told to
 	// borrow them.
 	DriverInBox bool
-	New         func(Options) (Brain, error)
+	// CommandRoute says the brain submits through `af <agent> submit`, which its
+	// brief names, and has no tool of the driver to do it with.
+	CommandRoute bool
+	New          func(Options) (Brain, error)
 }
 
 // CredentialNames are the host variables a brain placed as p is given: none on the
