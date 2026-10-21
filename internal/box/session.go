@@ -44,6 +44,7 @@ type Session struct {
 	provider string
 	hostDir  string
 	network  string
+	image    string
 
 	ledgerWarned sync.Once
 
@@ -79,6 +80,10 @@ func (s *Session) Tools() []core.Tool { return s.tools }
 // Network is what the box's tools may reach: none, open, or host for a provider
 // that enforces nothing.
 func (s *Session) Network() string { return s.network }
+
+// Image is the image the box was made from, as the box_open entry of the ledger says
+// it; empty for a provider that has none.
+func (s *Session) Image() string { return s.image }
 
 // InPlace says the session works on the checkout itself, as the one of the `none`
 // provider does: nothing is synced or exported, and the box-side and the host-side

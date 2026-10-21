@@ -268,6 +268,9 @@ func (r *run) place(ctx context.Context) error {
 
 	r.brief.TranscriptPath = filepath.Join(req.RunDir.Path, fmt.Sprintf("transcript.%d.jsonl", b.Attempt))
 	r.brief.Warn = req.Report.Warn
+	r.brief.RunDir = req.RunDir.Path
+	r.brief.Record = r.record
+	r.brief.Artifact = req.Report.Artifact
 	observe := b.Observe
 	r.brief.Observe = func(c ToolCall) {
 		req.Report.Emit("tool_call", toolCallEvent(c))

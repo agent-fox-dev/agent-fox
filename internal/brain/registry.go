@@ -28,6 +28,12 @@ type Options struct {
 	NewProvider func(model string) (core.ProviderClient, error)
 	// Getenv reads the host's environment; nil is os.LookupEnv.
 	Getenv Getenv
+	// AFPath is the af that a process brain runs under local, landlock and none; empty
+	// is the running executable. A test points it at a fake.
+	AFPath string
+	// AFVersion and AFCommit say which af is running, so that the af of an image that is
+	// another is a warning.
+	AFVersion, AFCommit string
 }
 
 // lookup is the Getenv of the options.

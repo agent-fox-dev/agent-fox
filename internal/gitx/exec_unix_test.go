@@ -82,3 +82,33 @@ func TestSuccessWithALingeringChildIsSuccess(t *testing.T) {
 		t.Errorf("the run took %s", time.Since(start))
 	}
 }
+
+// TestExplicitEnvRunnerRunsWithExactlyTheEnvironmentGiven: the command sees the
+// variables it was given and none of the process's own, an empty environment is an
+// empty one, and the command is still ended with its whole process group.
+func TestExplicitEnvRunnerRunsWithExactlyTheEnvironmentGiven(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh is not installed")
+	}
+	t.Setenv("AF_EXPLICIT_OLD", "leaked")
+	sh, _ := exec.LookPath("sh")
+
+	out, code, err := ExplicitEnvRunner([]string{"AF_EXPLICIT_NEW=given", "PATH=/usr/bin:/bin"})(context.Background(), t.TempDir(),
+		[]string{sh, "-c", `echo "[$AF_EXPLICIT_NEW][$AF_EXPLICIT_OLD]"`})
+	if err != nil || code != 0 || strings.TrimSpace(out) != "[given][]" {
+		t.Errorf("ExplicitEnvRunner ran with output %q, exit code %d, error %v; want \"[given][]\"", out, code, err)
+	}
+
+	out, code, err = ExplicitEnvRunner(nil)(context.Background(), t.TempDir(), []string{sh, "-c", `echo "[$AF_EXPLICIT_OLD][$HOME]"`})
+	if err != nil || code != 0 || strings.TrimSpace(out) != "[][]" {
+		t.Errorf("with no environment: output %q, exit code %d, error %v; want nothing of the process's own", out, code, err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, _, _ = ExplicitEnvRunner([]string{"PATH=/usr/bin:/bin"})(ctx, t.TempDir(), []string{sh, "-c", "sleep 30 & wait"})
+	if d := time.Since(start); d > 10*time.Second {
+		t.Errorf("the run took %s past a 300ms timeout: the group was not killed", d)
+	}
+}

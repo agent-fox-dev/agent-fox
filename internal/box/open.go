@@ -143,11 +143,11 @@ func openBox(ctx context.Context, req Request) (*Session, error) {
 		return nil, entry.explain(req, "could not create the box", err)
 	}
 	made := sb.Spec()
-	s := &Session{req: req, sb: sb, provider: entry.Name, hostDir: hostDir, network: networkName(req.Network, entry, made.Network.Mode)}
 	image := made.Image
 	if image == "" {
 		image = req.Image
 	}
+	s := &Session{req: req, sb: sb, provider: entry.Name, hostDir: hostDir, network: networkName(req.Network, entry, made.Network.Mode), image: image}
 	s.record("box_open", map[string]any{"provider": entry.Name, "image": image, "network": s.network, "placement": req.Placement})
 
 	if err := s.sync(ctx); err != nil {
