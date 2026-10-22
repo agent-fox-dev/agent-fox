@@ -3,6 +3,7 @@ module github.com/agent-fox-dev/agentfox
 go 1.27
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/agent-fox-dev/aflib v0.0.0-20261019184100-07adcb691832
 	github.com/agent-fox-dev/agentkit-go v0.0.0
 	github.com/agent-fox-dev/agentkit-go/sandbox v0.0.0
@@ -12,7 +13,6 @@ require (
 	cloud.google.com/go/auth v0.14.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.7 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
-	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/OpenRouterTeam/go-sdk v0.9.66 // indirect
 	github.com/anthropics/anthropic-sdk-go v1.79.1 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.38.0 // indirect
