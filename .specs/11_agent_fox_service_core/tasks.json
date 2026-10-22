@@ -416,7 +416,7 @@
       "done_when": [
         "`make build` writes both binaries into BIN_DIR"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 10,
