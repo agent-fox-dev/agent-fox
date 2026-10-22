@@ -93,7 +93,7 @@
       "done_when": [
         "`go test ./internal/service/secrets/... -count=1` passes"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,
