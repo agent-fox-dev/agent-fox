@@ -53,6 +53,10 @@ type Config struct {
 	// Git runs the git commands of the fix pipeline, the push among them; nil is
 	// gitx.ExecRunner.
 	Git gitx.Runner
+	// PostPush, when it is set, is called with the branch of a fix once the pipeline has pushed
+	// it and before any pull request is asked for. An error from it fails the push: the
+	// pipeline asks for no pull request, and the run fails with the branch kept where it is.
+	PostPush func(ctx context.Context, branch string) error
 	// Earlier says which questions the --context values answer; nil is to search the run
 	// directories for them, as af does.
 	Earlier *Earlier

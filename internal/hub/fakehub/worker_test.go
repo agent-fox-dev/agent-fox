@@ -319,3 +319,52 @@ func TestFakehubServesTheEndpointsOfTheWorkerAndItsGitServerTakesOnlyTheBasicPAT
 		}
 	})
 }
+
+// TestTheGitServerAppliesTheFaultsInjectedForItsRepository checks the harness: a fault injected
+// for the repository's root applies to every request under it, before the credential is looked
+// at, is recorded with the status it answered, and goes away with Clear.
+func TestTheGitServerAppliesTheFaultsInjectedForItsRepository(t *testing.T) {
+	h := worker(t)
+	root := "/git/acme.git"
+	get := func() (int, error) {
+		req, _ := http.NewRequest("GET", h.CloneURL("acme")+"/info/refs?service=git-upload-pack", nil)
+		req.SetBasicAuth(GitUser, pat)
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			return 0, err
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode, nil
+	}
+
+	for _, status := range []int{401, 403, 503} {
+		h.Inject("", root, Fault{Status: status})
+		if got, err := get(); err != nil || got != status {
+			t.Errorf("a fault of %d answered %d, %v", status, got, err)
+		}
+	}
+	if log := h.GitRequests(); len(log) != 3 || log[2].Status != 503 {
+		t.Errorf("the requests of the git server = %+v, want the three that were refused, with their statuses", log)
+	}
+
+	h.Inject("", root, Fault{Hangup: true})
+	if got, err := get(); err == nil {
+		t.Errorf("a hangup answered %d, want the connection closed", got)
+	}
+
+	h.Inject("", root, Fault{Status: 503, Once: true})
+	if got, _ := get(); got != 503 {
+		t.Errorf("a fault that applies once answered %d the first time", got)
+	}
+	h.Clear()
+	if got, err := get(); err != nil || got != 200 {
+		t.Errorf("after Clear the git server answered %d, %v, want 200", got, err)
+	}
+
+	h.Inject("", root, Fault{Delay: 200 * time.Millisecond})
+	start := time.Now()
+	if got, err := get(); err != nil || got != 200 || time.Since(start) < 200*time.Millisecond {
+		t.Errorf("a delayed answer was %d, %v after %v, want 200 after at least 200ms", got, err, time.Since(start))
+	}
+}

@@ -112,3 +112,43 @@ loses the gateway during the probe, the detection, the gate and the revert check
 
 **Code:** task 4 delivers the loop's side: the envelope is `failed`, category `sandbox`, retryable.
 The worker that turns it into a transient error is task 8 (TS-13-58).
+
+## 10. A refused clone is recognised by what git prints (task 6)
+
+**Spec:** "hub's git server refuses the clone's credential with 401 or 403 … `auth`; any other reason …
+transient" (R5.5, R5.6).
+
+**Code:** `git clone` does not give its caller the status of the answer, so `refusedCredential`
+(`internal/worker/clone.go`) reads what git printed: `The requested URL returned error: 401` or `403`, and
+`Authentication failed`, `could not read Username` and `terminal prompts disabled`, which is what git says
+when a server asks for a credential that it may not give (prompts are off). The tests run the real git
+against the fake hub's git server with 401 and 403 injected (`TestACloneRefusedWith401Or403…_TS_13_37`) and
+with 500, 503, a hang-up, a delay past the bound and a missing base branch
+(`TestAnyOtherCloneFailureIsATransientGitErrorWithNoEnvelope_TS_13_38`), so a git whose words differ fails
+them. The mirror of the failure to the issue, which TS-13-37 also asks for, is task 9's.
+
+## 11. The PAT is in the environment of the commands that reach hub, and of no other (task 6)
+
+**Spec:** "run every git command that carries the PAT or can reach a remote (the clone, every git command of
+the fix pipeline and the push) under a hermetic runner" (R5.4), and "pass the PAT to git only as the header …
+through the command's environment" (R5.3).
+
+**Code:** every git command of the attempt runs hermetically, as the spec says, but only `clone`, `fetch`,
+`pull`, `push` and `ls-remote` are given the header (`gitRunner`, `reachesRemote` in
+`internal/worker/gitrunner.go`). A commit runs the hooks of the repository, which is the stranger's code that
+the fix is about; giving them an environment with the PAT in it is a leak that no requirement asks for. The
+test records the environment of every command (`TestThePATReachesGit…_TS_13_35`). Deviation key:
+`pat_only_where_git_reaches_hub`.
+
+## 12. The envelope's `next` for a branch that hub did not publish is `git show --stat <branch>` (task 6)
+
+**Spec:** "the envelope's `next` names the branch" (R8.6).
+
+**Code:** the landing's `next` for a push that failed is `git push -u origin <branch>`. For a branch that is
+pushed and that hub did not publish that command would do nothing, so `landing.pushFailure`
+(`internal/fix/land.go`) names the branch in `git show --stat <branch>` instead, with the reason, and the
+failure says the branch "is pushed, and could not be published". A parked change says the same in the
+warning `push_failed`. Tests: `TestAPostPushHookThatFailsEndsTheLandingFailedWithTheBranchKept_TS_13_63`
+(`internal/fix`), `TestTheBranchIsPublishedThroughHub…_TS_13_63` (`internal/worker`) and the run through the
+command (`internal/afcmd`).
+

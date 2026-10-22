@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
@@ -55,6 +56,13 @@ type Runner struct {
 	// outside the package can set them. A brain that is scripted needs a script file on the
 	// worker, which no hub variable may provide, so only a test can choose it.
 	reporter reporter
+	// gitWrap makes the runner of a git environment; nil is gitx.ExplicitEnvRunner. A test
+	// puts a recorder in between.
+	gitWrap func(env []string) gitx.Runner
+	// cloneTimeout bounds the clone, the default one when it is 0, and sleep waits between the
+	// tries of a call, the clock when it is nil.
+	cloneTimeout time.Duration
+	sleep        func(ctx context.Context, d time.Duration) error
 }
 
 var _ jobs.Runner = (*Runner)(nil)
@@ -101,12 +109,25 @@ type outcome struct {
 	err    error
 }
 
-// Run carries out the attempt: resolve and the session. An attempt that has not ended by then has
-// no envelope, which is a failure of the worker and not of the attempt.
+// stage is a step of the pipeline of an attempt. It returns nil to go on, and otherwise the
+// outcome that ends the attempt.
+type stage struct {
+	name string
+	run  func(context.Context, *attempt) *outcome
+}
+
+// stages are the steps of an attempt, in order.
+func (r *Runner) stages() []stage {
+	return []stage{{"resolve", r.resolve}, {"session", r.openSession}, {"clone", r.clone}}
+}
+
+// Run carries out the attempt: resolve, the session and the clone. An attempt that has not ended
+// by then has no envelope, which is a failure of the worker and not of the attempt.
 func (r *Runner) Run(ctx context.Context, req jobs.Request) (jobs.Result, error) {
 	a := &attempt{req: req, report: r.reporterOf(req), started: r.cfg.Now()}
-	for _, stage := range []func(context.Context, *attempt) *outcome{r.resolve, r.openSession} {
-		if out := stage(ctx, a); out != nil {
+	defer a.close()
+	for _, s := range r.stages() {
+		if out := s.run(ctx, a); out != nil {
 			return out.result, out.err
 		}
 	}

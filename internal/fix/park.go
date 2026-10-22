@@ -53,6 +53,9 @@ type ParkParams struct {
 	// nothing is pushed and nothing is written to the forge.
 	Interrupted bool
 	Report      Reporter
+	// PostPush is called with the branch once it is pushed, before the pull request; see
+	// LandParams.
+	PostPush func(ctx context.Context, branch string) error
 }
 
 // ParkResult is what parking did.
@@ -84,6 +87,7 @@ func Park(ctx context.Context, p ParkParams) (ParkResult, error) {
 	}
 
 	l := newLanding(p.Git, p.Report, p.State, p.Input, p.Mode, p.Forge, p.Target, p.Interrupted)
+	l.postPush = p.PostPush
 	l.subject = parkSubject(p)
 	if err := l.ensureIssue(ctx); err != nil {
 		return ParkResult{}, err
@@ -112,7 +116,12 @@ func (l *landing) afterParkCommit(ctx context.Context, verdict string, failing [
 
 	if !l.interrupted && l.mode != LandNone {
 		if err := l.push(ctx); err != nil {
-			rep.Warn(WarnPushFailed, fmt.Sprintf("the branch %s was not pushed and is kept here: %v", l.branch, err))
+			var published *publishError
+			if errors.As(err, &published) {
+				rep.Warn(WarnPushFailed, fmt.Sprintf("the branch %s is pushed, and was not published: %v", l.branch, published))
+			} else {
+				rep.Warn(WarnPushFailed, fmt.Sprintf("the branch %s was not pushed and is kept here: %v", l.branch, err))
+			}
 		} else {
 			res.Pushed = true
 		}

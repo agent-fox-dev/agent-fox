@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -404,4 +405,54 @@ func resultFailure(env map[string]any) string {
 	errObj, _ := env["error"].(map[string]any)
 	category, _ := errObj["category"].(string)
 	return category
+}
+
+// TestThePostPushSeamIsCalledWithTheBranchOnceItIsPushedAndFailsTheRun_TS_13_63 verifies the
+// seam of TS-13-63 in the fix command: Config.PostPush is called once with the branch, after the
+// pipeline pushed it and before it asked for the pull request, and an error from it fails the
+// run in category git, not retryable, with no pull request.
+// Verifies: 13-REQ-8.6
+func TestThePostPushSeamIsCalledWithTheBranchOnceItIsPushedAndFailsTheRun_TS_13_63(t *testing.T) {
+	requireMake(t)
+	for name, tc := range map[string]struct {
+		hookErr error
+		code    int
+	}{"a hook that takes the branch": {nil, 0}, "a hook that does not": {errors.New("hub is unavailable: it answered 503"), 1}} {
+		t.Run(name, func(t *testing.T) {
+			e := newFixEnvWith(t, fakeforge.GitHub, smokeFiles(), true)
+			var branches []string
+			var onOrigin []bool
+			var pulls []int
+			old := testConfig.PostPush
+			testConfig.PostPush = func(_ context.Context, branch string) error {
+				branches = append(branches, branch)
+				onOrigin = append(onOrigin, slices.Contains(e.remoteBranches(t), branch))
+				pulls = append(pulls, len(e.forge.PullRequests()))
+				return tc.hookErr
+			}
+			t.Cleanup(func() { testConfig.PostPush = old })
+
+			code, env := e.fix(e.forge.IssueURL(7), scripted(script(t, fixSteps()...))...)
+
+			if len(branches) != 1 || !strings.HasPrefix(branches[0], "fix/7-") || !onOrigin[0] || pulls[0] != 0 {
+				t.Fatalf("hook calls %v, on origin %v, pull requests then %v; want one call for the branch of issue 7, pushed, with no pull request yet", branches, onOrigin, pulls)
+			}
+			if code != tc.code {
+				t.Fatalf("exit code %d, want %d; error %v", code, tc.code, env["error"])
+			}
+			if tc.hookErr == nil {
+				if len(e.forge.PullRequests()) != 1 {
+					t.Errorf("pull requests = %v, want the one opened after the hook", e.forge.PullRequests())
+				}
+				return
+			}
+			errObj, _ := env["error"].(map[string]any)
+			if errObj["category"] != "git" || errObj["retryable"] == true || len(e.forge.PullRequests()) != 0 {
+				t.Errorf("error = %v, pull requests = %v, want category git, not retryable, and no pull request", errObj, e.forge.PullRequests())
+			}
+			if msg, _ := errObj["message"].(string); !strings.Contains(msg, branches[0]) || !strings.Contains(msg, "503") {
+				t.Errorf("message = %q, want it to name the branch and why it was not published", msg)
+			}
+		})
+	}
 }

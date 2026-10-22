@@ -9,6 +9,7 @@ import (
 
 	"github.com/agent-fox-dev/aflib/issuex"
 
+	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
@@ -39,6 +40,22 @@ type attempt struct {
 	input loopInput
 	// runID and sessionID are the hub session of the attempt, and the run id of its loop.
 	runID, sessionID string
+	// git runs every git command of the attempt, and cloneDir is the clone it runs them in.
+	git      gitx.Runner
+	cloneDir string
+	// closers are what the attempt gives back when it ends, last made first.
+	closers []func()
+}
+
+// onClose registers what the attempt gives back when it ends.
+func (a *attempt) onClose(f func()) { a.closers = append(a.closers, f) }
+
+// close gives back what the attempt took, in the reverse order.
+func (a *attempt) close() {
+	for i := len(a.closers) - 1; i >= 0; i-- {
+		a.closers[i]()
+	}
+	a.closers = nil
 }
 
 // step tells the job that a step of the pipeline began.

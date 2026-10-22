@@ -956,6 +956,25 @@ worker, the poll, the `af` client) build on:
   `issuex.ErrRateLimited`, another refusal an `*issuex.HTTPError` with hub's message, and hub being
   unavailable an error that the loops may try again. So `auth`, `forge` and `retryable` come out as with a
   direct forge. The client reports GitLab's body limit for a GitLab host and GitHub's otherwise.
+- **The clone and its git.** The worker clones the workspace's clone URL from hub's git server into `clone/` of
+  the attempt directory (mode 0700), with the workspace's base branch checked out and the identity `agent-fox
+  <agent-fox@noreply.invalid>` in the clone's own configuration; a `clone/` that an earlier delivery kept is
+  removed first. Every git command of the attempt, the clone, the commands of the fix pipeline and its push,
+  runs in a clean environment: a `HOME` of its own that is removed with the attempt, no global or system
+  configuration, no `GIT_ASKPASS` and no prompt (`gitx.HermeticEnv`), so a credential helper of the operator is
+  never asked. The PAT reaches git only in the commands that can reach hub (`clone`, `fetch`, `pull`, `push`,
+  `ls-remote`), as the header `Authorization: Basic base64(agent-fox:<PAT>)` set by `GIT_CONFIG_COUNT`,
+  `GIT_CONFIG_KEY_0` (`http.<clone URL>.extraHeader`) and `GIT_CONFIG_VALUE_0`: never on a command line, in
+  `.git/config` or in any file, and not in the environment of a commit, whose hooks are the repository's own.
+  This needs git 2.31 or later. The box's sync and `checks.FileView` keep the default runner. A server that
+  refuses the credential, 401 or 403, ends the attempt with a `failed` envelope of category `auth`; any other
+  failure of the clone (a transport error, a 5xx, a hang-up, no answer in ten minutes, a base branch that is not
+  there) is a transient error of category `git` and the attempt has no envelope. After the pipeline pushes a
+  branch to hub's git server, the worker asks hub to push it on to the forge (`PushBranch`), before any pull
+  request is asked for, up to three times in all while hub is unavailable, waiting one second and then two;
+  any other answer is final. A branch that hub does not take ends the landing `failed` in category `git`, not
+  retryable, with the branch kept on hub's git server and named in `next`, and no pull request. The seam is
+  `fix.LandParams.PostPush`, which `FinishParams` and `ParkParams` carry and `afcmd.Config.PostPush` sets.
 - **Tests.** `internal/hub/fakehub` is an `httptest` hub in the manner of `fakeforge`: a table of tokens,
   users and workspaces, a record of every request, and failures, hang-ups, delays, redirects and oversize
   answers by method and route on demand. It serves the calls above in the shapes of hub's OpenAPI

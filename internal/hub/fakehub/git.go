@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path"
 	"strings"
+	"time"
 )
 
 // GitUser is the user name of the Basic credential that the git server takes.
@@ -50,7 +51,7 @@ func (s *statusRecorder) Write(b []byte) (int, error) {
 
 // serveGit serves /git/<slug>.git/… with git http-backend, to a request that carries
 // Authorization: Basic with the user agent-fox and the PAT of the workspace, and refuses every
-// other credential with 401.
+// other credential with 401. A fault that was injected for the request comes first.
 func (h *Hub) serveGit(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.EscapedPath(), gitPrefix)
 	name, _, _ := strings.Cut(rest, "/")
@@ -67,9 +68,28 @@ func (h *Hub) serveGit(w http.ResponseWriter, r *http.Request) {
 		h.mu.Unlock()
 	}()
 
+	// A fault is injected for a path of the repository, or for its root, which is every request
+	// under it. It comes before the credential: a server that is down does not look at it.
 	h.mu.Lock()
 	ws := h.workspaces[slug]
+	fault := h.take(r.Method, r.URL.Path, "")
+	if fault == nil {
+		fault = h.take(r.Method, gitPrefix+slug+".git", "")
+	}
 	h.mu.Unlock()
+	if fault != nil {
+		if fault.Delay > 0 {
+			select {
+			case <-time.After(fault.Delay):
+			case <-r.Context().Done():
+				return
+			}
+		}
+		if applies(*fault) {
+			answerFault(rec, *fault)
+			return
+		}
+	}
 	if ws == nil || ws.gitDir == "" || !basicIs(r, GitUser, ws.PAT) {
 		rec.Header().Set("WWW-Authenticate", `Basic realm="hub"`)
 		http.Error(rec, "unauthorized", http.StatusUnauthorized)

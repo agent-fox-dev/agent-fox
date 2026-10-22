@@ -187,6 +187,9 @@ type LandParams struct {
 	Reporter   Reporter
 	// WriteReport keeps the body as the report of the run; it may be nil.
 	WriteReport func(text string) error
+	// PostPush is called with the branch once it is pushed, before any pull request is asked for;
+	// nil is none. An error from it fails the push.
+	PostPush func(ctx context.Context, branch string) error
 }
 
 // LandResult is what landing did.
@@ -211,6 +214,7 @@ type LandResult struct {
 // is a warning on a change that landed.
 func Land(ctx context.Context, p LandParams) (LandResult, error) {
 	l := newLanding(p.Git, p.Reporter, p.State, p.Input, p.Mode, p.Forge, p.Target, false)
+	l.postPush = p.PostPush
 	rep := p.Reporter
 	l.subject = singleLine(p.Report.Subject)
 	if err := l.ensureIssue(ctx); err != nil {
@@ -248,8 +252,7 @@ func Land(ctx context.Context, p LandParams) (LandResult, error) {
 
 	if p.Mode != LandNone {
 		if err := l.push(ctx); err != nil {
-			rep.Next(toolio.Next{Argv: []string{"git", "push", "-u", "origin", l.branch}, Reason: "publish the branch that is committed here"})
-			return res, l.finish(&toolio.Failure{Category: toolio.CategoryGit, Message: fmt.Sprintf("the branch %s is committed here, and could not be pushed: %v", l.branch, err)})
+			return res, l.finish(l.pushFailure(err))
 		}
 		res.Pushed = true
 		if p.Mode == LandPR {
@@ -356,9 +359,17 @@ type landing struct {
 	branch      string
 	commit      string
 	pushed      bool
+	// postPush is called with the branch once it is pushed; it may be nil.
+	postPush func(ctx context.Context, branch string) error
 	// back is a context that the cancellation of the run did not reach, for the way back.
 	back context.Context
 }
+
+// publishError is a branch that was pushed to origin and that the post-push hook did not take.
+type publishError struct{ err error }
+
+func (e *publishError) Error() string { return e.err.Error() }
+func (e *publishError) Unwrap() error { return e.err }
 
 func newLanding(g *gitx.Git, rep Reporter, state State, input Input, mode string, forge issuex.Client, target issuex.Repo, interrupted bool) *landing {
 	return &landing{g: g, rep: rep, state: state, input: input, mode: mode, forge: forge, target: target, interrupted: interrupted}
@@ -422,16 +433,36 @@ func (l *landing) recordCommit() error {
 	return nil
 }
 
-// push publishes the branch with its retries, and reports how it went.
+// push publishes the branch with its retries, and then hands it to the post-push hook, which
+// is how a caller passes the branch on from where it was pushed. It reports how it went. A
+// branch that the hook did not take is pushed all the same, and stays where it is.
 func (l *landing) push(ctx context.Context) error {
 	err := l.g.Push(ctx, l.branch, maxPushAttempts, func(msg string) { l.rep.Warn(WarnPushRetried, msg) })
 	if err != nil {
 		l.rep.SideEffect(toolio.SideEffect{Kind: EffectPush, Target: "origin/" + l.branch, State: toolio.StateFailed, Detail: err.Error()})
 		return err
 	}
+	if l.postPush != nil {
+		if err := l.postPush(ctx, l.branch); err != nil {
+			l.rep.SideEffect(toolio.SideEffect{Kind: EffectPush, Target: "origin/" + l.branch, State: toolio.StateFailed, Detail: "pushed, and not published: " + err.Error()})
+			return &publishError{err}
+		}
+	}
 	l.pushed = true
 	l.rep.SideEffect(toolio.SideEffect{Kind: EffectPush, Target: "origin/" + l.branch, State: toolio.StateDone})
 	return nil
+}
+
+// pushFailure is the failure of a landing whose push failed, with the way on that it reports:
+// to push the branch again, or, for a branch that is pushed and was not published, to look at it.
+func (l *landing) pushFailure(err error) *toolio.Failure {
+	var published *publishError
+	if errors.As(err, &published) {
+		l.rep.Next(toolio.Next{Argv: []string{"git", "show", "--stat", l.branch}, Reason: "the branch is pushed to origin and was not published; the change is on it"})
+		return &toolio.Failure{Category: toolio.CategoryGit, Message: fmt.Sprintf("the branch %s is pushed, and could not be published: %v", l.branch, published)}
+	}
+	l.rep.Next(toolio.Next{Argv: []string{"git", "push", "-u", "origin", l.branch}, Reason: "publish the branch that is committed here"})
+	return &toolio.Failure{Category: toolio.CategoryGit, Message: fmt.Sprintf("the branch %s is committed here, and could not be pushed: %v", l.branch, err)}
 }
 
 // openPullRequest opens the pull request of the branch. A forge that refuses it is a
