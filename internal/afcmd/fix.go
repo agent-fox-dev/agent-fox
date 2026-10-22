@@ -1,6 +1,7 @@
 package afcmd
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"slices"
@@ -9,7 +10,10 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/brain"
+	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/fix"
+	"github.com/agent-fox-dev/agentfox/internal/project"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -113,38 +117,35 @@ func fixLoop(c *Config, r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 
 	opts := c.brainOptions()
 	opts.Script, opts.Provider, opts.BorrowedHands = o.settings.Script, o.settings.Sandbox, o.settings.BorrowedHands
-	pre, err := fix.Preflight(r.Ctx, fix.PreflightParams{
-		Dir: r.Dir, Base: o.base, Land: string(o.land), NoVerify: o.noVerify, DryRun: r.DryRun,
-		Forge: r.Forge, Target: r.Target, Warn: r.Warn, Gate: c.gate(), GitRunner: c.git(),
-		NewBrain: func() (brain.Brain, error) { return entry.New(opts) },
-	})
-	if err != nil {
-		return toolio.Outcome{}, err
+	a := &fixAttempt{c: c, r: r, o: o, entry: entry, boxEntry: boxEntry, opts: opts}
+	if c.InBox == nil {
+		// On the host: the checks of the repository run here, before the box is opened.
+		if err := a.prepare(measuring{gate: c.gate(), conform: c.conform()}); err != nil {
+			return toolio.Outcome{}, err
+		}
 	}
-	warnIssueClosed(r)
-	start, err := startRun(c, r, pre, o.noVerify)
-	if err != nil {
-		return toolio.Outcome{}, err
-	}
-
-	state := start.state
-	var ended fix.LoopResult
-	var loopErr error
-	var info fix.BoxInfo
-	placement := brain.PlacementOf(entry, boxEntry, o.settings.BorrowedHands)
 	err = box.With(r.Ctx, fixBoxRequest(c, r, r.RunDir, entry, boxEntry, o.settings, opts), func(sess *box.Session) error {
-		info = fix.NewBoxInfo(sess)
-		ended, loopErr = fix.RunLoop(r.Ctx, fix.LoopParams{
-			Dir: r.Dir, Git: pre.Git, Session: sess, Name: o.settings.Brain, Brain: pre.Brain, Tally: &brain.Tally{}, RunDir: r.RunDir, Report: r, Reporter: r,
-			State: &state, Prefix: start.prefix.Text, Attempts: int(o.attempts), Budget: o.settings.Budget, MaxTurns: o.settings.MaxTurns, Gate: c.gate(),
-			Earlier:     c.suppliedEarlier(state.Context),
-			DriverInBox: placement == brain.PlacementBox && !entry.OwnHands, CommandOnly: entry.CommandRoute,
-		})
+		a.info = fix.NewBoxInfo(sess)
+		m := measuring{gate: c.gate(), conform: c.conform()}
+		if c.InBox != nil {
+			// In the box: it is opened before the detection, serves the whole attempt, and
+			// is where the checks of the repository run.
+			measurer := a.measurer(sess)
+			m = measuring{detect: measurer.Detect, gate: measurer.Gate, conform: measurer.RevertCheck}
+			if a.prepareErr = a.prepare(m); a.prepareErr != nil {
+				return nil
+			}
+		}
+		a.loop(sess, m)
 		return nil
 	})
 	if err != nil { // the box could not be opened: nothing was done
 		return toolio.Outcome{}, err
 	}
+	if a.prepareErr != nil {
+		return toolio.Outcome{}, a.prepareErr
+	}
+	pre, state, ended, loopErr, info := a.pre, a.state, a.ended, a.loopErr, a.info
 
 	fin, err := fix.Finish(r.Ctx, fix.FinishParams{
 		Git: pre.Git, State: state, Input: fix.Input{Kind: string(r.Input.Kind), Origin: r.Input.Origin, Body: r.Input.Body},
@@ -162,6 +163,73 @@ func fixLoop(c *Config, r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 	return out, nil
 }
 
+// measuring is what the checks of a fix run are made with: the detection of the table (the
+// host's when nil), the gate, and the revert check.
+type measuring struct {
+	detect  func(ctx context.Context, dir string, files []string) (project.Detection, error)
+	gate    func(ctx context.Context, dir string, o checks.Options) (checks.Result, error)
+	conform func(ctx context.Context, dir, since string, o conform.Options) (conform.Result, error)
+}
+
+// fixAttempt is what a fix run holds between its steps: the preflight, the start of the run
+// and, once the loop has run, how it ended.
+type fixAttempt struct {
+	c        *Config
+	r        *toolio.Run
+	o        fixOptions
+	entry    brain.Entry
+	boxEntry box.Entry
+	opts     brain.Options
+
+	pre        fix.Preflighted
+	start      startedRun
+	state      fix.State
+	ended      fix.LoopResult
+	loopErr    error
+	info       fix.BoxInfo
+	prepareErr error
+}
+
+// prepare makes the checks that need no model and starts the run: the preflight, with the
+// detection and the baseline made by m, and the brief.
+func (a *fixAttempt) prepare(m measuring) error {
+	c, r, o := a.c, a.r, a.o
+	pre, err := fix.Preflight(r.Ctx, fix.PreflightParams{
+		Dir: r.Dir, Base: o.base, Land: string(o.land), NoVerify: o.noVerify, DryRun: r.DryRun,
+		Forge: r.Forge, Target: r.Target, Warn: r.Warn, Gate: m.gate, Detect: m.detect, GitRunner: c.git(),
+		NewBrain: func() (brain.Brain, error) { return a.entry.New(a.opts) },
+	})
+	if err != nil {
+		return err
+	}
+	warnIssueClosed(r)
+	start, err := startRun(c, r, pre, o.noVerify)
+	if err != nil {
+		return err
+	}
+	a.pre, a.start, a.state = pre, start, start.state
+	return nil
+}
+
+// loop runs the rounds in the session, measuring with m.
+func (a *fixAttempt) loop(sess *box.Session, m measuring) {
+	placement := brain.PlacementOf(a.entry, a.boxEntry, a.o.settings.BorrowedHands)
+	a.ended, a.loopErr = fix.RunLoop(a.r.Ctx, fix.LoopParams{
+		Dir: a.r.Dir, Git: a.pre.Git, Session: sess, Name: a.o.settings.Brain, Brain: a.pre.Brain, Tally: &brain.Tally{}, RunDir: a.r.RunDir, Report: a.r, Reporter: a.r,
+		State: &a.state, Prefix: a.start.prefix.Text, Attempts: int(a.o.attempts), Budget: a.o.settings.Budget, MaxTurns: a.o.settings.MaxTurns,
+		Gate: m.gate, Conform: m.conform, Earlier: a.c.suppliedEarlier(a.state.Context),
+		DriverInBox: placement == brain.PlacementBox && !a.entry.OwnHands, CommandOnly: a.entry.CommandRoute,
+	})
+}
+
+// measurer is the measuring of the run in the box of the session.
+func (a *fixAttempt) measurer(sess *box.Session) *fix.BoxMeasurer {
+	return &fix.BoxMeasurer{
+		Session: sess, Process: brain.NewProcess(a.opts.ProcessConfig()), Profile: a.c.InBox.Profile,
+		RunID: a.r.RunDir.ID, Record: a.r.RunDir.Record, Warn: a.r.Warn, Artifact: a.r.Artifact,
+	}
+}
+
 // fixBoxRequest is the request for the box of a fix run of the brain: what the brain, the
 // provider, borrowed hands and the tools of a fix brief (all of the hands') come to.
 func fixBoxRequest(c *Config, r *toolio.Run, run *toolio.RunDir, entry brain.Entry, provider box.Entry, s *brain.Settings, opts brain.Options) box.Request {
@@ -169,6 +237,6 @@ func fixBoxRequest(c *Config, r *toolio.Run, run *toolio.RunDir, entry brain.Ent
 	return brain.BoxRequest(brain.BoxParams{
 		Brain: entry, Provider: provider, BorrowedHands: s.BorrowedHands, Getenv: opts.Getenv, Deadline: deadline,
 		Defaulted: s.SandboxSource != brain.SandboxFlag, AFPath: opts.AFPath,
-		HostDir: r.Dir, RunID: run.ID, Tool: "fix", Record: run.Record, Warn: r.Warn, Registry: c.boxes(),
+		HostDir: r.Dir, RunID: run.ID, Tool: "fix", Record: run.Record, Warn: r.Warn, Registry: c.boxes(), Labels: c.BoxLabels,
 	})
 }

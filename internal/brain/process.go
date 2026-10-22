@@ -13,7 +13,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentdir"
@@ -82,6 +81,11 @@ type ProcessSpec struct {
 	Args    []string
 	// Inline are settings that are not secret, which go in the command: AF_MODEL.
 	Inline map[string]string
+	// Credentials name the variables the process needs from the box's own environment: they
+	// are referred to as shell parameters, never given as values. They count only for a box
+	// that supplies its own credentials; for the others the credentials are the names of the
+	// environment the box was created with.
+	Credentials []string
 	// Probes are the programs to probe, once for a session, before the first run.
 	Probes []string
 	// StdinBrief says the process reads brief.md on its stdin.
@@ -105,15 +109,10 @@ type ProcessResult struct {
 // variables they may have.
 type Process struct {
 	cfg ProcessConfig
-
-	mu     sync.Mutex
-	probed map[*box.Session]map[string]bool
 }
 
 // NewProcess makes the runner.
-func NewProcess(cfg ProcessConfig) *Process {
-	return &Process{cfg: cfg, probed: map[*box.Session]map[string]bool{}}
-}
+func NewProcess(cfg ProcessConfig) *Process { return &Process{cfg: cfg} }
 
 func (p *Process) getenv() Getenv {
 	if p.cfg.Getenv != nil {
@@ -136,12 +135,12 @@ func (b Brief) warn(code, message string) {
 	}
 }
 
-// program is the path of a program as the box has it. Under podman both are called by
-// name and found on the PATH of the image. Elsewhere af is the path it was given or
-// the running executable, and claude the one the host finds: a process there runs from
-// the host's file system.
-func (p *Process) program(provider, name string) (string, error) {
-	if provider == "podman" {
+// program is the path of a program as the box has it. In a box whose programs are called by
+// name (podman, a gateway) both are found on the PATH of the image. Elsewhere af is the path
+// it was given or the running executable, and claude the one the host finds: a process there
+// runs from the host's file system.
+func (p *Process) program(byName bool, name string) (string, error) {
+	if byName {
 		return name, nil
 	}
 	switch name {
@@ -175,12 +174,12 @@ func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + 
 // -i, PATH, HOME, the settings of the host that may be had and are set (locale, time zone,
 // proxies and certificates, with their values; the box's own temporary directory), the
 // credentials of the box's spec as shell parameters, and the settings in the text.
-func (p *Process) environment(provider string, credentials []string, inline map[string]string) (string, error) {
+func (p *Process) environment(byName bool, credentials []string, inline map[string]string) (string, error) {
 	var parts []string
-	if provider == "podman" {
+	if byName {
 		parts = append(parts, `PATH="$PATH"`)
 	} else {
-		af, err := p.program(provider, ProgramAF)
+		af, err := p.program(byName, ProgramAF)
 		if err != nil {
 			return "", err
 		}
@@ -250,12 +249,12 @@ func files(b Brief, spec ProcessSpec) (outRel, errRel string) {
 // on its standard input when it reads it, and its output and its errors in files of the
 // run directory. The credentials are named and never given: the shell of the box has
 // them from the spec of the box.
-func (p *Process) command(provider string, b Brief, spec ProcessSpec, credentials []string) (string, error) {
-	env, err := p.environment(provider, credentials, spec.Inline)
+func (p *Process) command(byName bool, b Brief, spec ProcessSpec, credentials []string) (string, error) {
+	env, err := p.environment(byName, credentials, spec.Inline)
 	if err != nil {
 		return "", err
 	}
-	prog, err := p.program(provider, spec.Program)
+	prog, err := p.program(byName, spec.Program)
 	if err != nil {
 		return "", err
 	}
@@ -282,12 +281,18 @@ func (p *Process) Run(ctx context.Context, b Brief, spec ProcessSpec) (ProcessRe
 	if b.Box == nil {
 		return ProcessResult{}, errors.New("brain: a process needs a box")
 	}
-	provider := b.Box.Provider()
 	if err := p.probe(ctx, b, spec.Probes); err != nil {
 		return ProcessResult{}, err
 	}
 	credentials := slices.Collect(mapKeysOf(b.Box.Spec().Env))
-	cmd, err := p.command(provider, b, spec, credentials)
+	if b.Box.SuppliesCredentials() {
+		for _, name := range spec.Credentials {
+			if !slices.Contains(credentials, name) {
+				credentials = append(credentials, name)
+			}
+		}
+	}
+	cmd, err := p.command(b.Box.ByName(), b, spec, credentials)
 	if err != nil {
 		return ProcessResult{}, err
 	}
@@ -370,32 +375,32 @@ type afVersion struct {
 // image that is not this one is a warning and not a failure: the host checks every
 // submission again.
 func (p *Process) probe(ctx context.Context, b Brief, programs []string) error {
-	sess, provider := b.Box, b.Box.Provider()
-	p.mu.Lock()
-	done := p.probed[sess]
-	if done == nil {
-		done = map[string]bool{}
-		p.probed[sess] = done
-	}
-	p.mu.Unlock()
+	sess, provider, byName := b.Box, b.Box.Provider(), b.Box.ByName()
 
-	fail := func(what, why string) error {
+	// fail is the failure of a probe: it is the box's own when the box could not be asked, so
+	// that an outage is as retryable as the box says it is.
+	fail := func(what, why string, cause error) error {
 		image := sess.Image()
 		if image == "" {
 			image = "none"
 		}
-		return &toolio.Failure{Category: toolio.CategorySandbox, Message: fmt.Sprintf("%s cannot run in the %s box (image: %s): %s", what, provider, image, why)}
+		failure := &toolio.Failure{Category: toolio.CategorySandbox, Message: fmt.Sprintf("%s cannot run in the %s box (image: %s): %s", what, provider, image, why)}
+		var asked *toolio.Failure
+		if errors.As(cause, &asked) {
+			failure.Retryable = asked.Retryable
+		}
+		return failure
 	}
 	for _, name := range programs {
-		if done[name] {
+		if sess.Probed(name) {
 			continue
 		}
-		prog, err := p.program(provider, name)
+		prog, err := p.program(byName, name)
 		if err != nil {
 			b.note("box_probe", map[string]any{"binary": name, "ok": false, "version": ""})
 			return err
 		}
-		env, err := p.environment(provider, nil, nil)
+		env, err := p.environment(byName, nil, nil)
 		if err != nil {
 			return err
 		}
@@ -408,23 +413,19 @@ func (p *Process) probe(ctx context.Context, b Brief, programs []string) error {
 			if err != nil {
 				why = err.Error()
 			}
-			return fail(name, why)
+			return fail(name, why, err)
 		}
-		p.mu.Lock()
-		done[name] = true
-		p.mu.Unlock()
+		sess.MarkProbed(name)
 		p.compare(b, name, version)
 	}
-	if !done["HOME"] {
+	if !sess.Probed("HOME") {
 		code, _, err := sess.Exec(ctx, `[ -n "$HOME" ] && [ -w "$HOME" ]`, probeTimeout)
 		ok := err == nil && code == 0
 		b.note("box_probe", map[string]any{"binary": "HOME", "ok": ok, "version": ""})
 		if !ok {
-			return fail("HOME", "it is not set, or cannot be written, in the box")
+			return fail("HOME", "it is not set, or cannot be written, in the box", err)
 		}
-		p.mu.Lock()
-		done["HOME"] = true
-		p.mu.Unlock()
+		sess.MarkProbed("HOME")
 	}
 	return nil
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/brain"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/fix"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -58,6 +59,21 @@ type Config struct {
 	// Gate runs the checks of the baseline and of the measuring after a change; nil is
 	// checks.Run.
 	Gate func(ctx context.Context, dir string, o checks.Options) (checks.Result, error)
+	// Conform runs the revert check; nil is conform.Check.
+	Conform func(ctx context.Context, dir, since string, o conform.Options) (conform.Result, error)
+	// InBox, when it is set, makes a fix measure in the box it opens: the detection of the
+	// checks, the baseline, the gate after the change and the revert check run there, through
+	// the af of the box's image, and never on this host. Gate and Conform are then not called.
+	InBox *InBox
+	// BoxLabels are put on the box a command opens, beside af.run_id and af.tool.
+	BoxLabels map[string]string
+}
+
+// InBox is how a fix measures in its box.
+type InBox struct {
+	// Profile names the sandbox profile whose image has to provide af, for the failure that
+	// says it does not; empty is hub's default profile.
+	Profile string
 }
 
 // Earlier is what a caller knows of the questions that the --context values answer, in
@@ -169,12 +185,23 @@ func (c *Config) previousQuestion(dir, fingerprint, exclude string, n int) *tria
 	return nil
 }
 
+// conform is the revert check of the invocation.
+func (c *Config) conform() func(ctx context.Context, dir, since string, o conform.Options) (conform.Result, error) {
+	if c.Conform != nil {
+		return c.Conform
+	}
+	return conform.Check
+}
+
 // brainOptions are the options every brain is made from: the model of AF_MODEL when
 // the options name none, and which af this is, so that the af of an image that is
 // another can be told.
 func (c *Config) brainOptions() brain.Options {
 	opts := c.Brain
 	opts.Getenv = c.getenv()
+	if opts.Boxes == nil {
+		opts.Boxes = c.boxes()
+	}
 	if opts.Model == "" {
 		opts.Model, _ = opts.Getenv(modelVar)
 	}

@@ -83,6 +83,8 @@ type BoxParams struct {
 	Record               func(kind string, data any) error
 	Warn                 func(code, message string)
 	Registry             *box.Registry
+	// Labels are put on the box beside the run and the tool.
+	Labels map[string]string
 }
 
 // BoxRequest is the request for the box of a run, computed from the brain, the
@@ -111,6 +113,7 @@ func BoxRequest(p BoxParams) box.Request {
 		Record:          p.Record,
 		Warn:            p.Warn,
 		Registry:        p.Registry,
+		Labels:          p.Labels,
 	}
 	if p.Provider.Name == "landlock" && placement != PlacementHost {
 		req.ExtraRO = programDirs(p)

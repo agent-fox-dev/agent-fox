@@ -43,7 +43,7 @@ func (s *Session) Exec(ctx context.Context, command string, timeout time.Duratio
 	}
 	r, err := s.call(ctx, toolExecute, args)
 	if err != nil {
-		return -1, "", &toolio.Failure{Category: toolio.CategorySandbox, Message: fmt.Sprintf("the %s box cannot run a command: %v", s.provider, err)}
+		return -1, "", &toolio.Failure{Category: toolio.CategorySandbox, Retryable: s.remote, Message: fmt.Sprintf("the %s box cannot run a command: %v", s.provider, err)}
 	}
 	if ctx.Err() != nil {
 		return -1, "", ctx.Err()
@@ -55,7 +55,7 @@ func (s *Session) Exec(ctx context.Context, command string, timeout time.Duratio
 	case outcome == "timeout":
 		return ExitTimeout, tail(output, ExecOutputCap), nil
 	case !hasCode:
-		return -1, "", &toolio.Failure{Category: toolio.CategorySandbox, Message: fmt.Sprintf("the %s box could not run the command: %s %s", s.provider, r.Error, r.Detail)}
+		return -1, "", &toolio.Failure{Category: toolio.CategorySandbox, Retryable: s.remote, Message: fmt.Sprintf("the %s box could not run the command: %s %s", s.provider, r.Error, r.Detail)}
 	}
 	return code, tail(output, ExecOutputCap), nil
 }

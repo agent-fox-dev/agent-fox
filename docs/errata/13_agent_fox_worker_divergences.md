@@ -66,3 +66,49 @@ the bound of the lease and the push of a branch is `Client.LongTimeout` (5 minut
 to tens of milliseconds and delays the fake hub's route for longer, which is the same experiment without a clock
 to inject; the defaults are asserted as they are (`TestARequestIsBoundedTo…_TS_13_13`,
 `TestTheLeaseAndTheBranchPushUseTheLongBound_TS_13_15`).
+
+## 6. The commands a gateway box runs are recorded where its tools are called (task 4)
+
+**Spec:** "the gateway's backend records every spec it creates and every command it executes"
+(R10, TS-13-49, TS-13-50, TS-13-54).
+
+**Code:** `gatewayd` relays the agent protocol to the box it holds without looking into it
+(`gatewayd/relay.go`), so a backend that wraps the sandboxes it creates sees the specs and the
+closes, and no command. The fake hub's backend records those
+(`fakehub.Gateway.Created`, `Closed`), and the commands are recorded by wrapping the provider that
+dials the gateway, on the side of the client, where the execute tool of the box is called
+(`fakehub.Gateway.Instrument`, `Gateway.Commands`), in the same order as the gateway's own events.
+A test of the worker that needs the commands installs that wrapper in the registry it gives the
+attempt. Deviation key: `commands_recorded_at_the_tool`.
+
+## 7. The box measures through `Config.InBox`, and the profile is named by it (task 4)
+
+**Spec:** "In this mode the fix pipeline opens the box before its own preflight's detection" (R7).
+
+**Code:** the mode is `afcmd.Config.InBox` (`InBox{Profile}`), which the worker sets and `af` never
+does. With it `afcmd.fixLoop` opens the box first (`internal/afcmd/fix.go`, `fixAttempt`), then runs
+the preflight, the brief and the loop in it, with the detection, the gate and the revert check of
+`fix.BoxMeasurer` (`internal/fix/boxmeasure.go`) in place of the host's. `fix.PreflightParams.Detect`
+is the new seam of the detection; `Gate` and `LoopParams.Conform` were there. The host's seams are
+still `Config.Gate` and `Config.Conform`, which the tests give counters. Tests:
+`TestDetectionBaselineGateAndRevertCheckRunInTheBoxAndNeverOnTheHost_TS_13_49` and the others of
+`internal/afcmd/inbox_test.go`.
+
+## 8. A lost box is retryable only for a box that says it is remote (task 4)
+
+**Spec:** "A ring-1 command that cannot run because the box or the gateway was lost ends the loop
+with a `sandbox` failure marked retryable" (R7).
+
+**Code:** `box.Entry.Remote` (set for the gateway) makes `Session.Exec` return its failures with
+`Retryable` true (`internal/box/exec.go`); under `podman` a box that cannot run a command is still a
+failure that is not retryable, as the tests of spec 10 have it. `gateError` and the revert check of
+`fix.Measure` return a `*toolio.Failure` of the measuring as it is, which they wrapped as `io`
+before. Test: `TestABoxLostDuringMeasuringEndsTheLoopWithARetryableSandboxFailure_TS_13_56`, which
+loses the gateway during the probe, the detection, the gate and the revert check.
+
+## 9. The worker half of TS-13-56 waits for the worker (task 4)
+
+**Spec:** TS-13-56 "the worker returns an error carrying `*toolio.Failure` … and no envelope".
+
+**Code:** task 4 delivers the loop's side: the envelope is `failed`, category `sandbox`, retryable.
+The worker that turns it into a transient error is task 8 (TS-13-58).

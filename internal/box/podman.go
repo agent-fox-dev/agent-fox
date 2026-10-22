@@ -15,6 +15,7 @@ import (
 func podmanEntry() Entry {
 	return Entry{
 		Name:    "podman",
+		ByName:  true,
 		Build:   func(ProviderConfig) (sandbox.Provider, error) { return newPodmanProvider() },
 		Explain: explainPodman,
 	}

@@ -326,7 +326,7 @@ func TestADifferentAFVersionInTheImageIsAWarningAndTheRunGoesOn_TS_10_21(t *test
 func commandFor(t *testing.T, provider string, cfg ProcessConfig, spec ProcessSpec, credentials []string) string {
 	t.Helper()
 	b := Brief{RunID: "20261021_160000_abcdef", Attempt: 2}
-	cmd, err := NewProcess(cfg).command(provider, b, spec, credentials)
+	cmd, err := NewProcess(cfg).command(provider == "podman", b, spec, credentials)
 	if err != nil {
 		t.Fatal(err)
 	}

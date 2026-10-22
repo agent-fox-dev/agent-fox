@@ -54,6 +54,9 @@ type PreflightParams struct {
 	NewBrain func() (brain.Brain, error)
 	// Gate runs the checks of the baseline; checks.Run when it is nil.
 	Gate func(ctx context.Context, dir string, o checks.Options) (checks.Result, error)
+	// Detect finds the table of checks of the checkout, where they can be run; the detection
+	// of the checkout on this host when it is nil. The file view is the host's in either case.
+	Detect func(ctx context.Context, dir string, files []string) (project.Detection, error)
 	// GitRunner runs the git commands of the run; gitx.ExecRunner when it is nil.
 	GitRunner gitx.Runner
 	// Warn raises a warning of the run.
@@ -130,11 +133,14 @@ func Preflight(ctx context.Context, p PreflightParams) (Preflighted, error) {
 // to read or write.
 func gateError(ctx context.Context, what string, err error) error {
 	var usageErr *checks.UsageError
+	var failure *toolio.Failure
 	switch {
 	case errors.As(err, &usageErr):
 		return usage("%s", usageErr.Message)
 	case ctx.Err() != nil:
 		return ctx.Err()
+	case errors.As(err, &failure):
+		return failure // the box that measured has said what it is, and whether it may be tried again
 	}
 	return &toolio.Failure{Category: toolio.CategoryIO, Message: fmt.Sprintf("%s could not run: %v", what, err)}
 }
@@ -228,8 +234,18 @@ func checkGate(ctx context.Context, p PreflightParams) (project.Detection, []str
 	if err != nil {
 		return project.Detection{}, nil, &toolio.Failure{Category: toolio.CategoryIO, Message: err.Error()}
 	}
-	detection, err := project.Detect(p.Dir, files)
+	detect := p.Detect
+	if detect == nil {
+		detect = func(_ context.Context, dir string, files []string) (project.Detection, error) {
+			return project.Detect(dir, files)
+		}
+	}
+	detection, err := detect(ctx, p.Dir, files)
 	if err != nil {
+		var failure *toolio.Failure
+		if errors.As(err, &failure) {
+			return project.Detection{}, nil, failure
+		}
 		category := toolio.CategoryInternal
 		if errors.Is(err, project.ErrGateConfig) {
 			category = toolio.CategoryConfig

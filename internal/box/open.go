@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
@@ -22,6 +24,9 @@ type Request struct {
 	// RunID and Tool label the sandbox: af.run_id and af.tool.
 	RunID string
 	Tool  string
+	// Labels are put on the box beside af.run_id and af.tool: the job and the attempt that a
+	// leased box is for. A label of these two names that is given here is the one given.
+	Labels map[string]string
 	// Env is what the box's tools are given on top of what the provider gives
 	// them, which for `local` is the host's PATH, LANG and TERM and a HOME and a
 	// TMPDIR of the box's own. No token and no key is among it unless a brain asks
@@ -126,13 +131,15 @@ func openBox(ctx context.Context, req Request) (*Session, error) {
 	if entry.InPlace {
 		return openInPlace(req, entry, hostDir)
 	}
-	provider, err := entry.provider(ProviderConfig{ExtraRO: req.ExtraRO})
+	provider, err := entry.provider(ProviderConfig{ExtraRO: req.ExtraRO, Ctx: ctx})
 	if err != nil {
 		return nil, entry.explain(req, "cannot be made", err)
 	}
+	labels := map[string]string{"af.run_id": req.RunID, "af.tool": req.Tool}
+	maps.Copy(labels, req.Labels)
 	spec := sandbox.Spec{
 		Env:             req.Env,
-		Labels:          map[string]string{"af.run_id": req.RunID, "af.tool": req.Tool},
+		Labels:          labels,
 		TTL:             req.TTL,
 		Image:           req.Image,
 		RequireLandlock: req.RequireLandlock,
@@ -140,6 +147,7 @@ func openBox(ctx context.Context, req Request) (*Session, error) {
 	}
 	sb, err := provider.Create(ctx, spec)
 	if err != nil {
+		closeProvider(provider)
 		return nil, entry.explain(req, "could not create the box", err)
 	}
 	made := sb.Spec()
@@ -147,7 +155,8 @@ func openBox(ctx context.Context, req Request) (*Session, error) {
 	if image == "" {
 		image = req.Image
 	}
-	s := &Session{req: req, sb: sb, provider: entry.Name, hostDir: hostDir, network: networkName(req.Network, entry, made.Network.Mode), image: image}
+	s := &Session{req: req, sb: sb, provider: entry.Name, hostDir: hostDir, network: networkName(req.Network, entry, made.Network.Mode), image: image,
+		byName: entry.ByName, supplies: entry.SuppliesCredentials, remote: entry.Remote, closer: providerCloser(provider)}
 	s.record("box_open", map[string]any{"provider": entry.Name, "image": image, "network": s.network, "placement": req.Placement})
 
 	if err := s.sync(ctx); err != nil {
@@ -202,4 +211,20 @@ func topLevel(ctx context.Context, dir string) (string, error) {
 		return "", &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("--dir %s does not hold its own .git directory (a linked worktree or a submodule keeps git's state in another repository, which a commit in the box would write): the box needs a checkout of its own", dir)}
 	}
 	return real, nil
+}
+
+// providerCloser is the provider as something to close once the box is closed, or nil when
+// the provider holds nothing (a gateway holds a connection).
+func providerCloser(p sandbox.Provider) io.Closer {
+	if c, ok := p.(io.Closer); ok {
+		return c
+	}
+	return nil
+}
+
+// closeProvider closes a provider that made no box.
+func closeProvider(p sandbox.Provider) {
+	if c := providerCloser(p); c != nil {
+		_ = c.Close() // nothing was made with it
+	}
 }

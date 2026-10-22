@@ -46,7 +46,8 @@ type claudeBrain struct {
 // logged in to Claude Code; and, unless the provider is podman, whose image has it,
 // claude on the PATH of this machine.
 func newClaude(opts Options) (Brain, error) {
-	if opts.Provider != "none" {
+	boxEntry, _ := opts.boxEntry()
+	if opts.Provider != "none" && !boxEntry.SuppliesCredentials {
 		if v, ok := opts.lookup()(VendorKeyVar); !ok || v == "" {
 			return nil, &toolio.Failure{
 				Category: toolio.CategoryAuth,
@@ -56,7 +57,7 @@ func newClaude(opts Options) (Brain, error) {
 		}
 	}
 	cfg := opts.ProcessConfig()
-	if opts.Provider != "podman" {
+	if !boxEntry.ByName {
 		look := cfg.LookPath
 		if look == nil {
 			look = exec.LookPath
@@ -74,7 +75,7 @@ func (c *claudeBrain) Run(ctx context.Context, b Brief) (Outcome, error) {
 	if b.Box == nil {
 		return Outcome{StopReason: StopError}, errors.New("the claude brain needs a box")
 	}
-	af, err := c.proc.program(b.Box.Provider(), ProgramAF)
+	af, err := c.proc.program(b.Box.ByName(), ProgramAF)
 	if err != nil {
 		return Outcome{StopReason: StopError}, err
 	}
@@ -105,6 +106,7 @@ func (c *claudeBrain) Run(ctx context.Context, b Brief) (Outcome, error) {
 	args := claudeArgs(path.Join(root, dir, "claude-settings.json"), b.MaxTurns, lists, c.model)
 	res, err := c.proc.Run(ctx, b, ProcessSpec{
 		Brain: ClaudeName, Program: ProgramClaude, Args: args, Probes: []string{ProgramAF, ProgramClaude}, StdinBrief: true,
+		Credentials: []string{VendorKeyVar},
 	})
 	if err != nil {
 		return Outcome{StopReason: StopError}, err

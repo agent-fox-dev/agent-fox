@@ -47,6 +47,15 @@ type Session struct {
 	network  string
 	image    string
 
+	// byName, supplies and remote are the flags of the entry the box was opened with, and
+	// closer is the provider, closed once the box is.
+	byName, supplies, remote bool
+	closer                   io.Closer
+
+	// probed are the programs a process runner has found in the box.
+	probeMu sync.Mutex
+	probed  map[string]bool
+
 	ledgerWarned sync.Once
 
 	// stream serialises the transfers: the box takes one stream at a time, and
@@ -84,6 +93,31 @@ func (s *Session) Spec() sandbox.Spec { return s.sb.Spec() }
 // Tools is the box's tool set, for brains: one proxy for each of the hands'
 // built-in tools, whose every call runs inside the box.
 func (s *Session) Tools() []core.Tool { return s.tools }
+
+// ByName says the programs of the box are called by name and found on the PATH of its image.
+func (s *Session) ByName() bool { return s.byName }
+
+// SuppliesCredentials says the box has the credentials of its brain in an environment of its
+// own, which a process is told only the names of.
+func (s *Session) SuppliesCredentials() bool { return s.supplies }
+
+// Probed says whether the program was probed in the box already, by whoever asked first: the
+// box is probed once for a program, whichever process runner asks.
+func (s *Session) Probed(program string) bool {
+	s.probeMu.Lock()
+	defer s.probeMu.Unlock()
+	return s.probed[program]
+}
+
+// MarkProbed notes that the program was probed in the box.
+func (s *Session) MarkProbed(program string) {
+	s.probeMu.Lock()
+	defer s.probeMu.Unlock()
+	if s.probed == nil {
+		s.probed = map[string]bool{}
+	}
+	s.probed[program] = true
+}
 
 // Network is what the box's tools may reach: none, open, or host for a provider
 // that enforces nothing.
@@ -252,7 +286,11 @@ func tarFiles(w io.Writer, dir string, rels []string) error {
 func (s *Session) abandon(ctx context.Context, failure error) error {
 	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)
 	defer cancel()
-	if err := s.sb.Close(closeCtx); err != nil && s.req.Warn != nil {
+	err := s.sb.Close(closeCtx)
+	if s.closer != nil {
+		err = errors.Join(err, s.closer.Close())
+	}
+	if err != nil && s.req.Warn != nil {
 		// The failure of the setup is what the caller is told; the close is a warning.
 		s.req.Warn("box_close_failed", fmt.Sprintf("the %s box could not be closed: %v", s.provider, err))
 	}
@@ -365,6 +403,9 @@ func (s *Session) closeWith(ctx context.Context) error {
 	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)
 	defer cancel()
 	err := s.sb.Close(closeCtx)
+	if s.closer != nil {
+		err = errors.Join(err, s.closer.Close())
+	}
 	if s.root != nil {
 		err = errors.Join(err, s.root.Close())
 	}

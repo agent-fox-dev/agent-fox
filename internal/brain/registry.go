@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentkit-go/core"
 )
@@ -31,6 +32,8 @@ type Options struct {
 	// BorrowedHands says the agentkit driver runs on the host over the box's tools, and
 	// not inside the box.
 	BorrowedHands bool
+	// Boxes is where Provider is found; nil is box.Default.
+	Boxes *box.Registry
 	// Provider is the box provider of the run, which decides what a brain needs of the
 	// host before a box is opened: under none a person may be logged in to Claude Code
 	// already, and under podman claude is the image's.
@@ -41,6 +44,17 @@ type Options struct {
 	// AFVersion and AFCommit say which af is running, so that the af of an image that is
 	// another is a warning.
 	AFVersion, AFCommit string
+}
+
+// boxEntry is the provider of the run as the registry has it, and false when the options name
+// none or one the registry does not know.
+func (o Options) boxEntry() (box.Entry, bool) {
+	boxes := o.Boxes
+	if boxes == nil {
+		boxes = box.Default
+	}
+	entry, err := boxes.Lookup(o.Provider)
+	return entry, err == nil
 }
 
 // lookup is the Getenv of the options.

@@ -519,8 +519,16 @@ DriverInBox, CommandRoute, New}`; the default has `agentkit` (cost source `measu
 `CommandRoute`). `Credentials` names the host variables that reach the box of a brain
 that runs as a process, and nothing else does: `ANTHROPIC_API_KEY` for `agentkit` and
 `claude`, and none ever for a brain on the host. `box` has a registry of providers of
-its own, `Entry{Name, Unconfined, InPlace, New, Build, Explain}`, with `landlock`,
-`podman`, `local` and `none` in it; a provider isolates unless it is `Unconfined`.
+its own, `Entry{Name, Unconfined, InPlace, ByName, SuppliesCredentials, Remote, New, Build,
+Explain}`, with `landlock`, `podman`, `local` and `none` in it; a provider isolates unless it
+is `Unconfined`. `ByName` says the programs of the box are called by name from its image
+(`podman`, `gateway`), `SuppliesCredentials` that the box has the credentials of its brain in an
+environment of its own, and `Remote` that a call which cannot reach the box is an outage to try
+again. The `gateway` provider (`box.GatewayEntry(url, token)`) is made for one attempt from the
+lease of a sandbox and is held only in the registry of that attempt, never in `box.Default`, so
+that `--sandbox gateway` is a usage error: it opens the box on hub's gateway with the lease's
+token and no environment, labelled `af.run_id`, `af.tool`, `af.job` and `af.attempt`, and a
+gateway that cannot be reached or that refuses the box is a sandbox failure to try again.
 `brain.Flags` is the shared set of flags ([cli.md](cli.md#brains-and-boxes)).
 
 **Running.** `brain.Execute(ctx, Request{Session, Name, Brain, Brief, RunDir,
@@ -601,9 +609,27 @@ none beyond the files `Execute` places. For a process in a box:
   the envelope it wrote to `.agent-fox/run/<id>/agentkit.<attempt>.json`.
 
 Both are started by `brain.Process`: a probe once for each box (`af --version`, `claude
---version`, a writable `HOME`), then one command under `env -i` with an explicit allowlist, the
+--version`, a writable `HOME`; the box remembers what was probed, so that the measuring below and
+a brain share it), then one command under `env -i` with an explicit allowlist, the
 credentials of `Spec.Env` by reference, its output and errors redirected to files of the run
-directory in the box and copied to the host afterwards.
+directory in the box and copied to the host afterwards. In a box that supplies its own
+credentials (the gateway's) the references are to the names the brain lists
+(`ProcessSpec.Credentials`: `ANTHROPIC_API_KEY`), and no key is needed on the host or sent.
+
+**Measuring in the box.** `afcmd.Config.InBox` makes a fix measure where the brain works: the
+box is opened before the detection of the checks and serves the whole attempt, and
+`fix.BoxMeasurer` runs `af lang detect`, `af gate run` (the baseline, and the change) and
+`af revert-check` in it through `brain.Process`, after syncing the host's tree into the box and
+placing the run's gate table there, and reads each result from the envelope the command wrote.
+The results of a gate run are copied to the host's `.agent-fox/gate/<id>/`, where the comparison
+with the baseline reads them. The file view, the repository map, the path validation, the apply
+of the export, the commit and the push stay on the host, and the host's gate and revert check
+are not called. The image of the lease's profile has to provide `af`: the first ring-1 command of
+a box is preceded by `af --version`, and an `af` that is missing or fails is a `sandbox` failure
+that is not retryable and names the profile (`AF_SANDBOX_PROFILE`, or hub's default); another
+version or commit is the warning `box_af_version_mismatch`; an envelope of another major version
+of the schema, one that cannot be read, or a result that does not decode is the same failure. A
+box that is lost while it measures is a `sandbox` failure that is retryable.
 
 **Under `none`, the checkout is the tree.** `Session.InPlace()` is the one question the apply
 step asks: it skips the export, and the loop checks the checkout for commits the brain made
