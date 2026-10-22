@@ -9,7 +9,7 @@ what a change to it has to leave true. The rules for every coding session are in
 
 ```bash
 make check      # gofmt + go vet + all tests: the command to run before a commit
-make build      # go build ./..., and bin/af
+make build      # go build ./..., and bin/af and bin/agent-fox
 make doc        # Go package docs of the public packages, under docs/generated
 ```
 
@@ -27,6 +27,14 @@ change as the code: a document that is out of date is a regression.
 
 | Package | What it is |
 |---|---|
+| `cmd/agent-fox` | The service binary. `main.go` parses the flags (`--config`, `--version`, `--help`) and `run.go` starts the service: configuration, key, state file, server, listener, and the stop on a signal; the exit codes are 0 (stopped), 1 (the listener) and 2 (configuration, key or database). It is wiring, as `cmd/af` is. |
+| `internal/service/config` | The `config.toml` of the service: lookup, the five keys, `${NAME}`, defaults, validation; plain errors that name the dotted key. |
+| `internal/service/secrets` | The key file and the sealing of workspace tokens (AES-256-GCM, the slug as additional data). |
+| `internal/service/store` | The SQLite state file: `af_`-prefixed tables, append-only migrations in `af_schema_migrations`, and the subscriptions (`Upsert`, `Get`, `List`, `Delete`, and `Token`, the opened token for code in this process). |
+| `internal/service/ttl` | The bounded cache with expiry that holds hub's answers; it takes its clock as a function. |
+| `internal/service/api` | The HTTP surface: probes, the error envelope, the guards that authenticate a caller and check the workspace against hub, the subscription routes, and the request log. |
+| `internal/hub` | The client of hub's API, the one place that knows hub's paths and answers: who a token belongs to, and whether it sees a workspace. |
+| `internal/hub/fakehub` | The `httptest` hub of the tests: a table of tokens, users and workspaces, a record of every request, and failures, hang-ups and delays on demand. Later specs extend it. |
 | `cmd/af` | The binary. `main.go` hands the process to the shell; each command is a file here (`lang.go`, `gate.go`, `gate_compare.go`, `revert_check.go`, `guard.go`, `map.go`, and `triage.go` for the five of `af triage`) that registers it, with its flags, its result and the JSON Schema of the result in `schemas/`. |
 | `internal/toolio` | The command shell: the envelope, exit codes, coded warnings, `--dir` and `--timeout`, `--schema`, the positional input, the run directory. |
 | `internal/agentdir` | The `.agent-fox/` directory and its `.gitignore`, and the atomic write the files the host keeps in it are made with (the submission core's `RootWriter` is the root-confined variant of it). |

@@ -873,6 +873,44 @@ review surface and the forge merges. A workspace that merges agent changes
 without a person is a hub policy, decided per workspace, and `af` is not
 involved beyond landing the branch.
 
+## The service, as built
+
+`agent-fox` is the second binary of the repository (`cmd/agent-fox`), the long-running service that
+[The hub](#the-hub) and PRD 03 describe. It is not part of the toolbelt: `af` does not depend on it, it
+does not run on `internal/toolio`'s one-envelope shell (a server's lifecycle is flags, signals and logs; it
+imports `toolio` only for the version document), and it runs no brain in this release. What exists is its foundation, which the specs that follow (jobs, the
+worker, the poll, the `af` client) build on:
+
+- **The process.** `agent-fox [--config PATH]` loads one `config.toml` (`internal/service/config`: five
+  keys, unknown keys refused), reads the key file (`internal/service/secrets`), opens the state file,
+  builds the hub client and the HTTP server, binds the listener, and runs until SIGINT or SIGTERM, when it
+  drains the requests in flight (up to 30 seconds), closes the database and exits 0. A failed start is one
+  `ERROR` log record and exit 2 (configuration, key or database) or 1 (the listener). Its stderr is a
+  stream of JSON records; `cmd/agent-fox` is wiring, as `cmd/af` is.
+- **The state file.** One SQLite file (`modernc.org/sqlite`, pure Go, WAL mode) behind `database/sql`
+  (`internal/service/store`). Every table it owns is named `af_…`, and its migrations are recorded in
+  `af_schema_migrations`, never in `PRAGMA user_version`, so that `aflib/jobqueue`'s tables can live in the
+  same file later. Migration 1 is `af_subscriptions`: the slug, the label prefix, the sealed token, the hub
+  user behind the token, who subscribed it, and the times. A token is sealed with AES-256-GCM under the
+  deployment key, with the slug as additional data, and it is the only secret the file holds; a token that
+  does not open with the key reads `unreadable` and does not stop the service.
+- **Hub as the identity provider.** The service has no users, tokens or tenants of its own. Every route
+  under `/api/v1` takes a bearer token and asks hub (`internal/hub`, the one place that knows hub's paths
+  and its user object) whom it belongs to and whether that person sees the workspace; the answers are kept
+  for `hub.auth_cache_ttl`, at most 15 minutes, in two bounded caches (`internal/service/ttl`) keyed by the
+  hash of the token. Hub being down is `502`, never a cached answer; hub refusing a token on a later call
+  evicts everything kept about it. Whoever sees a workspace on hub may subscribe it, read it and remove it.
+- **The surface** (`internal/service/api`, documented in [api.md](api.md)): the probes, `GET`, `PUT` and
+  `DELETE` of subscriptions, one error envelope, and a log of requests that holds no credential. A `PUT`
+  checks the token the caller hands over against hub with two calls that bypass the caches, then seals and
+  stores it in one statement.
+- **Tests.** `internal/hub/fakehub` is an `httptest` hub in the manner of `fakeforge`: a table of tokens,
+  users and workspaces, a record of every request, and failures on demand. `make check` needs no hub, no
+  key and no network beyond the loopback interface.
+
+What it will do, and does not yet: queue and run jobs, run `af triage` and `af fix` on a subscribed
+workspace with its token, poll the forge through hub, and be driven by an `af` that talks to it.
+
 ## What moves where
 
 | Today | In this architecture |
