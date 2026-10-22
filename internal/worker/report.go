@@ -21,9 +21,6 @@ const (
 // eventBatch is the most events a batch to hub holds.
 const eventBatch = 500
 
-// maxSessionMessage is how much of a failure the completion of a session carries.
-const maxSessionMessage = 500
-
 // report tells hub how the attempt went, once the lease is released: one usage record when a brain
 // ran, with the model the session was opened with and what the envelope says the brain cost; the
 // events of the attempt in batches of at most 500, in the order they happened; and the completion
@@ -111,24 +108,9 @@ func sessionEnd(a *attempt, out *outcome, env toolio.Envelope, hasEnvelope bool)
 		}
 		return hub.SessionFailed, bounded(a.scrub(message))
 	}
-	switch env.Status {
-	case toolio.StatusDone, toolio.StatusUnverified, toolio.StatusNeedsHuman:
-		return hub.SessionCompleted, ""
-	}
-	status = hub.SessionFailed
-	if env.Error != nil {
-		message = env.Error.Message
-		if env.Error.Category == toolio.CategoryTimeout {
-			status = hub.SessionTimeout
-		}
-	}
+	status, message = recovery.SessionEnd(env)
 	return status, bounded(a.scrub(message))
 }
 
 // bounded cuts a message at a length that hub takes.
-func bounded(s string) string {
-	if len(s) > maxSessionMessage {
-		return s[:maxSessionMessage]
-	}
-	return s
-}
+func bounded(s string) string { return recovery.BoundMessage(s) }

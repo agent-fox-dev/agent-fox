@@ -456,7 +456,7 @@
       "done_when": [
         "the service accepts requests before the first pass completes"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 11,

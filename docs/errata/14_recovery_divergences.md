@@ -267,3 +267,35 @@ worker's loop wrapper". 14-REQ-7.3 speaks of the delivery's context deadline.
   is a stage (the ledger records `box_sync`).
 - Deviation keys: `ts_14_49_passes_before_task_9`, `deadline_is_the_loop_timeout` and
   `loss_before_the_run_is_pinned_is_transient`.
+
+## 13. The reconciliation pass keeps what it cannot classify, and completes a session only after its usage (task 10)
+
+**Spec:** task 10 owns TS-14-50 to TS-14-56 and lists `internal/service/reconcile/`, `internal/service/` and
+`cmd/agent-fox/` as its `touches`. 14-REQ-8.2 says a lease is an orphan when its `job` label names a job in the
+database and its `attempt` label names an attempt that no runner of this process carries out; 14-REQ-8.4 says the
+pass posts the usage and completes the session, and records both steps.
+
+**Code:**
+
+- All the tests were seen failing against a pass that did nothing, but for the part of TS-14-50 that only the service
+  can show (`cmd/agent-fox/reconcile_test.go`): that test was written together with the wiring, and fails when the
+  wiring is taken out (the reconciler not started, or given no interval). The pass is not started at the listener
+  but after it, in a goroutine, and `serve` stops it, and waits for it, before the database is closed.
+- Hub has no pages for the listing of leases (item 1), so "following pagination" is one call; the pass lists what hub
+  lists, which is at most 200 live leases. A 404 on the release counts as released, as `hub.Client.ReleaseLease`
+  has it for the worker.
+- The questions the pass puts to the jobs layer are four methods of `jobs.Service` (`Known`, `Running`,
+  `EndedAttempts`, `AttemptDir` in `internal/service/jobs/reconcile.go`), which `reconcile.Jobs` names. An attempt is
+  `Running` when the layer has it in a runner (`inflight`): one that waits for a slot, or out of a runner while it
+  waits out a backoff, is not, and a lease it still holds is an orphan.
+- A lease whose labels name a job of the database but no attempt, or one that is not a number from 1, is kept, as a
+  lease with no labels or an unknown job is: the pass releases what it can tell is an attempt's, and nothing else
+  (`unclassifiable_lease_is_kept`).
+- The session of an ended attempt is completed after its usage: when the usage cannot be posted the session is left
+  open, and the next pass posts both; when the completion fails after the usage was posted, the journal records the
+  usage, and the next pass completes the session without posting it again. No usage is posted for a journal that
+  records no spend: no brain ran. The status is that of the stored outcome, by the same function the worker's
+  report uses (`recovery.SessionEnd`), or `failed` with the reason when there is none.
+- The pass writes the journal of an attempt that has ended, which the worker is not carrying out. A journal that does
+  not read, one of another job or attempt, and an attempt with no journal are left alone, without a line in the log.
+- Deviation key: `unclassifiable_lease_is_kept`.
