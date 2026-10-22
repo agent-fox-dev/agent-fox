@@ -187,7 +187,7 @@
       "done_when": [
         "`go test ./internal/hub/... -count=1` passes"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 5,
