@@ -426,7 +426,7 @@ func runScenario(t *testing.T) scenario {
 	a.Hub.AddUser(sc.caller, "usr_1", []string{"widgets", "gadgets", "broken"})
 	a.Hub.AddUser(sc.pat, "usr_9", []string{"widgets", "gadgets"})
 	a.Hub.AddUser("pat-DISTINCT-down-secret", "usr_8", []string{"gadgets"})
-	record := func(r response) response { sc.bodies = append(sc.bodies, r.Body); return r }
+	record := func(r response) { sc.bodies = append(sc.bodies, r.Body) }
 
 	record(a.put(t, "widgets", sc.caller, tokenBody(t, sc.pat, "distinct-prefix-54:")))
 	record(a.put(t, "widgets", sc.caller, tokenBody(t, sc.pat, "distinct-prefix-54:")))

@@ -377,7 +377,7 @@ func TestLoadRefusesBadURLKeyFileAndListen_TS_11_16(t *testing.T) {
 func TestHubInClearForPlainHTTPToANonLoopbackHost(t *testing.T) {
 	for url, want := range map[string]bool{
 		"http://hub.example.internal:8080": true,
-		"http://10.0.0.5":                  true,
+		"http://192.0.2.5":                 true,
 		"http://127.0.0.1:1":               false,
 		"http://localhost:8080":            false,
 		"http://[::1]:8080":                false,

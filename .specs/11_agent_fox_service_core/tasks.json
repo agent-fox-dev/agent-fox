@@ -553,7 +553,7 @@
       "done_when": [
         "`make check` passes with no network beyond loopback"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }

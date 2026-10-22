@@ -76,6 +76,7 @@ func newAuthHarnessOn(t *testing.T, fake *fakehub.Hub, dbPath string, keyBytes [
 			mux.HandleFunc("GET "+pingPath, s.authed(func(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusOK, map[string]string{"user": principalOf(r).user})
 			}))
+			mux.HandleFunc("GET /api/v1/test/boom", func(http.ResponseWriter, *http.Request) { panic("the panic of the test") })
 			mux.HandleFunc("GET "+slugRoute+"{slug}", s.inWorkspace(func(w http.ResponseWriter, r *http.Request, slug string) {
 				writeJSON(w, http.StatusOK, map[string]string{"slug": slug, "user": principalOf(r).user, "path": r.PathValue("slug")})
 			}))

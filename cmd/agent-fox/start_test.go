@@ -438,13 +438,8 @@ func TestTheListeningRecordHasTheBoundAddress_TS_11_6(t *testing.T) {
 	if rec["level"] != "INFO" {
 		t.Errorf("listening record = %v, want level INFO", rec)
 	}
-	resp, err := http.Get("http://" + addr + "/healthz")
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Errorf("GET /healthz = %d, want 200", resp.StatusCode)
+	if status, body := call(t, "GET", addr, "/healthz", "", ""); status != 200 {
+		t.Errorf("GET /healthz = %d %s, want 200", status, body)
 	}
 	p.signal(syscall.SIGTERM)
 	if code := p.wait(30 * time.Second); code != 0 {

@@ -130,7 +130,7 @@ func newHarnessOn(t *testing.T, dbPath string, keyBytes []byte, configure func(*
 // Stop stops the server and closes the store, as a shutdown does.
 func (h *harness) Stop(t *testing.T) {
 	t.Helper()
-	h.Server.Close()
+	h.Close()
 	if err := h.Store.Close(); err != nil {
 		t.Fatal(err)
 	}

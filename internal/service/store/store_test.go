@@ -55,9 +55,9 @@ func at(minutes int) time.Time {
 // column runs a query that answers one column and returns its values.
 func column(t *testing.T, db interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
-}, query string, args ...any) []string {
+}, query string) []string {
 	t.Helper()
-	rows, err := db.QueryContext(ctx, query, args...)
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		t.Fatalf("%s: %v", query, err)
 	}
