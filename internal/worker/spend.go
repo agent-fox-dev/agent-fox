@@ -48,18 +48,41 @@ func moreThan(a, b recovery.Spend) bool {
 	return a.InputTokens+a.OutputTokens > b.InputTokens+b.OutputTokens
 }
 
+// cutShort is a brain run that the process died during: the ledger records its beginning and not its end.
+type cutShort struct{ seq, round int }
+
 // ledgerSpend is what the brain runs that a run directory records cost: the sum of its brain_end
 // records. A ledger that does not read is an error.
 func ledgerSpend(run *toolio.RunDir) (recovery.Spend, error) {
+	total, _, err := scanLedger(run)
+	return total, err
+}
+
+// scanLedger is the spend that the ledger of a run directory records, and the brain runs it began and did not end
+// before the next one began or the ledger stopped: their cost is not recorded anywhere, and counts as nothing.
+func scanLedger(run *toolio.RunDir) (recovery.Spend, []cutShort, error) {
 	entries, err := run.Ledger()
 	if err != nil {
-		return recovery.Spend{}, err
+		return recovery.Spend{}, nil, err
 	}
 	var total recovery.Spend
+	var cut []cutShort
+	var open *cutShort
 	for _, e := range entries {
+		if e.Kind == "brain_start" {
+			if open != nil {
+				cut = append(cut, *open)
+			}
+			var start struct {
+				Attempt int `json:"attempt"`
+			}
+			_ = json.Unmarshal(e.Data, &start)
+			open = &cutShort{seq: e.Seq, round: start.Attempt}
+		}
 		if e.Kind != "brain_end" {
 			continue
 		}
+		open = nil
 		var end struct {
 			CostUSD      float64 `json:"cost_usd"`
 			CostSource   string  `json:"cost_source"`
@@ -72,7 +95,10 @@ func ledgerSpend(run *toolio.RunDir) (recovery.Spend, error) {
 		}
 		total = addSpend(total, recovery.Spend{CostUSD: end.CostUSD, CostSource: end.CostSource, Turns: end.Turns, InputTokens: end.InputTokens, OutputTokens: end.OutputTokens})
 	}
-	return total, nil
+	if open != nil {
+		cut = append(cut, *open)
+	}
+	return total, cut, nil
 }
 
 // outcomeOf is the spend as the tally takes it, for the run that goes on from it.

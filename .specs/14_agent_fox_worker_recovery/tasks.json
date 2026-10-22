@@ -246,7 +246,7 @@
       "done_when": [
         "a done envelope after a resume reports delivery 1's brain spend plus delivery 2's"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 6,

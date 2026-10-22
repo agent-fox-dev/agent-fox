@@ -106,3 +106,18 @@ of the budget (`afcmd.Config.Resume`, `fixAttempt.resume`). Task 4 ended it for 
 accepted and applied (the change is restored into the working tree, measured and landed or parked without the
 brain: `skipStage`, `restoreChange`, `fixAttempt.landApplied`); tasks 6 to 8 do the same for a landing that was
 begun, a question or a diagnosis, and a stored outcome, and the key below ends with task 8. Deviation key: `resume_runs_the_brain_until_task_8`.
+
+## 8. What is left of the budget was taken from the ledger in task 3 already (task 5)
+
+**Spec:** task 5 owns TS-14-22, which asserts that the brain of a resumed delivery gets the pinned budget and turns
+less what the attempt spent (14-REQ-4.1), and lists its steps 5.2 to 5.6 as the work that makes it so.
+
+**Code:** a delivery that resumes, or that begins from a fresh clone after a discard, has to give the loop the
+bounds that are left, and the test of that (TS-14-13, TS-14-10) is task 3's; `leave` in `internal/worker/start.go`
+already took the spend of the ledger, plus the carried spend, off the pinned bounds. TS-14-22 therefore passed
+the first time it was run, as a pin of that code (`TestABrainRunOnAResumedDeliveryGetsThePinnedBudgetAndTurnsLessWhatTheAttemptSpent_TS_14_22`).
+Task 5 adds what was not there: the refusal when nothing is left (`nothingLeft`, a failure of category `budget`
+that is not retryable, with the variable to raise, before the clone and the lease), the warning for a brain run
+that the process died during (`scanLedger`, `brain_spend_unrecorded` naming the ledger entry and the round), and
+the refresh of the spend of the journal at the end of each brain run (`refreshSpend`, from the ledger sink).
+Deviation key: `ts_14_22_passes_before_task_5`.

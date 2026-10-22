@@ -15,6 +15,10 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/worker/recovery"
 )
 
+// WarnBrainSpendUnrecorded says a brain run was cut short by the death of the process, so that its cost is
+// not recorded and counts as nothing.
+const WarnBrainSpendUnrecorded = "brain_spend_unrecorded"
+
 // WarnResumeDiscarded says a delivery could not carry on what an earlier one left, and started from a fresh
 // clone.
 const WarnResumeDiscarded = "resume_discarded"
@@ -123,9 +127,17 @@ func (r *Runner) laterDelivery(ctx context.Context, a *attempt, fresh recovery.J
 		r.leave(a, next.Carried)
 		return next, nil
 	}
-	ledger, err := ledgerSpendOf(a, runID)
+	run, err := toolio.OpenRunDir(a.cloneDir, runID)
+	if err != nil {
+		return old, transientFailure(toolio.CategoryIO, fmt.Sprintf("the run directory cannot be opened: %v", err))
+	}
+	ledger, cut, err := scanLedger(run)
 	if err != nil {
 		return old, transientFailure(toolio.CategoryIO, fmt.Sprintf("the ledger of the run cannot be read: %v", err))
+	}
+	for _, c := range cut {
+		a.warnings = append(a.warnings, toolio.Warning{Code: WarnBrainSpendUnrecorded, Message: fmt.Sprintf(
+			"the brain run of round %d (ledger entry %d) has no end in the ledger: the process died while it ran, so what it cost is not known and counts as nothing", c.round, c.seq)})
 	}
 	if problem := r.disagrees(ctx, a, old, runID); problem != nil {
 		return old, problem
@@ -158,6 +170,28 @@ func (r *Runner) prepareResumedClone(ctx context.Context, a *attempt) *outcome {
 		a.resume.stage = stageBrain
 	}
 	return r.resetClone(ctx, a)
+}
+
+// nothingLeft ends the attempt, without a clone or a lease, when the brain would run and the attempt has used its
+// budget or its turns: one budget and one bound of turns are the attempt's, however many deliveries it takes.
+func (r *Runner) nothingLeft(a *attempt) *outcome {
+	if a.resume != nil && a.resume.stage != stageBrain {
+		// No brain runs, so the bounds are not used; the command still takes them as valid values.
+		a.settings.Budget, a.settings.MaxTurns = a.pinned.Budget, a.pinned.MaxTurns
+		return nil
+	}
+	hint := ""
+	switch {
+	case a.settings.Budget <= 0:
+		hint = "AF_MAX_BUDGET_USD"
+	case a.settings.MaxTurns < 1:
+		hint = "AF_MAX_TURNS"
+	default:
+		return nil
+	}
+	return r.envelopeOf(a, &refusal{category: toolio.CategoryBudget, hint: &toolio.FixHint{Var: hint},
+		message: fmt.Sprintf("the attempt has used $%.2f of its budget of $%.2f and %d of its %d turns in the deliveries before this one, so there is nothing left for another run of the brain: raise %s and ask again",
+			a.spent.CostUSD, a.pinned.Budget, a.spent.Turns, a.pinned.MaxTurns, hint)})
 }
 
 // leave notes what the attempt has spent, and what is left of the bounds it was pinned to, for the brain

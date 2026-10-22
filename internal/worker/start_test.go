@@ -239,10 +239,10 @@ func TestAResumedDeliveryKeepsTheSettingsTheRunStartedWithWhateverChangedOnHub_T
 	if result["land"] != "pr" || result["base"] != "main" || result["pull_request"] == nil {
 		t.Errorf("the run landed as %v on %v with %v, want the pinned landing mode and base, and a pull request", result["land"], result["base"], result["pull_request"])
 	}
-	// The turn bound is the pinned one less the turns that the first delivery's brain used (the scripted brain
-	// took 4), and not the 1 that hub says now.
-	if seen.Brain != pinned.Brain || seen.Model != "model-one" || seen.MaxTurns != pinned.MaxTurns-4 || seen.Land != "pr" || seen.Budget != 3 {
-		t.Errorf("the loop ran with %+v, want the settings of the journal, with the turns that were spent taken off", *seen)
+	// No brain runs in the second delivery (the tree was applied), so the bounds are the pinned ones; the 1 turn
+	// that hub says now is not among them.
+	if seen.Brain != pinned.Brain || seen.Model != "model-one" || seen.MaxTurns != pinned.MaxTurns || seen.Land != "pr" || seen.Budget != 3 {
+		t.Errorf("the loop ran with %+v, want the settings of the journal", *seen)
 	}
 	if seen.Timeout != 20*time.Minute || res.MaxAttempts != 7 {
 		t.Errorf("timeout %s and most attempts %d, want the current 20m and 7", seen.Timeout, res.MaxAttempts)

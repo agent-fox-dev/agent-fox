@@ -24,6 +24,7 @@ const (
 	stepSession      = "session"
 	stepClone        = "clone"
 	stepRun          = "run"
+	stepSpend        = "spend"
 	stepLease        = "lease"
 	stepRelease      = "release"
 	stepEnding       = "ending"
@@ -200,6 +201,20 @@ func (l *landingSteps) pullRequest(ref fix.PullRequestRef) {
 	l.r.reached(l.a, "pull_request")
 }
 
+// refreshSpend records in the journal what the brain runs of the attempt have cost so far: the spend carried
+// over from run directories that were removed, and the runs the ledger of the run records.
+func (a *attempt) refreshSpend() {
+	run, err := toolio.OpenRunDir(a.cloneDir, a.runID)
+	if err != nil {
+		return
+	}
+	ledger, err := ledgerSpend(run)
+	if err != nil {
+		return
+	}
+	a.note(stepSpend, func(j *recovery.Journal) { j.Spend = addSpend(j.Carried, ledger) })
+}
+
 // ledgerSink is told every record of the ledger of the run, which is how the worker follows what the
 // loop does in its own process: the run it makes, the submission it accepts, the tree it applies.
 func (r *Runner) ledgerSink(a *attempt) func(kind string, data json.RawMessage) {
@@ -208,6 +223,8 @@ func (r *Runner) ledgerSink(a *attempt) func(kind string, data json.RawMessage) 
 		case "fix.brief", "triage.brief":
 			a.noteRun()
 			r.reached(a, "briefed")
+		case "brain_end":
+			a.refreshSpend()
 		case "submission_accepted":
 			r.reached(a, "submission_accepted")
 		case fix.LedgerApply:
