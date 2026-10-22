@@ -80,6 +80,13 @@ func Flags(fs *flag.FlagSet, d Defaults) *Settings {
 // ValidateWith).
 func (s *Settings) Validate() error { return s.ValidateWith(os.LookupEnv) }
 
+// ValidateIn is ValidateWith with the registry the box providers are found in given, in
+// place of box.Default: a command that runs in-process offers the providers of its caller.
+func (s *Settings) ValidateIn(get Getenv, boxes *box.Registry) error {
+	s.registry = boxes
+	return s.ValidateWith(get)
+}
+
 // ValidateWith is Validate with the host's environment given. The provider is the
 // first of: --sandbox (or the default a command pinned for it), AF_SANDBOX, and
 // landlock on Linux and podman on any other operating system. Choosing opens no box

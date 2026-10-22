@@ -608,7 +608,7 @@ func (s *Store) RunRequest(ctx context.Context, jobID string, attempt int) (Requ
 		return Request{}, err
 	}
 	req := Request{
-		JobID: jobID, Attempt: attempt, Workspace: job.Workspace, Kind: Kind(job.Kind),
+		JobID: jobID, Attempt: attempt, Round: roundSize(rows, attempt), Workspace: job.Workspace, Kind: Kind(job.Kind),
 		Source: Source{Kind: job.SourceKind, By: job.SourceBy}, RequestLabel: job.RequestLabel.String,
 		Answers: []Answer{},
 	}

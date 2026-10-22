@@ -89,7 +89,7 @@
       "done_when": [
         "`make check` passes and cmd/af/testdata/schema.golden.json is unchanged"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,
@@ -128,7 +128,7 @@
       "done_when": [
         "go test ./internal/hub/... -count=1 passes offline"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,
@@ -162,7 +162,7 @@
       "depends_on": [
         2
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 4,
@@ -212,7 +212,7 @@
         1,
         2
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 5,
@@ -257,7 +257,7 @@
         3,
         4
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 6,
@@ -302,7 +302,7 @@
         2,
         5
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 7,
@@ -341,7 +341,7 @@
         4,
         5
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 8,
@@ -394,7 +394,7 @@
         6,
         7
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 9,
@@ -439,7 +439,7 @@
         3,
         8
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 10,
@@ -488,7 +488,7 @@
       "done_when": [
         "`make check` passes including the docs tests"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 11,
@@ -519,7 +519,7 @@
       "done_when": [
         "`make test` passes offline with the six smoke tests included"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }

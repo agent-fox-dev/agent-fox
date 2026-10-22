@@ -38,6 +38,7 @@ type eventStream struct {
 	runID   *string
 	seq     int
 	sinks   []*eventSink
+	funcs   []func(line []byte) // the callers' sinks, called after the files are written
 	started bool
 	closed  bool
 	warned  bool
@@ -58,6 +59,13 @@ func (s *eventStream) addFile(path string) {
 	}
 }
 
+// addFunc hands every line of the events to fn, in the order they are written to the files.
+func (s *eventStream) addFunc(fn func(line []byte)) {
+	s.mu.Lock()
+	s.funcs = append(s.funcs, fn)
+	s.mu.Unlock()
+}
+
 // setRunID names the run in the lines that follow.
 func (s *eventStream) setRunID(id string) {
 	s.mu.Lock()
@@ -69,6 +77,9 @@ func (s *eventStream) setRunID(id string) {
 func (s *eventStream) active() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if len(s.funcs) > 0 {
+		return true
+	}
 	for _, sk := range s.sinks {
 		if !sk.dead {
 			return true
@@ -119,6 +130,9 @@ func (s *eventStream) emit(typ string, data any) {
 			_ = sk.f.Close()
 			failed = append(failed, failure{sk.path, err})
 		}
+	}
+	for _, fn := range s.funcs {
+		fn(encoded[:len(encoded)-1])
 	}
 	s.mu.Unlock()
 

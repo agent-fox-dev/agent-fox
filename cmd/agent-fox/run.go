@@ -18,6 +18,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/service/secrets"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/internal/worker"
 )
 
 // The exit codes of the service.
@@ -83,10 +84,17 @@ func serve(ctx context.Context, configPath string, logger *slog.Logger, listen l
 	if err != nil {
 		return startFailed(logger, exitInvalid, err)
 	}
-	// Until the worker exists, every attempt ends as unsupported.
+	document := (&toolio.App{Name: name, Version: version, Commit: commit, BuildTime: buildTime}).VersionDocument()
+	hubClient := hub.New(cfg.Hub.URL, document.Version)
+	// The worker carries out the attempts: it reads the token of a subscription from the store when
+	// an attempt starts, and everything else from hub.
+	runner := worker.New(worker.Config{
+		Hub: hubClient, Subscriptions: st, Logger: logger,
+		Version: document.Version, Commit: document.Commit, BuildTime: document.BuildTime,
+	})
 	jobService, err := jobs.New(jobs.Config{
 		DB: st.DB(), Subscriptions: st, Logger: logger,
-		Workers: cfg.Workers.Count, AttemptsDir: attempts, Runner: jobs.PlaceholderRunner{}, Retain: cfg.Database.Retain,
+		Workers: cfg.Workers.Count, AttemptsDir: attempts, Runner: runner, Retain: cfg.Database.Retain,
 	})
 	if err != nil {
 		return startFailed(logger, exitInvalid, err)
@@ -98,11 +106,10 @@ func serve(ctx context.Context, configPath string, logger *slog.Logger, listen l
 		}
 	}()
 
-	document := (&toolio.App{Name: name, Version: version, Commit: commit, BuildTime: buildTime}).VersionDocument()
 	srv := api.NewServer(api.Deps{
 		Store:        st,
 		Jobs:         jobService,
-		Hub:          hub.New(cfg.Hub.URL, document.Version),
+		Hub:          hubClient,
 		Logger:       logger,
 		Version:      document,
 		AuthCacheTTL: cfg.Hub.AuthCacheTTL,

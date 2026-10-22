@@ -175,7 +175,7 @@ Six of these commands exist: `af lang detect`, `af gate run`, `af gate
 compare`, `af revert-check`, `af guard check` and `af map`. (`af guard check`
 is listed with ring 2 above, for the hook it serves; as built it is a fact
 command like the others: it reads one payload and writes nothing.) Each is a
-file in `cmd/af` over a package that knows nothing of the shell and returns a
+file in `internal/afcmd` over a package that knows nothing of the shell and returns a
 plain result, so that the loops of later specs call the same code in process:
 
 | Package | Commands | What it holds |
@@ -519,8 +519,16 @@ DriverInBox, CommandRoute, New}`; the default has `agentkit` (cost source `measu
 `CommandRoute`). `Credentials` names the host variables that reach the box of a brain
 that runs as a process, and nothing else does: `ANTHROPIC_API_KEY` for `agentkit` and
 `claude`, and none ever for a brain on the host. `box` has a registry of providers of
-its own, `Entry{Name, Unconfined, InPlace, New, Build, Explain}`, with `landlock`,
-`podman`, `local` and `none` in it; a provider isolates unless it is `Unconfined`.
+its own, `Entry{Name, Unconfined, InPlace, ByName, SuppliesCredentials, Remote, New, Build,
+Explain}`, with `landlock`, `podman`, `local` and `none` in it; a provider isolates unless it
+is `Unconfined`. `ByName` says the programs of the box are called by name from its image
+(`podman`, `gateway`), `SuppliesCredentials` that the box has the credentials of its brain in an
+environment of its own, and `Remote` that a call which cannot reach the box is an outage to try
+again. The `gateway` provider (`box.GatewayEntry(url, token)`) is made for one attempt from the
+lease of a sandbox and is held only in the registry of that attempt, never in `box.Default`, so
+that `--sandbox gateway` is a usage error: it opens the box on hub's gateway with the lease's
+token and no environment, labelled `af.run_id`, `af.tool`, `af.job` and `af.attempt`, and a
+gateway that cannot be reached or that refuses the box is a sandbox failure to try again.
 `brain.Flags` is the shared set of flags ([cli.md](cli.md#brains-and-boxes)).
 
 **Running.** `brain.Execute(ctx, Request{Session, Name, Brain, Brief, RunDir,
@@ -601,9 +609,27 @@ none beyond the files `Execute` places. For a process in a box:
   the envelope it wrote to `.agent-fox/run/<id>/agentkit.<attempt>.json`.
 
 Both are started by `brain.Process`: a probe once for each box (`af --version`, `claude
---version`, a writable `HOME`), then one command under `env -i` with an explicit allowlist, the
+--version`, a writable `HOME`; the box remembers what was probed, so that the measuring below and
+a brain share it), then one command under `env -i` with an explicit allowlist, the
 credentials of `Spec.Env` by reference, its output and errors redirected to files of the run
-directory in the box and copied to the host afterwards.
+directory in the box and copied to the host afterwards. In a box that supplies its own
+credentials (the gateway's) the references are to the names the brain lists
+(`ProcessSpec.Credentials`: `ANTHROPIC_API_KEY`), and no key is needed on the host or sent.
+
+**Measuring in the box.** `afcmd.Config.InBox` makes a fix measure where the brain works: the
+box is opened before the detection of the checks and serves the whole attempt, and
+`fix.BoxMeasurer` runs `af lang detect`, `af gate run` (the baseline, and the change) and
+`af revert-check` in it through `brain.Process`, after syncing the host's tree into the box and
+placing the run's gate table there, and reads each result from the envelope the command wrote.
+The results of a gate run are copied to the host's `.agent-fox/gate/<id>/`, where the comparison
+with the baseline reads them. The file view, the repository map, the path validation, the apply
+of the export, the commit and the push stay on the host, and the host's gate and revert check
+are not called. The image of the lease's profile has to provide `af`: the first ring-1 command of
+a box is preceded by `af --version`, and an `af` that is missing or fails is a `sandbox` failure
+that is not retryable and names the profile (`AF_SANDBOX_PROFILE`, or hub's default); another
+version or commit is the warning `box_af_version_mismatch`; an envelope of another major version
+of the schema, one that cannot be read, or a result that does not decode is the same failure. A
+box that is lost while it measures is a `sandbox` failure that is retryable.
 
 **Under `none`, the checkout is the tree.** `Session.InPlace()` is the one question the apply
 step asks: it skips the export, and the loop checks the checkout for commits the brain made
@@ -637,7 +663,7 @@ validator, a body format and a landing.
 | Path | What it holds |
 |---|---|
 | `internal/triage/` | The part with no shell in it: the diagnosis and its validator (`Validate`, which checks every path against the file view and collects every problem), the body (`Render`, `Extract`), the brief (`BuildBrief`), the preflight, the landing on a forge (`Land`), the submission kind (`Kind`) and the tool allowlist. It imports `issuex`, `submission`, `checks`, `repomap`, `agentdir` and the `skills` package, and none of `toolio`, `box` or `brain` itself. |
-| `cmd/af/triage.go` | The five commands on the shell: the loop, `brief`, `run`, `submit` and `land`. It does what needs the shell, the box and the brains: the run directory and its ledger, the forge client, `box.With` and `brain.Execute`, the envelope. |
+| `internal/afcmd/triage.go` | The five commands on the shell: the loop, `brief`, `run`, `submit` and `land`. It does what needs the shell, the box and the brains: the run directory and its ledger, the forge client, `box.With` and `brain.Execute`, the envelope. |
 | `skills/af-triage` and `skills/skills.go` | The skill that says how to diagnose. The `skills` package embeds every `af-*` entry (`//go:embed af-*`), and `skills.Triage()` is the body that the brief carries, so the skill a person installs with `make install-skills` and the one the brain reads are the same file. |
 | `internal/triage/fakeforge/` | The GitHub and GitLab server of the tests, over `httptest`. |
 
@@ -709,7 +735,7 @@ other effect, from the tree the brain left and from checks that `af` ran on it.
 | Path | What it holds |
 |---|---|
 | `internal/fix/` | The feature with no shell in it: the preflight (`Preflight`, `CheckLanding`), the state of a run (`State`, `fix.json`), the brief (`BuildPrefix`, `TaskBlock`, `NewBrief`), the submission kind (`Kind`, the `fix_report` and its validator), `Apply`, `Measure`, `Land`, `Park`, the body of the pull request (`RenderBody`), the loop (`RunLoop`) and its ending (`Finish`), and the result (`Result`). It imports `gitx`, `checks`, `conform`, `policy`, `project`, `repomap`, `box`, `brain`, `submission`, `issuex` and the `skills` package. |
-| `cmd/af/fix.go`, `fix_brief.go`, `fix_run.go`, `fix_land.go` | The five commands on the shell: the loop, `brief` and `submit`, `run`, and `land`. They do what needs the shell: the run directory and its ledger, the forge client, `box.With`, the envelope and its schemas (`cmd/af/schemas/fix*.json`). |
+| `internal/afcmd/fix.go`, `fix_brief.go`, `fix_run.go`, `fix_land.go` | The five commands on the shell: the loop, `brief` and `submit`, `run`, and `land`. They do what needs the shell: the run directory and its ledger, the forge client, `box.With`, the envelope and its schemas (`internal/afcmd/schemas/fix*.json`). |
 | `skills/af-fix` | The skill that says how to fix, compiled into the binary and carried by the brief (`skills.Fix()`), and the file a person installs with `make install-skills`. |
 | `internal/triage/fakeforge/` | The server of the tests, which gained pull and merge requests. |
 
@@ -904,13 +930,168 @@ worker, the poll, the `af` client) build on:
   `DELETE` of subscriptions, one error envelope, and a log of requests that holds no credential. A `PUT`
   checks the token the caller hands over against hub with two calls that bypass the caches, then seals and
   stores it in one statement.
+- **The calls of an attempt.** Beside those two calls, the hub client makes the ones an attempt of the
+  worker needs, always with the PAT of the subscription and never through the caches: the record of a
+  workspace (clone URL, base branch, mode, URL of the forge repository), its resolved variables, a session
+  (open, usage, complete), a batch of events, a sandbox lease and its release, and the push of a branch to the
+  forge. Each is bounded to 10 seconds, the lease and the push to 5 minutes (`Client.LongTimeout`), because hub
+  does slow work before it answers; none follows a redirect or reads more than 1 MiB. An answer is one of
+  five things, which a caller tells apart with `errors.Is` and `errors.As`: refused (401, `ErrRefused`),
+  forbidden (403, `ErrForbidden`, whose message names the operation and points to `PUT
+  /api/v1/workspaces/{slug}`), not found (404, `ErrNotFound`; a release that finds nothing is released),
+  rejected (another 4xx, `*RejectedError` with hub's message, read from its error object, whose `code` is the
+  integer status and whose `error_type` is the kind; a `502` that says the forge refused the credential hub
+  holds for it, `forge_unauthenticated` or `forge_forbidden`, is one too, since a retry cannot cure it) and unavailable (429, 5xx, a redirect, a
+  transport failure, a timeout or a body that is not what hub sends, `*UnavailableError`). No error holds
+  the PAT.
+- **The forge through hub.** `hub.Client.Forge(pat, slug, repo)` is an `issuex.Client` for the one forge
+  repository of a workspace, which the worker gives the loops in place of a forge client with a token of its
+  own, and `ForgeFactory` is the same as a function of the signature of `toolio.App.NewForge`. It reads and
+  writes through hub's forge API under `/api/v1/workspaces/{slug}`: `GetRepository` is the record of the
+  workspace; `ReadIssue` (the issue with its comments, marked a pull or merge request when hub says it is
+  one), `ListComments`, `UpdateIssue`, `CreateIssue`, `AddComment`, `AddLabels`, `RemoveLabel` and
+  `CreatePullRequest` are one request each. A repository other than the workspace's (host, owner and name,
+  without case; an empty host is the workspace's) is refused before a request is sent, and every other
+  method of `issuex.Client` says the operation is not available through hub in this release. Hub's answers
+  become the errors that the loops already tell apart: 401 and 403 an `*issuex.HTTPError` of that status
+  that carries the message of the hub client, 404 `issuex.ErrNotFound`, 409 `issuex.ErrConflict`, 429
+  `issuex.ErrRateLimited`, another refusal an `*issuex.HTTPError` with hub's message, and hub being
+  unavailable an error that the loops may try again. So `auth`, `forge` and `retryable` come out as with a
+  direct forge. The client reports GitLab's body limit for a GitLab host and GitHub's otherwise.
+- **The clone and its git.** The worker clones the workspace's clone URL from hub's git server into `clone/` of
+  the attempt directory (mode 0700), with the workspace's base branch checked out and the identity `agent-fox
+  <agent-fox@noreply.invalid>` in the clone's own configuration; a `clone/` that an earlier delivery kept is
+  removed first. Every git command of the attempt, the clone, the commands of the fix pipeline and its push,
+  runs in a clean environment: a `HOME` of its own that is removed with the attempt, no global or system
+  configuration, no `GIT_ASKPASS` and no prompt (`gitx.HermeticEnv`), so a credential helper of the operator is
+  never asked. The PAT reaches git only in the commands that can reach hub (`clone`, `fetch`, `pull`, `push`,
+  `ls-remote`), as the header `Authorization: Basic base64(agent-fox:<PAT>)` set by `GIT_CONFIG_COUNT`,
+  `GIT_CONFIG_KEY_0` (`http.<clone URL>.extraHeader`) and `GIT_CONFIG_VALUE_0`: never on a command line, in
+  `.git/config` or in any file, and not in the environment of a commit, whose hooks are the repository's own.
+  This needs git 2.31 or later. The environment of a git command is made of a short list of what git needs of
+  the process (`PATH`, the locale, the proxies and the certificates) and nothing else of it. The box's sync and
+  `checks.FileView` keep the default runner. A server that
+  refuses the credential, 401 or 403, ends the attempt with a `failed` envelope of category `auth`; any other
+  failure of the clone (a transport error, a 5xx, a hang-up, no answer in ten minutes, a base branch that is not
+  there) is a transient error of category `git` and the attempt has no envelope. After the pipeline pushes a
+  branch to hub's git server, the worker asks hub to push it on to the forge (`PushBranch`), before any pull
+  request is asked for, up to three times in all while hub is unavailable, waiting one second and then two;
+  any other answer is final. A branch that hub does not take ends the landing `failed` in category `git`, not
+  retryable, with the branch kept on hub's git server and named in `next`, and no pull request. The seam is
+  `fix.LandParams.PostPush`, which `FinishParams` and `ParkParams` carry and `afcmd.Config.PostPush` sets.
+- **The worker.** `internal/worker` is the production `jobs.Runner`: it carries out one attempt of a job against a
+  subscribed hub workspace. In order: *resolve* (the token and the label prefix of the subscription, the record and
+  the variables of the workspace from hub, the refusals that need no box and no model), the hub *session*, the
+  *mark* of the issue, the *clone*, the *lease* of a sandbox, the *run* of the loop in process, the *mirror* of the
+  outcome to the issue, the *release* of the lease and the *report* to hub. It holds nothing of an attempt between
+  calls, so attempts run side by side, each with its own workspace token and its own lease token, no vendor
+  key and no forge token, and with a lookup of the environment, which the loops, the brains and the settings
+  read, that yields nothing: the environment of the service changes no attempt. What an attempt that stops early writes and takes is fixed:
+  a refusal at resolve, hub not answering at resolve or at the session, and a session refused with 401 or 403
+  write nothing to the forge, take no lease and report nothing to hub; a transient clone, lease or box takes
+  `in-progress` off, releases a granted lease, posts the events and completes the session `failed`; a credential
+  refused at the clone or at the lease is mirrored `failed` with one comment, with the lease released and the
+  same report. Infrastructure failures (hub down, a clone, a lease or a box that cannot be had, a forge rate
+  limit) are *transient errors* that the jobs layer hands over again, with no envelope; every other ending is an
+  envelope, built by the worker for a refusal before the loop (tool `triage` or `fix`, empty arrays, usage source
+  `none`) and the loop's own otherwise.
+- **The forge host.** `aflib` recognises the host of an issue URL as a forge when its name holds `github` or
+  `gitlab`, or when it is the host of `GITHUB_API_URL` or `GITLAB_API_URL` in the environment of the process. The
+  worker gives the loop the URL of the issue on the workspace's repository, so a workspace whose forge host has
+  neither in its name runs only if the service has one of those variables set. This is a limit of `aflib`, not
+  something the worker can lift.
+- **The gateway box and the `af` it needs.** The loop's box is made by the gateway of the lease (`box.GatewayEntry`),
+  the only provider the attempt has, which counts as isolating, calls its programs by name from the image of the
+  lease's profile, and is made with an empty `Env`: the profile supplies the image, the network and the secrets,
+  and the brain's credentials are named, never valued, in the commands run in the box. The image **must provide `af`**
+  of the same version and commit as the worker, since the checks of the repository are measured by the `af` of the
+  box: `af --version` is run once per box, an `af` of another version is the warning `box_af_version_mismatch`, and one
+  that is missing or fails is a `sandbox` failure that is not retryable and names the profile whose image has to
+  provide it (`fix_hint.env` `AF_SANDBOX_PROFILE`).
+- **Measuring in the box.** For a fix run under the service the detection of the checks (`af lang detect`), the
+  baseline and the gate after the change (`af gate run`) and the revert check (`af revert-check`) are *measured in
+  the box*, through the `af` of its image, and never on the host of the worker (`afcmd.Config.InBox`); the host's
+  gate and revert check are not called. A box that is lost while it measures ends the loop `failed`, category
+  `sandbox`, retryable, which is a transient error.
+- **The lease and the box.** After the clone the worker leases a sandbox: `POST …/sandboxes` with `{purpose:
+  "triage"|"fix", labels: {job, attempt}}` and `profile` only when `AF_SANDBOX_PROFILE` is set, and tells the job
+  the sandbox id. The attempt gets a box registry of its own that holds one provider, the gateway of the lease
+  (its URL and token), which is not in `box.Default` and so is no choice of `--sandbox`; the box of the loop is
+  made in it with the labels `af.run_id`, `af.tool`, `af.job` and `af.attempt`. A lease that hub refuses with 401
+  or 403 ends the attempt with a `failed` envelope of category `auth` that points to `PUT
+  /api/v1/workspaces/{slug}`. Any other answer (a 5xx, a capacity rejection with hub's reason in the message, a
+  timeout), a gateway that cannot be reached or refuses the box, and a lease with less than two minutes left are
+  a transient error of category `sandbox` and the attempt has no envelope. A lease that ends before `AF_TIMEOUT`
+  would cut the timeout of the loop to a whole number of seconds that ends two minutes before `expires_at`, and
+  the envelope gets the warning `lease_shortened_timeout`. The lease is released once, after the box is closed,
+  on every path (success, failure, a transient error, a cancellation, a shutdown and a panic), on a context
+  that the cancellation does not reach, bounded to 30 seconds. A release that fails leaves the status of the
+  envelope as it is and adds the warning `lease_release_failed`; under a transient error it is logged.
+  `toolio.AddWarnings` adds the warnings to the encoded envelope and changes nothing else in it.
+- **The loop and how the attempt ends.** After the lease the worker runs the loop in its own process, as the
+  `af` command it is (`internal/afcmd`), with a shell of its own that no signal stops, only the context of the
+  attempt: the forge is hub's for the workspace's repository, the box providers are the gateway of the lease
+  alone, the git runner is the clone's, the checks of the repository are measured in the box, and the settings
+  are the flags (`--brain`, `--budget`, `--max-turns`, `--timeout`, and for a fix `--attempts 1` and `--land`;
+  the model goes to the brain in its options). The environment of the process is read by nothing: the brain
+  gets a lookup that finds nothing. An issue is its URL on the workspace's repository, a text goes on stdin
+  with its title as a Markdown heading, a file is written to `input/<base name>` (mode 0600 in a directory of
+  mode 0700) and passed by path, and the strings of context come as `--context` values, then the answers;
+  the earlier questions say there is no question for a string and give the question with its options for an
+  answer. Every line of the loop's events reaches the job's recorder as it is written, beside the worker's
+  own `step` events (`resolve`, `session`, `clone`, `lease`, `run`, `mirror`, `release` and `report`). The attempt ends in one
+  of two ways. A loop whose envelope is `failed` with a retryable error of category `sandbox`, `forge` or `hub`
+  is the infrastructure: a transient error that carries that failure, with no envelope, which the jobs
+  layer hands over again. Every other ending is a result with the envelope the loop wrote, amended only by
+  added warnings, side effects and artifacts (`hub_session` and `sandbox`), the report of the run, and
+  `AF_MAX_ATTEMPTS` as the most attempts of a round (2 when the attempt stopped before the variables were read).
+  When the attempt returns, `input/` is removed and so is `clone/`, except after a transient error and after a
+  shutdown; `envelope.json`, `report.md` and the attempt directory are the jobs layer's and are never touched.
+- **The mark, the mirror and the cancel — the label mirror.** Once the session is open and an issue is named, the worker sets
+  `<prefix>in-progress` on it; the prefix is always the subscription's `label_prefix`, `AF_LABEL_PREFIX` is read
+  for nothing but the warning `label_prefix_ignored` when it differs. Setting a status label (`in-progress`,
+  `ready`, `needs-human`, `landed`, `failed`) removes the other four the issue carries, except that a fix's
+  `in-progress` leaves `ready`, which only the outcome of the fix replaces. When the loop is over the outcome is
+  mirrored to the issue the input named, or, for a triage of a text or a file that ended `done`, to the issue the
+  loop created, and to none when there is neither: a triage `done` with confidence `confirmed` or `probable` is
+  `ready` with no comment, `suspected` or `not_reproducible` is `needs-human` with the reason, any `needs_human`
+  is `needs-human` with the question, a fix `done` or `unverified` that landed is `landed` with a `fix_summary`,
+  one that landed under `AF_FIX_LAND=none` sets no label and its `fix_summary` says nothing was kept, a parked fix
+  is `needs-human` with a `fix_summary` that says what failed and how to ask again, and any other `failed`, or
+  `usage`, is `failed` with the failure. An attempt that returns a transient error, and a failure that an
+  automatic attempt follows (`failed`, category `brain` or `no_result`, retryable, and a position in the round
+  below `AF_MAX_ATTEMPTS`), only take `in-progress` off. Each comment ends with a marker naming the job, the
+  attempt and the kind (`<!-- agent-fox job=… attempt=… kind=… -->`), is not posted when its marker is on the issue,
+  and holds no path of the worker. A write that fails is a warning (`status_label_failed`, `comment_failed`,
+  `request_label_failed`) with a side effect of the state `failed`, never a change of the status; with no
+  envelope it is logged. The result reports the labels it set and removed, a label that was set and taken off
+  again being removed only. A cancel or an unsubscribe is followed, after the loop has stopped and within a
+  minute, by taking `in-progress` off and putting the request label of the job back, leaving `ready` in place,
+  with the lease released; the result carries the envelope of the loop, or one of category `cancelled` when the
+  loop had not begun, and the PAT read at resolve serves it though the subscription is gone. A shutdown writes
+  nothing to the forge, keeps `clone/`, releases the lease and returns its cause.
+- **The report to hub.** Once the lease is released, an attempt that has a session posts one usage record when a
+  brain ran (the model of the session, and the brain, tokens, cost, source of the cost and turns of the envelope),
+  all the events of the attempt, the loop's and the worker's steps, in batches of at most 500 in the order they
+  happened, and completes the session: `completed` for `done`, `unverified` and `needs_human`, `timeout` for a
+  failure of category `timeout`, and `failed` for the rest and for any attempt that returns a transient error. A
+  call that fails is a warning of the envelope (`hub_usage_failed`, `hub_events_failed`, `hub_session_failed`)
+  and changes nothing else; with no envelope it is logged.
 - **Tests.** `internal/hub/fakehub` is an `httptest` hub in the manner of `fakeforge`: a table of tokens,
-  users and workspaces, a record of every request, and failures on demand. `make check` needs no hub, no
-  key and no network beyond the loopback interface.
+  users and workspaces, a record of every request, and failures, hang-ups, delays, redirects and oversize
+  answers by method and route on demand. It serves the calls above in the shapes of hub's OpenAPI
+  document from state a test sets and reads: workspaces with a mode, a base branch and variables, issues
+  with comments and labels (a pull request among them), pull requests, sessions with their usage and
+  events, branch pushes, and leases. A workspace with files has a git smart-HTTP server (`git
+  http-backend`) on the hub's own address that takes only `Authorization: Basic` with the user `agent-fox`
+  and the PAT of the workspace. A lease points at an in-process gateway: agentkit's `gatewayd` over the
+  local provider, on a loopback port, that takes the token of a lease that is held and records the specs
+  it is asked to create and the boxes it closes. `make check` needs no hub, no key and no network beyond
+  the loopback interface.
 
-What it will do, and does not yet: run `af triage` and `af fix` on a subscribed workspace with its token (the
-runner behind the jobs below is a placeholder that fails each attempt as `unsupported`), poll the forge through
-hub, and be driven by an `af` that talks to it.
+What it does: run `af triage` and `af fix` on a subscribed workspace with its token, in its own process, through
+the worker below. What it will do, and does not yet: poll the forge through hub, and be driven by an `af` that
+talks to it.
 
 ### The jobs, as built
 
@@ -948,6 +1129,9 @@ hub, and be driven by an `af` that talks to it.
   depends on why (`jobs.IsCancel`): for a cancel or an unsubscribe it releases what it holds and restores the
   request label within the grace, for a shutdown it leaves the attempt resumable and what it returns is discarded.
   The context carries the cause: `ErrCancelled`, `ErrUnsubscribed` (which is a cancel as well) or `ErrShutdown`.
+  The request carries `Round`, the position of the attempt in its round (1 for the first attempt of a job and for
+  one that an answer or a retry starts, 2 for the attempt that follows by itself a failure that is tried again),
+  which the runner needs to tell an attempt that an automatic attempt follows from one that ends the job.
   `jobs/fakerunner` is the exported fake that scripts a runner for tests; `jobs/fakeclock` is its clock.
 - **Transient retries versus automatic attempts.** They are different things. A transient error asks for the
   *same* attempt to be handed over again, after 30 seconds and then 2 minutes, on the layer's clock and with
@@ -972,8 +1156,8 @@ hub, and be driven by an `af` that talks to it.
 - **Retention.** A purge runs at start and then every hour on the layer's clock, and removes finished jobs with no
   running attempt and no runner in progress that were finished more than `[database].retain` ago: the directory
   first, then the rows, under the lock of the job.
-- **Tests.** Every test runs offline against `fakehub`, the fake runner and a fake clock; the placeholder runner is
-  what `cmd/agent-fox` wires until the worker exists.
+- **Tests.** Every test runs offline against `fakehub`, the fake runner and a fake clock. `cmd/agent-fox` wires the
+  worker; `jobs.PlaceholderRunner`, which fails every attempt as `unsupported`, is left for the tests of the layer.
 
 ## What moves where
 

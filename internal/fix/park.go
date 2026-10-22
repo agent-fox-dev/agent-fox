@@ -53,6 +53,9 @@ type ParkParams struct {
 	// nothing is pushed and nothing is written to the forge.
 	Interrupted bool
 	Report      Reporter
+	// PostPush is called with the branch once it is pushed, before the pull request; see
+	// LandParams.
+	PostPush func(ctx context.Context, branch string) error
 }
 
 // ParkResult is what parking did.
@@ -84,6 +87,7 @@ func Park(ctx context.Context, p ParkParams) (ParkResult, error) {
 	}
 
 	l := newLanding(p.Git, p.Report, p.State, p.Input, p.Mode, p.Forge, p.Target, p.Interrupted)
+	l.postPush = p.PostPush
 	l.subject = parkSubject(p)
 	if err := l.ensureIssue(ctx); err != nil {
 		return ParkResult{}, err
@@ -112,7 +116,13 @@ func (l *landing) afterParkCommit(ctx context.Context, verdict string, failing [
 
 	if !l.interrupted && l.mode != LandNone {
 		if err := l.push(ctx); err != nil {
-			rep.Warn(WarnPushFailed, fmt.Sprintf("the branch %s was not pushed and is kept here: %v", l.branch, err))
+			var published *publishError
+			if errors.As(err, &published) {
+				l.published = true
+				rep.Warn(WarnPushFailed, fmt.Sprintf("the branch %s is pushed, and was not published: %v", l.branch, published))
+			} else {
+				rep.Warn(WarnPushFailed, fmt.Sprintf("the branch %s was not pushed and is kept here: %v", l.branch, err))
+			}
 		} else {
 			res.Pushed = true
 		}
@@ -134,7 +144,10 @@ func (l *landing) afterParkCommit(ctx context.Context, verdict string, failing [
 	}
 	rep.Warn(WarnFixNotLanded, fmt.Sprintf("the change did not land (%s) and is parked on the branch %s", why, l.branch))
 	rep.Next(toolio.Next{Argv: []string{"git", "switch", l.branch}, Reason: "look at the parked change"})
-	if !res.Pushed && !l.interrupted && l.mode != LandNone {
+	switch {
+	case l.published: // pushing it again would do nothing
+		rep.Next(toolio.Next{Argv: []string{"git", "show", "--stat", l.branch}, Reason: "the parked branch is pushed to origin and was not published"})
+	case !res.Pushed && !l.interrupted && l.mode != LandNone:
 		rep.Next(toolio.Next{Argv: []string{"git", "push", "-u", "origin", l.branch}, Reason: "publish the parked branch"})
 	}
 	return res, nil

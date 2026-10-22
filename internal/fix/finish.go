@@ -50,6 +50,9 @@ type FinishParams struct {
 	Reporter    Reporter
 	// WriteReport keeps the body of the pull request as the report of the run.
 	WriteReport func(text string) error
+	// PostPush is called with the branch once it is pushed, before the pull request; see
+	// LandParams.
+	PostPush func(ctx context.Context, branch string) error
 }
 
 // Ending is the end of a run: the result, the status it has, and the question when it ended
@@ -105,6 +108,7 @@ func (p FinishParams) landable(ctx context.Context, in ResultInput) (Ending, err
 	landed, err := Land(ctx, LandParams{
 		Git: p.Git, State: p.State, Input: p.Input, Report: *ended.Report, Mode: p.Mode, Forge: p.Forge, Target: p.Target, Measured: ended.Measured,
 		Brain: p.State.Brain, CostUSD: p.State.CostUSD, CostSource: costSource(p.State), Reporter: p.Reporter, WriteReport: p.WriteReport,
+		PostPush: p.PostPush,
 	})
 	if err != nil {
 		if ctx.Err() != nil { // stopped while it landed: what was measured is parked, not left in the tree
@@ -145,7 +149,7 @@ func (p FinishParams) exhausted(ctx context.Context, in ResultInput) (Ending, er
 	}
 	parked, err := Park(ctx, ParkParams{
 		Git: p.Git, State: p.State, Input: p.Input, Mode: p.Mode, Forge: p.Forge, Target: p.Target, Subject: p.subject(),
-		Verdict: verdict, Failing: failing, Report: p.Reporter,
+		Verdict: verdict, Failing: failing, Report: p.Reporter, PostPush: p.PostPush,
 	})
 	if err != nil {
 		return Ending{}, err

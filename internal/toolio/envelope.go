@@ -3,7 +3,10 @@ package toolio
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
+	"time"
 )
 
 // SchemaVersion is the envelope's schema_version.
@@ -254,4 +257,132 @@ func encodeIndented(v any) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// NewEnvelope returns the envelope of a run of the tool that has not been given anything yet: the
+// schema version, no input, and the zero usage with no cost source. A caller outside the shell,
+// the worker of the service, makes the envelopes of the runs it refuses with it.
+func NewEnvelope(tool string) *Envelope {
+	return &Envelope{SchemaVersion: SchemaVersion, Tool: tool, Input: InputInfo{Kind: KindNone}, Usage: Usage{CostSource: CostNone}}
+}
+
+// Fail makes the envelope a failure, as the shell does: status usage for the usage category,
+// failed for any other, with the error object from f.
+func (e *Envelope) Fail(f *Failure) { e.fail(f) }
+
+// Seal makes the envelope what it is to be when the run has ended: an envelope that can be
+// encoded, the times of the run, the exit code of its status, and a summary on one line.
+func (e *Envelope) Seal(started, finished time.Time) {
+	e.ensureEncodable()
+	e.StartedAt = stamp(started)
+	e.FinishedAt = stamp(finished)
+	e.DurationMS = finished.Sub(started).Milliseconds()
+	e.ExitCode = ExitCode(e.Status)
+	e.Summary = oneLine(e.Summary)
+	if e.Summary == "" && e.Error != nil {
+		e.Summary = defaultSummary(e.Error.Category)
+	}
+}
+
+// Marshal renders the envelope as the shell prints it: two-space indented, one trailing
+// newline, arrays as [] and never null.
+func (e *Envelope) Marshal() ([]byte, error) { return e.marshal() }
+
+// Amendment is what a caller outside the shell adds to an envelope that the shell wrote.
+type Amendment struct {
+	Warnings    []Warning
+	Artifacts   []Artifact
+	SideEffects []SideEffect
+}
+
+// Amend adds the warnings, the artifacts and the side effects of am to the encoded envelope data,
+// which is an envelope as Marshal renders it, and returns the document with nothing else changed:
+// its result, its status and the order of its fields are as they were, and what is added is
+// indented as the rest. Each list is added to the one the envelope has, after what it holds.
+func Amend(data []byte, am Amendment) ([]byte, error) {
+	var edits []edit
+	for _, f := range []func() (edit, bool, error){
+		func() (edit, bool, error) { return listEdit(data, "warnings", am.Warnings) },
+		func() (edit, bool, error) { return listEdit(data, "artifacts", am.Artifacts) },
+		func() (edit, bool, error) { return listEdit(data, "side_effects", am.SideEffects) },
+	} {
+		e, any, err := f()
+		if err != nil {
+			return nil, err
+		}
+		if any {
+			edits = append(edits, e)
+		}
+	}
+	if len(edits) == 0 {
+		return data, nil
+	}
+	slices.SortFunc(edits, func(a, b edit) int { return b.start - a.start }) // from the end, so that the spans stay true
+	out := slices.Clone(data)
+	for _, e := range edits {
+		out = append(out[:e.start], append(slices.Clone(e.text), out[e.end:]...)...)
+	}
+	return out, nil
+}
+
+// AddWarnings adds warnings to the encoded envelope data; see Amend.
+func AddWarnings(data []byte, add ...Warning) ([]byte, error) {
+	return Amend(data, Amendment{Warnings: add})
+}
+
+// edit replaces data[start:end] with text.
+type edit struct {
+	start, end int
+	text       []byte
+}
+
+// listEdit is the edit that adds items to the list that is the value of the field of the
+// envelope data, and whether there is one: nothing added is no edit, and a list the document does
+// not have is an error.
+func listEdit[T any](data []byte, field string, add []T) (edit, bool, error) {
+	if len(add) == 0 {
+		return edit{}, false, nil
+	}
+	span, err := valueOf(data, field)
+	if err != nil {
+		return edit{}, false, err
+	}
+	var items []T
+	if err := json.Unmarshal(data[span[0]:span[1]], &items); err != nil {
+		return edit{}, false, fmt.Errorf("the %s of the envelope are not a list: %w", field, err)
+	}
+	var compact bytes.Buffer
+	enc := json.NewEncoder(&compact)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(append(items, add...)); err != nil {
+		return edit{}, false, err
+	}
+	var indented bytes.Buffer
+	if err := json.Indent(&indented, bytes.TrimSpace(compact.Bytes()), "  ", "  "); err != nil {
+		return edit{}, false, err
+	}
+	return edit{start: span[0], end: span[1], text: indented.Bytes()}, true, nil
+}
+
+// valueOf is where the value of the field of the top-level object in data starts and ends.
+func valueOf(data []byte, field string) ([2]int, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return [2]int{}, errors.New("the envelope is not a JSON object")
+	}
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			return [2]int{}, fmt.Errorf("the envelope is not JSON: %w", err)
+		}
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			return [2]int{}, fmt.Errorf("the envelope is not JSON: %w", err)
+		}
+		if key == field {
+			end := int(dec.InputOffset())
+			return [2]int{end - len(raw), end}, nil
+		}
+	}
+	return [2]int{}, fmt.Errorf("the envelope has no %s", field)
 }

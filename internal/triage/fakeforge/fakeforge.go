@@ -2,7 +2,7 @@
 // part of the GitHub or GitLab API a triage run uses (the repository, an issue
 // with its comments, and the writes), keeps what was written, and records every
 // request, so that a test can say exactly what a run sent. It is used by the
-// tests of internal/triage and cmd/af, and by nothing else.
+// tests of internal/triage and internal/afcmd, and by nothing else.
 package fakeforge
 
 import (

@@ -26,6 +26,9 @@ func (a *App) newForge() func(issuex.Options) (issuex.Client, error) {
 // us), and anything else gets a client that does nothing and no repository:
 // the commands that need a forge refuse in their own preflight.
 func (a *App) forgeFor(cmd *Command, values *flagValues, positional []string) (issuex.Client, issuex.Repo, error) {
+	if a.Target.Valid() {
+		return a.forgeForTarget(cmd, values, positional)
+	}
 	var issue *issuex.IssueRef
 	if cmd.Input != InputNone && len(positional) > 0 && positional[0] != "-" {
 		if ref, ok := issuex.ParseIssueURL(positional[0]); ok {
@@ -75,6 +78,28 @@ func (a *App) forgeFor(cmd *Command, values *flagValues, positional []string) (i
 		}
 	}
 	return client, target, nil
+}
+
+// forgeForTarget is forgeFor for an app whose caller chose the repository: the client is
+// built for it, whatever the input, --repo and the origin of --dir say, and an issue URL on
+// another repository is a usage failure, before any client is built.
+func (a *App) forgeForTarget(cmd *Command, values *flagValues, positional []string) (issuex.Client, issuex.Repo, error) {
+	if cmd.Input != InputNone && len(positional) > 0 && positional[0] != "-" {
+		if ref, ok := issuex.ParseIssueURL(positional[0]); ok && !sameRepoHost(a.Target, ref.Repo) {
+			return nil, issuex.Repo{}, &Failure{Category: CategoryUsage, Message: fmt.Sprintf("%s is not on the repository this run works on, %s", ref.URL(), a.Target)}
+		}
+	}
+	client, err := a.newForge()(issuex.Options{UserAgent: a.name() + "/" + a.version().Version, Dir: values.dir, Repo: a.Target})
+	if err != nil {
+		return nil, issuex.Repo{}, &Failure{Category: CategoryForge, Message: fmt.Sprintf("cannot build the forge client: %v", err)}
+	}
+	return client, a.Target, nil
+}
+
+// sameRepoHost is sameRepo for repositories whose host is known: hosts are compared without
+// case too, and a host that is empty is the other's.
+func sameRepoHost(a, b issuex.Repo) bool {
+	return sameRepo(a, b) && (a.Host == "" || b.Host == "" || strings.EqualFold(a.Host, b.Host))
 }
 
 // sameRepo reports whether a and b name the same repository. Forges do not

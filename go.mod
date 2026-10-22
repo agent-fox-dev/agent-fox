@@ -7,6 +7,7 @@ require (
 	github.com/agent-fox-dev/aflib v0.0.0-20261019184100-07adcb691832
 	github.com/agent-fox-dev/agentkit-go v0.0.0
 	github.com/agent-fox-dev/agentkit-go/sandbox v0.0.0
+	github.com/agent-fox-dev/agentkit-go/sandbox/gatewayd v0.0.0
 	modernc.org/sqlite v1.60.1
 )
 
@@ -106,3 +107,5 @@ require (
 replace github.com/agent-fox-dev/agentkit-go => ../agentkit-go
 
 replace github.com/agent-fox-dev/agentkit-go/sandbox => ../agentkit-go/sandbox
+
+replace github.com/agent-fox-dev/agentkit-go/sandbox/gatewayd => ../agentkit-go/sandbox/gatewayd

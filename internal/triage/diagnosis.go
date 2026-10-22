@@ -1,7 +1,7 @@
 // Package triage is the logic of af triage: the diagnosis a brain submits and
 // how it is validated, the issue body that carries it and the original report
 // it keeps, the brief a brain is given, the checks made before any spend, and
-// the landing on the forge. It knows nothing of the command shell; cmd/af wires
+// the landing on the forge. It knows nothing of the command shell; internal/afcmd wires
 // it (docs/cli.md describes the commands).
 package triage
 

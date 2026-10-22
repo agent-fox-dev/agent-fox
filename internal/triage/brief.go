@@ -85,6 +85,9 @@ type BriefParams struct {
 	// question of an earlier run that they answer, when one was found.
 	Context          []string
 	PreviousQuestion *Question
+	// Material[i] says the i-th value of Context answers no question: it is material from a
+	// person, like the report, and not framed as an answer. A value past the end is an answer.
+	Material []bool
 	// InProcess says the brain submits through the file_diagnosis tool, and not
 	// by running af triage submit.
 	InProcess bool
@@ -302,8 +305,11 @@ func taskBlock(p BriefParams) string {
 	}
 	for i, answer := range p.Context {
 		label := "A person's answer:"
+		if i < len(p.Material) && p.Material[i] {
+			label = "Material from a person:"
+		}
 		if len(p.Context) > 1 {
-			label = fmt.Sprintf("A person's answer (%d of %d):", i+1, len(p.Context))
+			label = strings.TrimSuffix(label, ":") + fmt.Sprintf(" (%d of %d):", i+1, len(p.Context))
 		}
 		b.WriteString(fenced(label, answer) + "\n")
 	}

@@ -286,6 +286,30 @@ variable and the key. A `$` that is not the start of `${NAME}` is left alone.
 because compose-style networks are common, and the service logs a warning when it starts: caller tokens
 and workspace tokens cross the link in clear.
 
+### The hub variables of an attempt
+
+An attempt takes its settings from the **resolved variables of its hub workspace**, read from hub at the start of
+every attempt (`GET /api/v1/workspaces/{slug}/vars/resolved`), and not from the environment of the service. A variable
+that is unset or empty takes its default; a variable it does not know is ignored; one outside its range fails the
+attempt before a session is opened, as a `failed` envelope of category `config` that is not retryable, whose
+`fix_hint.var` names the variable and whose message names it and its value.
+
+| Variable | Triage | Fix | Range |
+|---|---|---|---|
+| `AF_BRAIN_TRIAGE`, `AF_BRAIN_FIX`, then `AF_BRAIN` | `agentkit` | `claude` | `agentkit` or `claude`. The scripted brain is not one a variable may name. |
+| `AF_MODEL` | the catalog's default Anthropic model | the same | any non-empty string; the session, the brain and the usage record carry it. |
+| `AF_MAX_BUDGET_USD` | `2` | `10` | finite and above 0. |
+| `AF_MAX_TURNS` | `100` | `150` | a whole number from 1. |
+| `AF_TIMEOUT` | `15m` | `45m` | a Go duration from `1m` to `24h`. It is cut so that the loop ends two minutes before the sandbox lease expires, with the warning `lease_shortened_timeout`. |
+| `AF_MAX_ATTEMPTS` | `2` | `2` | a whole number from 1 to 10: the most attempts a round may make. The loop of a fix runs `--attempts 1`; the rounds are the jobs layer's. |
+| `AF_SANDBOX_PROFILE` | none | none | non-empty: the profile that hub leases the sandbox from; unset is hub's default. Its image must provide `af`. |
+| `AF_FIX_LAND` | | `pr` | `pr`, `branch` or `none`. `patch` is refused: a fix on a `carry_patch` workspace, or landing as a patch, fails as `unsupported`, because carry-patch landing comes in a later release. A triage on a `carry_patch` workspace runs as on any other. |
+| `AF_LABEL_PREFIX` | | | **not read.** The prefix of every label the worker writes is the `label_prefix` of the subscription; when the variable is set and differs, the envelope carries the warning `label_prefix_ignored`. |
+
+The worker holds no vendor key and no forge token. Its credentials are the workspace token of the subscription, which
+it sends to hub and to hub's git server, and the token of the lease, which it sends to the gateway of the box; the
+brain's credentials come from the profile of the box (see [model-usage.md](model-usage.md#the-agent-fox-service)).
+
 ### The key file
 
 `secrets.key_file` holds the key that workspace tokens are sealed with at rest: the standard base64

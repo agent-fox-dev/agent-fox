@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -19,8 +18,8 @@ const stderrTail = 2 << 10
 // provider isolates, and the driver was not asked to borrow the box's hands. A provider
 // that is not named, or that the registry does not know, is the host.
 func driverInBox(opts Options) bool {
-	provider, err := box.Default.Lookup(opts.Provider)
-	return err == nil && PlacementOf(Entry{DriverInBox: true}, provider, opts.BorrowedHands) == PlacementBox
+	provider, ok := opts.boxEntry()
+	return ok && PlacementOf(Entry{DriverInBox: true}, provider, opts.BorrowedHands) == PlacementBox
 }
 
 // agentkitInBox runs the driver of AgentKit inside the box as af <agent> run, which is the
@@ -35,7 +34,8 @@ type agentkitInBox struct {
 // newAgentkitInBox makes the brain. The key of the model vendor is needed in the box,
 // so it is needed here, before any box opens.
 func newAgentkitInBox(opts Options) (Brain, error) {
-	if v, ok := opts.lookup()(VendorKeyVar); !ok || v == "" {
+	boxEntry, _ := opts.boxEntry()
+	if v, ok := opts.lookup()(VendorKeyVar); (!ok || v == "") && !boxEntry.SuppliesCredentials {
 		return nil, &toolio.Failure{
 			Category: toolio.CategoryAuth,
 			Message:  "the agentkit brain needs the key of the model vendor in " + VendorKeyVar + " for the box it runs in",
@@ -43,6 +43,12 @@ func newAgentkitInBox(opts Options) (Brain, error) {
 		}
 	}
 	return &agentkitInBox{proc: NewProcess(opts.ProcessConfig()), model: opts.Model}, nil
+}
+
+// agentkitProcess is the process the brain runs in the box: af, probed, with the arguments and the
+// inline settings, and the name of the vendor key as the credential the box has to supply.
+func agentkitProcess(args []string, inline map[string]string) ProcessSpec {
+	return ProcessSpec{Brain: AgentkitName, Program: ProgramAF, Args: args, Inline: inline, Probes: []string{ProgramAF}, Credentials: []string{VendorKeyVar}}
 }
 
 // Run runs af <agent> run --run-id <id> --dir <root> with the bounds of the brief, and
@@ -69,9 +75,7 @@ func (a *agentkitInBox) Run(ctx context.Context, b Brief) (Outcome, error) {
 		inline["AF_MODEL"] = a.model
 	}
 
-	res, err := a.proc.Run(ctx, b, ProcessSpec{
-		Brain: AgentkitName, Program: ProgramAF, Args: args, Inline: inline, Probes: []string{ProgramAF},
-	})
+	res, err := a.proc.Run(ctx, b, agentkitProcess(args, inline))
 	if err != nil {
 		return Outcome{StopReason: StopError}, err
 	}

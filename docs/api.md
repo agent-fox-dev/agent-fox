@@ -9,7 +9,8 @@ is calling and which workspaces they may see, and the service asks it.
 This release has the probes, the subscription of workspaces and jobs: triage and fix requests against a
 subscribed workspace, queued, ordered, cancelled, answered and retried, with their attempts, their stored
 envelopes and a replayable stream of events. What runs an attempt is a runner behind an interface; the
-binary ships one that fails every attempt as `unsupported`, and the worker, the poll and the `af` client
+binary runs the worker, which carries out each attempt against the hub workspace of the job (see
+[What the worker adds to an attempt](#what-the-worker-adds-to-an-attempt)). The poll and the `af` client
 come in later specs and add their routes to this document.
 
 ## Routes
@@ -309,6 +310,36 @@ An attempt that ends without a usable envelope (the runner returned an error, pa
 is not one, or was cancelled) gets an envelope written by the service: `failed`, with the category of the error
 (`internal` for a plain error or a panic, `cancelled` for a cancel), so that every finished attempt has one
 and `result.exit_code` is always defined.
+
+### What the worker adds to an attempt
+
+The worker runs the loop of `af triage` or `af fix` in the service's process and amends the envelope it wrote only by
+adding to three lists; every other field of the stored envelope is the loop's, byte for byte.
+
+- **Artifacts.** `{"kind": "hub_session", "name": <session id>}` once hub opened a session for the attempt, and
+  `{"kind": "sandbox", "name": <sandbox id>}` once it leased one. The other artifacts that name a path (`run_dir`,
+  `brief`, `report`, `transcript`, …) are paths on the worker, in a clone that is removed when the attempt returns:
+  they stay in the envelope as facts of the run and cannot be retrieved. The envelope and the report text are what
+  the service keeps.
+- **Error categories.** `hub` is a failure of hub itself, and is a transient error, with no envelope, when hub is
+  unavailable; a hub that refuses the token, or forbids a call, is `auth`, with a message that points to
+  `PUT /api/v1/workspaces/{slug}`. `unsupported` is, besides the placeholder's, a `fix` on a `carry_patch` workspace or
+  with `AF_FIX_LAND=patch` (carry-patch landing comes in a later release; a triage on such a workspace runs). `config` is
+  a hub variable outside its range, with `fix_hint.var` naming it. `cancelled` is an attempt that was cancelled before
+  the loop made an envelope. A loop that fails with a retryable `sandbox`, `forge` or `hub` error is not an envelope:
+  the attempt is handed over again (see [What an attempt comes to](#what-an-attempt-comes-to)).
+- **Warnings.** `lease_shortened_timeout` (the timeout was cut to end two minutes before the sandbox lease
+  expires), `lease_release_failed` (the lease could not be released; hub destroys it when it expires),
+  `label_prefix_ignored` (`AF_LABEL_PREFIX` is set and differs from the `label_prefix` of the subscription, which is
+  the prefix used), `status_label_failed`, `comment_failed` and `request_label_failed` (a write of the mirror to the
+  issue failed, with a side effect of the state `failed`), and `hub_usage_failed`, `hub_events_failed` and
+  `hub_session_failed` (a report to hub failed). A warning never changes the status.
+- **Side effects.** Every label and comment the worker writes to the issue: `add_labels`, `remove_label` and
+  `add_comment`, `done` or `failed`.
+- **Labels.** The result of the attempt reports the labels it set and removed, as the net of the attempt (the
+  status label of the outcome is set and `in-progress` is removed), which is what `labels` of the job shows. The
+  status labels are `in-progress`, `ready`, `needs-human`, `landed` and `failed`, with the prefix of the
+  subscription.
 
 ### Cancel
 

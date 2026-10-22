@@ -11,9 +11,10 @@ import (
 // do yet.
 const CategoryUnsupported = "unsupported"
 
-// PlaceholderRunner is the runner of the binary until the attempt pipeline has one: it
-// ends every attempt with a failed envelope of category unsupported that is not
-// retryable. It runs no brain and touches no hub, forge or box.
+// PlaceholderRunner is a runner for a service that has no worker: it ends every attempt
+// with a failed envelope of category unsupported that is not retryable. It runs no brain
+// and touches no hub, forge or box. The binary runs the worker (internal/worker) in its
+// place; this one is what a test of the layer can use when the runner does not matter.
 type PlaceholderRunner struct{}
 
 // Run ends the attempt as unsupported.
