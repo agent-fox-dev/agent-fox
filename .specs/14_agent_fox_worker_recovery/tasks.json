@@ -78,7 +78,7 @@
       "done_when": [
         "existing brain and box tests still pass with unchanged Failure messages"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,

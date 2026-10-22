@@ -118,6 +118,7 @@ func Execute(ctx context.Context, req Request) (Result, error) {
 	r.record("brain_end", map[string]any{
 		"brain": req.Name, "stop_reason": outcome.StopReason, "submitted_claim": outcome.Submitted, "cost_usd": outcome.CostUSD,
 		"cost_source": outcome.CostSource, "turns": outcome.Turns, "duration_ms": time.Since(started).Milliseconds(),
+		"input_tokens": outcome.InputTokens, "output_tokens": outcome.OutputTokens,
 	})
 	// The cost was spent, whether or not the brain finished.
 	req.Tally.Spend(outcome, req.Name, req.Report.SetUsage)

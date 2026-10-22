@@ -198,11 +198,12 @@ func (s *Session) scrubGit(ctx context.Context) error {
 // it is for names the step in the failure.
 func (s *Session) prepare(ctx context.Context, what, command string) error {
 	r, err := s.call(ctx, toolExecute, map[string]any{"command": command})
+	lost := err == nil && resultGone(r)
 	if err == nil && !r.OK {
 		err = fmt.Errorf("%s: %s", r.Error, r.Detail)
 	}
 	if err != nil {
-		return &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the %s box could not be prepared for %s: %v", s.provider, what, err)}
+		return goneIf(lost, &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the %s box could not be prepared for %s: %v", s.provider, what, err)})
 	}
 	return nil
 }
@@ -215,7 +216,7 @@ func (s *Session) sync(ctx context.Context) error {
 	err := s.syncLocked(ctx)
 	s.stream.Unlock()
 	if err != nil {
-		return &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the %s box could not be synced from %s: %v", s.provider, s.hostDir, err)}
+		return goneIf(isGone(err), &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the %s box could not be synced from %s: %v", s.provider, s.hostDir, err)})
 	}
 	head, err := gitx.New(s.hostDir, nil).Head(ctx)
 	if err != nil {
@@ -334,7 +335,7 @@ func (s *Session) WriteFile(ctx context.Context, rel string, data []byte) error 
 		return err
 	}
 	if !r.OK {
-		return &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the %s box could not write %s: %s %s", s.provider, rel, r.Error, r.Detail)}
+		return goneIf(resultGone(r), &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the %s box could not write %s: %s %s", s.provider, rel, r.Error, r.Detail)})
 	}
 	return nil
 }
@@ -363,7 +364,7 @@ func (s *Session) Export(ctx context.Context) (string, error) {
 	}
 	if err := s.export(ctx, ".", dir); err != nil {
 		_ = os.RemoveAll(dir)
-		return "", &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the %s box could not be exported: %v", s.provider, err)}
+		return "", goneIf(isGone(err), &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the %s box could not be exported: %v", s.provider, err)})
 	}
 	if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
 		_ = os.RemoveAll(dir)

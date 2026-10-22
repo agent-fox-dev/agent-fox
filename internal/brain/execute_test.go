@@ -558,3 +558,47 @@ func TestToolCallEventsCarryNoArguments_TS_07_64(t *testing.T) {
 		}
 	}
 }
+
+// TestEveryBrainEndRecordCarriesIntegerTokenCounts_TS_14_27 verifies TS-14-27: the brain_end record
+// of the ledger carries the input and the output tokens of the brain's outcome, as integers, beside the
+// fields it had, and zero integers for a brain that reports none.
+// Verifies: 14-REQ-4.6
+func TestEveryBrainEndRecordCarriesIntegerTokenCounts_TS_14_27(t *testing.T) {
+	w := newWorld(t)
+	_, _ = Execute(context.Background(), w.request(w.brief(1), stubBrain(func(context.Context, Brief) (Outcome, error) {
+		return Outcome{StopReason: StopEnded, CostUSD: 0.25, CostSource: CostMeasured, Turns: 4, InputTokens: 1200, OutputTokens: 340}, nil
+	})))
+	_, _ = Execute(context.Background(), w.request(w.brief(2), stubBrain(func(context.Context, Brief) (Outcome, error) {
+		return Outcome{StopReason: StopEnded, CostSource: CostNone}, nil // reports no tokens
+	})))
+
+	kinds, data := w.ledger()
+	var ends []map[string]any
+	for i, kind := range kinds {
+		if kind != "brain_end" {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal(data[i], &m); err != nil {
+			t.Fatal(err)
+		}
+		ends = append(ends, m)
+	}
+	if len(ends) != 2 {
+		t.Fatalf("%d brain_end records, want 2", len(ends))
+	}
+	if ends[0]["input_tokens"] != float64(1200) || ends[0]["output_tokens"] != float64(340) {
+		t.Errorf("brain_end = %v, want input_tokens 1200 and output_tokens 340", ends[0])
+	}
+	for _, key := range []string{"brain", "stop_reason", "submitted_claim", "cost_usd", "cost_source", "turns", "duration_ms"} {
+		if _, ok := ends[0][key]; !ok {
+			t.Errorf("brain_end = %v lost %s", ends[0], key)
+		}
+	}
+	if v, ok := ends[1]["input_tokens"]; !ok || v != float64(0) {
+		t.Errorf("brain_end of a brain with no tokens = %v, want input_tokens 0", ends[1])
+	}
+	if v, ok := ends[1]["output_tokens"]; !ok || v != float64(0) {
+		t.Errorf("brain_end of a brain with no tokens = %v, want output_tokens 0", ends[1])
+	}
+}

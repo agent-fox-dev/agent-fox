@@ -158,7 +158,7 @@ func (t *treeFS) exportOne(name string) ([]byte, error) {
 			// The box exports no link, whatever it leads to.
 			return nil, fmt.Errorf("%w: a symbolic link is not followed", fs.ErrPermission)
 		}
-		return nil, fmt.Errorf("exporting it out of the box: %w", err)
+		return nil, goneIf(isGone(err), fmt.Errorf("exporting it out of the box: %w", err))
 	}
 	file := filepath.Join(dir, path.Base(name))
 	if info, err := os.Lstat(file); err == nil && info.Size() > maxReadBytes {
@@ -221,6 +221,8 @@ func (t *treeFS) list(name string) ([]fs.DirEntry, error) {
 func toolError(r core.ToolResult) error {
 	detail := strings.ToLower(r.Detail)
 	switch {
+	case resultGone(r):
+		return gone(fmt.Errorf("%s: %s", r.Error, r.Detail))
 	case r.Error == "path_not_allowed":
 		return fmt.Errorf("%w: %s", fs.ErrPermission, r.Detail)
 	case strings.Contains(detail, "no such file or directory"), strings.Contains(detail, "cannot find the"), strings.Contains(detail, "does not exist"):

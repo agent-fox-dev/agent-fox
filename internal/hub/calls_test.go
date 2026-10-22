@@ -649,3 +649,44 @@ func TestHubsRealErrorObjectsAreReadAndTheTokenAndLengthAreKeptOutOfWhatIsReport
 		}
 	})
 }
+
+// TestTheLeasesOfAWorkspaceAreListedWithTheirLabelsAndEnd checks the listing that the reconciliation
+// pass reads: GET …/sandboxes with the PAT, the leases that hub holds as typed values, an empty list
+// for a workspace with none, and the errors of the other calls for a token hub does not take.
+// Verifies: 14-REQ-10.3
+func TestTheLeasesOfAWorkspaceAreListedWithTheirLabelsAndEnd(t *testing.T) {
+	e := newWorkerEnv(t, "acme", fakehub.Workspace{})
+
+	if got, err := e.client.ListSandboxes(ctx, workerPAT, "acme"); err != nil || len(got) != 0 {
+		t.Fatalf("ListSandboxes of a workspace with no lease = %v, %v, want an empty list", got, err)
+	}
+	a := e.hub.SeedLease("acme", map[string]string{"job": "job_1", "attempt": "2"}, "fix")
+	b := e.hub.SeedLease("acme", nil, "triage")
+
+	got, err := e.client.ListSandboxes(ctx, workerPAT, "acme")
+
+	if err != nil || len(got) != 2 {
+		t.Fatalf("ListSandboxes = %v, %v, want the two leases", got, err)
+	}
+	byID := map[string]LeaseInfo{}
+	for _, l := range got {
+		byID[l.ID] = l
+	}
+	if l := byID[a.ID]; l.Purpose != "fix" || l.Labels["job"] != "job_1" || l.Labels["attempt"] != "2" || !l.ExpiresAt.Equal(a.ExpiresAt.Truncate(time.Second)) || l.State == "" {
+		t.Errorf("lease a listed as %+v, want purpose fix, its labels and its end %s", l, a.ExpiresAt)
+	}
+	if l := byID[b.ID]; l.Purpose != "triage" || len(l.Labels) != 0 {
+		t.Errorf("lease b listed as %+v, want purpose triage and no labels", l)
+	}
+	if got := e.hub.RequestsTo("GET", e.path("/sandboxes")); len(got) != 2 {
+		t.Errorf("hub saw %d listings, want 2", len(got))
+	}
+	if _, err := e.client.ListSandboxes(ctx, "not-the-token", "acme"); !errors.Is(err, ErrRefused) {
+		t.Errorf("ListSandboxes with a token hub does not take = %v, want ErrRefused", err)
+	}
+	e.hub.Inject("GET", e.path("/sandboxes"), fakehub.Fault{Status: 503})
+	var unavailable *UnavailableError
+	if _, err := e.client.ListSandboxes(ctx, workerPAT, "acme"); !errors.As(err, &unavailable) {
+		t.Errorf("ListSandboxes answered 503 = %v, want an UnavailableError", err)
+	}
+}
