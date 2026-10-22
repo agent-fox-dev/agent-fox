@@ -74,6 +74,9 @@ const (
 	OpInsertAttempt = "insert_attempt"
 	OpInsertEvent   = "insert_event"
 	OpClaim         = "claim"
+	// OpObserved is asked of the seam by an action of a person (cancel, answer, retry) once
+	// it has seen the state of the job, and before it changes it.
+	OpObserved = "observed"
 )
 
 // Store keeps the jobs, their attempts and their events in the state file. Every

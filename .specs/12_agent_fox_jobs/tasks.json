@@ -366,7 +366,7 @@
       "done_when": [
         "an option answer starts attempt 2 and the runner receives the question, its options and the option label"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

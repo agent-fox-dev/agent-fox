@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"errors"
+	"fmt"
 )
 
 // Unsubscribe is what the removal of a subscription does about the jobs of the workspace.
@@ -24,14 +25,11 @@ func (s *Service) Unsubscribe(ctx context.Context, slug string, remove func() er
 	}
 	var runs []*attemptRun
 	for _, id := range ids {
-		run, err := s.cancel(ctx, id, ErrUnsubscribed)
-		var state *StateError
-		switch {
-		case errors.As(err, &state), errors.Is(err, ErrNotFound):
-			continue // it ended, or was cancelled, in the meantime
-		case err != nil:
+		run, err := s.cancelWhatIsOpen(ctx, id)
+		if err != nil {
 			return err
-		case run != nil:
+		}
+		if run != nil {
 			runs = append(runs, run)
 		}
 	}
@@ -48,4 +46,30 @@ func (s *Service) Unsubscribe(ctx context.Context, slug string, remove func() er
 // WorkspaceOf is the workspace of a job, or ErrNotFound.
 func (s *Service) WorkspaceOf(ctx context.Context, id string) (string, error) {
 	return s.store.WorkspaceOf(ctx, id)
+}
+
+// cancelWhatIsOpen cancels a job with the unsubscribe cause whatever open state it is in:
+// a job that changes state between the look and the cancel is looked at again, and one that
+// has ended or is gone in the meantime is left. It returns the attempt of the job that is in
+// a runner, if there is one.
+func (s *Service) cancelWhatIsOpen(ctx context.Context, id string) (*attemptRun, error) {
+	for range 8 {
+		state, err := s.store.JobState(ctx, id)
+		if errors.Is(err, ErrNotFound) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !state.Open() {
+			return nil, nil
+		}
+		run, err := s.cancel(ctx, id, state, ErrUnsubscribed)
+		var changed *StateError
+		if errors.As(err, &changed) {
+			continue // another action got there first: look again
+		}
+		return run, err
+	}
+	return nil, fmt.Errorf("job %s kept changing state while it was cancelled", id)
 }

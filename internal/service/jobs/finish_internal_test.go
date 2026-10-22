@@ -267,7 +267,7 @@ func TestACancelBeforeTheRunnerIsCalledStopsTheAttemptWithoutCallingIt(t *testin
 	if _, err := svc.store.Claim(ctx, id, 1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.cancel(ctx, id, ErrCancelled); err != nil { // the attempt is running, and no runner has it yet
+	if _, err := svc.cancel(ctx, id, StateRunning, ErrCancelled); err != nil { // the attempt is running, and no runner has it yet
 		t.Fatal(err)
 	}
 	req, out, cause, overran, err := svc.invoke(ctx, attemptPayload{JobID: id, Attempt: 1})
@@ -284,5 +284,108 @@ func TestACancelBeforeTheRunnerIsCalledStopsTheAttemptWithoutCallingIt(t *testin
 	a := doc.Attempts[0]
 	if doc.State != StateCancelled || a.State != AttemptCancelled || a.Error == nil || a.Error.Category != "cancelled" {
 		t.Errorf("job %s, attempt %s %+v, want cancelled with an error of the category cancelled", doc.State, a.State, a.Error)
+	}
+}
+
+// TestOfTwoActionsTakenOnTheSameStateExactlyOneIsApplied_TS_12_55 is TS-12-55 without
+// luck: two actions are held after each has seen the state of the job, and let go
+// together, so both act on the same state, whatever the actions are. Exactly one is
+// applied; the other finds the state gone and is a *StateError. A cancel, an answer and a
+// retry are conditional on the state they were taken on, and not on any state that an action
+// of the same kind could start from.
+// Verifies: 12-REQ-8.6
+func TestOfTwoActionsTakenOnTheSameStateExactlyOneIsApplied_TS_12_55(t *testing.T) {
+	type action struct {
+		name string
+		do   func(svc *Service, id string) error
+	}
+	cancel := action{"cancel", func(svc *Service, id string) error { _, err := svc.Cancel(ctx, id); return err }}
+	answer := action{"answer", func(svc *Service, id string) error {
+		a := "go on"
+		_, err := svc.Answer(ctx, id, "user-2", AnswerRequest{Answer: &a})
+		return err
+	}}
+	retry := action{"retry", func(svc *Service, id string) error { _, err := svc.Retry(ctx, id, "user-2"); return err }}
+
+	for _, tc := range []struct {
+		state State
+		pairs [][2]action
+	}{
+		{StateQueued, [][2]action{{cancel, cancel}}},
+		{StateRunning, [][2]action{{cancel, cancel}}},
+		{StateBlocked, [][2]action{{cancel, cancel}, {answer, answer}, {cancel, answer}, {answer, cancel}}},
+		{StateFailed, [][2]action{{retry, retry}}},
+	} {
+		for _, pair := range tc.pairs {
+			t.Run(fmt.Sprintf("%s: %s and %s", tc.state, pair[0].name, pair[1].name), func(t *testing.T) {
+				// The service is not started: nothing but the two actions moves the job.
+				db := openDB(t)
+				svc, err := New(Config{DB: db, Subscriptions: anySubscription{}, Workers: 1, Runner: funcRunner(func(context.Context, Request) (Result, error) { return Result{}, nil }),
+					AttemptsDir: filepath.Join(t.TempDir(), "attempts")})
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { svc.Close() })
+				id, err := svc.store.CreateJob(ctx, newJob(KindFix, 1))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.Exec("UPDATE af_jobs SET state = ? WHERE id = ?", string(tc.state), id); err != nil {
+					t.Fatal(err)
+				}
+				if tc.state == StateBlocked {
+					if _, err := db.Exec("UPDATE af_attempts SET state = 'needs_human', question = 'Which?', options = '[]' WHERE job_id = ?", id); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if tc.state == StateFailed {
+					if _, err := db.Exec("UPDATE af_jobs SET finished_at = '2026-10-22T08:00:00.000Z' WHERE id = ?", id); err != nil {
+						t.Fatal(err)
+					}
+				}
+
+				// Each action waits, once it has seen the state, for the other to have seen it.
+				var seen sync.WaitGroup
+				seen.Add(2)
+				svc.store.SetFault(func(op string) error {
+					if op == OpObserved {
+						seen.Done()
+						seen.Wait()
+					}
+					return nil
+				})
+				errs := make([]error, 2)
+				var done sync.WaitGroup
+				for i, a := range pair {
+					done.Add(1)
+					go func() {
+						defer done.Done()
+						errs[i] = a.do(svc, id)
+					}()
+				}
+				done.Wait()
+
+				applied := 0
+				for _, err := range errs {
+					var state *StateError
+					switch {
+					case err == nil:
+						applied++
+					case !errors.As(err, &state):
+						t.Fatalf("an action failed with %v, want it applied or a *StateError", err)
+					}
+				}
+				if applied != 1 {
+					t.Errorf("%s and %s on the same %s job: %d applied (%v), want exactly one", pair[0].name, pair[1].name, tc.state, applied, errs)
+				}
+				doc, err := svc.Get(ctx, id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(doc.Attempts) > 2 {
+					t.Errorf("%d attempts, want at most one new", len(doc.Attempts))
+				}
+			})
+		}
 	}
 }

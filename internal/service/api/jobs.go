@@ -30,6 +30,8 @@ func (s *server) jobRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/workspaces/{slug}/triage", s.inWorkspace(s.createJob(jobs.KindTriage, triageBodyLimit)))
 	mux.HandleFunc("POST /api/v1/workspaces/{slug}/fix", s.inWorkspace(s.createJob(jobs.KindFix, fixBodyLimit)))
 	mux.HandleFunc("POST /api/v1/jobs/{id}/cancel", s.inJob(s.cancelJob))
+	mux.HandleFunc("POST /api/v1/jobs/{id}/answer", s.inJob(s.answerJob))
+	mux.HandleFunc("POST /api/v1/jobs/{id}/retry", s.inJob(s.retryJob))
 }
 
 // writeJobNotFound answers 404 for a job. One answer serves a job that does not exist and
@@ -95,7 +97,7 @@ func (s *server) cancelJob(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	doc, err := s.deps.Jobs.Cancel(r.Context(), id)
 	if err != nil {
-		s.jobRefusal(w, r, "the job could not be cancelled", err)
+		s.jobRefusal(w, r, "the job could not be cancelled", err, true)
 		return
 	}
 	writeJSON(w, http.StatusOK, doc)
@@ -138,7 +140,7 @@ func (s *server) createJob(kind jobs.Kind, limit int64) func(http.ResponseWriter
 			Source: jobs.Source{Kind: "api", By: principalOf(r).user},
 		})
 		if err != nil {
-			s.jobRefusal(w, r, "the job could not be created", err)
+			s.jobRefusal(w, r, "the job could not be created", err, false)
 			return
 		}
 		writeJSON(w, http.StatusAccepted, doc)
@@ -147,7 +149,7 @@ func (s *server) createJob(kind jobs.Kind, limit int64) func(http.ResponseWriter
 
 // jobRefusal answers the error of the jobs layer: the refusals it names are the
 // answer of the request, anything else is a failure of the service.
-func (s *server) jobRefusal(w http.ResponseWriter, r *http.Request, what string, err error) {
+func (s *server) jobRefusal(w http.ResponseWriter, r *http.Request, what string, err error, ofAJob bool) {
 	var invalid *jobs.ValidationError
 	var duplicate *jobs.DuplicateError
 	var state *jobs.StateError
@@ -158,6 +160,9 @@ func (s *server) jobRefusal(w http.ResponseWriter, r *http.Request, what string,
 		writeJobNotFound(w)
 	case errors.As(err, &state):
 		writeError(w, CodeInvalidState, fmt.Sprintf("the job is %s", state.State))
+	case errors.Is(err, jobs.ErrNotSubscribed) && ofAJob:
+		// The job is one the caller sees, so a 404 would say it does not exist: this says what is wrong.
+		writeError(w, CodeNotSubscribed, "the workspace is not subscribed")
 	case errors.Is(err, jobs.ErrNotSubscribed):
 		writeNotFound(w)
 	case errors.Is(err, jobs.ErrTokenUnreadable):
@@ -201,4 +206,47 @@ func invalidUTF8Field(data []byte) string {
 		return "body"
 	}
 	return "body"
+}
+
+// answerBody is the body of an answer: exactly one of the two.
+type answerBody struct {
+	Answer *string `json:"answer"`
+	Option *string `json:"option"`
+}
+
+// answerJob is POST /api/v1/jobs/{id}/answer: the question of a blocked job is answered, in
+// text or with an option, and the job is queued again. 202, with the job.
+func (s *server) answerJob(w http.ResponseWriter, r *http.Request, id string) {
+	data, ok := readBodyOrNothing(w, r, maxBody) // no body at all is a 400 about the body, not a 415
+	if !ok {
+		return
+	}
+	if field := invalidUTF8Field(data); field != "" {
+		writeError(w, CodeInvalidRequest, field+": must be valid UTF-8")
+		return
+	}
+	var body answerBody
+	if !decodeJSON(w, data, &body) {
+		return
+	}
+	doc, err := s.deps.Jobs.Answer(r.Context(), id, principalOf(r).user, jobs.AnswerRequest{Answer: body.Answer, Option: body.Option})
+	if err != nil {
+		s.jobRefusal(w, r, "the job could not be answered", err, true)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, doc)
+}
+
+// retryJob is POST /api/v1/jobs/{id}/retry: a failed job is asked for again, with no body or
+// {}, and queued. 202, with the job.
+func (s *server) retryJob(w http.ResponseWriter, r *http.Request, id string) {
+	if !noBody(w, r) {
+		return
+	}
+	doc, err := s.deps.Jobs.Retry(r.Context(), id, principalOf(r).user)
+	if err != nil {
+		s.jobRefusal(w, r, "the job could not be retried", err, true)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, doc)
 }

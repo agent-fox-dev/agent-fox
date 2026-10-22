@@ -13,18 +13,20 @@ type cancelled struct {
 	queued []int
 }
 
-// CancelJob moves a job that is queued, running or blocked to cancelled at once, with
-// finished_at set, and the request label it consumed marked to be put back. The
-// attempts that are queued, one that waits out a backoff included, become cancelled and
-// never reach a runner; an attempt that is running stays running until its runner has
-// returned. A job in another state is a *StateError, and nothing is changed.
-func (s *Store) CancelJob(ctx context.Context, id string) (cancelled, error) {
+// CancelJob moves a job that is in state from, which is queued, running or blocked, to
+// cancelled at once, with finished_at set, and the request label it consumed marked to be
+// put back. The attempts that are queued, one that waits out a backoff included, become
+// cancelled and never reach a runner; an attempt that is running stays running until its
+// runner has returned. A job that is in another state than from, even another that could
+// be cancelled, is a *StateError, and nothing is changed: of two actions that were each
+// taken on the state the job was seen in, the second finds the state gone.
+func (s *Store) CancelJob(ctx context.Context, id string, from State) (cancelled, error) {
 	var found cancelled
 	err := s.run(ctx, id, func(x *txn) error {
 		now := formatTime(s.now())
 		res, err := x.ExecContext(ctx,
 			`UPDATE af_jobs SET state = 'cancelled', finished_at = ?, labels_restore = COALESCE(request_label, labels_restore)
-			 WHERE id = ? AND state IN ('queued', 'running', 'blocked')`, now, id)
+			 WHERE id = ? AND state = ?`, now, id, string(from))
 		if err != nil {
 			return fmt.Errorf("job %s: %w", id, err)
 		}
@@ -90,7 +92,17 @@ func (s *Store) OpenJobIDs(ctx context.Context, workspace string) ([]string, err
 // returns it: it reads cancelled at once, and the runner of its running attempt, if it
 // has one, is told with the cancel cause. See cancel.
 func (s *Service) Cancel(ctx context.Context, id string) (Doc, error) {
-	if _, err := s.cancel(ctx, id, ErrCancelled); err != nil {
+	state, err := s.store.JobState(ctx, id)
+	if err != nil {
+		return Doc{}, err
+	}
+	if !state.Open() {
+		return Doc{}, &StateError{State: state}
+	}
+	if err := s.store.fails(OpObserved); err != nil {
+		return Doc{}, err
+	}
+	if _, err := s.cancel(ctx, id, state, ErrCancelled); err != nil {
 		return Doc{}, err
 	}
 	return s.store.Doc(ctx, id, false)
@@ -102,8 +114,8 @@ func (s *Service) Cancel(ctx context.Context, id string) (Doc, error) {
 // the workspace; the running attempt's context is cancelled with the cause, and a
 // timer of the grace starts: a runner that has not returned when it ends has its
 // attempt recorded cancelled without it.
-func (s *Service) cancel(ctx context.Context, id string, cause error) (*attemptRun, error) {
-	found, err := s.store.CancelJob(ctx, id)
+func (s *Service) cancel(ctx context.Context, id string, from State, cause error) (*attemptRun, error) {
+	found, err := s.store.CancelJob(ctx, id, from)
 	if err != nil {
 		return nil, err
 	}

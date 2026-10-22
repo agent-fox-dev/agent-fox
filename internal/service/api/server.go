@@ -296,6 +296,25 @@ func readBody(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, bool
 	return data, true
 }
 
+// readBodyOrNothing is readBody for a route where a body that is not there is its own
+// answer: nothing is returned for it, whatever the content type says; anything else must
+// be application/json and at most limit bytes.
+func readBodyOrNothing(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, bool) {
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
+	if err != nil {
+		bodyError(w, err, limit)
+		return nil, false
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, true
+	}
+	if mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mediaType != "application/json" {
+		writeError(w, CodeUnsupportedMedia, "the body must be application/json")
+		return nil, false
+	}
+	return data, true
+}
+
 // decodeJSON decodes a body into v: one JSON value, nothing after it, and no field
 // that v does not have. Otherwise it answers 400 and reports false.
 func decodeJSON(w http.ResponseWriter, data []byte, v any) bool {

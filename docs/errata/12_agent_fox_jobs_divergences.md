@@ -159,3 +159,42 @@ The spec says a cancel makes a queued attempt "cancelled" and a running one canc
 The category `cancelled` is also what a runner gets that returns an error, a transient failure or something that
 is not an envelope after a cancel, and what an attempt gets when the grace runs out (TS-12-42, TS-12-51).
 A DELETE whose answer or retry half is TS-12-56's comes with task 8.
+
+## 10. "Exactly one of two racing actions" holds for actions taken on the same state (task 8)
+
+**Spec:** 12-REQ-8.6 and TS-12-55: for any two actions racing on one job, exactly one is applied through a
+conditional state transition, and the other answers 409 `invalid_state`.
+
+**What can be true:** two different actions that arrive one after the other are both valid in that order. On a
+blocked job an answer queues it and a cancel of the queued job is valid; a retry of a failed job that fails again at
+once can be retried again. Which of the two requests of a test comes first is not the test's to say, so that the
+outcome "exactly one" is not a property of requests that arrive close together. It is a property of requests that
+were taken on the same state of the job, which is what a conditional transition gives.
+
+**Code:** a cancel, an answer and a retry each look at the state of the job and change it only if it is still that
+state (`Store.CancelJob(ctx, id, from)`, `Store.Requeue(ctx, id, from, …)`); the second of two actions that saw
+the same state finds it gone and is a `*StateError`, which the routes answer 409 `invalid_state`. A cancel does
+not apply to any state that a cancel could start from, but to the state it saw (`internal/service/jobs/cancel.go`,
+`actions.go`). A lost change is not tried again: the person is told, and may ask again.
+
+**Test:** `TestOfTwoActionsTakenOnTheSameStateExactlyOneIsApplied_TS_12_55` (`finish_internal_test.go`) holds both
+actions, with the seam `OpObserved`, after each has seen the state and lets them go together, for every pair that
+the state allows, mixed ones included: exactly one is applied every time. `TestForAnyTwoActionsRacing…_TS_12_55`
+(`actions_test.go`) fires the pairs over HTTP, and accepts for a pair of two different actions the outcome "both
+applied" only as an answer and then a cancel, with the job ending cancelled.
+
+## 11. A retry that would make a second open job for an issue is 409 duplicate_job (task 8)
+
+**Spec:** 12-REQ-3.5 refuses a second open job of a kind for an issue at creation. A retry of a failed job puts
+the job open again, and the spec does not say what happens if another open job of the kind has taken the issue
+since.
+
+**Code:** the partial unique index of migration 2 refuses it, and the retry is 409 `duplicate_job` naming the job
+that holds the issue (`actions.go`, `requeue`), as a creation would be. The reason is the one of Design Decision
+14: two fix attempts on one issue would collide on its branch.
+
+## 12. An answer with no body at all is 400, not 415 (task 8)
+
+An answer without a body has no content type either, and the check of the content type would have made it 415.
+It is the body that is missing, so it is a 400 `invalid_request` (`readBodyOrNothing`, `internal/service/api/server.go`);
+a body that is there but is not `application/json` is still 415.

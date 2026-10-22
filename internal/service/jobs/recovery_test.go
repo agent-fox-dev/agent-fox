@@ -144,11 +144,16 @@ func TestShutdownStopsClaimingCancelsRunnersWithTheShutdownCauseAndWaitsUpTo30s_
 		r := fakerunner.New(fakerunner.Block(fakerunner.Step{}))
 		e := newEnv(t, withRunner(r), withWorkers(1), withClock(clk))
 		e.addWorkspace("gadgets")
-		held := e.create("widgets", jobs.KindFix, 1)
-		waiting := e.create("gadgets", jobs.KindFix, 2)
+		first := e.create("widgets", jobs.KindFix, 1)
+		second := e.create("gadgets", jobs.KindFix, 2)
 		e.Start()
 		waitCalls(t, r, 1)
-		settle() // the second job's handler waits for the slot
+		settle() // the other job's handler waits for the slot
+		// Which of the two workspaces gets the only slot is for the queue to say.
+		held, waiting := first, second
+		if r.Calls()[0].JobID == second.ID {
+			held, waiting = second, first
+		}
 
 		done := closeInBackground(e)
 		waitFor(t, "the runner to be told", func() bool { return r.Calls()[0].Cause() != nil })
