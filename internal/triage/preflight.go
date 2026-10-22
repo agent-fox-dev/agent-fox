@@ -22,7 +22,7 @@ const (
 // WarnIssueClosed is the warning of a run on an issue that is closed.
 const WarnIssueClosed = "issue_closed"
 
-// The categories of a refusal; cmd/af maps them to the shell's.
+// The categories of a refusal; internal/afcmd maps them to the shell's.
 const (
 	CategoryUsage = "usage"
 	CategoryAuth  = "auth"

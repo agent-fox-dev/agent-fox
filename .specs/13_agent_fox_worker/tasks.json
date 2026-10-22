@@ -89,7 +89,7 @@
       "done_when": [
         "`make check` passes and cmd/af/testdata/schema.golden.json is unchanged"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,

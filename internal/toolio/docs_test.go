@@ -197,7 +197,7 @@ func TestDocumentationNamesWhatTheShellDefines_TS_05_72(t *testing.T) {
 // identifiers; TestMain makes the default HTTP transport refuse to dial them.
 var hostsAllowedInTests = map[string]bool{
 	"127.0.0.1": true, "localhost": true, "[::1]": true,
-	"github.com": true, "example.com": true, "example.invalid": true, "json-schema.org": true,
+	"github.com": true, "gitlab.com": true, "example.com": true, "example.invalid": true, "json-schema.org": true,
 }
 
 // TestTestsStayOffTheNetwork_TS_05_73 verifies TS-05-73:
@@ -214,6 +214,8 @@ func TestTestsStayOffTheNetwork_TS_05_73(t *testing.T) {
 
 	files, _ := filepath.Glob("*_test.go")
 	more, _ := filepath.Glob(filepath.Join(repoRoot, "cmd", "af", "*_test.go"))
+	commands, _ := filepath.Glob(filepath.Join(repoRoot, "internal", "afcmd", "*_test.go"))
+	more = append(more, commands...)
 	urlPattern := regexp.MustCompile(`https?://[^\s"'` + "`" + `<>)]+`)
 	forbidden := regexp.MustCompile(`\bhttp\.(Get|Post|Head|PostForm)\(|http\.DefaultClient|\bnet\.Dial(Timeout)?\(`)
 	for _, file := range append(files, more...) {

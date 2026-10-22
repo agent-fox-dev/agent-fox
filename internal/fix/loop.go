@@ -87,6 +87,9 @@ type LoopParams struct {
 	// in the box as a process (no fix.json there), and claude submits with the command alone.
 	DriverInBox bool
 	CommandOnly bool
+	// Earlier is the question each answer of the run answers, when the caller knows them;
+	// nil is to search the run directories for them.
+	Earlier []Earlier
 	// Gate and Conform are the seams of Measure.
 	Gate    func(ctx context.Context, dir string, o checks.Options) (checks.Result, error)
 	Conform func(ctx context.Context, dir, since string, o conform.Options) (conform.Result, error)
@@ -127,7 +130,10 @@ type LoopResult struct {
 func RunLoop(ctx context.Context, p LoopParams) (LoopResult, error) {
 	st := p.State
 	res := LoopResult{}
-	earlier := FindEarlier(p.Dir, st.Input.Key, st.Context, st.RunID)
+	earlier := p.Earlier
+	if earlier == nil {
+		earlier = FindEarlier(p.Dir, st.Input.Key, st.Context, st.RunID)
+	}
 	baseline := time.Duration(st.BaselineMS) * time.Millisecond
 	placed := &Placed{}
 	end := func(kind string, err error) (LoopResult, error) {

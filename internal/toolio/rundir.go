@@ -76,31 +76,16 @@ func NewRunDir(dir string, now func() time.Time, rnd io.Reader) (*RunDir, error)
 	if now == nil {
 		now = time.Now
 	}
-	if rnd == nil {
-		rnd = rand.Reader
-	}
-	abs, err := filepath.Abs(dir)
+	runs, err := runsDirOf(dir)
 	if err != nil {
-		return nil, &Failure{Category: CategoryIO, Message: fmt.Sprintf("cannot resolve %s: %v", dir, err)}
-	}
-	if failure := checkDir(abs); failure != nil {
-		return nil, failure
-	}
-	agent, err := agentdir.Ensure(abs)
-	if err != nil {
-		return nil, &Failure{Category: CategoryIO, Message: fmt.Sprintf("cannot create %s: %v", filepath.Join(abs, agentDir), err)}
-	}
-	runs := filepath.Join(agent, runsDir)
-	if err := os.MkdirAll(runs, 0o755); err != nil {
-		return nil, &Failure{Category: CategoryIO, Message: fmt.Sprintf("cannot create %s: %v", runs, err)}
+		return nil, err
 	}
 
 	for range runIDAttempts {
-		var suffix [3]byte
-		if _, err := io.ReadFull(rnd, suffix[:]); err != nil {
-			return nil, &Failure{Category: CategoryIO, Message: fmt.Sprintf("cannot draw a run id: %v", err)}
+		id, err := NewRunID(now, rnd)
+		if err != nil {
+			return nil, err
 		}
-		id := now().UTC().Format("20060102_150405") + "_" + hex.EncodeToString(suffix[:])
 		path := filepath.Join(runs, id)
 		switch err := os.Mkdir(path, 0o755); {
 		case err == nil:
@@ -110,6 +95,61 @@ func NewRunDir(dir string, now func() time.Time, rnd io.Reader) (*RunDir, error)
 		}
 	}
 	return nil, &Failure{Category: CategoryIO, Message: fmt.Sprintf("every one of %d run ids was taken in %s", runIDAttempts, runs)}
+}
+
+// NewRunID draws a run id: the time in UTC and three random bytes, in the form
+// YYYYMMDD_HHMMSS_<6 hex> that a run directory is named with. now and rnd are the clock
+// and the source of the random bytes; nil means the real ones.
+func NewRunID(now func() time.Time, rnd io.Reader) (string, error) {
+	if now == nil {
+		now = time.Now
+	}
+	if rnd == nil {
+		rnd = rand.Reader
+	}
+	var suffix [3]byte
+	if _, err := io.ReadFull(rnd, suffix[:]); err != nil {
+		return "", &Failure{Category: CategoryIO, Message: fmt.Sprintf("cannot draw a run id: %v", err)}
+	}
+	return now().UTC().Format("20060102_150405") + "_" + hex.EncodeToString(suffix[:]), nil
+}
+
+// runsDirOf is the directory that the run directories of dir are in, made with dir/.agent-fox
+// and its .gitignore when they are missing.
+func runsDirOf(dir string) (string, error) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", &Failure{Category: CategoryIO, Message: fmt.Sprintf("cannot resolve %s: %v", dir, err)}
+	}
+	if failure := checkDir(abs); failure != nil {
+		return "", failure
+	}
+	agent, err := agentdir.Ensure(abs)
+	if err != nil {
+		return "", &Failure{Category: CategoryIO, Message: fmt.Sprintf("cannot create %s: %v", filepath.Join(abs, agentDir), err)}
+	}
+	runs := filepath.Join(agent, runsDir)
+	if err := os.MkdirAll(runs, 0o755); err != nil {
+		return "", &Failure{Category: CategoryIO, Message: fmt.Sprintf("cannot create %s: %v", runs, err)}
+	}
+	return runs, nil
+}
+
+// newRunDirFor creates the run directory of an invocation of app: the one named with the
+// run id the caller chose, if it chose one, and otherwise one with a drawn id.
+func newRunDirFor(app *App, dir string) (*RunDir, error) {
+	if app.RunID == "" {
+		return NewRunDir(dir, app.now, app.Rand)
+	}
+	runs, err := runsDirOf(dir)
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(runs, app.RunID)
+	if err := os.Mkdir(path, 0o755); err != nil {
+		return nil, &Failure{Category: CategoryIO, Message: fmt.Sprintf("cannot create the run directory %s: %v", path, err)}
+	}
+	return &RunDir{ID: app.RunID, Path: path, now: app.now}, nil
 }
 
 // OpenRunDir opens the existing run id under dir, for the commands that

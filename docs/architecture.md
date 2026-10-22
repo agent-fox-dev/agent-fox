@@ -175,7 +175,7 @@ Six of these commands exist: `af lang detect`, `af gate run`, `af gate
 compare`, `af revert-check`, `af guard check` and `af map`. (`af guard check`
 is listed with ring 2 above, for the hook it serves; as built it is a fact
 command like the others: it reads one payload and writes nothing.) Each is a
-file in `cmd/af` over a package that knows nothing of the shell and returns a
+file in `internal/afcmd` over a package that knows nothing of the shell and returns a
 plain result, so that the loops of later specs call the same code in process:
 
 | Package | Commands | What it holds |
@@ -637,7 +637,7 @@ validator, a body format and a landing.
 | Path | What it holds |
 |---|---|
 | `internal/triage/` | The part with no shell in it: the diagnosis and its validator (`Validate`, which checks every path against the file view and collects every problem), the body (`Render`, `Extract`), the brief (`BuildBrief`), the preflight, the landing on a forge (`Land`), the submission kind (`Kind`) and the tool allowlist. It imports `issuex`, `submission`, `checks`, `repomap`, `agentdir` and the `skills` package, and none of `toolio`, `box` or `brain` itself. |
-| `cmd/af/triage.go` | The five commands on the shell: the loop, `brief`, `run`, `submit` and `land`. It does what needs the shell, the box and the brains: the run directory and its ledger, the forge client, `box.With` and `brain.Execute`, the envelope. |
+| `internal/afcmd/triage.go` | The five commands on the shell: the loop, `brief`, `run`, `submit` and `land`. It does what needs the shell, the box and the brains: the run directory and its ledger, the forge client, `box.With` and `brain.Execute`, the envelope. |
 | `skills/af-triage` and `skills/skills.go` | The skill that says how to diagnose. The `skills` package embeds every `af-*` entry (`//go:embed af-*`), and `skills.Triage()` is the body that the brief carries, so the skill a person installs with `make install-skills` and the one the brain reads are the same file. |
 | `internal/triage/fakeforge/` | The GitHub and GitLab server of the tests, over `httptest`. |
 
@@ -709,7 +709,7 @@ other effect, from the tree the brain left and from checks that `af` ran on it.
 | Path | What it holds |
 |---|---|
 | `internal/fix/` | The feature with no shell in it: the preflight (`Preflight`, `CheckLanding`), the state of a run (`State`, `fix.json`), the brief (`BuildPrefix`, `TaskBlock`, `NewBrief`), the submission kind (`Kind`, the `fix_report` and its validator), `Apply`, `Measure`, `Land`, `Park`, the body of the pull request (`RenderBody`), the loop (`RunLoop`) and its ending (`Finish`), and the result (`Result`). It imports `gitx`, `checks`, `conform`, `policy`, `project`, `repomap`, `box`, `brain`, `submission`, `issuex` and the `skills` package. |
-| `cmd/af/fix.go`, `fix_brief.go`, `fix_run.go`, `fix_land.go` | The five commands on the shell: the loop, `brief` and `submit`, `run`, and `land`. They do what needs the shell: the run directory and its ledger, the forge client, `box.With`, the envelope and its schemas (`cmd/af/schemas/fix*.json`). |
+| `internal/afcmd/fix.go`, `fix_brief.go`, `fix_run.go`, `fix_land.go` | The five commands on the shell: the loop, `brief` and `submit`, `run`, and `land`. They do what needs the shell: the run directory and its ledger, the forge client, `box.With`, the envelope and its schemas (`internal/afcmd/schemas/fix*.json`). |
 | `skills/af-fix` | The skill that says how to fix, compiled into the binary and carried by the brief (`skills.Fix()`), and the file a person installs with `make install-skills`. |
 | `internal/triage/fakeforge/` | The server of the tests, which gained pull and merge requests. |
 

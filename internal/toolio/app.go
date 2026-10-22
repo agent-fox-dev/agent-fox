@@ -57,6 +57,29 @@ type App struct {
 	// seconds when zero.
 	Grace time.Duration
 
+	// The fields below are for a caller that runs a command in its own process, as
+	// agent-fox does, and not for the af binary. Each is read at the start of an
+	// invocation and leaves af's behavior as it is while it is zero.
+
+	// NoSignals installs no handler for SIGINT, SIGTERM and SIGHUP: the context given
+	// to Main is the only way a command is stopped, besides --timeout and Grace, which
+	// apply as always.
+	NoSignals bool
+	// EventSink, when set, is called with every event line as it is written to the
+	// event files, in the same order and with the same bytes, less the newline. The
+	// slice is the sink's only for the call. The sink is called with the stream's lock
+	// held, so it must not call back into the run.
+	EventSink func(line []byte)
+	// RunID, when set, is the id of the run directory and the envelope's run_id, in
+	// place of one drawn. An id that is not of the form YYYYMMDD_HHMMSS_<6 hex> is a
+	// usage failure, before anything is created.
+	RunID string
+	// Target, when it is valid (a host included), is the repository every command that
+	// uses a forge works on, whatever the input: the forge client is built for it, in
+	// place of --repo and the origin of --dir, and an issue URL on another repository is
+	// a usage failure.
+	Target issuex.Repo
+
 	commands []*Command
 }
 
@@ -294,8 +317,12 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 		return inv.finish()
 	}
 
-	sigCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-	defer stop()
+	sigCtx := ctx
+	if !a.NoSignals {
+		var stop context.CancelFunc
+		sigCtx, stop = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+		defer stop()
+	}
 	if err := inv.prepare(sigCtx, stdin); err != nil {
 		inv.env.fail(failureOf(err, stderr))
 		return inv.finish()
@@ -342,11 +369,14 @@ func (inv *invocation) setup(cmd *Command, words []string, values *flagValues, p
 		Stderr:  inv.stderr,
 		app:     inv.app,
 	}
-	if values.emitEvents != "" || cmd.UsesRunDir {
+	if values.emitEvents != "" || cmd.UsesRunDir || inv.app.EventSink != nil {
 		inv.events = newEventStream(inv.app.now, inv.run.Warn)
 		inv.run.events = inv.events
 		if values.emitEvents != "" {
 			inv.events.addFile(values.emitEvents)
+		}
+		if inv.app.EventSink != nil {
+			inv.events.addFunc(inv.app.EventSink)
 		}
 	}
 }
@@ -356,6 +386,9 @@ func (inv *invocation) setup(cmd *Command, words []string, values *flagValues, p
 // input, and a run directory; then it starts the events.
 func (inv *invocation) prepare(ctx context.Context, stdin io.Reader) error {
 	cmd, run, values := inv.cmd, inv.run, inv.values
+	if id := inv.app.RunID; id != "" && !runIDFormat.MatchString(id) {
+		return &Failure{Category: CategoryUsage, Message: fmt.Sprintf("the run id %q is not of the form YYYYMMDD_HHMMSS_<6 hex>", id)}
+	}
 	if cmd.UsesForge {
 		client, target, err := inv.app.forgeFor(cmd, values, run.Args)
 		if err != nil {
@@ -386,7 +419,7 @@ func (inv *invocation) prepare(ctx context.Context, stdin io.Reader) error {
 	}
 
 	if cmd.UsesRunDir {
-		rd, err := NewRunDir(values.dir, inv.app.now, inv.app.Rand)
+		rd, err := newRunDirFor(inv.app, values.dir)
 		if err != nil {
 			return err
 		}

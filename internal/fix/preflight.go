@@ -54,6 +54,8 @@ type PreflightParams struct {
 	NewBrain func() (brain.Brain, error)
 	// Gate runs the checks of the baseline; checks.Run when it is nil.
 	Gate func(ctx context.Context, dir string, o checks.Options) (checks.Result, error)
+	// GitRunner runs the git commands of the run; gitx.ExecRunner when it is nil.
+	GitRunner gitx.Runner
 	// Warn raises a warning of the run.
 	Warn func(code, message string)
 }
@@ -80,7 +82,11 @@ type Preflighted struct {
 // runs the gate once on the tree as it is, which is the baseline a change is
 // compared with, unless the run is not verified.
 func Preflight(ctx context.Context, p PreflightParams) (Preflighted, error) {
-	g := gitx.New(p.Dir, gitx.ExecRunner)
+	runner := p.GitRunner
+	if runner == nil {
+		runner = gitx.ExecRunner
+	}
+	g := gitx.New(p.Dir, runner)
 	if err := checkTopLevel(ctx, g, p.Dir); err != nil {
 		return Preflighted{}, err
 	}

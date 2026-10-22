@@ -2,18 +2,15 @@
 // contract, which internal/toolio implements: one JSON envelope on stdout,
 // a fixed table of statuses and exit codes, a resumable needs_human stop, a
 // --dry-run that cannot write to the forge, and a schema that af --schema
-// prints. This package registers the commands and passes the process's
-// arguments and streams to the shell.
+// prints. The commands are in internal/afcmd; this package passes the
+// process's arguments and streams to the shell they are registered on.
 package main
 
 import (
 	"context"
-	"embed"
-	"encoding/json"
-	"fmt"
 	"os"
 
-	"github.com/agent-fox-dev/agentfox/internal/brain"
+	"github.com/agent-fox-dev/agentfox/internal/afcmd"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -30,46 +27,5 @@ func main() {
 
 // newApp returns the shell with the commands of the binary registered.
 func newApp() *toolio.App {
-	app := &toolio.App{Version: version, Commit: commit, BuildTime: buildTime}
-	register(app)
-	return app
-}
-
-// baseOptions are the options every brain is made from: the model of AF_MODEL, and which af
-// this is, so that the af of an image that is another can be told.
-func baseOptions() brain.Options {
-	v, c := (&toolio.App{Version: version, Commit: commit, BuildTime: buildTime}).Identity()
-	return brain.Options{Model: os.Getenv("AF_MODEL"), AFVersion: v, AFCommit: c}
-}
-
-// schemaFiles are the JSON Schemas of the commands' results, embedded in the
-// binary so that af --schema prints them.
-//
-//go:embed schemas/*.json
-var schemaFiles embed.FS
-
-// resultSchema is the embedded schema schemas/<name>.json. A missing file is
-// a mistake in the build, which a test finds, and not a condition to handle.
-func resultSchema(name string) json.RawMessage {
-	data, err := schemaFiles.ReadFile("schemas/" + name + ".json")
-	if err != nil {
-		panic(fmt.Sprintf("the result schema %q is not embedded: %v", name, err))
-	}
-	return data
-}
-
-// register registers the commands of the binary on app.
-func register(app *toolio.App) {
-	registerLang(app)
-	registerGate(app)
-	registerGateCompare(app)
-	registerRevertCheck(app)
-	registerGuard(app)
-	registerMap(app)
-	registerTriage(app)
-	registerFix(app)
-	registerFixBrief(app)
-	registerFixRun(app)
-	registerFixSubmit(app)
-	registerFixLand(app)
+	return afcmd.New(&afcmd.Config{Version: version, Commit: commit, BuildTime: buildTime})
 }

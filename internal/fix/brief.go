@@ -213,6 +213,9 @@ type Earlier struct {
 	Answer   string
 	// Found says the question was found in an earlier run.
 	Found bool
+	// Material says the caller knows the value to answer no question: it is material
+	// from a person, and not an answer to a question that could not be found.
+	Material bool
 }
 
 // TaskParams is what the task block is rendered from.
@@ -249,10 +252,13 @@ func TaskBlock(p TaskParams) string {
 			b.WriteString(fenced("The question you asked:", text) + "\n")
 		}
 		label := "A person's answer:"
-		if len(p.Earlier) > 1 {
-			label = fmt.Sprintf("A person's answer (%d of %d):", i+1, len(p.Earlier))
+		if e.Material {
+			label = "Material from a person:"
 		}
-		if !e.Found {
+		if len(p.Earlier) > 1 {
+			label = strings.TrimSuffix(label, ":") + fmt.Sprintf(" (%d of %d):", i+1, len(p.Earlier))
+		}
+		if !e.Found && !e.Material {
 			label = strings.TrimSuffix(label, ":") + ", to a question that could not be found:"
 		}
 		b.WriteString(fenced(label, e.Answer) + "\n")
