@@ -100,7 +100,7 @@
       "done_when": [
         "a valid fix and triage body answers 202 with a queued job and every invalid body answers 400 naming the field"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

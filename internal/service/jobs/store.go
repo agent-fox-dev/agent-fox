@@ -428,3 +428,16 @@ func (s *Store) transition(ctx context.Context, tx *sql.Tx, id string, from []St
 	n, err := res.RowsAffected()
 	return n > 0, err
 }
+
+// OpenJobID is the id of the open job of a kind for an issue on a workspace, or
+// ErrNotFound.
+func (s *Store) OpenJobID(ctx context.Context, workspace string, kind Kind, issue int64) (string, error) {
+	var id string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT id FROM af_jobs WHERE workspace = ? AND kind = ? AND issue = ? AND state IN ('queued', 'running', 'blocked')",
+		workspace, string(kind), issue).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return id, err
+}
