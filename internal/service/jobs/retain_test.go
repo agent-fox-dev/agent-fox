@@ -145,7 +145,7 @@ func TestThePurgeRunsWhenTheServiceStarts_TS_12_5(t *testing.T) {
 
 	clk.Advance(31 * time.Minute) // the service is closed: nothing ticks
 	e.kept(old.ID)
-	svc := e.newService(fakerunner.New(), clk)
+	svc := e.newService(fakerunner.New(), clk, withRetain(time.Hour))
 	if err := svc.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +378,7 @@ func TestThePurgeGoesThroughMoreJobsThanOneReadHoldsAndPassesOverTheOnesItCannot
 // Verifies: 12-REQ-1.5
 func TestWithoutARetentionInTheConfigurationAFinishedJobIsKeptFor720Hours_TS_12_5(t *testing.T) {
 	clk := fakeclock.New(epoch)
-	e := newEnv(t, withRunner(fakerunner.New(fakerunner.Done())), withClock(clk))
+	e := newEnv(t, withRunner(fakerunner.New(fakerunner.Done())), withClock(clk), withRetain(0)) // 0: the default
 	job := e.create("widgets", jobs.KindFix, 1)
 	e.Start()
 	e.waitRest(job.ID)

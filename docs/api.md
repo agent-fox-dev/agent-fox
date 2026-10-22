@@ -333,9 +333,10 @@ the label of the option.
 with attempt *n*+1 (trigger `retry`). If another job has taken the issue meanwhile, it is `409` `duplicate_job`.
 
 Both check, in this order: the job exists and its workspace is one the caller sees (`404`, one answer for both);
-the state (`409` `invalid_state`, naming it: `blocked` for an answer, `failed` for a retry); the workspace is
-subscribed and not being unsubscribed (`409` `not_subscribed`) and its token opens (`409` `token_unreadable`);
-the body (`400`, or `413`, `415`). A refusal changes nothing. A cancel, an answer and a retry change the job only
+a body that is too large or not `application/json` (`413`, `415`), as soon as it is read; the state (`409`
+`invalid_state`, naming it: `blocked` for an answer, `failed` for a retry); the workspace is subscribed and not
+being unsubscribed (`409` `not_subscribed`) and its token opens (`409` `token_unreadable`); and last that the body
+is exactly one valid answer or option (`400`). A refusal changes nothing. A cancel, an answer and a retry change the job only
 if it is still in the state they looked at, so of two requests that arrive together one is applied and the other
 is `409` `invalid_state`.
 

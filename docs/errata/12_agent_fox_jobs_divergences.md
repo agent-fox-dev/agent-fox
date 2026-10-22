@@ -71,7 +71,7 @@ called in the order they were made; TS-12-25 checks the order of a burst.
 
 **Code:** `jobs.Result.Envelope` is a `json.RawMessage`: the bytes a command wrote, which the layer stores
 as they are and decodes into a `toolio.Envelope` to decide what the attempt came to. A value of
-`toolio.Envelope` would have been encoded again, and `TestTheEnvelopeRouteServesTheStoredBytes` (task 9) would
+`toolio.Envelope` would have been encoded again, and `TestTheEnvelopeRouteServesTheStoredBytesAndTheReportRouteServesTheMarkdown_TS_12_62` (task 9) would
 have had nothing to compare with. `fakerunner.Env` writes an envelope the way a command does, indented, with a
 newline at the end.
 

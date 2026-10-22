@@ -98,19 +98,29 @@ func withClock(c jobs.Clock) func(*jobs.Config) { return func(cfg *jobs.Config) 
 
 // newService builds another service on the same state file, as a restart does, with
 // the runner and the clock; it is closed when the test ends.
-func (e *env) newService(runner jobs.Runner, clock jobs.Clock) *jobs.Service {
+func (e *env) newService(runner jobs.Runner, clock jobs.Clock, configure ...func(*jobs.Config)) *jobs.Service {
 	e.t.Helper()
-	svc, err := jobs.New(jobs.Config{
+	cfg := jobs.Config{
 		DB: e.DB, Subscriptions: e.Store, Logger: slog.New(slog.NewJSONHandler(e.Logs, nil)), Clock: clock,
 		Workers: 2, AttemptsDir: filepath.Join(e.Dir, "attempts"), Runner: runner,
-		PollInterval: 5 * time.Millisecond, RetryDelay: time.Millisecond, Retain: time.Hour,
-	})
+		PollInterval: 5 * time.Millisecond, RetryDelay: time.Millisecond, Retain: noPurge,
+	}
+	for _, c := range configure {
+		c(&cfg)
+	}
+	svc, err := jobs.New(cfg)
 	if err != nil {
 		e.t.Fatal(err)
 	}
 	e.t.Cleanup(func() { svc.Close() })
 	return svc
 }
+
+// noPurge is the retention of a service that is not to purge anything in a test: the fake clocks
+// of the tests read a date of their own, and a service on the system's clock that opens a database
+// with jobs finished at it would otherwise take them for jobs of long ago. A test of the purge asks
+// for its own retention with withRetain.
+const noPurge = 100 * 365 * 24 * time.Hour
 
 // withRetain is a configuration that makes [database].retain d.
 func withRetain(d time.Duration) func(*jobs.Config) { return func(c *jobs.Config) { c.Retain = d } }
@@ -151,7 +161,7 @@ func newEnv(t *testing.T, configure ...func(*jobs.Config)) *env {
 		DB: st.DB(), Subscriptions: st, Logger: logger,
 		Workers: 2, AttemptsDir: filepath.Join(dir, "attempts"), Runner: fake,
 		// A poll and a delay that the tests do not wait on.
-		PollInterval: 5 * time.Millisecond, RetryDelay: time.Millisecond,
+		PollInterval: 5 * time.Millisecond, RetryDelay: time.Millisecond, Retain: noPurge,
 	}
 	for _, c := range configure {
 		c(&cfg)
