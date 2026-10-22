@@ -24,4 +24,82 @@ var migrations = []string{
 		updated_at    TEXT    NOT NULL,
 		revision      INTEGER NOT NULL DEFAULT 1
 	)`,
+
+	// 2: the jobs. A job is the durable record of one triage or fix request against
+	// a workspace; the input is the JSON that was posted without the context, which
+	// is kept apart. The partial unique index keeps a second open job of the same
+	// kind for the same issue out of a workspace, however the two requests race.
+	// The times are RFC 3339 in UTC with milliseconds. A job has a finished_at
+	// exactly when it is done, failed or cancelled.
+	`CREATE TABLE af_jobs (
+		id             TEXT NOT NULL PRIMARY KEY,
+		workspace      TEXT NOT NULL,
+		kind           TEXT NOT NULL CHECK (kind IN ('triage', 'fix')),
+		input          TEXT NOT NULL,
+		context        TEXT NOT NULL,
+		issue          INTEGER,
+		source_kind    TEXT NOT NULL,
+		source_by      TEXT NOT NULL,
+		request_label  TEXT,
+		state          TEXT NOT NULL CHECK (state IN ('queued', 'running', 'blocked', 'done', 'failed', 'cancelled')),
+		labels_set     TEXT,
+		labels_removed TEXT,
+		labels_restore TEXT,
+		created_at     TEXT NOT NULL,
+		started_at     TEXT,
+		finished_at    TEXT
+	);
+	CREATE INDEX af_jobs_by_created ON af_jobs (created_at, id);
+	CREATE INDEX af_jobs_by_workspace ON af_jobs (workspace, created_at, id);
+	CREATE UNIQUE INDEX af_jobs_one_open_per_issue ON af_jobs (workspace, kind, issue)
+		WHERE issue IS NOT NULL AND state IN ('queued', 'running', 'blocked')`,
+
+	// 3: the attempts, keyed by the job and the number of the attempt. queue_seq
+	// numbers the attempts of all jobs in the order they were made, which is the
+	// order a workspace runs them in. question and options are what the attempt
+	// asked, when it ended needs_human; answer is what it was started with, when a
+	// person answered. status, exit_code, summary, error, artifacts, side_effects
+	// and usage are those of the attempt's envelope, and are null until it has one.
+	`CREATE TABLE af_attempts (
+		job_id             TEXT    NOT NULL REFERENCES af_jobs (id),
+		n                  INTEGER NOT NULL,
+		state              TEXT    NOT NULL CHECK (state IN ('queued', 'running', 'done', 'needs_human', 'failed', 'cancelled')),
+		queue_seq          INTEGER NOT NULL,
+		trigger_kind       TEXT    NOT NULL CHECK (trigger_kind IN ('create', 'answer', 'retry', 'auto')),
+		trigger_by         TEXT    NOT NULL,
+		answer             TEXT,
+		deliveries         INTEGER NOT NULL DEFAULT 0,
+		transient_failures INTEGER NOT NULL DEFAULT 0,
+		max_attempts       INTEGER NOT NULL DEFAULT 0,
+		hub_session        TEXT,
+		hub_run            TEXT,
+		hub_sandbox        TEXT,
+		question           TEXT,
+		options            TEXT,
+		status             TEXT,
+		exit_code          INTEGER,
+		summary            TEXT,
+		error              TEXT,
+		artifacts          TEXT,
+		side_effects       TEXT,
+		usage              TEXT,
+		has_envelope       INTEGER NOT NULL DEFAULT 0,
+		has_report         INTEGER NOT NULL DEFAULT 0,
+		started_at         TEXT,
+		finished_at        TEXT,
+		PRIMARY KEY (job_id, n)
+	);
+	CREATE UNIQUE INDEX af_attempts_by_seq ON af_attempts (queue_seq);
+	CREATE INDEX af_attempts_by_state ON af_attempts (state)`,
+
+	// 4: the events of a job, numbered from 1 without a gap across its attempts.
+	`CREATE TABLE af_events (
+		job_id  TEXT    NOT NULL REFERENCES af_jobs (id),
+		seq     INTEGER NOT NULL,
+		attempt INTEGER NOT NULL,
+		ts      TEXT    NOT NULL,
+		type    TEXT    NOT NULL,
+		data    TEXT    NOT NULL,
+		PRIMARY KEY (job_id, seq)
+	) WITHOUT ROWID`,
 }

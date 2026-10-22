@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -333,8 +334,8 @@ func TestLoadRefusesAnUnsetVariable_TS_11_13(t *testing.T) {
 func TestLoadRefusesUnknownKeysAndWrongTypes_TS_11_14(t *testing.T) {
 	for _, tc := range []struct{ name, body, key string }{
 		{"server.external_url", minimal("http://example.com") + "[server]\nexternal_url = \"http://x.example.com\"\n", "server.external_url"},
-		{"workers", minimal("http://example.com") + "[workers]\ncount = 2\n", "workers"},
-		{"database.retain", minimal("http://example.com") + "[database]\nretain = \"30d\"\n", "database.retain"},
+		{"workers.limit", minimal("http://example.com") + "[workers]\nlimit = 2\n", "workers.limit"},
+		{"database.retain that is not a duration", minimal("http://example.com") + "[database]\nretain = \"30d\"\n", "database.retain"},
 		{"a misspelt key", "[hub]\nurl = \"http://example.com\"\nauth_cach_ttl = \"1m\"\n[secrets]\nkey_file = \"key\"\n", "hub.auth_cach_ttl"},
 		{"an unknown table", minimal("http://example.com") + "[extra]\n", "extra"},
 		{"hub.url of the wrong type", "[hub]\nurl = 5\n[secrets]\nkey_file = \"key\"\n", "hub.url"},
@@ -435,5 +436,79 @@ func TestHubInClearForPlainHTTPToANonLoopbackHost(t *testing.T) {
 		if got := mustLoad(t, minimal(url)).HubInClear(); got != want {
 			t.Errorf("HubInClear for %s = %v, want %v", url, got, want)
 		}
+	}
+}
+
+// TestWorkersAndRetainDefaultAndAcceptTheirBounds_TS_12_1 verifies TS-12-1:
+// a config without [workers].count and [database].retain loads with 2 and 720h,
+// and the boundary values of both keys are accepted.
+// Verifies: 12-REQ-1.1
+func TestWorkersAndRetainDefaultAndAcceptTheirBounds_TS_12_1(t *testing.T) {
+	c := mustLoad(t, minimal("http://hub.example.com"))
+	if c.Workers.Count != 2 || c.Database.Retain != 720*time.Hour {
+		t.Errorf("defaults = workers %d, retain %v, want 2 and 720h", c.Workers.Count, c.Database.Retain)
+	}
+
+	for _, tc := range []struct {
+		count  int
+		retain string
+		want   time.Duration
+	}{
+		{64, "1h", time.Hour},
+		{1, "8760h", 8760 * time.Hour},
+	} {
+		c := mustLoad(t, minimal("http://hub.example.com")+"[workers]\ncount = "+strconv.Itoa(tc.count)+"\n[database]\nretain = \""+tc.retain+"\"\n")
+		if c.Workers.Count != tc.count || c.Database.Retain != tc.want {
+			t.Errorf("count %d, retain %s loaded as %d and %v, want %d and %v", tc.count, tc.retain, c.Workers.Count, c.Database.Retain, tc.count, tc.want)
+		}
+	}
+
+	// A key alone leaves the other at its default, and the retain may name a variable.
+	c = mustLoad(t, minimal("http://hub.example.com")+"[workers]\ncount = 5\n")
+	if c.Workers.Count != 5 || c.Database.Retain != 720*time.Hour {
+		t.Errorf("count alone: workers %d, retain %v, want 5 and 720h", c.Workers.Count, c.Database.Retain)
+	}
+	t.Setenv("AF_TEST_RETAIN", "48h")
+	c = mustLoad(t, minimal("http://hub.example.com")+"[database]\nretain = \"${AF_TEST_RETAIN}\"\n")
+	if c.Database.Retain != 48*time.Hour {
+		t.Errorf("retain from a variable = %v, want 48h", c.Database.Retain)
+	}
+}
+
+// TestWorkersAndRetainRefuseTheValuesOutsideTheirRangeNamingTheKey_TS_12_2 is the
+// loader's half of TS-12-2: a count outside 1 to 64 or that is not an integer, and
+// a retain that is malformed or outside 1h to 8760h, are each an error that names
+// the dotted key and says what is wrong with the value, not that the key is unknown.
+// Verifies: 12-REQ-1.2
+func TestWorkersAndRetainRefuseTheValuesOutsideTheirRangeNamingTheKey_TS_12_2(t *testing.T) {
+	base := minimal("http://hub.example.com")
+	for name, tc := range map[string]struct{ body, key string }{
+		"count 0":            {"[workers]\ncount = 0\n", "workers.count"},
+		"count 65":           {"[workers]\ncount = 65\n", "workers.count"},
+		"count -1":           {"[workers]\ncount = -1\n", "workers.count"},
+		"count a string":     {"[workers]\ncount = \"two\"\n", "workers.count"},
+		"count a fraction":   {"[workers]\ncount = 2.5\n", "workers.count"},
+		"retain 30m":         {"[database]\nretain = \"30m\"\n", "database.retain"},
+		"retain 8761h":       {"[database]\nretain = \"8761h\"\n", "database.retain"},
+		"retain soon":        {"[database]\nretain = \"soon\"\n", "database.retain"},
+		"retain a number":    {"[database]\nretain = 720\n", "database.retain"},
+		"retain empty":       {"[database]\nretain = \"\"\n", "database.retain"},
+		"retain unset var":   {"[database]\nretain = \"${AF_TEST_NO_SUCH_VARIABLE}\"\n", "database.retain"},
+		"count and retain":   {"[workers]\ncount = 0\n[database]\nretain = \"soon\"\n", "workers.count"},
+		"an unknown workers": {"[workers]\ncount = 2\nlimit = 3\n", "workers.limit"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			unsetenv(t, "AF_TEST_NO_SUCH_VARIABLE")
+			_, err := loadBody(t, base+tc.body)
+			if err == nil {
+				t.Fatalf("Load accepted:\n%s", tc.body)
+			}
+			if !strings.Contains(err.Error(), tc.key) {
+				t.Errorf("error = %q, want it to name %q", err, tc.key)
+			}
+			if name != "an unknown workers" && strings.Contains(err.Error(), "unknown key") {
+				t.Errorf("error = %q, want a refusal of the value and not of the key", err)
+			}
+		})
 	}
 }

@@ -339,8 +339,8 @@ func TestUnknownKeysAndWrongTypesExit2NamingTheKey_TS_11_14(t *testing.T) {
 		key    string
 	}{
 		"server.external_url": {func(s *setup) { s.Doc["server"]["external_url"] = q("http://x.example.com") }, "server.external_url"},
-		"[workers]":           {func(s *setup) { s.Doc["workers"] = map[string]string{"count": "2"} }, "workers.count"},
-		"database.retain":     {func(s *setup) { s.Doc["database"]["retain"] = q("30d") }, "database.retain"},
+		"workers.limit":       {func(s *setup) { s.Doc["workers"] = map[string]string{"limit": "2"} }, "workers.limit"},
+		"a retain of 30d":     {func(s *setup) { s.Doc["database"]["retain"] = q("30d") }, "database.retain"},
 		"a misspelt key":      {func(s *setup) { s.Doc["hub"]["auth_cach_ttl"] = q("1m") }, "hub.auth_cach_ttl"},
 		"a wrong type":        {func(s *setup) { s.Doc["hub"]["url"] = "5" }, "hub.url"},
 		"a ttl of 16m":        {func(s *setup) { s.Doc["hub"]["auth_cache_ttl"] = q("16m") }, "hub.auth_cache_ttl"},
@@ -758,6 +758,11 @@ func TestADatabaseFromANewerBinaryIsRefusedAndLeftAlone_TS_11_27(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The binary knows as many migrations as the code that has just opened the file applied.
+	var known int
+	if err := seeded.DB().QueryRowContext(ctx, "SELECT MAX(version) FROM af_schema_migrations").Scan(&known); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := seeded.DB().ExecContext(ctx, "INSERT INTO af_schema_migrations (version, applied_at) VALUES (999, 'x')"); err != nil {
 		t.Fatal(err)
 	}
@@ -769,7 +774,7 @@ func TestADatabaseFromANewerBinaryIsRefusedAndLeftAlone_TS_11_27(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	oneStartFailure(t, s.run(t, bareEnv(t)), 2, "999", "up to 1", s.DB)
+	oneStartFailure(t, s.run(t, bareEnv(t)), 2, "999", fmt.Sprintf("up to %d", known), s.DB)
 	after, err := os.ReadFile(s.DB)
 	if err != nil {
 		t.Fatal(err)
@@ -807,4 +812,51 @@ func TestADatabaseThatCannotBeOpenedExits2NamingIt_TS_11_28(t *testing.T) {
 			oneStartFailure(t, s.run(t, bareEnv(t)), 2, path)
 		})
 	}
+}
+
+// TestOutOfRangeWorkersAndRetainExit2NamingTheKeyAndNeverListen_TS_12_2 verifies
+// TS-12-2: a [workers].count outside 1 to 64 or not an integer, and a
+// [database].retain that is malformed or outside 1h to 8760h, each stop the binary
+// with exit 2 before it listens, with one ERROR record that names the key and says
+// what is wrong with the value. Values inside the range start it.
+// Verifies: 12-REQ-1.2
+func TestOutOfRangeWorkersAndRetainExit2NamingTheKeyAndNeverListen_TS_12_2(t *testing.T) {
+	env := bareEnv(t)
+	for name, tc := range map[string]struct{ table, key, value string }{
+		"count 0":      {"workers", "count", "0"},
+		"count 65":     {"workers", "count", "65"},
+		"count a word": {"workers", "count", q("two")},
+		"retain 30m":   {"database", "retain", q("30m")},
+		"retain 8761h": {"database", "retain", q("8761h")},
+		"retain soon":  {"database", "retain", q("soon")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newSetup(t, "http://127.0.0.1:1")
+			if s.Doc[tc.table] == nil {
+				s.Doc[tc.table] = map[string]string{}
+			}
+			s.Doc[tc.table][tc.key] = tc.value
+			// One record and nothing else: no "listening" record, so no listener was bound.
+			message := oneStartFailure(t, s.run(t, env), 2, tc.table+"."+tc.key)
+			if strings.Contains(message, "unknown key") {
+				t.Errorf("the error %q refuses the key, not the value", message)
+			}
+		})
+	}
+
+	t.Run("values inside the range start the service", func(t *testing.T) {
+		s := newSetup(t, fakehub.New(t).URL)
+		s.Doc["workers"] = map[string]string{"count": "64"}
+		s.Doc["database"]["retain"] = q("8760h")
+		p := s.start(t, env)
+		p.addr()
+		// The directory of the attempts is made beside the database, private to the user.
+		if info, err := os.Stat(filepath.Join(filepath.Dir(s.DB), "attempts")); err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
+			t.Errorf("attempts directory: %v, %v, want a directory with the mode 0700", info, err)
+		}
+		p.signal(syscall.SIGTERM)
+		if code := p.wait(30 * time.Second); code != 0 {
+			t.Errorf("exit code %d, want 0", code)
+		}
+	})
 }

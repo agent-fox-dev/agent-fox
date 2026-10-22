@@ -28,7 +28,7 @@ change as the code: a document that is out of date is a regression.
 | Package | What it is |
 |---|---|
 | `cmd/agent-fox` | The service binary. `main.go` parses the flags (`--config`, `--version`, `--help`) and `run.go` starts the service: configuration, key, state file, server, listener, and the stop on a signal; the exit codes are 0 (stopped), 1 (the listener) and 2 (configuration, key or database). It is wiring, as `cmd/af` is. |
-| `internal/service/config` | The `config.toml` of the service: lookup, the five keys, `${NAME}`, defaults, validation; plain errors that name the dotted key. |
+| `internal/service/config` | The `config.toml` of the service: lookup, the seven keys, `${NAME}`, defaults, validation; plain errors that name the dotted key. |
 | `internal/service/secrets` | The key file and the sealing of workspace tokens (AES-256-GCM, the slug as additional data). |
 | `internal/service/store` | The SQLite state file: `af_`-prefixed tables, append-only migrations in `af_schema_migrations`, and the subscriptions (`Upsert`, `Get`, `List`, `Delete`, and `Token`, the opened token for code in this process). |
 | `internal/service/ttl` | The bounded cache with expiry that holds hub's answers; it takes its clock as a function. |

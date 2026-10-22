@@ -58,7 +58,7 @@
       "done_when": [
         "the three af_ tables exist after migration and the binary refuses bad workers/retain values with exit code 2"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

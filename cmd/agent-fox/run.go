@@ -14,6 +14,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/service/api"
 	"github.com/agent-fox-dev/agentfox/internal/service/config"
+	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/secrets"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -76,6 +77,11 @@ func serve(ctx context.Context, configPath string, logger *slog.Logger, listen l
 			logger.Error("the database could not be closed", "error", err.Error())
 		}
 	}()
+	// The files of the attempts go beside the database; a directory that cannot be
+	// made is a file system the operator has to change, like a database that cannot be opened.
+	if _, err := jobs.EnsureAttemptsDir(cfg.Database.Path); err != nil {
+		return startFailed(logger, exitInvalid, err)
+	}
 
 	document := (&toolio.App{Name: name, Version: version, Commit: commit, BuildTime: buildTime}).VersionDocument()
 	srv := api.NewServer(api.Deps{
