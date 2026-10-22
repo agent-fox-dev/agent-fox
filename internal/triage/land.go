@@ -114,8 +114,10 @@ type LandParams struct {
 	// Tree is what the submission is validated against again.
 	Tree Tree
 	// Created is the issue an earlier landing of this run created, as that landing
-	// reported it, if any.
-	Created func() (IssueInfo, bool)
+	// reported it, if any. OnCreated is called with the issue a landing creates, as soon as the
+	// forge answered, and before anything else is done.
+	Created   func() (IssueInfo, bool)
+	OnCreated func(IssueInfo)
 	// Check, when it is not nil, is asked before anything is written: it is the
 	// target and the credential of a landing that the caller has not checked
 	// already. It is asked after the submission is found to carry no question,
@@ -458,6 +460,9 @@ func (p LandParams) landAsNewIssue(ctx context.Context, d Diagnosis, body string
 	}
 	res.Action = ActionCreatedIssue
 	res.Issue = &IssueInfo{Repo: target.String(), Host: firstNonEmpty(target.Host, hostOf(url)), Number: created.Number, URL: url}
+	if p.OnCreated != nil {
+		p.OnCreated(*res.Issue)
+	}
 	res.Labels = append([]string(nil), p.Labels...)
 	p.artifact(Artifact{Kind: "issue", URL: url, Number: created.Number})
 	return nil

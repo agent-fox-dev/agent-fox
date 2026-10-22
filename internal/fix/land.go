@@ -193,8 +193,13 @@ type LandSteps struct {
 	Plan func(ctx context.Context, p Plan) error
 	// Pushed is called with the branch once it is pushed, and Published once the post-push hook took it.
 	Pushed, Published func(branch string)
-	// PullRequest is called with the pull request once the forge made it.
-	PullRequest func(ref PullRequestRef)
+	// PullRequest is called with the pull request once the forge made it, and IssueCreated with the issue
+	// that was made for a report that was no issue, as soon as the forge answered.
+	PullRequest  func(ref PullRequestRef)
+	IssueCreated func(ref IssueRef)
+	// Created is the issue that an earlier landing of the run made, if there is one: a landing that is begun
+	// again goes on with it and makes no other.
+	Created func() (IssueRef, bool)
 }
 
 // withResult is the steps with a plan that carries the result of the run as it stands: the input of the
@@ -458,11 +463,20 @@ func (l *landing) ensureIssue(ctx context.Context) error {
 	if l.interrupted || !NeedsIssue(l.input.Kind, l.mode) {
 		return nil
 	}
+	if l.steps.Created != nil {
+		if ref, ok := l.steps.Created(); ok {
+			l.number, l.issueURL = ref.Number, ref.URL
+			return nil
+		}
+	}
 	ref, err := CreateIssue(ctx, IssueParams{Forge: l.forge, Target: l.target, Title: l.subject, Original: l.input.Body, RunID: l.state.RunID, Report: l.rep})
 	switch {
 	case err == nil:
 		l.created = &ref
 		l.number, l.issueURL = ref.Number, ref.URL
+		if l.steps.IssueCreated != nil {
+			l.steps.IssueCreated(ref)
+		}
 	case ctx.Err() != nil:
 		return ctx.Err()
 	default:

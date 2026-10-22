@@ -602,6 +602,9 @@ type landing struct {
 	// retry is the command that lands the run again; it is suggested when the
 	// landing fails after the run had a valid submission.
 	retry []string
+	// landed is how a caller that follows the landing is told of it: the issue it created, and the issue an
+	// earlier landing of the run created.
+	landed *Landing
 }
 
 // landRun writes the submission of a run to the forge, or to diagnosis.md alone,
@@ -611,7 +614,7 @@ func landRun(r *toolio.Run, l landing) (toolio.Outcome, error) {
 	res, err := triage.Land(r.Ctx, triage.LandParams{
 		RunDir: l.run.Path, RunID: l.run.ID, Facts: l.facts, Forge: l.forge, Mode: l.mode, Labels: l.labels,
 		IsDryRun: func(err error) bool { return errors.Is(err, toolio.ErrDryRun) },
-		Tree:     l.tree, Created: createdIssue(l.run), Check: l.check,
+		Tree:     l.tree, Created: l.earlierIssue(), OnCreated: l.issueCreated(), Check: l.check,
 		Record: func(kind string, data any) error { recordIn(r, l.run, kind, data); return nil },
 		Warn:   r.Warn,
 		Artifact: func(a triage.Artifact) {
@@ -632,6 +635,31 @@ func landRun(r *toolio.Run, l landing) (toolio.Outcome, error) {
 		return toolio.Outcome{}, err
 	}
 	return landOutcome(r, l.run, l.facts, res), nil
+}
+
+// earlierIssue is the issue an earlier landing of the run created: from its ledger, as that landing reported
+// it, or from the caller that followed the landing.
+func (l landing) earlierIssue() func() (triage.IssueInfo, bool) {
+	fromLedger := createdIssue(l.run)
+	return func() (triage.IssueInfo, bool) {
+		if info, ok := fromLedger(); ok {
+			return info, true
+		}
+		if l.landed != nil && l.landed.Created != nil {
+			if number, url, ok := l.landed.Created(); ok {
+				return triage.IssueInfo{Repo: l.facts.Target.Repo, Host: l.facts.Target.Host, Number: number, URL: url}, true
+			}
+		}
+		return triage.IssueInfo{}, false
+	}
+}
+
+// issueCreated tells the caller that follows the landing of the issue it created.
+func (l landing) issueCreated() func(triage.IssueInfo) {
+	if l.landed == nil || l.landed.IssueCreated == nil {
+		return nil
+	}
+	return func(info triage.IssueInfo) { l.landed.IssueCreated(info.Number, info.URL) }
 }
 
 // listRunArtifacts lists the files of the run that exist and a failed run still
@@ -805,7 +833,7 @@ func triageLoop(c *Config, r *toolio.Run, s *brain.Settings, land string, labelF
 		// The client was built from the URL of the input, so landing again is told the repository.
 		retry = triage.LandAgain(r.RunDir.ID, r.Dir, rendered.facts.Target.Repo)
 	}
-	return landRun(r, landing{run: r.RunDir, facts: rendered.facts, tree: tree, forge: r.Forge, mode: land, labels: labels, artifact: r.Artifact, retry: retry})
+	return landRun(r, landing{run: r.RunDir, facts: rendered.facts, tree: tree, forge: r.Forge, mode: land, labels: labels, artifact: r.Artifact, retry: retry, landed: c.Landing})
 }
 
 // pinnedBrief is the brief of a run that is carried on: the one that was rendered, as triage.json says

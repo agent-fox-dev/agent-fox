@@ -121,3 +121,23 @@ that is not retryable, with the variable to raise, before the clone and the leas
 that the process died during (`scanLedger`, `brain_spend_unrecorded` naming the ledger entry and the round), and
 the refresh of the spend of the journal at the end of each brain run (`refreshSpend`, from the ledger sink).
 Deviation key: `ts_14_22_passes_before_task_5`.
+
+## 9. The plan was written before the push in task 2, and the envelope of a published change is rebuilt (task 6)
+
+**Spec:** task 6 owns TS-14-29 (the landing plan is journalled before the first push) and lists steps 6.2 and 6.3
+(the hook before the push, the steps as hub answers) as its work; 14-REQ-5.2 says a resumed delivery that finds the
+branch of the plan on hub's git server reports "the same branch, commit, verdict and pull request that an
+uninterrupted landing would have".
+
+**Code:** the hook before the push and the recording of `pushed`, `hub_push` and `pull_request` were written
+in task 2, whose TS-14-2 and TS-14-4 cannot pass without them, so TS-14-29 passed when it was first run
+(`TestTheLandingPlanIsJournalledBeforeTheFirstPush_TS_14_29`). Task 6 adds what was not there: `created_issue`
+(an issue made for a text or a file, for a triage and for a fix), the detection of the published change
+(`disagrees` returns the commit of the plan's branch on hub's git server, `internal/worker/start.go`) and
+`finishPublished` (`internal/worker/published.go`). The envelope of a change that was published is built by the
+worker from the plan, since no loop runs: its result is the result of the run as it stood when the plan was
+written, with the push and the pull request of this landing; its warnings are the plan's; its artifacts are the
+branch, the commit, the pull request, the run directory and its report; its usage is the attempt's. The side
+effects and the artifacts that the loop of the first delivery made (the brief, the submission, the transcript, the
+steps of the commit and the push) are not in it: the first delivery's events hold them. Deviation keys:
+`ts_14_29_passes_before_task_6` and `published_envelope_is_rebuilt_from_the_plan`.

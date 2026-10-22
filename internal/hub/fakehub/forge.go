@@ -272,3 +272,27 @@ func (h *Hub) createPull(w http.ResponseWriter, r *http.Request, ws *workspace) 
 		"url": fmt.Sprintf("https://api.example.com/repos/acme/widgets/pulls/%d", n), "html_url": fmt.Sprintf("https://github.example.com/acme/widgets/pull/%d", n),
 	})
 }
+
+// Issues are the issues of the forge repository of the workspace, the ones that were added and the ones
+// that were created through the hub, by number.
+func (h *Hub) Issues(slug string) []Issue {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	ws := h.workspaces[slug]
+	if ws == nil {
+		return nil
+	}
+	numbers := make([]int, 0, len(ws.issues))
+	for n := range ws.issues {
+		numbers = append(numbers, n)
+	}
+	slices.Sort(numbers)
+	out := make([]Issue, 0, len(numbers))
+	for _, n := range numbers {
+		i := ws.issues[n].Issue
+		i.Labels = slices.Clone(i.Labels)
+		i.Comments = slices.Clone(i.Comments)
+		out = append(out, i)
+	}
+	return out
+}

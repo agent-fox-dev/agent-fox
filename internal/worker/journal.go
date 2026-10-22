@@ -32,6 +32,7 @@ const (
 	stepPushed       = "pushed"
 	stepHubPush      = "hub_push"
 	stepPullRequest  = "pull_request"
+	stepCreatedIssue = "created_issue"
 	stepStatusLabels = "mirror_status_labels"
 	stepComment      = "mirror_comment"
 	stepUsage        = "report_usage"
@@ -169,7 +170,7 @@ type landingSteps struct {
 func (l *landingSteps) plan(_ context.Context, p fix.Plan, warnings []toolio.Warning) error {
 	a := l.a
 	plan := recovery.Plan{
-		Branch: p.Branch, Commit: p.Commit, Outcome: p.Outcome, Status: string(p.Status), Verdict: p.Verdict, Closes: p.Closes,
+		Branch: p.Branch, Commit: p.Commit, Outcome: p.Outcome, Status: string(p.Status), Verdict: p.Verdict, Closes: p.Closes, PullRequest: p.PullRequest,
 		Title: a.secretFree(p.Title), Body: a.secretFree(p.Body), Draft: p.Draft,
 	}
 	for _, w := range warnings {
@@ -194,6 +195,27 @@ func (l *landingSteps) pushed(string) {
 
 func (l *landingSteps) published(string) {
 	l.a.note(stepHubPush, func(j *recovery.Journal) { j.Landing.HubPush = true })
+	l.r.reached(l.a, "hub_push")
+}
+
+// issueCreated records the issue that the landing of a text or a file created, as soon as hub answered.
+func (l *landingSteps) issueCreated(number int, url string) {
+	l.a.note(stepCreatedIssue, func(j *recovery.Journal) { j.Landing.CreatedIssue = &recovery.Ref{Number: number, URL: url} })
+	l.r.reached(l.a, "created_issue")
+}
+
+// created is the issue that an earlier delivery created, which the landing goes on with.
+func (l *landingSteps) created() (number int, url string, ok bool) {
+	h := l.a.journal
+	if h == nil {
+		return 0, "", false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if ref := h.j.Landing.CreatedIssue; ref != nil {
+		return ref.Number, ref.URL, true
+	}
+	return 0, "", false
 }
 
 func (l *landingSteps) pullRequest(ref fix.PullRequestRef) {

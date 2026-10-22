@@ -11,10 +11,12 @@ type Plan struct {
 	Status  string `json:"status"`
 	Verdict string `json:"verdict"`
 	// Closes says the change closes the issue.
-	Closes bool   `json:"closes"`
-	Title  string `json:"pull_request_title"`
-	Body   string `json:"pull_request_body"`
-	Draft  bool   `json:"pull_request_draft"`
+	Closes bool `json:"closes"`
+	// PullRequest says a pull request is to be opened, with Title, Body and Draft.
+	PullRequest bool   `json:"open_pull_request"`
+	Title       string `json:"pull_request_title"`
+	Body        string `json:"pull_request_body"`
+	Draft       bool   `json:"pull_request_draft"`
 	// Warnings are the warnings the run had raised by then, and Result the result of the run as it
 	// stood, as the shell encodes it.
 	Warnings []Warning       `json:"warnings"`

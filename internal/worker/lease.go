@@ -41,6 +41,9 @@ const (
 // that expires before the timeout of the loop would end shortens that timeout to end two minutes
 // before it, and the envelope says so.
 func (r *Runner) lease(ctx context.Context, a *attempt) *outcome {
+	if a.resume != nil && a.resume.stage == stagePublished { // the change is published: nothing runs in a box
+		return nil
+	}
 	a.step("lease")
 	l, err := r.cfg.Hub.Lease(ctx, a.pat, a.req.Workspace, hub.LeaseRequest{
 		Profile: a.settings.Profile,

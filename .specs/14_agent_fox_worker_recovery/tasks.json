@@ -287,7 +287,7 @@
       "done_when": [
         "journal.json holds the plan before the fake hub records the first push"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 7,

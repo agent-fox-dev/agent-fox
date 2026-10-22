@@ -110,6 +110,7 @@ func (r *Runner) laterDelivery(ctx context.Context, a *attempt, fresh recovery.J
 	next := fresh
 	next.Settings, next.Session, next.Leases, next.Deliveries = old.Settings, old.Session, old.Leases, old.Deliveries
 	next.Carried, next.Spend = old.Carried, old.Spend
+	next.Landing.CreatedIssue = old.Landing.CreatedIssue // an issue on the forge outlives the clone it was made from
 	if old.Session.Completed {
 		next.Session = recovery.Session{}
 	}
@@ -139,7 +140,8 @@ func (r *Runner) laterDelivery(ctx context.Context, a *attempt, fresh recovery.J
 		a.warnings = append(a.warnings, toolio.Warning{Code: WarnBrainSpendUnrecorded, Message: fmt.Sprintf(
 			"the brain run of round %d (ledger entry %d) has no end in the ledger: the process died while it ran, so what it cost is not known and counts as nothing", c.round, c.seq)})
 	}
-	if problem := r.disagrees(ctx, a, old, runID); problem != nil {
+	remote, problem := r.disagrees(ctx, a, old, runID)
+	if problem != nil {
 		return old, problem
 	}
 	if old.Session.Completed { // a session that was completed is not reported to again: the run goes on under a new one
@@ -149,6 +151,9 @@ func (r *Runner) laterDelivery(ctx context.Context, a *attempt, fresh recovery.J
 	a.resume = &resumeState{journal: old, stage: stageBrain}
 	if accepted, _ := acceptedSubmission(a.req.Kind, a.cloneDir, runID); accepted != nil && accepted.stage(a.req.Kind) == stageApplied {
 		a.resume.stage = stageApplied
+	}
+	if plan := old.Landing.Plan; plan != nil && remote != "" { // disagrees refused any commit but the plan's
+		a.resume.stage = stagePublished // the change is on hub's git server: it is published, not redone
 	}
 	r.leave(a, spent)
 	old.Settings = a.pinned
@@ -160,6 +165,9 @@ func (r *Runner) laterDelivery(ctx context.Context, a *attempt, fresh recovery.J
 // for the brain to run again. A change that no longer passes the check of its submission against the tree is
 // not one to measure: the brain runs.
 func (r *Runner) prepareResumedClone(ctx context.Context, a *attempt) *outcome {
+	if a.resume.stage == stagePublished {
+		return nil
+	}
 	if a.resume.stage == stageApplied {
 		if out := r.restoreChange(ctx, a); out != nil {
 			return out
@@ -301,34 +309,38 @@ func (r *Runner) removedSpend(a *attempt, runID string) *recovery.Spend {
 }
 
 // disagrees finds what the journal, the clone and hub's git server say that the rules of the resume do
-// not cover, and ends the attempt with it: guessing could publish the wrong change.
-func (r *Runner) disagrees(ctx context.Context, a *attempt, j recovery.Journal, runID string) *outcome {
+// not cover, and ends the attempt with it: guessing could publish the wrong change. It returns the commit
+// that the branch of the plan of the landing is at on hub's git server, or "" when it is not there.
+func (r *Runner) disagrees(ctx context.Context, a *attempt, j recovery.Journal, runID string) (remote string, out *outcome) {
 	if j.Run.Base != "" && j.Run.BaseHead != "" {
-		out, code, err := a.git(ctx, a.cloneDir, []string{"git", "rev-list", "--reverse", j.Run.BaseHead + "..refs/heads/" + j.Run.Base})
+		listed, code, err := a.git(ctx, a.cloneDir, []string{"git", "rev-list", "--reverse", j.Run.BaseHead + "..refs/heads/" + j.Run.Base})
 		if err == nil && code == 0 {
-			for _, commit := range strings.Fields(out) {
+			for _, commit := range strings.Fields(listed) {
 				msg, _, _ := a.git(ctx, a.cloneDir, []string{"git", "log", "-1", "--format=%B", commit})
 				if !strings.Contains(msg, "Agent-Fox-Run: "+runID) {
-					return r.envelopeOf(a, &refusal{category: toolio.CategoryInternal, message: fmt.Sprintf(
+					return "", r.envelopeOf(a, &refusal{category: toolio.CategoryInternal, message: fmt.Sprintf(
 						"the branch %s of the clone has the commit %.12s after the commit %.12s that the run began at, and it has no Agent-Fox-Run trailer for the run %s: it is not the run's, and the attempt is not carried on",
 						j.Run.Base, commit, j.Run.BaseHead, runID)})
 				}
 			}
 		}
 	}
-	if plan := j.Landing.Plan; plan != nil && plan.Branch != "" {
-		out, code, err := a.git(ctx, a.cloneDir, []string{"git", "ls-remote", "--heads", "origin", "refs/heads/" + plan.Branch})
-		switch {
-		case ctx.Err() != nil:
-			return &outcome{err: context.Cause(ctx)}
-		case err != nil || code != 0:
-			return transientFailure(toolio.CategoryGit, fmt.Sprintf("hub's git server cannot be asked for the branch %s: %s", plan.Branch, gitDetail(a, out, err)))
-		}
-		if sha, _, _ := strings.Cut(strings.TrimSpace(out), "\t"); sha != "" && sha != plan.Commit {
-			return r.envelopeOf(a, &refusal{category: toolio.CategoryInternal, message: fmt.Sprintf(
-				"the branch %s is on hub's git server at the commit %.12s, and the plan of the landing says %.12s: it is not the branch the run made, and the attempt is not carried on",
-				plan.Branch, sha, plan.Commit)})
-		}
+	plan := j.Landing.Plan
+	if plan == nil || plan.Branch == "" {
+		return "", nil
 	}
-	return nil
+	listed, code, err := a.git(ctx, a.cloneDir, []string{"git", "ls-remote", "--heads", "origin", "refs/heads/" + plan.Branch})
+	switch {
+	case ctx.Err() != nil:
+		return "", &outcome{err: context.Cause(ctx)}
+	case err != nil || code != 0:
+		return "", transientFailure(toolio.CategoryGit, fmt.Sprintf("hub's git server cannot be asked for the branch %s: %s", plan.Branch, gitDetail(a, listed, err)))
+	}
+	sha, _, _ := strings.Cut(strings.TrimSpace(listed), "\t")
+	if sha != "" && sha != plan.Commit {
+		return "", r.envelopeOf(a, &refusal{category: toolio.CategoryInternal, message: fmt.Sprintf(
+			"the branch %s is on hub's git server at the commit %.12s, and the plan of the landing says %.12s: it is not the branch the run made, and the attempt is not carried on",
+			plan.Branch, sha, plan.Commit)})
+	}
+	return sha, nil
 }

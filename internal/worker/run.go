@@ -25,6 +25,9 @@ const inputDirName = "input"
 // as flags and the model in the options of the brain. The loop is not stopped by a signal, only by
 // the context of the attempt, and every line of its events is passed on as it is written.
 func (r *Runner) run(ctx context.Context, a *attempt) *outcome {
+	if a.resume != nil && a.resume.stage == stagePublished {
+		return r.finishPublished(ctx, a)
+	}
 	a.step("run")
 	args, stdin, refused := r.loopArgs(a)
 	if refused != nil {
@@ -88,7 +91,7 @@ func (r *Runner) loopConfig(a *attempt) *afcmd.Config {
 // landingOf is how the loop tells the journal about the landing of a fix.
 func (r *Runner) landingOf(a *attempt) *afcmd.Landing {
 	l := r.landing(a)
-	return &afcmd.Landing{Plan: l.plan, Pushed: l.pushed, Published: l.published, PullRequest: l.pullRequest}
+	return &afcmd.Landing{Plan: l.plan, Pushed: l.pushed, Published: l.published, PullRequest: l.pullRequest, IssueCreated: l.issueCreated, Created: l.created}
 }
 
 // nothing is the environment of the loop: it has none.

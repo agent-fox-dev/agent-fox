@@ -115,6 +115,11 @@ type Landing struct {
 	// took it, and PullRequest with the pull request once the forge made it.
 	Pushed, Published func(branch string)
 	PullRequest       func(ref fix.PullRequestRef)
+	// IssueCreated is called with the number and the URL of the issue that a landing of a text or a file
+	// created, as soon as the forge answered. Created says the issue that an earlier landing of the run
+	// created, if any, which this landing goes on with instead of creating another.
+	IssueCreated func(number int, url string)
+	Created      func() (number int, url string, ok bool)
 }
 
 // landSteps are the steps of the landing of the fix run r, as the fix package takes them.
@@ -124,6 +129,15 @@ func (c *Config) landSteps(r *toolio.Run) fix.LandSteps {
 		return fix.LandSteps{}
 	}
 	steps := fix.LandSteps{Pushed: l.Pushed, Published: l.Published, PullRequest: l.PullRequest}
+	if l.IssueCreated != nil {
+		steps.IssueCreated = func(ref fix.IssueRef) { l.IssueCreated(ref.Number, ref.URL) }
+	}
+	if l.Created != nil {
+		steps.Created = func() (fix.IssueRef, bool) {
+			number, url, ok := l.Created()
+			return fix.IssueRef{Number: number, URL: url}, ok
+		}
+	}
 	if l.Plan != nil {
 		steps.Plan = func(ctx context.Context, p fix.Plan) error { return l.Plan(ctx, p, r.Warnings()) }
 	}
