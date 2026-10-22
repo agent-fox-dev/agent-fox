@@ -60,7 +60,7 @@ func inertHost(host string) bool {
 }
 
 var (
-	urlPattern    = regexp.MustCompile(`https?://(\[[0-9a-fA-F:]+\]|[A-Za-z0-9._-]+)`)
+	urlPattern    = regexp.MustCompile(`https?://(?:[^\s/@"'<>)]*@)?(\[[0-9a-fA-F:]+\]|[A-Za-z0-9._-]+)`)
 	ipPortPattern = regexp.MustCompile(`"(\d+\.\d+\.\d+\.\d+):\d+"`)
 	dialPattern   = regexp.MustCompile(`net\.(?:Dial|DialTimeout|Listen)\([^,]+,\s*"([^"]+)"`)
 	directCalls   = regexp.MustCompile(`\bhttp\.(?:Get|Post|Head|PostForm)\(|\bnet\.LookupHost\(|\bnet\.LookupIP\(`)
@@ -145,6 +145,9 @@ func TestTheServiceTestsUseOnlyLoopbackNetworkingAndNoOutsideKey_TS_11_78(t *tes
 // strings, so that it cannot pass by looking at nothing.
 // Verifies: 11-REQ-10.8
 func TestTheScanRecognisesWhatItIsMeantToRefuse(t *testing.T) {
+	if m := urlPattern.FindStringSubmatch(`"http://user:pw@api.github.com/x"`); m == nil || m[1] != "api.github.com" {
+		t.Errorf("the host of a URL with credentials = %v, want api.github.com", m)
+	}
 	for host, want := range map[string]bool{
 		"127.0.0.1": true, "localhost": true, "[::1]": true, "::1": true, "hub.example.com": true, "example.org": true,
 		"hub.example.internal": true, "no-such-host.invalid": true, "192.0.2.1": true, "203.0.113.9": true, "a.test": true,
@@ -162,6 +165,7 @@ func TestTheScanRecognisesWhatItIsMeantToRefuse(t *testing.T) {
 		`s.Doc["secrets"] = {"key_file": q("/etc/key")}`: keyPathInHome,
 		`"10.1.2.3:80"`:                                  ipPortPattern,
 		`"https://api.github.com/user"`:                  urlPattern,
+		`"https://user:pw@api.github.com/user"`:          urlPattern,
 	} {
 		if !rx.MatchString(line) {
 			t.Errorf("%v does not match %q", rx, line)

@@ -218,8 +218,10 @@ file; no decision is made with a policy that was half read.
 
 `agent-fox`, the long-running service (see [cli.md](cli.md#the-agent-fox-command-line)), reads **one
 file**, `config.toml`, and nothing else from the environment but the variables that the file itself
-names with `${NAME}` (and `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `HOME`, which say where files are).
-`af` does not read it. The service holds no vendor key and no forge token: the only credentials it holds
+names with `${NAME}`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `HOME` (which say where files are), and the
+standard proxy variables `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY`, which Go's HTTP client reads for the
+calls to hub: with one set, those calls, and the tokens in them, go through that proxy. `af` does not read
+the file. The service holds no vendor key and no forge token: the only credentials it holds
 are the tokens that callers send it, which it does not keep, and the workspace tokens that callers hand
 over to subscribe a workspace, which it keeps sealed (see [the key file](#the-key-file)).
 

@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/service/ttl"
@@ -132,11 +133,12 @@ func principalOf(r *http.Request) principal {
 }
 
 // bearerToken is the token of an Authorization: Bearer header. The scheme is
-// matched without regard to case, and the token must not be empty.
+// matched without regard to case, and the token must not be empty or hold white space.
 func bearerToken(r *http.Request) (string, bool) {
 	scheme, token, found := strings.Cut(r.Header.Get("Authorization"), " ")
 	token = strings.TrimSpace(token)
-	if !found || !strings.EqualFold(scheme, "Bearer") || token == "" {
+	// A token has no white space inside: "Bearer a b" is two things, not a token.
+	if !found || !strings.EqualFold(scheme, "Bearer") || token == "" || strings.ContainsFunc(token, unicode.IsSpace) {
 		return "", false
 	}
 	return token, true

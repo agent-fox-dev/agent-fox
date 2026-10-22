@@ -2046,7 +2046,12 @@ record on each line** (`log/slog`), from the first line the process writes. The 
 | `request` | `INFO` | `method`, `path`, `status`, `duration`, `user` | One for each request. `path` has no query, `duration` is in nanoseconds, and `user` (the hub user id) is there when the request showed who is calling. The `Authorization` header and the bodies are never logged. |
 | `hub is unavailable` | `WARN` | `error` | A call to hub could not be answered; the request got `502`. |
 | `panic in handler` | `ERROR` | `method`, `path`, `panic`, `stack` | A handler panicked. The request got `500`; the process goes on. |
+| `the subscription could not be stored`, `the subscriptions could not be listed`, `the subscription could not be read`, `the subscription could not be removed` | `ERROR` | `error` | The database failed on a request; the request got `500`. |
+| `an unexpected failure of the check of the caller` | `ERROR` | `error` | Checking the caller with hub failed in a way that is neither a refusal nor hub being unavailable; the request got `500`. |
 | `the listener failed` | `ERROR` | `error` | The listener failed after the start. The service exits 1. |
+| `requests in flight did not finish within the grace period` | `WARN` | `error` | The 30 seconds ran out while the service stopped; it closed what was open and exited 0 all the same. |
+| `the database could not be closed` | `ERROR` | `error` | The database reported an error as it was closed at the end. |
+| `http: …` | `WARN` | none | What Go's HTTP server itself reports (a handler that wrote its status twice, for one), as a record and not as a line of text. |
 
 The key file, a token and the `Authorization` header are in none of them.
 
@@ -2077,6 +2082,6 @@ directory when it is missing, and migrated), and the listener. A configuration o
 leaves no database behind.
 
 On SIGINT or SIGTERM the service stops accepting connections, gives the requests in flight up to 30
-seconds to finish, closes the database and exits 0. A second signal while it waits ends the process the
-usual way. `GET /healthz` answers while the process serves; `GET /readyz` answers when the database does.
+seconds to finish, closes the database and exits 0. A second signal while it waits changes nothing (only
+SIGKILL ends it sooner). `GET /healthz` answers while the process serves; `GET /readyz` answers when the database does.
 

@@ -133,8 +133,9 @@ func (c *Client) Workspace(ctx context.Context, token, slug string) error {
 	return &UnavailableError{Status: status}
 }
 
-// get makes a GET call and reads at most maxBody bytes of the answer. A transport
-// failure, and an answer that is longer, are *UnavailableError.
+// get makes a GET call and returns its status and, for a 200, its body, of which at
+// most maxBody bytes are read. A transport failure, and a 200 that is longer, are
+// *UnavailableError.
 func (c *Client) get(ctx context.Context, token, target string) (status int, body []byte, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
@@ -149,6 +150,11 @@ func (c *Client) get(ctx context.Context, token, target string) (status int, bod
 		return 0, nil, &UnavailableError{Err: cause(err)}
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		// Only the body of a 200 is read: what a refusal or a not-found says
+		// decides nothing, and a body of any size does not change what it is.
+		return resp.StatusCode, nil, nil
+	}
 	body, err = io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
 		return 0, nil, &UnavailableError{Status: resp.StatusCode, Err: cause(err)}

@@ -37,12 +37,9 @@ type listenFunc func(network, address string) (net.Listener, error)
 func startService(configPath string, logger *slog.Logger) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go func() {
-		// Once the first signal has been taken, a second one ends the process the
-		// way it would have without this: nobody has to wait for the grace period.
-		<-ctx.Done()
-		stop()
-	}()
+	// A second signal while the requests in flight are drained is taken like the
+	// first and changes nothing: the service waits for them, up to the grace period,
+	// and exits 0. SIGKILL is how an operator ends it sooner.
 	return serve(ctx, configPath, logger, net.Listen)
 }
 
@@ -74,7 +71,11 @@ func serve(ctx context.Context, configPath string, logger *slog.Logger, listen l
 	if err != nil {
 		return startFailed(logger, exitInvalid, err)
 	}
-	defer st.Close()
+	defer func() {
+		if err := st.Close(); err != nil {
+			logger.Error("the database could not be closed", "error", err.Error())
+		}
+	}()
 
 	document := (&toolio.App{Name: name, Version: version, Commit: commit, BuildTime: buildTime}).VersionDocument()
 	srv := api.NewServer(api.Deps{

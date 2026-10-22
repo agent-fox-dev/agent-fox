@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -265,8 +266,15 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 		writeError(w, CodeUnsupportedMedia, "the body must be application/json")
 		return false
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
-	dec := json.NewDecoder(r.Body)
+	// The body is read whole before it is decoded, up to the limit: a decoder that
+	// fails on the first byte of a body of 100 KiB would otherwise answer 400 for a
+	// body that is too large, and one that has read a value would not look at the rest.
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
+	if err != nil {
+		bodyError(w, err)
+		return false
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		bodyError(w, err)
@@ -274,10 +282,7 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	}
 	// Nothing may follow the value but white space.
 	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); !tooLarge {
-			err = errTrailingData
-		}
-		bodyError(w, err)
+		bodyError(w, errTrailingData)
 		return false
 	}
 	return true

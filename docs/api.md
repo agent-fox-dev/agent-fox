@@ -28,7 +28,8 @@ not canonical (`//healthz`, `/x/../healthz`) is a `404`; the service redirects n
 
 Every route under `/api/v1` needs a header `Authorization: Bearer <token>`. The scheme is matched
 without regard to case and the token must not be empty. The token is a credential of hub for the
-person calling; the service forwards it to hub, and to nobody else, to learn whom it belongs to.
+person calling; the service forwards it to hub, and to nobody else (through the proxy that `HTTP_PROXY` or
+`HTTPS_PROXY` name, if the environment has one), to learn whom it belongs to.
 
 A request without a usable header is answered `401` `unauthenticated` with the header
 `WWW-Authenticate: Bearer`, and without a call to hub.
@@ -187,7 +188,8 @@ text of an internal error.
 
 ## What the service logs
 
-Everything on stderr is a JSON record (`log/slog`). Each request is one record with `msg` `request` and
+Everything on stderr is a JSON record (`log/slog`), except the plain-text usage that a command line the
+service cannot parse gets. Each request is one record with `msg` `request` and
 `method`, `path` (without the query), `status`, `duration` (in nanoseconds) and, once the request has
 shown who is calling, `user`. The `Authorization` header, request and response bodies, tokens,
 ciphertext and the key are never logged. See [cli.md](cli.md#the-agent-fox-command-line) for the other

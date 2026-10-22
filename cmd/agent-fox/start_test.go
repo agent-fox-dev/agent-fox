@@ -451,8 +451,16 @@ func TestTheListeningRecordHasTheBoundAddress_TS_11_6(t *testing.T) {
 // SIGTERM and SIGINT drain in-flight requests, close the database and exit 0.
 // Verifies: 11-REQ-1.7
 func TestASignalDrainsTheRequestsInFlightAndExits0_TS_11_7(t *testing.T) {
-	for _, sig := range []syscall.Signal{syscall.SIGTERM, syscall.SIGINT} {
-		t.Run(sig.String(), func(t *testing.T) {
+	for _, tc := range []struct {
+		sig   syscall.Signal
+		again bool // a second signal while the request is in flight
+	}{{syscall.SIGTERM, false}, {syscall.SIGINT, false}, {syscall.SIGTERM, true}, {syscall.SIGINT, true}} {
+		sig := tc.sig
+		name := sig.String()
+		if tc.again {
+			name += " twice"
+		}
+		t.Run(name, func(t *testing.T) {
 			hub := fakehub.New(t)
 			hub.AddUser("tok", "usr_1", nil)
 			hub.Delay("/api/v1/user", 1500*time.Millisecond)
@@ -487,6 +495,12 @@ func TestASignalDrainsTheRequestsInFlightAndExits0_TS_11_7(t *testing.T) {
 			}
 			started := time.Now()
 			p.signal(sig)
+			if tc.again {
+				// A second signal does not cut the drain short: the spec has the service
+				// wait for the requests in flight and exit 0.
+				time.Sleep(100 * time.Millisecond)
+				p.signal(sig)
+			}
 
 			// New connections are refused once the signal is handled, while the
 			// request goes on.

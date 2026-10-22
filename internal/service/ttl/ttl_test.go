@@ -106,7 +106,12 @@ func TestEntriesExpireByTheInjectedClockOldestGoFirst_TS_11_45(t *testing.T) {
 			t.Errorf("Len = %d, want the expired entries purged when room was needed", c.Len())
 		}
 	})
+}
 
+// TestASmallCacheKeepsTheNewestAndDeletesFreeTheirSlots_TS_11_45 verifies the rest of
+// TS-11-45: with no expired entry the oldest goes, and a deleted entry's slot is free.
+// Verifies: 11-REQ-6.8
+func TestASmallCacheKeepsTheNewestAndDeletesFreeTheirSlots_TS_11_45(t *testing.T) {
 	t.Run("a small cache keeps the newest", func(t *testing.T) {
 		clk := newClock()
 		c := New[string, int](3, time.Hour, clk.Now)

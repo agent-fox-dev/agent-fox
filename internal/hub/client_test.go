@@ -227,6 +227,25 @@ func TestTheClientBoundsTimeAndBodyAndDoesNotFollowRedirects_TS_11_31(t *testing
 	})
 }
 
+// TestTheBodyOfAnErrorAnswerIsNotWhatDecidesIt checks that a refusal or a not-found
+// is one whatever the size of the body that comes with it.
+// Verifies: 11-REQ-5.2, 11-REQ-5.4
+func TestTheBodyOfAnErrorAnswerIsNotWhatDecidesIt(t *testing.T) {
+	big := strings.Repeat("e", 3<<20)
+	for _, tc := range []struct {
+		status          int
+		user, workspace string
+	}{{401, "refused", "refused"}, {403, "refused", "not found"}, {404, "unavailable", "not found"}} {
+		srv := newRecorder(t, status(tc.status, big))
+		if _, err := New(srv.URL, "1").User(ctx, "tok"); class(t, err) != tc.user {
+			t.Errorf("User with a %d and a body of 3 MiB: %v is %s, want %s", tc.status, err, class(t, err), tc.user)
+		}
+		if err := New(srv.URL, "1").Workspace(ctx, "tok", "w"); class(t, err) != tc.workspace {
+			t.Errorf("Workspace with a %d and a body of 3 MiB: %v is %s, want %s", tc.status, err, class(t, err), tc.workspace)
+		}
+	}
+}
+
 // TestTheClientReadsTheUserAndTheWorkspace_TS_11_32 verifies TS-11-32:
 // A 200 user object yields the id as a string whether sent as a string or number,
 // and a 200 workspace is found.

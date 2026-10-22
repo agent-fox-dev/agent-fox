@@ -111,6 +111,38 @@ func TestLoadPrefersConfigThenWorkingDirectoryThenXDGThenHome_TS_11_9(t *testing
 	}
 }
 
+// TestAnEmptyOrRelativeXDGVariableIsAsIfUnset checks the XDG Base Directory rule that
+// the lookup follows: a variable that is empty, or is not an absolute path, is unset.
+// Verifies: 11-REQ-2.1, 11-REQ-2.3
+func TestAnEmptyOrRelativeXDGVariableIsAsIfUnset(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	writeFile(t, filepath.Join(home, ".config", "agent-fox"), "config.toml", minimal("http://home.invalid"))
+	empty := filepath.Join(root, "empty")
+	if err := os.MkdirAll(empty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A relative XDG_CONFIG_HOME that does hold a config, from the working directory.
+	writeFile(t, filepath.Join(empty, "rel", "agent-fox"), "config.toml", minimal("http://relative.invalid"))
+	t.Chdir(empty)
+	t.Setenv("HOME", home)
+
+	for _, value := range []string{"", "rel"} {
+		t.Setenv("XDG_CONFIG_HOME", value)
+		t.Setenv("XDG_STATE_HOME", value)
+		c, err := Load("")
+		if err != nil {
+			t.Fatalf("XDG_CONFIG_HOME=%q: %v", value, err)
+		}
+		if c.Hub.URL != "http://home.invalid" {
+			t.Errorf("XDG_CONFIG_HOME=%q loaded %s, want the config under $HOME/.config", value, c.Hub.URL)
+		}
+		if want := filepath.Join(home, ".local", "state", "agent-fox", "agent-fox.db"); c.Database.Path != want {
+			t.Errorf("XDG_STATE_HOME=%q: database.path = %q, want %q under $HOME/.local/state", value, c.Database.Path, want)
+		}
+	}
+}
+
 // TestLoadFailsOnMissingFilesAndOnBadTOML_TS_11_10 verifies TS-11-10:
 // A missing config lists every path tried and invalid TOML names the file and
 // position. The exit code of the binary is TS-11-4's.
@@ -368,6 +400,23 @@ func TestLoadRefusesBadURLKeyFileAndListen_TS_11_16(t *testing.T) {
 	}
 	if got := mustLoad(t, hub+key+"[server]\nlisten = \"127.0.0.1:0\"\n").Server.Listen; got != "127.0.0.1:0" {
 		t.Errorf("server.listen = %q, want port 0 accepted", got)
+	}
+}
+
+// TestAnErrorAboutHubURLDoesNotRepeatItsValue checks that a hub.url which carries a
+// credential and is refused does not put the credential in the error, which is
+// logged at the start.
+// Verifies: 11-REQ-3.6, 11-REQ-2.7
+func TestAnErrorAboutHubURLDoesNotRepeatItsValue(t *testing.T) {
+	for _, url := range []string{
+		"http://user:hunter2@example.com/?q=1", "http://user:hunter2@example.com/#frag", "ftp://user:hunter2@example.com", "//user:hunter2@example.com",
+	} {
+		_, err := loadBody(t, "[hub]\nurl = \""+url+"\"\n[secrets]\nkey_file = \"key\"\n")
+		if err == nil || !strings.Contains(err.Error(), "hub.url") {
+			t.Errorf("%s: error = %v, want a refusal naming hub.url", url, err)
+		} else if strings.Contains(err.Error(), "hunter2") {
+			t.Errorf("%s: the error repeats the credential: %q", url, err)
+		}
 	}
 }
 

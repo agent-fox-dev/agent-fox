@@ -297,6 +297,20 @@ func TestATokenThatDoesNotFindTheWorkspaceAnswers422NamingIt_TS_11_60(t *testing
 	if n := a.rows(t); n != 0 {
 		t.Errorf("%d rows, want none", n)
 	}
+	for _, pat := range []string{"p403", "p404", "elsewhere"} {
+		if _, ok := a.srv.auth.identities.Get(hashToken(pat)); ok {
+			t.Errorf("%s: an identity entry was made for the token of a subscription", pat)
+		}
+		if _, ok := a.srv.auth.visibility.Get(visibilityKey{hashToken(pat), "widgets"}); ok {
+			t.Errorf("%s: a visibility entry was made for the token of a subscription", pat)
+		}
+	}
+	if _, ok := a.srv.auth.identities.Get(hashToken("caller")); !ok {
+		t.Error("the caller's identity entry is gone")
+	}
+	if _, ok := a.srv.auth.visibility.Get(visibilityKey{hashToken("caller"), "widgets"}); !ok {
+		t.Error("the caller's visibility entry is gone")
+	}
 }
 
 // TestHubBeingUnavailableForTheTokenAnswers502AndWritesNothing_TS_11_61 verifies TS-11-61:
@@ -400,14 +414,16 @@ func TestBadRequestBodiesAreRefusedBeforeAnyWrite_TS_11_50(t *testing.T) {
 		status  int
 		code    string
 	}{
-		"text/plain":       {[]string{"Content-Type", "text/plain"}, `{"hub_token":"p"}`, 415, "unsupported_media_type"},
-		"no content type":  {[]string{"Content-Type", ""}, `{"hub_token":"p"}`, 415, "unsupported_media_type"},
-		"over 64 KiB":      {nil, `{"hub_token":"` + strings.Repeat("x", 65536) + `"}`, 413, "payload_too_large"},
-		"malformed JSON":   {nil, `{`, 400, "invalid_request"},
-		"an unknown field": {nil, `{"hub_token":"p","x":1}`, 400, "invalid_request"},
-		"trailing data":    {nil, `{"hub_token":"p"} {}`, 400, "invalid_request"},
-		"an array":         {nil, `["p"]`, 400, "invalid_request"},
-		"an empty body":    {nil, ``, 400, "invalid_request"},
+		"text/plain":                          {[]string{"Content-Type", "text/plain"}, `{"hub_token":"p"}`, 415, "unsupported_media_type"},
+		"no content type":                     {[]string{"Content-Type", ""}, `{"hub_token":"p"}`, 415, "unsupported_media_type"},
+		"over 64 KiB":                         {nil, `{"hub_token":"` + strings.Repeat("x", 65536) + `"}`, 413, "payload_too_large"},
+		"65537 bytes of x":                    {nil, strings.Repeat("x", 65537), 413, "payload_too_large"},
+		"an object and then junk over 64 KiB": {nil, `{"hub_token":"p"}` + strings.Repeat("x", 70*1024), 413, "payload_too_large"},
+		"malformed JSON":                      {nil, `{`, 400, "invalid_request"},
+		"an unknown field":                    {nil, `{"hub_token":"p","x":1}`, 400, "invalid_request"},
+		"trailing data":                       {nil, `{"hub_token":"p"} {}`, 400, "invalid_request"},
+		"an array":                            {nil, `["p"]`, 400, "invalid_request"},
+		"an empty body":                       {nil, ``, 400, "invalid_request"},
 	} {
 		r := a.put(t, "widgets", "caller", tc.body, tc.headers...)
 		if r.Status != tc.status || r.errorCode(t) != tc.code {

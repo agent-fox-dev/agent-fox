@@ -250,10 +250,10 @@ func (d *document) hubURL() (string, error) {
 	}
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
-		return "", fmt.Errorf("hub.url: %q is not an absolute http or https URL", raw)
+		return "", errors.New("hub.url: is not an absolute http or https URL")
 	}
 	if strings.ContainsAny(raw, "?#") {
-		return "", fmt.Errorf("hub.url: %q must not have a query or a fragment", raw)
+		return "", errors.New("hub.url: must not have a query or a fragment")
 	}
 	return strings.TrimRight(raw, "/"), nil
 }

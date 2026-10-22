@@ -118,7 +118,7 @@ func TestRequestsWithoutAUsableCredentialAreRefusedWithoutHub_TS_11_37(t *testin
 	a := newAuthHarness(t)
 	a.Hub.AddUser("tok", "usr_1", nil)
 
-	for _, header := range []string{"", "Basic abc", "Bearer", "Bearer ", "Token tok", "Bearertok", "Bearer\t"} {
+	for _, header := range []string{"", "Basic abc", "Bearer", "Bearer ", "Token tok", "Bearertok", "Bearer\t", "Bearer two tokens"} {
 		var headers []string
 		if header != "" {
 			headers = []string{"Authorization", header}
@@ -153,6 +153,7 @@ func TestRequestsWithoutAUsableCredentialAreRefusedWithoutHub_TS_11_37(t *testin
 func TestBearerTokenReadsTheHeaderTheWayTheRuleSays(t *testing.T) {
 	for header, want := range map[string]string{
 		"Bearer tok": "tok", "bearer tok": "tok", "BEARER tok": "tok", "Bearer   tok  ": "tok", "Bearer a.b-c_d~+/=": "a.b-c_d~+/=",
+		"Bearer a b": "", "Bearer a\tb": "", "Bearer a  b  c": "",
 		"": "", "Bearer": "", "Bearer ": "", "Bearer    ": "", "Bearer 	": "", "Basic tok": "", "Bearertok": "", " Bearer tok": "", "Token tok": "",
 	} {
 		r := httptest.NewRequest("GET", "/", nil)
