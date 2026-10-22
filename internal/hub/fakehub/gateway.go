@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -62,6 +63,8 @@ type Gateway struct {
 	closed   []Closed
 	executed []Executed
 	killOn   string
+	refuse   string
+	stop     sync.Once
 }
 
 // Created is a box the gateway created.
@@ -106,11 +109,7 @@ func (h *Hub) startGateway() *Gateway {
 	}
 	g.srv, g.url = srv, "http://"+ln.Addr().String()
 	go func() { _ = srv.Serve(ln) }()
-	h.t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(ctx)
-	})
+	h.t.Cleanup(g.Stop)
 	return g
 }
 
@@ -152,6 +151,9 @@ type backend struct {
 
 func (b *backend) Create(ctx context.Context, spec sandbox.Spec) (sandbox.Sandbox, error) {
 	lease, _ := gatewayd.PrincipalFromContext(ctx)
+	if reason := b.g.refusal(); reason != "" {
+		return nil, errors.New(reason)
+	}
 	sb, err := b.Provider.Create(ctx, spec)
 	if err != nil {
 		return nil, err
@@ -372,4 +374,28 @@ func (g *Gateway) noteCommand(box, command string) {
 		defer cancel()
 		_ = g.srv.Shutdown(ctx)
 	}
+}
+
+// RefuseBoxes makes the gateway refuse to create a box, with the reason, until it is called with
+// an empty one.
+func (g *Gateway) RefuseBoxes(reason string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.refuse = reason
+}
+
+// refusal is the reason the gateway gives for a box it will not create, or "".
+func (g *Gateway) refusal() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.refuse
+}
+
+// Stop stops the gateway, as a gateway that is gone: it cannot be dialled any more.
+func (g *Gateway) Stop() {
+	g.stop.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = g.srv.Shutdown(ctx)
+	})
 }

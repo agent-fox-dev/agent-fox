@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/agent-fox-dev/aflib/issuex"
 
+	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
@@ -43,6 +45,19 @@ type attempt struct {
 	// git runs every git command of the attempt, and cloneDir is the clone it runs them in.
 	git      gitx.Runner
 	cloneDir string
+	// lease is the sandbox that hub leased, nil before it is granted and after it was released
+	// by this attempt; boxes is the registry of the attempt, which holds its gateway, and
+	// boxLabels the labels that the box of the loop is made with.
+	lease     *hub.Lease
+	boxes     *box.Registry
+	boxLabels map[string]string
+	// warnings are the warnings that go into the envelope of the attempt, beside the ones the
+	// loop raised.
+	warnings []toolio.Warning
+	// releaseOnce makes the release of the lease happen once, whichever path asks for it first,
+	// and releaseErr is how it went.
+	releaseOnce sync.Once
+	releaseErr  error
 	// closers are what the attempt gives back when it ends, last made first.
 	closers []func()
 }

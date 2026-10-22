@@ -152,3 +152,30 @@ warning `push_failed`. Tests: `TestAPostPushHookThatFailsEndsTheLandingFailedWit
 (`internal/fix`), `TestTheBranchIsPublishedThroughHub…_TS_13_63` (`internal/worker`) and the run through the
 command (`internal/afcmd`).
 
+## 13. A lease with a second to spare is not enough, and the box cases are made by a step that stands for the loop (task 7)
+
+**Spec:** "the lease has less than 2 minutes left before `expires_at`" (R6.3); "the gateway cannot be
+reached or refuses to create the box" (R6.3, TS-13-43).
+
+**Code:** the timeout of the loop is `expires_at − now − 2m` cut to a whole number of seconds, and a
+lease whose cut would be under a second is refused as having too little time, since a timeout of 0
+means no timeout (`Runner.lease`, `internal/worker/lease.go`). The gateway is dialled and the box is
+made by the loop (`box.With` in `afcmd.fixLoop`), which is task 8; `Runner.boxOutcome` is the outcome of
+a box that could not be opened (a transient `sandbox` error with the token of the lease hidden), and the
+tests of the two gateway cases of TS-13-43 open the box of the attempt through its registry in a step
+that stands for the loop (`env.inBox`, `Runner.after`), with the gateway stopped and with the gateway
+refusing boxes (`fakehub.Gateway.Stop`, `RefuseBoxes`). Test:
+`TestOtherLeaseOrBoxProblemsAreTransientSandboxErrors_TS_13_43`. Deviation key:
+`box_cases_through_a_stand_in_for_the_loop`.
+
+## 14. The warnings of the worker are added to the encoded envelope (task 7)
+
+**Spec:** "the envelope's warnings include `lease_shortened_timeout`" and "`lease_release_failed`"
+(R6.6, R6.8).
+
+**Code:** the envelope is written by the in-process command before the box is closed and the lease
+released, so `lease_release_failed` cannot be known when it is made. `Runner.finish` adds both warnings
+to the encoded envelope with `toolio.AddWarnings`, which changes nothing else in the document, not the
+order of its fields and not its result (`internal/toolio/envelope.go`; test
+`TestAddWarningsChangesNothingButTheWarnings`). The status of the envelope is never touched.
+

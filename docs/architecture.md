@@ -975,6 +975,21 @@ worker, the poll, the `af` client) build on:
   any other answer is final. A branch that hub does not take ends the landing `failed` in category `git`, not
   retryable, with the branch kept on hub's git server and named in `next`, and no pull request. The seam is
   `fix.LandParams.PostPush`, which `FinishParams` and `ParkParams` carry and `afcmd.Config.PostPush` sets.
+- **The lease and the box.** After the clone the worker leases a sandbox: `POST …/sandboxes` with `{purpose:
+  "triage"|"fix", labels: {job, attempt}}` and `profile` only when `AF_SANDBOX_PROFILE` is set, and tells the job
+  the sandbox id. The attempt gets a box registry of its own that holds one provider, the gateway of the lease
+  (its URL and token), which is not in `box.Default` and so is no choice of `--sandbox`; the box of the loop is
+  made in it with the labels `af.run_id`, `af.tool`, `af.job` and `af.attempt`. A lease that hub refuses with 401
+  or 403 ends the attempt with a `failed` envelope of category `auth` that points to `PUT
+  /api/v1/workspaces/{slug}`. Any other answer (a 5xx, a capacity rejection with hub's reason in the message, a
+  timeout), a gateway that cannot be reached or refuses the box, and a lease with less than two minutes left are
+  a transient error of category `sandbox` and the attempt has no envelope. A lease that ends before `AF_TIMEOUT`
+  would cut the timeout of the loop to a whole number of seconds that ends two minutes before `expires_at`, and
+  the envelope gets the warning `lease_shortened_timeout`. The lease is released once, after the box is closed,
+  on every path (success, failure, a transient error, a cancellation, a shutdown and a panic), on a context
+  that the cancellation does not reach, bounded to 30 seconds. A release that fails leaves the status of the
+  envelope as it is and adds the warning `lease_release_failed`; under a transient error it is logged.
+  `toolio.AddWarnings` adds the warnings to the encoded envelope and changes nothing else in it.
 - **Tests.** `internal/hub/fakehub` is an `httptest` hub in the manner of `fakeforge`: a table of tokens,
   users and workspaces, a record of every request, and failures, hang-ups, delays, redirects and oversize
   answers by method and route on demand. It serves the calls above in the shapes of hub's OpenAPI

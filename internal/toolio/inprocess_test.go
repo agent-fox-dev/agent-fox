@@ -3,6 +3,7 @@ package toolio
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -365,6 +366,71 @@ func TestCallerChosenTargetRepository_TS_13_9(t *testing.T) {
 			}
 			if len(got) != 0 || r.ran != 0 {
 				t.Errorf("%s: %d forge clients built, command ran %d times; want neither", url, len(got), r.ran)
+			}
+		}
+	})
+}
+
+// TestAddWarningsChangesNothingButTheWarnings verifies that a warning can be added to an
+// envelope that was encoded by someone else: the bytes before and after the array of warnings
+// are the ones that were there, the added warnings are indented like the others, and an
+// envelope that is none is an error.
+func TestAddWarningsChangesNothingButTheWarnings(t *testing.T) {
+	env := NewEnvelope("fix")
+	env.Result = map[string]any{"zeta": 1, "alpha": []string{"b", "a"}, "big": json.Number("12345678901234567890")}
+	env.Warnings = []Warning{{Code: "first", Message: "the <first> & one"}}
+	env.Seal(time.Unix(100, 0), time.Unix(160, 0))
+	data, err := env.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := AddWarnings(data, Warning{Code: "lease_release_failed", Message: "hub said <no>"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var back Envelope
+	if err := json.Unmarshal(got, &back); err != nil {
+		t.Fatalf("the document is not JSON: %v\n%s", err, got)
+	}
+	if len(back.Warnings) != 2 || back.Warnings[0].Code != "first" || back.Warnings[1] != (Warning{Code: "lease_release_failed", Message: "hub said <no>"}) {
+		t.Errorf("warnings = %+v, want the one that was there and the one that was added", back.Warnings)
+	}
+	before, after := string(data), string(got)
+	head, _, _ := strings.Cut(before, `"warnings"`)
+	if !strings.HasPrefix(after, head+`"warnings": [`) {
+		t.Errorf("what comes before the warnings changed:\n%s", after)
+	}
+	_, tail, _ := strings.Cut(before, `"artifacts"`)
+	if !strings.HasSuffix(after, `"artifacts"`+tail) {
+		t.Errorf("what comes after the warnings changed:\n%s", after)
+	}
+	if !strings.Contains(after, "\n    {\n      \"code\": \"lease_release_failed\",\n      \"message\": \"hub said <no>\"\n    }\n  ],") {
+		t.Errorf("the added warning is not indented as the others:\n%s", after)
+	}
+
+	t.Run("a document with no warnings yet", func(t *testing.T) {
+		bare := NewEnvelope("fix")
+		bare.Seal(time.Unix(100, 0), time.Unix(160, 0))
+		data, _ := bare.Marshal()
+		if !strings.Contains(string(data), `"warnings": []`) {
+			t.Fatalf("setup: %s", data)
+		}
+		got, err := AddWarnings(data, Warning{Code: "a", Message: "b"}, Warning{Code: "c", Message: "d"})
+		if err != nil || !strings.Contains(string(got), "\"warnings\": [\n    {\n      \"code\": \"a\",") || !strings.Contains(string(got), `"code": "c"`) {
+			t.Errorf("got %s, %v", got, err)
+		}
+	})
+	t.Run("nothing to add", func(t *testing.T) {
+		if got, err := AddWarnings(data); err != nil || string(got) != string(data) {
+			t.Errorf("got %v, want the document as it was", err)
+		}
+	})
+	t.Run("what is not an envelope", func(t *testing.T) {
+		for _, in := range []string{"", "[]", "null", `{"status":"done"}`, `{"warnings": 3}`, `{"warnings": [`} {
+			if got, err := AddWarnings([]byte(in), Warning{Code: "a"}); err == nil {
+				t.Errorf("AddWarnings(%q) = %q, want an error", in, got)
 			}
 		}
 	})

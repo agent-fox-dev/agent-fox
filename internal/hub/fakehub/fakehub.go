@@ -87,6 +87,15 @@ type rule struct {
 	fault     Fault
 }
 
+// matches says whether the rule is for the path: the path itself, or any path under the prefix
+// when the rule's path ends in "/*".
+func (r rule) matches(path string) bool {
+	if prefix, ok := strings.CutSuffix(r.path, "*"); ok && strings.HasSuffix(prefix, "/") {
+		return strings.HasPrefix(path, prefix)
+	}
+	return r.path == path
+}
+
 // Hub is a fake hub.
 type Hub struct {
 	// URL is the base of the server.
@@ -268,8 +277,8 @@ func (h *Hub) Delay(path string, d time.Duration) {
 }
 
 // Inject makes the requests with the method (any when empty) for the path, decoded, do what
-// the fault says, until Clear. The rule added last that matches a request is the one that
-// applies.
+// the fault says, until Clear. A path that ends in "/*" is every path under the prefix. The rule
+// added last that matches a request is the one that applies.
 func (h *Hub) Inject(method, path string, f Fault) { h.add(rule{method: method, path: path, fault: f}) }
 
 // Clear takes away every failure and every delay.
@@ -366,7 +375,7 @@ func answerFault(w http.ResponseWriter, f Fault) {
 func (h *Hub) take(method, path, tokenHash string) *Fault {
 	for i := len(h.rules) - 1; i >= 0; i-- {
 		r := h.rules[i]
-		if r.path != path || (r.method != "" && r.method != method) || (r.tokenHash != "" && r.tokenHash != tokenHash) {
+		if !r.matches(path) || (r.method != "" && r.method != method) || (r.tokenHash != "" && r.tokenHash != tokenHash) {
 			continue
 		}
 		if r.fault.Once {

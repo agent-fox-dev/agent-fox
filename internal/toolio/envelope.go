@@ -3,6 +3,7 @@ package toolio
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -285,3 +286,57 @@ func (e *Envelope) Seal(started, finished time.Time) {
 // Marshal renders the envelope as the shell prints it: two-space indented, one trailing
 // newline, arrays as [] and never null.
 func (e *Envelope) Marshal() ([]byte, error) { return e.marshal() }
+
+// AddWarnings adds warnings to the encoded envelope data, which is an envelope as Marshal
+// renders it, and returns the document with nothing else changed: its result, its status and the
+// order of its fields are as they were, and the added warnings are indented as the rest.
+func AddWarnings(data []byte, add ...Warning) ([]byte, error) {
+	span, err := valueOf(data, "warnings")
+	if err != nil {
+		return nil, err
+	}
+	var warnings []Warning
+	if err := json.Unmarshal(data[span[0]:span[1]], &warnings); err != nil {
+		return nil, fmt.Errorf("the warnings of the envelope are not a list of warnings: %w", err)
+	}
+	if len(add) == 0 {
+		return data, nil
+	}
+	var compact bytes.Buffer
+	enc := json.NewEncoder(&compact)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(append(warnings, add...)); err != nil {
+		return nil, err
+	}
+	var indented bytes.Buffer
+	if err := json.Indent(&indented, bytes.TrimSpace(compact.Bytes()), "  ", "  "); err != nil {
+		return nil, err
+	}
+	out := make([]byte, 0, len(data)+indented.Len())
+	out = append(out, data[:span[0]]...)
+	out = append(out, indented.Bytes()...)
+	return append(out, data[span[1]:]...), nil
+}
+
+// valueOf is where the value of the field of the top-level object in data starts and ends.
+func valueOf(data []byte, field string) ([2]int, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return [2]int{}, errors.New("the envelope is not a JSON object")
+	}
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			return [2]int{}, fmt.Errorf("the envelope is not JSON: %w", err)
+		}
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			return [2]int{}, fmt.Errorf("the envelope is not JSON: %w", err)
+		}
+		if key == field {
+			end := int(dec.InputOffset())
+			return [2]int{end - len(raw), end}, nil
+		}
+	}
+	return [2]int{}, fmt.Errorf("the envelope has no %s", field)
+}

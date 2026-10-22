@@ -368,3 +368,79 @@ func TestTheGitServerAppliesTheFaultsInjectedForItsRepository(t *testing.T) {
 		t.Errorf("a delayed answer was %d, %v after %v, want 200 after at least 200ms", got, err, time.Since(start))
 	}
 }
+
+// TestAFaultForARouteWithAWildcardAppliesToEveryPathUnderIt checks the harness: a rule whose path
+// ends in "/*" applies to the paths under it, which is how a test fails the release of a lease
+// whose id it does not know, and a rule for the exact path wins when it was added last.
+func TestAFaultForARouteWithAWildcardAppliesToEveryPathUnderIt(t *testing.T) {
+	h := worker(t)
+	_, body := call(t, h, "POST", "/api/v1/workspaces/acme/sandboxes", pat, map[string]any{})
+	id := body.(map[string]any)["id"].(string)
+
+	h.Inject("DELETE", "/api/v1/workspaces/acme/sandboxes/*", Fault{Status: 500})
+	if status, _ := call(t, h, "DELETE", "/api/v1/workspaces/acme/sandboxes/"+id, pat, nil); status != 500 {
+		t.Errorf("the release under a wildcard rule: %d, want 500", status)
+	}
+	if status, _ := call(t, h, "POST", "/api/v1/workspaces/acme/sandboxes", pat, map[string]any{}); status != 201 {
+		t.Errorf("another method under the same prefix: %d, want 201", status)
+	}
+	if leases := h.Leases(); leases[0].Released {
+		t.Error("a release that failed released the lease")
+	}
+	h.Inject("DELETE", "/api/v1/workspaces/acme/sandboxes/"+id, Fault{Status: 502})
+	if status, _ := call(t, h, "DELETE", "/api/v1/workspaces/acme/sandboxes/"+id, pat, nil); status != 502 {
+		t.Errorf("a rule for the exact path added after the wildcard: %d, want 502", status)
+	}
+	h.Clear()
+	if status, _ := call(t, h, "DELETE", "/api/v1/workspaces/acme/sandboxes/"+id, pat, nil); status != 200 {
+		t.Errorf("after Clear: %d, want 200", status)
+	}
+}
+
+// TestTheGatewayCanBeStoppedAndMadeToRefuseBoxes checks the harness: a stopped gateway cannot
+// be dialled, and one that refuses boxes answers the creation of a box with the reason, and
+// records none.
+func TestTheGatewayCanBeStoppedAndMadeToRefuseBoxes(t *testing.T) {
+	h := worker(t)
+	_, body := call(t, h, "POST", "/api/v1/workspaces/acme/sandboxes", pat, map[string]any{})
+	lease := body.(map[string]any)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	dial := func() (*gateway.Provider, error) {
+		return gateway.Dial(ctx, lease["gateway_url"].(string), gateway.Options{Token: lease["token"].(string)})
+	}
+
+	h.Gateway().RefuseBoxes("no room for another box")
+	provider, err := dial()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Create(ctx, sandbox.Spec{Network: sandbox.Network{Mode: sandbox.NetworkUnrestricted}}); err == nil || !strings.Contains(err.Error(), "no room for another box") {
+		t.Errorf("creating a box on a gateway that refuses: %v, want the reason", err)
+	}
+	if n := len(h.Gateway().Created()); n != 0 {
+		t.Errorf("%d boxes were recorded, want none", n)
+	}
+	provider.Close()
+
+	h.Gateway().RefuseBoxes("")
+	provider, err = dial()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sb, err := provider.Create(ctx, sandbox.Spec{Network: sandbox.Network{Mode: sandbox.NetworkUnrestricted}}); err != nil {
+		t.Errorf("creating a box once the gateway takes them again: %v", err)
+	} else {
+		_ = sb.Close(ctx)
+	}
+	provider.Close()
+
+	h.Gateway().Stop()
+	if p, err := dial(); err == nil {
+		// A dial that is lazy fails when the box is asked for.
+		if _, err = p.Create(ctx, sandbox.Spec{Network: sandbox.Network{Mode: sandbox.NetworkUnrestricted}}); err == nil {
+			t.Error("a box was created on a gateway that is stopped")
+		}
+		p.Close()
+	}
+}

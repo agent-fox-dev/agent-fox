@@ -63,6 +63,10 @@ type Runner struct {
 	// tries of a call, the clock when it is nil.
 	cloneTimeout time.Duration
 	sleep        func(ctx context.Context, d time.Duration) error
+	// releaseTimeout bounds the release of the lease, defaultReleaseTimeout when it is 0.
+	releaseTimeout time.Duration
+	// after are steps that follow the lease; the loop will be the one, and a test puts its own.
+	after []stage
 }
 
 var _ jobs.Runner = (*Runner)(nil)
@@ -118,18 +122,23 @@ type stage struct {
 
 // stages are the steps of an attempt, in order.
 func (r *Runner) stages() []stage {
-	return []stage{{"resolve", r.resolve}, {"session", r.openSession}, {"clone", r.clone}}
+	return append([]stage{{"resolve", r.resolve}, {"session", r.openSession}, {"clone", r.clone}, {"lease", r.lease}}, r.after...)
 }
 
-// Run carries out the attempt: resolve, the session and the clone. An attempt that has not ended
+// Run carries out the attempt: resolve, the session, the clone and the lease. An attempt that has not ended
 // by then has no envelope, which is a failure of the worker and not of the attempt.
 func (r *Runner) Run(ctx context.Context, req jobs.Request) (jobs.Result, error) {
 	a := &attempt{req: req, report: r.reporterOf(req), started: r.cfg.Now()}
 	defer a.close()
+	return r.finish(ctx, a, r.pipeline(ctx, a))
+}
+
+// pipeline runs the steps of the attempt until one ends it, and returns how it ended.
+func (r *Runner) pipeline(ctx context.Context, a *attempt) *outcome {
 	for _, s := range r.stages() {
 		if out := s.run(ctx, a); out != nil {
-			return out.result, out.err
+			return out
 		}
 	}
-	return jobs.Result{}, errors.New("worker: the attempt ended without an envelope")
+	return &outcome{err: errors.New("worker: the attempt ended without an envelope")}
 }
