@@ -3,7 +3,6 @@ package api
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 	"unicode"
@@ -97,8 +96,7 @@ func (s *server) subscribe(w http.ResponseWriter, r *http.Request, slug string) 
 
 	sub, created, err := s.deps.Store.Upsert(r.Context(), slug, prefix, req.HubToken, tokenUser, principalOf(r).user, s.now())
 	if err != nil {
-		s.log.LogAttrs(r.Context(), slog.LevelError, "the subscription could not be stored", slog.String("slug", slug), slog.String("error", err.Error()))
-		writeError(w, CodeInternal, "internal error")
+		s.storeFailure(w, r, "the subscription could not be stored", err)
 		return
 	}
 	status := http.StatusOK

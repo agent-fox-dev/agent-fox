@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -54,8 +55,19 @@ type authHarness struct {
 
 func newAuthHarness(t *testing.T) *authHarness {
 	t.Helper()
-	a := &authHarness{Hub: fakehub.New(t), Clock: newClock()}
-	a.harness = newHarnessWith(t, func(d *Deps) {
+	return newAuthHarnessOn(t, fakehub.New(t), "", nil)
+}
+
+// newAuthHarnessOn starts the server against the hub, over the store at the path
+// opened with the key, or over a new store with the key of the harness if the
+// path is empty.
+func newAuthHarnessOn(t *testing.T, fake *fakehub.Hub, dbPath string, keyBytes []byte) *authHarness {
+	t.Helper()
+	a := &authHarness{Hub: fake, Clock: newClock()}
+	if dbPath == "" {
+		dbPath, keyBytes = filepath.Join(t.TempDir(), "agent-fox.db"), testKeyBytes
+	}
+	a.harness = newHarnessOn(t, dbPath, keyBytes, func(d *Deps) {
 		d.Hub = hub.New(a.Hub.URL, "1.2.3")
 		d.AuthCacheTTL = authTTL
 		d.Now = a.Clock.Now

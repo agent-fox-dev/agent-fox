@@ -64,7 +64,10 @@ func NewServer(deps Deps) *http.Server {
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("GET /readyz", s.readyz)
 	mux.HandleFunc("GET /version", s.version)
+	mux.HandleFunc("GET /api/v1/workspaces", s.authed(s.listWorkspaces))
+	mux.HandleFunc("GET /api/v1/workspaces/{slug}", s.inWorkspace(s.getWorkspace))
 	mux.HandleFunc("PUT /api/v1/workspaces/{slug}", s.inWorkspace(s.subscribe))
+	mux.HandleFunc("DELETE /api/v1/workspaces/{slug}", s.inWorkspace(s.deleteWorkspace))
 	if deps.Routes != nil {
 		deps.Routes(mux, s)
 	}

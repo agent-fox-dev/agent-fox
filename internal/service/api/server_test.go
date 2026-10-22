@@ -76,6 +76,7 @@ type harness struct {
 	Http    *http.Server
 	Store   *store.Store
 	Logs    *syncBuffer
+	DBPath  string
 }
 
 // newHarness starts the server; routes adds routes of the test to it.
@@ -84,15 +85,32 @@ func newHarness(t *testing.T, routes func(mux *http.ServeMux, s *server)) *harne
 	return newHarnessWith(t, func(d *Deps) { d.Routes = routes })
 }
 
-// newHarnessWith starts the server over a real store, with the dependencies that
-// configure sets besides the store, the logger and the version.
+// testKeyBytes is the key of the harness unless a test chooses another: 32 bytes
+// that no file or log holds by chance.
+var testKeyBytes = func() []byte {
+	b := make([]byte, 32)
+	for i := range b {
+		b[i] = byte(0xA1 + 7*i)
+	}
+	return b
+}()
+
+// newHarnessWith starts the server over a real store in a new file, with the
+// dependencies that configure sets besides the store, the logger and the version.
 func newHarnessWith(t *testing.T, configure func(*Deps)) *harness {
 	t.Helper()
-	key, err := secrets.NewKey(bytes.Repeat([]byte{3}, 32))
+	return newHarnessOn(t, filepath.Join(t.TempDir(), "agent-fox.db"), testKeyBytes, configure)
+}
+
+// newHarnessOn starts the server over the store at the path, opened with the key:
+// opening the same file again, with the same or another key, is a restart.
+func newHarnessOn(t *testing.T, dbPath string, keyBytes []byte, configure func(*Deps)) *harness {
+	t.Helper()
+	key, err := secrets.NewKey(keyBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "agent-fox.db"), key)
+	st, err := store.Open(ctx, dbPath, key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +124,16 @@ func newHarnessWith(t *testing.T, configure func(*Deps)) *harness {
 	ts.Config.ErrorLog, ts.Config.ReadHeaderTimeout = srv.ErrorLog, srv.ReadHeaderTimeout
 	ts.Start()
 	t.Cleanup(ts.Close)
-	return &harness{Server: ts, Handler: srv.Handler, Http: srv, Store: st, Logs: logs}
+	return &harness{Server: ts, Handler: srv.Handler, Http: srv, Store: st, Logs: logs, DBPath: dbPath}
+}
+
+// Stop stops the server and closes the store, as a shutdown does.
+func (h *harness) Stop(t *testing.T) {
+	t.Helper()
+	h.Server.Close()
+	if err := h.Store.Close(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // response is what a request got.
