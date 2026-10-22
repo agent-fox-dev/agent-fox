@@ -188,7 +188,7 @@
       "done_when": [
         "with count 2 the fake runner never sees more than two concurrent calls and two jobs on one workspace never overlap"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

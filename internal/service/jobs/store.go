@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -265,10 +264,7 @@ func AttemptsDir(databasePath string) string {
 // is missing. A directory that is there is left as it is.
 func EnsureAttemptsDir(databasePath string) (string, error) {
 	dir := AttemptsDir(databasePath)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", fmt.Errorf("attempts directory %s: %w", dir, err)
-	}
-	return dir, nil
+	return dir, makeDir(dir)
 }
 
 // CreateJob stores a job, its attempt 1 and the job_state event for queued, all or
@@ -457,4 +453,191 @@ func (s *Store) SetHub(ctx context.Context, jobID string, attempt int, sessionID
 		return fmt.Errorf("hub references of attempt %d of %s: %w", attempt, jobID, err)
 	}
 	return nil
+}
+
+// ErrNotClaimable is the error of a claim of an attempt that is no longer queued or
+// running, or of a job that is no longer queued or running.
+var ErrNotClaimable = errors.New("the attempt cannot be claimed")
+
+// Claimed is what a claim of an attempt came to.
+type Claimed struct {
+	// Delivery is how many times the attempt has been handed over, this time included.
+	Delivery int
+}
+
+// Claim hands the attempt over: in one transaction it moves the attempt to running,
+// adds one to its deliveries and moves the job to running, and stores the events that
+// say so (job_state when the job was queued, and attempt_start). An attempt that is
+// running already, because its runner was interrupted, is handed over again with one
+// more delivery. An attempt or a job that is not queued or running is
+// ErrNotClaimable, and nothing is changed.
+func (s *Store) Claim(ctx context.Context, jobID string, attempt int) (Claimed, error) {
+	var claimed Claimed
+	err := s.run(ctx, jobID, func(x *txn) error {
+		now := formatTime(s.now())
+		res, err := x.ExecContext(ctx,
+			`UPDATE af_attempts SET state = 'running', deliveries = deliveries + 1, started_at = COALESCE(started_at, ?)
+			 WHERE job_id = ? AND n = ? AND state IN ('queued', 'running')`, now, jobID, attempt)
+		if err != nil {
+			return fmt.Errorf("attempt %d of %s: %w", attempt, jobID, err)
+		}
+		if n, err := res.RowsAffected(); err != nil || n == 0 {
+			return ErrNotClaimable
+		}
+		if err := s.fails(OpClaim); err != nil {
+			return err
+		}
+		var before State
+		if err := x.QueryRowContext(ctx, "SELECT state FROM af_jobs WHERE id = ?", jobID).Scan(&before); err != nil {
+			return fmt.Errorf("job %s: %w", jobID, err)
+		}
+		changed, err := s.transition(ctx, x.Tx, jobID, []State{StateQueued, StateRunning}, StateRunning)
+		if err != nil {
+			return err
+		}
+		if !changed {
+			return ErrNotClaimable
+		}
+		if err := x.QueryRowContext(ctx, "SELECT deliveries FROM af_attempts WHERE job_id = ? AND n = ?", jobID, attempt).Scan(&claimed.Delivery); err != nil {
+			return fmt.Errorf("attempt %d of %s: %w", attempt, jobID, err)
+		}
+		if before == StateQueued {
+			if err := x.emit(ctx, attempt, EventJobState, jobStateData{State: StateRunning, Attempt: attempt}); err != nil {
+				return err
+			}
+		}
+		return x.emit(ctx, attempt, EventAttemptStart, map[string]int{"attempt": attempt, "delivery": claimed.Delivery})
+	})
+	if err != nil {
+		return Claimed{}, err
+	}
+	return claimed, nil
+}
+
+// What a handler of the queue does with an item.
+type disposition int
+
+const (
+	// dispAck: the attempt or its job is gone or is not open; the item is done.
+	dispAck disposition = iota
+	// dispYield: the attempt is open but is not the first of its workspace; the item
+	// is to come back.
+	dispYield
+	// dispClaim: the attempt is the first open attempt of its workspace; it is to be run.
+	dispClaim
+)
+
+// Plan decides what the handler of an item does: acknowledge it, when the job is gone
+// or is not queued or running, or the attempt is gone or is not queued or running;
+// hand it back, when the attempt is open but another attempt of the workspace was made
+// before it and is open as well; or claim it. The attempts of a workspace run in the
+// order they were made, whatever order the queue, which claims by a time of one
+// second, has them in.
+func (s *Store) Plan(ctx context.Context, jobID string, attempt int) (disposition, error) {
+	var workspace string
+	var job State
+	err := s.db.QueryRowContext(ctx, "SELECT workspace, state FROM af_jobs WHERE id = ?", jobID).Scan(&workspace, &job)
+	if errors.Is(err, sql.ErrNoRows) {
+		return dispAck, nil
+	}
+	if err != nil {
+		return dispAck, fmt.Errorf("job %s: %w", jobID, err)
+	}
+	var state AttemptState
+	err = s.db.QueryRowContext(ctx, "SELECT state FROM af_attempts WHERE job_id = ? AND n = ?", jobID, attempt).Scan(&state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return dispAck, nil
+	}
+	if err != nil {
+		return dispAck, fmt.Errorf("attempt %d of %s: %w", attempt, jobID, err)
+	}
+	if (job != StateQueued && job != StateRunning) || (state != AttemptQueued && state != AttemptRunning) {
+		return dispAck, nil
+	}
+	var firstJob string
+	var first int
+	err = s.db.QueryRowContext(ctx,
+		`SELECT a.job_id, a.n FROM af_attempts a JOIN af_jobs j ON j.id = a.job_id
+		 WHERE j.workspace = ? AND j.state IN ('queued', 'running') AND a.state IN ('queued', 'running')
+		 ORDER BY a.queue_seq LIMIT 1`, workspace).Scan(&firstJob, &first)
+	if err != nil {
+		return dispAck, fmt.Errorf("first attempt of %s: %w", workspace, err)
+	}
+	if firstJob == jobID && first == attempt {
+		return dispClaim, nil
+	}
+	return dispYield, nil
+}
+
+// WorkspaceOf is the workspace of a job, or ErrNotFound.
+func (s *Store) WorkspaceOf(ctx context.Context, jobID string) (string, error) {
+	var workspace string
+	err := s.db.QueryRowContext(ctx, "SELECT workspace FROM af_jobs WHERE id = ?", jobID).Scan(&workspace)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return workspace, err
+}
+
+// RunRequest is what a runner is given for an attempt of a job, without the means of
+// reporting (the recorder) and the directory: the job's workspace, kind, input,
+// context, source and request label, and the questions answered up to the attempt.
+func (s *Store) RunRequest(ctx context.Context, jobID string, attempt int) (Request, error) {
+	job, err := loadJob(ctx, s.db, jobID)
+	if err != nil {
+		return Request{}, err
+	}
+	rows, err := loadAttempts(ctx, s.db, jobID)
+	if err != nil {
+		return Request{}, err
+	}
+	req := Request{
+		JobID: jobID, Attempt: attempt, Workspace: job.Workspace, Kind: Kind(job.Kind),
+		Source: Source{Kind: job.SourceKind, By: job.SourceBy}, RequestLabel: job.RequestLabel.String,
+		Answers: []Answer{},
+	}
+	if err := json.Unmarshal([]byte(job.Input), &req.Input); err != nil {
+		return Request{}, fmt.Errorf("job %s: input: %w", jobID, err)
+	}
+	var notes string
+	if err := s.db.QueryRowContext(ctx, "SELECT context FROM af_jobs WHERE id = ?", jobID).Scan(&notes); err != nil {
+		return Request{}, fmt.Errorf("job %s: context: %w", jobID, err)
+	}
+	if err := json.Unmarshal([]byte(notes), &req.Context); err != nil {
+		return Request{}, fmt.Errorf("job %s: context: %w", jobID, err)
+	}
+	for _, a := range rows {
+		if a.N > attempt {
+			break
+		}
+		if a.N == attempt {
+			req.Delivery = a.Deliveries
+		}
+		if a.Answer.Valid {
+			var answer Answer
+			if err := json.Unmarshal([]byte(a.Answer.String), &answer); err != nil {
+				return Request{}, fmt.Errorf("attempt %d of %s: answer: %w", a.N, jobID, err)
+			}
+			req.Answers = append(req.Answers, answer)
+		}
+	}
+	return req, nil
+}
+
+// finishMinimal records an attempt that returned as done, and its job. It is the end
+// of an attempt of the queue adapter alone; the rules of 12-REQ-6 replace it.
+func (s *Store) finishMinimal(ctx context.Context, jobID string, attempt int) error {
+	return s.run(ctx, jobID, func(x *txn) error {
+		now := formatTime(s.now())
+		if _, err := x.ExecContext(ctx, "UPDATE af_attempts SET state = 'done', finished_at = ? WHERE job_id = ? AND n = ? AND state = 'running'", now, jobID, attempt); err != nil {
+			return err
+		}
+		if _, err := s.transition(ctx, x.Tx, jobID, []State{StateRunning}, StateDone); err != nil {
+			return err
+		}
+		if err := x.emit(ctx, attempt, EventAttemptEnd, map[string]any{"attempt": attempt, "state": AttemptDone}); err != nil {
+			return err
+		}
+		return x.emit(ctx, attempt, EventJobState, jobStateData{State: StateDone, Attempt: attempt, AtRest: true})
+	})
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
 	"github.com/agent-fox-dev/agentfox/internal/service/api"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
+	"github.com/agent-fox-dev/agentfox/internal/service/jobs/fakerunner"
 	"github.com/agent-fox-dev/agentfox/internal/service/secrets"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -72,14 +73,27 @@ func (s *syncBuffer) find(level, text string) []map[string]any {
 // env is the service under test: the real store over a file, the real jobs service,
 // the real HTTP server, and a fake hub on which the caller sees widgets.
 type env struct {
-	t     *testing.T
-	Hub   *fakehub.Hub
-	Store *store.Store
-	DB    *sql.DB
-	Svc   *jobs.Service
-	URL   string
-	Logs  *syncBuffer
-	Dir   string
+	t      *testing.T
+	Hub    *fakehub.Hub
+	Store  *store.Store
+	DB     *sql.DB
+	Svc    *jobs.Service
+	Runner *fakerunner.Runner
+	URL    string
+	Logs   *syncBuffer
+	Dir    string
+}
+
+// withRunner is a configuration that makes the runner of the service r.
+func withRunner(r jobs.Runner) func(*jobs.Config) { return func(c *jobs.Config) { c.Runner = r } }
+
+// withWorkers is a configuration that makes [workers].count n.
+func withWorkers(n int) func(*jobs.Config) { return func(c *jobs.Config) { c.Workers = n } }
+
+// withoutEnqueue is a configuration under which a job that is made is not put in the
+// queue, so that a test puts the attempts there in the order it chooses.
+func withoutEnqueue() func(*jobs.Config) {
+	return func(c *jobs.Config) { c.Enqueue = func(context.Context, string, int) error { return nil } }
 }
 
 // newEnv starts the service. configure changes the configuration of the jobs
@@ -101,9 +115,18 @@ func newEnv(t *testing.T, configure ...func(*jobs.Config)) *env {
 	logs := &syncBuffer{}
 	logger := slog.New(slog.NewJSONHandler(logs, nil))
 
-	cfg := jobs.Config{DB: st.DB(), Subscriptions: st, Logger: logger}
+	fake := fakerunner.New()
+	cfg := jobs.Config{
+		DB: st.DB(), Subscriptions: st, Logger: logger,
+		Workers: 2, AttemptsDir: filepath.Join(dir, "attempts"), Runner: fake,
+		// A poll and a delay that the tests do not wait on.
+		PollInterval: 5 * time.Millisecond, RetryDelay: time.Millisecond,
+	}
 	for _, c := range configure {
 		c(&cfg)
+	}
+	if r, ok := cfg.Runner.(*fakerunner.Runner); ok {
+		fake = r
 	}
 	svc, err := jobs.New(cfg)
 	if err != nil {
@@ -116,9 +139,74 @@ func newEnv(t *testing.T, configure ...func(*jobs.Config)) *env {
 	ts.Start()
 	t.Cleanup(ts.Close)
 
-	e := &env{t: t, Hub: fh, Store: st, DB: st.DB(), Svc: svc, URL: ts.URL, Logs: logs, Dir: dir}
+	e := &env{t: t, Hub: fh, Store: st, DB: st.DB(), Svc: svc, Runner: fake, URL: ts.URL, Logs: logs, Dir: dir}
 	e.subscribe("widgets")
+	t.Cleanup(func() {
+		fake.ReleaseAll()
+		if err := svc.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
 	return e
+}
+
+// Start starts the workers of the service.
+func (e *env) Start() {
+	e.t.Helper()
+	if err := e.Svc.Start(); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+// addWorkspace makes the workspace one that the caller sees and that is subscribed.
+func (e *env) addWorkspace(slug string) {
+	e.t.Helper()
+	e.Hub.Grant(callerID, slug)
+	e.subscribe(slug)
+}
+
+// create makes a job of the kind for the issue on the workspace through the API, and
+// returns it.
+func (e *env) create(workspace string, kind jobs.Kind, issue int) jobs.Doc {
+	e.t.Helper()
+	r := e.call("POST", "/api/v1/workspaces/"+workspace+"/"+string(kind), map[string]any{"issue": issue})
+	if r.Status != http.StatusAccepted {
+		e.t.Fatalf("create %s %s %d: status %d\n%s", workspace, kind, issue, r.Status, r.Body)
+	}
+	return r.Doc(e.t)
+}
+
+// get is the document of a job with its attempts.
+func (e *env) get(id string) jobs.Doc {
+	e.t.Helper()
+	doc, err := e.Svc.Get(ctx, id)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return doc
+}
+
+// waitFor waits until the condition holds, for at most 10 seconds.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("gave up waiting for %s", what)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+// waitState waits until the job is in the state.
+func (e *env) waitState(id string, state jobs.State) jobs.Doc {
+	e.t.Helper()
+	var doc jobs.Doc
+	waitFor(e.t, id+" to be "+string(state), func() bool {
+		doc = e.get(id)
+		return doc.State == state
+	})
+	return doc
 }
 
 // subscribe subscribes the workspace, with a token that opens.
