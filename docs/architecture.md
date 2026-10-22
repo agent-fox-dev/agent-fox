@@ -908,8 +908,72 @@ worker, the poll, the `af` client) build on:
   users and workspaces, a record of every request, and failures on demand. `make check` needs no hub, no
   key and no network beyond the loopback interface.
 
-What it will do, and does not yet: queue and run jobs, run `af triage` and `af fix` on a subscribed
-workspace with its token, poll the forge through hub, and be driven by an `af` that talks to it.
+What it will do, and does not yet: run `af triage` and `af fix` on a subscribed workspace with its token (the
+runner behind the jobs below is a placeholder that fails each attempt as `unsupported`), poll the forge through
+hub, and be driven by an `af` that talks to it.
+
+### The jobs, as built
+
+`internal/service/jobs` is the layer between the routes and a runner: it keeps the requests for `triage` and
+`fix` durable, runs them in order behind a seam, and records what became of them. The surface is in
+[api.md](api.md#jobs); this is how it is made.
+
+- **Records.** Three tables, appended to the migrations of the state file: `af_jobs` (one row per job),
+  `af_attempts` (one row per attempt, keyed by job and number) and `af_events` (the log of a job, keyed by job and
+  `seq`). `aflib/jobqueue` keeps its own tables in the same file; the `af_` prefix keeps the two apart. The files
+  of an attempt, `envelope.json` and `report.md` (mode 0600), go under `attempts/<job id>/<n>/` beside the
+  database, so that purging a job is one removal.
+- **States.** A job is `queued`, `running`, `blocked`, `done`, `failed` or `cancelled`; an attempt is `queued`,
+  `running`, `done`, `needs_human`, `failed` or `cancelled`. *Open* is queued, running or blocked; *at rest* is
+  blocked or finished with no attempt running or queued. `finished_at` is when a job last entered `done`,
+  `failed` or `cancelled`, and the retention counts from it. A partial unique index keeps a second open job of a
+  kind for an issue out of a workspace.
+- **The queue key and the order.** Each attempt is one item of `aflib/jobqueue`, of the type `attempt`, with the
+  nonce `<job id>:<n>`, the workspace as its group, and `{job_id, attempt}` as its payload. The queue refuses a
+  second queued or running item with the same type and key, so the key is the nonce, which is unique; enqueuing an
+  attempt the queue has in any state is a no-op, and that makes the start-up enqueue and the sweep that runs every
+  minute safe. The queue serializes a group, so one attempt of a workspace runs at a time. It claims by the second,
+  so the order of a workspace is kept by `af_attempts.queue_seq`: a handler whose attempt is not the first open
+  attempt of its workspace hands its item back. The number of attempts in a runner at once is `[workers].count`,
+  held by a semaphore of slots; the queue has sixteen more workers than slots, so that an attempt that waits for a
+  slot or out a backoff holds its workspace's place and no slot.
+- **The runner contract** (`jobs.Runner`: `Run(ctx, Request) (Result, error)`). A result carries the envelope as
+  the JSON the command wrote (stored verbatim), the report, the labels set and removed, and the most attempts a
+  round may make. Four obligations belong to every runner: (1) one attempt is one brain-level attempt, and the
+  runner does not run the brain again after a failure, because further attempts are the layer's; (2) infrastructure
+  failures (a box or a lease that cannot be had, hub down or answering 5xx, a forge rate limit) are *transient
+  errors*, `jobs.Transient`, and only what a brain-level attempt came to is an envelope; (3) the runner reads the
+  token of the workspace when the attempt starts and keeps it for the life of the attempt, because an unsubscribe
+  removes the subscription while a cancelled attempt may still be cleaning up; (4) what it does when it is stopped
+  depends on why (`jobs.IsCancel`): for a cancel or an unsubscribe it releases what it holds and restores the
+  request label within the grace, for a shutdown it leaves the attempt resumable and what it returns is discarded.
+  The context carries the cause: `ErrCancelled`, `ErrUnsubscribed` (which is a cancel as well) or `ErrShutdown`.
+  `jobs/fakerunner` is the exported fake that scripts a runner for tests; `jobs/fakeclock` is its clock.
+- **Transient retries versus automatic attempts.** They are different things. A transient error asks for the
+  *same* attempt to be handed over again, after 30 seconds and then 2 minutes, on the layer's clock and with
+  the worker slot released during the wait; the third transient failure fails the attempt and the job, and never
+  becomes an automatic attempt, whatever the failure's `retryable` says. An *automatic attempt* is a new
+  attempt (a new row) queued after a `failed` envelope of the category `brain` or `no_result` that is
+  `retryable`, bounded by the round (see [api.md](api.md#what-an-attempt-comes-to)). A handover after a shutdown or
+  a crash is neither: it raises `deliveries` and counts as no failure.
+- **Cancel, unsubscribe and shutdown.** A cancel sets the job `cancelled` at once and gives a running runner
+  60 seconds (`fixGrace` of 30 plus 30 to release the lease and restore the label); after them the attempt is
+  recorded cancelled without it, an `ERROR` is logged, and the runner keeps its place and slot until it returns.
+  An unsubscribe marks the workspace, cancels its open jobs with the unsubscribe cause, waits for their runners
+  and then removes the row. A shutdown stops claiming, cancels the attempts with the shutdown cause and waits up
+  to 30 seconds; the attempts stay `running` and are handed over again, under the same number, after the restart.
+- **The event log.** Every transition emits `job_state`, a handover `attempt_start`, an end `attempt_end`, and a
+  runner reports its own events through the `Recorder` of its request. An event is stored, with a `seq` that
+  is gap-free per job, before it is published; the store hands the stored event to a broker whose subscribers have
+  a buffer of 256 and are closed when it is full, so a client that does not read can hold up neither the
+  runner nor the others. The stream (`GET …/events`) subscribes first, replays the store after its starting point,
+  drops the numbers it has sent, and ends when the job is at rest; a client that was cut recovers from the store
+  with the last id it saw.
+- **Retention.** A purge runs at start and then every hour on the layer's clock, and removes finished jobs with no
+  running attempt and no runner in progress that were finished more than `[database].retain` ago: the directory
+  first, then the rows, under the lock of the job.
+- **Tests.** Every test runs offline against `fakehub`, the fake runner and a fake clock; the placeholder runner is
+  what `cmd/agent-fox` wires until the worker exists.
 
 ## What moves where
 

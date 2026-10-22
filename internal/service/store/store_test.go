@@ -228,7 +228,11 @@ func TestMigrationsApplyOnceInOrderAndRollBack_TS_11_26(t *testing.T) {
 			t.Fatal(err)
 		}
 		got := column(t, s.DB(), "SELECT version FROM af_schema_migrations ORDER BY version")
-		if want := []string{"1"}; !slices.Equal(got, want) {
+		var want []string
+		for v := range len(migrations) {
+			want = append(want, fmt.Sprint(v+1))
+		}
+		if !slices.Equal(got, want) {
 			t.Errorf("the migration record lists %v, want each migration exactly once: %v", got, want)
 		}
 		if err := s.Close(); err != nil {

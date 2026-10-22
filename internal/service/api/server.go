@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/hub"
+	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
 )
 
@@ -32,6 +33,7 @@ const (
 type Deps struct {
 	Store  *store.Store
 	Hub    *hub.Client
+	Jobs   *jobs.Service
 	Logger *slog.Logger
 	// Version is the version document that GET /version answers.
 	Version any
@@ -69,16 +71,24 @@ func NewServer(deps Deps) *http.Server {
 	mux.HandleFunc("GET /api/v1/workspaces/{slug}", s.inWorkspace(s.getWorkspace))
 	mux.HandleFunc("PUT /api/v1/workspaces/{slug}", s.inWorkspace(s.subscribe))
 	mux.HandleFunc("DELETE /api/v1/workspaces/{slug}", s.inWorkspace(s.deleteWorkspace))
+	if deps.Jobs != nil {
+		s.jobRoutes(mux)
+	}
 	if deps.Routes != nil {
 		deps.Routes(mux, s)
 	}
-	return &http.Server{
+	srv := &http.Server{
 		Handler:           s.logged(s.recovered(s.routed(mux))),
 		ReadHeaderTimeout: readHeaderTimeout,
 		// What net/http itself reports (a panic's stack, a bad request line) goes
 		// to the log as records too, so that every line on stderr is one.
 		ErrorLog: slog.NewLogLogger(s.log.Handler(), slog.LevelWarn),
 	}
+	if deps.Jobs != nil {
+		// Shutdown waits for the requests in flight, and a stream is one until it is closed.
+		srv.RegisterOnShutdown(deps.Jobs.CloseStreams)
+	}
+	return srv
 }
 
 // now is the time, by the clock of the dependencies.
@@ -256,33 +266,72 @@ func (s *server) recovered(next http.Handler) http.Handler {
 	})
 }
 
-// decodeBody reads the JSON body of the request into v. The body must be
-// application/json (parameters allowed), at most 64 KiB, one JSON value and
+// decodeBody reads the JSON body of the request into v, at most 64 KiB of it; see
+// decodeBodyLimit.
+func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	return decodeBodyLimit(w, r, v, maxBody)
+}
+
+// decodeBodyLimit reads the JSON body of the request into v. The body must be
+// application/json (parameters allowed), at most limit bytes, one JSON value and
 // nothing after it, with no field that v does not have. Otherwise it answers the
 // request with 415, 413 or 400, before the handler has written anything, and
 // reports false.
-func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
+func decodeBodyLimit(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
+	data, ok := readBody(w, r, limit)
+	return ok && decodeJSON(w, data, v)
+}
+
+// readBody reads the body of the request, which must be application/json
+// (parameters allowed) and at most limit bytes; otherwise it answers 415 or 413 and
+// reports false. The body is read whole before it is decoded, up to the limit: a
+// decoder that fails on the first byte of a body of 100 KiB would otherwise answer
+// 400 for a body that is too large, and one that has read a value would not look at
+// the rest.
+func readBody(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, bool) {
 	if mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mediaType != "application/json" {
 		writeError(w, CodeUnsupportedMedia, "the body must be application/json")
-		return false
+		return nil, false
 	}
-	// The body is read whole before it is decoded, up to the limit: a decoder that
-	// fails on the first byte of a body of 100 KiB would otherwise answer 400 for a
-	// body that is too large, and one that has read a value would not look at the rest.
-	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 	if err != nil {
-		bodyError(w, err)
-		return false
+		bodyError(w, err, limit)
+		return nil, false
 	}
+	return data, true
+}
+
+// readBodyOrNothing is readBody for a route where a body that is not there is its own
+// answer: nothing is returned for it, whatever the content type says; anything else must
+// be application/json and at most limit bytes.
+func readBodyOrNothing(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, bool) {
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
+	if err != nil {
+		bodyError(w, err, limit)
+		return nil, false
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, true
+	}
+	if mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mediaType != "application/json" {
+		writeError(w, CodeUnsupportedMedia, "the body must be application/json")
+		return nil, false
+	}
+	return data, true
+}
+
+// decodeJSON decodes a body into v: one JSON value, nothing after it, and no field
+// that v does not have. Otherwise it answers 400 and reports false.
+func decodeJSON(w http.ResponseWriter, data []byte, v any) bool {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		bodyError(w, err)
+		bodyError(w, err, 0)
 		return false
 	}
 	// Nothing may follow the value but white space.
 	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		bodyError(w, errTrailingData)
+		bodyError(w, errTrailingData, 0)
 		return false
 	}
 	return true
@@ -291,13 +340,14 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 // errTrailingData is the error of a body that holds more than one JSON value.
 var errTrailingData = errors.New("data after the JSON value")
 
-// bodyError answers a body that could not be read.
-func bodyError(w http.ResponseWriter, err error) {
+// bodyError answers a body that could not be read; limit is the largest body there
+// was room for.
+func bodyError(w http.ResponseWriter, err error, limit int64) {
 	var tooLarge *http.MaxBytesError
 	var wrongType *json.UnmarshalTypeError
 	switch {
 	case errors.As(err, &tooLarge):
-		writeError(w, CodePayloadTooLarge, fmt.Sprintf("the body is larger than %d bytes", maxBody))
+		writeError(w, CodePayloadTooLarge, fmt.Sprintf("the body is larger than %d bytes", limit))
 	case errors.Is(err, io.EOF):
 		writeError(w, CodeInvalidRequest, "the body is empty")
 	case errors.As(err, &wrongType):

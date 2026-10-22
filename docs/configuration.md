@@ -249,12 +249,26 @@ unset, empty or not an absolute path). If none exists, the service does not star
 | `hub.url` | string | **required** | An absolute `http` or `https` URL, with an optional path prefix and no query or fragment. A trailing `/` is dropped. Hub's API is `<hub.url>/api/v1/…`. |
 | `hub.auth_cache_ttl` | duration (Go syntax, as `60s`) | `60s` | From `1s` to `15m` inclusive. A value outside is refused, not clamped. How long hub's answers about a caller's token and about the workspaces the caller sees are kept. |
 | `database.path` | string | `$XDG_STATE_HOME/agent-fox/agent-fox.db` (`$HOME/.local/state/agent-fox/agent-fox.db` when `XDG_STATE_HOME` is unset, empty or not an absolute path) | The SQLite file. The service makes it, with its directory, when it is missing. |
+| `database.retain` | duration (Go syntax, as `720h`) | `720h` | From `1h` to `8760h` inclusive. A value outside is refused, not clamped. How long a finished job (done, failed or cancelled) is kept before the purge removes it. |
+| `workers.count` | integer | `2` | From `1` to `64` inclusive. A value outside, or one that is not an integer, is refused. The number of attempts that run at once across all workspaces. |
 | `secrets.key_file` | string | **required** | The file that holds the key (see [the key file](#the-key-file)). |
+
+`workers.count` is the key `count` of the `[workers]` table, and `database.retain` the key `retain` of
+`[database]`.
+
+- `[workers].count` bounds the attempts that are in a runner at once, across all workspaces. The attempts of one
+  workspace run one at a time in the order they were made whatever the count is, so a count of 4 lets four
+  workspaces work together. An attempt that waits out a backoff after a transient failure gives its slot back.
+- `[database].retain` is how long a job that is `done`, `failed` or `cancelled` is kept, counted from the time it was
+  finished (`finished_at`), and not from when it was asked or made. A purge runs when the service starts and then
+  every hour, and removes the job's `attempts/<job id>/` directory (beside the database file) and its rows. A
+  `blocked` job is never removed, and neither is a job with a runner that has not returned. See
+  [api.md](api.md#how-long-a-job-is-kept).
 
 **No other key is defined.** A key that is not in the table, in any table, is an error that names it, so
 that a misspelt key (`auth_cach_ttl`) is never silently replaced by the default. That includes
-`server.external_url`, a `[workers]` table and `database.retain`, which are not accepted in this release.
-They arrive with the specs that use them, and until then a file that sets them is refused. A
+`server.external_url`, which is not accepted in this release: it arrives with the spec that uses it, and
+until then a file that sets it is refused. A
 value of the wrong type is an error that names the key as well, and so is an empty value for a key that
 is required or that has a default.
 
@@ -303,6 +317,7 @@ beside it while it runs), with a busy timeout of 5 seconds and foreign keys on. 
 the mode `0700` and the file with `0600` when they are missing. Every table the service owns is named with
 the prefix `af_`, its migrations are recorded in `af_schema_migrations` (not in `PRAGMA user_version`), and
 it never reads or writes a table it does not own, so that the file can hold the tables of other modules.
-Migrations run when the service starts; a file that records a migration newer than the binary knows
+The service also makes the directory `attempts/` beside the file, with the mode `0700`, when it is
+missing: the files of each attempt of a job go in it. Migrations run when the service starts; a file that records a migration newer than the binary knows
 makes the start fail, naming both versions, and is left as it was. Two processes must not share one file.
 

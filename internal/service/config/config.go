@@ -1,10 +1,10 @@
 // Package config loads and validates the config.toml of the agent-fox service.
 //
-// The file has five keys and no others (server.listen, hub.url,
-// hub.auth_cache_ttl, database.path and secrets.key_file). A key that is not
-// defined, a value of the wrong type and a value out of range are each an
-// error that names the dotted key, and nothing is clamped or defaulted in
-// place of a value that was given.
+// The file has seven keys and no others (server.listen, hub.url,
+// hub.auth_cache_ttl, database.path, database.retain, workers.count and
+// secrets.key_file). A key that is not defined, a value of the wrong type and a
+// value out of range are each an error that names the dotted key, and nothing is
+// clamped or defaulted in place of a value that was given.
 package config
 
 import (
@@ -22,12 +22,21 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// The defaults, and the range of hub.auth_cache_ttl.
+// The defaults, and the ranges of hub.auth_cache_ttl, workers.count and
+// database.retain.
 const (
 	DefaultListen = "127.0.0.1:8090"
 	DefaultTTL    = 60 * time.Second
 	MinTTL        = time.Second
 	MaxTTL        = 15 * time.Minute
+
+	DefaultWorkers = 2
+	MinWorkers     = 1
+	MaxWorkers     = 64
+
+	DefaultRetain = 720 * time.Hour
+	MinRetain     = time.Hour
+	MaxRetain     = 8760 * time.Hour
 )
 
 // Config is the validated configuration of the service. Every path in it is
@@ -38,6 +47,7 @@ type Config struct {
 	Server   Server
 	Hub      Hub
 	Database Database
+	Workers  Workers
 	Secrets  Secrets
 }
 
@@ -55,6 +65,14 @@ type Hub struct {
 // Database is the [database] table.
 type Database struct {
 	Path string
+	// Retain is how long a finished job is kept.
+	Retain time.Duration
+}
+
+// Workers is the [workers] table.
+type Workers struct {
+	// Count is the number of attempts in flight across all workspaces.
+	Count int
 }
 
 // Secrets is the [secrets] table.
@@ -73,8 +91,12 @@ type document struct {
 		AuthCacheTTL *string `toml:"auth_cache_ttl"`
 	} `toml:"hub"`
 	Database struct {
-		Path *string `toml:"path"`
+		Path   *string `toml:"path"`
+		Retain *string `toml:"retain"`
 	} `toml:"database"`
+	Workers struct {
+		Count *int `toml:"count"`
+	} `toml:"workers"`
 	Secrets struct {
 		KeyFile *string `toml:"key_file"`
 	} `toml:"secrets"`
@@ -219,6 +241,13 @@ func (d *document) resolve(dir string) (Config, error) {
 		return Config{}, err
 	}
 
+	if c.Workers.Count, err = d.workersCount(); err != nil {
+		return Config{}, err
+	}
+	if c.Database.Retain, err = d.retain(); err != nil {
+		return Config{}, err
+	}
+
 	if d.Secrets.KeyFile == nil {
 		return Config{}, errors.New("secrets.key_file: is required")
 	}
@@ -276,6 +305,38 @@ func (d *document) authCacheTTL() (time.Duration, error) {
 		return 0, fmt.Errorf("hub.auth_cache_ttl: %s is outside %s to %s", raw, MinTTL, MaxTTL)
 	}
 	return ttl, nil
+}
+
+// retain is database.retain, which is refused outside MinRetain to MaxRetain and
+// never clamped.
+func (d *document) retain() (time.Duration, error) {
+	if d.Database.Retain == nil {
+		return DefaultRetain, nil
+	}
+	raw, err := expand("database.retain", *d.Database.Retain)
+	if err != nil {
+		return 0, err
+	}
+	retain, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("database.retain: %q is not a duration such as 720h", raw)
+	}
+	if retain < MinRetain || retain > MaxRetain {
+		return 0, fmt.Errorf("database.retain: %s is outside %s to %s", raw, MinRetain, MaxRetain)
+	}
+	return retain, nil
+}
+
+// workersCount is workers.count, which is refused outside MinWorkers to
+// MaxWorkers and never clamped.
+func (d *document) workersCount() (int, error) {
+	if d.Workers.Count == nil {
+		return DefaultWorkers, nil
+	}
+	if n := *d.Workers.Count; n < MinWorkers || n > MaxWorkers {
+		return 0, fmt.Errorf("workers.count: %d is outside %d to %d", n, MinWorkers, MaxWorkers)
+	}
+	return *d.Workers.Count, nil
 }
 
 // resolvePath is a path of the file: expanded, not empty, and absolute against dir.

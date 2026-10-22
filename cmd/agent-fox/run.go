@@ -14,6 +14,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/service/api"
 	"github.com/agent-fox-dev/agentfox/internal/service/config"
+	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/secrets"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -76,10 +77,31 @@ func serve(ctx context.Context, configPath string, logger *slog.Logger, listen l
 			logger.Error("the database could not be closed", "error", err.Error())
 		}
 	}()
+	// The files of the attempts go beside the database; a directory that cannot be
+	// made is a file system the operator has to change, like a database that cannot be opened.
+	attempts, err := jobs.EnsureAttemptsDir(cfg.Database.Path)
+	if err != nil {
+		return startFailed(logger, exitInvalid, err)
+	}
+	// Until the worker exists, every attempt ends as unsupported.
+	jobService, err := jobs.New(jobs.Config{
+		DB: st.DB(), Subscriptions: st, Logger: logger,
+		Workers: cfg.Workers.Count, AttemptsDir: attempts, Runner: jobs.PlaceholderRunner{}, Retain: cfg.Database.Retain,
+	})
+	if err != nil {
+		return startFailed(logger, exitInvalid, err)
+	}
+	// The queue is closed before the database is, whichever way the service ends.
+	defer func() {
+		if err := jobService.Close(); err != nil {
+			logger.Error("the job queue could not be stopped", "error", err.Error())
+		}
+	}()
 
 	document := (&toolio.App{Name: name, Version: version, Commit: commit, BuildTime: buildTime}).VersionDocument()
 	srv := api.NewServer(api.Deps{
 		Store:        st,
+		Jobs:         jobService,
 		Hub:          hub.New(cfg.Hub.URL, document.Version),
 		Logger:       logger,
 		Version:      document,
@@ -97,6 +119,12 @@ func serve(ctx context.Context, configPath string, logger *slog.Logger, listen l
 		}
 		logger.Warn("hub.url is plain http to a host that is not a loopback address: caller tokens and workspace tokens cross the link in clear",
 			"hub_host", host)
+	}
+	// The queue starts once the address is bound, so that a start that fails on the
+	// address writes its one record and no other.
+	if err := jobService.Start(); err != nil {
+		ln.Close()
+		return startFailed(logger, exitInvalid, err)
 	}
 	logger.Info("listening", "addr", ln.Addr().String())
 

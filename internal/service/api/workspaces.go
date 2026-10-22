@@ -56,13 +56,32 @@ func (s *server) getWorkspace(w http.ResponseWriter, r *http.Request, slug strin
 	}
 }
 
-// deleteWorkspace is DELETE /api/v1/workspaces/{slug}: the row is removed, its
-// sealed token with it, and the answer is 204. It does nothing more in this
-// release: there are no jobs to cancel yet. A workspace that is not subscribed is
-// the same 404 as for GET. A subscription whose token does not open is removed
-// like any other.
+// deleteWorkspace is DELETE /api/v1/workspaces/{slug}: the jobs of the workspace that are
+// queued, running or blocked are cancelled, and the runners of the running ones are given
+// time to return (see jobs.Service.Unsubscribe); then the row is removed, its sealed token
+// with it, and the answer is 204. A workspace that is not subscribed is the same 404 as for
+// GET. A subscription whose token does not open is removed like any other. A removal that
+// fails is a 500, and leaves the subscription, and the workspace takes jobs again.
 func (s *server) deleteWorkspace(w http.ResponseWriter, r *http.Request, slug string) {
-	existed, err := s.deps.Store.Delete(r.Context(), slug)
+	if _, err := s.deps.Store.Get(r.Context(), slug); errors.Is(err, store.ErrNotSubscribed) {
+		writeNotFound(w)
+		return
+	} else if err != nil {
+		s.storeFailure(w, r, "the subscription could not be read", err)
+		return
+	}
+	existed := true
+	remove := func() error {
+		var err error
+		existed, err = s.deps.Store.Delete(r.Context(), slug)
+		return err
+	}
+	var err error
+	if s.deps.Jobs != nil {
+		err = s.deps.Jobs.Unsubscribe(r.Context(), slug, remove)
+	} else {
+		err = remove()
+	}
 	switch {
 	case err != nil:
 		s.storeFailure(w, r, "the subscription could not be removed", err)

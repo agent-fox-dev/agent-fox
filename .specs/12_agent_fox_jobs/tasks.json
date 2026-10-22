@@ -58,7 +58,7 @@
       "done_when": [
         "the three af_ tables exist after migration and the binary refuses bad workers/retain values with exit code 2"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -100,7 +100,7 @@
       "done_when": [
         "a valid fix and triage body answers 202 with a queued job and every invalid body answers 400 naming the field"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -136,7 +136,7 @@
       "done_when": [
         "stored seqs are gap-free for concurrent emitters under go test -race"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -188,7 +188,7 @@
       "done_when": [
         "with count 2 the fake runner never sees more than two concurrent calls and two jobs on one workspace never overlap"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -239,7 +239,7 @@
       "done_when": [
         "every finished attempt has an envelope.json and result.exit_code equals toolio.ExitCode(result.status)"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -278,7 +278,7 @@
       "done_when": [
         "a restart on the same database file redelivers the interrupted attempt with handover count 2"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -323,7 +323,7 @@
       "done_when": [
         "the job reads cancelled immediately after cancel and the next job on the workspace starts only after the runner returns"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -366,7 +366,7 @@
       "done_when": [
         "an option answer starts attempt 2 and the runner receives the question, its options and the option label"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -404,7 +404,7 @@
       "done_when": [
         "following next_cursor yields each matching job exactly once"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -441,7 +441,7 @@
       "done_when": [
         "a reconnect with the last seen id yields exactly the missed events"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -486,7 +486,7 @@
       "done_when": [
         "`make check` passes"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -519,7 +519,7 @@
       "done_when": [
         "`make check` passes offline"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     }
   ]

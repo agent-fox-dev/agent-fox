@@ -24,6 +24,10 @@ const (
 	CodePayloadTooLarge  Code = "payload_too_large"
 	CodeUnsupportedMedia Code = "unsupported_media_type"
 	CodeInvalidHubToken  Code = "invalid_hub_token"
+	CodeInvalidState     Code = "invalid_state"
+	CodeDuplicateJob     Code = "duplicate_job"
+	CodeNotSubscribed    Code = "not_subscribed"
+	CodeTokenUnreadable  Code = "token_unreadable"
 	CodeInternal         Code = "internal"
 	CodeHubUnavailable   Code = "hub_unavailable"
 	CodeNotReady         Code = "not_ready"
@@ -37,6 +41,10 @@ var statuses = map[Code]int{
 	CodePayloadTooLarge:  http.StatusRequestEntityTooLarge,
 	CodeUnsupportedMedia: http.StatusUnsupportedMediaType,
 	CodeInvalidHubToken:  http.StatusUnprocessableEntity,
+	CodeInvalidState:     http.StatusConflict,
+	CodeDuplicateJob:     http.StatusConflict,
+	CodeNotSubscribed:    http.StatusConflict,
+	CodeTokenUnreadable:  http.StatusConflict,
 	CodeInternal:         http.StatusInternalServerError,
 	CodeHubUnavailable:   http.StatusBadGateway,
 	CodeNotReady:         http.StatusServiceUnavailable,

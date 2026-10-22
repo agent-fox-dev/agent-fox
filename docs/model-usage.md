@@ -56,12 +56,25 @@ credential enters which box.
 ## The agent-fox service
 
 agent-fox runs no model in this release. The service (`agent-fox`, see [cli.md](cli.md#the-agent-fox-command-line))
-serves probes and the subscription of workspaces: it makes no call to a model provider, holds no vendor key
+serves probes, the subscription of workspaces and jobs: it makes no call to a model provider, holds no vendor key
 and no forge token, and reads no variable of a model vendor. The only credentials it holds are the tokens
 that callers send it, which it asks hub about and keeps only as a hash in memory, and the workspace tokens
 that callers hand over to subscribe a workspace, which it keeps sealed (see [api.md](api.md) and
-[configuration.md](configuration.md#the-agent-fox-service)). The jobs that run `af triage` and `af fix` for a
-subscribed workspace come with later specs, and this document describes their cost when they do.
+[configuration.md](configuration.md#the-agent-fox-service)). The jobs layer queues and records the work, and the
+runner that spends the model's tokens comes with a later spec; what the layer decides about cost is this:
+
+- **A job costs the sum of its attempts.** Its `usage` is the sum of `cost_usd`, `input_tokens`, `output_tokens`
+  and `turns` over the attempts that have finished, as each attempt's envelope reports them; the attempts show
+  their own `usage`. A job that is asked again (an answer, a retry) spends more, because each human action opens
+  a round of attempts of its own.
+- **Automatic attempts spend more, and follow only some failures.** The service queues another attempt by itself
+  only after a `failed` envelope whose error category is `brain` or `no_result` and is retryable, and only until
+  the round has made as many attempts as the runner's maximum allows (2 unless it says otherwise, at most 10).
+  A failure of the infrastructure (the box, hub, the forge) is a transient error: the same attempt is handed over
+  again, up to three failures, and it spends no further brain attempt. A failure of any other category, or one
+  that is not retryable, ends the job and costs nothing more.
+- **A cancel stops the spending.** A cancelled attempt is told to stop, and its runner has 60 seconds; what it
+  reports after that is dropped.
 
 ## Triage
 
