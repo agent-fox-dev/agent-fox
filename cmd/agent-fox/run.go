@@ -86,7 +86,7 @@ func serve(ctx context.Context, configPath string, logger *slog.Logger, listen l
 	// Until the worker exists, every attempt ends as unsupported.
 	jobService, err := jobs.New(jobs.Config{
 		DB: st.DB(), Subscriptions: st, Logger: logger,
-		Workers: cfg.Workers.Count, AttemptsDir: attempts, Runner: jobs.PlaceholderRunner{},
+		Workers: cfg.Workers.Count, AttemptsDir: attempts, Runner: jobs.PlaceholderRunner{}, Retain: cfg.Database.Retain,
 	})
 	if err != nil {
 		return startFailed(logger, exitInvalid, err)

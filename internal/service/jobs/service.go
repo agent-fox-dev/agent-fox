@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -46,6 +47,11 @@ type Config struct {
 	// RetryDelay is how long the queue waits before it hands an item back that was
 	// put back (1s when 0).
 	RetryDelay time.Duration
+	// Retain is [database].retain, how long a finished job is kept (720h when 0).
+	Retain time.Duration
+	// RemoveAll removes a directory and what is in it, and is not an error for one that
+	// is not there. os.RemoveAll when nil; the tests replace it.
+	RemoveAll func(path string) error
 }
 
 // Service is the jobs layer.
@@ -58,6 +64,8 @@ type Service struct {
 
 	runner      Runner
 	attemptsDir string
+	retain      time.Duration
+	removeAll   func(path string) error
 	queue       *jobqueue.Queue
 	// broker hands the events that the store has stored to the streams that follow them.
 	broker *Broker
@@ -112,6 +120,12 @@ func New(cfg Config) (*Service, error) {
 	if s.log == nil {
 		s.log = slog.Default()
 	}
+	if s.retain = cfg.Retain; s.retain <= 0 {
+		s.retain = defaultRetain
+	}
+	if s.removeAll = cfg.RemoveAll; s.removeAll == nil {
+		s.removeAll = os.RemoveAll
+	}
 	if s.clock == nil {
 		s.clock = SystemClock{}
 	}
@@ -152,7 +166,7 @@ func New(cfg Config) (*Service, error) {
 
 // Start starts the queue: it makes the directory of the attempts, hands over again the
 // items that were claimed when the process before this one ended, starts the workers,
-// and sweeps once and then every minute.
+// sweeps once and then every minute, and purges once and then every hour.
 func (s *Service) Start() error {
 	if err := makeDir(s.attemptsDir); err != nil {
 		return err
@@ -169,6 +183,10 @@ func (s *Service) Start() error {
 	ticker := s.clock.NewTicker(sweepEvery)
 	s.loops.Add(1)
 	go s.sweepLoop(ticker)
+	// Jobs that have been finished for longer than the retention are removed now, and then every hour.
+	purgeTicker := s.clock.NewTicker(purgeEvery)
+	s.loops.Add(1)
+	go s.purgeLoop(purgeTicker)
 	return nil
 }
 

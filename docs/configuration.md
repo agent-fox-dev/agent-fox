@@ -256,6 +256,15 @@ unset, empty or not an absolute path). If none exists, the service does not star
 `workers.count` is the key `count` of the `[workers]` table, and `database.retain` the key `retain` of
 `[database]`.
 
+- `[workers].count` bounds the attempts that are in a runner at once, across all workspaces. The attempts of one
+  workspace run one at a time in the order they were made whatever the count is, so a count of 4 lets four
+  workspaces work together. An attempt that waits out a backoff after a transient failure gives its slot back.
+- `[database].retain` is how long a job that is `done`, `failed` or `cancelled` is kept, counted from the time it was
+  finished (`finished_at`), and not from when it was asked or made. A purge runs when the service starts and then
+  every hour, and removes the job's `attempts/<job id>/` directory (beside the database file) and its rows. A
+  `blocked` job is never removed, and neither is a job with a runner that has not returned. See
+  [api.md](api.md#how-long-a-job-is-kept).
+
 **No other key is defined.** A key that is not in the table, in any table, is an error that names it, so
 that a misspelt key (`auth_cach_ttl`) is never silently replaced by the default. That includes
 `server.external_url`, which is not accepted in this release: it arrives with the spec that uses it, and

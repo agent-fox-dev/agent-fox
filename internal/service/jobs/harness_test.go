@@ -103,13 +103,22 @@ func (e *env) newService(runner jobs.Runner, clock jobs.Clock) *jobs.Service {
 	svc, err := jobs.New(jobs.Config{
 		DB: e.DB, Subscriptions: e.Store, Logger: slog.New(slog.NewJSONHandler(e.Logs, nil)), Clock: clock,
 		Workers: 2, AttemptsDir: filepath.Join(e.Dir, "attempts"), Runner: runner,
-		PollInterval: 5 * time.Millisecond, RetryDelay: time.Millisecond,
+		PollInterval: 5 * time.Millisecond, RetryDelay: time.Millisecond, Retain: time.Hour,
 	})
 	if err != nil {
 		e.t.Fatal(err)
 	}
 	e.t.Cleanup(func() { svc.Close() })
 	return svc
+}
+
+// withRetain is a configuration that makes [database].retain d.
+func withRetain(d time.Duration) func(*jobs.Config) { return func(c *jobs.Config) { c.Retain = d } }
+
+// withRemover is a configuration that makes remove the function that removes the directory
+// of a job.
+func withRemover(remove func(string) error) func(*jobs.Config) {
+	return func(c *jobs.Config) { c.RemoveAll = remove }
 }
 
 // withoutEnqueue is a configuration under which a job that is made is not put in the
