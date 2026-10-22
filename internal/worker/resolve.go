@@ -98,6 +98,11 @@ type attempt struct {
 	resume *resumeState
 	pinned recovery.Settings
 	spent  recovery.Spend
+	// stored is the outcome that an earlier delivery stored, for a delivery whose attempt is ended already.
+	// discarded is why the delivery began again, and announced says the job was told that it resumed.
+	stored    *recovery.Outcome
+	discarded string
+	announced bool
 }
 
 // onClose registers what the attempt gives back when it ends.

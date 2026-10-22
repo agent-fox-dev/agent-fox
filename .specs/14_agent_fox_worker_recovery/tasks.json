@@ -370,7 +370,7 @@
       "done_when": [
         "at the outcome stage attempt_resumed is the only difference from the stored envelope"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 9,

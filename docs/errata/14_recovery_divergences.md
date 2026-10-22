@@ -181,3 +181,42 @@ carried on with no lease). Its `touches` list `internal/worker/{remeasure,baseli
   1 and `rounds` the larger of fix.json's count and 1: the round that asked is counted in fix.json when it
   ended, and is not when the process died in it, and the attempt it was in is not recorded. The loop of a
   resumed triage emits no `brain` step. Deviation key: `resumed_question_result_has_no_box`.
+
+## 11. The outcome file keeps the envelope as text, and a discarded resume is a resume (task 8)
+
+**Spec:** task 8 owns TS-14-39 to TS-14-42 and TS-14-57, and lists `outcome.go`, `mirror.go`, `report.go`,
+`resume.go` and `events.go` as its `touches`. 14-REQ-6.2 says a delivery that finds the outcome stored returns
+"the stored envelope with only the warning attempt_resumed added"; 14-REQ-9.1 and 14-REQ-9.3 speak of a delivery
+that "resumes or discards a resume" and of "a resumed delivery".
+
+**Code:**
+
+- TS-14-39 and its companion, TS-14-40 and TS-14-57 were seen failing first. TS-14-41 passed when it was first
+  run: a delivery that is stopped for a shutdown or that ends in a transient error reports nothing since task 2,
+  and the delivery that comes to the outcome reports once (`ts_14_41_passes_before_task_8`). TS-14-42 passed at
+  first for no delivery was stopped (the stages it stops at did not exist yet); it now fails when the first
+  delivery is not stopped at the stage it is given.
+- `recovery/outcome.json` (`recovery.Outcome`) holds the envelope as a string, not as embedded JSON: the writer
+  indents what it embeds, and the envelope that a delivery returns for a stored outcome is to be the one that was
+  stored byte for byte, with the one warning added (`toolio.Amend` adds to the text and changes nothing else).
+- The envelope that is stored the second time has what the mirror had made of it: the warnings raised so far, the
+  writes to the forge, the session and the sandbox. What comes after (a lease that cannot be released, a call to
+  hub that fails) is added to the envelope the delivery returns, and is not stored: the delivery that finds the
+  outcome stored makes those steps again, and what it raises is logged, since the envelope it returns has the one
+  warning only. For the same reason an outcome that is found before its mirror is done is returned as the loop
+  made it, with no side effect, artifact or warning of the worker's, though the mirror is done by that delivery
+  (`unmirrored_outcome_is_returned_as_stored` is the key of this reading of 14-REQ-6.2).
+- The steps of the mirror are recorded one by one, each when it is done (`noteComment`, `noteLabels`, task 2 had
+  them recorded together when the mirror ended), which TS-14-39 asks for ("each ... journalled as done").
+- A delivery that discards a resume is announced as a resume (the step event `resume` with the reason, the
+  warning `attempt_resumed` with the stage `brain` beside `resume_discarded`), since 14-REQ-9.1 names it and
+  14-REQ-9.3 gives the warnings that go with `resume_discarded` to "a resumed delivery"; a later delivery that
+  had nothing to discard is none, as TS-14-9 says (`discarded_resume_is_announced_as_a_resume`). The event is
+  emitted when the stage is final, which is once the clone is ready for it (a change that no longer passes the
+  check of its submission is a stage `brain` after all); the warning is made of the same state when the
+  envelope is made, so that a delivery that ends before the clone is ready still has it.
+- The stages the stage-abort seam knows now include the end of an attempt: `outcome_stored`, `mirror_comment`,
+  `mirror_labels`, `mirrored`, `released`, `usage_posted`, `events_posted` and `session_completed`.
+- The step event `resume` is built in `resume.go`, not in `events.go`, which is the file of the events of the
+  loop; `events.go` is not changed. Deviation keys: `ts_14_41_passes_before_task_8`,
+  `unmirrored_outcome_is_returned_as_stored` and `discarded_resume_is_announced_as_a_resume`.

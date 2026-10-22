@@ -39,36 +39,57 @@ func (r *Runner) report(ctx context.Context, a *attempt, out *outcome) {
 
 	var env toolio.Envelope
 	hasEnvelope := len(out.result.Envelope) > 0 && json.Unmarshal(out.result.Envelope, &env) == nil
-	if hasEnvelope && env.Usage.Brain != "" {
-		u := env.Usage
-		err := r.cfg.Hub.PostUsage(ctx, a.pat, slug, a.sessionID, hub.Usage{
-			Model: a.settings.Model, Brain: u.Brain, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens,
-			CostUSD: u.CostUSD, CostSource: u.CostSource, Turns: u.Turns,
-		})
-		a.reportFailed(WarnHubUsageFailed, "posting the usage of the session", err)
-		if err == nil {
+	done := a.reportDone()
+	if !done.UsagePosted {
+		usagePosted := true
+		if hasEnvelope && env.Usage.Brain != "" {
+			u := env.Usage
+			err := r.cfg.Hub.PostUsage(ctx, a.pat, slug, a.sessionID, hub.Usage{
+				Model: a.settings.Model, Brain: u.Brain, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens,
+				CostUSD: u.CostUSD, CostSource: u.CostSource, Turns: u.Turns,
+			})
+			a.reportFailed(WarnHubUsageFailed, "posting the usage of the session", err)
+			usagePosted = err == nil
+		} // no brain ran: there is no usage to post, and the step is done
+		if usagePosted {
 			a.note(stepUsage, func(j *recovery.Journal) { j.Report.UsagePosted = true })
-		}
-	} else { // no brain ran: there is no usage to post, and the step is done
-		a.note(stepUsage, func(j *recovery.Journal) { j.Report.UsagePosted = true })
-	}
-	posted := true
-	for batch := range slices.Chunk(a.eventsOf(), eventBatch) {
-		if err := r.cfg.Hub.PostEvents(ctx, a.pat, slug, a.runID, batch); err != nil {
-			a.reportFailed(WarnHubEventsFailed, "posting the events of the run", err)
-			posted = false
-			break
+			r.reached(a, "usage_posted")
 		}
 	}
-	if posted {
-		a.note(stepEvents, func(j *recovery.Journal) { j.Report.EventsPosted = true })
+	if !done.EventsPosted {
+		posted := true
+		for batch := range slices.Chunk(a.eventsOf(), eventBatch) {
+			if err := r.cfg.Hub.PostEvents(ctx, a.pat, slug, a.runID, batch); err != nil {
+				a.reportFailed(WarnHubEventsFailed, "posting the events of the run", err)
+				posted = false
+				break
+			}
+		}
+		if posted {
+			a.note(stepEvents, func(j *recovery.Journal) { j.Report.EventsPosted = true })
+			r.reached(a, "events_posted")
+		}
 	}
-	status, message := sessionEnd(a, out, env, hasEnvelope)
-	err := r.cfg.Hub.CompleteSession(ctx, a.pat, slug, a.sessionID, status, message)
-	a.reportFailed(WarnHubSessionFailed, "completing the session", err)
-	if err == nil {
-		a.note(stepSessionDone, func(j *recovery.Journal) { j.Session.Completed, j.Report.SessionCompleted = true, true })
+	if !done.SessionCompleted {
+		status, message := sessionEnd(a, out, env, hasEnvelope)
+		err := r.cfg.Hub.CompleteSession(ctx, a.pat, slug, a.sessionID, status, message)
+		a.reportFailed(WarnHubSessionFailed, "completing the session", err)
+		if err == nil {
+			a.note(stepSessionDone, func(j *recovery.Journal) { j.Session.Completed, j.Report.SessionCompleted = true, true })
+			r.reached(a, "session_completed")
+		}
 	}
+}
+
+// reportDone are the steps of the report to hub that the journal records as done: a step is made once for the
+// attempt, by the delivery that comes to its outcome or by the one that finds it stored.
+func (a *attempt) reportDone() recovery.Report {
+	if a.journal == nil {
+		return recovery.Report{}
+	}
+	a.journal.mu.Lock()
+	defer a.journal.mu.Unlock()
+	return a.journal.j.Report
 }
 
 // reportFailed notes a call to hub that failed as a warning. The error holds no token.

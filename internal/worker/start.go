@@ -2,10 +2,12 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/agent-fox-dev/agentfox/internal/fix"
@@ -77,6 +79,13 @@ func (r *Runner) start(ctx context.Context, a *attempt) *outcome {
 	j.Deliveries = append(j.Deliveries, recovery.Delivery{Count: max(a.req.Delivery, 1), Started: a.clock()})
 	h.j = j
 	a.note(stepBegin, func(*recovery.Journal) {})
+	if a.stored != nil { // the attempt is ended: nothing is opened, cloned, leased or run
+		if a.sessionID != "" {
+			a.report.Hub(a.sessionID, a.runID, "")
+		}
+		a.announceResume()
+		return &outcome{result: jobs.Result{Envelope: []byte(a.stored.Envelope), Report: a.stored.Report, MaxAttempts: a.stored.MaxAttempts}}
+	}
 	return nil
 }
 
@@ -88,14 +97,17 @@ func (r *Runner) laterDelivery(ctx context.Context, a *attempt, fresh recovery.J
 	old, err := a.journal.store.Load()
 	switch {
 	case errors.Is(err, recovery.ErrNotFound):
+		r.dropOutcome(a)
 		if cloneKept {
 			a.discard(reasonJournalUnreadable, "the attempt directory has a clone and no journal")
 		}
 		return fresh, nil
 	case err != nil:
+		r.dropOutcome(a)
 		a.discard(reasonJournalUnreadable, err.Error())
 		return fresh, nil
 	case old.Job != fresh.Job || old.Attempt != fresh.Attempt || old.Kind != fresh.Kind:
+		r.dropOutcome(a)
 		a.discard(reasonJournalUnreadable, "the journal is of another job, another attempt or another kind")
 		return fresh, nil
 	}
@@ -106,6 +118,12 @@ func (r *Runner) laterDelivery(ctx context.Context, a *attempt, fresh recovery.J
 	r.pin(a, old.Settings)
 	if !old.Session.Completed && old.Session.ID != "" {
 		a.sessionID, a.runID = old.Session.ID, old.Session.RunID
+	}
+	if stored := r.storedOutcome(a); stored != nil { // the attempt came to its outcome: only the bookkeeping is left
+		a.stored = stored
+		a.resume = &resumeState{journal: old, stage: stageOutcome}
+		a.marked = a.issue != nil && slices.Contains(a.labels, a.label(statusInProgress))
+		return old, nil
 	}
 	next := fresh
 	next.Settings, next.Session, next.Leases, next.Deliveries = old.Settings, old.Session, old.Leases, old.Deliveries
@@ -227,8 +245,35 @@ func (r *Runner) pin(a *attempt, s recovery.Settings) {
 
 // discard raises the warning of a resume that was not possible.
 func (a *attempt) discard(reason, detail string) {
+	if a.discarded == "" {
+		a.discarded = reason
+	}
 	a.warnings = append(a.warnings, toolio.Warning{Code: WarnResumeDiscarded, Message: fmt.Sprintf(
 		"the delivery starts from a fresh clone (%s): %s", reason, a.secretFree(detail))})
+}
+
+// storedOutcome is the outcome that an earlier delivery of this attempt stored, or nil when there is none, or
+// when what is there is none of this job and attempt.
+func (r *Runner) storedOutcome(a *attempt) *recovery.Outcome {
+	o, err := a.journal.store.LoadOutcome()
+	switch {
+	case errors.Is(err, recovery.ErrNotFound):
+		return nil
+	case err != nil:
+		r.cfg.Logger.Warn("the stored outcome of the attempt cannot be read", "job", a.req.JobID, "attempt", a.req.Attempt, "error", err.Error())
+		return nil
+	case o.Job != a.req.JobID || o.Attempt != a.req.Attempt || !json.Valid([]byte(o.Envelope)) || !strings.HasPrefix(strings.TrimSpace(o.Envelope), "{"):
+		return nil
+	}
+	return &o
+}
+
+// dropOutcome removes an outcome that a journal that cannot be read leaves behind: the attempt is begun
+// again, and the next delivery must not take the outcome of a run that is gone for its own.
+func (r *Runner) dropOutcome(a *attempt) {
+	if err := a.journal.store.RemoveOutcome(); err != nil {
+		r.cfg.Logger.Warn("the stored outcome of an earlier run of the attempt cannot be removed", "job", a.req.JobID, "attempt", a.req.Attempt, "error", err.Error())
+	}
 }
 
 // releaseJournalLeases gives back the leases that the journal records as not released, before the

@@ -38,6 +38,7 @@ func (r *Runner) clone(ctx context.Context, a *attempt) *outcome {
 		if out := r.prepareResumedClone(ctx, a); out != nil {
 			return out
 		}
+		a.announceResume()
 		return r.nothingLeft(a)
 	}
 	if out := r.nothingLeft(a); out != nil {
@@ -74,6 +75,7 @@ func (r *Runner) clone(ctx context.Context, a *attempt) *outcome {
 		}
 	}
 	a.note(stepClone, func(j *recovery.Journal) { j.CloneDir = cloneDirName })
+	a.announceResume()
 	return nil
 }
 
