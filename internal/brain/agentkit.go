@@ -103,7 +103,7 @@ func (a *agentkitBrain) Run(ctx context.Context, b Brief) (Outcome, error) {
 		return Outcome{StopReason: StopError}, err
 	}
 	cfg := agentkit.Config{
-		Provider: visibleTools{inner: a.provider, hidden: hidden},
+		Client:   visibleTools{inner: a.provider, hidden: hidden},
 		Model:    a.model,
 		Toolset:  toolset,
 		MaxTurns: b.MaxTurns, MaxCostUSD: b.MaxCostUSD,
