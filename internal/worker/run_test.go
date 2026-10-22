@@ -61,13 +61,12 @@ func seqOf(e *env, method, prefix, suffix string) int {
 	return 0
 }
 
-// lastSeqOf is seqOf for the last one.
-func lastSeqOf(e *env, method, prefix, suffix string) int {
+// lastSeqAt is the sequence number of the last request to hub with the method and exactly the path,
+// or 0 when there is none.
+func lastSeqAt(e *env, method, path string) int {
 	last := 0
-	for _, r := range e.hub.Requests() {
-		if r.Method == method && strings.HasPrefix(r.Path, prefix) && strings.HasSuffix(r.Path, suffix) {
-			last = r.Seq
-		}
+	for _, r := range e.hub.RequestsTo(method, path) {
+		last = r.Seq
 	}
 	return last
 }
@@ -300,12 +299,14 @@ func TestTheRequestsOfAFixAttemptHappenInThePipelineOrder_TS_13_57(t *testing.T)
 		{"read the variables", seqOf(e, "GET", "/api/v1/workspaces/acme/vars", "")},
 		{"read the issue", seqOf(e, "GET", issuePath, "")},
 		{"open the session", seqOf(e, "POST", sessionsPath, "")},
+		{"mark the issue", seqOf(e, "POST", issuePath+"/labels", "")},
 		{"clone", cloned},
 		{"lease", seqOf(e, "POST", sandboxesPath, "")},
-		{"read the issue in the loop", lastSeqOf(e, "GET", issuePath, "")},
+		{"read the issue in the loop", lastSeqAt(e, "GET", issuePath)},
 		{"push to the git server", gitPush},
 		{"publish the branch", seqOf(e, "POST", "/api/v1/workspaces/acme/branches/", "/push")},
 		{"open the pull request", seqOf(e, "POST", pullsPath, "")},
+		{"post the summary", seqOf(e, "POST", issuePath+"/comments", "")},
 		{"release the lease", leases[0].ReleasedSeq},
 	}
 	for i, s := range steps {
@@ -593,6 +594,9 @@ func TestEachStopPointHasItsDocumentedWritesLeaseAndRelease_TS_13_60(t *testing.
 		e := loopEnv(t, fixFiles, nil, nil, fixSteps()...)
 		setup(e)
 		res, err := e.run(e.request(jobs.KindFix, issueInput("42")))
+		if issue, _ := e.hub.IssueOf(slug, 42); slices.Contains(issue.Labels, "af:in-progress") {
+			t.Errorf("the issue still carries in-progress: %v", issue.Labels)
+		}
 		if leases := e.hub.Leases(); wantLease != (len(leases) == 1) || (wantLease && !leases[0].Released) {
 			t.Errorf("leases = %+v, want one that was granted and released: %v", leases, wantLease)
 		}
@@ -602,9 +606,12 @@ func TestEachStopPointHasItsDocumentedWritesLeaseAndRelease_TS_13_60(t *testing.
 		return e, res, err
 	}
 	t.Run("a clone that fails as the infrastructure", func(t *testing.T) {
-		_, _, err := late(t, func(e *env) { e.hub.Inject("", "/git/acme.git", fakehub.Fault{Status: 503}) }, false)
+		e, _, err := late(t, func(e *env) { e.hub.Inject("", "/git/acme.git", fakehub.Fault{Status: 503}) }, false)
 		if f := transient(err); f == nil || f.Category != "git" {
 			t.Errorf("error = %v, want a transient git error", err)
+		}
+		if issue, _ := e.hub.IssueOf(slug, 42); len(issue.Labels) != 0 || len(issue.Comments) != 0 {
+			t.Errorf("issue 42 has the labels %v and %d comments, want in-progress removed and nothing else", issue.Labels, len(issue.Comments))
 		}
 	})
 	t.Run("a lease that fails as the infrastructure", func(t *testing.T) {
@@ -620,15 +627,21 @@ func TestEachStopPointHasItsDocumentedWritesLeaseAndRelease_TS_13_60(t *testing.
 		}
 	})
 	t.Run("a clone whose credential is refused", func(t *testing.T) {
-		_, res, err := late(t, func(e *env) { e.hub.Inject("", "/git/acme.git", fakehub.Fault{Status: 401}) }, false)
+		e, res, err := late(t, func(e *env) { e.hub.Inject("", "/git/acme.git", fakehub.Fault{Status: 401}) }, false)
 		if category, _, _, _ := errorOf(envelope(t, res)); err != nil || category != "auth" {
 			t.Errorf("result %s, error %v, want an auth envelope", res.Envelope, err)
 		}
+		if issue, _ := e.hub.IssueOf(slug, 42); !slices.Equal(issue.Labels, []string{"af:failed"}) || len(issue.Comments) != 1 {
+			t.Errorf("issue 42 has the labels %v and %d comments, want failed and one comment", issue.Labels, len(issue.Comments))
+		}
 	})
 	t.Run("a lease whose credential is refused", func(t *testing.T) {
-		_, res, err := late(t, func(e *env) { e.hub.Inject("POST", sandboxesPath, fakehub.Fault{Status: 403}) }, false)
+		e, res, err := late(t, func(e *env) { e.hub.Inject("POST", sandboxesPath, fakehub.Fault{Status: 403}) }, false)
 		if category, _, _, _ := errorOf(envelope(t, res)); err != nil || category != "auth" {
 			t.Errorf("result %s, error %v, want an auth envelope", res.Envelope, err)
+		}
+		if issue, _ := e.hub.IssueOf(slug, 42); !slices.Equal(issue.Labels, []string{"af:failed"}) || len(issue.Comments) != 1 {
+			t.Errorf("issue 42 has the labels %v and %d comments, want failed and one comment", issue.Labels, len(issue.Comments))
 		}
 	})
 }
@@ -760,7 +773,7 @@ func TestEventsHubReferencesAndArtifactsReachTheRecorderAndTheEnvelope_TS_13_64(
 	if written[0].Type != "run_start" {
 		t.Errorf("the first event of the loop is %s", written[0].Type)
 	}
-	if want := []string{"resolve", "session", "clone", "lease", "run", "release"}; !slices.Equal(steps, want) {
+	if want := []string{"resolve", "session", "clone", "lease", "run", "mirror", "release"}; !slices.Equal(steps, want) {
 		t.Errorf("the steps of the worker are %v, want %v", steps, want)
 	}
 
@@ -980,8 +993,11 @@ func TestALoopThatReturnsAfterTheAttemptWasStoppedIsItsContextsEnd(t *testing.T)
 
 	out := e.runner.loopOutcome(ctx, a, fakerunner.Env(toolio.StatusFailed, fakerunner.WithError("cancelled", "stopped", false)))
 
-	if !errors.Is(out.err, jobs.ErrCancelled) || len(out.result.Envelope) != 0 {
-		t.Errorf("error %v, envelope %q, want the cancellation and no envelope", out.err, out.result.Envelope)
+	if !errors.Is(out.err, jobs.ErrCancelled) || len(out.result.Envelope) == 0 {
+		t.Errorf("error %v, envelope %q, want the cancellation, with the envelope the loop wrote", out.err, out.result.Envelope)
+	}
+	if gone := e.runner.loopOutcome(ctx, a, []byte("not an envelope")); !errors.Is(gone.err, jobs.ErrCancelled) || len(gone.result.Envelope) != 0 {
+		t.Errorf("a stopped loop that wrote no envelope: %v, %q, want the cancellation alone", gone.err, gone.result.Envelope)
 	}
 	if bad := e.runner.loopOutcome(context.Background(), a, []byte("not an envelope")); bad.err == nil || jobs.IsTransient(bad.err) {
 		t.Errorf("a loop that wrote no envelope: %v, want an error that is not transient", bad.err)

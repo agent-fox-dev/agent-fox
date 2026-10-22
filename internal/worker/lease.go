@@ -4,15 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"slices"
 	"strconv"
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/hub"
-	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -118,50 +114,4 @@ func (r *Runner) releaseBound() time.Duration {
 		return r.releaseTimeout
 	}
 	return defaultReleaseTimeout
-}
-
-// finish ends the attempt: the lease is released, and the warnings of the attempt are added to the
-// envelope it ended with, the failure to release the lease among them. A lease that cannot be
-// released changes neither the status of the envelope nor the transient error, which are returned
-// as they were; the failure is logged.
-func (r *Runner) finish(ctx context.Context, a *attempt, out *outcome) (jobs.Result, error) {
-	warnings := slices.Clone(a.warnings)
-	if err := r.releaseLease(ctx, a); err != nil {
-		r.cfg.Logger.Warn("the lease of the attempt could not be released", "workspace", a.req.Workspace, "job", a.req.JobID,
-			"attempt", a.req.Attempt, "lease", a.lease.ID, "error", err.Error())
-		warnings = append(warnings, toolio.Warning{Code: WarnLeaseReleaseFailed, Message: fmt.Sprintf(
-			"the sandbox %s could not be released: %v; hub destroys it when it expires at %s", a.lease.ID, err, a.lease.ExpiresAt.UTC().Format(time.RFC3339))})
-	}
-	if len(out.result.Envelope) > 0 {
-		am := toolio.Amendment{Warnings: warnings}
-		if a.sessionID != "" {
-			am.Artifacts = append(am.Artifacts, toolio.Artifact{Kind: "hub_session", Name: a.sessionID})
-		}
-		if a.lease != nil {
-			am.Artifacts = append(am.Artifacts, toolio.Artifact{Kind: "sandbox", Name: a.lease.ID})
-		}
-		patched, err := toolio.Amend(out.result.Envelope, am)
-		if err != nil {
-			r.cfg.Logger.Warn("the envelope of the attempt could not be amended", "job", a.req.JobID, "attempt", a.req.Attempt, "error", err.Error())
-		} else {
-			out.result.Envelope = patched
-		}
-	}
-	r.cleanup(ctx, a, out)
-	return out.result, out.err
-}
-
-// cleanup removes what the attempt made in its directory, once the lease is released: input/, and
-// clone/ unless the attempt is to be handed over again or was shut down. The envelope, the report
-// and the directory itself are the jobs layer's and are not touched.
-func (r *Runner) cleanup(ctx context.Context, a *attempt, out *outcome) {
-	remove := []string{filepath.Join(a.req.Dir, inputDirName)}
-	if !keepsClone(ctx, out) {
-		remove = append(remove, filepath.Join(a.req.Dir, cloneDirName))
-	}
-	for _, dir := range remove {
-		if err := os.RemoveAll(dir); err != nil {
-			r.cfg.Logger.Warn("a directory of the attempt could not be removed", "job", a.req.JobID, "attempt", a.req.Attempt, "dir", dir, "error", err.Error())
-		}
-	}
 }

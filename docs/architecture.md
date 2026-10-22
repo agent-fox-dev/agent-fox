@@ -1009,6 +1009,29 @@ worker, the poll, the `af` client) build on:
   `AF_MAX_ATTEMPTS` as the most attempts of a round (2 when the attempt stopped before the variables were read).
   When the attempt returns, `input/` is removed and so is `clone/`, except after a transient error and after a
   shutdown; `envelope.json`, `report.md` and the attempt directory are the jobs layer's and are never touched.
+- **The mark, the mirror and the cancel.** Once the session is open and an issue is named, the worker sets
+  `<prefix>in-progress` on it; the prefix is always the subscription's `label_prefix`, `AF_LABEL_PREFIX` is read
+  for nothing but the warning `label_prefix_ignored` when it differs. Setting a status label (`in-progress`,
+  `ready`, `needs-human`, `landed`, `failed`) removes the other four the issue carries, except that a fix's
+  `in-progress` leaves `ready`, which only the outcome of the fix replaces. When the loop is over the outcome is
+  mirrored to the issue the input named, or, for a triage of a text or a file that ended `done`, to the issue the
+  loop created, and to none when there is neither: a triage `done` with confidence `confirmed` or `probable` is
+  `ready` with no comment, `suspected` or `not_reproducible` is `needs-human` with the reason, any `needs_human`
+  is `needs-human` with the question, a fix `done` or `unverified` that landed is `landed` with a `fix_summary`,
+  one that landed under `AF_FIX_LAND=none` sets no label and its `fix_summary` says nothing was kept, a parked fix
+  is `needs-human` with a `fix_summary` that says what failed and how to ask again, and any other `failed`, or
+  `usage`, is `failed` with the failure. An attempt that returns a transient error, and a failure that an
+  automatic attempt follows (`failed`, category `brain` or `no_result`, retryable, and a position in the round
+  below `AF_MAX_ATTEMPTS`), only take `in-progress` off. Each comment ends with a marker naming the job, the
+  attempt and the kind (`<!-- agent-fox job=… attempt=… kind=… -->`), is not posted when its marker is on the issue,
+  and holds no path of the worker. A write that fails is a warning (`status_label_failed`, `comment_failed`,
+  `request_label_failed`) with a side effect of the state `failed`, never a change of the status; with no
+  envelope it is logged. The result reports the labels it set and removed, a label that was set and taken off
+  again being removed only. A cancel or an unsubscribe is followed, after the loop has stopped and within a
+  minute, by taking `in-progress` off and putting the request label of the job back, leaving `ready` in place,
+  with the lease released; the result carries the envelope of the loop, or one of category `cancelled` when the
+  loop had not begun, and the PAT read at resolve serves it though the subscription is gone. A shutdown writes
+  nothing to the forge, keeps `clone/`, releases the lease and returns its cause.
 - **Tests.** `internal/hub/fakehub` is an `httptest` hub in the manner of `fakeforge`: a table of tokens,
   users and workspaces, a record of every request, and failures, hang-ups, delays, redirects and oversize
   answers by method and route on demand. It serves the calls above in the shapes of hub's OpenAPI
@@ -1061,6 +1084,9 @@ hub, and be driven by an `af` that talks to it.
   depends on why (`jobs.IsCancel`): for a cancel or an unsubscribe it releases what it holds and restores the
   request label within the grace, for a shutdown it leaves the attempt resumable and what it returns is discarded.
   The context carries the cause: `ErrCancelled`, `ErrUnsubscribed` (which is a cancel as well) or `ErrShutdown`.
+  The request carries `Round`, the position of the attempt in its round (1 for the first attempt of a job and for
+  one that an answer or a retry starts, 2 for the attempt that follows by itself a failure that is tried again),
+  which the runner needs to tell an attempt that an automatic attempt follows from one that ends the job.
   `jobs/fakerunner` is the exported fake that scripts a runner for tests; `jobs/fakeclock` is its clock.
 - **Transient retries versus automatic attempts.** They are different things. A transient error asks for the
   *same* attempt to be handed over again, after 30 seconds and then 2 minutes, on the layer's clock and with

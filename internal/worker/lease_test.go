@@ -344,9 +344,9 @@ func TestAGrantedLeaseIsReleasedOnceAfterTheBoxClosesOnEveryPath_TS_13_47(t *tes
 					return &outcome{err: context.Cause(ctx)}
 				}
 			},
-			check: func(t *testing.T, _ jobs.Result, err error) {
-				if !errors.Is(err, jobs.ErrCancelled) {
-					t.Errorf("error = %v, want the cancellation", err)
+			check: func(t *testing.T, res jobs.Result, err error) {
+				if category, _, _, _ := errorOf(envelope(t, res)); err != nil || category != "cancelled" {
+					t.Errorf("result %s, error %v, want an envelope of category cancelled", res.Envelope, err)
 				}
 			},
 		},
@@ -516,18 +516,32 @@ func TestAFailedReleaseAddsAWarningWithoutChangingTheStatus_TS_13_48(t *testing.
 }
 
 // TestAnAttemptThatIsStoppedWhileItWaitsForTheLeaseIsStoppedAndNotTransient pins that a context
-// that ended is its own end, and not a lease that hub did not grant.
+// that ended is its own end, and not a lease that hub did not grant: a cancel is a result that
+// says it, and a shutdown is its cause.
 // Verifies: 13-REQ-6.3
 func TestAnAttemptThatIsStoppedWhileItWaitsForTheLeaseIsStoppedAndNotTransient(t *testing.T) {
-	e := leaseEnv(t, nil)
-	e.hub.Inject("POST", sandboxesPath, fakehub.Fault{Delay: 30 * time.Second})
-	ctx, cancel := context.WithCancelCause(context.Background())
-	time.AfterFunc(400*time.Millisecond, func() { cancel(jobs.ErrCancelled) })
+	for name, cause := range map[string]error{"a cancel": jobs.ErrCancelled, "an unsubscribe": jobs.ErrUnsubscribed, "a shutdown": jobs.ErrShutdown} {
+		t.Run(name, func(t *testing.T) {
+			e := leaseEnv(t, nil)
+			e.hub.Inject("POST", sandboxesPath, fakehub.Fault{Delay: 30 * time.Second})
+			ctx, cancel := context.WithCancelCause(context.Background())
+			time.AfterFunc(400*time.Millisecond, func() { cancel(cause) })
 
-	res, err := e.runner.Run(ctx, e.fixRequest())
+			res, err := e.runner.Run(ctx, e.fixRequest())
 
-	if !errors.Is(err, jobs.ErrCancelled) || jobs.IsTransient(err) || len(res.Envelope) != 0 {
-		t.Errorf("result %q, error %v, want the cancellation and no envelope", res.Envelope, err)
+			if jobs.IsTransient(err) {
+				t.Fatalf("error = %v: a context that ended is not a lease that hub did not grant", err)
+			}
+			if errors.Is(cause, jobs.ErrShutdown) {
+				if !errors.Is(err, jobs.ErrShutdown) || len(res.Envelope) != 0 {
+					t.Errorf("result %q, error %v, want the shutdown and no envelope", res.Envelope, err)
+				}
+				return
+			}
+			if category, _, _, _ := errorOf(envelope(t, res)); err != nil || category != "cancelled" {
+				t.Errorf("result %s, error %v, want an envelope of category cancelled", res.Envelope, err)
+			}
+		})
 	}
 }
 

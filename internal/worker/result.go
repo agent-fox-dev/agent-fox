@@ -22,14 +22,18 @@ const maxReport = 1 << 20
 // infrastructure's, an envelope of status failed whose error is retryable and of category sandbox,
 // forge or hub, is a transient error that carries the failure and no envelope, so that the same
 // attempt is handed over again. Every other ending is the envelope, as the loop wrote it, with
-// the report of the run beside it.
+// the report of the run beside it. A loop that returns after the attempt was stopped has the
+// cause of the stop beside its envelope, which the end of the attempt makes use of.
 func (r *Runner) loopOutcome(ctx context.Context, a *attempt, stdout []byte) *outcome {
-	if ctx.Err() != nil {
-		return &outcome{err: context.Cause(ctx)}
-	}
 	var env toolio.Envelope
 	if err := json.Unmarshal(stdout, &env); err != nil {
+		if ctx.Err() != nil {
+			return &outcome{err: context.Cause(ctx)}
+		}
 		return &outcome{err: fmt.Errorf("worker: the loop wrote no envelope: %w", err)}
+	}
+	if ctx.Err() != nil { // the envelope the loop wrote when it was stopped goes with the cause
+		return &outcome{err: context.Cause(ctx), result: jobs.Result{Envelope: stdout, Report: a.reportOf(env), MaxAttempts: a.maxAttempts}}
 	}
 	if f := infrastructureFailure(env.Error); f != nil {
 		return &outcome{err: jobs.Transient(f)}

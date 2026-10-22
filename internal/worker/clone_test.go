@@ -464,7 +464,7 @@ func TestAnyOtherCloneFailureIsATransientGitErrorWithNoEnvelope_TS_13_38(t *test
 		})
 	}
 
-	t.Run("an attempt that is cancelled while it clones is cancelled", func(t *testing.T) {
+	t.Run("an attempt that is cancelled while it clones is a result that says so", func(t *testing.T) {
 		e := cloneEnv(t, "main")
 		e.hub.Inject("", "/git/acme.git", fakehub.Fault{Delay: 30 * time.Second})
 		ctx, cancel := context.WithCancelCause(context.Background())
@@ -472,8 +472,22 @@ func TestAnyOtherCloneFailureIsATransientGitErrorWithNoEnvelope_TS_13_38(t *test
 
 		res, err := e.runner.Run(ctx, e.fixRequest())
 
-		if !errors.Is(err, jobs.ErrCancelled) || jobs.IsTransient(err) || len(res.Envelope) != 0 {
-			t.Errorf("result %q, error %v, want the cancellation and no envelope", res.Envelope, err)
+		category, _, retryable, _ := errorOf(envelope(t, res))
+		if err != nil || category != "cancelled" || retryable {
+			t.Errorf("result %q, error %v, want an envelope of category cancelled and no error", res.Envelope, err)
+		}
+	})
+
+	t.Run("an attempt that is shut down while it clones is its cause", func(t *testing.T) {
+		e := cloneEnv(t, "main")
+		e.hub.Inject("", "/git/acme.git", fakehub.Fault{Delay: 30 * time.Second})
+		ctx, cancel := context.WithCancelCause(context.Background())
+		time.AfterFunc(500*time.Millisecond, func() { cancel(jobs.ErrShutdown) })
+
+		res, err := e.runner.Run(ctx, e.fixRequest())
+
+		if !errors.Is(err, jobs.ErrShutdown) || jobs.IsTransient(err) || len(res.Envelope) != 0 {
+			t.Errorf("result %q, error %v, want the shutdown and no envelope", res.Envelope, err)
 		}
 	})
 

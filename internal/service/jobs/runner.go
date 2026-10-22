@@ -48,7 +48,11 @@ type Request struct {
 	Attempt int
 	// Delivery is how many times this attempt has been handed to a runner, this
 	// time included: 1 on the first. A handover after a shutdown or a crash counts.
-	Delivery  int
+	Delivery int
+	// Round is the position of this attempt in its round, from 1: the attempts that follow one
+	// another by themselves, because the one before failed in a way that is tried again, are a
+	// round, and an answer, a retry or the first attempt of a job begins one.
+	Round     int
 	Workspace string
 	Kind      Kind
 	// Input is what the job was asked about, without the context.

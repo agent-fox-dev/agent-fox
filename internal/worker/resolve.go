@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -58,6 +59,20 @@ type attempt struct {
 	// and releaseErr is how it went.
 	releaseOnce sync.Once
 	releaseErr  error
+	// labelPrefixVar is AF_LABEL_PREFIX as it was set, which nothing uses: the prefix of the labels
+	// is the subscription's. It is kept to warn when the two differ.
+	labelPrefixVar string
+	// issue is the issue the input named, nil for a text and a file. labels are the labels it
+	// carries as the attempt knows them: those it carried at resolve, and what the attempt wrote
+	// since. marked says the attempt set in-progress on it.
+	issue  *issuex.IssueRef
+	labels []string
+	marked bool
+	// labelsSet and labelsRemoved are what the attempt did to labels, as the result reports it: a
+	// label that was set and taken off again is removed and not set. sideEffects are the writes to
+	// the forge of the worker, to be added to the envelope.
+	labelsSet, labelsRemoved []string
+	sideEffects              []toolio.SideEffect
 	// events are the lines of the events of the loop, kept for the report to hub; mu guards them,
 	// as the loop writes them from its own goroutines.
 	mu     sync.Mutex
@@ -121,6 +136,7 @@ func (r *Runner) resolve(ctx context.Context, a *attempt) *outcome {
 	if err != nil {
 		return r.hubOutcome(ctx, a, "read the variables", err)
 	}
+	a.labelPrefixVar = vars["AF_LABEL_PREFIX"]
 	settings, bad := resolveSettings(kind, vars)
 	if bad != nil {
 		if bad.Name == "AF_MAX_ATTEMPTS" {
@@ -149,6 +165,8 @@ func (r *Runner) resolve(ctx context.Context, a *attempt) *outcome {
 		if thread.Issue.IsPR {
 			return r.envelopeOf(a, usageRefusal("%s is a pull request or a merge request, and agent-fox takes an issue", input.url))
 		}
+		ref := input.ref
+		a.issue, a.labels = &ref, slices.Clone(thread.Issue.Labels)
 	}
 	return nil
 }

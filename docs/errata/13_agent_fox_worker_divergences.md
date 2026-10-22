@@ -199,12 +199,28 @@ the first kept is removed and made afresh, and a new lease is taken
 (`TestInfrastructureFailuresReturn…_TS_13_58`). What the layer does with a transient error is
 `jobs.IsTransient`, which the test checks on the error. Deviation key: `fake_retry_is_a_second_delivery`.
 
-## 17. An attempt that is stopped returns the cause of its context; the round position waits (task 8)
+## 17. A cancelled attempt returns a result, a shut down one its cause (tasks 8 and 9)
 
 **Spec:** "a result carrying the loop's envelope … whose labels show the request label set and in-progress
-removed" (R9.7), and "its round position" (R8.1, R9.4).
+removed" (R9.7), and "the jobs layer discards whatever the worker returns" on a shutdown (R9.8).
 
-**Code:** `loopOutcome` returns the cause of the context, with no envelope, when the attempt was stopped
-while the loop ran; the result that carries the labels of a cancellation, and `jobs.Request.Round` that the
-guard of 13-REQ-9.4 reads, are task 9's.
+**Code:** `loopOutcome` keeps the envelope the loop wrote when it was stopped, with the cause of the stop
+beside it. `Runner.finish` (`internal/worker/runner.go`) returns a result and no error for a cancel or an
+unsubscribe, with the envelope of the loop or, when the loop had not begun, a failed envelope of category
+`cancelled`; and the cause alone for a shutdown. Tests: `TestACancelledRunningAttemptRestores…_TS_13_72` and
+`TestAShutdownWritesNothing…_TS_13_73`. `jobs.Request.Round` is the position the guard of 13-REQ-9.4 reads;
+spec 13 adds it to what the runner is given, and `jobs.Store.RunRequest` fills it from the attempts of the
+job (`TestTheRunnerIsGivenThePositionOfTheAttemptInItsRound`).
+
+## 18. The labels of the result are the net of the attempt, and the mirror writes are side effects (task 9)
+
+**Spec:** "the labels it set and removed, in steps 3 and 7 and in cancel cleanup" (R8.8), "a matching side
+effect" for a write that fails (R9.6).
+
+**Code:** a label that the mark set and the mirror took off again is reported as removed and not as set, so
+that a landed fix reports `landed` set and `in-progress` removed, and a cancel `af:fix` set and `in-progress`
+removed, as the paths of the PRD say. Every write of the mirror to the forge is a side effect of the envelope
+(`add_labels`, `remove_label`, `add_comment`), of the state `done` or `failed`. A label that is gone when it is
+removed (404) is removed. A label that cannot be set removes none of the others. Deviation keys:
+`result_labels_are_net`, `mirror_writes_are_side_effects`.
 

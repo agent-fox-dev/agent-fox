@@ -9,14 +9,19 @@ package worker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
+	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
 // CategoryHub is the category of the failure of a hub that is unavailable. The toolio categories
@@ -129,10 +134,11 @@ func (r *Runner) stages() []stage {
 	if r.loop != nil {
 		run = r.loop
 	}
-	return []stage{{"resolve", r.resolve}, {"session", r.openSession}, {"clone", r.clone}, {"lease", r.lease}, {"run", run}}
+	return []stage{{"resolve", r.resolve}, {"session", r.openSession}, {"mark", r.mark}, {"clone", r.clone}, {"lease", r.lease}, {"run", run}}
 }
 
-// Run carries out the attempt: resolve, the session, the clone and the lease. An attempt that has not ended
+// Run carries out the attempt: resolve, the session, the mark, the clone, the lease and the loop,
+// and ends it with the mirror and the release of the lease. An attempt that has not ended
 // by then has no envelope, which is a failure of the worker and not of the attempt.
 func (r *Runner) Run(ctx context.Context, req jobs.Request) (jobs.Result, error) {
 	a := &attempt{req: req, report: r.reporterOf(req), started: r.cfg.Now()}
@@ -148,4 +154,89 @@ func (r *Runner) pipeline(ctx context.Context, a *attempt) *outcome {
 		}
 	}
 	return &outcome{err: errors.New("worker: the attempt ended without an envelope")}
+}
+
+// finish ends the attempt, whatever it came to: the outcome is mirrored on the issue, the lease is
+// released, the warnings, the side effects and the artifacts of the worker are added to the
+// envelope it ended with, and what it made in the attempt directory is removed. The writes and the
+// release are made on a context that a cancel or a shutdown does not reach, and that ends within
+// the grace the jobs layer gives. An attempt that was cancelled returns a result, with the
+// envelope of the loop or one that says it was cancelled; one that was shut down returns its
+// cause and nothing else, since the layer hands it over again. A lease that cannot be released
+// changes neither the status of the envelope nor the transient error, which are returned as they
+// were; the failure is a warning of the envelope, or is logged when there is none.
+func (r *Runner) finish(ctx context.Context, a *attempt, out *outcome) (jobs.Result, error) {
+	how := stopOf(ctx)
+	work := ctx
+	if how != notStopped {
+		var cancel context.CancelFunc
+		work, cancel = context.WithTimeout(context.WithoutCancel(ctx), cleanupBound)
+		defer cancel()
+	}
+	if how == stoppedByCancel {
+		if len(out.result.Envelope) == 0 {
+			*out = *r.cancelled(a, context.Cause(ctx))
+		}
+		out.err = nil
+	}
+
+	r.mirror(work, a, out, how)
+	releaseErr := r.releaseLease(work, a)
+
+	warnings := slices.Clone(a.warnings)
+	if releaseErr != nil {
+		r.cfg.Logger.Warn("the lease of the attempt could not be released", "workspace", a.req.Workspace, "job", a.req.JobID,
+			"attempt", a.req.Attempt, "lease", a.lease.ID, "error", releaseErr.Error())
+		warnings = append(warnings, toolio.Warning{Code: WarnLeaseReleaseFailed, Message: fmt.Sprintf(
+			"the sandbox %s could not be released: %v; hub destroys it when it expires at %s", a.lease.ID, releaseErr, a.lease.ExpiresAt.UTC().Format(time.RFC3339))})
+	}
+	if len(out.result.Envelope) > 0 {
+		if a.labelPrefixVar != "" && a.labelPrefixVar != a.prefix {
+			warnings = append(warnings, toolio.Warning{Code: WarnLabelPrefixIgnored, Message: fmt.Sprintf(
+				"AF_LABEL_PREFIX is %q and the prefix of the subscription is %q: the labels have the prefix of the subscription", a.labelPrefixVar, a.prefix)})
+		}
+		am := toolio.Amendment{Warnings: warnings, SideEffects: a.sideEffects}
+		if a.sessionID != "" {
+			am.Artifacts = append(am.Artifacts, toolio.Artifact{Kind: "hub_session", Name: a.sessionID})
+		}
+		if a.lease != nil {
+			am.Artifacts = append(am.Artifacts, toolio.Artifact{Kind: "sandbox", Name: a.lease.ID})
+		}
+		patched, err := toolio.Amend(out.result.Envelope, am)
+		if err != nil {
+			r.cfg.Logger.Warn("the envelope of the attempt could not be amended", "job", a.req.JobID, "attempt", a.req.Attempt, "error", err.Error())
+		} else {
+			out.result.Envelope = patched
+		}
+	} else {
+		for _, w := range a.warnings { // nothing carries them: they are logged
+			r.cfg.Logger.Warn("a write of the attempt failed", "job", a.req.JobID, "attempt", a.req.Attempt, "code", w.Code, "message", w.Message)
+		}
+	}
+	out.result.LabelsSet, out.result.LabelsRemoved = slices.Clone(a.labelsSet), slices.Clone(a.labelsRemoved)
+	r.cleanup(ctx, a, out)
+
+	if how == stoppedByShutdown {
+		err := out.err
+		if err == nil {
+			err = context.Cause(ctx)
+		}
+		return jobs.Result{}, err
+	}
+	return out.result, out.err
+}
+
+// cleanup removes what the attempt made in its directory, once the lease is released: input/, and
+// clone/ unless the attempt is to be handed over again or was shut down. The envelope, the report
+// and the directory itself are the jobs layer's and are not touched.
+func (r *Runner) cleanup(ctx context.Context, a *attempt, out *outcome) {
+	remove := []string{filepath.Join(a.req.Dir, inputDirName)}
+	if !keepsClone(ctx, out) {
+		remove = append(remove, filepath.Join(a.req.Dir, cloneDirName))
+	}
+	for _, dir := range remove {
+		if err := os.RemoveAll(dir); err != nil {
+			r.cfg.Logger.Warn("a directory of the attempt could not be removed", "job", a.req.JobID, "attempt", a.req.Attempt, "dir", dir, "error", err.Error())
+		}
+	}
 }
