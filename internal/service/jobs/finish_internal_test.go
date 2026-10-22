@@ -182,17 +182,15 @@ func TestAnAutomaticAttemptHasTheSameContextAndAnswersAndARoundRestartsAtAHumanA
 	}
 }
 
-// TestAServiceThatIsStoppingGrantsNoSlotAndCancelsWhatItIsToRun checks the two places
-// where a service that stops must not go on: it grants no slot, whether one is free or
-// not, and an attempt that it was about to call the runner for, after it began to stop,
-// is told of the shutdown before the runner is called.
+// TestAServiceThatIsStoppingGrantsNoSlotAndDoesNotCallARunnerForAnAttemptItMustStop
+// checks the two places where a service that stops must not go on: it grants no slot,
+// whether one is free or not, and an attempt that was claimed as it began to stop is told
+// of the shutdown before the runner is called, and the runner is not called.
 // Verifies: 12-REQ-7.3
-func TestAServiceThatIsStoppingGrantsNoSlotAndCancelsWhatItIsToRun(t *testing.T) {
-	var cause error
-	called := make(chan struct{})
+func TestAServiceThatIsStoppingGrantsNoSlotAndDoesNotCallARunnerForAnAttemptItMustStop(t *testing.T) {
+	var calls int
 	svc := internalService(t, funcRunner(func(ctx context.Context, req Request) (Result, error) {
-		cause = context.Cause(ctx)
-		close(called)
+		calls++
 		return Result{}, nil
 	}))
 	if !svc.acquire() {
@@ -215,12 +213,12 @@ func TestAServiceThatIsStoppingGrantsNoSlotAndCancelsWhatItIsToRun(t *testing.T)
 			t.Fatal("a service that is stopping granted a slot that was free")
 		}
 	}
-	if _, _, got, err := svc.invoke(ctx, attemptPayload{JobID: id, Attempt: 1}); err != nil || !errors.Is(got, ErrShutdown) {
-		t.Errorf("invoke after the stop: cause %v, err %v, want the shutdown", got, err)
+	_, out, cause, _, err := svc.invoke(ctx, attemptPayload{JobID: id, Attempt: 1})
+	if err != nil || !errors.Is(cause, ErrShutdown) || IsCancel(cause) || !errors.Is(out.err, ErrShutdown) {
+		t.Errorf("invoke after the stop: cause %v, err %v, out %v, want the shutdown, which is not a cancel", cause, err, out.err)
 	}
-	<-called
-	if !errors.Is(cause, ErrShutdown) || IsCancel(cause) {
-		t.Errorf("the runner's context had the cause %v when it was called, want a shutdown and not a cancel", cause)
+	if calls != 0 {
+		t.Errorf("the runner was called %d times for an attempt that had to stop", calls)
 	}
 }
 
@@ -248,5 +246,43 @@ func TestAnAttemptOfAFinishedJobDoesNotKeepTheNextOneWaiting(t *testing.T) {
 	}
 	if what, err := st.Plan(ctx, stale, 1); err != nil || what != dispAck {
 		t.Errorf("Plan of the attempt of the cancelled job = %v, %v, want to acknowledge", what, err)
+	}
+}
+
+// TestACancelBeforeTheRunnerIsCalledStopsTheAttemptWithoutCallingIt checks the window
+// between the claim of an attempt and the call of its runner: a job cancelled in it is
+// seen when the attempt is made known to the layer, the runner is not called, and the
+// attempt is recorded cancelled with an envelope of the category cancelled.
+// Verifies: 12-REQ-8.1
+func TestACancelBeforeTheRunnerIsCalledStopsTheAttemptWithoutCallingIt(t *testing.T) {
+	var calls int
+	svc := internalService(t, funcRunner(func(context.Context, Request) (Result, error) {
+		calls++
+		return Result{}, nil
+	}))
+	id, err := svc.store.CreateJob(ctx, newJob(KindFix, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.store.Claim(ctx, id, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.cancel(ctx, id, ErrCancelled); err != nil { // the attempt is running, and no runner has it yet
+		t.Fatal(err)
+	}
+	req, out, cause, overran, err := svc.invoke(ctx, attemptPayload{JobID: id, Attempt: 1})
+	if err != nil || overran || calls != 0 || !IsCancel(cause) {
+		t.Fatalf("invoke: cause %v, err %v, overran %v, %d calls, want the cancel and no call of the runner", cause, err, overran, calls)
+	}
+	if err := svc.finish(ctx, req, out, false, cause); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := svc.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := doc.Attempts[0]
+	if doc.State != StateCancelled || a.State != AttemptCancelled || a.Error == nil || a.Error.Category != "cancelled" {
+		t.Errorf("job %s, attempt %s %+v, want cancelled with an error of the category cancelled", doc.State, a.State, a.Error)
 	}
 }

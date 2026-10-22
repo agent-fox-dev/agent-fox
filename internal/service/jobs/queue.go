@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/agent-fox-dev/aflib/jobqueue"
@@ -82,8 +84,20 @@ type attemptRun struct {
 	workspace string
 	cancel    context.CancelCauseFunc
 	recorder  *Recorder
-	returned  chan struct{}
+	// returned is closed when the runner has returned. settled is closed when it has,
+	// or when the attempt has been recorded cancelled without it.
+	returned   chan struct{}
+	settled    chan struct{}
+	settleOnce sync.Once
+	graceOnce  sync.Once
+	// overran is set when the attempt was recorded cancelled without its runner, so
+	// that what the runner returns later is dropped.
+	overran atomic.Bool
 }
+
+// settle says that the attempt is no longer in the hands of its runner, as far as the
+// jobs are concerned.
+func (r *attemptRun) settle() { r.settleOnce.Do(func() { close(r.settled) }) }
 
 // makeDir makes the directory, private to the user, when it is missing.
 func makeDir(dir string) error {
@@ -109,6 +123,11 @@ func (s *Service) handle(qctx context.Context, payload json.RawMessage) (any, bo
 	}
 	switch what {
 	case dispAck:
+		return nil, false, nil
+	case dispReap:
+		// A runner was running when the job was cancelled, and the process ended before it
+		// returned: no runner has it now.
+		s.settleCancelled(ctx, attemptKey{p.JobID, p.Attempt}, "the service stopped while the attempt was running, after the job was cancelled")
 		return nil, false, nil
 	case dispYield:
 		return nil, true, errYield
@@ -145,10 +164,32 @@ func (s *Service) acquire() bool {
 // release gives the slot back.
 func (s *Service) release() { <-s.slots }
 
-// pause waits for d on the clock, and says whether it did: it gives up when the service stops.
-func (s *Service) pause(d time.Duration) bool {
+// watchWait registers that the handler of the attempt is about to wait out a backoff, and
+// returns what wakes it: a cancel of the job. It is registered before the attempt is put
+// back, so that a cancel in between is not missed.
+func (s *Service) watchWait(key attemptKey) <-chan struct{} {
+	wake := make(chan struct{})
+	s.mu.Lock()
+	s.waiting[key] = wake
+	s.mu.Unlock()
+	return wake
+}
+
+// unwatchWait forgets the wait.
+func (s *Service) unwatchWait(key attemptKey) {
+	s.mu.Lock()
+	delete(s.waiting, key)
+	s.mu.Unlock()
+}
+
+// pause waits for d on the clock, and says whether it did: it gives up when the service
+// stops. A cancel of the job ends the wait too, and the attempt that the handler goes
+// round to claim again is cancelled, so the claim fails and the handler lets go.
+func (s *Service) pause(d time.Duration, wake <-chan struct{}) bool {
 	select {
 	case <-s.clock.After(d):
+		return true
+	case <-wake:
 		return true
 	case <-s.stopping:
 		return false
@@ -177,25 +218,35 @@ func (s *Service) attempt(ctx context.Context, p attemptPayload) (any, bool, err
 			return nil, true, err
 		}
 
-		req, out, cause, err := s.invoke(ctx, p)
+		req, out, cause, overran, err := s.invoke(ctx, p)
 		if err == nil {
 			switch {
+			case overran:
+				// The attempt was recorded cancelled when the grace ran out; what its runner
+				// returned now is dropped.
+				s.release()
+				return nil, false, nil
 			case errors.Is(cause, ErrShutdown):
 				// The attempt was stopped so that it can go on after the restart: what the
 				// runner returned is not what the attempt came to.
 				s.release()
 				return nil, true, errHandedBack
-			case IsTransient(out.err):
+			case IsTransient(out.err) && !IsCancel(cause):
+				key := attemptKey{p.JobID, p.Attempt}
+				wake := s.watchWait(key)
 				var wait time.Duration
 				if wait, err = s.transient(ctx, req, out); err == nil && wait > 0 {
 					s.release()
-					if !s.pause(wait) {
+					ok := s.pause(wait, wake)
+					s.unwatchWait(key)
+					if !ok {
 						return nil, true, errHandedBack
 					}
 					continue
 				}
+				s.unwatchWait(key)
 			default:
-				err = s.finish(ctx, req, out, false)
+				err = s.finish(ctx, req, out, false, cause)
 			}
 		}
 		s.release()
@@ -217,7 +268,7 @@ func (s *Service) transient(ctx context.Context, req Request, out called) (time.
 		return 0, err
 	}
 	if failures >= maxTransient {
-		return 0, s.finish(ctx, req, out, true)
+		return 0, s.finish(ctx, req, out, true, nil)
 	}
 	returned, err := s.store.Backoff(ctx, req.JobID, req.Attempt)
 	if err != nil || !returned {
@@ -228,35 +279,58 @@ func (s *Service) transient(ctx context.Context, req Request, out called) (time.
 
 // invoke makes the request for the attempt that was claimed, calls the runner with a
 // context that is cancelled with a cause when the attempt has to stop, and returns what it
-// came to, with the cause of the cancellation of the context at the moment it returned.
-func (s *Service) invoke(ctx context.Context, p attemptPayload) (req Request, out called, cause error, err error) {
-	req, err = s.store.RunRequest(ctx, p.JobID, p.Attempt)
-	if err != nil {
-		return req, out, nil, err
-	}
-	req.Dir = filepath.Join(s.attemptsDir, p.JobID, strconv.Itoa(p.Attempt))
-	if err := makeDir(req.Dir); err != nil {
-		return req, out, nil, err
-	}
-	req.Recorder = newRecorder(s.store, s.log, p.JobID, p.Attempt)
-
+// came to, with the cause of the cancellation of the context at the moment it returned,
+// and whether the attempt was recorded cancelled without the runner in the meantime. The
+// attempt is known to the layer before its request is read, so that a cancel is either
+// seen by the read or finds the attempt: a runner is not called for a job that is cancelled.
+func (s *Service) invoke(ctx context.Context, p attemptPayload) (req Request, out called, cause error, overran bool, err error) {
 	rctx, cancel := context.WithCancelCause(context.Background())
-	run := &attemptRun{key: attemptKey{p.JobID, p.Attempt}, workspace: req.Workspace, cancel: cancel, recorder: req.Recorder, returned: make(chan struct{})}
+	run := &attemptRun{
+		key: attemptKey{p.JobID, p.Attempt}, cancel: cancel, recorder: newRecorder(s.store, s.log, p.JobID, p.Attempt),
+		returned: make(chan struct{}), settled: make(chan struct{}),
+	}
 	s.mu.Lock()
 	s.inflight[run.key] = run
 	s.mu.Unlock()
+	defer s.forget(run)
 	if s.stopped() { // the service began to stop after the claim, and before the attempt was known
 		cancel(ErrShutdown)
 	}
 
-	out = s.callRunner(rctx, req)
+	req, err = s.store.RunRequest(ctx, p.JobID, p.Attempt)
+	if err != nil {
+		return req, out, nil, false, err
+	}
+	run.workspace = req.Workspace
+	req.Dir = filepath.Join(s.attemptsDir, p.JobID, strconv.Itoa(p.Attempt))
+	if err := makeDir(req.Dir); err != nil {
+		return req, out, nil, false, err
+	}
+	req.Recorder = run.recorder
+	state, err := s.store.JobState(ctx, p.JobID)
+	if err != nil {
+		return req, out, nil, false, err
+	}
+	if state == StateCancelled {
+		cancel(ErrCancelled)
+	}
 
-	cause = context.Cause(rctx)
-	req.Recorder.close()
+	if why := context.Cause(rctx); why != nil {
+		out = called{err: why} // stopped before it began: the runner is not called
+	} else {
+		out = s.callRunner(rctx, req)
+	}
+	return req, out, context.Cause(rctx), run.overran.Load(), nil
+}
+
+// forget takes the attempt out of the runners: its recorder ends, its context is released,
+// and whoever waits for it is told.
+func (s *Service) forget(run *attemptRun) {
+	run.recorder.close()
 	s.mu.Lock()
 	delete(s.inflight, run.key)
 	s.mu.Unlock()
 	close(run.returned)
-	cancel(nil)
-	return req, out, cause, nil
+	run.settle()
+	run.cancel(nil)
 }

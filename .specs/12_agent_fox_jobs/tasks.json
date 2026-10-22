@@ -323,7 +323,7 @@
       "done_when": [
         "the job reads cancelled immediately after cancel and the next job on the workspace starts only after the runner returns"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

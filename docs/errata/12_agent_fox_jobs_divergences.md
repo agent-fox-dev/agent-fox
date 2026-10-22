@@ -137,3 +137,25 @@ shutdown is 200 ms, because the layer waits for the runners itself (30 s on its 
 queue.
 
 **Test:** TS-12-46, TS-12-47 and TS-12-48 (`recovery_test.go`).
+
+## 9. What a cancel does that the spec leaves open (task 7)
+
+The spec says a cancel makes a queued attempt "cancelled" and a running one cancelled "when the runner returns"
+(R6). Three things it does not say are decided as follows.
+
+- **An attempt that never ran has no envelope and no `attempt_end`.** A queued attempt, one in its backoff
+  included, becomes `cancelled` with its `finished_at`, and the job's `job_state` for the cancel is the only
+  event. `attempt_start` was never emitted for it, and `attempt_end` closes a start. A job cancelled while it is
+  queued therefore has `result` null. (`internal/service/jobs/cancel.go`, `CancelJob`; TS-12-50, TS-12-43.)
+- **A runner is not called for a job that is cancelled.** The attempt is made known to the layer before its
+  request is read, and the read checks the job: a cancel that lands between the claim and the call is seen
+  there, the runner is not called, and the attempt is recorded cancelled with an envelope of the category
+  `cancelled` (`queue.go`, `invoke`; `TestACancelBeforeTheRunnerIsCalledStopsTheAttemptWithoutCallingIt`).
+- **An attempt left `running` under a cancelled job is closed when its item comes up.** A crash between a cancel
+  and the return of the runner leaves it so, and nothing else would ever end it; it would stay in the way of the
+  purge. The handler that finds it records it cancelled, with an envelope of the category `cancelled` and without
+  calling a runner (`store.go`, `Plan`, `dispReap`; `TestAnAttemptLeftRunningUnderACancelledJobIsClosedAfterARestart`).
+
+The category `cancelled` is also what a runner gets that returns an error, a transient failure or something that
+is not an envelope after a cancel, and what an attempt gets when the grace runs out (TS-12-42, TS-12-51).
+A DELETE whose answer or retry half is TS-12-56's comes with task 8.

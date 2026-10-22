@@ -462,3 +462,48 @@ func TestAHandoverClearsTheHubReferencesOfTheOneBefore(t *testing.T) {
 	r.ReleaseAll()
 	e.waitRest(job.ID)
 }
+
+// TestAnAttemptLeftRunningUnderACancelledJobIsClosedAfterARestart checks the case that
+// a crash leaves: a job was cancelled while its runner ran, and the process ended before
+// the runner returned. The attempt is still running in the file and no runner has it;
+// after a restart it is recorded cancelled, with an envelope of the category cancelled,
+// and the runner is not called.
+// Verifies: 12-REQ-8.1
+func TestAnAttemptLeftRunningUnderACancelledJobIsClosedAfterARestart(t *testing.T) {
+	clk := fakeclock.New(epoch)
+	r1 := fakerunner.New(fakerunner.BlockIgnoringContext(fakerunner.Done()))
+	e := newEnv(t, withRunner(r1), withClock(clk))
+	job := e.create("widgets", jobs.KindFix, 1)
+	e.Start()
+	waitCalls(t, r1, 1)
+	e.cancel(job.ID) // the runner ignores it, and the process ends
+	closed := make(chan error, 1)
+	go func() { closed <- e.Svc.Close() }()
+	if !clk.WaitForWaits(2, 10*time.Second) { // the grace of the cancel, then the wait for the runners
+		t.Fatalf("waits = %v", clk.Waits())
+	}
+	clk.Advance(30 * time.Second) // the wait for the runners is over; the grace is not
+	if err := <-closed; err != nil {
+		t.Fatal(err)
+	}
+	if a := e.get(job.ID).Attempts[0]; a.State != jobs.AttemptRunning {
+		t.Fatalf("the attempt is %s after the stop, want it left running", a.State)
+	}
+
+	r2 := fakerunner.New()
+	svc := e.newService(r2, nil)
+	if err := svc.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the attempt to be closed", func() bool {
+		doc, err := svc.Get(ctx, job.ID)
+		return err == nil && atRest(doc)
+	})
+	doc, _ := svc.Get(ctx, job.ID)
+	if a := doc.Attempts[0]; doc.State != jobs.StateCancelled || a.State != jobs.AttemptCancelled || a.Error == nil || a.Error.Category != "cancelled" {
+		t.Errorf("job %s, attempt %s %+v, want cancelled with an error of the category cancelled", doc.State, a.State, a.Error)
+	}
+	if len(r2.Calls()) != 0 {
+		t.Errorf("the runner was called %d times for a job that is cancelled", len(r2.Calls()))
+	}
+}

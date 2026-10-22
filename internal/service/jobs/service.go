@@ -73,6 +73,7 @@ type Service struct {
 
 	mu       sync.Mutex
 	inflight map[attemptKey]*attemptRun
+	waiting  map[attemptKey]chan struct{}
 	started  bool
 	stopping chan struct{}
 	stopOnce sync.Once
@@ -104,7 +105,7 @@ func New(cfg Config) (*Service, error) {
 	s := &Service{
 		subs: cfg.Subscriptions, log: cfg.Logger, clock: cfg.Clock, enqueue: cfg.Enqueue,
 		runner: cfg.Runner, attemptsDir: dir, unsubscribing: map[string]int{},
-		inflight: map[attemptKey]*attemptRun{}, stopping: make(chan struct{}), slots: make(chan struct{}, cfg.Workers),
+		inflight: map[attemptKey]*attemptRun{}, waiting: map[attemptKey]chan struct{}{}, stopping: make(chan struct{}), slots: make(chan struct{}, cfg.Workers),
 	}
 	if s.log == nil {
 		s.log = slog.Default()

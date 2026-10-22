@@ -521,6 +521,9 @@ type disposition int
 const (
 	// dispAck: the attempt or its job is gone or is not open; the item is done.
 	dispAck disposition = iota
+	// dispReap: the attempt is running, and its job is not open: it was left running when
+	// the job was cancelled, and no runner has it.
+	dispReap
 	// dispYield: the attempt is open but is not the first of its workspace; the item
 	// is to come back.
 	dispYield
@@ -552,7 +555,13 @@ func (s *Store) Plan(ctx context.Context, jobID string, attempt int) (dispositio
 	if err != nil {
 		return dispAck, fmt.Errorf("attempt %d of %s: %w", attempt, jobID, err)
 	}
-	if (job != StateQueued && job != StateRunning) || (state != AttemptQueued && state != AttemptRunning) {
+	if job != StateQueued && job != StateRunning {
+		if state == AttemptRunning {
+			return dispReap, nil
+		}
+		return dispAck, nil
+	}
+	if state != AttemptQueued && state != AttemptRunning {
 		return dispAck, nil
 	}
 	var firstJob string
@@ -623,4 +632,14 @@ func (s *Store) RunRequest(ctx context.Context, jobID string, attempt int) (Requ
 		}
 	}
 	return req, nil
+}
+
+// JobState is the state of a job, or ErrNotFound.
+func (s *Store) JobState(ctx context.Context, jobID string) (State, error) {
+	var state State
+	err := s.db.QueryRowContext(ctx, "SELECT state FROM af_jobs WHERE id = ?", jobID).Scan(&state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return state, err
 }

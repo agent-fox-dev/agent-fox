@@ -2,12 +2,14 @@ package jobs
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
@@ -58,9 +60,10 @@ type verdict struct {
 // finish records what a call of the runner came to: it settles the envelope, applies
 // the first of the rules that matches, and stores the files and the rows in one go.
 // spent says that the attempt ends because its transient failures are used up, which
-// is never a reason for an automatic attempt.
-func (s *Service) finish(ctx context.Context, req Request, out called, spent bool) error {
-	env, raw := s.envelopeOf(req, out)
+// is never a reason for an automatic attempt; cause is why the attempt's context was
+// cancelled, if it was.
+func (s *Service) finish(ctx context.Context, req Request, out called, spent bool, cause error) error {
+	env, raw := s.envelopeOf(req, out, cause)
 	attempts, err := loadAttempts(ctx, s.store.db, req.JobID)
 	if err != nil {
 		return err
@@ -96,7 +99,7 @@ func (s *Service) finish(ctx context.Context, req Request, out called, spent boo
 
 // envelopeOf is the envelope of the attempt, and the bytes it is stored as: what the
 // runner gave when that can be used, else an envelope of the layer's making.
-func (s *Service) envelopeOf(req Request, out called) (toolio.Envelope, []byte) {
+func (s *Service) envelopeOf(req Request, out called, cause error) (toolio.Envelope, []byte) {
 	synth := func(failure toolio.ErrorInfo) (toolio.Envelope, []byte) {
 		env := synthesize(req.Kind, s.clock.Now(), failure)
 		raw, err := encodeEnvelope(env)
@@ -110,6 +113,9 @@ func (s *Service) envelopeOf(req Request, out called) (toolio.Envelope, []byte) 
 		s.log.Error("the runner panicked", "job", req.JobID, "attempt", req.Attempt,
 			"panic", fmt.Sprint(out.panicked.value), "stack", string(out.panicked.stack))
 		return synth(toolio.ErrorInfo{Category: toolio.CategoryInternal, Message: "the runner panicked"})
+	case out.err != nil && IsCancel(cause):
+		// It returned after a cancel without an envelope.
+		return synth(toolio.ErrorInfo{Category: toolio.CategoryCancelled, Message: "the job was cancelled"})
 	case out.err != nil:
 		if failure, ok := errors.AsType[*toolio.Failure](out.err); ok {
 			return synth(toolio.ErrorInfo{Category: failure.Category, Message: failure.Message, Retryable: failure.Retryable, FixHint: failure.FixHint})
@@ -117,6 +123,9 @@ func (s *Service) envelopeOf(req Request, out called) (toolio.Envelope, []byte) 
 		return synth(toolio.ErrorInfo{Category: toolio.CategoryInternal, Message: out.err.Error()})
 	}
 	env, problem := parseEnvelope(out.res.Envelope)
+	if problem != "" && IsCancel(cause) {
+		return synth(toolio.ErrorInfo{Category: toolio.CategoryCancelled, Message: "the job was cancelled"})
+	}
 	if problem != "" {
 		s.log.Warn("the runner returned an envelope that cannot be used", "job", req.JobID, "attempt", req.Attempt, "problem", problem)
 		return synth(toolio.ErrorInfo{Category: toolio.CategoryInternal, Message: "the runner returned an envelope that cannot be used: " + problem})
@@ -232,11 +241,14 @@ func (s *Store) EndAttempt(ctx context.Context, a endArgs, files func() error) (
 		if a.verdict.attempt == AttemptNeedsHuman {
 			question, options = env.NeedsHuman.Question, mustJSON(lettered(env.NeedsHuman.Options))
 		}
+		// A job that was cancelled while the attempt ran: the attempt is cancelled, whatever it
+		// came to (rule 1).
 		res, err := x.ExecContext(ctx,
-			`UPDATE af_attempts SET state = ?, max_attempts = ?, status = ?, exit_code = ?, summary = ?, error = ?,
+			`UPDATE af_attempts SET state = CASE WHEN (SELECT state FROM af_jobs WHERE id = ?) = 'cancelled' THEN 'cancelled' ELSE ? END,
+			   max_attempts = ?, status = ?, exit_code = ?, summary = ?, error = ?,
 			   artifacts = ?, side_effects = ?, usage = ?, question = ?, options = ?, has_envelope = 1, has_report = ?, finished_at = ?
 			 WHERE job_id = ? AND n = ? AND state = 'running'`,
-			string(a.verdict.attempt), a.maxAttempts, string(env.Status), toolio.ExitCode(env.Status), env.Summary, errorJSON,
+			a.jobID, string(a.verdict.attempt), a.maxAttempts, string(env.Status), toolio.ExitCode(env.Status), env.Summary, errorJSON,
 			mustJSON(artifacts), mustJSON(sideEffects), mustJSON(env.Usage), question, options, a.hasReport, now,
 			a.jobID, a.attempt)
 		if err != nil {
@@ -257,10 +269,32 @@ func (s *Store) EndAttempt(ctx context.Context, a endArgs, files func() error) (
 				return fmt.Errorf("labels of %s: %w", a.jobID, err)
 			}
 		}
+		var jobState State
+		var requestLabel sql.NullString
+		if err := x.QueryRowContext(ctx, "SELECT state, request_label FROM af_jobs WHERE id = ?", a.jobID).Scan(&jobState, &requestLabel); err != nil {
+			return fmt.Errorf("job %s: %w", a.jobID, err)
+		}
+		attemptState := a.verdict.attempt
+		if jobState == StateCancelled {
+			attemptState = AttemptCancelled
+		}
 		if err := x.emit(ctx, a.attempt, EventAttemptEnd, map[string]any{
-			"attempt": a.attempt, "state": a.verdict.attempt, "status": env.Status, "exit_code": toolio.ExitCode(env.Status),
+			"attempt": a.attempt, "state": attemptState, "status": env.Status, "exit_code": toolio.ExitCode(env.Status),
 		}); err != nil {
 			return err
+		}
+		if jobState == StateCancelled {
+			// The job stays cancelled. The request label belongs back on the issue, unless the
+			// runner reports that it set it itself.
+			if requestLabel.Valid && slices.Contains(a.labelsSet, requestLabel.String) {
+				if _, err := x.ExecContext(ctx, "UPDATE af_jobs SET labels_restore = NULL WHERE id = ?", a.jobID); err != nil {
+					return fmt.Errorf("labels of %s: %w", a.jobID, err)
+				}
+			}
+			return x.emit(ctx, a.attempt, EventJobState, jobStateData{
+				State: StateCancelled, Attempt: a.attempt, AtRest: true,
+				Result: &ResultDoc{Status: env.Status, ExitCode: toolio.ExitCode(env.Status), Summary: env.Summary, Error: env.Error},
+			})
 		}
 
 		if a.verdict.auto {

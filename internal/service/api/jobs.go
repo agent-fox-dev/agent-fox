@@ -1,10 +1,14 @@
 package api
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
+	"mime"
 	"net/http"
 	"slices"
 	"unicode/utf8"
@@ -25,6 +29,76 @@ const (
 func (s *server) jobRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/workspaces/{slug}/triage", s.inWorkspace(s.createJob(jobs.KindTriage, triageBodyLimit)))
 	mux.HandleFunc("POST /api/v1/workspaces/{slug}/fix", s.inWorkspace(s.createJob(jobs.KindFix, fixBodyLimit)))
+	mux.HandleFunc("POST /api/v1/jobs/{id}/cancel", s.inJob(s.cancelJob))
+}
+
+// writeJobNotFound answers 404 for a job. One answer serves a job that does not exist and
+// one on a workspace that the caller cannot see, so that nobody learns from the answer
+// that a job they may not see exists.
+func writeJobNotFound(w http.ResponseWriter) { writeError(w, CodeNotFound, "job not found") }
+
+// inJob wraps a handler of a route with a {id} in the checks of the API, in this order: who
+// is calling (401), and whether the job exists and its workspace is one the caller sees on
+// hub (404, the same answer for both). The handler gets the id.
+func (s *server) inJob(h func(w http.ResponseWriter, r *http.Request, id string)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p, ok := s.authenticate(w, r)
+		if !ok {
+			return
+		}
+		id := r.PathValue("id")
+		workspace, err := s.deps.Jobs.WorkspaceOf(r.Context(), id)
+		if errors.Is(err, jobs.ErrNotFound) {
+			writeJobNotFound(w)
+			return
+		}
+		if err != nil {
+			s.storeFailure(w, r, "the workspace of a job could not be read", err)
+			return
+		}
+		seen, err := s.auth.visible(r.Context(), p.token, workspace)
+		if err != nil {
+			s.hubFailure(w, r, err)
+			return
+		}
+		if !seen {
+			writeJobNotFound(w)
+			return
+		}
+		h(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)), id)
+	}
+}
+
+// noBody reads the body of an action that takes none: it is nothing, or {}. Anything else
+// is refused (415, 413 or 400) and noBody reports false.
+func noBody(w http.ResponseWriter, r *http.Request) bool {
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
+	if err != nil {
+		bodyError(w, err, maxBody)
+		return false
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return true
+	}
+	if mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mediaType != "application/json" {
+		writeError(w, CodeUnsupportedMedia, "the body must be application/json")
+		return false
+	}
+	return decodeJSON(w, data, &struct{}{})
+}
+
+// cancelJob is POST /api/v1/jobs/{id}/cancel: a job that is queued, running or blocked
+// reads cancelled at once, and its runner is told. 200, with the job.
+func (s *server) cancelJob(w http.ResponseWriter, r *http.Request, id string) {
+	if !noBody(w, r) {
+		return
+	}
+	doc, err := s.deps.Jobs.Cancel(r.Context(), id)
+	if err != nil {
+		s.jobRefusal(w, r, "the job could not be cancelled", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, doc)
 }
 
 // fixBody is the body of a fix: an issue, and context.
@@ -76,9 +150,14 @@ func (s *server) createJob(kind jobs.Kind, limit int64) func(http.ResponseWriter
 func (s *server) jobRefusal(w http.ResponseWriter, r *http.Request, what string, err error) {
 	var invalid *jobs.ValidationError
 	var duplicate *jobs.DuplicateError
+	var state *jobs.StateError
 	switch {
 	case errors.As(err, &invalid):
 		writeError(w, CodeInvalidRequest, invalid.Error())
+	case errors.Is(err, jobs.ErrNotFound):
+		writeJobNotFound(w)
+	case errors.As(err, &state):
+		writeError(w, CodeInvalidState, fmt.Sprintf("the job is %s", state.State))
 	case errors.Is(err, jobs.ErrNotSubscribed):
 		writeNotFound(w)
 	case errors.Is(err, jobs.ErrTokenUnreadable):
