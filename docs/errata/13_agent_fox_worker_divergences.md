@@ -246,3 +246,17 @@ does not take ends the posting of events, so that what hub holds is a prefix of 
 that 13-REQ-10.8 names for each document, and that `git diff main -- docs/cli.md` is empty; it is skipped where there
 is no git or no branch `main`. `make check` runs the docs tests of the other packages, which hold the other phrases.
 
+## 21. The binary runs the worker, and the smoke test of spec 12 for the binary follows it (task 11)
+
+**Spec:** "the production service wiring uses worker.Runner in place of the unsupported placeholder" (task 11), and
+`TestTheBinaryWiresTheJobsLayerWithThePlaceholderRunner…_TS_12_34` of spec 12, which showed that the binary's runner
+fails every attempt as `unsupported`.
+
+**Code:** `serve` (`cmd/agent-fox/run.go`) makes the hub client once and gives it to the worker and to the API, and the
+worker takes the subscription store as it is. The test of the binary now has a hub workspace in `carry_patch` mode: a
+fix on it is `unsupported` and not retryable, as it was, but now by the refusal of the worker, which the test shows by
+its message and by the reads the fake hub saw with the token of the subscription, and not by the placeholder
+(`TestTheBinaryWiresTheJobsLayerWithTheWorkerAndKeepsJobsAcrossARestart_TS_12_34`, renamed). `jobs.PlaceholderRunner`
+stays for the tests of the layer (`TestThePlaceholderRunnerFailsEveryAttemptAsUnsupported…_TS_12_34`). Deviation key:
+`binary_smoke_test_follows_the_worker`.
+

@@ -818,3 +818,18 @@ func TestThePathsOfTheWorkerAreTakenOutOfWhatGoesToAnIssue(t *testing.T) {
 		}
 	}
 }
+
+// TestTheEnvelopeOfAnAttemptCancelledBeforeTheLoopSaysWhy pins the two causes that read as a cancel.
+// Verifies: 13-REQ-9.7
+func TestTheEnvelopeOfAnAttemptCancelledBeforeTheLoopSaysWhy(t *testing.T) {
+	e := leaseEnv(t, nil)
+	a := &attempt{req: e.fixRequest(), maxAttempts: 2, started: time.Now()}
+	for cause, want := range map[error]string{jobs.ErrCancelled: "was cancelled", jobs.ErrUnsubscribed: "was unsubscribed"} {
+		out := e.runner.cancelled(a, cause)
+
+		category, message, retryable, _ := errorOf(envelope(t, out.result))
+		if category != "cancelled" || retryable || !strings.Contains(message, want) {
+			t.Errorf("%v: category %q, message %q, retryable %v, want a cancelled failure that says it %s", cause, category, message, retryable, want)
+		}
+	}
+}

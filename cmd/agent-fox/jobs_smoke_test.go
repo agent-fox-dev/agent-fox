@@ -28,25 +28,28 @@ func awaitJob(t *testing.T, addr, token, id, state string) map[string]any {
 			return doc
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("job %s did not reach %s in 30 s", id, state)
+			doc, _ := json.Marshal(jobIn(t, addr, token, id))
+			t.Fatalf("job %s did not reach %s in 30 s: %s", id, state, doc)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 }
 
-// TestTheBinaryWiresTheJobsLayerWithThePlaceholderRunnerAndKeepsJobsAcrossARestart_TS_12_34
+// TestTheBinaryWiresTheJobsLayerWithTheWorkerAndKeepsJobsAcrossARestart_TS_12_34
 // is the part of TS-12-34 that only the binary can show, and the check of 12-REQ-3.1, 12-REQ-4.1 and
 // 12-REQ-8.7 in production wiring: the process started from a configuration makes a job through the
-// route, the queue it starts hands the attempt to the placeholder runner, which fails it as
-// unsupported and not retryable; the stored envelope reads back; a second job of the workspace is
-// cancelled by the DELETE of the subscription; and after SIGTERM and a start on the same database
-// the jobs are still there and the service stops with exit code 0 again.
-// Verifies: 12-REQ-4.1, 12-REQ-5.7
-func TestTheBinaryWiresTheJobsLayerWithThePlaceholderRunnerAndKeepsJobsAcrossARestart_TS_12_34(t *testing.T) {
+// route, the queue it starts hands the attempt to the worker (it was the placeholder before the worker
+// existed), which reads the workspace from hub with the token of the subscription and refuses a fix on
+// a carry-patch workspace as unsupported and not retryable; the stored envelope reads back; a second
+// job of the workspace is cancelled by the DELETE of the subscription; and after SIGTERM and a start
+// on the same database the jobs are still there and the service stops with exit code 0 again.
+// Verifies: 12-REQ-4.1, 12-REQ-5.7, 13-REQ-8.1
+func TestTheBinaryWiresTheJobsLayerWithTheWorkerAndKeepsJobsAcrossARestart_TS_12_34(t *testing.T) {
 	const pat = "pat-DISTINCT-34-0123456789"
 	hub := fakehub.New(t)
 	hub.AddUser("tok-A", "usr_A", []string{"widgets"})
 	hub.AddUser(pat, "usr_P", []string{"widgets"})
+	hub.AddWorkspace(t, fakehub.Workspace{Slug: "widgets", PAT: pat, Mode: "carry_patch"})
 	s := newSetup(t, hub.URL)
 	p := s.start(t, bareEnv(t))
 	addr := p.addr()
@@ -70,6 +73,16 @@ func TestTheBinaryWiresTheJobsLayerWithThePlaceholderRunnerAndKeepsJobsAcrossARe
 	if result["exit_code"] != float64(1) || failure["category"] != "unsupported" || failure["retryable"] != false {
 		t.Errorf("result = %v, want exit code 1 and an error of category unsupported that is not retryable", result)
 	}
+	if msg, _ := failure["message"].(string); !strings.Contains(msg, "carry-patch") {
+		t.Errorf("the failure says %q, want the worker's refusal of carry-patch landing and not the placeholder's", msg)
+	}
+	// Only the worker reads the workspace from hub with the token of the subscription.
+	if n := hub.Count("/api/v1/workspaces/widgets", fakehub.TokenHash(pat)); n < 1 {
+		t.Errorf("hub was asked %d times for the workspace with the token of the subscription, want the worker's read", n)
+	}
+	if n := hub.Count("/api/v1/workspaces/widgets/vars/resolved", fakehub.TokenHash(pat)); n < 1 {
+		t.Errorf("hub was asked %d times for the variables with the token of the subscription", n)
+	}
 	if attempts, _ := failed["attempts"].([]any); len(attempts) != 1 {
 		t.Errorf("the job has %d attempts, want only the first: an unsupported failure is not retried", len(attempts))
 	}
@@ -79,7 +92,7 @@ func TestTheBinaryWiresTheJobsLayerWithThePlaceholderRunnerAndKeepsJobsAcrossARe
 		Error  struct{ Category string }
 	}
 	if err := json.Unmarshal([]byte(envelope), &env); status != 200 || err != nil || env.Status != "failed" || env.Error.Category != "unsupported" {
-		t.Errorf("the stored envelope = %d %s (%v), want the failed envelope of the placeholder", status, envelope, err)
+		t.Errorf("the stored envelope = %d %s (%v), want the failed envelope of the worker's refusal", status, envelope, err)
 	}
 	if status, _ := call(t, "GET", addr, "/api/v1/jobs/"+id+"/attempts/1/report", "tok-A", ""); status != 404 {
 		t.Errorf("the report of an attempt that has none = %d, want 404", status)

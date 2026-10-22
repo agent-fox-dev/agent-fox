@@ -1146,8 +1146,8 @@ talks to it.
 - **Retention.** A purge runs at start and then every hour on the layer's clock, and removes finished jobs with no
   running attempt and no runner in progress that were finished more than `[database].retain` ago: the directory
   first, then the rows, under the lock of the job.
-- **Tests.** Every test runs offline against `fakehub`, the fake runner and a fake clock; the placeholder runner,
-  which fails every attempt as `unsupported`, remains for a service built without a hub client of its own.
+- **Tests.** Every test runs offline against `fakehub`, the fake runner and a fake clock. `cmd/agent-fox` wires the
+  worker; `jobs.PlaceholderRunner`, which fails every attempt as `unsupported`, is left for the tests of the layer.
 
 ## What moves where
 

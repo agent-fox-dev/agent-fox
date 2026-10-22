@@ -519,7 +519,7 @@
       "done_when": [
         "`make test` passes offline with the six smoke tests included"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }
