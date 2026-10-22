@@ -916,6 +916,20 @@ worker, the poll, the `af` client) build on:
   rejected (another 4xx, `*RejectedError` with hub's message) and unavailable (429, 5xx, a redirect, a
   transport failure, a timeout or a body that is not what hub sends, `*UnavailableError`). No error holds
   the PAT.
+- **The forge through hub.** `hub.Client.Forge(pat, slug, repo)` is an `issuex.Client` for the one forge
+  repository of a workspace, which the worker gives the loops in place of a forge client with a token of its
+  own, and `ForgeFactory` is the same as a function of the signature of `toolio.App.NewForge`. It reads and
+  writes through hub's forge API under `/api/v1/workspaces/{slug}`: `GetRepository` is the record of the
+  workspace; `ReadIssue` (the issue with its comments, marked a pull or merge request when hub says it is
+  one), `ListComments`, `UpdateIssue`, `CreateIssue`, `AddComment`, `AddLabels`, `RemoveLabel` and
+  `CreatePullRequest` are one request each. A repository other than the workspace's (host, owner and name,
+  without case; an empty host is the workspace's) is refused before a request is sent, and every other
+  method of `issuex.Client` says the operation is not available through hub in this release. Hub's answers
+  become the errors that the loops already tell apart: 401 and 403 an `*issuex.HTTPError` of that status
+  that carries the message of the hub client, 404 `issuex.ErrNotFound`, 409 `issuex.ErrConflict`, 429
+  `issuex.ErrRateLimited`, another refusal an `*issuex.HTTPError` with hub's message, and hub being
+  unavailable an error that the loops may try again. So `auth`, `forge` and `retryable` come out as with a
+  direct forge. The client reports GitLab's body limit for a GitLab host and GitHub's otherwise.
 - **Tests.** `internal/hub/fakehub` is an `httptest` hub in the manner of `fakeforge`: a table of tokens,
   users and workspaces, a record of every request, and failures, hang-ups, delays, redirects and oversize
   answers by method and route on demand. It serves the calls above in the shapes of hub's OpenAPI
