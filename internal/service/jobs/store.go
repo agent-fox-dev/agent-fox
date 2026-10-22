@@ -236,8 +236,11 @@ func (s *Store) insertEvent(ctx context.Context, tx *sql.Tx, jobID string, attem
 	return ev, nil
 }
 
-// formatTime is how a time is stored and shown: RFC 3339 in UTC, with milliseconds.
-func formatTime(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05.000Z") }
+// timeLayout is how a time is stored and shown: RFC 3339 in UTC, with milliseconds.
+const timeLayout = "2006-01-02T15:04:05.000Z"
+
+// formatTime is a time as it is stored and shown.
+func formatTime(t time.Time) string { return t.UTC().Format(timeLayout) }
 
 // newJobID is job_ and 20 lowercase hex characters from the system's source of
 // randomness.

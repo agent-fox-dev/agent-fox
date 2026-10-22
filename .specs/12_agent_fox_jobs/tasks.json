@@ -404,7 +404,7 @@
       "done_when": [
         "following next_cursor yields each matching job exactly once"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

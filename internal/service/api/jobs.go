@@ -10,7 +10,9 @@ import (
 	"maps"
 	"mime"
 	"net/http"
+	"net/url"
 	"slices"
+	"strconv"
 	"unicode/utf8"
 
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
@@ -32,6 +34,11 @@ func (s *server) jobRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/jobs/{id}/cancel", s.inJob(s.cancelJob))
 	mux.HandleFunc("POST /api/v1/jobs/{id}/answer", s.inJob(s.answerJob))
 	mux.HandleFunc("POST /api/v1/jobs/{id}/retry", s.inJob(s.retryJob))
+	mux.HandleFunc("GET /api/v1/jobs", s.authed(s.listJobs))
+	mux.HandleFunc("GET /api/v1/workspaces/{slug}/jobs", s.inWorkspace(s.listWorkspaceJobs))
+	mux.HandleFunc("GET /api/v1/jobs/{id}", s.inJob(s.getJob))
+	mux.HandleFunc("GET /api/v1/jobs/{id}/attempts/{n}/envelope", s.inJob(s.getEnvelope))
+	mux.HandleFunc("GET /api/v1/jobs/{id}/attempts/{n}/report", s.inJob(s.getReport))
 }
 
 // writeJobNotFound answers 404 for a job. One answer serves a job that does not exist and
@@ -249,4 +256,112 @@ func (s *server) retryJob(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, doc)
+}
+
+// listFilter reads the parameters of a list from the query of the request, or answers 400
+// naming the one that is wrong and reports false.
+func (s *server) listFilter(w http.ResponseWriter, r *http.Request) (jobs.ListFilter, bool) {
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		writeError(w, CodeInvalidRequest, "the query string is not valid")
+		return jobs.ListFilter{}, false
+	}
+	filter, err := jobs.ParseList(query)
+	if err != nil {
+		s.jobRefusal(w, r, "the list could not be read", err, false)
+		return jobs.ListFilter{}, false
+	}
+	return filter, true
+}
+
+// listJobs is GET /api/v1/jobs: the jobs of every workspace that has a job the filter
+// matches and that the caller sees on hub, whether it is subscribed or not, newest first, a
+// page at a time. Hub is asked through the cache of the API for each of those workspaces; if it
+// cannot say for one, the answer is the error, and not a page that leaves the jobs of that
+// workspace out.
+func (s *server) listJobs(w http.ResponseWriter, r *http.Request) {
+	filter, ok := s.listFilter(w, r)
+	if !ok {
+		return
+	}
+	known, err := s.deps.Jobs.Workspaces(r.Context(), filter)
+	if err != nil {
+		s.storeFailure(w, r, "the workspaces with jobs could not be listed", err)
+		return
+	}
+	token := principalOf(r).token
+	seen := make([]string, 0, len(known))
+	for _, slug := range known {
+		visible, err := s.auth.visible(r.Context(), token, slug)
+		if err != nil {
+			s.hubFailure(w, r, err)
+			return
+		}
+		if visible {
+			seen = append(seen, slug)
+		}
+	}
+	s.writePage(w, r, seen, filter)
+}
+
+// listWorkspaceJobs is GET /api/v1/workspaces/{slug}/jobs: the jobs of one workspace that the
+// caller sees, which the guard has shown, subscribed or not.
+func (s *server) listWorkspaceJobs(w http.ResponseWriter, r *http.Request, slug string) {
+	filter, ok := s.listFilter(w, r)
+	if !ok {
+		return
+	}
+	s.writePage(w, r, []string{slug}, filter)
+}
+
+// writePage answers 200 with a page of the jobs of the workspaces.
+func (s *server) writePage(w http.ResponseWriter, r *http.Request, workspaces []string, filter jobs.ListFilter) {
+	page, err := s.deps.Jobs.List(r.Context(), workspaces, filter)
+	if err != nil {
+		s.storeFailure(w, r, "the jobs could not be listed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
+// getJob is GET /api/v1/jobs/{id}: the job with its attempts.
+func (s *server) getJob(w http.ResponseWriter, r *http.Request, id string) {
+	doc, err := s.deps.Jobs.Get(r.Context(), id)
+	if err != nil {
+		s.jobRefusal(w, r, "the job could not be read", err, false)
+		return
+	}
+	writeJSON(w, http.StatusOK, doc)
+}
+
+// getEnvelope is GET /api/v1/jobs/{id}/attempts/{n}/envelope: the envelope.json that the
+// attempt stored, with its bytes unchanged.
+func (s *server) getEnvelope(w http.ResponseWriter, r *http.Request, id string) {
+	s.serveFile(w, r, id, "application/json", s.deps.Jobs.Envelope)
+}
+
+// getReport is GET /api/v1/jobs/{id}/attempts/{n}/report: the report.md that the attempt
+// stored, with its bytes unchanged.
+func (s *server) getReport(w http.ResponseWriter, r *http.Request, id string) {
+	s.serveFile(w, r, id, "text/markdown; charset=utf-8", s.deps.Jobs.Report)
+}
+
+// serveFile answers with a file of an attempt. A number that is not an attempt's, an attempt
+// that is not there and a file that it does not have are one answer, the one for a job that is
+// not there.
+func (s *server) serveFile(w http.ResponseWriter, r *http.Request, id, contentType string, read func(context.Context, string, int) ([]byte, error)) {
+	raw := r.PathValue("n")
+	n, err := strconv.Atoi(raw)
+	if err != nil || strconv.Itoa(n) != raw { // 01, +1 and 1.0 are no attempt's number
+		writeJobNotFound(w)
+		return
+	}
+	data, err := read(r.Context(), id, n)
+	if err != nil {
+		s.jobRefusal(w, r, "the file of the attempt could not be read", err, false)
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
 }

@@ -198,3 +198,50 @@ that holds the issue (`actions.go`, `requeue`), as a creation would be. The reas
 An answer without a body has no content type either, and the check of the content type would have made it 415.
 It is the body that is missing, so it is a 400 `invalid_request` (`readBodyOrNothing`, `internal/service/api/server.go`);
 a body that is there but is not `application/json` is still 415.
+
+## 13. Jobs with one `created_at` are ordered by `id`, descending (task 9)
+
+**Spec:** a list is "newest first by `created_at` then `id`" (12-REQ-9.4), and TS-12-60 says "ordered by
+created_at descending then id". Neither says which way the `id` runs.
+
+**Code:** both run down: `ORDER BY created_at DESC, id DESC` (`internal/service/jobs/list.go`, `Store.List`). It is the
+order of the index `af_jobs_by_created (created_at, id)` read backwards, and the cursor is the position of the
+last job of the page, `(created_at, id)`, compared with `<`. A job id is random, so the direction says nothing
+about which job is newer; what matters is that it is the same on every page.
+
+**Test:** `TestFollowingNextCursorYieldsEveryFilteredJobOnceNewestFirst_TS_12_60` seeds 150 jobs on ten distinct
+times, so that the ties are the rule, and compares the pages with that order.
+
+## 14. A list parameter that is there is checked whatever its value, and the workspaces a list asks hub about are those with a matching job (task 9)
+
+**Spec:** "A bad value answers 400" (R7); `GET /jobs` answers 502 when "hub is unavailable for any workspace
+GET /api/v1/jobs needs to check" (12-REQ-9.2).
+
+**Code:**
+
+- A parameter that is present is checked even when it is empty (`kind=`, `limit=`, `cursor=`), a repeated one is
+  refused (`kind=fix&kind=triage`), and a number is written as a person writes one (`007`, `+5`, `1.0` are
+  not). A parameter that the list does not have is left alone (`ParseList`, `list.go`). The first that is wrong, in the
+  order kind, state, issue, limit, cursor, is the one named.
+- A cursor is the one the service gave: base64 without padding of `{created_at, id}`, with nothing else in it, and a
+  spelling that decodes to the same bytes but is not the one given is refused (`parsePosition`).
+- `GET /jobs` asks hub about the workspaces that have a job which the kind, state and issue filters match, and not about
+  the others (`Store.Workspaces`). A workspace that the filter leaves no job on is not "needed", so a hub
+  that is down for it does not fail the list. It asks about the same workspaces for every page of one list.
+- A caller's token is checked first (401), then the parameters (400), then hub (502); on a route of one workspace the
+  guard comes before the parameters, so that a workspace the caller cannot see is a 404 whatever the query says.
+
+**Test:** `TestInvalidParametersOfAListAnswer400NamingTheParameter_TS_12_61` (the cases of the spec and their
+neighbours, on both routes) and `TestListingJobsAnswers502WithNoPartialPage…_TS_12_58`.
+
+## 15. A file of an attempt is served only when the attempt's row lists it (task 9)
+
+**Spec:** the envelope and report routes answer 404 for "an attempt that has no envelope yet" and "an attempt with
+no report" (12-REQ-9.7).
+
+**Code:** the row of the attempt says whether it has an envelope and a report (`has_envelope`, `has_report`), and the file
+is read only when it does (`internal/service/jobs/read.go`). A runner that has begun to write `envelope.json` into the
+directory of a running attempt does not make it served; a file that the row lists and that is not on disk is the
+same 404, with a WARN that names the job, the attempt and the file.
+
+**Test:** `TestAFileOnDiskThatTheStoreDoesNotListIsNotServed_TS_12_63`.

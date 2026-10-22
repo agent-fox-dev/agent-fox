@@ -103,11 +103,18 @@ func loadAttempts(ctx context.Context, q querier, id string) ([]attemptRow, erro
 
 // Doc is the document of a job, with its attempts when attempts is true.
 func (s *Store) Doc(ctx context.Context, id string, attempts bool) (Doc, error) {
-	job, err := loadJob(ctx, s.db, id)
+	// The job and its attempts are read from one snapshot: a job is not shown in a state that
+	// its attempts do not bear out.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Doc{}, fmt.Errorf("job %s: %w", id, err)
+	}
+	defer tx.Rollback()
+	job, err := loadJob(ctx, tx, id)
 	if err != nil {
 		return Doc{}, err
 	}
-	rows, err := loadAttempts(ctx, s.db, id)
+	rows, err := loadAttempts(ctx, tx, id)
 	if err != nil {
 		return Doc{}, err
 	}
