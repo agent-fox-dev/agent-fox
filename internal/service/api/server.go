@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
 )
 
@@ -29,17 +30,24 @@ const (
 // Deps is what the server is built from.
 type Deps struct {
 	Store  *store.Store
+	Hub    *hub.Client
 	Logger *slog.Logger
 	// Version is the version document that GET /version answers.
 	Version any
-	// Routes registers more routes behind the same middleware; the tests use it.
-	Routes func(mux *http.ServeMux)
+	// AuthCacheTTL is how long hub's answers about a caller's token are kept.
+	AuthCacheTTL time.Duration
+	// Now is the clock of the caches; time.Now when nil. The tests move it.
+	Now func() time.Time
+	// Routes registers more routes behind the same middleware, with the checks
+	// of the API to wrap them in; the tests use it.
+	Routes func(mux *http.ServeMux, s *server)
 }
 
 // server is the state the handlers share.
 type server struct {
 	deps Deps
 	log  *slog.Logger
+	auth *auth
 }
 
 // NewServer returns the HTTP server of the service, without an address: the
@@ -51,12 +59,13 @@ func NewServer(deps Deps) *http.Server {
 	if s.log == nil {
 		s.log = slog.Default()
 	}
+	s.auth = newAuth(deps.Hub, deps.AuthCacheTTL, deps.Now)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("GET /readyz", s.readyz)
 	mux.HandleFunc("GET /version", s.version)
 	if deps.Routes != nil {
-		deps.Routes(mux)
+		deps.Routes(mux, s)
 	}
 	return &http.Server{
 		Handler:           s.logged(s.recovered(s.routed(mux))),

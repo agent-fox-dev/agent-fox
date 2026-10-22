@@ -278,7 +278,7 @@
       "done_when": [
         "`go test -race ./internal/service/ttl/... ./internal/service/api/... -count=1` passes"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 7,

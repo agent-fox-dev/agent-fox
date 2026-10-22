@@ -79,7 +79,14 @@ type harness struct {
 }
 
 // newHarness starts the server; routes adds routes of the test to it.
-func newHarness(t *testing.T, routes func(mux *http.ServeMux)) *harness {
+func newHarness(t *testing.T, routes func(mux *http.ServeMux, s *server)) *harness {
+	t.Helper()
+	return newHarnessWith(t, func(d *Deps) { d.Routes = routes })
+}
+
+// newHarnessWith starts the server over a real store, with the dependencies that
+// configure sets besides the store, the logger and the version.
+func newHarnessWith(t *testing.T, configure func(*Deps)) *harness {
 	t.Helper()
 	key, err := secrets.NewKey(bytes.Repeat([]byte{3}, 32))
 	if err != nil {
@@ -92,7 +99,9 @@ func newHarness(t *testing.T, routes func(mux *http.ServeMux)) *harness {
 	t.Cleanup(func() { st.Close() })
 	logs := &syncBuffer{}
 	version := (&toolio.App{Name: "agent-fox", Version: "1.2.3", Commit: "abc123", BuildTime: "2026-10-22T00:00:00Z"}).VersionDocument()
-	srv := NewServer(Deps{Store: st, Logger: slog.New(slog.NewJSONHandler(logs, nil)), Version: version, Routes: routes})
+	deps := Deps{Store: st, Logger: slog.New(slog.NewJSONHandler(logs, nil)), Version: version}
+	configure(&deps)
+	srv := NewServer(deps)
 	ts := httptest.NewUnstartedServer(srv.Handler)
 	ts.Config.ErrorLog, ts.Config.ReadHeaderTimeout = srv.ErrorLog, srv.ReadHeaderTimeout
 	ts.Start()
@@ -224,7 +233,7 @@ func TestReadyzAnswers503WhenTheDatabaseIsGone_TS_11_48(t *testing.T) {
 // keeps serving.
 // Verifies: 11-REQ-7.5
 func TestAPanicAnswers500AndTheProcessKeepsServing_TS_11_51(t *testing.T) {
-	h := newHarness(t, func(mux *http.ServeMux) {
+	h := newHarness(t, func(mux *http.ServeMux, _ *server) {
 		mux.HandleFunc("GET /boom", func(http.ResponseWriter, *http.Request) { panic("the-panic-message-7f3a") })
 	})
 	r := h.get(t, "/boom")
@@ -257,7 +266,7 @@ func TestAPanicAnswers500AndTheProcessKeepsServing_TS_11_51(t *testing.T) {
 // begun its answer and then panics ends that one request, not the process.
 // Verifies: 11-REQ-7.5
 func TestAPanicAfterTheResponseStartedIsRecoveredToo(t *testing.T) {
-	h := newHarness(t, func(mux *http.ServeMux) {
+	h := newHarness(t, func(mux *http.ServeMux, _ *server) {
 		mux.HandleFunc("GET /late", func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusAccepted)
 			io.WriteString(w, "partial")
@@ -295,7 +304,7 @@ func TestTheServerSetsAReadHeaderTimeout_TS_11_52(t *testing.T) {
 // complaints are records of the log and not plain lines on stderr.
 // Verifies: 11-REQ-7.7
 func TestWhatNetHTTPReportsGoesToTheLogAsRecords(t *testing.T) {
-	h := newHarness(t, func(mux *http.ServeMux) {
+	h := newHarness(t, func(mux *http.ServeMux, _ *server) {
 		mux.HandleFunc("GET /twice", func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.WriteHeader(http.StatusTeapot) // net/http reports this one
@@ -342,7 +351,7 @@ func TestEveryCodeHasItsStatus(t *testing.T) {
 // envelope, and that no error carries error_type.
 // Verifies: 11-REQ-7.3
 func TestErrorsAreEnvelopesIncludingTheOnesTheMuxWouldWriteInPlainText(t *testing.T) {
-	h := newHarness(t, func(mux *http.ServeMux) {
+	h := newHarness(t, func(mux *http.ServeMux, _ *server) {
 		mux.HandleFunc("GET /err/{code}", func(w http.ResponseWriter, r *http.Request) {
 			writeError(w, Code(r.PathValue("code")), "a message")
 		})
@@ -390,7 +399,7 @@ type echoBody struct {
 // trailing data.
 // Verifies: 11-REQ-7.4
 func TestTheBodyHelperRefusesWhatItShouldBeforeAnyWrite(t *testing.T) {
-	h := newHarness(t, func(mux *http.ServeMux) {
+	h := newHarness(t, func(mux *http.ServeMux, _ *server) {
 		mux.HandleFunc("PUT /echo", func(w http.ResponseWriter, r *http.Request) {
 			var body echoBody
 			if !decodeBody(w, r, &body) {
@@ -453,7 +462,7 @@ func TestTheBodyHelperRefusesWhatItShouldBeforeAnyWrite(t *testing.T) {
 // TestEachRequestIsOneRecordWithTheCallerWhenKnown checks the access log.
 // Verifies: 11-REQ-7.7
 func TestEachRequestIsOneRecordWithTheCallerWhenKnown(t *testing.T) {
-	h := newHarness(t, func(mux *http.ServeMux) {
+	h := newHarness(t, func(mux *http.ServeMux, _ *server) {
 		mux.HandleFunc("GET /who", func(w http.ResponseWriter, r *http.Request) {
 			setCaller(r, "usr_1")
 			w.WriteHeader(http.StatusNoContent)
@@ -500,7 +509,7 @@ func TestEachRequestIsOneRecordWithTheCallerWhenKnown(t *testing.T) {
 // bodies of requests and responses stay out of the log.
 // Verifies: 11-REQ-7.8
 func TestNoCredentialOrBodyIsEverLogged(t *testing.T) {
-	h := newHarness(t, func(mux *http.ServeMux) {
+	h := newHarness(t, func(mux *http.ServeMux, _ *server) {
 		mux.HandleFunc("PUT /echo", func(w http.ResponseWriter, r *http.Request) {
 			var body echoBody
 			if decodeBody(w, r, &body) {
