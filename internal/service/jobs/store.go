@@ -623,21 +623,3 @@ func (s *Store) RunRequest(ctx context.Context, jobID string, attempt int) (Requ
 	}
 	return req, nil
 }
-
-// finishMinimal records an attempt that returned as done, and its job. It is the end
-// of an attempt of the queue adapter alone; the rules of 12-REQ-6 replace it.
-func (s *Store) finishMinimal(ctx context.Context, jobID string, attempt int) error {
-	return s.run(ctx, jobID, func(x *txn) error {
-		now := formatTime(s.now())
-		if _, err := x.ExecContext(ctx, "UPDATE af_attempts SET state = 'done', finished_at = ? WHERE job_id = ? AND n = ? AND state = 'running'", now, jobID, attempt); err != nil {
-			return err
-		}
-		if _, err := s.transition(ctx, x.Tx, jobID, []State{StateRunning}, StateDone); err != nil {
-			return err
-		}
-		if err := x.emit(ctx, attempt, EventAttemptEnd, map[string]any{"attempt": attempt, "state": AttemptDone}); err != nil {
-			return err
-		}
-		return x.emit(ctx, attempt, EventJobState, jobStateData{State: StateDone, Attempt: attempt, AtRest: true})
-	})
-}

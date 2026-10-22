@@ -164,7 +164,7 @@ func buildDoc(j jobRow, attempts []attemptRow, withAttempts bool) (Doc, error) {
 	for i := range attempts {
 		a := &attempts[i]
 		current = a
-		if a.ended() && a.Status.Valid {
+		if a.Status.Valid {
 			latest = a
 		}
 		if a.ended() && a.Usage.Valid {

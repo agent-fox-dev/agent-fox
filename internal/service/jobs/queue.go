@@ -144,7 +144,7 @@ func (s *Service) run(ctx context.Context, p attemptPayload) error {
 	s.inflight[run.key] = run
 	s.mu.Unlock()
 
-	s.call(rctx, req)
+	out := s.call(rctx, req)
 
 	req.Recorder.close()
 	s.mu.Lock()
@@ -152,16 +152,5 @@ func (s *Service) run(ctx context.Context, p attemptPayload) error {
 	s.mu.Unlock()
 	close(run.returned)
 	cancel(nil)
-	return s.store.finishMinimal(ctx, p.JobID, p.Attempt)
-}
-
-// call calls the runner and keeps a panic of it from stopping the worker.
-func (s *Service) call(ctx context.Context, req Request) (res Result, err error, panicked any) {
-	defer func() {
-		if v := recover(); v != nil {
-			panicked = v
-		}
-	}()
-	res, err = s.runner.Run(ctx, req)
-	return res, err, nil
+	return s.finish(ctx, req, out)
 }

@@ -239,7 +239,7 @@
       "done_when": [
         "every finished attempt has an envelope.json and result.exit_code equals toolio.ExitCode(result.status)"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

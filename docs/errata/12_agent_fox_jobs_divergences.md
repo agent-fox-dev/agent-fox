@@ -74,3 +74,25 @@ as they are and decodes into a `toolio.Envelope` to decide what the attempt came
 `toolio.Envelope` would have been encoded again, and `TestTheEnvelopeRouteServesTheStoredBytes` (task 9) would
 have had nothing to compare with. `fakerunner.Env` writes an envelope the way a command does, indented, with a
 newline at the end.
+
+## 5. Some tests of the spec are in two parts, and the part about a route comes with the route (tasks 5, 7, 9)
+
+TS-12-9 and TS-12-10 are owned by task 5 and say "read through GET /jobs/:id and GET /jobs"; those routes are
+task 9's (12-REQ-9). Task 5 asserts what the tests are about, the documents, on `Service.Get`
+(`finish_test.go`: `TestEveryJobDocumentHasExactlyTheDocumentedFields…_TS_12_9`,
+`TestResultArtifactsAndSideEffects…_TS_12_10`); task 9 asserts the same on the routes. TS-12-36 likewise: task 5
+checks the stored files and task 9 the route that serves `envelope.json` (TS-12-62). TS-12-42 has a case "returned
+after a cancel without an envelope"; a cancel comes with task 7, which adds that case under the same id.
+
+## 6. An automatic attempt goes to the back of its workspace's line (task 5)
+
+**Spec:** an automatic attempt is "queued" (12-REQ-6.5); attempts of a workspace run in the order they were
+enqueued (12-REQ-4.3). Only a transient backoff is said to keep its place (12-REQ-4.4).
+
+**Code:** attempt n+1 gets the next `queue_seq`, so it runs after every attempt of the workspace that is
+open already, and not before them. That is what "first come, first served per workspace" says, and it keeps one
+job that fails again and again from holding the workspace; the price is that a job's own retry waits for the jobs
+that were made before it.
+
+**Test:** `TestResultArtifactsAndSideEffects…_TS_12_10` and `TestAFailedEnvelopeOfTheBrain…_TS_12_40` run one
+job at a time because of it.
