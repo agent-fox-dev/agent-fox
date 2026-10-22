@@ -5,14 +5,21 @@ import (
 	"runtime/debug"
 )
 
-// versionInfo is the document --version prints.
-type versionInfo struct {
+// VersionInfo is the version document: what --version prints, and what the
+// agent-fox service answers on GET /version.
+type VersionInfo struct {
 	Name      string `json:"name"`
 	Version   string `json:"version"`
 	Commit    string `json:"commit"`
 	BuildTime string `json:"build_time"`
 	GoVersion string `json:"go_version"`
 }
+
+// VersionDocument is the identity of the build as the one document that
+// --version prints: the name of the program, and the version, commit and build
+// time that the build set or its build information has, with the Go version it
+// was built with.
+func (a *App) VersionDocument() VersionInfo { return a.version() }
 
 // Identity is the version and the commit of the build, as --version prints them: what the
 // build set, else what its build information has. A commit that nothing knows is empty.
@@ -25,8 +32,8 @@ func (a *App) Identity() (version, commit string) {
 // -ldflags comes from the binary's build information (the main module's
 // version, vcs.revision and vcs.time); with neither, the version is "dev"
 // and the rest are empty.
-func (a *App) version() versionInfo {
-	v := versionInfo{
+func (a *App) version() VersionInfo {
+	v := VersionInfo{
 		Name:      a.name(),
 		Version:   a.Version,
 		Commit:    a.Commit,
