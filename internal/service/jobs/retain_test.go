@@ -299,14 +299,16 @@ func TestAPurgeThatCannotRemoveTheDirectoryKeepsTheRowsLogsAWarningAndTriesAgain
 // Verifies: 12-REQ-1.6
 func TestThePurgeKeepsAFinishedJobWhoseAttemptStillReadsRunning_TS_12_6(t *testing.T) {
 	clk := fakeclock.New(epoch)
-	e := newEnv(t, withRunner(fakerunner.New(fakerunner.Done())), withClock(clk), withRetain(time.Hour))
+	// A retention of 10 minutes and a clock that moves 11, so that the timer of the service, which
+	// fires every hour, is not what purges.
+	e := newEnv(t, withRunner(fakerunner.New(fakerunner.Done())), withClock(clk), withRetain(10*time.Minute))
 	job := e.create("widgets", jobs.KindFix, 1)
 	e.Start()
 	e.waitRest(job.ID)
 	if _, err := e.DB.ExecContext(ctx, "UPDATE af_attempts SET state = 'running' WHERE job_id = ?", job.ID); err != nil {
 		t.Fatal(err)
 	}
-	clk.Advance(2 * time.Hour)
+	clk.Advance(11 * time.Minute)
 	if n, err := e.Svc.Purge(ctx); n != 0 || err != nil {
 		t.Fatalf("purge = %d, %v, want nothing removed", n, err)
 	}
@@ -385,10 +387,12 @@ func TestWithoutARetentionInTheConfigurationAFinishedJobIsKeptFor720Hours_TS_12_
 		t.Fatalf("a job finished 719 h ago was purged")
 	}
 	e.kept(job.ID)
+	// The hourly timer of the service fires on this advance too, and may purge before the call does.
 	clk.Advance(2 * time.Hour)
-	if n, _ := e.Svc.Purge(ctx); n != 1 {
-		t.Fatalf("a job finished 721 h ago was not purged")
+	if _, err := e.Svc.Purge(ctx); err != nil {
+		t.Fatal(err)
 	}
+	waitFor(t, "a job finished 721 h ago to be purged", func() bool { return e.status(job.ID) == 404 })
 	e.gone(job.ID)
 }
 

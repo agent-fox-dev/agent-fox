@@ -96,11 +96,12 @@ func (s *Service) insert(ctx context.Context, req CreateRequest, parsed Parsed) 
 		Issue: parsed.Issue, Source: req.Source, RequestLabel: req.RequestLabel,
 	})
 	if errors.Is(err, ErrDuplicate) && parsed.Issue != nil {
-		open, lookup := s.store.OpenJobID(ctx, req.Workspace, req.Kind, *parsed.Issue)
+		// The refusal names the job that holds the issue by the lookup that the label poll uses.
+		open, lookup := s.OpenJob(ctx, req.Workspace, req.Kind, *parsed.Issue)
 		if lookup != nil {
 			return "", lookup
 		}
-		return "", &DuplicateError{JobID: open}
+		return "", &DuplicateError{JobID: open.ID}
 	}
 	return id, err
 }

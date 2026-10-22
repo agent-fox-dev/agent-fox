@@ -476,7 +476,8 @@ func TestThePlaceholderRunnerFailsEveryAttemptAsUnsupportedAndNotRetryable_TS_12
 // verifies TS-12-9 on the documents: a queued, a blocked and a done job each have
 // the 20 fields, and one more, attempts, in the view of a single job; the input has
 // no context; request_label is null for a job of the API; blocked is an object
-// only while the job is blocked. (The routes that serve them come with task 9.)
+// only while the job is blocked. (The routes serve the same documents: see
+// TestTheRoutesServeTheDocumentsOfJobsAsTheyAre_TS_12_9_TS_12_10_TS_12_14.)
 // Verifies: 12-REQ-2.1, 12-REQ-2.2
 func TestEveryJobDocumentHasExactlyTheDocumentedFieldsAndBlockedOnlyWhileBlocked_TS_12_9(t *testing.T) {
 	// The third job is held in the runner, so the fourth waits behind it, queued.

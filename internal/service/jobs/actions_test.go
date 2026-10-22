@@ -410,7 +410,8 @@ func TestTheRunnerOfALaterAttemptIsGivenEveryQuestionAnsweredSoFarInOrder_TS_12_
 // attempt 2 (an answer by option B) ended failed after one transient failure; the
 // attempts are in order of their numbers and each has its state, trigger, answer,
 // deliveries, transient_failures, status, exit code, summary, error, usage and times.
-// (The routes that serve it come with task 9.)
+// (The route serves the same document: see
+// TestTheRoutesServeTheDocumentsOfJobsAsTheyAre_TS_12_9_TS_12_10_TS_12_14.)
 // Verifies: 12-REQ-2.7
 func TestAJobShowsItsAttemptsInOrderWithTheirTriggersAnswersAndCounts_TS_12_14(t *testing.T) {
 	clk := fakeclock.New(epoch)
