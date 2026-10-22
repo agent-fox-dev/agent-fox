@@ -75,6 +75,9 @@ type Client struct {
 	HTTP *http.Client
 	// UserAgent is sent with every call.
 	UserAgent string
+	// LongTimeout bounds the two calls that make hub do slow work, the lease of a sandbox and
+	// the push of a branch to the forge; 5 minutes when it is zero.
+	LongTimeout time.Duration
 }
 
 // New makes a client of the hub at baseURL, for the agent-fox of the version.

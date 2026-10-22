@@ -904,9 +904,29 @@ worker, the poll, the `af` client) build on:
   `DELETE` of subscriptions, one error envelope, and a log of requests that holds no credential. A `PUT`
   checks the token the caller hands over against hub with two calls that bypass the caches, then seals and
   stores it in one statement.
+- **The calls of an attempt.** Beside those two calls, the hub client makes the ones an attempt of the
+  worker needs, always with the PAT of the subscription and never through the caches: the record of a
+  workspace (clone URL, base branch, mode, URL of the forge repository), its resolved variables, a session
+  (open, usage, complete), a batch of events, a sandbox lease and its release, and the push of a branch to the
+  forge. Each is bounded to 10 seconds, the lease and the push to 5 minutes (`Client.LongTimeout`), because hub
+  does slow work before it answers; none follows a redirect or reads more than 1 MiB. An answer is one of
+  five things, which a caller tells apart with `errors.Is` and `errors.As`: refused (401, `ErrRefused`),
+  forbidden (403, `ErrForbidden`, whose message names the operation and points to `PUT
+  /api/v1/workspaces/{slug}`), not found (404, `ErrNotFound`; a release that finds nothing is released),
+  rejected (another 4xx, `*RejectedError` with hub's message) and unavailable (429, 5xx, a redirect, a
+  transport failure, a timeout or a body that is not what hub sends, `*UnavailableError`). No error holds
+  the PAT.
 - **Tests.** `internal/hub/fakehub` is an `httptest` hub in the manner of `fakeforge`: a table of tokens,
-  users and workspaces, a record of every request, and failures on demand. `make check` needs no hub, no
-  key and no network beyond the loopback interface.
+  users and workspaces, a record of every request, and failures, hang-ups, delays, redirects and oversize
+  answers by method and route on demand. It serves the calls above in the shapes of hub's OpenAPI
+  document from state a test sets and reads: workspaces with a mode, a base branch and variables, issues
+  with comments and labels (a pull request among them), pull requests, sessions with their usage and
+  events, branch pushes, and leases. A workspace with files has a git smart-HTTP server (`git
+  http-backend`) on the hub's own address that takes only `Authorization: Basic` with the user `agent-fox`
+  and the PAT of the workspace. A lease points at an in-process gateway: agentkit's `gatewayd` over the
+  local provider, on a loopback port, that takes the token of a lease that is held and records the specs
+  it is asked to create and the boxes it closes. `make check` needs no hub, no key and no network beyond
+  the loopback interface.
 
 What it will do, and does not yet: run `af triage` and `af fix` on a subscribed workspace with its token (the
 runner behind the jobs below is a placeholder that fails each attempt as `unsupported`), poll the forge through

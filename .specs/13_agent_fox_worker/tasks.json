@@ -128,7 +128,7 @@
       "done_when": [
         "go test ./internal/hub/... -count=1 passes offline"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,

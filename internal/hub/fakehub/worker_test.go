@@ -1,0 +1,321 @@
+package fakehub
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/agent-fox-dev/agentkit-go/sandbox"
+	"github.com/agent-fox-dev/agentkit-go/sandbox/gateway"
+)
+
+const pat = "pat-for-the-worker"
+
+// call makes a request to the hub with the bearer token and returns the status and the decoded
+// body.
+func call(t *testing.T, h *Hub, method, path, token string, body any) (int, any) {
+	t.Helper()
+	var reader io.Reader
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reader = bytes.NewReader(data)
+	}
+	req, err := http.NewRequest(method, h.URL+path, reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, path, err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	var out any
+	_ = json.Unmarshal(data, &out)
+	return resp.StatusCode, out
+}
+
+func worker(t *testing.T) *Hub {
+	t.Helper()
+	h := New(t)
+	h.AddWorkspace(t, Workspace{
+		Slug: "acme", PAT: pat, Vars: map[string]string{"AF_MODEL": "m1"},
+		Files: map[string]string{"README.md": "hello\n"},
+	})
+	h.AddIssue("acme", Issue{Number: 42, Title: "Nil map", Body: "It panics.", Labels: []string{"af:ready"}})
+	h.AddIssue("acme", Issue{Number: 43, Title: "A pull request", IsPR: true})
+	return h
+}
+
+// TestFakehubServesTheEndpointsOfTheWorkerAndItsGitServerTakesOnlyTheBasicPAT_TS_13_80 verifies
+// TS-13-80: the endpoints serve what a test set and are recorded and counted, failures are
+// injected by route, the git server takes only Authorization: Basic agent-fox:<PAT>, and a lease
+// points at an in-process gateway that records the specs it creates.
+// Verifies: 13-REQ-10.7
+func TestFakehubServesTheEndpointsOfTheWorkerAndItsGitServerTakesOnlyTheBasicPAT_TS_13_80(t *testing.T) {
+	h := worker(t)
+
+	t.Run("the endpoints serve the state that was set and every request is recorded", func(t *testing.T) {
+		status, body := call(t, h, "GET", "/api/v1/workspaces/acme", pat, nil)
+		rec, _ := body.(map[string]any)
+		if status != 200 || rec["workspace_mode"] != "standard" || rec["branch"] != "main" || rec["git_url"] != "https://github.example.com/acme/widgets" || rec["hub_url"] != h.CloneURL("acme") {
+			t.Errorf("the record: %d %v", status, body)
+		}
+		status, body = call(t, h, "GET", "/api/v1/workspaces/acme/vars/resolved", pat, nil)
+		vars, _ := body.([]any)
+		if status != 200 || len(vars) != 1 || vars[0].(map[string]any)["key"] != "AF_MODEL" || vars[0].(map[string]any)["value"] != "m1" {
+			t.Errorf("the variables: %d %v", status, body)
+		}
+		status, body = call(t, h, "GET", "/api/v1/workspaces/acme/issues/42", pat, nil)
+		thread, _ := body.(map[string]any)
+		if issue, _ := thread["issue"].(map[string]any); status != 200 || issue["title"] != "Nil map" || issue["is_pr"] != false {
+			t.Errorf("the issue: %d %v", status, body)
+		}
+		if _, body = call(t, h, "GET", "/api/v1/workspaces/acme/issues/43", pat, nil); body.(map[string]any)["issue"].(map[string]any)["is_pr"] != true {
+			t.Errorf("a pull request is not marked: %v", body)
+		}
+		if status, _ = call(t, h, "GET", "/api/v1/workspaces/acme/issues/99", pat, nil); status != 404 {
+			t.Errorf("an issue that is not there: %d", status)
+		}
+
+		call(t, h, "POST", "/api/v1/workspaces/acme/issues/42/labels", pat, []string{"af:in-progress"})
+		call(t, h, "DELETE", "/api/v1/workspaces/acme/issues/42/labels/af:ready", pat, nil)
+		call(t, h, "POST", "/api/v1/workspaces/acme/issues/42/comments", pat, map[string]string{"body": "a comment"})
+		call(t, h, "PATCH", "/api/v1/workspaces/acme/issues/42", pat, map[string]string{"body": "a new body"})
+		call(t, h, "POST", "/api/v1/workspaces/acme/pulls", pat, map[string]any{"title": "Fix", "head": "fix/42-nil-map", "base": "main", "draft": false})
+		issue, _ := h.IssueOf("acme", 42)
+		if !slices.Equal(issue.Labels, []string{"af:in-progress"}) || len(issue.Comments) != 1 || issue.Comments[0].Body != "a comment" || issue.Body != "a new body" {
+			t.Errorf("the issue after the writes: %+v", issue)
+		}
+		if pulls := h.Pulls("acme"); len(pulls) != 1 || pulls[0].Head != "fix/42-nil-map" {
+			t.Errorf("pulls = %+v", pulls)
+		}
+
+		status, body = call(t, h, "POST", "/api/v1/sessions", pat, map[string]string{"workspace_slug": "acme", "archetype": "fix", "model": "m1", "run_id": "20250102_030405_abc123"})
+		id, _ := body.(map[string]any)["id"].(string)
+		if status != 201 || id == "" {
+			t.Fatalf("a session: %d %v", status, body)
+		}
+		call(t, h, "POST", "/api/v1/sessions/"+id+"/usage", pat, map[string]any{"model": "m1", "input_tokens": 5, "output_tokens": 6})
+		call(t, h, "POST", "/api/v1/workspaces/acme/runs/20250102_030405_abc123/events/batch", pat, []map[string]any{{"event_type": "step", "payload": map[string]any{}}})
+		if status, _ = call(t, h, "POST", "/api/v1/sessions/"+id+"/complete", pat, map[string]string{"status": "bogus"}); status != 400 {
+			t.Errorf("a status that hub does not take: %d", status)
+		}
+		call(t, h, "POST", "/api/v1/sessions/"+id+"/complete", pat, map[string]string{"status": "completed"})
+		sessions := h.Sessions()
+		if len(sessions) != 1 || sessions[0].Status != "completed" || len(sessions[0].Usage) != 1 || sessions[0].Usage[0].OutputTokens != 6 || sessions[0].RunID != "20250102_030405_abc123" {
+			t.Errorf("sessions = %+v", sessions)
+		}
+		if batches := h.EventBatches("acme", "20250102_030405_abc123"); len(batches) != 1 || batches[0][0].Type != "step" {
+			t.Errorf("event batches = %+v", batches)
+		}
+		if status, _ = call(t, h, "POST", "/api/v1/workspaces/acme/branches/nothing/push", pat, nil); status != 404 {
+			t.Errorf("the push of a branch that is not there: %d", status)
+		}
+
+		if got := len(h.RequestsTo("POST", "/api/v1/sessions")); got != 1 {
+			t.Errorf("%d requests to open a session are recorded, want 1", got)
+		}
+		if h.Total() == 0 || h.CountFor(TokenHash(pat)) != h.Total() {
+			t.Errorf("%d requests, %d with the PAT: every one of them has it", h.Total(), h.CountFor(TokenHash(pat)))
+		}
+		for _, r := range h.Requests() {
+			if r.Seq == 0 {
+				t.Errorf("request %s %s has no sequence number", r.Method, r.Path)
+			}
+		}
+		if status, _ = call(t, h, "GET", "/api/v1/workspaces/acme", "someone-else", nil); status != 401 {
+			t.Errorf("an unknown token: %d, want 401", status)
+		}
+		h.AddUser("other", "u2", nil)
+		if status, _ = call(t, h, "GET", "/api/v1/workspaces/acme/vars/resolved", "other", nil); status != 404 {
+			t.Errorf("a token that does not see the workspace: %d, want 404", status)
+		}
+	})
+
+	t.Run("failures are injected by route and method", func(t *testing.T) {
+		h.Inject("POST", "/api/v1/sessions", Fault{Status: 503})
+		if status, _ := call(t, h, "POST", "/api/v1/sessions", pat, map[string]string{"workspace_slug": "acme"}); status != 503 {
+			t.Errorf("the injected route: %d, want 503", status)
+		}
+		if status, _ := call(t, h, "GET", "/api/v1/workspaces/acme", pat, nil); status != 200 {
+			t.Errorf("another route: %d, want 200", status)
+		}
+		h.Clear()
+		h.Inject("GET", "/api/v1/workspaces/acme", Fault{Status: 502, Once: true})
+		if status, _ := call(t, h, "GET", "/api/v1/workspaces/acme", pat, nil); status != 502 {
+			t.Errorf("once: %d, want 502", status)
+		}
+		if status, _ := call(t, h, "GET", "/api/v1/workspaces/acme", pat, nil); status != 200 {
+			t.Errorf("after once: %d, want 200", status)
+		}
+		h.Inject("GET", "/api/v1/workspaces/acme", Fault{Delay: 60 * time.Millisecond})
+		start := time.Now()
+		if status, _ := call(t, h, "GET", "/api/v1/workspaces/acme", pat, nil); status != 200 || time.Since(start) < 60*time.Millisecond {
+			t.Errorf("a delay: %d after %v, want 200 after 60ms", status, time.Since(start))
+		}
+		h.Clear()
+
+		h.Inject("GET", "/api/v1/workspaces/acme/issues/42", Fault{Status: 500})
+		if status, _ := call(t, h, "GET", "/api/v1/workspaces/acme/issues/42", pat, nil); status != 500 {
+			t.Errorf("the method of the rule: %d, want 500", status)
+		}
+		if status, _ := call(t, h, "PATCH", "/api/v1/workspaces/acme/issues/42", pat, map[string]string{"title": "t"}); status != 200 {
+			t.Errorf("another method of the same route: %d, want 200", status)
+		}
+		h.Clear()
+	})
+
+	t.Run("the git server takes only the Basic credential of the PAT", func(t *testing.T) {
+		url := h.CloneURL("acme") + "/info/refs?service=git-upload-pack"
+		basic := func(user, password string) string {
+			return "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+password))
+		}
+		for name, tc := range map[string]struct {
+			header string
+			want   int
+		}{
+			"no credential":  {"", 401},
+			"a bearer token": {"Bearer " + pat, 401},
+			"a wrong user":   {basic("someone", pat), 401},
+			"a wrong PAT":    {basic("agent-fox", "not-the-pat"), 401},
+			"an empty PAT":   {basic("agent-fox", ""), 401},
+			"the credential": {basic("agent-fox", pat), 200},
+		} {
+			req, _ := http.NewRequest("GET", url, nil)
+			if tc.header != "" {
+				req.Header.Set("Authorization", tc.header)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				t.Errorf("%s: %d, want %d", name, resp.StatusCode, tc.want)
+			}
+		}
+		// A workspace with no PAT has no credential that opens its git server.
+		h.AddWorkspace(t, Workspace{Slug: "open", Files: map[string]string{"a": "b"}})
+		open, _ := http.NewRequest("GET", h.CloneURL("open")+"/info/refs?service=git-upload-pack", nil)
+		open.Header.Set("Authorization", basic("agent-fox", ""))
+		if resp, err := http.DefaultClient.Do(open); err != nil || resp.StatusCode != 401 {
+			t.Errorf("the empty credential at a workspace with no PAT: %v, %v, want 401", resp, err)
+		}
+		var accepted, refused int
+		for _, entry := range h.GitRequests() {
+			switch {
+			case entry.Status == 200 && entry.Authorization == basic("agent-fox", pat):
+				accepted++
+			case entry.Status == 401:
+				refused++
+			}
+		}
+		if accepted != 1 || refused != 6 {
+			t.Errorf("the git server accepted %d requests and refused %d, want 1 and 6: %+v", accepted, refused, h.GitRequests())
+		}
+
+		// A clone with the header git sends for it works, and one with a bearer token does not.
+		dir := t.TempDir()
+		cloneInto := func(target, header string) error {
+			cmd := exec.Command("git", "-c", "http.extraHeader=Authorization: "+header, "clone", "-q", h.CloneURL("acme"), target)
+			cmd.Env = append(os.Environ(), "HOME="+dir, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_TERMINAL_PROMPT=0")
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Logf("git clone: %s\n%+v", out, h.GitRequests())
+			}
+			return err
+		}
+		if err := cloneInto(filepath.Join(dir, "ok"), basic("agent-fox", pat)); err != nil {
+			t.Errorf("a clone with the Basic credential: %v", err)
+		} else if data, err := os.ReadFile(filepath.Join(dir, "ok", "README.md")); err != nil || string(data) != "hello\n" {
+			t.Errorf("the clone holds %q (%v)", data, err)
+		}
+		if err := cloneInto(filepath.Join(dir, "bad"), "Bearer "+pat); err == nil {
+			t.Error("a clone with a bearer token worked")
+		}
+	})
+
+	t.Run("a lease points at an in-process gateway whose backend records the specs", func(t *testing.T) {
+		status, body := call(t, h, "POST", "/api/v1/workspaces/acme/sandboxes", pat, map[string]any{"purpose": "fix", "labels": map[string]string{"job": "job_1", "attempt": "1"}})
+		lease, _ := body.(map[string]any)
+		if status != 201 || !strings.HasPrefix(lease["id"].(string), "sbx_") || !strings.HasPrefix(lease["token"].(string), "sbl_") || lease["gateway_url"] != h.Gateway().URL() {
+			t.Fatalf("a lease: %d %v", status, body)
+		}
+		if status, _ := call(t, h, "POST", "/api/v1/workspaces/acme/sandboxes", pat, map[string]any{"ttl": "1h"}); status != 400 {
+			t.Errorf("a lease with a field hub does not take: %d, want 400", status)
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if _, err := gateway.Dial(ctx, h.Gateway().URL(), gateway.Options{Token: "sbl_not-a-lease-token"}); err == nil {
+			t.Error("the gateway took a token that is no lease's")
+		}
+		provider, err := gateway.Dial(ctx, lease["gateway_url"].(string), gateway.Options{Token: lease["token"].(string)})
+		if err != nil {
+			t.Fatalf("dialling the gateway with the token of the lease: %v", err)
+		}
+		defer provider.Close()
+		sb, err := provider.Create(ctx, sandbox.Spec{Labels: map[string]string{"af.run_id": "r", "af.job": "job_1"}, Network: sandbox.Network{Mode: sandbox.NetworkUnrestricted}})
+		if err != nil {
+			t.Fatalf("creating a box: %v", err)
+		}
+		created := h.Gateway().Created()
+		if len(created) != 1 || created[0].Spec.Labels["af.job"] != "job_1" || len(created[0].Spec.Env) != 0 || created[0].Lease != lease["id"] {
+			t.Errorf("the backend recorded %+v", created)
+		}
+		if err := sb.Close(ctx); err != nil {
+			t.Errorf("closing the box: %v", err)
+		}
+		closed := h.Gateway().Closed()
+		if len(closed) != 1 || closed[0].ID != created[0].ID || closed[0].Seq <= created[0].Seq {
+			t.Errorf("closed = %+v, want the box, after its creation", closed)
+		}
+
+		if status, _ := call(t, h, "DELETE", "/api/v1/workspaces/acme/sandboxes/"+lease["id"].(string), pat, nil); status != 200 {
+			t.Errorf("the release: %d", status)
+		}
+		leases := h.Leases()
+		if len(leases) != 1 || !leases[0].Released || leases[0].ReleasedSeq <= closed[0].Seq || leases[0].Labels["job"] != "job_1" {
+			t.Errorf("leases = %+v", leases)
+		}
+		if _, err := gateway.Dial(ctx, h.Gateway().URL(), gateway.Options{Token: lease["token"].(string)}); err == nil {
+			t.Error("the gateway took the token of a lease that was released")
+		}
+		if status, _ := call(t, h, "DELETE", "/api/v1/workspaces/acme/sandboxes/sbx_00000000000000000000000000000000", pat, nil); status != 404 {
+			t.Errorf("the release of a lease that is not there: %d, want 404", status)
+		}
+
+		h.SetLeaseTTL(90 * time.Second)
+		_, body = call(t, h, "POST", "/api/v1/workspaces/acme/sandboxes", pat, map[string]any{})
+		expires, err := time.Parse(time.RFC3339, body.(map[string]any)["expires_at"].(string))
+		if err != nil || time.Until(expires) > 90*time.Second || time.Until(expires) < 80*time.Second {
+			t.Errorf("expires_at = %v (%v), want about 90s from now", expires, err)
+		}
+	})
+
+	t.Run("the hub records the branch pushes", func(t *testing.T) {
+		if status, _ := call(t, h, "POST", "/api/v1/workspaces/acme/branches/main/push", pat, nil); status != 200 {
+			t.Errorf("the push of main: %d", status)
+		}
+		if pushes := h.BranchPushes(); len(pushes) < 1 || pushes[len(pushes)-1].Branch != "main" || pushes[len(pushes)-1].Slug != "acme" {
+			t.Errorf("pushes = %+v", pushes)
+		}
+	})
+}
