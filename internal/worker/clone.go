@@ -37,7 +37,7 @@ func (r *Runner) clone(ctx context.Context, a *attempt) *outcome {
 	if err != nil {
 		return transientFailure(toolio.CategoryIO, fmt.Sprintf("a directory for git cannot be made: %v", err))
 	}
-	a.onClose(func() { _ = os.RemoveAll(home) })
+	a.scratch = append(a.scratch, home)
 	a.git = gitRunner(home, a.record.CloneURL, a.pat, r.gitWrap)
 
 	dir := filepath.Join(a.req.Dir, cloneDirName)

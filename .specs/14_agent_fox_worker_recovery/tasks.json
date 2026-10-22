@@ -120,7 +120,7 @@
       "done_when": [
         "no file under recovery/ contains the PAT or any lease token"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,

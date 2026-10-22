@@ -8,6 +8,7 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/internal/worker/recovery"
 )
 
 // The warnings of the report to hub.
@@ -45,15 +46,29 @@ func (r *Runner) report(ctx context.Context, a *attempt, out *outcome) {
 			CostUSD: u.CostUSD, CostSource: u.CostSource, Turns: u.Turns,
 		})
 		a.reportFailed(WarnHubUsageFailed, "posting the usage of the session", err)
+		if err == nil {
+			a.note(stepUsage, func(j *recovery.Journal) { j.Report.UsagePosted = true })
+		}
+	} else { // no brain ran: there is no usage to post, and the step is done
+		a.note(stepUsage, func(j *recovery.Journal) { j.Report.UsagePosted = true })
 	}
+	posted := true
 	for batch := range slices.Chunk(a.eventsOf(), eventBatch) {
 		if err := r.cfg.Hub.PostEvents(ctx, a.pat, slug, a.runID, batch); err != nil {
 			a.reportFailed(WarnHubEventsFailed, "posting the events of the run", err)
+			posted = false
 			break
 		}
 	}
+	if posted {
+		a.note(stepEvents, func(j *recovery.Journal) { j.Report.EventsPosted = true })
+	}
 	status, message := sessionEnd(a, out, env, hasEnvelope)
-	a.reportFailed(WarnHubSessionFailed, "completing the session", r.cfg.Hub.CompleteSession(ctx, a.pat, slug, a.sessionID, status, message))
+	err := r.cfg.Hub.CompleteSession(ctx, a.pat, slug, a.sessionID, status, message)
+	a.reportFailed(WarnHubSessionFailed, "completing the session", err)
+	if err == nil {
+		a.note(stepSessionDone, func(j *recovery.Journal) { j.Session.Completed, j.Report.SessionCompleted = true, true })
+	}
 }
 
 // reportFailed notes a call to hub that failed as a warning. The error holds no token.

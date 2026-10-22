@@ -32,6 +32,9 @@ func (r *Runner) run(ctx context.Context, a *attempt) *outcome {
 	}
 	var stdout, stderr bytes.Buffer
 	r.loopApp(a).Main(ctx, args, stdin, &stdout, &stderr)
+	if a.aborted != "" { // the shell recovered the death of the process that a test made: it goes on
+		panic(stageAbort{a.aborted})
+	}
 	return r.loopOutcome(ctx, a, stdout.Bytes())
 }
 
@@ -44,6 +47,7 @@ func (r *Runner) loopApp(a *attempt) *toolio.App {
 	app.RunID = a.runID
 	app.Target = a.repo
 	app.EventSink = a.eventSink(r.cfg.Now)
+	app.LedgerSink = r.ledgerSink(a)
 	app.Now, app.Rand = r.cfg.Now, r.cfg.Rand
 	return app
 }
@@ -68,10 +72,17 @@ func (r *Runner) loopConfig(a *attempt) *afcmd.Config {
 		Brain:     brain.Options{Model: a.settings.Model, Getenv: nothing},
 		Git:       a.git,
 		PostPush:  r.publishBranch(a),
+		Landing:   r.landingOf(a),
 		Earlier:   &afcmd.Earlier{Questions: questions},
 		InBox:     &afcmd.InBox{Profile: a.settings.Profile},
 		BoxLabels: a.boxLabels,
 	}
+}
+
+// landingOf is how the loop tells the journal about the landing of a fix.
+func (r *Runner) landingOf(a *attempt) *afcmd.Landing {
+	l := r.landing(a)
+	return &afcmd.Landing{Plan: l.plan, Pushed: l.pushed, Published: l.published, PullRequest: l.pullRequest}
 }
 
 // nothing is the environment of the loop: it has none.

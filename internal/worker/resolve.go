@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"slices"
 	"sync"
 	"time"
@@ -81,19 +82,41 @@ type attempt struct {
 	mu     sync.Mutex
 	events []hub.Event
 	now    func() time.Time
-	// closers are what the attempt gives back when it ends, last made first.
+	// closers are what the attempt gives back when it ends, last made first. scratch are the
+	// directories it made for itself, which are removed when it ends however it ends.
 	closers []func()
+	scratch []string
+	// journal is the journal of the attempt, nil before it is made. aborted is the stage a test stopped
+	// the delivery at, see stageAbort.
+	journal *journalHandle
+	aborted string
 }
 
 // onClose registers what the attempt gives back when it ends.
 func (a *attempt) onClose(f func()) { a.closers = append(a.closers, f) }
 
-// close gives back what the attempt took, in the reverse order.
+// close gives back what the attempt took, in the reverse order, and removes the directories it made.
 func (a *attempt) close() {
 	for i := len(a.closers) - 1; i >= 0; i-- {
 		a.closers[i]()
 	}
 	a.closers = nil
+	a.removeScratch()
+}
+
+// abandon is what a process that died leaves of an attempt: nothing is given back. Only the
+// directories it made for itself in the temporary directory of the machine, which no later delivery
+// reads, are removed.
+func (a *attempt) abandon() {
+	a.closers = nil
+	a.removeScratch()
+}
+
+func (a *attempt) removeScratch() {
+	for _, dir := range a.scratch {
+		_ = os.RemoveAll(dir)
+	}
+	a.scratch = nil
 }
 
 // clock is the time now, by the clock of the worker.
@@ -260,5 +283,6 @@ func (r *Runner) openSession(ctx context.Context, a *attempt) *outcome {
 	}
 	a.runID, a.sessionID = runID, id
 	a.report.Hub(id, runID, "")
+	a.noteSession()
 	return nil
 }

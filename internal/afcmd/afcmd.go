@@ -71,6 +71,34 @@ type Config struct {
 	InBox *InBox
 	// BoxLabels are put on the box a command opens, beside af.run_id and af.tool.
 	BoxLabels map[string]string
+	// Landing, when it is set, is told how the landing of a fix comes on.
+	Landing *Landing
+}
+
+// Landing is told how the landing of a fix comes on, so that a caller can keep which steps are done.
+// Every field may be nil.
+type Landing struct {
+	// Plan is called once the change is committed, before the branch is pushed, with the plan and the
+	// warnings the run had raised by then. An error stops the landing before anything leaves the
+	// machine: the run fails with a retryable failure of category io, and the commit stays on its branch.
+	Plan func(ctx context.Context, p fix.Plan, warnings []toolio.Warning) error
+	// Pushed is called with the branch once it is pushed to origin, Published once the PostPush hook
+	// took it, and PullRequest with the pull request once the forge made it.
+	Pushed, Published func(branch string)
+	PullRequest       func(ref fix.PullRequestRef)
+}
+
+// landSteps are the steps of the landing of the fix run r, as the fix package takes them.
+func (c *Config) landSteps(r *toolio.Run) fix.LandSteps {
+	l := c.Landing
+	if l == nil {
+		return fix.LandSteps{}
+	}
+	steps := fix.LandSteps{Pushed: l.Pushed, Published: l.Published, PullRequest: l.PullRequest}
+	if l.Plan != nil {
+		steps.Plan = func(ctx context.Context, p fix.Plan) error { return l.Plan(ctx, p, r.Warnings()) }
+	}
+	return steps
 }
 
 // InBox is how a fix measures in its box.

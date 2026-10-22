@@ -151,7 +151,7 @@ func fixLoop(c *Config, r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 		Git: pre.Git, State: state, Input: fix.Input{Kind: string(r.Input.Kind), Origin: r.Input.Origin, Body: r.Input.Body},
 		Mode: string(o.land), DryRun: r.DryRun, Forge: r.Forge, Target: repoOfState(state.Target), Ended: ended, LoopErr: loopErr,
 		AttemptsMax: int(o.attempts), Box: &info, Reporter: r, WriteReport: r.RunDir.WriteReport,
-		PostPush: c.PostPush,
+		PostPush: c.PostPush, Steps: c.landSteps(r),
 	})
 	if err != nil {
 		return toolio.Outcome{}, err

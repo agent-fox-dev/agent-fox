@@ -294,12 +294,13 @@ func TestALeaseRefusedWith503ComesBackAsATransientErrorAndIsRetried_TS_13_87(t *
 	if issue := e.issueNow(); len(issue.Labels) != 0 || len(issue.Comments) != 0 {
 		t.Errorf("issue 42 has the labels %v and %d comments after a transient error", issue.Labels, len(issue.Comments))
 	}
+	// The delivery that is handed over again reports nothing and leaves the session open (14-REQ-1.6).
 	session := e.hub.Sessions()[0]
-	if session.Status != "failed" {
-		t.Errorf("the session was completed %q, want failed", session.Status)
+	if session.Status != "open" || len(session.Usage) != 0 {
+		t.Errorf("the session is %q with %d usage records, want it open with none", session.Status, len(session.Usage))
 	}
-	if _, batches := e.postedEvents(t); len(batches) == 0 {
-		t.Error("no events were posted")
+	if _, batches := e.postedEvents(t); len(batches) != 0 {
+		t.Errorf("%d batches of events were posted, want none", len(batches))
 	}
 	if _, err := os.Stat(filepath.Join(e.dir, "clone")); err != nil {
 		t.Errorf("clone/ is not kept: %v", err)

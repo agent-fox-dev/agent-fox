@@ -148,18 +148,11 @@ func TestAfterTheReleaseOneUsageRecordTheEventsInBatchesAndTheCompletionAreRepor
 		if !jobs.IsTransient(err) {
 			t.Fatalf("error = %v", err)
 		}
+		// The delivery that comes to the outcome reports, and not the one that is handed over again
+		// (14-REQ-1.6): the session stays open, with no usage and no events.
 		session, batches := e.postedEvents(t)
-		if session.Status != "failed" || len(session.Usage) != 0 {
-			t.Errorf("status %q, usage %v, want failed and none", session.Status, session.Usage)
-		}
-		var types []string
-		for _, b := range batches {
-			for _, ev := range b {
-				types = append(types, ev.Type)
-			}
-		}
-		if len(types) == 0 || types[0] != "step" {
-			t.Errorf("the events posted are %v, want the steps of the worker even though the loop never ran", types)
+		if session.Status != "open" || len(session.Usage) != 0 || len(batches) != 0 {
+			t.Errorf("status %q, usage %v, %d batches of events, want the session open and nothing posted", session.Status, session.Usage, len(batches))
 		}
 	})
 
@@ -228,7 +221,7 @@ func TestAFailingUsageEventsOrCompleteCallAddsAWarningAndNothingElseChanges_TS_1
 		})
 	}
 
-	t.Run("under a transient error the failure is logged", func(t *testing.T) {
+	t.Run("under a transient error the session is not completed, so there is no failure to log", func(t *testing.T) {
 		e := mirrorEnv(t, nil, nil)
 		var logged bytes.Buffer
 		e.runner.cfg.Logger = slog.New(slog.NewTextHandler(&logged, nil))
@@ -242,8 +235,11 @@ func TestAFailingUsageEventsOrCompleteCallAddsAWarningAndNothingElseChanges_TS_1
 		if !jobs.IsTransient(err) || len(res.Envelope) != 0 {
 			t.Fatalf("result %q, error %v, want the transient error as it was", res.Envelope, err)
 		}
-		if out := logged.String(); !strings.Contains(out, "hub_session_failed") || strings.Contains(out, pat) {
-			t.Errorf("log = %q, want the failure of the completion, and not the token", out)
+		if n := len(e.hub.RequestsTo("POST", "/api/v1/sessions/ses_0001/complete")); n != 0 {
+			t.Errorf("the session was asked to complete %d times under a transient error, want never (14-REQ-1.6)", n)
+		}
+		if out := logged.String(); strings.Contains(out, pat) {
+			t.Errorf("log = %q, want no token", out)
 		}
 	})
 }

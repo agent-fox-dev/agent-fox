@@ -10,6 +10,7 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/internal/worker/recovery"
 )
 
 // The status labels of an issue, without the prefix of the subscription.
@@ -161,22 +162,29 @@ func (r *Runner) mirrorEnvelope(ctx context.Context, a *attempt, data []byte) {
 	}
 	res := readResult(env)
 	ref := a.mirrorIssue(env, res)
-	if ref == nil {
+	if ref == nil { // no issue to write to: nothing of the mirror is left to do
+		a.noteMirror(true, true)
 		return
 	}
 	if a.issue == nil || *a.issue != *ref { // an issue the loop created: it carries no label of ours
 		a.labels = nil
 	}
 	p := a.planOf(env, res)
-	if p.comment != "" {
-		a.comment(ctx, *ref, p.comment, env, res)
-	}
+	commented := p.comment == "" || a.comment(ctx, *ref, p.comment, env, res)
+	labelled := true
 	switch {
 	case p.status != "":
-		a.setStatus(ctx, *ref, p.status)
+		labelled = a.setStatus(ctx, *ref, p.status)
 	case a.marked:
 		a.unmark(ctx)
 	}
+	a.noteMirror(labelled, commented)
+}
+
+// noteMirror records the steps of the mirror that are done: the status label, and the comment.
+func (a *attempt) noteMirror(labels, comment bool) {
+	a.note(stepStatusLabels, func(j *recovery.Journal) { j.Mirror.StatusLabels = j.Mirror.StatusLabels || labels })
+	a.note(stepComment, func(j *recovery.Journal) { j.Mirror.Comment = j.Mirror.Comment || comment })
 }
 
 // mirrorIssue is the issue the mirror writes to: the one the input named, or, for a triage of a

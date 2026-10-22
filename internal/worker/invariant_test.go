@@ -358,8 +358,9 @@ func TestNeitherThePATNorTheLeaseTokenIsInAnyOutputOrFileAfterAFullFixAttempt_TS
 		if err != nil || envelope(t, res)["status"] != "done" {
 			t.Fatalf("result %s, error %v", res.Envelope, err)
 		}
-		if entries, _ := os.ReadDir(filepath.Join(e.dir)); len(entries) != 0 {
-			t.Errorf("the attempt directory holds %d entries after a normal return", len(entries))
+		// recovery/ is the one entry the worker leaves in the directory of an attempt: it never removes it.
+		if entries, _ := os.ReadDir(filepath.Join(e.dir)); len(entries) != 1 || entries[0].Name() != "recovery" {
+			t.Errorf("the attempt directory holds %d entries after a normal return, want recovery/ alone", len(entries))
 		}
 		check(t, e, res, while)
 	})

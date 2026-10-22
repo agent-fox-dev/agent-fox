@@ -166,6 +166,44 @@ const (
 // maxChangeBytes is how much of the report's change the message of the commit holds.
 const maxChangeBytes = 2000
 
+// Plan is what the rest of a landing needs and what it reports, once the commit is made and before the
+// branch is pushed.
+type Plan struct {
+	Branch, Commit string
+	// Outcome is landed or parked, and Status the status the run has with it.
+	Outcome string
+	Status  toolio.Status
+	// Verdict is what the change was measured to, and Closes says it closes the issue.
+	Verdict string
+	Closes  bool
+	// PullRequest says a pull request is to be opened, with Title, Body and Draft.
+	PullRequest bool
+	Title, Body string
+	Draft       bool
+	// Result is the result of the run as it stands: everything but the push and the pull request.
+	Result Result
+}
+
+// LandSteps is told how a landing comes on, so that a caller can keep which steps are done. Every field
+// may be nil.
+type LandSteps struct {
+	// Plan is called once the commit is made, before the branch is pushed, and not at all when the
+	// branch is not pushed. An error stops the landing before anything leaves the machine: the commit
+	// stays on its branch.
+	Plan func(ctx context.Context, p Plan) error
+	// Pushed is called with the branch once it is pushed, and Published once the post-push hook took it.
+	Pushed, Published func(branch string)
+	// PullRequest is called with the pull request once the forge made it.
+	PullRequest func(ref PullRequestRef)
+}
+
+// planFailure is the failure of a landing whose plan could not be recorded: nothing has left the machine,
+// and a delivery that comes after this one can finish what was begun.
+func planFailure(branch string, err error) *toolio.Failure {
+	return &toolio.Failure{Category: toolio.CategoryIO, Retryable: true, Message: fmt.Sprintf(
+		"the plan of the landing could not be recorded, so nothing was pushed, and the change stays committed on the branch %s: %v", branch, err)}
+}
+
 // LandParams is what a measured change that lands is landed with.
 type LandParams struct {
 	Git   *gitx.Git
@@ -190,6 +228,8 @@ type LandParams struct {
 	// PostPush is called with the branch once it is pushed, before any pull request is asked for;
 	// nil is none. An error from it fails the push.
 	PostPush func(ctx context.Context, branch string) error
+	// Steps is told how the landing comes on.
+	Steps LandSteps
 }
 
 // LandResult is what landing did.
@@ -214,7 +254,7 @@ type LandResult struct {
 // is a warning on a change that landed.
 func Land(ctx context.Context, p LandParams) (LandResult, error) {
 	l := newLanding(p.Git, p.Reporter, p.State, p.Input, p.Mode, p.Forge, p.Target, false)
-	l.postPush = p.PostPush
+	l.postPush, l.steps = p.PostPush, p.Steps
 	rep := p.Reporter
 	l.subject = singleLine(p.Report.Subject)
 	if err := l.ensureIssue(ctx); err != nil {
@@ -251,19 +291,30 @@ func Land(ctx context.Context, p LandParams) (LandResult, error) {
 	res.Commit = l.commit
 
 	if p.Mode != LandNone {
+		wantPR := p.Mode == LandPR && !l.skipPR && l.issueURL != ""
+		draft := p.State.NoVerify
+		if unmet := unmetCriteria(p.Report); wantPR && len(unmet) > 0 {
+			draft = true
+			rep.Warn(WarnCriteriaUnmet, "the pull request is a draft: "+strings.Join(unmet, "; "))
+		}
+		status := toolio.StatusDone
+		if p.State.NoVerify {
+			status = toolio.StatusUnverified
+		}
+		if err := l.plan(ctx, Plan{
+			Branch: l.branch, Commit: l.commit, Outcome: OutcomeLanded, Status: status, Verdict: p.Measured.Verdict, Closes: closes,
+			PullRequest: wantPR, Title: typ + ": " + l.subject, Body: body, Draft: draft,
+		}); err != nil {
+			return res, l.finish(err)
+		}
 		if err := l.push(ctx); err != nil {
 			return res, l.finish(l.pushFailure(err))
 		}
 		res.Pushed = true
 		if p.Mode == LandPR {
-			if l.skipPR || l.issueURL == "" {
+			if !wantPR {
 				rep.Warn(WarnPullRequestSkipped, "no pull request was opened: there is no issue for it to refer to")
 			} else {
-				draft := p.State.NoVerify
-				if unmet := unmetCriteria(p.Report); len(unmet) > 0 {
-					draft = true
-					rep.Warn(WarnCriteriaUnmet, "the pull request is a draft: "+strings.Join(unmet, "; "))
-				}
 				res.PullRequest = l.openPullRequest(ctx, typ+": "+l.subject, body, draft)
 			}
 		}
@@ -363,6 +414,8 @@ type landing struct {
 	// push was made and the hook did not take the branch.
 	postPush  func(ctx context.Context, branch string) error
 	published bool
+	// steps is told how the landing comes on.
+	steps LandSteps
 	// back is a context that the cancellation of the run did not reach, for the way back.
 	back context.Context
 }
@@ -435,6 +488,18 @@ func (l *landing) recordCommit() error {
 	return nil
 }
 
+// plan hands the plan of the landing to the caller, which has to keep it before the branch is pushed. A
+// landing nobody follows has no one to hand it to.
+func (l *landing) plan(ctx context.Context, p Plan) error {
+	if l.steps.Plan == nil {
+		return nil
+	}
+	if err := l.steps.Plan(ctx, p); err != nil {
+		return planFailure(l.branch, err)
+	}
+	return nil
+}
+
 // push publishes the branch with its retries, and then hands it to the post-push hook, which
 // is how a caller passes the branch on from where it was pushed. It reports how it went. A
 // branch that the hook did not take is pushed all the same, and stays where it is.
@@ -444,10 +509,16 @@ func (l *landing) push(ctx context.Context) error {
 		l.rep.SideEffect(toolio.SideEffect{Kind: EffectPush, Target: "origin/" + l.branch, State: toolio.StateFailed, Detail: err.Error()})
 		return err
 	}
+	if l.steps.Pushed != nil {
+		l.steps.Pushed(l.branch)
+	}
 	if l.postPush != nil {
 		if err := l.postPush(ctx, l.branch); err != nil {
 			l.rep.SideEffect(toolio.SideEffect{Kind: EffectPush, Target: "origin/" + l.branch, State: toolio.StateFailed, Detail: "pushed, and not published: " + err.Error()})
 			return &publishError{err}
+		}
+		if l.steps.Published != nil {
+			l.steps.Published(l.branch)
 		}
 	}
 	l.pushed = true
@@ -480,6 +551,9 @@ func (l *landing) openPullRequest(ctx context.Context, title, body string, draft
 	ref := &PullRequestRef{Number: pr.Number, URL: firstNonEmpty(pr.HTMLURL, pr.URL), Draft: pr.Draft}
 	l.rep.SideEffect(toolio.SideEffect{Kind: EffectCreatePullRequest, Target: target, State: toolio.StateDone})
 	l.rep.Artifact(toolio.Artifact{Kind: "pull_request", URL: ref.URL, Number: ref.Number})
+	if l.steps.PullRequest != nil {
+		l.steps.PullRequest(*ref)
+	}
 	return ref
 }
 

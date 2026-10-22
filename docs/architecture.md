@@ -989,9 +989,9 @@ worker, the poll, the `af` client) build on:
   read, that yields nothing: the environment of the service changes no attempt. What an attempt that stops early writes and takes is fixed:
   a refusal at resolve, hub not answering at resolve or at the session, and a session refused with 401 or 403
   write nothing to the forge, take no lease and report nothing to hub; a transient clone, lease or box takes
-  `in-progress` off, releases a granted lease, posts the events and completes the session `failed`; a credential
-  refused at the clone or at the lease is mirrored `failed` with one comment, with the lease released and the
-  same report. Infrastructure failures (hub down, a clone, a lease or a box that cannot be had, a forge rate
+  `in-progress` off and releases a granted lease, and reports nothing to hub, so that the session stays open for
+  the delivery that is handed over again; a credential refused at the clone or at the lease is mirrored
+  `failed` with one comment, with the lease released, and is reported to hub. Infrastructure failures (hub down, a clone, a lease or a box that cannot be had, a forge rate
   limit) are *transient errors* that the jobs layer hands over again, with no envelope; every other ending is an
   envelope, built by the worker for a refusal before the loop (tool `triage` or `fix`, empty arrays, usage source
   `none`) and the loop's own otherwise.
@@ -1046,7 +1046,8 @@ worker, the poll, the `af` client) build on:
   added warnings, side effects and artifacts (`hub_session` and `sandbox`), the report of the run, and
   `AF_MAX_ATTEMPTS` as the most attempts of a round (2 when the attempt stopped before the variables were read).
   When the attempt returns, `input/` is removed and so is `clone/`, except after a transient error and after a
-  shutdown; `envelope.json`, `report.md` and the attempt directory are the jobs layer's and are never touched.
+  shutdown; `recovery/` (the journal of the attempt, which a later delivery of it reads) is never removed by the worker;
+  `envelope.json`, `report.md` and the attempt directory are the jobs layer's and are never touched.
 - **The mark, the mirror and the cancel — the label mirror.** Once the session is open and an issue is named, the worker sets
   `<prefix>in-progress` on it; the prefix is always the subscription's `label_prefix`, `AF_LABEL_PREFIX` is read
   for nothing but the warning `label_prefix_ignored` when it differs. Setting a status label (`in-progress`,
@@ -1074,9 +1075,10 @@ worker, the poll, the `af` client) build on:
   brain ran (the model of the session, and the brain, tokens, cost, source of the cost and turns of the envelope),
   all the events of the attempt, the loop's and the worker's steps, in batches of at most 500 in the order they
   happened, and completes the session: `completed` for `done`, `unverified` and `needs_human`, `timeout` for a
-  failure of category `timeout`, and `failed` for the rest and for any attempt that returns a transient error. A
-  call that fails is a warning of the envelope (`hub_usage_failed`, `hub_events_failed`, `hub_session_failed`)
-  and changes nothing else; with no envelope it is logged.
+  failure of category `timeout`, and `failed` for the rest. An attempt that returns a transient error, and one
+  that is stopped for a shutdown, posts none of this and leaves the session open: the delivery that comes to the
+  outcome reports, with the usage of the whole attempt. A call that fails is a warning of the envelope
+  (`hub_usage_failed`, `hub_events_failed`, `hub_session_failed`) and changes nothing else.
 - **Tests.** `internal/hub/fakehub` is an `httptest` hub in the manner of `fakeforge`: a table of tokens,
   users and workspaces, a record of every request, and failures, hang-ups, delays, redirects and oversize
   answers by method and route on demand. It serves the calls above in the shapes of hub's OpenAPI

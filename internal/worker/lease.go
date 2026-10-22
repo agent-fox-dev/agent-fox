@@ -51,6 +51,7 @@ func (r *Runner) lease(ctx context.Context, a *attempt) *outcome {
 		return r.leaseFailure(ctx, a, err)
 	}
 	a.lease = &l
+	a.noteLease()
 	a.onClose(func() { // the end of the attempt has released it already, but for a panic
 		if err := r.releaseLease(ctx, a); err != nil && !a.releaseNoted {
 			r.cfg.Logger.Warn("the lease of the attempt could not be released", "workspace", a.req.Workspace, "job", a.req.JobID,
@@ -109,6 +110,9 @@ func (r *Runner) releaseLease(ctx context.Context, a *attempt) error {
 		release, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.releaseBoundWithin(ctx))
 		defer cancel()
 		a.releaseErr = r.cfg.Hub.ReleaseLease(release, a.pat, a.req.Workspace, a.lease.ID)
+		if a.releaseErr == nil {
+			a.noteRelease()
+		}
 	})
 	return a.releaseErr
 }

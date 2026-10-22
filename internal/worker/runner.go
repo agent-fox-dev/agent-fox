@@ -75,6 +75,12 @@ type Runner struct {
 	loopFlags func(a *attempt) []string
 	// loop, when it is set, is the step that stands for the loop in a test; nil is the loop.
 	loop func(ctx context.Context, a *attempt) *outcome
+	// abortAfter, when it is set, names the stage after which a delivery stops as a process that died
+	// there does, see stageAbort.
+	abortAfter string
+	// journalFault, when it is set, is asked before each write of the journal, with the name of the
+	// step it records, and the write fails with the error it returns.
+	journalFault func(step string) error
 }
 
 var _ jobs.Runner = (*Runner)(nil)
@@ -134,15 +140,26 @@ func (r *Runner) stages() []stage {
 	if r.loop != nil {
 		run = r.loop
 	}
-	return []stage{{"resolve", r.resolve}, {"session", r.openSession}, {"mark", r.mark}, {"clone", r.clone}, {"lease", r.lease}, {"run", run}}
+	return []stage{{"resolve", r.resolve}, {"journal", r.begin}, {"session", r.openSession}, {"mark", r.mark}, {"clone", r.clone}, {"lease", r.lease}, {"run", run}}
 }
 
 // Run carries out the attempt: resolve, the session, the mark, the clone, the lease and the loop,
 // and ends it with the mirror and the release of the lease. An attempt that has not ended
 // by then has no envelope, which is a failure of the worker and not of the attempt.
-func (r *Runner) Run(ctx context.Context, req jobs.Request) (jobs.Result, error) {
+func (r *Runner) Run(ctx context.Context, req jobs.Request) (res jobs.Result, err error) {
 	a := &attempt{req: req, report: r.reporterOf(req), started: r.cfg.Now(), now: r.cfg.Now}
-	defer a.close()
+	defer func() {
+		v := recover()
+		if abort, ok := v.(stageAbort); ok { // a test made a process die here: nothing is given back
+			a.abandon()
+			res, err = jobs.Result{}, abort
+			return
+		}
+		a.close()
+		if v != nil {
+			panic(v)
+		}
+	}()
 	return r.finish(ctx, a, r.pipeline(ctx, a))
 }
 
@@ -152,6 +169,7 @@ func (r *Runner) pipeline(ctx context.Context, a *attempt) *outcome {
 		if out := s.run(ctx, a); out != nil {
 			return out
 		}
+		r.reached(a, s.name)
 	}
 	return &outcome{err: errors.New("worker: the attempt ended without an envelope")}
 }
@@ -184,7 +202,13 @@ func (r *Runner) finish(ctx context.Context, a *attempt, out *outcome) (jobs.Res
 
 	r.mirror(work, a, out, how)
 	releaseErr := r.releaseLease(work, a)
-	r.report(work, a, out)
+	// A delivery that is handed over again, after a shutdown or a transient error, reports nothing: it
+	// is the delivery that comes to the outcome that posts the usage and the events and completes the
+	// session.
+	if how != stoppedByShutdown && !jobs.IsTransient(out.err) {
+		r.report(work, a, out)
+	}
+	a.ending(endingOf(how, out))
 
 	warnings := slices.Clone(a.warnings)
 	if releaseErr != nil {
