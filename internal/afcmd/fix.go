@@ -2,6 +2,8 @@ package afcmd
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -17,6 +19,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/fix"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/project"
+	"github.com/agent-fox-dev/agentfox/internal/submission"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -121,6 +124,12 @@ func fixLoop(c *Config, r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 	opts := c.brainOptions()
 	opts.Script, opts.Provider, opts.BorrowedHands = o.settings.Script, o.settings.Sandbox, o.settings.BorrowedHands
 	a := &fixAttempt{c: c, r: r, o: o, entry: entry, boxEntry: boxEntry, opts: opts}
+	if c.Resume != nil && c.Resume.Submitted {
+		if err := a.askAgain(); err != nil {
+			return toolio.Outcome{}, err
+		}
+		return a.finish()
+	}
 	if c.InBox == nil {
 		// On the host: the checks of the repository run here, before the box is opened.
 		if err := a.begin(measuring{gate: c.gate(), conform: c.conform()}); err != nil {
@@ -155,12 +164,22 @@ func fixLoop(c *Config, r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 	if c.Resume != nil && c.Resume.Applied {
 		return a.landed, a.landedErr
 	}
+	return a.finish()
+}
+
+// finish turns what the loop came to, or the submission a delivery carried on from, into the end of the run.
+func (a *fixAttempt) finish() (toolio.Outcome, error) {
+	c, r, o := a.c, a.r, a.o
 	pre, state, ended, loopErr, info := a.pre, a.state, a.ended, a.loopErr, a.info
+	used := &info
+	if c.Resume != nil && c.Resume.Submitted {
+		used = nil // no box was opened to ask the question
+	}
 
 	fin, err := fix.Finish(r.Ctx, fix.FinishParams{
 		Git: pre.Git, State: state, Input: fix.Input{Kind: string(r.Input.Kind), Origin: r.Input.Origin, Body: r.Input.Body},
 		Mode: string(o.land), DryRun: r.DryRun, Forge: r.Forge, Target: repoOfState(state.Target), Ended: ended, LoopErr: loopErr,
-		AttemptsMax: int(o.attempts), Box: &info, Reporter: r, WriteReport: r.RunDir.WriteReport,
+		AttemptsMax: int(o.attempts), Box: used, Reporter: r, WriteReport: r.RunDir.WriteReport,
 		PostPush: c.PostPush, Steps: c.landSteps(r),
 	})
 	if err != nil {
@@ -222,19 +241,86 @@ func (a *fixAttempt) landApplied(m measuring) (toolio.Outcome, error) {
 		},
 		Gate: m.gate, Conform: m.conform, PostPush: a.c.PostPush, Steps: a.c.landSteps(r),
 	})
+	if errors.Is(err, fix.ErrNoChange) {
+		// The change that was applied is nothing once the protected paths are put back: there is nothing to
+		// land or to park, and nothing a person is asked for.
+		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryNoResult, Message: "the change that was applied to the checkout is nothing once the protected paths are put back: there is nothing to land or to park"}
+	}
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
 	return toolio.Outcome{Status: got.Status, Summary: got.Summary, Result: got.Result}, nil
 }
 
+// askAgain ends a run on the question that an earlier delivery was asked, which the host accepted: no box
+// is opened and no brain runs.
+func (a *fixAttempt) askAgain() error {
+	if err := a.resume(); err != nil {
+		return err
+	}
+	a.c.seededTally(a.r, a.o.settings.Brain) // the usage of the run is the attempt's, though no brain runs
+	data, err := os.ReadFile(filepath.Join(a.r.RunDir.Path, "submission.json"))
+	if err != nil {
+		return &toolio.Failure{Category: toolio.CategoryInternal, Message: fmt.Sprintf("the run %s cannot be carried on: %v", a.r.RunDir.ID, err)}
+	}
+	var file submission.File
+	var sub fix.Submission
+	if err = json.Unmarshal(data, &file); err == nil {
+		sub, err = fix.Decode(file.Payload)
+	}
+	if err != nil || sub.Question == nil {
+		return &toolio.Failure{Category: toolio.CategoryInternal, Message: fmt.Sprintf("the run %s cannot be carried on: its submission is not a question", a.r.RunDir.ID)}
+	}
+	// The round that asked is counted in fix.json when it ended, and is not when the process died in it; how many
+	// attempts there were is not known, and the one that asked is the least.
+	a.ended = fix.LoopResult{End: fix.EndQuestion, Question: sub.Question, Attempts: 1, Rounds: max(a.state.Rounds, 1)}
+	return nil
+}
+
 // begin is the start of the run: the preflight and the brief, or, for a run that is carried on, what
 // they left.
 func (a *fixAttempt) begin(m measuring) error {
-	if a.c.Resume != nil {
-		return a.resume()
+	if a.c.Resume == nil {
+		return a.prepare(m)
 	}
-	return a.prepare(m)
+	if err := a.resume(); err != nil {
+		return err
+	}
+	return a.ensureBaseline(m)
+}
+
+// ensureBaseline makes sure that the checkout holds the result of the baseline that fix.json names, which
+// every measuring compares a change with. A result is named by the tree, the table and the mode it was run
+// with, so the baseline that is run again, on the tree of the base with the pinned table, is the one that
+// was lost; the change of the run is set aside for it and put back afterwards. fix.json names what was run.
+func (a *fixAttempt) ensureBaseline(m measuring) error {
+	r, state := a.r, a.state
+	if state.BaselineGateID == "" || checks.Stored(r.Dir, state.BaselineGateID) {
+		return nil
+	}
+	ctx, git := r.Ctx, a.pre.Git
+	if head, err := git.RevParse(ctx, "HEAD"); err != nil || head != state.BaseHead {
+		return nil // the measuring says where the checkout is, and measures nothing
+	}
+	stashed, err := git.Stash(ctx)
+	if err != nil {
+		return &toolio.Failure{Category: toolio.CategoryGit, Message: fmt.Sprintf("cannot set the change of the run aside to run the baseline again: %v", err)}
+	}
+	res, runErr := m.gate(ctx, r.Dir, checks.Options{Table: state.Table})
+	if stashed {
+		if err := git.StashPop(context.WithoutCancel(ctx)); err != nil {
+			return &toolio.Failure{Category: toolio.CategoryGit, Message: fmt.Sprintf("cannot put the change of the run back after the baseline ran again: %v", err)}
+		}
+	}
+	if runErr != nil {
+		return fix.GateError(ctx, "the baseline gate, run again", runErr)
+	}
+	state.BaselineGateID, state.BaselinePassed = res.ID, res.Passed
+	if err := state.Write(r.RunDir.Path); err != nil {
+		return &toolio.Failure{Category: toolio.CategoryIO, Message: fmt.Sprintf("cannot keep the baseline that ran again in fix.json: %v", err)}
+	}
+	a.state = state
+	return nil
 }
 
 // resume takes up a run that was begun: its pinned file says the base, the table and the baseline, and

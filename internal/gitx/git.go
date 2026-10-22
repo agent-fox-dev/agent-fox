@@ -364,6 +364,23 @@ func (g *Git) ResetHard(ctx context.Context, ref string) error {
 	return err
 }
 
+// Stash sets the changes of the work tree aside, the untracked files with them and the ignored ones
+// not, and says whether there were any to set aside. Whatever it set aside is put back by StashPop.
+func (g *Git) Stash(ctx context.Context) (bool, error) {
+	before, _, _ := g.git(ctx, "rev-parse", "--quiet", "--verify", "refs/stash")
+	if _, err := g.must(ctx, "stash", "push", "--include-untracked", "--quiet", "--message", "agent-fox: set aside"); err != nil {
+		return false, err
+	}
+	after, _, _ := g.git(ctx, "rev-parse", "--quiet", "--verify", "refs/stash")
+	return after != before, nil
+}
+
+// StashPop puts back the changes that the last Stash set aside, and drops them.
+func (g *Git) StashPop(ctx context.Context) error {
+	_, err := g.must(ctx, "stash", "pop", "--quiet")
+	return err
+}
+
 // ResetSoft moves the branch back to a commit and keeps everything since
 // as staged changes in the tree. It is how a commit made to hold work
 // provisionally is undone before the work is committed for real.

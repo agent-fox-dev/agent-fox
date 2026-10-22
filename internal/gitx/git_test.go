@@ -789,3 +789,34 @@ func TestIsAncestorTellsTheDescendantsFromTheRest(t *testing.T) {
 		t.Error("IsAncestor of a commit that is not there succeeded: only exit code 1 means no")
 	}
 }
+
+func TestStashSetsTheChangesAsideAndPutsThemBack(t *testing.T) {
+	g, dir := newRepo(t)
+	ctx := context.Background()
+	if stashed, err := g.Stash(ctx); err != nil || stashed {
+		t.Fatalf("Stash on a clean tree = %v, %v, want nothing set aside", stashed, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "new.txt"), []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stashed, err := g.Stash(ctx)
+
+	if err != nil || !stashed {
+		t.Fatalf("Stash = %v, %v, want the changes set aside", stashed, err)
+	}
+	if dirty, _ := g.DirtyFiles(ctx); len(dirty) != 0 {
+		t.Errorf("the tree is %v after Stash, want it clean: the untracked file goes with the rest", dirty)
+	}
+	if err := g.StashPop(ctx); err != nil {
+		t.Fatal(err)
+	}
+	readme, _ := os.ReadFile(filepath.Join(dir, "README.md"))
+	added, _ := os.ReadFile(filepath.Join(dir, "new.txt"))
+	if string(readme) != "# changed\n" || string(added) != "new" {
+		t.Errorf("README.md is %q and new.txt %q after StashPop, want both changes back", readme, added)
+	}
+}

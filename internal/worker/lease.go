@@ -44,6 +44,12 @@ func (r *Runner) lease(ctx context.Context, a *attempt) *outcome {
 	if a.resume != nil && a.resume.stage == stagePublished { // the change is published: nothing runs in a box
 		return nil
 	}
+	if a.resume != nil && a.resume.stage == stageSubmitted { // a submission is landed again: no box is opened
+		a.boxes = box.NewRegistry()
+		a.boxes.Register(box.GatewayEntry("", "")) // only the name of the provider is looked up, to check the settings against
+		a.boxLabels = map[string]string{"af.job": a.req.JobID, "af.attempt": strconv.Itoa(a.req.Attempt)}
+		return nil
+	}
 	a.step("lease")
 	l, err := r.cfg.Hub.Lease(ctx, a.pat, a.req.Workspace, hub.LeaseRequest{
 		Profile: a.settings.Profile,

@@ -274,7 +274,7 @@ func measureGate(ctx context.Context, p MeasureParams, m *Measurement) error {
 	}
 	after, err := run(ctx, p.Dir, checks.Options{Table: p.State.Table})
 	if err != nil {
-		return gateError(ctx, "the gate after the change", err)
+		return GateError(ctx, "the gate after the change", err)
 	}
 	if after.TreeChanged {
 		p.warn(WarnTreeChangedDuringGate, "the checks changed the tree; the result is kept under the hash of the tree they ran on")

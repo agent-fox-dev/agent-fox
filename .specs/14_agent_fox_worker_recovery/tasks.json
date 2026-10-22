@@ -330,7 +330,7 @@
       "done_when": [
         "the re-measure verdict is never unverified for lack of a baseline"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 8,

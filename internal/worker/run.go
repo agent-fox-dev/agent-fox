@@ -71,7 +71,7 @@ func (r *Runner) loopConfig(a *attempt) *afcmd.Config {
 	}
 	var resume *afcmd.Resume
 	if a.resume != nil {
-		resume = &afcmd.Resume{Applied: a.resume.stage == stageApplied}
+		resume = &afcmd.Resume{Applied: a.resume.stage == stageApplied, Submitted: a.resume.stage == stageSubmitted}
 	}
 	return &afcmd.Config{
 		Version: r.cfg.Version, Commit: r.cfg.Commit, BuildTime: r.cfg.BuildTime,

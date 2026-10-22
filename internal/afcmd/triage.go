@@ -811,8 +811,14 @@ func triageLoop(c *Config, r *toolio.Run, s *brain.Settings, land string, labelF
 		return toolio.Outcome{}, err
 	}
 
-	r.Emit("step", triageStep{stepBrain})
-	res, err := runInBox(c, r, s, entry, boxEntry, b, opts, rendered.brief, c.seededTally(r, s.Brain))
+	submitted := c.Resume != nil && c.Resume.Submitted
+	var res brain.Result
+	if submitted {
+		res, err = acceptedAgain(c, r, s.Brain) // the brain does not run: it has no step
+	} else {
+		r.Emit("step", triageStep{stepBrain})
+		res, err = runInBox(c, r, s, entry, boxEntry, b, opts, rendered.brief, c.seededTally(r, s.Brain))
+	}
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
@@ -834,6 +840,23 @@ func triageLoop(c *Config, r *toolio.Run, s *brain.Settings, land string, labelF
 		retry = triage.LandAgain(r.RunDir.ID, r.Dir, rendered.facts.Target.Repo)
 	}
 	return landRun(r, landing{run: r.RunDir, facts: rendered.facts, tree: tree, forge: r.Forge, mode: land, labels: labels, artifact: r.Artifact, retry: retry, landed: c.Landing})
+}
+
+// acceptedAgain is the submission that an earlier delivery of the run was given by the brain and the host accepted,
+// which a delivery that carries the run on lands again: no box is opened and no brain runs, and the usage of the
+// run is the attempt's.
+func acceptedAgain(c *Config, r *toolio.Run, brainName string) (brain.Result, error) {
+	c.seededTally(r, brainName)
+	path := filepath.Join(r.RunDir.Path, "submission.json")
+	data, err := os.ReadFile(path)
+	var file submission.File
+	if err == nil {
+		err = json.Unmarshal(data, &file)
+	}
+	if err != nil || file.Kind != triage.KindName || file.RunID != r.RunDir.ID {
+		return brain.Result{}, &toolio.Failure{Category: toolio.CategoryInternal, Message: fmt.Sprintf("the run %s cannot be carried on: it has no triage submission of its own", r.RunDir.ID)}
+	}
+	return brain.Result{Payload: file.Payload, Path: path}, nil
 }
 
 // pinnedBrief is the brief of a run that is carried on: the one that was rendered, as triage.json says

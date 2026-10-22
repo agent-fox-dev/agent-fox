@@ -128,10 +128,10 @@ func Preflight(ctx context.Context, p PreflightParams) (Preflighted, error) {
 	return res, nil
 }
 
-// gateError is the failure for an error of a gate run, which is what names: a mistake in
+// GateError is the failure for an error of a gate run, which is what names: a mistake in
 // the options is usage, a run that was stopped is the stop, and anything else is a failure
 // to read or write.
-func gateError(ctx context.Context, what string, err error) error {
+func GateError(ctx context.Context, what string, err error) error {
 	var usageErr *checks.UsageError
 	var failure *toolio.Failure
 	switch {
@@ -156,7 +156,7 @@ func runBaseline(ctx context.Context, p PreflightParams, table project.Table) (*
 	}
 	res, err := run(ctx, p.Dir, checks.Options{Table: table})
 	if err != nil {
-		return nil, gateError(ctx, "the baseline gate", err)
+		return nil, GateError(ctx, "the baseline gate", err)
 	}
 	if !res.Passed {
 		p.Warn(WarnBaselineFailing, "the gate fails on the tree as it is, before any change; a check that already fails is not counted against the change")

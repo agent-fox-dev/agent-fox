@@ -90,6 +90,10 @@ type Resume struct {
 	// the brain does not run again, and the tree is measured once and landed, or parked when the
 	// measuring refuses it.
 	Applied bool
+	// Submitted says the run holds a submission that the host accepted and that needs no tree and no box: a
+	// question, or a triage diagnosis. The brain does not run, no box is opened, and the submission is landed
+	// again, or the question asked again.
+	Submitted bool
 }
 
 // seededTally is the tally of an invocation: it starts from what the attempt had spent, which the run

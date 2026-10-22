@@ -149,8 +149,10 @@ func (r *Runner) laterDelivery(ctx context.Context, a *attempt, fresh recovery.J
 	}
 	spent := carry(old.Spend, old.Carried, &ledger)
 	a.resume = &resumeState{journal: old, stage: stageBrain}
-	if accepted, _ := acceptedSubmission(a.req.Kind, a.cloneDir, runID); accepted != nil && accepted.stage(a.req.Kind) == stageApplied {
-		a.resume.stage = stageApplied
+	if accepted, _ := acceptedSubmission(a.req.Kind, a.cloneDir, runID); accepted != nil {
+		if stage := accepted.stage(a.req.Kind); stage != "" {
+			a.resume.stage = stage
+		}
 	}
 	if plan := old.Landing.Plan; plan != nil && remote != "" { // disagrees refused any commit but the plan's
 		a.resume.stage = stagePublished // the change is on hub's git server: it is published, not redone
@@ -162,8 +164,8 @@ func (r *Runner) laterDelivery(ctx context.Context, a *attempt, fresh recovery.J
 
 // prepareResumedClone makes the clone of a resumed delivery what the stage it picks up from needs: a fix
 // whose brain is skipped has the change of the run in its working tree, and any other has the base alone,
-// for the brain to run again. A change that no longer passes the check of its submission against the tree is
-// not one to measure: the brain runs.
+// for the brain to run again. A submission that no longer passes the check of its kind against the tree is
+// not one to land or to measure: the brain runs. A question or a diagnosis needs no change in the tree.
 func (r *Runner) prepareResumedClone(ctx context.Context, a *attempt) *outcome {
 	if a.resume.stage == stagePublished {
 		return nil
@@ -172,7 +174,9 @@ func (r *Runner) prepareResumedClone(ctx context.Context, a *attempt) *outcome {
 		if out := r.restoreChange(ctx, a); out != nil {
 			return out
 		}
-		if stage, _ := skipStage(ctx, a.req.Kind, a.cloneDir, a.resume.journal.Run.ID); stage == stageApplied {
+	}
+	if a.resume.stage != stageBrain {
+		if stage, _ := skipStage(ctx, a.req.Kind, a.cloneDir, a.resume.journal.Run.ID); stage == a.resume.stage {
 			return nil
 		}
 		a.resume.stage = stageBrain

@@ -141,3 +141,43 @@ branch, the commit, the pull request, the run directory and its report; its usag
 effects and the artifacts that the loop of the first delivery made (the brief, the submission, the transcript, the
 steps of the commit and the push) are not in it: the first delivery's events hold them. Deviation keys:
 `ts_14_29_passes_before_task_6` and `published_envelope_is_rebuilt_from_the_plan`.
+
+## 10. The re-measure of an applied change passed before task 7, a baseline is named by content, and a resumed question has no box (task 7)
+
+**Spec:** task 7 owns TS-14-32 and TS-14-33 (a change that an earlier delivery applied is measured once and landed
+or parked, with no round of the brain), TS-14-34 (a baseline result that the clone lacks is run again with the
+change set aside, and fix.json "names the new baseline": `assert st.BaselineGateID != oldID`), TS-14-35 (an empty
+change ends failed, `no_result`, not retryable), and TS-14-36 and TS-14-37 (a question and a diagnosis are
+carried on with no lease). Its `touches` list `internal/worker/{remeasure,baseline,fixrun,triagerun}.go`.
+
+**Code:**
+
+- TS-14-32 and TS-14-33 passed the first time they were run: the skip of the brain, the restoring of the change
+  and the single measuring were task 4's (`skipStage`, `restoreChange`, `fixAttempt.landApplied`). They pin
+  that code, and what task 7 adds is under TS-14-34 to TS-14-37. Deviation key: `ts_14_32_33_pass_before_task_7`.
+- The id of a gate result is the hash of the tree, the table and the mode (`checks.KeyOf`), so the baseline that
+  is run again on the tree of the base with the pinned table has the id of the one that was lost, and
+  `st.BaselineGateID != oldID` cannot hold for a baseline that was lost and made again. `ensureBaseline`
+  (`internal/afcmd/fix.go`) writes into fix.json what ran (`BaselineGateID`, `BaselinePassed`); that is the old id
+  in the usual case, and the id of the baseline that ran when fix.json named a result that never was. Both are
+  tested (`..._TS_14_34/the_result_was_removed` and `/fix.json_names_a_result_that_never_was`). It runs for every
+  stage of a resume that measures, also for the brain run again (`..._RunsALostBaselineAgainOnTheCleanTree`),
+  and sets the change aside with `git stash push --include-untracked`, which is `gitx.Git.Stash` and
+  `StashPop`; a tree with no change has nothing set aside and nothing put back. A HEAD that is not the base
+  head is left to the measuring, which names where the checkout is. Deviation key:
+  `baseline_rerun_keeps_the_content_id`.
+- The work of the four files that `touches` names is in `internal/afcmd/{fix,triage}.go` (the seams of the
+  loops that the worker already used in tasks 3 to 6), `internal/worker/{start,lease,run}.go` (which stage, no
+  lease, `Resume.Submitted`), `internal/fix/landcmd.go` (`ErrNoChange`, which `LandRun` returns as the usage
+  failure it always was, so that `af fix land` is unchanged, and which a resumed delivery turns into
+  `no_result`), `internal/fix/{measure,preflight}.go` (`GateError` exported), `internal/checks/cache.go`
+  (`Stored`) and `internal/gitx/git.go` (`Stash`, `StashPop`). No file of the names `touches` gives was made,
+  since the code belongs next to the seam it uses (see item 5).
+- A fix question or a triage diagnosis that the host accepted is the stage `submitted`. The delivery takes no
+  lease and opens no box; the registry of the loop holds the gateway entry with no URL, which only the check of
+  the `--sandbox` setting looks up. The question is ended by `fix.Finish` as it was (`fixAttempt.askAgain`), and
+  the diagnosis is landed by `landRun` on the submission file that the run holds (`acceptedAgain`), after the same
+  check against the tree. The result of a resumed question has `"box": null`, since none was opened, `attempts`
+  1 and `rounds` the larger of fix.json's count and 1: the round that asked is counted in fix.json when it
+  ended, and is not when the process died in it, and the attempt it was in is not recorded. The loop of a
+  resumed triage emits no `brain` step. Deviation key: `resumed_question_result_has_no_box`.
