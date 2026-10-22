@@ -224,3 +224,25 @@ removed, as the paths of the PRD say. Every write of the mirror to the forge is 
 removed (404) is removed. A label that cannot be set removes none of the others. Deviation keys:
 `result_labels_are_net`, `mirror_writes_are_side_effects`.
 
+## 19. The events posted to hub are the attempt's, the loop's and the worker's steps (task 10)
+
+**Spec:** "post the loop's events in sequence order in batches of at most 500" (R10.3), and "events posted" for an
+attempt that stopped before the loop (the table of the PRD).
+
+**Code:** an attempt that stopped at the clone, the lease or the box has no event of the loop, and the table
+says its events are posted, so the events are the attempt's: every line of the loop and every `step` event of the
+worker, in the order they happened (`attempt.keep`, `internal/worker/events.go`), numbered 1, 2, … for the attempt
+whatever the loop numbered them, so that the id hub takes each event once by, `<run id>-<number>`, is unique. The
+loop's events are in their order, and 1200 events of an attempt arrive as 500, 500 and 200
+(`TestAfterTheReleaseOneUsage…_TS_13_76`, whose loop emits 1192 beside the 8 steps of the worker). A batch that hub
+does not take ends the posting of events, so that what hub holds is a prefix of them, and is the warning
+`hub_events_failed`. Deviation key: `events_are_the_attempts_not_only_the_loops`.
+
+## 20. TS-13-81 compares docs/cli.md with main (task 10)
+
+**Spec:** "docs/cli.md is unchanged".
+
+**Code:** `TestTheDocumentationDescribesTheWorker_TS_13_81` (`internal/worker/docs_test.go`) checks the phrases
+that 13-REQ-10.8 names for each document, and that `git diff main -- docs/cli.md` is empty; it is skipped where there
+is no git or no branch `main`. `make check` runs the docs tests of the other packages, which hold the other phrases.
+

@@ -70,9 +70,9 @@ type Runner struct {
 	sleep        func(ctx context.Context, d time.Duration) error
 	// releaseTimeout bounds the release of the lease, defaultReleaseTimeout when it is 0.
 	releaseTimeout time.Duration
-	// extraFlags are flags put after the ones of the settings, which a test uses to choose the
-	// scripted brain, that no variable may name.
-	extraFlags []string
+	// loopFlags, when it is set, gives flags put after the ones of the settings, which a test uses to
+	// choose the scripted brain, that no variable may name.
+	loopFlags func(a *attempt) []string
 	// loop, when it is set, is the step that stands for the loop in a test; nil is the loop.
 	loop func(ctx context.Context, a *attempt) *outcome
 }
@@ -141,7 +141,7 @@ func (r *Runner) stages() []stage {
 // and ends it with the mirror and the release of the lease. An attempt that has not ended
 // by then has no envelope, which is a failure of the worker and not of the attempt.
 func (r *Runner) Run(ctx context.Context, req jobs.Request) (jobs.Result, error) {
-	a := &attempt{req: req, report: r.reporterOf(req), started: r.cfg.Now()}
+	a := &attempt{req: req, report: r.reporterOf(req), started: r.cfg.Now(), now: r.cfg.Now}
 	defer a.close()
 	return r.finish(ctx, a, r.pipeline(ctx, a))
 }
@@ -182,6 +182,7 @@ func (r *Runner) finish(ctx context.Context, a *attempt, out *outcome) (jobs.Res
 
 	r.mirror(work, a, out, how)
 	releaseErr := r.releaseLease(work, a)
+	r.report(work, a, out)
 
 	warnings := slices.Clone(a.warnings)
 	if releaseErr != nil {

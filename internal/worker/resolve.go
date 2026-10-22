@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -73,10 +74,11 @@ type attempt struct {
 	// the forge of the worker, to be added to the envelope.
 	labelsSet, labelsRemoved []string
 	sideEffects              []toolio.SideEffect
-	// events are the lines of the events of the loop, kept for the report to hub; mu guards them,
-	// as the loop writes them from its own goroutines.
+	// events are the events of the attempt, the loop's and the worker's steps, kept for the report
+	// to hub; mu guards them, as the loop writes them from its own goroutines. now is the clock.
 	mu     sync.Mutex
-	events [][]byte
+	events []hub.Event
+	now    func() time.Time
 	// closers are what the attempt gives back when it ends, last made first.
 	closers []func()
 }
@@ -92,12 +94,23 @@ func (a *attempt) close() {
 	a.closers = nil
 }
 
+// clock is the time now, by the clock of the worker.
+func (a *attempt) clock() time.Time {
+	if a.now != nil {
+		return a.now()
+	}
+	return time.Now()
+}
+
 // step tells the job that a step of the pipeline began.
 func (a *attempt) step(name string) {
-	a.report.Emit("step", struct {
+	data := struct {
 		Name   string `json:"name"`
 		Source string `json:"source"`
-	}{name, "worker"})
+	}{name, "worker"}
+	raw, _ := json.Marshal(data)
+	a.keep("step", stamp(a.clock()), raw)
+	a.report.Emit("step", data)
 }
 
 // resolve reads what the attempt needs of the store and of hub, and refuses what cannot run,

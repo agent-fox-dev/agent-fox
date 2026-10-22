@@ -102,6 +102,7 @@ func loopEnv(t *testing.T, files map[string]string, vars map[string]string, muta
 	e := newEnv(t, w)
 	e.hub.SetLeaseTTL(3 * time.Hour)
 	e.hub.AddIssue(slug, fakehub.Issue{Number: 42, Title: "Greeting is wrong", Body: "The greeting should say hello."})
-	e.runner.extraFlags = []string{"--brain", "scripted", "--script", scriptFile(t, steps...)}
+	flags := []string{"--brain", "scripted", "--script", scriptFile(t, steps...)}
+	e.runner.loopFlags = func(*attempt) []string { return flags }
 	return e
 }

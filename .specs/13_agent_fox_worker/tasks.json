@@ -488,7 +488,7 @@
       "done_when": [
         "`make check` passes including the docs tests"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 11,

@@ -43,7 +43,7 @@ func (r *Runner) loopApp(a *attempt) *toolio.App {
 	app.NoSignals = true
 	app.RunID = a.runID
 	app.Target = a.repo
-	app.EventSink = a.eventSink()
+	app.EventSink = a.eventSink(r.cfg.Now)
 	app.Now, app.Rand = r.cfg.Now, r.cfg.Rand
 	return app
 }
@@ -105,7 +105,10 @@ func (r *Runner) loopArgs(a *attempt) (args []string, stdin io.Reader, refused *
 	for _, answer := range a.req.Answers {
 		args = append(args, "--context="+answer.Text)
 	}
-	return append(args, r.extraFlags...), stdin, nil
+	if r.loopFlags != nil {
+		args = append(args, r.loopFlags(a)...)
+	}
+	return args, stdin, nil
 }
 
 // writeInput writes the file of the job to input/ of the attempt directory under its base name,

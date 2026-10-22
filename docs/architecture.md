@@ -975,6 +975,34 @@ worker, the poll, the `af` client) build on:
   any other answer is final. A branch that hub does not take ends the landing `failed` in category `git`, not
   retryable, with the branch kept on hub's git server and named in `next`, and no pull request. The seam is
   `fix.LandParams.PostPush`, which `FinishParams` and `ParkParams` carry and `afcmd.Config.PostPush` sets.
+- **The worker.** `internal/worker` is the production `jobs.Runner`: it carries out one attempt of a job against a
+  subscribed hub workspace. In order: *resolve* (the token and the label prefix of the subscription, the record and
+  the variables of the workspace from hub, the refusals that need no box and no model), the hub *session*, the
+  *mark* of the issue, the *clone*, the *lease* of a sandbox, the *run* of the loop in process, the *mirror* of the
+  outcome to the issue, the *release* of the lease and the *report* to hub. It holds nothing of an attempt between
+  calls, so attempts run side by side, each with its own workspace token and its own lease token and no vendor
+  key, no forge token and no read of the environment. What an attempt that stops early writes and takes is fixed:
+  a refusal at resolve, hub not answering at resolve or at the session, and a session refused with 401 or 403
+  write nothing to the forge, take no lease and report nothing to hub; a transient clone, lease or box takes
+  `in-progress` off, releases a granted lease, posts the events and completes the session `failed`; a credential
+  refused at the clone or at the lease is mirrored `failed` with one comment, with the lease released and the
+  same report. Infrastructure failures (hub down, a clone, a lease or a box that cannot be had, a forge rate
+  limit) are *transient errors* that the jobs layer hands over again, with no envelope; every other ending is an
+  envelope, built by the worker for a refusal before the loop (tool `triage` or `fix`, empty arrays, usage source
+  `none`) and the loop's own otherwise.
+- **The gateway box and the `af` it needs.** The loop's box is made by the gateway of the lease (`box.GatewayEntry`),
+  the only provider the attempt has, which counts as isolating, calls its programs by name from the image of the
+  lease's profile, and is made with an empty `Env`: the profile supplies the image, the network and the secrets,
+  and the brain's credentials are named, never valued, in the commands run in the box. The image **must provide `af`**
+  of the same version and commit as the worker, since the checks of the repository are measured by the `af` of the
+  box: `af --version` is run once per box, an `af` of another version is the warning `box_af_version_mismatch`, and one
+  that is missing or fails is a `sandbox` failure that is not retryable and names the profile whose image has to
+  provide it (`fix_hint.env` `AF_SANDBOX_PROFILE`).
+- **Measuring in the box.** For a fix run under the service the detection of the checks (`af lang detect`), the
+  baseline and the gate after the change (`af gate run`) and the revert check (`af revert-check`) are *measured in
+  the box*, through the `af` of its image, and never on the host of the worker (`afcmd.Config.InBox`); the host's
+  gate and revert check are not called. A box that is lost while it measures ends the loop `failed`, category
+  `sandbox`, retryable, which is a transient error.
 - **The lease and the box.** After the clone the worker leases a sandbox: `POST …/sandboxes` with `{purpose:
   "triage"|"fix", labels: {job, attempt}}` and `profile` only when `AF_SANDBOX_PROFILE` is set, and tells the job
   the sandbox id. The attempt gets a box registry of its own that holds one provider, the gateway of the lease
@@ -1009,7 +1037,7 @@ worker, the poll, the `af` client) build on:
   `AF_MAX_ATTEMPTS` as the most attempts of a round (2 when the attempt stopped before the variables were read).
   When the attempt returns, `input/` is removed and so is `clone/`, except after a transient error and after a
   shutdown; `envelope.json`, `report.md` and the attempt directory are the jobs layer's and are never touched.
-- **The mark, the mirror and the cancel.** Once the session is open and an issue is named, the worker sets
+- **The mark, the mirror and the cancel — the label mirror.** Once the session is open and an issue is named, the worker sets
   `<prefix>in-progress` on it; the prefix is always the subscription's `label_prefix`, `AF_LABEL_PREFIX` is read
   for nothing but the warning `label_prefix_ignored` when it differs. Setting a status label (`in-progress`,
   `ready`, `needs-human`, `landed`, `failed`) removes the other four the issue carries, except that a fix's
@@ -1032,6 +1060,13 @@ worker, the poll, the `af` client) build on:
   with the lease released; the result carries the envelope of the loop, or one of category `cancelled` when the
   loop had not begun, and the PAT read at resolve serves it though the subscription is gone. A shutdown writes
   nothing to the forge, keeps `clone/`, releases the lease and returns its cause.
+- **The report to hub.** Once the lease is released, an attempt that has a session posts one usage record when a
+  brain ran (the model of the session, and the brain, tokens, cost, source of the cost and turns of the envelope),
+  all the events of the attempt, the loop's and the worker's steps, in batches of at most 500 in the order they
+  happened, and completes the session: `completed` for `done`, `unverified` and `needs_human`, `timeout` for a
+  failure of category `timeout`, and `failed` for the rest and for any attempt that returns a transient error. A
+  call that fails is a warning of the envelope (`hub_usage_failed`, `hub_events_failed`, `hub_session_failed`)
+  and changes nothing else; with no envelope it is logged.
 - **Tests.** `internal/hub/fakehub` is an `httptest` hub in the manner of `fakeforge`: a table of tokens,
   users and workspaces, a record of every request, and failures, hang-ups, delays, redirects and oversize
   answers by method and route on demand. It serves the calls above in the shapes of hub's OpenAPI
@@ -1044,9 +1079,9 @@ worker, the poll, the `af` client) build on:
   it is asked to create and the boxes it closes. `make check` needs no hub, no key and no network beyond
   the loopback interface.
 
-What it will do, and does not yet: run `af triage` and `af fix` on a subscribed workspace with its token (the
-runner behind the jobs below is a placeholder that fails each attempt as `unsupported`), poll the forge through
-hub, and be driven by an `af` that talks to it.
+What it does: run `af triage` and `af fix` on a subscribed workspace with its token, in its own process, through
+the worker below. What it will do, and does not yet: poll the forge through hub, and be driven by an `af` that
+talks to it.
 
 ### The jobs, as built
 
@@ -1111,8 +1146,8 @@ hub, and be driven by an `af` that talks to it.
 - **Retention.** A purge runs at start and then every hour on the layer's clock, and removes finished jobs with no
   running attempt and no runner in progress that were finished more than `[database].retain` ago: the directory
   first, then the rows, under the lock of the job.
-- **Tests.** Every test runs offline against `fakehub`, the fake runner and a fake clock; the placeholder runner is
-  what `cmd/agent-fox` wires until the worker exists.
+- **Tests.** Every test runs offline against `fakehub`, the fake runner and a fake clock; the placeholder runner,
+  which fails every attempt as `unsupported`, remains for a service built without a hub client of its own.
 
 ## What moves where
 

@@ -773,7 +773,7 @@ func TestEventsHubReferencesAndArtifactsReachTheRecorderAndTheEnvelope_TS_13_64(
 	if written[0].Type != "run_start" {
 		t.Errorf("the first event of the loop is %s", written[0].Type)
 	}
-	if want := []string{"resolve", "session", "clone", "lease", "run", "mirror", "release"}; !slices.Equal(steps, want) {
+	if want := []string{"resolve", "session", "clone", "lease", "run", "mirror", "release", "report"}; !slices.Equal(steps, want) {
 		t.Errorf("the steps of the worker are %v, want %v", steps, want)
 	}
 

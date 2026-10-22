@@ -56,13 +56,24 @@ credential enters which box.
 ## The agent-fox service
 
 agent-fox runs no model in this release. The service (`agent-fox`, see [cli.md](cli.md#the-agent-fox-command-line))
-serves probes, the subscription of workspaces and jobs: it makes no call to a model provider, holds no vendor key
-and no forge token, and reads no variable of a model vendor. The only credentials it holds are the tokens
-that callers send it, which it asks hub about and keeps only as a hash in memory, and the workspace tokens
-that callers hand over to subscribe a workspace, which it keeps sealed (see [api.md](api.md) and
-[configuration.md](configuration.md#the-agent-fox-service)). The jobs layer queues and records the work, and the
-runner that spends the model's tokens comes with a later spec; what the layer decides about cost is this:
+makes no call to a model provider: its worker runs the `af` loops in its own process, and the brain they start runs
+in a box that hub leases. It holds no vendor key and no forge token, and reads no variable of a model vendor. The
+only credentials it holds are the tokens that callers send it, which it asks hub about and keeps only as a hash in memory, and the workspace
+tokens that callers hand over to subscribe a workspace, which it keeps sealed (see [api.md](api.md) and
+[configuration.md](configuration.md#the-agent-fox-service)). What an attempt spends is this:
 
+- **The model is `AF_MODEL`.** It is a hub variable of the workspace (see
+  [configuration.md](configuration.md#the-hub-variables-of-an-attempt)); when it is unset the catalog's default
+  Anthropic model, `claude-sonnet-5-5` today. The session that is opened on hub, the brain and the usage record carry the same one.
+- **The vendor key is the box's.** The sandbox profile that hub leases supplies the image, the network and the secrets
+  of the box, and a brain started there is told the *names* of its credentials (`ANTHROPIC_API_KEY`) as references to the
+  box's own environment, never as values. The worker sends no key, puts none in a box spec, whose `Env` is empty, and
+  does not read the environment of its own process.
+- **The bounds are variables too.** `AF_MAX_BUDGET_USD` (default `2` for a triage, `10` for a fix), `AF_MAX_TURNS`,
+  `AF_TIMEOUT` and `AF_MAX_ATTEMPTS` bound an attempt; the `scripted` brain, which spends nothing, is for tests and is
+  not one a variable may name.
+- **The cost is reported to hub.** After the sandbox is released the worker posts one usage record, with the model, the
+  brain, the tokens, the cost, where the cost came from and the turns of the envelope, when a brain ran.
 - **A job costs the sum of its attempts.** Its `usage` is the sum of `cost_usd`, `input_tokens`, `output_tokens`
   and `turns` over the attempts that have finished, as each attempt's envelope reports them; the attempts show
   their own `usage`. A job that is asked again (an answer, a retry) spends more, because each human action opens
