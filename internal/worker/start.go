@@ -166,18 +166,25 @@ func (r *Runner) laterDelivery(ctx context.Context, a *attempt, fresh recovery.J
 		a.runID = old.Session.RunID
 	}
 	spent := carry(old.Spend, old.Carried, &ledger)
-	a.resume = &resumeState{journal: old, stage: stageBrain}
-	if accepted, _ := acceptedSubmission(a.req.Kind, a.cloneDir, runID); accepted != nil {
-		if stage := accepted.stage(a.req.Kind); stage != "" {
-			a.resume.stage = stage
-		}
-	}
+	a.resume = &resumeState{journal: old, stage: a.runStage(runID)}
 	if plan := old.Landing.Plan; plan != nil && remote != "" { // disagrees refused any commit but the plan's
 		a.resume.stage = stagePublished // the change is on hub's git server: it is published, not redone
 	}
 	r.leave(a, spent)
 	old.Settings = a.pinned
 	return old, nil
+}
+
+// runStage is the stage that the run in the clone is picked up from, once it is whole: the change of a fix report
+// that the host accepted and applied is measured, a question or a diagnosis that it accepted is landed again, and
+// any other run is begun again by the brain.
+func (a *attempt) runStage(runID string) string {
+	if accepted, _ := acceptedSubmission(a.req.Kind, a.cloneDir, runID); accepted != nil {
+		if stage := accepted.stage(a.req.Kind); stage != "" {
+			return stage
+		}
+	}
+	return stageBrain
 }
 
 // prepareResumedClone makes the clone of a resumed delivery what the stage it picks up from needs: a fix

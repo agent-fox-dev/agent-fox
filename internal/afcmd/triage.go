@@ -813,13 +813,20 @@ func triageLoop(c *Config, r *toolio.Run, s *brain.Settings, land string, labelF
 
 	submitted := c.Resume != nil && c.Resume.Submitted
 	var res brain.Result
+	var lost error // what the box says of its sandbox when the brain is done
 	if submitted {
 		res, err = acceptedAgain(c, r, s.Brain) // the brain does not run: it has no step
 	} else {
 		r.Emit("step", triageStep{stepBrain})
-		res, err = runInBox(c, r, s, entry, boxEntry, b, opts, rendered.brief, c.seededTally(r, s.Brain))
+		res, err = runInBox(c, r, s, entry, boxEntry, b, opts, rendered.brief, c.seededTally(r, s.Brain), &lost)
 	}
 	if err != nil {
+		if c.BoxLost != nil && (errors.Is(err, box.ErrUnavailable) || lost != nil) {
+			if lost == nil {
+				lost = err
+			}
+			return toolio.Outcome{}, c.lostBox(lost)
+		}
 		return toolio.Outcome{}, err
 	}
 
@@ -925,7 +932,7 @@ func (l loopReport) Artifact(a toolio.Artifact) {
 // provider, borrowed hands and those tools come to (brain.BoxRequest). The
 // submission and the refused calls of the box are in the run directory when it
 // returns, whether the run came to a submission or not.
-func runInBox(c *Config, r *toolio.Run, s *brain.Settings, entry brain.Entry, boxEntry box.Entry, b brain.Brain, opts brain.Options, brief triage.Brief, tally *brain.Tally) (brain.Result, error) {
+func runInBox(c *Config, r *toolio.Run, s *brain.Settings, entry brain.Entry, boxEntry box.Entry, b brain.Brain, opts brain.Options, brief triage.Brief, tally *brain.Tally, lost *error) (brain.Result, error) {
 	var res brain.Result
 	deadline, _ := r.Ctx.Deadline()
 	err := box.With(r.Ctx, brain.BoxRequest(brain.BoxParams{
@@ -948,6 +955,7 @@ func runInBox(c *Config, r *toolio.Run, s *brain.Settings, entry brain.Entry, bo
 			},
 		})
 		readBackRejections(r, sess)
+		*lost = sess.Lost()
 		return err
 	})
 	return res, err

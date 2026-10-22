@@ -131,9 +131,18 @@ func (a *attempt) noteLease() {
 	a.note(stepLease, func(j *recovery.Journal) { j.Leases = append(j.Leases, l) })
 }
 
+// snapshot is the journal as the delivery holds it now.
+func (h *journalHandle) snapshot() recovery.Journal {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.j
+}
+
 // noteRelease records that the lease was given back.
-func (a *attempt) noteRelease() {
-	id := a.lease.ID
+func (a *attempt) noteRelease() { a.noteReleaseOf(a.lease.ID) }
+
+// noteReleaseOf records that the lease of the sandbox was given back.
+func (a *attempt) noteReleaseOf(id string) {
 	a.note(stepRelease, func(j *recovery.Journal) {
 		for i := range j.Leases {
 			if j.Leases[i].SandboxID == id {
@@ -245,6 +254,8 @@ func (r *Runner) ledgerSink(a *attempt) func(kind string, data json.RawMessage) 
 		case "fix.brief", "triage.brief":
 			a.noteRun()
 			r.reached(a, "briefed")
+		case "box_sync":
+			r.reached(a, "box_synced")
 		case "brain_end":
 			a.refreshSpend()
 		case "submission_accepted":
@@ -259,6 +270,9 @@ func (r *Runner) ledgerSink(a *attempt) func(kind string, data json.RawMessage) 
 // stageAbort. The panic is the death: it unwinds past the cleanup, and the shell of the loop, which
 // recovers it, is asked afterwards.
 func (r *Runner) reached(a *attempt, stage string) {
+	if r.reachedHook != nil {
+		r.reachedHook(stage)
+	}
 	if r.abortAfter == "" {
 		return
 	}

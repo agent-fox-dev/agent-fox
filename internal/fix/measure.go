@@ -329,7 +329,7 @@ func revertCheck(ctx context.Context, p MeasureParams, m *Measurement) error {
 		case ctx.Err() != nil:
 			return ctx.Err()
 		case errors.As(err, &failure):
-			return failure // the box that measured has said what it is, and whether it may be tried again
+			return err // the box that measured has said what it is, and whether it may be tried again; the error keeps what it is marked with
 		case errors.As(err, &restore):
 			return &toolio.Failure{Category: toolio.CategoryIO, Message: fmt.Sprintf("the tree could not be put back after the revert check: %v", restore)}
 		case errors.As(err, &gitErr):

@@ -51,22 +51,31 @@ func (r *Runner) lease(ctx context.Context, a *attempt) *outcome {
 		return nil
 	}
 	a.step("lease")
+	return r.takeLease(ctx, a, false)
+}
+
+// takeLease leases the sandbox, makes the registry of the attempt of its gateway, and cuts the timeout of the loop to
+// fit it. The first lease of the attempt is released by the end of the attempt, or by the unwinding of a panic, and
+// a replacement for a sandbox that was lost is released the same way: the lease of the attempt is the newest.
+func (r *Runner) takeLease(ctx context.Context, a *attempt, replacement bool) *outcome {
 	l, err := r.cfg.Hub.Lease(ctx, a.pat, a.req.Workspace, hub.LeaseRequest{
 		Profile: a.settings.Profile,
 		Purpose: string(a.req.Kind),
 		Labels:  map[string]string{"job": a.req.JobID, "attempt": strconv.Itoa(a.req.Attempt)},
 	})
 	if err != nil {
-		return r.leaseFailure(ctx, a, err)
+		return r.leaseFailure(ctx, a, err, replacement)
 	}
 	a.lease = &l
 	a.noteLease()
-	a.onClose(func() { // the end of the attempt has released it already, but for a panic
-		if err := r.releaseLease(ctx, a); err != nil && !a.releaseNoted {
-			r.cfg.Logger.Warn("the lease of the attempt could not be released", "workspace", a.req.Workspace, "job", a.req.JobID,
-				"attempt", a.req.Attempt, "lease", a.lease.ID, "error", err.Error())
-		}
-	})
+	if !replacement {
+		a.onClose(func() { // the end of the attempt has released it already, but for a panic
+			if err := r.releaseLease(ctx, a); err != nil && !a.releaseNoted {
+				r.cfg.Logger.Warn("the lease of the attempt could not be released", "workspace", a.req.Workspace, "job", a.req.JobID,
+					"attempt", a.req.Attempt, "lease", a.lease.ID, "error", err.Error())
+			}
+		})
+	}
 	a.report.Hub(a.sessionID, a.runID, l.ID)
 
 	a.boxes = box.NewRegistry()
@@ -87,12 +96,14 @@ func (r *Runner) lease(ctx context.Context, a *attempt) *outcome {
 	return nil
 }
 
-// leaseFailure is the outcome of a lease that hub did not grant.
-func (r *Runner) leaseFailure(ctx context.Context, a *attempt, err error) *outcome {
+// leaseFailure is the outcome of a lease that hub did not grant. The credential that hub does not take ends an
+// attempt that has no box yet with an envelope; a replacement that hub refuses, whatever the reason, is a
+// transient error, for the delivery that comes next resumes the attempt.
+func (r *Runner) leaseFailure(ctx context.Context, a *attempt, err error, replacement bool) *outcome {
 	if ctx.Err() != nil {
 		return &outcome{err: context.Cause(ctx)}
 	}
-	if errors.Is(err, hub.ErrRefused) || errors.Is(err, hub.ErrForbidden) {
+	if !replacement && (errors.Is(err, hub.ErrRefused) || errors.Is(err, hub.ErrForbidden)) {
 		return r.envelopeOf(a, authRefusal(a.req.Workspace, "hub does not take the token to lease a sandbox"))
 	}
 	reason := err.Error()
@@ -103,7 +114,11 @@ func (r *Runner) leaseFailure(ctx context.Context, a *attempt, err error) *outco
 	case errors.Is(err, hub.ErrNotFound):
 		reason = "hub does not find the workspace or the profile of the sandbox"
 	}
-	return transientFailure(toolio.CategorySandbox, "hub did not lease a sandbox: "+reason)
+	what := "a sandbox"
+	if replacement {
+		what = "a replacement for the sandbox that was lost"
+	}
+	return transientFailure(toolio.CategorySandbox, fmt.Sprintf("hub did not lease %s: %s", what, reason))
 }
 
 // releaseLease releases the lease of the attempt, once, whichever path gets here first: the end

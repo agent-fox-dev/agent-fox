@@ -137,6 +137,7 @@ func fixLoop(c *Config, r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 		}
 	}
 	err = box.With(r.Ctx, fixBoxRequest(c, r, r.RunDir, entry, boxEntry, o.settings, opts), func(sess *box.Session) error {
+		defer func() { a.sessLost = sess.Lost() }()
 		a.info = fix.NewBoxInfo(sess)
 		m := measuring{gate: c.gate(), conform: c.conform()}
 		if c.InBox != nil {
@@ -158,6 +159,9 @@ func fixLoop(c *Config, r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 	if err != nil { // the box could not be opened: nothing was done
 		return toolio.Outcome{}, err
 	}
+	if lost := a.lostError(); lost != nil && c.BoxLost != nil {
+		return toolio.Outcome{}, c.lostBox(lost)
+	}
 	if a.prepareErr != nil {
 		return toolio.Outcome{}, a.prepareErr
 	}
@@ -165,6 +169,22 @@ func fixLoop(c *Config, r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 		return a.landed, a.landedErr
 	}
 	return a.finish()
+}
+
+// lostError is the error that says the box of the run was lost, or nil: an operation of the box that failed because
+// the sandbox is gone or cannot be reached, in the preparation of the run, in the loop or in the landing of an
+// applied change, or a tool of the box that the sandbox gave up on while the run did not come to a report or a
+// question.
+func (a *fixAttempt) lostError() error {
+	for _, err := range []error{a.prepareErr, a.loopErr, a.landedErr, a.ended.LastFailure} {
+		if errors.Is(err, box.ErrUnavailable) {
+			return err
+		}
+	}
+	if a.sessLost != nil && (a.ended.End == fix.EndExhausted || a.landedErr != nil) {
+		return a.sessLost
+	}
+	return nil
 }
 
 // finish turns what the loop came to, or the submission a delivery carried on from, into the end of the run.
@@ -218,6 +238,8 @@ type fixAttempt struct {
 	loopErr    error
 	info       fix.BoxInfo
 	prepareErr error
+	// sessLost is what the box says of its sandbox when the run is over, see box.Session.Lost.
+	sessLost error
 	// landed is how a run that carries on from the tree it applied ended.
 	landed    toolio.Outcome
 	landedErr error

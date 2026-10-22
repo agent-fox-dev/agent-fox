@@ -152,3 +152,101 @@ func TestAGoneOrUnreachableSandboxIsRecognisableAndItsFailureIsUnchanged_TS_14_4
 		})
 	}
 }
+
+// TestASessionRemembersThatATestToolFoundTheSandboxGone pins what the worker asks of a session after a round of a
+// brain: whether any tool of the box, a brain's call or the host's own, was told by the box that the sandbox is
+// gone. A tool that failed for another reason does not make it so.
+// Verifies: 14-REQ-7.1
+func TestASessionRemembersThatAToolFoundTheSandboxGone(t *testing.T) {
+	gone := core.ErrResult("sandbox_unavailable", "the box is gone")
+	other := core.ErrResult("write_failed", "disk full")
+	call := func(s *Session, name string) core.ToolResult {
+		for _, tool := range s.Tools() {
+			if tool.Name == name {
+				return tool.Execute(context.Background(), json.RawMessage(`{"command":"true"}`))
+			}
+		}
+		t.Fatalf("the box has no %s tool", name)
+		return core.ToolResult{}
+	}
+
+	t.Run("a brain's call", func(t *testing.T) {
+		s := open(t, Default, "local", newRepo(t, 1, "main"), &ledger{})
+		if s.Lost() != nil {
+			t.Fatalf("a box that is whole is lost: %v", s.Lost())
+		}
+		stubTool(s, "execute", other)
+		call(s, "execute")
+		if s.Lost() != nil {
+			t.Errorf("a tool that failed for another reason made the box lost: %v", s.Lost())
+		}
+		stubTool(s, "execute", gone)
+		call(s, "execute")
+		if err := s.Lost(); !errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), "the box is gone") {
+			t.Errorf("Lost() = %v, want the loss, with what the box said", err)
+		}
+	})
+
+	t.Run("a call of the host", func(t *testing.T) {
+		s := open(t, Default, "local", newRepo(t, 1, "main"), &ledger{})
+		stubTool(s, "write_file", gone)
+		_ = s.WriteFile(context.Background(), ".agent-fox/x", []byte("x"))
+		if err := s.Lost(); !errors.Is(err, ErrUnavailable) {
+			t.Errorf("Lost() = %v, want the loss", err)
+		}
+	})
+}
+
+// TestASessionNotesALossThatItsOwnOperationsFound pins that Lost says so for a sync, an export and a read of the tree
+// that failed because the sandbox is gone, though they return their errors to their callers, and that an operation
+// that failed for another reason does not.
+// Verifies: 14-REQ-7.1
+func TestASessionNotesALossThatItsOwnOperationsFound(t *testing.T) {
+	transport := fmt.Errorf("%w: gateway http://gw.invalid: sync git: connection reset", sandbox.ErrUnavailable)
+	cases := []struct {
+		name string
+		lost bool
+		do   func(s *Session, sb *lossSandbox)
+	}{
+		{"a sync, the transport failed", true, func(s *Session, sb *lossSandbox) {
+			sb.syncErr = transport
+			_ = s.Sync(context.Background())
+		}},
+		{"an export, the transport failed", true, func(s *Session, sb *lossSandbox) {
+			sb.exportErr = transport
+			_, _ = s.Export(context.Background())
+		}},
+		{"a read of a file, the transport failed", true, func(s *Session, sb *lossSandbox) {
+			if err := s.WriteFile(context.Background(), ".agent-fox/x", []byte("x")); err != nil {
+				t.Fatal(err)
+			}
+			sb.exportErr = transport
+			_, _ = fs.ReadFile(s.FS(context.Background()), ".agent-fox/x")
+		}},
+		{"a listing, the tool says the sandbox is gone", true, func(s *Session, _ *lossSandbox) {
+			stubTool(s, "list_files", core.ErrResult("sandbox_unavailable", "the box is gone"))
+			_, _ = fs.ReadDir(s.FS(context.Background()), ".agent-fox")
+		}},
+		{"a sync, another reason", false, func(s *Session, sb *lossSandbox) {
+			sb.syncErr = errors.New("transfer broke")
+			_ = s.Sync(context.Background())
+		}},
+		{"an export, an unsafe archive", false, func(s *Session, sb *lossSandbox) {
+			sb.exportErr = sandbox.ErrUnsafeArchive
+			_, _ = s.Export(context.Background())
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := open(t, Default, "local", newRepo(t, 1, "main"), &ledger{})
+			sb := &lossSandbox{Sandbox: s.sb}
+			s.sb = sb
+
+			tc.do(s, sb)
+
+			if got := errors.Is(s.Lost(), ErrUnavailable); got != tc.lost {
+				t.Errorf("errors.Is(Lost(), ErrUnavailable) = %v (Lost() = %v), want %v", got, s.Lost(), tc.lost)
+			}
+		})
+	}
+}

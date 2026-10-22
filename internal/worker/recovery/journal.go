@@ -82,11 +82,13 @@ type Session struct {
 	Completed bool   `json:"completed"`
 }
 
-// Lease is a sandbox the attempt leased, and whether it gave it back.
+// Lease is a sandbox the attempt leased, whether it gave it back, and whether the sandbox was lost while
+// it was held: gone, or out of reach, in the middle of a delivery, which the delivery replaced.
 type Lease struct {
 	SandboxID string    `json:"sandbox_id"`
 	ExpiresAt time.Time `json:"expires_at"`
 	Released  bool      `json:"released"`
+	Lost      bool      `json:"lost,omitempty"`
 }
 
 // Delivery is one handover of the attempt to the worker.

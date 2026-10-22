@@ -76,8 +76,10 @@ type Runner struct {
 	// loop, when it is set, is the step that stands for the loop in a test; nil is the loop.
 	loop func(ctx context.Context, a *attempt) *outcome
 	// abortAfter, when it is set, names the stage after which a delivery stops as a process that died
-	// there does, see stageAbort.
-	abortAfter string
+	// there does, see stageAbort. reachedHook, when it is set, is called with every stage a delivery
+	// reaches, before it is stopped there.
+	abortAfter  string
+	reachedHook func(stage string)
 	// journalFault, when it is set, is asked before each write of the journal, with the name of the
 	// step it records, and the write fails with the error it returns.
 	journalFault func(step string) error

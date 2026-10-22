@@ -78,6 +78,11 @@ type Config struct {
 	// says what they found, and the brain runs again from the base. The shell is told the directory by its
 	// RunID and ReuseRunDir.
 	Resume *Resume
+	// BoxLost, when it is set, is told that the box of fix or triage was lost: the sandbox is gone or cannot be
+	// reached. The command then ends with a failure of category sandbox that may be tried again, and nothing
+	// that the lost box was making is landed, parked or discarded, so that a caller that replaces the box can go
+	// on from where the attempt stands. The error matches box.ErrUnavailable.
+	BoxLost func(err error)
 	// Spent is what the brain runs of the attempt cost before this invocation, for a caller that carries an
 	// attempt on: the tally of the invocation starts from it, so that the usage the envelope reports is
 	// the attempt's.
@@ -94,6 +99,12 @@ type Resume struct {
 	// question, or a triage diagnosis. The brain does not run, no box is opened, and the submission is landed
 	// again, or the question asked again.
 	Submitted bool
+}
+
+// lostBox tells the caller that the box was lost, and is the failure the command ends with.
+func (c *Config) lostBox(cause error) error {
+	c.BoxLost(cause)
+	return &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the sandbox of the box was lost, and what it was making is neither landed nor parked: %v", cause)}
 }
 
 // seededTally is the tally of an invocation: it starts from what the attempt had spent, which the run

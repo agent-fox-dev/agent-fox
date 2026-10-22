@@ -29,6 +29,16 @@ func (r *Runner) run(ctx context.Context, a *attempt) *outcome {
 		return r.finishPublished(ctx, a)
 	}
 	a.step("run")
+	a.loopStarted = a.clock()
+	out := r.runLoop(ctx, a)
+	if a.boxLost != nil && ctx.Err() == nil {
+		return r.replaceBox(ctx, a)
+	}
+	return out
+}
+
+// runLoop runs the loop once, in the box of the lease the attempt holds now.
+func (r *Runner) runLoop(ctx context.Context, a *attempt) *outcome {
 	args, stdin, refused := r.loopArgs(a)
 	if refused != nil {
 		return r.envelopeOf(a, refused)
@@ -75,7 +85,7 @@ func (r *Runner) loopConfig(a *attempt) *afcmd.Config {
 	}
 	return &afcmd.Config{
 		Version: r.cfg.Version, Commit: r.cfg.Commit, BuildTime: r.cfg.BuildTime,
-		Resume: resume, Spent: outcomeOf(a.spent),
+		Resume: resume, Spent: outcomeOf(a.spent), BoxLost: func(err error) { a.boxLost = err },
 		Forge:     r.cfg.Hub.ForgeFactory(a.pat, a.req.Workspace, a.repo),
 		Boxes:     a.boxes,
 		Brain:     brain.Options{Model: a.settings.Model, Getenv: nothing},

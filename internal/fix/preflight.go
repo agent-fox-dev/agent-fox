@@ -140,7 +140,7 @@ func GateError(ctx context.Context, what string, err error) error {
 	case ctx.Err() != nil:
 		return ctx.Err()
 	case errors.As(err, &failure):
-		return failure // the box that measured has said what it is, and whether it may be tried again
+		return err // the box that measured has said what it is, and whether it may be tried again; the error keeps what it is marked with
 	}
 	return &toolio.Failure{Category: toolio.CategoryIO, Message: fmt.Sprintf("%s could not run: %v", what, err)}
 }
@@ -244,7 +244,7 @@ func checkGate(ctx context.Context, p PreflightParams) (project.Detection, []str
 	if err != nil {
 		var failure *toolio.Failure
 		if errors.As(err, &failure) {
-			return project.Detection{}, nil, failure
+			return project.Detection{}, nil, err // the failure the box gave, marked as it was: a sandbox that is gone is found in it
 		}
 		category := toolio.CategoryInternal
 		if errors.Is(err, project.ErrGateConfig) {

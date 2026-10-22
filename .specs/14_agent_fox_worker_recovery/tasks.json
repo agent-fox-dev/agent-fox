@@ -415,7 +415,7 @@
       "done_when": [
         "a replacement box never produces a parked branch from the lost box's partial work"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 10,

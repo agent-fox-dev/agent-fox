@@ -220,3 +220,50 @@ that "resumes or discards a resume" and of "a resumed delivery".
 - The step event `resume` is built in `resume.go`, not in `events.go`, which is the file of the events of the
   loop; `events.go` is not changed. Deviation keys: `ts_14_41_passes_before_task_8`,
   `unmirrored_outcome_is_returned_as_stored` and `discarded_resume_is_announced_as_a_resume`.
+
+## 12. A lost box is found by the session, told to the worker by a hook of the loop, and replaced once (task 9)
+
+**Spec:** task 9 owns TS-14-44 to TS-14-49 and TS-14-58, and lists `boxloss.go`, `lease.go`, `runner.go` and
+`fixrun.go` as its `touches`. Its step 9.2 classifies a loss "via errors.Is(err, box.ErrUnavailable) for brain
+tool calls, host exec, sync, export, file write and gate runs", and step 9.3 "intercepts the round failure in the
+worker's loop wrapper". 14-REQ-7.3 speaks of the delivery's context deadline.
+
+**Code:**
+
+- TS-14-44 to TS-14-48 and TS-14-58 were seen failing first. TS-14-49 passed when it was written: when nothing is
+  lost nothing is replaced, which the code did not do before either (`ts_14_49_passes_before_task_9`).
+- A brain's tool call that finds the sandbox gone does not return an error that says so: the brain sees a tool
+  result and fails in its own way. So `box.Session` notes the loss whichever operation found it (a tool call of a
+  brain, a call of the host, a sync, an export, a read of the tree) and answers `Lost()` with an error that matches
+  `box.ErrUnavailable`. The operation returns its error to its caller as it did.
+- The loop is in this process, and the wrapper the spec speaks of is a hook of `afcmd.Config`: `BoxLost`. When it
+  is set, a fix or a triage whose box was lost (an error of the preparation, of the loop or of the landing of an
+  applied change that matches `ErrUnavailable`, or a lost session when the run came to neither a report nor a
+  question) calls it and ends with a failure of category sandbox that may be tried again, and does not reach
+  `fix.Finish`: what the lost box was making is neither landed nor parked. Without the hook nothing changes.
+  The code is in `internal/afcmd/{afcmd,fix,triage}.go` and `internal/box/session.go`; `fixrun.go` is not made,
+  for the loop of a fix is not in the worker (see item 5). `fix.Preflight` and `fix.GateError` pass a failure of
+  the box on as it is, with what it is marked with, where they passed its `*toolio.Failure` alone.
+- `Runner.run` runs the loop (`runLoop`), and when the hook was called replaces the box (`replaceBox`,
+  `boxloss.go`) and runs the loop once more: the loss is recorded in the journal (`recovery.Lease.Lost`), the lost
+  lease is released, a replacement is leased with the profile and the purpose of the first (`takeLease`, which
+  `lease` shares), the warning and the step event `box_replaced` name both sandboxes, and the stage the run stands
+  at is picked up as a resumed delivery does (`runStage`, `prepareResumedClone`, `nothingLeft`, `leave`). That
+  delivery is not a resumed one: it carries no `attempt_resumed` of its own, and a delivery that resumed an attempt
+  and then replaced its box says the stage it resumed from.
+- The deadline of a delivery is made of the timeout the loop is given. The replacement gets what is left of it
+  (the time since the loop began is taken off), and the cut of 14-REQ-7.3 is the one `lease` makes for a first
+  lease: the loop ends two minutes before the replacement expires, with `lease_shortened_timeout`. A loop that
+  begins then has a context whose deadline is no later than that (`deadline_is_the_loop_timeout`).
+- A replacement that hub refuses is a transient error of category sandbox for every reason, the credential
+  included, where the first lease that hub refuses for the credential ends the attempt with an envelope. A box
+  that is lost a second time ends the loop with the failure of a lost box, which is the same transient error: the
+  delivery does not check for it again.
+- A box that is lost before the loop has pinned what its preflight found (fix.json, triage.json) has nothing to
+  go on from, and cannot be replaced in place: the delivery ends with a transient error of category sandbox, and
+  the next one begins the attempt again, as a resume that cannot be carried on is discarded
+  (`loss_before_the_run_is_pinned_is_transient`).
+- The seams of the tests: `Runner.reachedHook` is called with every stage a delivery reaches, and `box_synced`
+  is a stage (the ledger records `box_sync`).
+- Deviation keys: `ts_14_49_passes_before_task_9`, `deadline_is_the_loop_timeout` and
+  `loss_before_the_run_is_pinned_is_transient`.

@@ -102,7 +102,13 @@ type attempt struct {
 	// discarded is why the delivery began again, and announced says the job was told that it resumed.
 	stored    *recovery.Outcome
 	discarded string
-	announced bool
+	announced *resumeNote
+	// boxLost is the loss of the box that the loop told the delivery of, and replacing says a.resume is the state
+	// the replacement went on from, and no resume of an earlier delivery. loopStarted is when the loop began, which
+	// the timeout of the delivery counts from.
+	boxLost     error
+	replacing   bool
+	loopStarted time.Time
 }
 
 // onClose registers what the attempt gives back when it ends.
@@ -142,10 +148,14 @@ func (a *attempt) clock() time.Time {
 
 // step tells the job that a step of the pipeline began.
 func (a *attempt) step(name string) {
-	data := struct {
+	a.emitStep(struct {
 		Name   string `json:"name"`
 		Source string `json:"source"`
-	}{name, "worker"}
+	}{name, "worker"})
+}
+
+// emitStep tells the job a step of the worker, with its data.
+func (a *attempt) emitStep(data any) {
 	raw, _ := json.Marshal(data)
 	a.keep("step", stamp(a.clock()), raw)
 	a.report.Emit("step", data)
