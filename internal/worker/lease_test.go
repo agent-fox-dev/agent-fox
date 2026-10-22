@@ -197,7 +197,7 @@ func TestOtherLeaseOrBoxProblemsAreTransientSandboxErrors_TS_13_43(t *testing.T)
 	}{
 		"a 503": {setup: func(e *env) { e.hub.Inject("POST", sandboxesPath, fakehub.Fault{Status: 503}) }, contains: "503"},
 		"a capacity rejection with a reason": {setup: func(e *env) {
-			e.hub.Inject("POST", sandboxesPath, fakehub.Fault{Status: 409, Body: `{"error":{"code":"capacity","message":"` + reason + `"}}`})
+			e.hub.Inject("POST", sandboxesPath, fakehub.Fault{Status: 409, Body: `{"error":{"code":409,"message":"` + reason + `","error_type":"sandbox_capacity"}}`})
 		}, contains: reason},
 		"a lease timeout": {setup: func(e *env) {
 			e.runner.cfg.Hub.LongTimeout = 300 * time.Millisecond
@@ -566,5 +566,63 @@ func TestTheBoxOfTheLoopIsMadeWithTheLabelsOfTheJobAndTheAttempt(t *testing.T) {
 	labels := created[0].Spec.Labels
 	if labels["af.job"] != req.JobID || labels["af.attempt"] != "2" || labels["af.tool"] != "fix" || !strings.Contains(labels["af.run_id"], "_") || len(created[0].Spec.Env) != 0 {
 		t.Errorf("labels %v, env %v, want af.job, af.attempt 2, af.tool fix, af.run_id and no environment", labels, created[0].Spec.Env)
+	}
+}
+
+// TestALeaseThatCannotBeReleasedAfterAPanicIsLoggedOnceAndOneThatCannotBeReleasedAtTheEndIsLoggedOnce
+// pins the log of a release that fails: by the end of the attempt, once, and by the unwinding of a
+// panic, which has no other end to do it.
+// Verifies: 13-REQ-6.8
+func TestALeaseThatCannotBeReleasedAfterAPanicIsLoggedOnceAndOneThatCannotBeReleasedAtTheEndIsLoggedOnce(t *testing.T) {
+	count := func(logged *bytes.Buffer) int {
+		return strings.Count(logged.String(), "the lease of the attempt could not be released")
+	}
+	for name, panics := range map[string]bool{"the end of the attempt": false, "a panic": true} {
+		t.Run(name, func(t *testing.T) {
+			e := leaseEnv(t, nil)
+			var logged bytes.Buffer
+			e.runner.cfg.Logger = slog.New(slog.NewTextHandler(&logged, nil))
+			e.hub.Inject("DELETE", sandboxesPath+"/*", fakehub.Fault{Status: 500})
+			e.runner.loop = e.inBox(func(_ context.Context, a *attempt) *outcome {
+				if panics {
+					panic("the loop panicked")
+				}
+				return ended(a, nil)
+			})
+
+			func() {
+				defer func() { _ = recover() }()
+				_, _ = e.run(e.fixRequest())
+			}()
+
+			if got := count(&logged); got != 1 {
+				t.Errorf("the failure to release the lease was logged %d times, want once:\n%s", got, logged.String())
+			}
+		})
+	}
+}
+
+// TestTheReleaseOfALeaseIsBoundedByWhatIsLeftOfTheEndOfTheAttempt pins the bound of the release: 30
+// seconds, less when the end of the attempt has less time left, and never under a few seconds.
+// Verifies: 13-REQ-6.7
+func TestTheReleaseOfALeaseIsBoundedByWhatIsLeftOfTheEndOfTheAttempt(t *testing.T) {
+	e := leaseEnv(t, nil)
+	r := e.runner
+	if got := r.releaseBoundWithin(context.Background()); got != 30*time.Second {
+		t.Errorf("without a deadline the bound is %v, want 30s", got)
+	}
+	within := func(d time.Duration) time.Duration {
+		ctx, cancel := context.WithTimeout(context.Background(), d)
+		defer cancel()
+		return r.releaseBoundWithin(ctx)
+	}
+	if got := within(10 * time.Second); got > 10*time.Second || got < 9*time.Second {
+		t.Errorf("with 10s left the bound is %v", got)
+	}
+	if got := within(5 * time.Minute); got != 30*time.Second {
+		t.Errorf("with 5 minutes left the bound is %v, want 30s", got)
+	}
+	if got := within(time.Millisecond); got != minRelease {
+		t.Errorf("with the time run out the bound is %v, want %v", got, minRelease)
 	}
 }

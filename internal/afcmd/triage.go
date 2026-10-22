@@ -126,7 +126,7 @@ func renderBrief(c *Config, r *toolio.Run, report triage.Report, facts triage.Fa
 		previous = c.previousQuestion(r.Dir, facts.Input.Fingerprint, r.RunDir.ID, len(r.Context))
 	}
 	brief, err := triage.BuildBrief(r.Ctx, triage.BriefParams{
-		Dir: r.Dir, Report: report, RunID: r.RunDir.ID, Context: r.Context, PreviousQuestion: previous,
+		Dir: r.Dir, Report: report, RunID: r.RunDir.ID, Context: r.Context, Material: c.materialFlags(len(r.Context)), PreviousQuestion: previous,
 		InProcess: inProcess, Bounds: bounds, TruncationMarker: toolio.TruncationMarker,
 	})
 	if err != nil {

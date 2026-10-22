@@ -189,6 +189,20 @@ func (c *Config) previousQuestion(dir, fingerprint, exclude string, n int) *tria
 	return nil
 }
 
+// materialFlags says, for each of the n --context values, whether the caller supplied no
+// question for it, so that the brief frames it as material from a person and not as an answer.
+// Without supplied questions af frames every value as an answer, and none is marked.
+func (c *Config) materialFlags(n int) []bool {
+	if c.Earlier == nil {
+		return nil
+	}
+	flags := make([]bool, n)
+	for i := range flags {
+		flags[i] = c.Earlier.question(i) == nil
+	}
+	return flags
+}
+
 // conform is the revert check of the invocation.
 func (c *Config) conform() func(ctx context.Context, dir, since string, o conform.Options) (conform.Result, error) {
 	if c.Conform != nil {

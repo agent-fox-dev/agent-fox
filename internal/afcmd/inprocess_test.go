@@ -300,6 +300,10 @@ func TestTriageBriefHoldsTheQuestionOfTheLastValueThatHasOne_TS_13_5(t *testing.
 			t.Errorf("the brief lacks the value %q", value)
 		}
 	}
+	// Two values answered a question; the third is material from a person, and the brief says so.
+	if strings.Count(brief, "A person's answer (") != 2 || strings.Count(brief, "Material from a person (3 of 3)") != 1 {
+		t.Errorf("the values are not framed as two answers and one piece of material:\n%s", brief[max(0, len(brief)-1500):])
+	}
 	if len(codes(env)) != 0 {
 		t.Errorf("warnings = %v, want none", codes(env))
 	}

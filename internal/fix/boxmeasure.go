@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentdir"
 	"github.com/agent-fox-dev/agentfox/internal/box"
@@ -169,7 +170,34 @@ func (m *BoxMeasurer) run(ctx context.Context, table *project.Table, args []stri
 	if err != nil {
 		return answer{}, m.explain(err)
 	}
-	return m.decode(res, args, into)
+	env, err := m.decode(res, args, into)
+	if err != nil && !res.TimedOut {
+		// An answer that cannot be read is an af that cannot be used, unless the box is gone: the
+		// command may have run, and the box been lost before its envelope was read.
+		if lost := m.lost(ctx); lost != nil {
+			return answer{}, lost
+		}
+	}
+	return env, err
+}
+
+// boxProbeTimeout bounds the question whether the box is still there.
+const boxProbeTimeout = 10 * time.Second
+
+// lost is the failure of a box that can no longer be asked anything, which may be tried again, or
+// nil while it answers or when the run was stopped.
+func (m *BoxMeasurer) lost(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return nil
+	}
+	probe, cancel := context.WithTimeout(context.WithoutCancel(ctx), boxProbeTimeout)
+	defer cancel()
+	// The root of the view is not asked of the box; a path under it is, and a path that is not
+	// there is an answer.
+	if _, err := fs.Stat(m.Session.FS(probe), agentdir.Name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the box of %s was lost while af ran in it: %v", m.profile(), err)}
+	}
+	return nil
 }
 
 // ring1Brain names the files of the answers of the ring-1 commands: the runner of processes

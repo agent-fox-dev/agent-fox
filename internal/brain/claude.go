@@ -104,10 +104,7 @@ func (c *claudeBrain) Run(ctx context.Context, b Brief) (Outcome, error) {
 		b.note("claude_tool_dropped", map[string]any{"tool": tool})
 	}
 	args := claudeArgs(path.Join(root, dir, "claude-settings.json"), b.MaxTurns, lists, c.model)
-	res, err := c.proc.Run(ctx, b, ProcessSpec{
-		Brain: ClaudeName, Program: ProgramClaude, Args: args, Probes: []string{ProgramAF, ProgramClaude}, StdinBrief: true,
-		Credentials: []string{VendorKeyVar},
-	})
+	res, err := c.proc.Run(ctx, b, claudeProcess(args))
 	if err != nil {
 		return Outcome{StopReason: StopError}, err
 	}
@@ -343,4 +340,13 @@ func claudeToolLists(tools []string, agent string) toolLists {
 		l.Disallowed = append(l.Disallowed, "Write", "Edit", "MultiEdit", "NotebookEdit")
 	}
 	return l
+}
+
+// claudeProcess is the process the brain runs in the box: claude, with af probed beside it, the brief
+// on its standard input, and the name of the vendor key as the credential the box has to supply.
+func claudeProcess(args []string) ProcessSpec {
+	return ProcessSpec{
+		Brain: ClaudeName, Program: ProgramClaude, Args: args, Probes: []string{ProgramAF, ProgramClaude}, StdinBrief: true,
+		Credentials: []string{VendorKeyVar},
+	}
 }

@@ -502,8 +502,8 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 // writeError answers with hub's error shape. It never repeats anything of the
 // request, so that a token cannot come back in a body.
-func writeError(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, map[string]any{"error": map[string]string{"code": code, "message": message}})
+func writeError(w http.ResponseWriter, status int, errorType, message string) {
+	writeJSON(w, status, map[string]any{"error": map[string]any{"code": status, "message": message, "error_type": errorType}})
 }
 
 // readJSON decodes the body of the request into v, and answers 400 and says so when it

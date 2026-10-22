@@ -455,6 +455,37 @@ func TestTheTaskBlockCarriesTheEarlierQuestionAndTheAnswers(t *testing.T) {
 	}
 }
 
+// TestAContextValueThatAnswersNoQuestionIsMaterialAndNotAnAnswer pins that a value marked as having
+// no question is framed as material from a person, among the answers that are framed as such, and
+// that the line that follows them says what they are.
+func TestAContextValueThatAnswersNoQuestionIsMaterialAndNotAnAnswer(t *testing.T) {
+	dir := goTree(t)
+	p := params(dir, issueReport("body"))
+	p.Context = []string{"the log is attached", "B"}
+	p.Material = []bool{true, false}
+	p.PreviousQuestion = &Question{Text: "Which session?", Options: []string{"old", "new"}}
+
+	task := build(t, p).Task
+
+	before, content := fencesOf(task)
+	got := map[string]string{}
+	for i, b := range before {
+		got[content[i]] = b
+	}
+	if !strings.Contains(got["the log is attached"], "Material from a person (1 of 2)") || strings.Contains(got["the log is attached"], "answer") {
+		t.Errorf("the value with no question is labelled %q, want material from a person", got["the log is attached"])
+	}
+	if !strings.Contains(got["B"], "A person's answer (2 of 2)") {
+		t.Errorf("the answer is labelled %q", got["B"])
+	}
+
+	p.Material = nil
+	task = build(t, p).Task
+	if strings.Contains(task, "Material from a person (") {
+		t.Error("with nothing marked, every value is an answer, as it was")
+	}
+}
+
 // TestTheReportSectionNeverExceedsItsCap guards 08-REQ-3.4: the section, its
 // heading and its fences and newlines included, is at most 131072 bytes, whether
 // the report is cut or only just fits.

@@ -58,17 +58,19 @@ type attempt struct {
 	warnings []toolio.Warning
 	// releaseOnce makes the release of the lease happen once, whichever path asks for it first,
 	// and releaseErr is how it went.
-	releaseOnce sync.Once
-	releaseErr  error
+	releaseOnce  sync.Once
+	releaseErr   error
+	releaseNoted bool // the end of the attempt has logged a release that failed
 	// labelPrefixVar is AF_LABEL_PREFIX as it was set, which nothing uses: the prefix of the labels
 	// is the subscription's. It is kept to warn when the two differ.
 	labelPrefixVar string
 	// issue is the issue the input named, nil for a text and a file. labels are the labels it
 	// carries as the attempt knows them: those it carried at resolve, and what the attempt wrote
 	// since. marked says the attempt set in-progress on it.
-	issue  *issuex.IssueRef
-	labels []string
-	marked bool
+	issue   *issuex.IssueRef
+	labels  []string
+	initial []string // the labels it carried at resolve
+	marked  bool
 	// labelsSet and labelsRemoved are what the attempt did to labels, as the result reports it: a
 	// label that was set and taken off again is removed and not set. sideEffects are the writes to
 	// the forge of the worker, to be added to the envelope.
@@ -179,7 +181,7 @@ func (r *Runner) resolve(ctx context.Context, a *attempt) *outcome {
 			return r.envelopeOf(a, usageRefusal("%s is a pull request or a merge request, and agent-fox takes an issue", input.url))
 		}
 		ref := input.ref
-		a.issue, a.labels = &ref, slices.Clone(thread.Issue.Labels)
+		a.issue, a.labels, a.initial = &ref, slices.Clone(thread.Issue.Labels), slices.Clone(thread.Issue.Labels)
 	}
 	return nil
 }

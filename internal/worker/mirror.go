@@ -56,7 +56,10 @@ func (a *attempt) addLabel(ctx context.Context, ref issuex.IssueRef, label, warn
 		if !slices.Contains(a.labels, label) {
 			a.labels = append(a.labels, label)
 		}
-		if !slices.Contains(a.labelsSet, label) {
+		if i := slices.Index(a.labelsRemoved, label); i >= 0 && slices.Contains(a.initial, label) {
+			// Taken off and put back: the issue has it as it had it, and the result says neither.
+			a.labelsRemoved = slices.Delete(a.labelsRemoved, i, i+1)
+		} else if !slices.Contains(a.labelsSet, label) {
 			a.labelsSet = append(a.labelsSet, label)
 		}
 	}

@@ -327,7 +327,7 @@ func TestHubForgeErrorsMapOntoTheIssuexTypesTheLoopsClassify_TS_13_26(t *testing
 			if err := inject(fakehub.Fault{Status: 429}); !issuex.IsRateLimited(err) {
 				t.Errorf("429: %v, want issuex's rate limited", err)
 			}
-			err := inject(fakehub.Fault{Status: 422, Body: `{"error":{"code":"forge_rejected","message":"a pull request exists"}}`})
+			err := inject(fakehub.Fault{Status: 422, Body: `{"error":{"code":422,"message":"a pull request exists","error_type":"forge_rejected"}}`})
 			var he *issuex.HTTPError
 			if !errors.As(err, &he) || he.Status != 422 || he.Message != "a pull request exists" {
 				t.Errorf("422: %v, want an HTTPError with hub's message", err)
@@ -414,4 +414,32 @@ func mustUnescape(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// TestAThreadWhoseCommentsCouldNotBeReadSaysSo pins that hub's comments_err, the answer 200 of an
+// issue that was read whose comments were not, reaches the loops as the error of the comments, from
+// which they raise the warning comments_unreadable.
+// Verifies: 13-REQ-3.1
+func TestAThreadWhoseCommentsCouldNotBeReadSaysSo(t *testing.T) {
+	e := newForgeEnv(t)
+	ref := issuex.IssueRef{Repo: e.repo, Number: 42}
+
+	thread, err := e.forge.ReadIssue(ctx, ref)
+	if err != nil || thread.CommentsErr != nil {
+		t.Fatalf("a thread whose comments were read: %v, comments error %v", err, thread.CommentsErr)
+	}
+
+	e.hub.Inject("GET", e.path("/issues/42"), fakehub.Fault{Status: 200, Body: `{"issue":{"number":42,"title":"Nil map"},"comments":[],"truncated":false,"comments_err":{}}`})
+	thread, err = e.forge.ReadIssue(ctx, ref)
+
+	if err != nil || thread.Issue.Number != 42 || thread.CommentsErr == nil {
+		t.Errorf("thread %+v, error %v, want the issue and an error for the comments", thread, err)
+	}
+	for _, null := range []string{`"comments_err":null`, `"comments_err":false`} {
+		e.hub.Clear()
+		e.hub.Inject("GET", e.path("/issues/42"), fakehub.Fault{Status: 200, Body: `{"issue":{"number":42,"title":"Nil map"},"comments":[],"truncated":false,` + null + `}`})
+		if thread, err = e.forge.ReadIssue(ctx, ref); err != nil || thread.CommentsErr != nil {
+			t.Errorf("%s: comments error %v, %v, want none", null, thread.CommentsErr, err)
+		}
+	}
 }

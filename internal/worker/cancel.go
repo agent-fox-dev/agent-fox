@@ -14,6 +14,10 @@ import (
 // layer, which is a minute.
 const cleanupBound = 45 * time.Second
 
+// finishBound is how long the writes, the release and the report of an attempt that was not
+// stopped may take in all: each call to hub has a bound of its own, and this is for the sum.
+const finishBound = 5 * time.Minute
+
 // stop says how the context of the attempt ended, if it did.
 type stop int
 

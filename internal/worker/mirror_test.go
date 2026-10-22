@@ -3,6 +3,7 @@ package worker
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -217,29 +218,44 @@ func TestATextTriageThatEndsNeedsHumanWritesNothingAndADoneOneMirrorsToTheIssueI
 // TS-13-67.
 // Verifies: 13-REQ-9.2
 func TestSettingAStatusLabelRemovesTheOtherFourExceptThatAFixsInProgressKeepsReady_TS_13_67(t *testing.T) {
-	type snapshot struct{ labels []string }
 	for name, tc := range map[string]struct {
 		kind    jobs.Kind
 		initial []string
 		during  []string // the labels while the loop runs: after the mark
 		after   []string
+		set     []string // what the result says the attempt set, and removed: the net of the attempt
+		removed []string
 		status  toolio.Status
 		result  map[string]any
 	}{
-		"a fix that marks an issue that is ready":       {jobs.KindFix, []string{"af:ready"}, []string{"af:in-progress", "af:ready"}, []string{"af:landed"}, toolio.StatusDone, fixResult("landed", "pr", true)},
-		"a triage that marks an issue that is ready":    {jobs.KindTriage, []string{"af:ready"}, []string{"af:in-progress"}, []string{"af:ready"}, toolio.StatusDone, triageResult("probable", "replaced_body")},
-		"a fix that marks an issue that needs a person": {jobs.KindFix, []string{"af:needs-human"}, []string{"af:in-progress"}, []string{"af:landed"}, toolio.StatusDone, fixResult("landed", "pr", true)},
-		"a fix that lands over every other label":       {jobs.KindFix, []string{"af:ready", "af:failed", "af:needs-human", "other"}, []string{"af:in-progress", "af:ready", "other"}, []string{"af:landed", "other"}, toolio.StatusDone, fixResult("landed", "pr", true)},
+		"a fix that marks an issue that is ready": {jobs.KindFix, []string{"af:ready"}, []string{"af:in-progress", "af:ready"}, []string{"af:landed"},
+			[]string{"af:landed"}, []string{"af:in-progress", "af:ready"}, toolio.StatusDone, fixResult("landed", "pr", true)},
+		"a triage that marks an issue that is ready": {jobs.KindTriage, []string{"af:ready"}, []string{"af:in-progress"}, []string{"af:ready"},
+			nil, []string{"af:in-progress"}, toolio.StatusDone, triageResult("probable", "replaced_body")},
+		"a fix that marks an issue that needs a person": {jobs.KindFix, []string{"af:needs-human"}, []string{"af:in-progress"}, []string{"af:landed"},
+			[]string{"af:landed"}, []string{"af:in-progress", "af:needs-human"}, toolio.StatusDone, fixResult("landed", "pr", true)},
+		"a fix that lands over every other label": {jobs.KindFix, []string{"af:ready", "af:failed", "af:needs-human", "other"}, []string{"af:in-progress", "af:ready", "other"}, []string{"af:landed", "other"},
+			[]string{"af:landed"}, []string{"af:failed", "af:in-progress", "af:needs-human", "af:ready"}, toolio.StatusDone, fixResult("landed", "pr", true)},
+		"a fix that fails again an issue that failed": {jobs.KindFix, []string{"af:failed"}, []string{"af:in-progress"}, []string{"af:failed"},
+			nil, []string{"af:in-progress"}, toolio.StatusFailed, nil},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := mirrorEnv(t, tc.initial, nil)
 			var during []string
 			e.runner.loop = func(_ context.Context, a *attempt) *outcome {
 				during = e.issueNow().Labels
-				return &outcome{result: jobs.Result{Envelope: fakerunner.Env(tc.status, fakerunner.WithTool(string(tc.kind)), withResult(tc.result)), MaxAttempts: a.maxAttempts}}
+				mods := []func(*toolio.Envelope){fakerunner.WithTool(string(tc.kind))}
+				if tc.result != nil {
+					mods = append(mods, withResult(tc.result))
+				}
+				if tc.status == toolio.StatusFailed {
+					mods = append(mods, fakerunner.WithError("git", "it failed", false))
+				}
+				return &outcome{result: jobs.Result{Envelope: fakerunner.Env(tc.status, mods...), MaxAttempts: a.maxAttempts}}
 			}
 
-			if _, err := e.run(e.request(tc.kind, issueInput("42"))); err != nil {
+			res, err := e.run(e.request(tc.kind, issueInput("42")))
+			if err != nil {
 				t.Fatal(err)
 			}
 
@@ -252,6 +268,17 @@ func TestSettingAStatusLabelRemovesTheOtherFourExceptThatAFixsInProgressKeepsRea
 			slices.Sort(wantAfter)
 			if got := e.issueNow().Labels; !slices.Equal(got, wantAfter) {
 				t.Errorf("after the attempt the issue carries %v, want %v", got, wantAfter)
+			}
+			set, removed := slices.Clone(res.LabelsSet), slices.Clone(res.LabelsRemoved)
+			slices.Sort(set)
+			slices.Sort(removed)
+			if !slices.Equal(set, tc.set) && (len(set) != 0 || len(tc.set) != 0) || !slices.Equal(removed, tc.removed) {
+				t.Errorf("the result sets %v and removes %v, want %v and %v: a label is not both set and removed", set, removed, tc.set, tc.removed)
+			}
+			for _, label := range set {
+				if slices.Contains(removed, label) {
+					t.Errorf("%s is both set and removed", label)
+				}
 			}
 		})
 	}
@@ -831,5 +858,75 @@ func TestTheEnvelopeOfAnAttemptCancelledBeforeTheLoopSaysWhy(t *testing.T) {
 		if category != "cancelled" || retryable || !strings.Contains(message, want) {
 			t.Errorf("%v: category %q, message %q, retryable %v, want a cancelled failure that says it %s", cause, category, message, retryable, want)
 		}
+	}
+}
+
+// TestACancelThatComesWhileTheAttemptIsBeingEndedDoesNotBreakTheWritesThatEndIt pins that the
+// writes of the mirror, the release and the report are made on a context that a cancel does not
+// reach, also when the cancel comes after the loop has returned: an attempt that was ended is
+// ended in full.
+// Verifies: 13-REQ-9.7, 13-REQ-6.7, 13-REQ-10.3
+func TestACancelThatComesWhileTheAttemptIsBeingEndedDoesNotBreakTheWritesThatEndIt(t *testing.T) {
+	e := mirrorEnv(t, nil, nil)
+	e.endsWith(jobs.KindFix, toolio.StatusDone, withResult(fixResult("landed", "pr", true)))
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	e.sink.hook = func(typ string, data json.RawMessage) {
+		if typ == "step" && strings.Contains(string(data), `"mirror"`) {
+			cancel(jobs.ErrCancelled) // the loop has returned; the mirror is about to write
+		}
+	}
+
+	res, err := e.runner.Run(ctx, e.request(jobs.KindFix, issueInput("42")))
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := envelope(t, res)
+	if got := codes(env); len(got) != 0 {
+		t.Errorf("warnings = %v: a write failed for a context that was cancelled", got)
+	}
+	issue := e.issueNow()
+	if !slices.Equal(issue.Labels, []string{"af:landed"}) || len(issue.Comments) != 1 {
+		t.Errorf("issue 42 has the labels %v and %d comments, want landed and the summary", issue.Labels, len(issue.Comments))
+	}
+	if leases := e.hub.Leases(); len(leases) != 1 || !leases[0].Released {
+		t.Errorf("leases = %+v", leases)
+	}
+	if session, _ := e.postedEvents(t); session.Status != "completed" {
+		t.Errorf("the session was completed %q, want completed", session.Status)
+	}
+}
+
+// TestALabelTakenOffAndPutBackIsNetOfTheAttempt pins the bookkeeping of the labels the result
+// reports: a label the issue carried that the attempt took off and put back is neither set nor
+// removed, and a label the attempt set, took off and set again is set, since the issue did not
+// have it before.
+// Verifies: 13-REQ-8.8
+func TestALabelTakenOffAndPutBackIsNetOfTheAttempt(t *testing.T) {
+	e := mirrorEnv(t, []string{"bug"}, nil)
+	e.runner.loop = func(ctx context.Context, a *attempt) *outcome {
+		ref := *a.issue
+		a.removeLabel(ctx, ref, "bug")
+		a.addLabel(ctx, ref, "bug", WarnRequestLabelFailed)
+		a.addLabel(ctx, ref, "triaged", WarnRequestLabelFailed)
+		a.removeLabel(ctx, ref, "triaged")
+		a.addLabel(ctx, ref, "triaged", WarnRequestLabelFailed)
+		return &outcome{result: jobs.Result{Envelope: fakerunner.Env(toolio.StatusFailed, fakerunner.WithTool(string(jobs.KindFix))), MaxAttempts: a.maxAttempts}}
+	}
+
+	res, err := e.run(e.request(jobs.KindFix, issueInput("42")))
+
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if slices.Contains(res.LabelsSet, "bug") || slices.Contains(res.LabelsRemoved, "bug") {
+		t.Errorf("the result sets %v and removes %v: bug was taken off and put back, and the issue has it as it had it", res.LabelsSet, res.LabelsRemoved)
+	}
+	if !slices.Contains(res.LabelsSet, "triaged") {
+		t.Errorf("the result sets %v, want triaged among them: the issue did not have it before the attempt", res.LabelsSet)
+	}
+	if !slices.Contains(e.issueNow().Labels, "bug") || !slices.Contains(e.issueNow().Labels, "triaged") {
+		t.Errorf("labels = %v, want bug and triaged on the issue", e.issueNow().Labels)
 	}
 }

@@ -43,6 +43,10 @@ it differs from the spec's assumption:
 | post usage | `{model, input_tokens, output_tokens, cost_usd, turns}` | `{model, input_tokens, output_tokens, cache_read_tokens}`; the client sends the cost, the cost source, the brain and the turns beside them, which hub ignores |
 | complete a session | the status of the envelope | `completed`, `failed` or `timeout` (`hub.SessionCompleted`, …); the worker maps the status of the envelope onto them |
 
+| an error object | `{error: {code, message}}` with a string `code` | `{error: {code: <the status, an integer>, message, error_type}}`; the client reads the message and takes `error_type`, else the status, as the code of a `*RejectedError`, and the fake hub answers in that shape |
+| a forge that refused hub's own credential | a 401 or 403 of the forge | `502` with `error_type` `forge_unauthenticated` or `forge_forbidden`: a rejection that no retry cures, and not unavailable; the other `502`s and `504` stay unavailable |
+| a thread whose comments failed | not in the spec | `comments_err`, an object: the loops warn `comments_unreadable` |
+
 The branch push route takes the branch as one path segment with each `/` escaped (`fix%2F42-nil-map`), which
 `url.PathEscape` gives. The fake hub serves these shapes (`internal/hub/fakehub`), so that the client is tested
 against what hub does. Tests: `TestEveryWorkerCallIs…_TS_13_11`, `TestBothEncodingsOf…_TS_13_19` and
@@ -135,9 +139,12 @@ through the command's environment" (R5.3).
 
 **Code:** every git command of the attempt runs hermetically, as the spec says, but only `clone`, `fetch`,
 `pull`, `push` and `ls-remote` are given the header (`gitRunner`, `reachesRemote` in
-`internal/worker/gitrunner.go`). A commit runs the hooks of the repository, which is the stranger's code that
-the fix is about; giving them an environment with the PAT in it is a leak that no requirement asks for. The
-test records the environment of every command (`TestThePATReachesGit…_TS_13_35`). Deviation key:
+`internal/worker/gitrunner.go`). The commands that cannot reach hub, a commit among them, run the hooks of
+the repository, and an environment with the PAT in it is more than they need. The environment of every git
+command is built from a short list of what git needs of the process, `PATH`, the locale, the proxies and the
+certificates (`gitNeeds`), and not from the whole of it less the names that look like secrets, so that a
+setting no list of names would call one is not passed to the hooks either. The test records the environment of
+every command (`TestThePATReachesGit…_TS_13_35`, `TestGitIsGivenOnlyWhatItNeeds…`). Deviation key:
 `pat_only_where_git_reaches_hub`.
 
 ## 12. The envelope's `next` for a branch that hub did not publish is `git show --stat <branch>` (task 6)
@@ -148,7 +155,10 @@ test records the environment of every command (`TestThePATReachesGit…_TS_13_35
 pushed and that hub did not publish that command would do nothing, so `landing.pushFailure`
 (`internal/fix/land.go`) names the branch in `git show --stat <branch>` instead, with the reason, and the
 failure says the branch "is pushed, and could not be published". A parked change says the same in the
-warning `push_failed`. Tests: `TestAPostPushHookThatFailsEndsTheLandingFailedWithTheBranchKept_TS_13_63`
+warning `push_failed` and does not end failed: a parking that cannot push is a warning in spec 9, and a branch
+that hub did not publish is the push that failed, so the change stays parked (`unverified`), with `next` naming
+the branch in `git show --stat <branch>` and no second push suggested (`landing.published`,
+`internal/fix/park.go`). Tests: `TestAPostPushHookThatFailsEndsTheLandingFailedWithTheBranchKept_TS_13_63`
 (`internal/fix`), `TestTheBranchIsPublishedThroughHub…_TS_13_63` (`internal/worker`) and the run through the
 command (`internal/afcmd`).
 
@@ -259,4 +269,65 @@ its message and by the reads the fake hub saw with the token of the subscription
 (`TestTheBinaryWiresTheJobsLayerWithTheWorkerAndKeepsJobsAcrossARestart_TS_12_34`, renamed). `jobs.PlaceholderRunner`
 stays for the tests of the layer (`TestThePlaceholderRunnerFailsEveryAttemptAsUnsupported…_TS_12_34`). Deviation key:
 `binary_smoke_test_follows_the_worker`.
+
+## 22. The environment of the process is read in three places that are not the lookup (review of the whole)
+
+**Spec:** "The worker's environment lookup yields nothing" (Design Decision 24) and 13-REQ-1.8 and 13-REQ-10.5,
+"read nothing through an environment lookup".
+
+**Code:** the lookup that the loops, the brains and the settings read yields nothing (`nothing`,
+`internal/worker/run.go`), so `AF_MODEL`, `AF_SANDBOX` and a vendor key in the environment of the service change
+no attempt (`TestEveryRequestCarriesOnlyItsOwnAttemptsCredentials_TS_13_78`). Three things outside the lookup read
+the process: git is given `PATH`, the locale, the proxies and the certificates (erratum 11); the worker uses the
+temporary directory of the machine for the home of git and takes the paths of the machine out of what goes to an
+issue; and `aflib`'s `issuex.ParseIssueURL`, which `toolio.Resolve` and the worker call, takes a host for a forge
+host when its name holds `github` or `gitlab`, or when the host of `GITHUB_API_URL` or `GITLAB_API_URL` of the
+process is that host. A workspace whose forge is a host with neither in its name therefore runs only if the
+service has one of those variables, for all its workspaces. That is a limit of `aflib`, which has no way to be
+told the host of a repository; it is not changed here.
+
+## 23. Two limits of the worker that the review of the whole found and left open (review of the whole)
+
+**Spec:** 13-REQ-8.1 (the steps run in order and the mirror and the report follow the loop) and 13-REQ-9.5 (a
+comment whose marker is on the issue is not posted again).
+
+**Code:** neither is closed, and neither is a divergence in the paths the spec's tests walk.
+
+- *A panic in a stage ends the attempt with the closers only.* `Runner.Run` (`internal/worker/runner.go`) has no
+  `recover`: a panic unwinds through `defer a.close()`, which runs the closers registered with `attempt.onClose`,
+  the release of the lease (`internal/worker/lease.go`) and the removal of the home of git, and the jobs layer's
+  `callRunner` (`internal/service/jobs/finish.go`) then fails the attempt. `finish` does not run: the mirror, the
+  report and the removal of `clone/` and `input/` are skipped, so the issue keeps `in-progress`, hub keeps a
+  session that never completed, and the directories stay until the attempt is run again. A fix would run `finish`
+  from the unwinding, which needs a decision on what a half-built `outcome` means; it is not done here.
+- *The marker of a comment is a string anyone can write.* `attempt.comment` (`internal/worker/comments.go`) skips
+  the post when any comment of the issue holds `<!-- agent-fox job=… attempt=… kind=… -->` for this job, attempt
+  and kind. A person who writes that line in a comment, with a job id read from the jobs API, suppresses the
+  comment of that attempt. The marker is the dedupe key of a redelivered attempt (erratum 16), and the check does
+  not look at who wrote the comment: `issuex.Comment` carries its `User`, but the worker does not know the login of
+  the user of its token, so it has nothing to compare it with.
+
+No deviation key: these are limits of the delivered work and are listed as unmet in the pull request.
+
+## 24. Every declared deviation, and where it is explained
+
+| Key | Where, or how it ended |
+|---|---|
+| `test_first_afcmd_seams`, `test_first_fakehub`, `test_first_brain_box_flags`, `worker_clone_tests_after_code` | code that was written before its tests; each was proven by a red run against something that does nothing, or by mutants, as the commit says |
+| `binary_tests_helpers_copied` | 1 |
+| `touches_fix_preflight_loop` | the git-runner seam and the earlier questions of the loop needed a field in `internal/fix/preflight.go` and `loop.go`, outside the touches of task 1 |
+| `gatewayd_is_grpc`, `hub_shapes_from_openapi` | 2, 3 |
+| `hub_caches_test_in_api`, `bounds_are_durations` | 4, 5 |
+| `commands_recorded_at_the_tool` | 6 |
+| `lost_box_retryable_by_entry`, `worker_half_of_ts_13_56` | 8, 9 (the worker half is `TestInfrastructureFailuresReturn…_TS_13_58`) |
+| `clone_refusal_read_from_git_output`, `pat_only_where_git_reaches_hub`, `next_of_an_unpublished_branch` | 10, 11, 12 |
+| `lease_too_short_below_a_second_of_cut` | 13 |
+| `box_cases_through_a_stand_in_for_the_loop` | ended: the gateway cases of TS-13-43 run the real loop now (13) |
+| `fake_retry_is_a_second_delivery` | 16 |
+| `run_ends_after_the_session`, `stopped_attempt_returns_its_cause_until_task_9`, `ts_13_74_brain_and_usage_later`, `order_and_stop_points_completed_by_tasks_9_and_10`, `step_events_completed_by_tasks_9_and_10`, `events_and_completion_of_the_session_left_to_task_10` | ended: the steps, the cancel result and the report came in tasks 8 to 10, and the tests of TS-13-57, -60, -64, -72, -73 and -74 assert all of it (15, 17) |
+| `result_labels_are_net`, `mirror_writes_are_side_effects` | 18 |
+| `events_are_the_attempts_not_only_the_loops` | 19 |
+| `docs_cli_unchanged_checked_against_main` | 20 |
+| `invariant_scenarios_are_eight_attempts` | the property of TS-13-78 is checked over eight attempts in four pairs (both kinds, a landed fix, a failed push, a triage of an issue and of a text), and not over generated scenarios, since each runs the real loop in a box |
+| `binary_smoke_test_follows_the_worker` | 21 |
 

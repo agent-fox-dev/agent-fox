@@ -51,7 +51,12 @@ func (r *Runner) lease(ctx context.Context, a *attempt) *outcome {
 		return r.leaseFailure(ctx, a, err)
 	}
 	a.lease = &l
-	a.onClose(func() { _ = r.releaseLease(ctx, a) })
+	a.onClose(func() { // the end of the attempt has released it already, but for a panic
+		if err := r.releaseLease(ctx, a); err != nil && !a.releaseNoted {
+			r.cfg.Logger.Warn("the lease of the attempt could not be released", "workspace", a.req.Workspace, "job", a.req.JobID,
+				"attempt", a.req.Attempt, "lease", a.lease.ID, "error", err.Error())
+		}
+	})
 	a.report.Hub(a.sessionID, a.runID, l.ID)
 
 	a.boxes = box.NewRegistry()
@@ -101,11 +106,25 @@ func (r *Runner) releaseLease(ctx context.Context, a *attempt) error {
 			return
 		}
 		a.step("release")
-		release, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.releaseBound())
+		release, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.releaseBoundWithin(ctx))
 		defer cancel()
 		a.releaseErr = r.cfg.Hub.ReleaseLease(release, a.pat, a.req.Workspace, a.lease.ID)
 	})
 	return a.releaseErr
+}
+
+// minRelease is the least time the release of a lease is given when the time of the end of the
+// attempt has run out: a lease that is not released is left to expire.
+const minRelease = 5 * time.Second
+
+// releaseBoundWithin is how long the release may take in the time that ctx has left, when it has
+// a deadline: the end of an attempt that was stopped is bounded as a whole.
+func (r *Runner) releaseBoundWithin(ctx context.Context) time.Duration {
+	bound := r.releaseBound()
+	if deadline, ok := ctx.Deadline(); ok {
+		bound = min(bound, max(time.Until(deadline), minRelease))
+	}
+	return bound
 }
 
 // releaseBound is how long the release of the lease may take.

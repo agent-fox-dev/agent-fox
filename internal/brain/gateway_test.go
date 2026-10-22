@@ -2,7 +2,9 @@ package brain
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -240,5 +242,24 @@ func TestTheClaudeBrainRunsInAGatewayBoxWithItsKeyByReference(t *testing.T) {
 	}
 	if holding != 1 {
 		t.Errorf("%d commands run claude with the key by reference, want one", holding)
+	}
+}
+
+// TestTheProcessesOfTheBrainsNameTheVendorKeyAndHoldNoValue pins what each brain asks of a box that
+// supplies the credentials: the name of the vendor key, as the one credential, and nothing that
+// holds a value of it.
+// Verifies: 13-REQ-6.5
+func TestTheProcessesOfTheBrainsNameTheVendorKeyAndHoldNoValue(t *testing.T) {
+	t.Setenv(VendorKeyVar, sentinelKey)
+	for name, spec := range map[string]ProcessSpec{
+		"agentkit": agentkitProcess([]string{"fix", "run"}, map[string]string{"AF_MODEL": "m1"}),
+		"claude":   claudeProcess([]string{"-p"}),
+	} {
+		if !slices.Equal(spec.Credentials, []string{VendorKeyVar}) {
+			t.Errorf("%s: credentials = %v, want the name of the vendor key alone", name, spec.Credentials)
+		}
+		if strings.Contains(strings.Join(spec.Args, " ")+fmt.Sprint(spec.Inline), sentinelKey) {
+			t.Errorf("%s: the spec holds the value of the key", name)
+		}
 	}
 }

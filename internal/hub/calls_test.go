@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agent-fox-dev/aflib/issuex"
+
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
 )
 
@@ -197,7 +199,7 @@ func TestNoErrorValueOrMessageHoldsThePAT_TS_13_14(t *testing.T) {
 	faults := map[string]fakehub.Fault{
 		"401": {Status: 401}, "403": {Status: 403}, "404": {Status: 404}, "422": {Status: 422}, "500": {Status: 500},
 		"hangup": {Hangup: true}, "timeout": {Delay: 300 * time.Millisecond},
-		"the PAT in a message":  {Status: 422, Body: `{"error":{"code":"bad","message":"the token ` + workerPAT + ` is no good"}}`},
+		"the PAT in a message":  {Status: 422, Body: `{"error":{"code":422,"message":"the token ` + workerPAT + ` is no good","error_type":"bad"}}`},
 		"the PAT in a non-JSON": {Status: 200, Body: "token " + workerPAT},
 	}
 	for _, c := range calls() {
@@ -277,7 +279,7 @@ func TestTheLeaseAndTheBranchPushUseTheLongBound_TS_13_15(t *testing.T) {
 // Verifies: 13-REQ-2.4
 func TestEachAnswerClassIsToldApartByErrorsIsAndAs_TS_13_16(t *testing.T) {
 	const message = "the title must not be blank"
-	rejectedBody := `{"error":{"code":"invalid_title","message":"` + message + `"}}`
+	rejectedBody := `{"error":{"code":400,"message":"` + message + `","error_type":"invalid_title"}}`
 	for _, c := range calls() {
 		if c.name == "release" {
 			continue // 404 is a release
@@ -580,4 +582,70 @@ func TestTheRecordTheVariablesAndTheBodiesOfTheCalls(t *testing.T) {
 	if _, err := e4.client.OpenSession(ctx, workerPAT, SessionRequest{WorkspaceSlug: "acme"}); !errors.As(err, &unavailable) {
 		t.Errorf("a session with no id: %v, want unavailable", err)
 	}
+}
+
+// TestHubsRealErrorObjectsAreReadAndTheTokenAndLengthAreKeptOutOfWhatIsReported pins how hub's
+// answers are read: the code of its error object is the integer status and its machine-readable
+// kind is error_type, which the reason survives; a reason that hub gives for one event of a batch
+// is cut and has no token in it; and a 502 that says the forge refused hub's own credential is a
+// rejection, which no retry cures, while the other failures of the forge stay unavailable.
+// Verifies: 13-REQ-2.2, 13-REQ-2.4
+func TestHubsRealErrorObjectsAreReadAndTheTokenAndLengthAreKeptOutOfWhatIsReported(t *testing.T) {
+	t.Run("the integer code and the kind", func(t *testing.T) {
+		e := newWorkerEnv(t, "acme", fakehub.Workspace{})
+		e.hub.Inject("POST", e.path("/sandboxes"), fakehub.Fault{Status: 409, Body: `{"error":{"code":409,"message":"no capacity: 4 of 4 sandboxes are in use","error_type":"sandbox_capacity"}}`})
+
+		_, err := e.client.Lease(ctx, workerPAT, "acme", LeaseRequest{Purpose: "fix"})
+
+		var rejected *RejectedError
+		if !errors.As(err, &rejected) || rejected.Message != "no capacity: 4 of 4 sandboxes are in use" || rejected.Code != "sandbox_capacity" || rejected.Status != 409 {
+			t.Errorf("error = %v (%+v), want the reason and the kind of hub's error object", err, rejected)
+		}
+	})
+
+	t.Run("an error object with no kind", func(t *testing.T) {
+		e := newWorkerEnv(t, "acme", fakehub.Workspace{})
+		e.hub.Inject("POST", e.path("/sandboxes"), fakehub.Fault{Status: 400, Body: `{"error":{"code":400,"message":"the body is malformed"}}`})
+
+		_, err := e.client.Lease(ctx, workerPAT, "acme", LeaseRequest{Purpose: "fix"})
+
+		var rejected *RejectedError
+		if !errors.As(err, &rejected) || rejected.Message != "the body is malformed" || rejected.Code != "400" {
+			t.Errorf("error = %v (%+v), want the reason and the status as the code", err, rejected)
+		}
+	})
+
+	t.Run("the reason for one event", func(t *testing.T) {
+		e := newWorkerEnv(t, "acme", fakehub.Workspace{})
+		long := strings.Repeat("x", 5000)
+		e.hub.Inject("POST", e.path("/runs/r1/events/batch"), fakehub.Fault{Status: 200, Body: `{"errors":[{"index":0,"message":"bad ` + workerPAT + ` ` + long + `"}]}`})
+
+		err := e.client.PostEvents(ctx, workerPAT, "acme", "r1", []Event{{Seq: 1, TS: "2026-01-01T00:00:00Z", Type: "step"}})
+
+		if err == nil || strings.Contains(err.Error(), workerPAT) || len(err.Error()) > 1500 || !strings.Contains(err.Error(), "bad [token]") {
+			t.Errorf("error = %.200q (%d bytes), want the reason without the token and cut short", err, len(err.Error()))
+		}
+	})
+
+	t.Run("the forge refusing the credential of hub", func(t *testing.T) {
+		for kind, status := range map[string]int{"forge_unauthenticated": 502, "forge_forbidden": 502} {
+			e := newWorkerEnv(t, "acme", fakehub.Workspace{})
+			e.hub.Inject("POST", e.path("/issues/42/comments"), fakehub.Fault{Status: status, Body: `{"error":{"code":502,"message":"the forge refused the token of hub","error_type":"` + kind + `"}}`})
+
+			_, err := e.client.Forge(workerPAT, "acme", issuex.Repo{Owner: "Org", Name: "Repo"}).AddComment(ctx, issuex.IssueRef{Repo: issuex.Repo{Owner: "Org", Name: "Repo"}, Number: 42}, "x")
+
+			var unavailable *UnavailableError
+			var he *issuex.HTTPError
+			if err == nil || errors.As(err, &unavailable) || !errors.As(err, &he) || !strings.Contains(he.Message, "the forge refused the token of hub") {
+				t.Errorf("%s: error = %v, want a refusal that is not unavailable and says why", kind, err)
+			}
+		}
+		e := newWorkerEnv(t, "acme", fakehub.Workspace{})
+		e.hub.Inject("POST", e.path("/issues/42/comments"), fakehub.Fault{Status: 502, Body: `{"error":{"code":502,"message":"the forge failed","error_type":"forge_error"}}`})
+		_, err := e.client.Forge(workerPAT, "acme", issuex.Repo{Owner: "Org", Name: "Repo"}).AddComment(ctx, issuex.IssueRef{Repo: issuex.Repo{Owner: "Org", Name: "Repo"}, Number: 42}, "x")
+		var unavailable *UnavailableError
+		if !errors.As(err, &unavailable) {
+			t.Errorf("forge_error: error = %v, want unavailable: the forge may recover", err)
+		}
+	})
 }

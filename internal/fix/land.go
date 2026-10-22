@@ -359,8 +359,10 @@ type landing struct {
 	branch      string
 	commit      string
 	pushed      bool
-	// postPush is called with the branch once it is pushed; it may be nil.
-	postPush func(ctx context.Context, branch string) error
+	// postPush is called with the branch once it is pushed; it may be nil. published says the
+	// push was made and the hook did not take the branch.
+	postPush  func(ctx context.Context, branch string) error
+	published bool
 	// back is a context that the cancellation of the run did not reach, for the way back.
 	back context.Context
 }

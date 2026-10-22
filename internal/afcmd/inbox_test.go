@@ -467,3 +467,27 @@ func TestABoxLostDuringMeasuringEndsTheLoopWithARetryableSandboxFailure_TS_13_56
 		})
 	}
 }
+
+// TestABoxLostAfterACommandRanButBeforeItsAnswerWasReadIsRetryableToo pins the other half of
+// TS-13-56: a gateway that goes away once a ring-1 command has returned, so that the envelope it
+// wrote cannot be read, is a box that was lost and that may be tried again, and not an image that
+// has no usable af.
+// Verifies: 13-REQ-7.8
+func TestABoxLostAfterACommandRanButBeforeItsAnswerWasReadIsRetryableToo(t *testing.T) {
+	for _, after := range []string{"'lang' 'detect'", "'gate' 'run'", "'revert-check'"} {
+		t.Run("after "+after, func(t *testing.T) {
+			w := newBoxFixEnv(t, smokeFiles())
+			w.hub.Gateway().KillAfter(after)
+
+			code, env := w.fixInBox("--script", script(t, fixSteps()...))
+
+			category, message, retryable := failureOf(env)
+			if code == 0 || env["status"] != "failed" || category != "sandbox" || !retryable {
+				t.Errorf("exit code %d, status %v, category %q, retryable %v, message %q; want failed, sandbox, retryable", code, env["status"], category, retryable, message)
+			}
+			if strings.Contains(message, "image must provide") {
+				t.Errorf("message = %q: a box that was lost is not an image without af", message)
+			}
+		})
+	}
+}

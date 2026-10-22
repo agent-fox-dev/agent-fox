@@ -160,34 +160,49 @@ func (c *Client) classify(resp *http.Response, pat string, op operation) error {
 	case status >= 400 && status < 500 && status != http.StatusTooManyRequests:
 		code, message := errorObject(resp.Body, pat)
 		return &RejectedError{Op: op.name, Status: status, Code: code, Message: message}
+	case status == http.StatusBadGateway:
+		// The forge refused the credential that hub holds for it: a retry cannot cure it, the
+		// person who keeps the workspace has to. Any other failure of the forge may pass.
+		if code, message := errorObject(resp.Body, pat); code == "forge_unauthenticated" || code == "forge_forbidden" {
+			return &RejectedError{Op: op.name, Status: status, Code: code, Message: message}
+		}
 	}
 	// 429, 5xx, and a redirect, which is an answer and not something to follow.
 	return &UnavailableError{Status: status}
 }
 
-// errorObject reads the code and the message of hub's error object {error: {code, message}},
-// less the token and cut short. A body that is none says what the status says.
+// errorObject reads hub's error object {error: {code, message, error_type}}, whose code is the
+// integer status repeated in the body and whose error_type, when the handler sets one, is the
+// machine-readable kind. The code it returns is that kind, or the status when there is none; the
+// message is cut short and has no token in it. A body that is none says what the status says.
 func errorObject(body io.Reader, pat string) (code, message string) {
 	data, _ := io.ReadAll(io.LimitReader(body, maxErrorBody))
 	var answer struct {
 		Error struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
+			Code      json.RawMessage `json:"code"`
+			Message   string          `json:"message"`
+			ErrorType string          `json:"error_type"`
 		} `json:"error"`
 	}
 	if json.Unmarshal(data, &answer) != nil || answer.Error.Message == "" {
 		return "", "hub gave no reason"
 	}
-	scrub := func(s string) string {
-		if pat != "" {
-			s = strings.ReplaceAll(s, pat, "[token]")
-		}
-		if len(s) > maxMessage {
-			s = strings.ToValidUTF8(s[:maxMessage], "")
-		}
-		return s
+	code = answer.Error.ErrorType
+	if code == "" {
+		code = strings.Trim(string(answer.Error.Code), `"`)
 	}
-	return scrub(answer.Error.Code), scrub(answer.Error.Message)
+	return scrubbed(code, pat), scrubbed(answer.Error.Message, pat)
+}
+
+// scrubbed is what hub said without the token, cut short.
+func scrubbed(s, pat string) string {
+	if pat != "" {
+		s = strings.ReplaceAll(s, pat, "[token]")
+	}
+	if len(s) > maxMessage {
+		s = strings.ToValidUTF8(s[:maxMessage], "")
+	}
+	return s
 }
 
 // workspacePath is the path of a route of the workspace, with its slug escaped.
@@ -383,7 +398,7 @@ func (c *Client) PostEvents(ctx context.Context, pat, slug, runID string, events
 		return err
 	}
 	if len(answer.Errors) > 0 {
-		return &RejectedError{Op: "post the events of the run", Status: http.StatusOK, Code: "partial", Message: fmt.Sprintf("hub did not take %d of %d events: %s", len(answer.Errors), len(events), answer.Errors[0].Message)}
+		return &RejectedError{Op: "post the events of the run", Status: http.StatusOK, Code: "partial", Message: fmt.Sprintf("hub did not take %d of %d events: %s", len(answer.Errors), len(events), scrubbed(answer.Errors[0].Message, pat))}
 	}
 	return nil
 }

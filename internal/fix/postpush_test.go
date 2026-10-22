@@ -156,6 +156,15 @@ func TestAPostPushHookThatFailsEndsTheLandingFailedWithTheBranchKept_TS_13_63(t 
 		if w.forge.Count(fakeforge.OpPullRequest) != 0 {
 			t.Error("a pull request was asked for after the publication failed")
 		}
+		branch := res.Branch
+		var names, pushes bool
+		for _, n := range w.rep.next {
+			names = names || slices.Contains(n.Argv, branch)
+			pushes = pushes || slices.Equal(n.Argv, []string{"git", "push", "-u", "origin", branch})
+		}
+		if !names || pushes {
+			t.Errorf("next = %v, want one that names %s and none that pushes a branch that is pushed already", w.rep.next, branch)
+		}
 		w.onBase(t)
 	})
 }

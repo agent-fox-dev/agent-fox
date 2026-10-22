@@ -1018,3 +1018,34 @@ func TestTheReportOfTheRunIsCutAtAMegabyte(t *testing.T) {
 		t.Errorf("the report is %d bytes, want %d", len(got), maxReport)
 	}
 }
+
+// TestTheBriefOfATriageFramesContextAsMaterialAndAnswersAsAnswers pins, with the real loop, that
+// the strings of context a job carries are material from a person to a triage and only the
+// answers are answers.
+// Verifies: 13-REQ-8.5
+func TestTheBriefOfATriageFramesContextAsMaterialAndAnswersAsAnswers(t *testing.T) {
+	e := loopEnv(t, triageFiles, nil, nil, submitStep(probableDiagnosis))
+	var brief string
+	e.sink.hook = func(typ string, _ json.RawMessage) {
+		if typ == "run_end" {
+			text, _ := os.ReadFile(filepath.Join(e.dir, "clone", ".agent-fox", "run", e.sink.lastHub()[1], "brief.md"))
+			brief = string(text)
+		}
+	}
+	chosen := "B"
+	req := e.request(jobs.KindTriage, issueInput("42"), func(r *jobs.Request) {
+		r.Context = []string{"c1: the report is old"}
+		r.Answers = []jobs.Answer{{Question: "Which greeting?", Options: []jobs.Option{{ID: "A", Label: "hello"}, {ID: "B", Label: "hi"}}, Option: &chosen, Text: "hi"}}
+	})
+
+	res, err := e.run(req)
+
+	if err != nil || envelope(t, res)["status"] != "done" {
+		t.Fatalf("result %s, error %v", res.Envelope, err)
+	}
+	for _, want := range []string{"Material from a person (1 of 2)", "c1: the report is old", "A person's answer (2 of 2)", "Which greeting?", "B. hi"} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("the brief lacks %q:\n%s", want, brief)
+		}
+	}
+}

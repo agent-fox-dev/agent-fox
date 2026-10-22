@@ -45,6 +45,12 @@ func newAgentkitInBox(opts Options) (Brain, error) {
 	return &agentkitInBox{proc: NewProcess(opts.ProcessConfig()), model: opts.Model}, nil
 }
 
+// agentkitProcess is the process the brain runs in the box: af, probed, with the arguments and the
+// inline settings, and the name of the vendor key as the credential the box has to supply.
+func agentkitProcess(args []string, inline map[string]string) ProcessSpec {
+	return ProcessSpec{Brain: AgentkitName, Program: ProgramAF, Args: args, Inline: inline, Probes: []string{ProgramAF}, Credentials: []string{VendorKeyVar}}
+}
+
 // Run runs af <agent> run --run-id <id> --dir <root> with the bounds of the brief, and
 // reads the envelope it left.
 func (a *agentkitInBox) Run(ctx context.Context, b Brief) (Outcome, error) {
@@ -69,9 +75,7 @@ func (a *agentkitInBox) Run(ctx context.Context, b Brief) (Outcome, error) {
 		inline["AF_MODEL"] = a.model
 	}
 
-	res, err := a.proc.Run(ctx, b, ProcessSpec{
-		Brain: AgentkitName, Program: ProgramAF, Args: args, Inline: inline, Probes: []string{ProgramAF}, Credentials: []string{VendorKeyVar},
-	})
+	res, err := a.proc.Run(ctx, b, agentkitProcess(args, inline))
 	if err != nil {
 		return Outcome{StopReason: StopError}, err
 	}

@@ -67,13 +67,15 @@ tokens that callers hand over to subscribe a workspace, which it keeps sealed (s
   Anthropic model, `claude-sonnet-5-5` today. The session that is opened on hub, the brain and the usage record carry the same one.
 - **The vendor key is the box's.** The sandbox profile that hub leases supplies the image, the network and the secrets
   of the box, and a brain started there is told the *names* of its credentials (`ANTHROPIC_API_KEY`) as references to the
-  box's own environment, never as values. The worker sends no key, puts none in a box spec, whose `Env` is empty, and
-  does not read the environment of its own process.
+  box's own environment, never as values. The worker sends no key and puts none in a box spec, whose `Env` is empty,
+  and the lookup of the environment that the loops, the brains and the settings read yields nothing, so a key in
+  the environment of the service changes nothing.
 - **The bounds are variables too.** `AF_MAX_BUDGET_USD` (default `2` for a triage, `10` for a fix), `AF_MAX_TURNS`,
   `AF_TIMEOUT` and `AF_MAX_ATTEMPTS` bound an attempt; the `scripted` brain, which spends nothing, is for tests and is
   not one a variable may name.
-- **The cost is reported to hub.** After the sandbox is released the worker posts one usage record, with the model, the
-  brain, the tokens, the cost, where the cost came from and the turns of the envelope, when a brain ran.
+- **The usage is reported to hub.** After the sandbox is released the worker posts one usage record when a brain ran,
+  with the model and the tokens, and the brain, the cost, where the cost came from and the turns of the envelope
+  beside them; hub keeps the model and the tokens, and the envelope keeps the rest.
 - **A job costs the sum of its attempts.** Its `usage` is the sum of `cost_usd`, `input_tokens`, `output_tokens`
   and `turns` over the attempts that have finished, as each attempt's envelope reports them; the attempts show
   their own `usage`. A job that is asked again (an answer, a retry) spends more, because each human action opens

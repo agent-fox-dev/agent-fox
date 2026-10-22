@@ -1,7 +1,9 @@
 package hub
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -125,15 +127,22 @@ func (f *ForgeClient) ReadIssue(ctx context.Context, ref issuex.IssueRef) (issue
 		return issuex.IssueThread{}, err
 	}
 	var thread struct {
-		Issue     issuex.Issue     `json:"issue"`
-		Comments  []issuex.Comment `json:"comments"`
-		Truncated bool             `json:"truncated"`
+		Issue       issuex.Issue     `json:"issue"`
+		Comments    []issuex.Comment `json:"comments"`
+		Truncated   bool             `json:"truncated"`
+		CommentsErr json.RawMessage  `json:"comments_err"`
 	}
 	err := f.hub.send(ctx, f.pat, operation{name: "read the issue", slug: f.slug, method: http.MethodGet, path: f.issuePath(ref), into: &thread})
 	if err != nil {
 		return issuex.IssueThread{}, f.forgeError(err)
 	}
-	return issuex.IssueThread{Issue: thread.Issue, Comments: thread.Comments, Truncated: thread.Truncated}, nil
+	out := issuex.IssueThread{Issue: thread.Issue, Comments: thread.Comments, Truncated: thread.Truncated}
+	// The issue was read and its comments were not: hub says so with an object, empty for an error
+	// it cannot say more of, and the loops warn of it.
+	if trimmed := bytes.TrimSpace(thread.CommentsErr); len(trimmed) > 0 && trimmed[0] == '{' {
+		out.CommentsErr = errors.New("hub could not read the comments of the issue")
+	}
+	return out, nil
 }
 
 // ListComments lists the comments of the issue.

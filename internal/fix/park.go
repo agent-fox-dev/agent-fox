@@ -118,6 +118,7 @@ func (l *landing) afterParkCommit(ctx context.Context, verdict string, failing [
 		if err := l.push(ctx); err != nil {
 			var published *publishError
 			if errors.As(err, &published) {
+				l.published = true
 				rep.Warn(WarnPushFailed, fmt.Sprintf("the branch %s is pushed, and was not published: %v", l.branch, published))
 			} else {
 				rep.Warn(WarnPushFailed, fmt.Sprintf("the branch %s was not pushed and is kept here: %v", l.branch, err))
@@ -143,7 +144,10 @@ func (l *landing) afterParkCommit(ctx context.Context, verdict string, failing [
 	}
 	rep.Warn(WarnFixNotLanded, fmt.Sprintf("the change did not land (%s) and is parked on the branch %s", why, l.branch))
 	rep.Next(toolio.Next{Argv: []string{"git", "switch", l.branch}, Reason: "look at the parked change"})
-	if !res.Pushed && !l.interrupted && l.mode != LandNone {
+	switch {
+	case l.published: // pushing it again would do nothing
+		rep.Next(toolio.Next{Argv: []string{"git", "show", "--stat", l.branch}, Reason: "the parked branch is pushed to origin and was not published"})
+	case !res.Pushed && !l.interrupted && l.mode != LandNone:
 		rep.Next(toolio.Next{Argv: []string{"git", "push", "-u", "origin", l.branch}, Reason: "publish the parked branch"})
 	}
 	return res, nil

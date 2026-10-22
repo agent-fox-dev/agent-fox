@@ -167,12 +167,14 @@ func (r *Runner) pipeline(ctx context.Context, a *attempt) *outcome {
 // were; the failure is a warning of the envelope, or is logged when there is none.
 func (r *Runner) finish(ctx context.Context, a *attempt, out *outcome) (jobs.Result, error) {
 	how := stopOf(ctx)
-	work := ctx
+	// A cancel that comes while the attempt is being ended is not how it ended: it is ended in
+	// full, on a context that no cancel reaches.
+	bound := finishBound
 	if how != notStopped {
-		var cancel context.CancelFunc
-		work, cancel = context.WithTimeout(context.WithoutCancel(ctx), cleanupBound)
-		defer cancel()
+		bound = cleanupBound
 	}
+	work, cancelWork := context.WithTimeout(context.WithoutCancel(ctx), bound)
+	defer cancelWork()
 	if how == stoppedByCancel {
 		if len(out.result.Envelope) == 0 {
 			*out = *r.cancelled(a, context.Cause(ctx))
@@ -186,6 +188,7 @@ func (r *Runner) finish(ctx context.Context, a *attempt, out *outcome) (jobs.Res
 
 	warnings := slices.Clone(a.warnings)
 	if releaseErr != nil {
+		a.releaseNoted = true
 		r.cfg.Logger.Warn("the lease of the attempt could not be released", "workspace", a.req.Workspace, "job", a.req.JobID,
 			"attempt", a.req.Attempt, "lease", a.lease.ID, "error", releaseErr.Error())
 		warnings = append(warnings, toolio.Warning{Code: WarnLeaseReleaseFailed, Message: fmt.Sprintf(

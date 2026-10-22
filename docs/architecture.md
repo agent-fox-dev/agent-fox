@@ -939,7 +939,9 @@ worker, the poll, the `af` client) build on:
   five things, which a caller tells apart with `errors.Is` and `errors.As`: refused (401, `ErrRefused`),
   forbidden (403, `ErrForbidden`, whose message names the operation and points to `PUT
   /api/v1/workspaces/{slug}`), not found (404, `ErrNotFound`; a release that finds nothing is released),
-  rejected (another 4xx, `*RejectedError` with hub's message) and unavailable (429, 5xx, a redirect, a
+  rejected (another 4xx, `*RejectedError` with hub's message, read from its error object, whose `code` is the
+  integer status and whose `error_type` is the kind; a `502` that says the forge refused the credential hub
+  holds for it, `forge_unauthenticated` or `forge_forbidden`, is one too, since a retry cannot cure it) and unavailable (429, 5xx, a redirect, a
   transport failure, a timeout or a body that is not what hub sends, `*UnavailableError`). No error holds
   the PAT.
 - **The forge through hub.** `hub.Client.Forge(pat, slug, repo)` is an `issuex.Client` for the one forge
@@ -966,7 +968,9 @@ worker, the poll, the `af` client) build on:
   `ls-remote`), as the header `Authorization: Basic base64(agent-fox:<PAT>)` set by `GIT_CONFIG_COUNT`,
   `GIT_CONFIG_KEY_0` (`http.<clone URL>.extraHeader`) and `GIT_CONFIG_VALUE_0`: never on a command line, in
   `.git/config` or in any file, and not in the environment of a commit, whose hooks are the repository's own.
-  This needs git 2.31 or later. The box's sync and `checks.FileView` keep the default runner. A server that
+  This needs git 2.31 or later. The environment of a git command is made of a short list of what git needs of
+  the process (`PATH`, the locale, the proxies and the certificates) and nothing else of it. The box's sync and
+  `checks.FileView` keep the default runner. A server that
   refuses the credential, 401 or 403, ends the attempt with a `failed` envelope of category `auth`; any other
   failure of the clone (a transport error, a 5xx, a hang-up, no answer in ten minutes, a base branch that is not
   there) is a transient error of category `git` and the attempt has no envelope. After the pipeline pushes a
@@ -980,8 +984,9 @@ worker, the poll, the `af` client) build on:
   the variables of the workspace from hub, the refusals that need no box and no model), the hub *session*, the
   *mark* of the issue, the *clone*, the *lease* of a sandbox, the *run* of the loop in process, the *mirror* of the
   outcome to the issue, the *release* of the lease and the *report* to hub. It holds nothing of an attempt between
-  calls, so attempts run side by side, each with its own workspace token and its own lease token and no vendor
-  key, no forge token and no read of the environment. What an attempt that stops early writes and takes is fixed:
+  calls, so attempts run side by side, each with its own workspace token and its own lease token, no vendor
+  key and no forge token, and with a lookup of the environment, which the loops, the brains and the settings
+  read, that yields nothing: the environment of the service changes no attempt. What an attempt that stops early writes and takes is fixed:
   a refusal at resolve, hub not answering at resolve or at the session, and a session refused with 401 or 403
   write nothing to the forge, take no lease and report nothing to hub; a transient clone, lease or box takes
   `in-progress` off, releases a granted lease, posts the events and completes the session `failed`; a credential
@@ -990,6 +995,11 @@ worker, the poll, the `af` client) build on:
   limit) are *transient errors* that the jobs layer hands over again, with no envelope; every other ending is an
   envelope, built by the worker for a refusal before the loop (tool `triage` or `fix`, empty arrays, usage source
   `none`) and the loop's own otherwise.
+- **The forge host.** `aflib` recognises the host of an issue URL as a forge when its name holds `github` or
+  `gitlab`, or when it is the host of `GITHUB_API_URL` or `GITLAB_API_URL` in the environment of the process. The
+  worker gives the loop the URL of the issue on the workspace's repository, so a workspace whose forge host has
+  neither in its name runs only if the service has one of those variables set. This is a limit of `aflib`, not
+  something the worker can lift.
 - **The gateway box and the `af` it needs.** The loop's box is made by the gateway of the lease (`box.GatewayEntry`),
   the only provider the attempt has, which counts as isolating, calls its programs by name from the image of the
   lease's profile, and is made with an empty `Env`: the profile supplies the image, the network and the secrets,
@@ -1029,7 +1039,7 @@ worker, the poll, the `af` client) build on:
   mode 0700) and passed by path, and the strings of context come as `--context` values, then the answers;
   the earlier questions say there is no question for a string and give the question with its options for an
   answer. Every line of the loop's events reaches the job's recorder as it is written, beside the worker's
-  own `step` events (`resolve`, `session`, `clone`, `lease`, `run` and `release`). The attempt ends in one
+  own `step` events (`resolve`, `session`, `clone`, `lease`, `run`, `mirror`, `release` and `report`). The attempt ends in one
   of two ways. A loop whose envelope is `failed` with a retryable error of category `sandbox`, `forge` or `hub`
   is the infrastructure: a transient error that carries that failure, with no envelope, which the jobs
   layer hands over again. Every other ending is a result with the envelope the loop wrote, amended only by

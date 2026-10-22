@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -457,5 +458,59 @@ func TestAFaultCanLetTheFirstRequestsThrough(t *testing.T) {
 	}
 	if !slices.Equal(got, []int{200, 200, 429, 429}) {
 		t.Errorf("statuses = %v, want two requests let through and the rest failed", got)
+	}
+}
+
+// TestAnInstrumentedGatewayRecordsTheCommandsAndCanBeKilledOnOrAfterOne checks the harness: the
+// commands that a box runs through an instrumented provider are recorded in order, a gateway that
+// is killed on a command goes before the command runs, and one that is killed after it goes once
+// the command has returned its result.
+func TestAnInstrumentedGatewayRecordsTheCommandsAndCanBeKilledOnOrAfterOne(t *testing.T) {
+	h := worker(t)
+	_, body := call(t, h, "POST", "/api/v1/workspaces/acme/sandboxes", pat, map[string]any{})
+	lease := body.(map[string]any)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	provider, err := gateway.Dial(ctx, lease["gateway_url"].(string), gateway.Options{Token: lease["token"].(string)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instrumented := h.Gateway().Instrument(provider)
+	sb, err := instrumented.Create(ctx, sandbox.Spec{Network: sandbox.Network{Mode: sandbox.NetworkUnrestricted}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools, err := sb.Tools(ctx, sandbox.ToolOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var execute func(ctx context.Context, raw json.RawMessage) string
+	for _, tool := range tools {
+		if tool.Name == "execute" {
+			execute = func(ctx context.Context, raw json.RawMessage) string {
+				return fmt.Sprint(tool.Execute(ctx, raw))
+			}
+		}
+	}
+	if execute == nil {
+		t.Fatal("the box has no execute tool")
+	}
+
+	_ = execute(ctx, json.RawMessage(`{"command":"echo first"}`))
+	_ = execute(ctx, json.RawMessage(`{"command":"echo second"}`))
+	commands := h.Gateway().Commands()
+	if len(commands) != 2 || !strings.Contains(commands[0].Command, "first") || !strings.Contains(commands[1].Command, "second") || commands[1].Seq <= commands[0].Seq {
+		t.Fatalf("commands = %+v, want the two, in order", commands)
+	}
+
+	h.Gateway().KillAfter("third")
+	result := execute(ctx, json.RawMessage(`{"command":"echo third"}`))
+	if !strings.Contains(result, "third") {
+		t.Errorf("the command that the gateway was killed after returned %q, want its result", result)
+	}
+	if _, err := gateway.Dial(ctx, lease["gateway_url"].(string), gateway.Options{Token: lease["token"].(string)}); err == nil {
+		if _, err := instrumented.Create(ctx, sandbox.Spec{Network: sandbox.Network{Mode: sandbox.NetworkUnrestricted}}); err == nil {
+			t.Error("a box was made on a gateway that was killed after a command")
+		}
 	}
 }

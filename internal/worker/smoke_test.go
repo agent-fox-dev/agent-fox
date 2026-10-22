@@ -115,8 +115,11 @@ func TestAFixAttemptOnIssue42LandsAPullRequestEndToEnd_TS_13_82(t *testing.T) {
 			t.Errorf("artifacts = %v, want %s", kinds, want)
 		}
 	}
-	if !slices.ContainsFunc(kinds, func(k string) bool { return strings.HasPrefix(k, "pull_request=") }) && resultMap(t, res)["pull_request"] == nil {
-		t.Errorf("the envelope names no pull request: artifacts %v", kinds)
+	if !slices.ContainsFunc(kinds, func(k string) bool { return strings.HasPrefix(k, "pull_request=") }) {
+		t.Errorf("the artifacts name no pull request: %v", kinds)
+	}
+	if pr, _ := resultMap(t, res)["pull_request"].(map[string]any); pr == nil || pr["url"] == "" || pr["draft"] != false {
+		t.Errorf("the result names no pull request that is not a draft: %v", resultMap(t, res)["pull_request"])
 	}
 	if session.Status != "completed" || len(session.Usage) != 1 || session.Usage[0].Model != session.Model {
 		t.Errorf("session status %q, usage %+v", session.Status, session.Usage)

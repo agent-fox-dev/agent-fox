@@ -707,3 +707,45 @@ func TestOnlyTheCommandsThatReachARemoteAreGivenTheToken(t *testing.T) {
 		}
 	}
 }
+
+// TestGitIsGivenOnlyWhatItNeedsOfTheEnvironmentOfTheProcess pins that the environment of a git
+// command is built from a short list of what git needs of the process (where to find programs, the
+// locale, the proxies and the certificates) and not from all of it less what looks like a secret: a
+// setting that no list of names would call one, and the hooks of a repository, which run under it,
+// do not see it.
+// Verifies: 13-REQ-5.4, 13-REQ-10.5
+func TestGitIsGivenOnlyWhatItNeedsOfTheEnvironmentOfTheProcess(t *testing.T) {
+	for name, value := range map[string]string{
+		"DATABASE_URL": "postgres://user:password@db.example.com/agentfox", "AWS_ACCESS_KEY_ID": "AKIAEXAMPLE", "SERVICE_DSN": "dsn-value",
+		"SOMETHING_ELSE": "x", "GIT_SSH_COMMAND": "ssh -i /home/operator/key",
+		"HTTPS_PROXY": "http://proxy.example.com:3128", "NO_PROXY": "localhost", "SSL_CERT_FILE": "/etc/ssl/certs/ca.pem", "LANG": "C.UTF-8",
+		"LC_ALL": "C.UTF-8", "LC_MESSAGES": "C",
+	} {
+		t.Setenv(name, value)
+	}
+	e := cloneEnv(t, "main")
+	spy := &gitSpy{}
+	e.runner.gitWrap = spy.wrap
+
+	a := e.through(t, "clone", e.fixRequest())
+	fixPush(t, a, "fix/42-greeting")
+
+	if len(spy.calls) == 0 {
+		t.Fatal("no git command ran")
+	}
+	for _, c := range spy.calls {
+		for _, name := range []string{"DATABASE_URL", "AWS_ACCESS_KEY_ID", "SERVICE_DSN", "SOMETHING_ELSE", "GIT_SSH_COMMAND"} {
+			if v, ok := c.getenv(name); ok {
+				t.Errorf("%v: %s = %q is in the environment of git", c.argv, name, v)
+			}
+		}
+		for name, want := range map[string]string{"HTTPS_PROXY": "http://proxy.example.com:3128", "NO_PROXY": "localhost", "SSL_CERT_FILE": "/etc/ssl/certs/ca.pem", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "LC_MESSAGES": "C"} {
+			if v, _ := c.getenv(name); v != want {
+				t.Errorf("%v: %s = %q, want %q: git needs it", c.argv, name, v, want)
+			}
+		}
+		if v, _ := c.getenv("PATH"); v == "" {
+			t.Errorf("%v: no PATH", c.argv)
+		}
+	}
+}

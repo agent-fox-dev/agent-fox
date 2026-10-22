@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/agent-fox-dev/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/hub"
@@ -42,7 +41,7 @@ func gitRunner(home, cloneURL, pat string, wrap func(env []string) gitx.Runner) 
 	if wrap == nil {
 		wrap = gitx.ExplicitEnvRunner
 	}
-	clean := gitx.HermeticEnv(tools.ReducedEnv(nil), home)
+	clean := gitx.HermeticEnv(gitNeeds(os.Environ()), home)
 	credentialed := append(slices.Clone(clean),
 		"GIT_CONFIG_COUNT=1",
 		"GIT_CONFIG_KEY_0=http."+cloneURL+".extraHeader",
@@ -55,6 +54,29 @@ func gitRunner(home, cloneURL, pat string, wrap func(env []string) gitx.Runner) 
 		}
 		return plain(ctx, dir, argv, stdin...)
 	}
+}
+
+// gitNeedVars are the variables of the process that git is given: where to find programs, the
+// locale and the time zone, the proxies, and the certificates. Everything else of the process,
+// which no list of names could tell a secret from, stays where it is: the commands of a repository's
+// hooks run in this environment.
+var gitNeedVars = []string{
+	"PATH", "LANG", "LANGUAGE", "TZ", "TMPDIR", "SYSTEMROOT",
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+	"SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE",
+}
+
+// gitNeeds is what git is given of the environment env: the variables it needs, and the variables
+// of the locale.
+func gitNeeds(env []string) []string {
+	var out []string
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		if slices.Contains(gitNeedVars, name) || strings.HasPrefix(name, "LC_") {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 // basicHeader is the header that hub's git server takes for the PAT.

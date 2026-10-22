@@ -58,13 +58,14 @@ type Gateway struct {
 	url string
 	srv *gatewayd.Server
 
-	mu       sync.Mutex
-	created  []Created
-	closed   []Closed
-	executed []Executed
-	killOn   string
-	refuse   string
-	stop     sync.Once
+	mu        sync.Mutex
+	created   []Created
+	closed    []Closed
+	executed  []Executed
+	killOn    string
+	killAfter string
+	refuse    string
+	stop      sync.Once
 }
 
 // Created is a box the gateway created.
@@ -355,7 +356,9 @@ func (w *watched) Tools(ctx context.Context, opts sandbox.ToolOptions) ([]core.T
 			}
 			_ = json.Unmarshal(raw, &in)
 			w.g.noteCommand(w.Sandbox.ID(), in.Command)
-			return run(ctx, raw)
+			result := run(ctx, raw)
+			w.g.afterCommand(in.Command)
+			return result
 		}
 	}
 	return out, nil
@@ -368,6 +371,26 @@ func (g *Gateway) noteCommand(box, command string) {
 	g.mu.Lock()
 	g.executed = append(g.executed, Executed{Seq: seq, Box: box, Command: command})
 	kill := g.killOn != "" && strings.Contains(command, g.killOn)
+	g.mu.Unlock()
+	if kill {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = g.srv.Shutdown(ctx)
+	}
+}
+
+// KillAfter makes the gateway go away, as a lost connection does, once a command that holds substr
+// has run and returned: the box is lost between the command and the read of what it wrote.
+func (g *Gateway) KillAfter(substr string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.killAfter = substr
+}
+
+// afterCommand ends the gateway if the command that has run was the one to end it after it.
+func (g *Gateway) afterCommand(command string) {
+	g.mu.Lock()
+	kill := g.killAfter != "" && strings.Contains(command, g.killAfter)
 	g.mu.Unlock()
 	if kill {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
