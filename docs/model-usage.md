@@ -53,6 +53,16 @@ network, which is why every run that opens either carries the warning
 and Claude Code in it. See [configuration.md](configuration.md#the-box) for which
 credential enters which box.
 
+## The agent-fox service
+
+agent-fox runs no model in this release. The service (`agent-fox`, see [cli.md](cli.md#the-agent-fox-command-line))
+serves probes and the subscription of workspaces: it makes no call to a model provider, holds no vendor key
+and no forge token, and reads no variable of a model vendor. The only credentials it holds are the tokens
+that callers send it, which it asks hub about and keeps only as a hash in memory, and the workspace tokens
+that callers hand over to subscribe a workspace, which it keeps sealed (see [api.md](api.md) and
+[configuration.md](configuration.md#the-agent-fox-service)). The jobs that run `af triage` and `af fix` for a
+subscribed workspace come with later specs, and this document describes their cost when they do.
+
 ## Triage
 
 `af triage` runs the `agentkit` brain by default (`--brain`), on the model

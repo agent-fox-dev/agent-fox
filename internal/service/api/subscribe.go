@@ -1,0 +1,107 @@
+package api
+
+import (
+	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/agent-fox-dev/agentfox/internal/hub"
+)
+
+const (
+	// defaultLabelPrefix is the label prefix of a subscription that does not give one.
+	defaultLabelPrefix = "af:"
+	// maxLabelPrefix is the most characters of a label prefix: with the longest
+	// suffix that a label gets (needs-human), it stays within the 50 characters
+	// that GitHub allows a label.
+	maxLabelPrefix = 32
+)
+
+// subscribeRequest is the body of PUT /api/v1/workspaces/{slug}.
+type subscribeRequest struct {
+	HubToken    string  `json:"hub_token"`
+	LabelPrefix *string `json:"label_prefix"`
+}
+
+// validate checks the fields and returns the label prefix to store, or what is
+// wrong. A hub_token with a control character cannot be sent to hub as a header,
+// and would be reported as hub being unavailable; it is refused here instead.
+func (req subscribeRequest) validate() (prefix, problem string) {
+	if req.HubToken == "" {
+		return "", "hub_token is required"
+	}
+	if strings.IndexFunc(req.HubToken, unicode.IsControl) >= 0 {
+		return "", "hub_token must not contain a control character"
+	}
+	prefix = defaultLabelPrefix
+	if req.LabelPrefix != nil {
+		prefix = *req.LabelPrefix
+		if n := utf8.RuneCountInString(prefix); n < 1 || n > maxLabelPrefix {
+			return "", fmt.Sprintf("label_prefix must be 1 to %d characters", maxLabelPrefix)
+		}
+		if strings.IndexFunc(prefix, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) || r == ',' }) >= 0 {
+			return "", "label_prefix must not contain whitespace, a control character or a comma"
+		}
+	}
+	return prefix, ""
+}
+
+// subscribe is PUT /api/v1/workspaces/{slug}: the caller, who sees the workspace
+// on hub, hands over a token for it, and the service keeps it, sealed. It is a
+// full replace: 201 when the workspace was not subscribed, 200 when it was, and a
+// label_prefix that is left out is af:.
+//
+// Nothing is written before every check has passed. After the caller and the body,
+// two fresh calls to hub are made with the token: whether it finds the workspace
+// (the gate), and then whose token it is (best effort). They go to the hub client
+// directly: a call made with the token of a subscription never reads, fills or
+// evicts the caches of the caller's answers, even when the token is the caller's
+// own, so that a refusal of the token here is a 422 and never the 401 of a caller.
+func (s *server) subscribe(w http.ResponseWriter, r *http.Request, slug string) {
+	var req subscribeRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	prefix, problem := req.validate()
+	if problem != "" {
+		writeError(w, CodeInvalidRequest, problem)
+		return
+	}
+
+	if err := s.deps.Hub.Workspace(r.Context(), req.HubToken, slug); err != nil {
+		switch {
+		case errors.Is(err, hub.ErrRefused):
+			writeError(w, CodeInvalidHubToken, "hub refused the token")
+		case errors.Is(err, hub.ErrNotFound):
+			writeError(w, CodeInvalidHubToken, fmt.Sprintf("hub does not show the workspace %q to the token", slug))
+		default:
+			s.hubFailure(w, r, err)
+		}
+		return
+	}
+	tokenUser := ""
+	switch user, err := s.deps.Hub.User(r.Context(), req.HubToken); {
+	case err == nil:
+		tokenUser = user.ID
+	case errors.Is(err, hub.ErrRefused):
+		// A credential that is bound to a workspace sees it but not /user. The
+		// subscription is stored without a user.
+	default:
+		s.hubFailure(w, r, err)
+		return
+	}
+
+	sub, created, err := s.deps.Store.Upsert(r.Context(), slug, prefix, req.HubToken, tokenUser, principalOf(r).user, s.now())
+	if err != nil {
+		s.storeFailure(w, r, "the subscription could not be stored", err)
+		return
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	writeJSON(w, status, viewOf(sub))
+}

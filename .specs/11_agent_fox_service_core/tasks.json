@@ -57,7 +57,7 @@
       "done_when": [
         "`go test ./internal/service/config/... -count=1` passes"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,
@@ -93,7 +93,7 @@
       "done_when": [
         "`go test ./internal/service/secrets/... -count=1` passes"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,
@@ -141,7 +141,7 @@
       "done_when": [
         "`go test ./internal/service/store/... -count=1` passes"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 4,
@@ -187,7 +187,7 @@
       "done_when": [
         "`go test ./internal/hub/... -count=1` passes"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 5,
@@ -229,7 +229,7 @@
       "done_when": [
         "`go test ./internal/service/api/... ./internal/toolio/... -count=1` passes"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 6,
@@ -278,7 +278,7 @@
       "done_when": [
         "`go test -race ./internal/service/ttl/... ./internal/service/api/... -count=1` passes"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 7,
@@ -332,7 +332,7 @@
       "done_when": [
         "`go test ./internal/service/api/... -count=1` passes"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 8,
@@ -380,7 +380,7 @@
       "done_when": [
         "`go test ./internal/service/api/... -count=1` passes"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 9,
@@ -416,7 +416,7 @@
       "done_when": [
         "`make build` writes both binaries into BIN_DIR"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 10,
@@ -468,7 +468,7 @@
       "done_when": [
         "`go test ./cmd/agent-fox/... -count=1` passes"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 11,
@@ -515,7 +515,7 @@
       "done_when": [
         "`make check` exits 0"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 12,
@@ -553,7 +553,7 @@
       "done_when": [
         "`make check` passes with no network beyond loopback"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }

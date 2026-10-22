@@ -4,11 +4,11 @@ VERSION    := $(shell git describe --tags 2>/dev/null || echo "0.1.0")
 COMMIT     := $(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
 BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
-# The identity of the af binary, set with -ldflags -X on cmd/af's variables.
+# The identity of the binaries, set with -ldflags -X on the variables of cmd/af and cmd/agent-fox.
 LDFLAGS    := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildTime=$(BUILD_TIME)
 
-# Where make build writes af. The tests that build the binary set it, so that
-# they do not replace bin/af or write the same file side by side.
+# Where make build writes af and agent-fox. The tests that build the binaries set
+# it, so that they do not replace bin/ or write the same files side by side.
 BIN_DIR    ?= bin
 
 CONTAINER_REGISTRY ?= quay.io/agentfox
@@ -49,10 +49,11 @@ coverage:
 	go test ./... -coverprofile=coverage.txt -covermode=atomic
 	go tool cover -func=coverage.txt
 
-# Build every package, and bin/af
+# Build every package, and bin/af and bin/agent-fox
 build:
 	go build ./...
 	go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/af ./cmd/af
+	go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/agent-fox ./cmd/agent-fox
 
 build-containers: build-sandbox-container build-tools-container
 

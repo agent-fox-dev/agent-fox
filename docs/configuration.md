@@ -1,6 +1,7 @@
 # Configuration
 
-`af` needs no configuration. What it reads from the environment, it reads
+`af` needs no configuration, and `agent-fox`, the service, is configured by one file
+([below](#the-agent-fox-service)). What `af` reads from the environment, it reads
 through `issuex`, the forge client of
 [aflib](https://github.com/agent-fox-dev/aflib); the checks of the gate can be
 pinned in [`.agent-fox/gate.json`](#gatejson); everything else is a flag (see
@@ -212,3 +213,96 @@ used replaces the files after it entirely (`guard.json` is not read when
 `--policy` is given). A file that does not parse, names another version, has an
 unknown key or an entry that cannot be used is `failed`/`config`, naming the
 file; no decision is made with a policy that was half read.
+
+## The agent-fox service
+
+`agent-fox`, the long-running service (see [cli.md](cli.md#the-agent-fox-command-line)), reads **one
+file**, `config.toml`, and nothing else from the environment but the variables that the file itself
+names with `${NAME}`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `HOME` (which say where files are), and the
+standard proxy variables `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY`, which Go's HTTP client reads for the
+calls to hub: with one set, those calls, and the tokens in them, go through that proxy. `af` does not read
+the file. The service holds no vendor key and no forge token: the only credentials it holds
+are the tokens that callers send it, which it does not keep, and the workspace tokens that callers hand
+over to subscribe a workspace, which it keeps sealed (see [the key file](#the-key-file)).
+
+A minimal file sets two keys:
+
+```toml
+[hub]
+url = "https://hub.example.com"
+
+[secrets]
+key_file = "key"
+```
+
+### Where the file is
+
+The file is `--config` when it is given. Otherwise it is the first that exists of `./config.toml` and
+`$XDG_CONFIG_HOME/agent-fox/config.toml` (`$HOME/.config/agent-fox/config.toml` when `XDG_CONFIG_HOME` is
+unset, empty or not an absolute path). If none exists, the service does not start, and says which paths it tried.
+
+### The keys
+
+| Key | Type | Default | Rule |
+|---|---|---|---|
+| `server.listen` | string | `127.0.0.1:8090` | A `host:port` that Go's `net.SplitHostPort` accepts. Port `0` is allowed: the system picks one, and the `listening` record says which. |
+| `hub.url` | string | **required** | An absolute `http` or `https` URL, with an optional path prefix and no query or fragment. A trailing `/` is dropped. Hub's API is `<hub.url>/api/v1/…`. |
+| `hub.auth_cache_ttl` | duration (Go syntax, as `60s`) | `60s` | From `1s` to `15m` inclusive. A value outside is refused, not clamped. How long hub's answers about a caller's token and about the workspaces the caller sees are kept. |
+| `database.path` | string | `$XDG_STATE_HOME/agent-fox/agent-fox.db` (`$HOME/.local/state/agent-fox/agent-fox.db` when `XDG_STATE_HOME` is unset, empty or not an absolute path) | The SQLite file. The service makes it, with its directory, when it is missing. |
+| `secrets.key_file` | string | **required** | The file that holds the key (see [the key file](#the-key-file)). |
+
+**No other key is defined.** A key that is not in the table, in any table, is an error that names it, so
+that a misspelt key (`auth_cach_ttl`) is never silently replaced by the default. That includes
+`server.external_url`, a `[workers]` table and `database.retain`, which are not accepted in this release.
+They arrive with the specs that use them, and until then a file that sets them is refused. A
+value of the wrong type is an error that names the key as well, and so is an empty value for a key that
+is required or that has a default.
+
+**Relative paths.** A `database.path` or `secrets.key_file` that is relative is resolved against the
+directory of the configuration file, not the working directory, so that the file means the same thing
+wherever the service is started from.
+
+**Variables.** `${NAME}` (`NAME` matches `[A-Za-z_][A-Za-z0-9_]*`) in a string value is replaced by the
+environment variable of that name, after the file has been read, so that the quoting of the file cannot
+be broken by a value. A variable that is set to the empty string expands to the empty string, and a
+required key left empty then fails as missing. A variable that is **not set** is an error that names the
+variable and the key. A `$` that is not the start of `${NAME}` is left alone.
+
+**Plain http to hub.** A `hub.url` that is `http` to a host that is not a loopback address is accepted,
+because compose-style networks are common, and the service logs a warning when it starts: caller tokens
+and workspace tokens cross the link in clear.
+
+### The key file
+
+`secrets.key_file` holds the key that workspace tokens are sealed with at rest: the standard base64
+encoding of **exactly 32 random bytes**; whitespace around it is ignored. Make one with
+
+```
+(umask 077; openssl rand -base64 32 > key)
+```
+
+The `umask` matters. A bare `openssl rand -base64 32 > key` under the usual umask makes a file with the
+mode `0644`, and the service refuses to start on a key file that any group or other permission bit is set
+on (the mode `0600`, `0400` or `0700` is fine; the owner's bits are not checked), as it would for an ssh key.
+It also refuses a file that is missing, is not base64, or does not decode to 32 bytes. The error names the
+file and the reason and never holds what the file holds.
+
+A token is sealed with AES-256-GCM under a fresh nonce, with the additional data
+`agent-fox/subscription/<slug>`, which ties the ciphertext to its row. It is stored as one version byte
+(`0x01`), the nonce, and the ciphertext with its tag. Neither the key nor a token is ever logged or put in
+an error message, and the plaintext of a token is in no file.
+
+If the key file is replaced by another, the service starts all the same: the subscriptions made under the
+old key read `token_state: unreadable` until someone subscribes the workspace again with `PUT` (or removes
+it with `DELETE`). Keeping the old key is the way to keep them. There is no key rotation in this release.
+
+### The state file
+
+All of the service's state is one SQLite file, opened in WAL mode (so there are `-wal` and `-shm` files
+beside it while it runs), with a busy timeout of 5 seconds and foreign keys on. The directory is made with
+the mode `0700` and the file with `0600` when they are missing. Every table the service owns is named with
+the prefix `af_`, its migrations are recorded in `af_schema_migrations` (not in `PRAGMA user_version`), and
+it never reads or writes a table it does not own, so that the file can hold the tables of other modules.
+Migrations run when the service starts; a file that records a migration newer than the binary knows
+makes the start fail, naming both versions, and is left as it was. Two processes must not share one file.
+

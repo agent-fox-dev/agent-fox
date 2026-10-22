@@ -3,16 +3,17 @@ module github.com/agent-fox-dev/agentfox
 go 1.27
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/agent-fox-dev/aflib v0.0.0-20261019184100-07adcb691832
 	github.com/agent-fox-dev/agentkit-go v0.0.0
 	github.com/agent-fox-dev/agentkit-go/sandbox v0.0.0
+	modernc.org/sqlite v1.60.1
 )
 
 require (
 	cloud.google.com/go/auth v0.14.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.7 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
-	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/OpenRouterTeam/go-sdk v0.9.66 // indirect
 	github.com/anthropics/anthropic-sdk-go v1.79.1 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.38.0 // indirect
@@ -34,6 +35,7 @@ require (
 	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf // indirect
+	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -47,10 +49,13 @@ require (
 	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/landlock-lsm/go-landlock v0.0.0-20250303204525-1544bccde3a3 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/mmcloughlin/md4 v0.1.2 // indirect
+	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/ollama/ollama v0.40.7 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
+	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/spyzhov/ajson v0.8.0 // indirect
 	github.com/standard-webhooks/standard-webhooks/libraries v0.0.1 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
@@ -83,7 +88,7 @@ require (
 	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
@@ -93,6 +98,9 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	kernel.org/pub/linux/libs/security/libcap/psx v1.2.70 // indirect
+	modernc.org/libc v1.77.1 // indirect
+	modernc.org/mathutil v1.7.1 // indirect
+	modernc.org/memory v1.12.1 // indirect
 )
 
 replace github.com/agent-fox-dev/agentkit-go => ../agentkit-go

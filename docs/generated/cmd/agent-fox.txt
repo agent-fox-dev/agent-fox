@@ -1,0 +1,8 @@
+Command agent-fox is the agent-fox service: one long-running process that starts
+from one config.toml, keeps its state in one SQLite file, and treats hub as the
+only authority on who is calling and which workspaces they may see.
+
+Its stderr is a log, one JSON record on each line (log/slog), from the first
+line it writes; the one exception is the plain-text usage that a command line
+it cannot parse gets. docs/cli.md describes the flags and the exit codes,
+docs/configuration.md the file, and docs/api.md the routes.

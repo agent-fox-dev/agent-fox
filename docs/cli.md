@@ -1,7 +1,8 @@
 # The af command line
 
-`af` is the one binary of agent-fox. `make build` writes it to `bin/af`
-(`go build ./cmd/af` builds it too). Every command of `af` speaks the same
+`af` is the command-line binary of agent-fox. `make build` writes it to `bin/af`
+(`go build ./cmd/af` builds it too), beside `bin/agent-fox`, the long-running service, whose own
+command line is [described at the end of this document](#the-agent-fox-command-line). Every command of `af` speaks the same
 contract, which the shell in `internal/toolio` implements once so that the
 commands do not: one JSON envelope on stdout, a fixed table of statuses and
 exit codes, coded warnings, a stop on a question that is resumed with
@@ -1994,3 +1995,93 @@ file_attempt}` or `submission_absent {attempt}`. `triage` adds `triage.input`,
 `fix.brief`, `fix.run`, `fix.question`, `apply`, `measure`, `refusal` and, under `none`,
 `foreign_commits_reset {count, from, to, branch}` (see
 [the files of a fix run](#the-files-of-a-fix-run)).
+
+## The agent-fox command line
+
+`agent-fox` is the long-running service of agent-fox: one process, started from one configuration
+file, that keeps its state in one SQLite file and asks [hub](https://github.com/agent-fox-dev/hub) who
+is calling. `make build` writes it to `bin/agent-fox` with the same version, commit and build time as
+`bin/af`. It is not a command of the shell above: it has no envelope, and it runs until it is stopped.
+[configuration.md](configuration.md#the-agent-fox-service) describes the file, and [api.md](api.md) what
+it serves.
+
+```
+agent-fox [--config PATH]
+agent-fox --version
+agent-fox --help
+```
+
+| Flag | What it does |
+|---|---|
+| `--config PATH` | The configuration file. Without it the file is the first that exists of `./config.toml` and `$XDG_CONFIG_HOME/agent-fox/config.toml` (`$HOME/.config/agent-fox/config.toml` if `XDG_CONFIG_HOME` is unset, empty or not an absolute path). If none exists, start fails and the error lists the paths it tried. |
+| `--version` | Prints the version document, one JSON object, and exits 0. It reads no configuration. |
+| `--help` | Prints the usage on stdout and exits 0. It reads no configuration. |
+
+```
+$ agent-fox --version
+{
+  "name": "agent-fox",
+  "version": "v0.1.0",
+  "commit": "f79e3fe",
+  "build_time": "2026-10-22T08:14:28Z",
+  "go_version": "go1.27.2"
+}
+```
+
+The document is the one of [`af --version`](#the-af-command-line), with the name `agent-fox`, and it is
+what `GET /version` answers. An unknown flag, a flag without its value, and a positional argument print
+the error and the usage as plain text on stderr and exit 2; it is the one thing on stderr that is not a
+JSON record.
+
+### What it writes
+
+Nothing is written to stdout but the output of `--version` and `--help`. Stderr is a log: **one JSON
+record on each line** (`log/slog`), from the first line the process writes. The records are:
+
+| `msg` | `level` | Attributes | When |
+|---|---|---|---|
+| `start failed` | `ERROR` | `error` | The service could not start. It is the only record such a run writes, and the `error` names the key, file, address or reason (see below). |
+| `hub.url is plain http to a host that is not a loopback address: caller tokens and workspace tokens cross the link in clear` | `WARN` | `hub_host` | `hub.url` is `http` and its host is not `localhost` or a loopback address. The service starts all the same. It is written after the listener is bound and before `listening`. |
+| `listening` | `INFO` | `addr` | The listener is bound. `addr` is the address it is bound to, so that `listen = "127.0.0.1:0"` gives a port to read here. |
+| `request` | `INFO` | `method`, `path`, `status`, `duration`, `user` | One for each request. `path` has no query, `duration` is in nanoseconds, and `user` (the hub user id) is there when the request showed who is calling. The `Authorization` header and the bodies are never logged. |
+| `hub is unavailable` | `WARN` | `error` | A call to hub could not be answered; the request got `502`. |
+| `panic in handler` | `ERROR` | `method`, `path`, `panic`, `stack` | A handler panicked. The request got `500`; the process goes on. |
+| `the subscription could not be stored`, `the subscriptions could not be listed`, `the subscription could not be read`, `the subscription could not be removed` | `ERROR` | `error` | The database failed on a request; the request got `500`. |
+| `an unexpected failure of the check of the caller` | `ERROR` | `error` | Checking the caller with hub failed in a way that is neither a refusal nor hub being unavailable; the request got `500`. |
+| `the listener failed` | `ERROR` | `error` | The listener failed after the start. The service exits 1. |
+| `requests in flight did not finish within the grace period` | `WARN` | `error` | The 30 seconds ran out while the service stopped; it closed what was open and exited 0 all the same. |
+| `the database could not be closed` | `ERROR` | `error` | The database reported an error as it was closed at the end. |
+| `http: …` | `WARN` | none | What Go's HTTP server itself reports (a handler that wrote its status twice, for one), as a record and not as a line of text. |
+
+The key file, a token and the `Authorization` header are in none of them.
+
+```
+{"time":"2026-10-22T10:14:39.492024+02:00","level":"ERROR","msg":"start failed","error":"config file /etc/agent-fox/config.toml: unknown key server.external_url"}
+{"time":"2026-10-22T10:14:47.581638+02:00","level":"INFO","msg":"listening","addr":"127.0.0.1:62760"}
+{"time":"2026-10-22T10:14:47.728386+02:00","level":"INFO","msg":"request","method":"GET","path":"/healthz","status":200,"duration":66708}
+```
+
+### Exit codes
+
+| Exit code | Meaning |
+|---|---|
+| `0` | The service was stopped by SIGINT or SIGTERM, or it printed the version or the usage. |
+| `1` | The listener could not be bound (the address is in use, not allowed, does not resolve, or is not this host's), or the listener failed once the service was serving. |
+| `2` | The command line, the configuration, the key file or the database is wrong, or a database was written by a newer `agent-fox` (it records a migration this binary does not know). The operator has to change a file. |
+
+A failed start writes exactly one record (`start failed`) and nothing listens. The `error` names what
+is wrong: the dotted key of the configuration (`unknown key server.external_url`,
+`hub.auth_cache_ttl: 16m is outside 1s to 15m0s`, `the environment variable HUB is not set` with the
+key that holds it), the key file and the reason (it is missing, is not base64, is not 32 bytes, or has a
+group or other permission bit set), the database file, or `server.listen` with the address and the reason.
+
+### Starting and stopping
+
+The service starts in this order: the configuration, the key file, the database (it is created with its
+directory when it is missing, and migrated), and the listener. A configuration or a key that is wrong
+leaves no database behind.
+
+On SIGINT or SIGTERM the service stops accepting connections, gives the requests in flight up to 30
+seconds to finish, closes the database and exits 0. A second signal while it waits changes nothing (only
+SIGKILL ends it sooner). `GET /healthz` answers while the process serves; `GET /readyz` answers when the database does.
+

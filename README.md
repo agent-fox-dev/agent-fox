@@ -25,6 +25,9 @@ repository.
 | Path | Purpose |
 |---|---|
 | `cmd/af/` | The `af` binary: it registers the commands on the shell and hands the process to it. Sixteen commands: `lang detect`, `gate run`, `gate compare`, `revert-check`, `guard check` and `map`, the five of `af triage` (`triage`, `triage brief`, `triage run`, `triage submit` and `triage land`) and the five of `af fix` (`fix`, `fix brief`, `fix run`, `fix submit` and `fix land`). [`docs/cli.md`](docs/cli.md) describes them. |
+| `cmd/agent-fox/` | The `agent-fox` binary, the long-running service: it starts from one `config.toml`, keeps its state in one SQLite file, asks hub who is calling, and lets a caller subscribe a hub workspace by handing over a workspace token, which it keeps sealed and never returns. It runs no model in this release. [`docs/cli.md`](docs/cli.md#the-agent-fox-command-line) describes the command line, [`docs/api.md`](docs/api.md) the routes and [`docs/configuration.md`](docs/configuration.md#the-agent-fox-service) the file. |
+| `internal/service/` | The packages of the service: `config` (the file), `secrets` (the key and the sealing of tokens), `store` (the SQLite file and its migrations), `ttl` (the cache of hub's answers) and `api` (the HTTP surface). |
+| `internal/hub/` | The client of hub's API, and `fakehub`, the `httptest` hub of the tests. |
 | `internal/toolio/` | The command shell behind `af`: the envelope and its exit codes, `needs_human` and `--context`, `--dry-run`, `--schema`, the positional input, and the run directory with its events and ledger. [`docs/cli.md`](docs/cli.md) describes it. |
 | `internal/gitx/` | The git and shell invocations the tools make, hermetic and issued from Go. |
 | `internal/agentdir/` | The git-ignored `.agent-fox/` directory and the atomic write of its files. |
@@ -69,9 +72,32 @@ go work init . ../aflib
 
 ```bash
 make check          # gofmt + go vet + all tests
-make build          # go build ./..., and bin/af
+make build          # go build ./..., and bin/af and bin/agent-fox
 bin/af --version
+bin/agent-fox --version
 ```
+
+## Running the service
+
+`agent-fox` needs a configuration file that sets where hub is and where its key is, and a key. A key file
+is 32 random bytes in base64, and the service refuses one that group or others can read:
+
+```bash
+(umask 077; openssl rand -base64 32 > key)
+cat > config.toml <<'EOF'
+[hub]
+url = "https://hub.example.com"
+
+[secrets]
+key_file = "key"
+EOF
+bin/agent-fox --config config.toml
+```
+
+It listens on `127.0.0.1:8090` unless `server.listen` says otherwise, answers `GET /healthz`,
+`GET /readyz` and `GET /version` without a token, and stops on SIGINT or SIGTERM. Its log is one JSON
+record per line on stderr. See [`docs/cli.md`](docs/cli.md#the-agent-fox-command-line),
+[`docs/configuration.md`](docs/configuration.md#the-agent-fox-service) and [`docs/api.md`](docs/api.md).
 
 The test suite needs no API key, no token, no container engine and no network. It does start
 `httptest` servers on the loopback interface, so a sandbox that forbids
