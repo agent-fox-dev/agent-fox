@@ -197,13 +197,18 @@ func (s *Store) run(ctx context.Context, jobID string, fn func(x *txn) error) er
 	return nil
 }
 
-// emit stores an event of the job, numbered after the last one, in the
+// emit stores an event of the layer, numbered after the last one, in the
 // transaction. The number is taken by the statement that stores it.
 func (x *txn) emit(ctx context.Context, attempt int, typ string, data any) error {
 	raw, err := json.Marshal(data)
 	if err != nil {
 		return err
 	}
+	return x.emitRaw(ctx, attempt, typ, raw)
+}
+
+// emitRaw is emit for data that is JSON already.
+func (x *txn) emitRaw(ctx context.Context, attempt int, typ string, raw json.RawMessage) error {
 	ev, err := x.s.insertEvent(ctx, x.Tx, x.jobID, attempt, typ, raw)
 	if err != nil {
 		return err
@@ -440,4 +445,16 @@ func (s *Store) OpenJobID(ctx context.Context, workspace string, kind Kind, issu
 		return "", ErrNotFound
 	}
 	return id, err
+}
+
+// SetHub stores the references of the session of a running attempt on hub; an empty
+// reference is none.
+func (s *Store) SetHub(ctx context.Context, jobID string, attempt int, sessionID, runID, sandboxID string) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE af_attempts SET hub_session = NULLIF(?, ''), hub_run = NULLIF(?, ''), hub_sandbox = NULLIF(?, '') WHERE job_id = ? AND n = ? AND state = 'running'",
+		sessionID, runID, sandboxID, jobID, attempt)
+	if err != nil {
+		return fmt.Errorf("hub references of attempt %d of %s: %w", attempt, jobID, err)
+	}
+	return nil
 }

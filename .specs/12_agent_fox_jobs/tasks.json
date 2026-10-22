@@ -136,7 +136,7 @@
       "done_when": [
         "stored seqs are gap-free for concurrent emitters under go test -race"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
