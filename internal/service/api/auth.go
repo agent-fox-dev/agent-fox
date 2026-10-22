@@ -172,7 +172,7 @@ func (s *server) inWorkspace(h func(w http.ResponseWriter, r *http.Request, slug
 		}
 		seen, err := s.auth.visible(r.Context(), p.token, slug)
 		if err != nil {
-			s.authFailure(w, r, err)
+			s.hubFailure(w, r, err)
 			return
 		}
 		if !seen {
@@ -192,16 +192,16 @@ func (s *server) authenticate(w http.ResponseWriter, r *http.Request) (principal
 	}
 	user, err := s.auth.identify(r.Context(), token)
 	if err != nil {
-		s.authFailure(w, r, err)
+		s.hubFailure(w, r, err)
 		return principal{}, false
 	}
 	setCaller(r, user)
 	return principal{user: user, token: token}, true
 }
 
-// authFailure answers a failed check of hub: 401 for a token that hub does not
-// accept, 502 when hub could not say.
-func (s *server) authFailure(w http.ResponseWriter, r *http.Request, err error) {
+// hubFailure answers a failed call to hub: 401 for a caller's token that hub does
+// not accept, 502 when hub could not say.
+func (s *server) hubFailure(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, errUnauthenticated) {
 		unauthenticated(w, "hub does not accept the token")
 		return

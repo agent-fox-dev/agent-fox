@@ -64,6 +64,7 @@ func NewServer(deps Deps) *http.Server {
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("GET /readyz", s.readyz)
 	mux.HandleFunc("GET /version", s.version)
+	mux.HandleFunc("PUT /api/v1/workspaces/{slug}", s.inWorkspace(s.subscribe))
 	if deps.Routes != nil {
 		deps.Routes(mux, s)
 	}
@@ -74,6 +75,14 @@ func NewServer(deps Deps) *http.Server {
 		// to the log as records too, so that every line on stderr is one.
 		ErrorLog: slog.NewLogLogger(s.log.Handler(), slog.LevelWarn),
 	}
+}
+
+// now is the time, by the clock of the dependencies.
+func (s *server) now() time.Time {
+	if s.deps.Now != nil {
+		return s.deps.Now()
+	}
+	return time.Now()
 }
 
 func (s *server) healthz(w http.ResponseWriter, _ *http.Request) {
