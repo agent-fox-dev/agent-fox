@@ -77,13 +77,18 @@ func NewServer(deps Deps) *http.Server {
 	if deps.Routes != nil {
 		deps.Routes(mux, s)
 	}
-	return &http.Server{
+	srv := &http.Server{
 		Handler:           s.logged(s.recovered(s.routed(mux))),
 		ReadHeaderTimeout: readHeaderTimeout,
 		// What net/http itself reports (a panic's stack, a bad request line) goes
 		// to the log as records too, so that every line on stderr is one.
 		ErrorLog: slog.NewLogLogger(s.log.Handler(), slog.LevelWarn),
 	}
+	if deps.Jobs != nil {
+		// Shutdown waits for the requests in flight, and a stream is one until it is closed.
+		srv.RegisterOnShutdown(deps.Jobs.CloseStreams)
+	}
+	return srv
 }
 
 // now is the time, by the clock of the dependencies.

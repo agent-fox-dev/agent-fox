@@ -59,6 +59,8 @@ type Service struct {
 	runner      Runner
 	attemptsDir string
 	queue       *jobqueue.Queue
+	// broker hands the events that the store has stored to the streams that follow them.
+	broker *Broker
 
 	// gate keeps a job from being made for a workspace between the moment it is
 	// checked and the moment the job is stored, while the workspace is marked as
@@ -114,6 +116,8 @@ func New(cfg Config) (*Service, error) {
 		s.clock = SystemClock{}
 	}
 	s.store = NewStore(cfg.DB, s.clock.Now)
+	s.broker = NewBroker()
+	s.store.SetPublisher(s.broker.Publish)
 	if cfg.StoreFault != nil {
 		s.store.SetFault(cfg.StoreFault)
 	}

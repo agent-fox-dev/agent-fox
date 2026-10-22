@@ -245,3 +245,41 @@ directory of a running attempt does not make it served; a file that the row list
 same 404, with a WARN that names the job, the attempt and the file.
 
 **Test:** `TestAFileOnDiskThatTheStoreDoesNotListIsNotServed_TS_12_63`.
+
+## 16. A stream is at rest when the latest `job_state` of the log says so (task 10)
+
+**Spec:** "If the job is at rest when the replay ends, the stream ends there. Otherwise it ends after the first live
+`job_state` whose `at_rest` is true" (12-REQ-10.6).
+
+**Code:** whether the job is at rest is read from its log, as the `at_rest` of the latest `job_state` event
+(`Store.LatestState`), once every event up to that one has been sent (`Service.Stream`, `internal/service/jobs/sse.go`);
+if one was stored after the replay read the file, the replay reads again. The `at_rest` of an event in the replay says
+nothing by itself: a job that was blocked (at rest) and has been answered has that event in its log and is running.
+A live `job_state` counts only if it was not in the replay.
+
+**Test:** `TestAStreamEndsAtTheEndOfTheReplayWhenTheJobIsAtRest…_TS_12_69` opens a stream on a job that was answered, with
+a `job_state` at rest in the middle of its replay, and the stream stays open.
+
+## 17. A `Last-Event-ID` that is not an integer of at least 0 is 400, and an explicit `since` wins even at 0 (task 10)
+
+**Spec:** a bad `since` answers 400; "without it the `Last-Event-ID` header is used" (R8, 12-REQ-10.4).
+
+**Code:** a header that is there and is not an integer of at least 0 (written without a sign, a leading zero or white
+space) is refused the same way, naming `Last-Event-ID`; an empty header is none. `since` is used whenever it is in the
+query, `since=0` included (`startingPoint`, `internal/service/api/jobs.go`).
+
+**Test:** `TestTheEventsRouteStreamsTheStoredEventsAfterSinceOrLastEventIDOrZero_TS_12_67`.
+
+## 18. Shutdown closes the streams through the server and through the service (task 10)
+
+**Spec:** "Server shutdown closes every stream" (R8) and "the jobs service Close and server shutdown close every
+stream" (task 10).
+
+**Code:** `api.NewServer` registers `Service.CloseStreams` with `http.Server.RegisterOnShutdown`, so that
+`Shutdown`, which waits for the requests in flight, is not held by streams; `Service.Close` closes them as well, before it
+cancels the runners. The broker stays closed afterwards: a stream begun then has its replay and ends, and events stored
+after are not published. The write to a client that does not read has no deadline (a stream has no length to give it);
+the broker lets go of such a client after 256 events, and the handler is let go when the client's connection is
+closed or the server's is.
+
+**Test:** `TestShuttingDownTheServerOrTheServiceClosesEveryStream_TS_12_70`.

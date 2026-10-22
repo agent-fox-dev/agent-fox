@@ -70,6 +70,34 @@ func (c *Clock) WaitForWaits(n int, d time.Duration) bool {
 	}
 }
 
+// ActiveTickers is how many tickers have been made and not stopped.
+func (c *Clock) ActiveTickers() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, t := range c.tickers {
+		if !t.stopped {
+			n++
+		}
+	}
+	return n
+}
+
+// WaitForActiveTickers waits until at least n tickers are active, and says whether it was
+// within d of real time.
+func (c *Clock) WaitForActiveTickers(n int, d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for {
+		if c.ActiveTickers() >= n {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 // Pending is how many waits have not ended.
 func (c *Clock) Pending() int {
 	c.mu.Lock()

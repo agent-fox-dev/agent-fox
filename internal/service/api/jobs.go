@@ -7,12 +7,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"maps"
 	"mime"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
+	"time"
 	"unicode/utf8"
 
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
@@ -39,6 +42,7 @@ func (s *server) jobRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/jobs/{id}", s.inJob(s.getJob))
 	mux.HandleFunc("GET /api/v1/jobs/{id}/attempts/{n}/envelope", s.inJob(s.getEnvelope))
 	mux.HandleFunc("GET /api/v1/jobs/{id}/attempts/{n}/report", s.inJob(s.getReport))
+	mux.HandleFunc("GET /api/v1/jobs/{id}/events", s.inJob(s.streamEvents))
 }
 
 // writeJobNotFound answers 404 for a job. One answer serves a job that does not exist and
@@ -364,4 +368,79 @@ func (s *server) serveFile(w http.ResponseWriter, r *http.Request, id, contentTy
 	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
+}
+
+// eventNumber is an integer of at least 0 written as a person writes one.
+var eventNumber = regexp.MustCompile(`^(0|[1-9][0-9]*)$`)
+
+// startingPoint is the number the stream starts after: the since parameter of the query if it
+// is there, else the Last-Event-ID header, else 0. A value that is not an integer of at least 0 is
+// refused with 400, naming where it came from, and startingPoint reports false.
+func startingPoint(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		writeError(w, CodeInvalidRequest, "the query string is not valid")
+		return 0, false
+	}
+	value, name := r.Header.Get("Last-Event-ID"), "Last-Event-ID"
+	if values, given := query["since"]; given {
+		if len(values) > 1 {
+			writeError(w, CodeInvalidRequest, "since: must be given at most once")
+			return 0, false
+		}
+		value, name = values[0], "since"
+	} else if value == "" {
+		return 0, true
+	}
+	n, err := strconv.ParseInt(value, 10, 64)
+	if !eventNumber.MatchString(value) || err != nil {
+		writeError(w, CodeInvalidRequest, name+": must be an integer of at least 0")
+		return 0, false
+	}
+	return n, true
+}
+
+// streamEvents is GET /api/v1/jobs/{id}/events: the events of the job after the starting point
+// as text/event-stream, the stored ones and then the live ones, until the job is at rest. Each
+// frame is flushed as it is written. A client that goes away, falls too far behind or meets the
+// shutdown of the server is let go, and follows again from the last event it has.
+func (s *server) streamEvents(w http.ResponseWriter, r *http.Request, id string) {
+	since, ok := startingPoint(w, r)
+	if !ok {
+		return
+	}
+	rc := http.NewResponseController(w)
+	// A stream has no length that a deadline on the write could be set to.
+	_ = rc.SetWriteDeadline(time.Time{})
+	header := w.Header()
+	header.Set("Content-Type", "text/event-stream")
+	header.Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	if err := rc.Flush(); err != nil {
+		s.log.LogAttrs(r.Context(), slog.LevelError, "an event stream cannot be flushed", slog.String("error", err.Error()))
+		return
+	}
+	// A write that fails is the client having gone, which is no fault of the service's.
+	var gone bool
+	write := func(frame []byte) error {
+		if _, err := w.Write(frame); err != nil {
+			gone = true
+			return err
+		}
+		if err := rc.Flush(); err != nil {
+			gone = true
+			return err
+		}
+		return nil
+	}
+	err := s.deps.Jobs.Stream(r.Context(), id, since,
+		func(ev jobs.Event) error { return write(ev.Frame()) },
+		func() error { return write([]byte(jobs.KeepaliveFrame)) })
+	switch {
+	case err == nil, gone, errors.Is(err, jobs.ErrStreamsClosed), errors.Is(err, context.Canceled):
+	case errors.Is(err, jobs.ErrSlowSubscriber):
+		s.log.LogAttrs(r.Context(), slog.LevelInfo, "an event stream was closed because its client fell behind", slog.String("job", id))
+	default:
+		s.log.LogAttrs(r.Context(), slog.LevelError, "an event stream ended because the events could not be read", slog.String("job", id), slog.String("error", err.Error()))
+	}
 }

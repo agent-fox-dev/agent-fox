@@ -79,9 +79,12 @@ type env struct {
 	DB     *sql.DB
 	Svc    *jobs.Service
 	Runner *fakerunner.Runner
-	URL    string
-	Logs   *syncBuffer
-	Dir    string
+	// Srv is the HTTP server of the API, which the tests may serve on a listener of their own
+	// or call the handler of.
+	Srv  *http.Server
+	URL  string
+	Logs *syncBuffer
+	Dir  string
 }
 
 // withRunner is a configuration that makes the runner of the service r.
@@ -158,7 +161,7 @@ func newEnv(t *testing.T, configure ...func(*jobs.Config)) *env {
 	ts.Start()
 	t.Cleanup(ts.Close)
 
-	e := &env{t: t, Hub: fh, Store: st, DB: st.DB(), Svc: svc, Runner: fake, URL: ts.URL, Logs: logs, Dir: dir}
+	e := &env{t: t, Hub: fh, Store: st, DB: st.DB(), Svc: svc, Runner: fake, Srv: srv, URL: ts.URL, Logs: logs, Dir: dir}
 	e.subscribe("widgets")
 	t.Cleanup(func() {
 		fake.ReleaseAll()

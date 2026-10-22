@@ -9,12 +9,13 @@ const shutdownWait = 30 * time.Second
 // returned or the wait for them is over.
 const queueGrace = 200 * time.Millisecond
 
-// Close stops the service: it stops claiming, cancels the attempts that are running
+// Close stops the service: it closes the streams of events, it stops claiming, cancels the attempts that are running
 // with the shutdown cause (which a runner does not read as a cancel), and waits up to
 // 30 seconds for their runners to return. What a runner returns after the cause is
 // discarded: nothing is stored, and the attempt stays running, to be handed over again
 // after the restart. Close can be called again.
 func (s *Service) Close() error {
+	s.CloseStreams()
 	s.stopOnce.Do(func() { close(s.stopping) })
 	s.mu.Lock()
 	runs := make([]*attemptRun, 0, len(s.inflight))

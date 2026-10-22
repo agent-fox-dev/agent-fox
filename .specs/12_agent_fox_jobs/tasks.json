@@ -441,7 +441,7 @@
       "done_when": [
         "a reconnect with the last seen id yields exactly the missed events"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
