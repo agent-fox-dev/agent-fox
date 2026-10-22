@@ -1,0 +1,488 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "15",
+  "spec_name": "agent_fox_poll",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/service/... ./internal/hub/... ./cmd/agent-fox/... ./docs/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "11_agent_fox_service_core",
+      "reason": "Uses the store's subscription list, label_prefix and in-process PAT read (ErrNotSubscribed, ErrUnreadable), the append-only af_ migration list (this spec appends one), slog logging, internal/hub and internal/hub/fakehub, and cmd/agent-fox's start and shutdown."
+    },
+    {
+      "spec": "12_agent_fox_jobs",
+      "reason": "Creates jobs through the label Create entry point with its duplicate, not-subscribed and token-unreadable refusals, uses OpenJob, the fake runner, cancel and retention; this spec adds an atomic duplicate check and an exported read of a job by id."
+    },
+    {
+      "spec": "13_agent_fox_worker",
+      "reason": "Uses the hub calls for the workspace record and resolved variables, the answer classes, the hub forge client's RemoveLabel and error mapping, the cancel cleanup that puts the request label back, and the worker test harness for the end-to-end test; adds ListIssues to the forge client and the issues list to the fake hub."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Add ListIssues to the hub forge client and the issues list to the fake hub",
+      "criteria": [
+        "15-REQ-3"
+      ],
+      "tests": [
+        "TS-15-15",
+        "TS-15-16",
+        "TS-15-17",
+        "TS-15-18",
+        "TS-15-19",
+        "TS-15-20",
+        "TS-15-21"
+      ],
+      "steps": [
+        "Read internal/hub/forge.go, internal/hub/fakehub and the worker's unavailable-methods test (TS-13-25) as they exist; read internal/triage/fakeforge/fakeforge.go for the fake pattern",
+        "Write TS-15-15..TS-15-21 and confirm they fail",
+        "In internal/hub/fakehub add the GET /api/v1/workspaces/{slug}/issues route serving the fake's issue state with state and labels filters, paging (page size 100, a further-page indicator), issues marked as pull/merge requests, a removal lag and an addition lag (counted in lists), and recording each list request with its query",
+        "In internal/hub/forge.go implement ListIssues: accept only State open, exactly one label and no Assignee/Sort/Direction, otherwise send nothing and return the client's 'not available through hub' error",
+        "Send GET .../issues?state=open&labels=<url.QueryEscape(label)> with the PAT bearer and a page size of 100, no sort parameter; follow further pages until Limit issues are held or hub reports no further page; a page that says nothing about further pages is the last",
+        "Set IssueList.Incomplete only when stopped at Limit while hub reported a further page; drop items marked pull or merge request; convert to issuex.Issue (Number, Labels, IsPR) keeping hub's order",
+        "Map list errors as the client's other forge methods do (401/403 *issuex.HTTPError, 404 not found, 409 conflict, other 4xx rejected with hub's message, 429 rate-limited, 5xx/transport/timeout/bad JSON retryable)",
+        "Keep hub's route, field and pull-request marker names inside internal/hub and its fake; remove ListIssues from the unavailable methods and from the worker's unavailable-methods test, and update 13-REQ-3.1/3.6 wording in the worker spec notes if the repo keeps them",
+        "Add the source-scan test of TS-15-20 asserting no package outside internal/hub names the hub route, page or marker fields"
+      ],
+      "touches": [
+        "internal/hub/forge.go",
+        "internal/hub/forge_test.go",
+        "internal/hub/fakehub/",
+        "internal/hub/listissues_test.go"
+      ],
+      "done_when": [
+        "ListIssues is absent from the hub forge client's unavailable-method list and its test"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Add the af_poll_requests migration and the poll record store",
+      "criteria": [
+        "15-REQ-6.1"
+      ],
+      "tests": [
+        "TS-15-37"
+      ],
+      "steps": [
+        "Read internal/service/store/migrations.go and the store's open/migrate code",
+        "Write TS-15-37 and confirm it fails",
+        "Append one migration creating af_poll_requests (workspace, issue, label, job_id nullable, owed flag, job-seen state, hold flag, release clock timestamp, created timestamp) with NO foreign key to af_jobs; leave earlier migrations untouched",
+        "Create package internal/service/poll with a store type over *sql.DB offering: Insert, ListByWorkspace, UpdateSeen/hold/clock, SetOwed, ConfirmOwed(workspace, issue, label), SettleOwed, Delete, and a drop-when-nothing-owed-and-nothing-holds helper",
+        "Assert in the test PRAGMA foreign_key_list(af_poll_requests) is empty, the new migration is last, and records survive reopening the database file"
+      ],
+      "touches": [
+        "internal/service/store/migrations.go",
+        "internal/service/poll/store.go",
+        "internal/service/poll/store_test.go"
+      ],
+      "done_when": [
+        "the new migration is the last entry of the migration list"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Jobs layer: atomic duplicate check and exported read of a job by id",
+      "criteria": [
+        "15-REQ-9"
+      ],
+      "tests": [
+        "TS-15-61",
+        "TS-15-62"
+      ],
+      "steps": [
+        "Read internal/service/jobs create.go, read.go/list.go, cancel.go, retain.go and the fakerunner as they exist",
+        "Write TS-15-61 and TS-15-62 and confirm they fail",
+        "Make Create run the duplicate check and the insert in one transaction (or under one serialising lock) so that two racing creators for one workspace, kind and issue yield exactly one job and the loser gets ErrDuplicate; the 50-iteration race test TS-15-60 is owned by the poll task that exercises it",
+        "Add an exported Get(ctx, id) returning state, source, request_label, CancelledInRunner (cancel reached an attempt in a runner) and RunnerInProgress (reuse retention's 'no runner in progress' computation), and an ErrNotFound that errors.Is matches for purged jobs",
+        "Record the cancel-reached-a-runner fact durably when a running attempt's job is cancelled (including unsubscribe cancels) and keep it after the runner returns or the grace expires",
+        "Keep the retention purge unchanged; in TS-15-62 insert an af_poll_requests row referring to the job and assert purge returns no error, the job rows are gone and the poll row survives"
+      ],
+      "touches": [
+        "internal/service/jobs/create.go",
+        "internal/service/jobs/read.go",
+        "internal/service/jobs/cancel.go",
+        "internal/service/jobs/retain_poll_test.go",
+        "internal/service/jobs/get_test.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "done_when": [
+        "`go test -race ./internal/service/jobs/...` passes"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Poll cycle skeleton: variables, interval, prefix and listings",
+      "criteria": [
+        "15-REQ-2",
+        "15-REQ-4.1",
+        "15-REQ-4.3",
+        "15-REQ-4.5"
+      ],
+      "tests": [
+        "TS-15-9",
+        "TS-15-10",
+        "TS-15-11",
+        "TS-15-12",
+        "TS-15-13",
+        "TS-15-14",
+        "TS-15-22",
+        "TS-15-24",
+        "TS-15-26"
+      ],
+      "steps": [
+        "Read the store, internal/hub (WorkspaceRecord, ResolvedVars, forge factory) and fakehub APIs as they exist",
+        "Write the listed tests with an injected Now and a captured slog handler and confirm they fail",
+        "In internal/service/poll create Cycle(ctx, slug) returning (next interval, stop bool): call a Reconciler interface (no hub request) first, then read the subscription's label_prefix and PAT from the store, then the resolved variables",
+        "Parse AF_POLL_INTERVAL: unset/empty 5m; zero duration disables; 1m..24h used; otherwise 5m with one WARN per distinct value naming workspace, variable and value",
+        "Disabled: end right after the variables read (no workspace record, no list, no label write), next cycle in 5m; remember the last interval read per workspace and use it (or 5m if last was zero or none) when a cycle ends before reading the variable",
+        "Name labels <prefix>triage and <prefix>fix from the subscription prefix; ignore AF_LABEL_PREFIX and log one WARN per distinct differing value",
+        "When enabled read the workspace record then list triage then fix via the hub forge client ListIssues (State open, one label, Limit 100) and hand each listing to an IssueHandler interface; keep a no-op default handler until the issue-rules task",
+        "Log a WARN naming workspace and label once for an incomplete listing, not again until that label lists complete",
+        "Pull requests and closed issues never reach the handler (client filter); confirm no job or removal results for them"
+      ],
+      "touches": [
+        "internal/service/poll/cycle.go",
+        "internal/service/poll/interval.go",
+        "internal/service/poll/cycle_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "done_when": [
+        "the fake hub records vars, workspace, issues(triage), issues(fix) in that order for an enabled cycle"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Poll supervisor, per-workspace loops, scheduling limits and wiring into agent-fox",
+      "criteria": [
+        "15-REQ-1"
+      ],
+      "tests": [
+        "TS-15-1",
+        "TS-15-2",
+        "TS-15-3",
+        "TS-15-4",
+        "TS-15-5",
+        "TS-15-6",
+        "TS-15-7",
+        "TS-15-8"
+      ],
+      "steps": [
+        "Read cmd/agent-fox/run.go and the jobs layer's start/stop as they exist",
+        "Write the listed tests using an injected clock, first-cycle delay, scan period and release delay, and confirm they fail",
+        "Create Supervisor with options (Clock, FirstDelay, ScanPeriod, ReleaseDelay) defaulting to wall clock, random 0-30s (math/rand/v2), 60s and 5m",
+        "Scan store.List at start and every scan period; keep exactly one loop per slug; stop the loop and cancel its in-flight cycle when the subscription is gone",
+        "Loop: first cycle after the first-cycle delay, later cycles one returned interval after the previous cycle ended, never overlapping",
+        "Share a 4-slot semaphore across loops; a due cycle waits for a slot",
+        "Cancel any cycle after 5 minutes of injected clock keeping what it did, free its slot and schedule as for an early-ended cycle",
+        "Stop(): start no new cycle, cancel in-flight cycles and wait for them to return",
+        "Wire into cmd/agent-fox/run.go: start the poll after the jobs layer, and call poll Stop before the jobs layer's stop",
+        "Add a recording-hooks test proving the start order and that poll.stop returns before jobs.stop is called"
+      ],
+      "touches": [
+        "internal/service/poll/supervisor.go",
+        "internal/service/poll/loop.go",
+        "internal/service/poll/supervisor_test.go",
+        "cmd/agent-fox/run.go"
+      ],
+      "depends_on": [
+        4
+      ],
+      "done_when": [
+        "no workspace ever has more than one loop",
+        "at most 4 cycles are ever in flight"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Create a job for a new request and consume the label",
+      "criteria": [
+        "15-REQ-4.2",
+        "15-REQ-4.6",
+        "15-REQ-4.7",
+        "15-REQ-5.5",
+        "15-REQ-5.6",
+        "15-REQ-5.7",
+        "15-REQ-5.8",
+        "15-REQ-6.2",
+        "15-REQ-6.3"
+      ],
+      "tests": [
+        "TS-15-23",
+        "TS-15-27",
+        "TS-15-28",
+        "TS-15-33",
+        "TS-15-34",
+        "TS-15-35",
+        "TS-15-36",
+        "TS-15-38",
+        "TS-15-39",
+        "TS-15-60"
+      ],
+      "steps": [
+        "Read the jobs layer's Create (label source), OpenJob, ErrDuplicate, ErrNotSubscribed and the token-unreadable error as they exist",
+        "Write the listed tests (TS-15-60 under go test -race, 50 iterations each on a fresh database) and confirm they fail",
+        "Implement the real IssueHandler: sort each listing's issues ascending by number (triage list before fix list) and process them one by one",
+        "For a new request call jobs.Create with kind K, input {issue: N}, source {kind:\"label\", by:\"label <L>\"} and request label L; log INFO with workspace, kind, issue and job id",
+        "Right after creation insert a poll record (workspace, issue, label, job id, owed=true); a record write failure logs one WARN and the removal still goes ahead",
+        "Consume L with the hub forge client RemoveLabel; a success or 404 clears the owed flag on the record",
+        "On ErrDuplicate fall through to the absorbed handling (shared with the absorb task: call a handleAbsorbed function, implemented here for the removal path); on ErrNotSubscribed end the cycle at once with no label write; on token-unreadable or any other error log one WARN, leave L and end the cycle",
+        "Make the PAT never appear in any log record or job field (never log URLs with tokens or request headers)",
+        "Wire the handler as the Supervisor/Cycle default so production code creates jobs",
+        "Add the race test: a cycle versus POST /api/v1/workspaces/widgets/fix {issue:42} 50 times asserting exactly one fix job for 42 and af:fix removed"
+      ],
+      "touches": [
+        "internal/service/poll/handler.go",
+        "internal/service/poll/handler_test.go",
+        "internal/service/poll/race_test.go",
+        "internal/service/poll/cycle.go"
+      ],
+      "depends_on": [
+        2,
+        3,
+        4
+      ],
+      "done_when": [
+        "`go test -race ./internal/service/poll/...` passes"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Absorb open jobs, owed removals, and reconcile records with their jobs",
+      "criteria": [
+        "15-REQ-5.1",
+        "15-REQ-5.2",
+        "15-REQ-5.4",
+        "15-REQ-6.4",
+        "15-REQ-6.5",
+        "15-REQ-6.6",
+        "15-REQ-6.7",
+        "15-REQ-6.8"
+      ],
+      "tests": [
+        "TS-15-29",
+        "TS-15-30",
+        "TS-15-32",
+        "TS-15-40",
+        "TS-15-41",
+        "TS-15-42",
+        "TS-15-43",
+        "TS-15-44"
+      ],
+      "steps": [
+        "Read internal/service/poll store, handler and the jobs Get/OpenJob entry points as they exist",
+        "Write the listed tests and confirm they fail",
+        "In the handler apply the rules in order for each listed issue: absorbed (OpenJob of the same kind for N: remove L, create no job, INFO log with workspace, kind, issue and job id; an open job of the other kind does not absorb), held (left to the hold task), already taken (an owed removal for N and L: remove L, create no job), new request",
+        "A failed absorbing removal writes a record with no job and the removal owed",
+        "A removal success or 404 confirms every owed record for N and L; any other failure leaves it owed, keeps the created job, and the cycle continues with the next issue",
+        "When a complete listing of L does not contain N, settle every owed removal for N and L; an incomplete listing settles nothing",
+        "Implement the Reconciler: at the start of every cycle (enabled or not, before any hub request) read via jobs.Get the job of each record whose job has not been seen end",
+        "Note done and cancelled-without-hold (not CancelledInRunner) as ended holding nothing; CancelledInRunner as holding, recording the release clock the first time RunnerInProgress is false; ErrNotFound as holding from the instant found gone; queued, running, blocked and failed as not ended",
+        "Drop a record once nothing is owed and nothing holds (confirmed or settled, and job ended holding nothing, hold released, or no job)",
+        "Wire the reconciler as the Cycle's default reconciler"
+      ],
+      "touches": [
+        "internal/service/poll/handler.go",
+        "internal/service/poll/reconcile.go",
+        "internal/service/poll/store.go",
+        "internal/service/poll/reconcile_test.go",
+        "internal/service/poll/owed_test.go"
+      ],
+      "depends_on": [
+        6
+      ],
+      "done_when": [
+        "a failed removal never turns into a second job after the first job ended"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Holds: a label the service put back is left alone until released",
+      "criteria": [
+        "15-REQ-4.4",
+        "15-REQ-5.3",
+        "15-REQ-7"
+      ],
+      "tests": [
+        "TS-15-25",
+        "TS-15-31",
+        "TS-15-45",
+        "TS-15-46",
+        "TS-15-47",
+        "TS-15-48",
+        "TS-15-49",
+        "TS-15-50",
+        "TS-15-51"
+      ],
+      "steps": [
+        "Read the poll reconciler, handler and the jobs Get semantics as they exist",
+        "Write the listed tests with the fake runner (cancel while it holds the attempt, report set, overrun past the 60s grace), the fake hub's addition lag, a restart on the same database file and retention purge, and confirm they fail",
+        "Treat a poll-created job as holding from the cancel when CancelledInRunner is true, whatever the runner reports, including a dropped report and an unsubscribe cancel",
+        "In the handler's rule order apply 'held' after 'absorbed': when a listing of L contains N under a hold, create no job and send no removal",
+        "Start the release clock when the reconciler first sees RunnerInProgress false, or when a purged job is found gone (use the injected clock)",
+        "Release a hold only on a complete listing of L without N that was requested at least the release delay (5m default, injected) after the release clock started; an incomplete listing, or an earlier one, keeps the hold and settles no owed removal",
+        "Record the listing request time before issuing the list so lag is judged on request time",
+        "Jobs cancelled while queued, in transient backoff or blocked hold nothing, so adding the label again makes one new job at the next cycle",
+        "Persist holds in af_poll_requests so they survive restart and retention purge of the job"
+      ],
+      "touches": [
+        "internal/service/poll/handler.go",
+        "internal/service/poll/reconcile.go",
+        "internal/service/poll/hold_test.go"
+      ],
+      "depends_on": [
+        7
+      ],
+      "done_when": [
+        "after a hold is released, adding the label again makes exactly one new job"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "Failure handling, log-once tracking and workspace isolation",
+      "criteria": [
+        "15-REQ-8"
+      ],
+      "tests": [
+        "TS-15-52",
+        "TS-15-53",
+        "TS-15-54",
+        "TS-15-55",
+        "TS-15-56",
+        "TS-15-57",
+        "TS-15-58",
+        "TS-15-59"
+      ],
+      "steps": [
+        "Read the hub client's answer classes (refused, forbidden, not found, rejected, unavailable) and the poll cycle as they exist",
+        "Write the listed tests with a captured slog handler and confirm they fail",
+        "Classify each hub call failure per R7's table: unavailable (429, 5xx, transport, timeout, bad JSON) ends the cycle with a WARN and the next cycle runs one interval later; 401/403 and a 404 on workspace record, variables or list end the cycle with an ERROR naming the hub operation and, for 401/403, pointing to `PUT /api/v1/workspaces/{slug}`; other 4xx (409 included) on a read or list ends the cycle with an ERROR carrying hub's message",
+        "A rejected label removal stays owed, logs an ERROR naming the label removal, issue, label and hub's message, and the cycle goes on to the next issue; a 404 on removal is no failure",
+        "Store not subscribed stops the loop with no further hub request; token unreadable sends no hub request and logs one ERROR",
+        "Add a per-workspace failure tracker keyed by (R7 row, hub operation, and issue+label for removals): log on first occurrence only, and clear when a cycle completes without failure, logging one INFO 'poll recovered' record",
+        "One workspace's failure never stops or delays another loop (beyond the 4 shared slots); keep loops and trackers per workspace",
+        "Confirm no failure log record contains the PAT"
+      ],
+      "touches": [
+        "internal/service/poll/failure.go",
+        "internal/service/poll/cycle.go",
+        "internal/service/poll/handler.go",
+        "internal/service/poll/failure_test.go"
+      ],
+      "depends_on": [
+        7
+      ],
+      "done_when": [
+        "three cycles of the same 403 produce exactly one ERROR record"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 10,
+      "kind": "implement",
+      "title": "Documentation, offline guard and end-to-end acceptance",
+      "criteria": [
+        "15-REQ-10"
+      ],
+      "tests": [
+        "TS-15-63",
+        "TS-15-64"
+      ],
+      "steps": [
+        "Run `make doc` first to refresh docs/generated",
+        "Write the docs test in docs/ (same phrase-checking style as docs/docs_test.go, never removing existing text) for TS-15-63 and the offline guard test of TS-15-64 that scans poll tests for non-loopback URLs and refuses outbound non-loopback dials",
+        "Update docs/api.md: poll-created jobs, source {kind:\"label\", by:\"label <request label>\"}, request_label, absorbed, already-taken and held labels",
+        "Update docs/configuration.md: AF_POLL_INTERVAL (default 5m, 0 disables, range 1m-24h, invalid values fall back to 5m with a WARN) and that the subscription's label_prefix names the request labels, AF_LABEL_PREFIX ignored",
+        "Update docs/model-usage.md: the poll runs no model, each labelled issue is a job spending like an API job, a restored label does not spend again",
+        "Update docs/architecture.md: loops and cycles, consuming and absorbing labels, owed removals, holds and the release delay, records outliving jobs, incomplete listings, cost of each cycle on hub and the forge",
+        "Update docs/development.md layout table with internal/service/poll and README.md (a subscribed workspace picks up labelled issues); leave docs/cli.md unchanged",
+        "Run `make check` and confirm it passes offline"
+      ],
+      "touches": [
+        "docs/api.md",
+        "docs/configuration.md",
+        "docs/model-usage.md",
+        "docs/architecture.md",
+        "docs/development.md",
+        "README.md",
+        "docs/poll_docs_test.go",
+        "internal/service/poll/offline_test.go"
+      ],
+      "depends_on": [
+        8,
+        9
+      ],
+      "done_when": [
+        "`make check` exits 0 with no network"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 11,
+      "kind": "integration",
+      "title": "Verify the poll paths end to end against the real worker, jobs layer and API",
+      "tests": [
+        "TS-15-65",
+        "TS-15-66",
+        "TS-15-67",
+        "TS-15-68"
+      ],
+      "steps": [
+        "Write TS-15-65 using the worker's test harness (fake hub with its git server, in-process gateway over local, scripted brain), TS-15-66, TS-15-67 and TS-15-68 with the real jobs layer, API handler, fake runner, fake hub and poll store, and confirm they pass",
+        "Trace 15-PATH-1 to 15-PATH-4 through the real code: supervisor, loop, cycle, store reads, hub forge ListIssues, handler, jobs.Create, poll record, RemoveLabel; confirm each step calls the next and no stub remains",
+        "For every criterion with a contract (jobs.Get consumed by the reconciler, ListIssues consumed by the cycle, the atomic duplicate refusal consumed by the handler, Stop ordering consumed by cmd/agent-fox/run.go), confirm production code consumes the producer's result, not only tests",
+        "Confirm cmd/agent-fox/run.go starts the poll after the jobs layer and stops it before, and that the cancel cleanup of agent_fox_worker (entry point of another spec) is invoked from production code",
+        "Search every file listed in the tasks' touches for panic(\"not implemented\"), TODO, and bare `return nil` on a non-trivial path, and remove any; replace the no-op default handler and reconciler from the cycle skeleton with the real ones",
+        "Run `make check` and confirm it passes offline"
+      ],
+      "touches": [
+        "internal/service/poll/smoke_test.go",
+        "cmd/agent-fox/run.go"
+      ],
+      "depends_on": [
+        10
+      ],
+      "done_when": [
+        "`make check` passes offline",
+        "all four smoke tests pass under go test -race"
+      ],
+      "state": "pending",
+      "optional": false
+    }
+  ]
+}

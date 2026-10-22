@@ -1,0 +1,525 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "13",
+  "spec_name": "agent_fox_worker",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/afcmd/... ./internal/toolio/... ./internal/hub/... ./internal/worker/... ./internal/box/... ./internal/fix/... ./cmd/af/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "05_af_cli_envelope",
+      "reason": "toolio gains an in-process invocation: no signal handler, event sink, preset run id and caller-chosen target repository"
+    },
+    {
+      "spec": "06_af_ring1_facts",
+      "reason": "ring-1 commands move to the importable package and run in the box (af lang detect, af gate run, af revert-check)"
+    },
+    {
+      "spec": "07_af_brains",
+      "reason": "brain options take a per-invocation environment lookup; brains accept a vendor key supplied by the box"
+    },
+    {
+      "spec": "08_af_triage",
+      "reason": "triage loop moves to the importable package and gains the earlier-question seam"
+    },
+    {
+      "spec": "09_af_fix",
+      "reason": "fix loop moves and gains git-runner, detection, earlier-question, post-push and box-first measuring seams"
+    },
+    {
+      "spec": "10_af_boxes_claude",
+      "reason": "adds the gateway provider in a per-attempt registry; box.Registry, Settings and driverInBox become per-invocation"
+    },
+    {
+      "spec": "11_agent_fox_service_core",
+      "reason": "uses the store's Token and label_prefix, the internal/hub client conventions and fakehub, which this spec extends"
+    },
+    {
+      "spec": "12_agent_fox_jobs",
+      "reason": "the worker implements its Runner contract (recorder, cancellation cause, transient errors, result), replacing the unsupported placeholder, and adds the round position to the runner input"
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Move the af commands into an importable package and add in-process seams",
+      "criteria": [
+        "13-REQ-1"
+      ],
+      "tests": [
+        "TS-13-1",
+        "TS-13-2",
+        "TS-13-3",
+        "TS-13-4",
+        "TS-13-5",
+        "TS-13-6",
+        "TS-13-7",
+        "TS-13-8",
+        "TS-13-9",
+        "TS-13-10"
+      ],
+      "steps": [
+        "Write TS-13-1..TS-13-10 and confirm they fail (unit tests move with the code; tests that build and run the binary stay in cmd/af)",
+        "Create internal/afcmd and move every command implementation from cmd/af (triage, fix, fix_brief, fix_land, fix_run, gate, gate_compare, guard, lang, map, placed, revert_check, triage, schemas/*.json with go:embed) into it; cmd/af/main.go keeps only main, the ldflags variables and building the toolio.App from afcmd; keep testdata/schema.golden.json byte-identical and keep sandbox_scan/ring1 tests pointing at the right package paths",
+        "Replace the package-level variables fixRegistry, triageRegistry, fixBrainOptions, triageBrainOptions, fixGate and the use of box.Default with an afcmd Invocation/Config struct (forge factory, box.Registry, brain.Registry, brain.Options with Getenv/Model, gitx.Runner, EarlierQuestions, PostPush hook, measuring seams) whose zero value defaults to af's current values; baseOptions and brain.Settings.Validate read the environment only through the supplied lookup; thread the registry through brain.Settings, driverInBox and brain.BoxRequest",
+        "Build a fresh toolio.App per invocation so per-Register flag closures are never shared; ensure no os.Setenv, os.Chdir or package-level write happens on behalf of an invocation (TS-13-10 property test under -race)",
+        "Add the EarlierQuestions seam to fix (internal/fix brief/Earlier, cmd fix_brief startRun) and triage (BuildBrief/FindPreviousQuestion): per --context value either {question, options} or none; a none value renders as material from a person; no run directory is searched; no question_not_found warning; triage uses the question of the last value that has one",
+        "In internal/toolio add per-invocation options on App: NoSignals (no signal.NotifyContext; caller ctx is the only stop; --timeout and Grace still apply), EventSink (called with each line as written, same order as events.jsonl), RunID (validated against YYYYMMDD_HHMMSS_<6 hex> before NewRunDir; usage error otherwise; becomes run dir name and envelope run_id), Target issuex.Repo with host (forgeFor builds the client for it for every input kind, ignoring --repo and the origin of --dir; a foreign issue URL is a usage error with no forge request)",
+        "Run make check and the existing af tests; confirm the --schema goldens are unchanged"
+      ],
+      "touches": [
+        "cmd/af/main.go",
+        "cmd/af/*_test.go",
+        "internal/afcmd/",
+        "internal/toolio/app.go",
+        "internal/toolio/forge.go",
+        "internal/toolio/events.go",
+        "internal/toolio/rundir.go",
+        "internal/brain/flags.go",
+        "internal/brain/agentkit_process.go",
+        "internal/brain/boxspec.go",
+        "internal/fix/brief.go",
+        "internal/triage/brief.go",
+        "internal/triage/previous.go"
+      ],
+      "done_when": [
+        "`make check` passes and cmd/af/testdata/schema.golden.json is unchanged"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Extend fakehub and add the hub client calls an attempt makes",
+      "criteria": [
+        "13-REQ-2",
+        "13-REQ-10.7"
+      ],
+      "tests": [
+        "TS-13-11",
+        "TS-13-12",
+        "TS-13-13",
+        "TS-13-14",
+        "TS-13-15",
+        "TS-13-16",
+        "TS-13-17",
+        "TS-13-18",
+        "TS-13-19",
+        "TS-13-80"
+      ],
+      "steps": [
+        "Write TS-13-11..TS-13-19 and TS-13-80 and confirm they fail",
+        "Extend internal/hub/fakehub with test-settable state and routes: GET workspaces/{slug} (clone URL, base branch, mode, forge repo URL), vars/resolved (both {vars:{}} and list forms), sessions (open, usage, complete, events batch), sandboxes lease/release, branches/{branch}/push, and the forge API (issues, comments, labels, pulls, issues that are PRs/MRs); record and count every request, inject failures/delay/redirect/oversize per route",
+        "Add a loopback git smart-HTTP server to fakehub (net/http/cgi.Handler serving git http-backend with GIT_PROJECT_ROOT and GIT_HTTP_EXPORT_ALL) that accepts only Authorization: Basic with user agent-fox and the workspace's PAT and answers 401 to a bearer token or anything else; record the Authorization header",
+        "Add leases in fakehub that point at an in-process gateway (agentkit-go sandbox/gatewayd Server over the local provider, served by httptest) whose backend records every Spec created and every command executed; read ../agentkit-go sandbox/gateway and gatewayd source to confirm the unverified API shape",
+        "Add internal/hub client methods WorkspaceRecord, ResolvedVars, OpenSession, PostUsage, CompleteSession, PostEvents, Lease, ReleaseLease and PushBranch, all with the PAT and the path-escaped slug, never touching the identity/visibility caches; hub's JSON field names stay in this package",
+        "Implement the 10 s bound (injectable clock/timeouts), 1 MiB body limit, no redirect, no token in any error; Lease and PushBranch use a 5-minute bound or the shorter context, and a timeout is unavailable",
+        "Classify answers with sentinel/typed errors usable with errors.Is/As: ErrRefused (401), a forbidden error (403, message names the operation, says the PAT lacks the scope, points to PUT /api/v1/workspaces/{slug}; also for the workspace-record read), ErrNotFound (404), a rejected error carrying hub's {error:{code,message}} message, *UnavailableError (429, 5xx, transport, timeout, bad JSON); a release answered 404 returns nil",
+        "Decode resolved vars from both encodings into one map[string]string"
+      ],
+      "touches": [
+        "internal/hub/",
+        "internal/hub/fakehub/"
+      ],
+      "done_when": [
+        "go test ./internal/hub/... -count=1 passes offline"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Provide the hub-backed issuex.Client and its factory",
+      "criteria": [
+        "13-REQ-3"
+      ],
+      "tests": [
+        "TS-13-20",
+        "TS-13-21",
+        "TS-13-22",
+        "TS-13-23",
+        "TS-13-24",
+        "TS-13-25",
+        "TS-13-26"
+      ],
+      "steps": [
+        "Write TS-13-20..TS-13-26 and confirm they fail",
+        "Add internal/hub forge client implementing issuex.Client bound to one slug and PAT (mirror the full method set of internal/toolio/dryrun.go); Authenticated returns true; GetRepository from the workspace record; ReadIssue = issue plus comments, marking Issue.IsPR when hub says pull/merge request; ListComments; UpdateIssue (body, title); CreateIssue; AddComment; AddLabels; RemoveLabel; CreatePullRequest posting {title, body, head, base, draft} to …/pulls",
+        "Every other method sends nothing and returns an error saying the operation is not available through hub in this release",
+        "Add a factory with the signature of toolio.App.NewForge; compare host, owner and name case-insensitively against the workspace's forge repository before any request; an empty-host repo/ref is compared on owner and name alone; mismatch error says the issue is not on the workspace's repository",
+        "Implement issuex.BodyLimiter: GitLab limit when the repository host is GitLab, GitHub's otherwise",
+        "Map hub errors to the issuex types: refused/forbidden to *issuex.HTTPError status 401/403 carrying the 13-REQ-2.4 message, not found to issuex's not-found error, 409 to issuex.ErrConflict, 429 to issuex's rate-limited error, other unavailable to a retryable error; confirm triage/fix classification yields auth, forge and retryable"
+      ],
+      "touches": [
+        "internal/hub/forge.go",
+        "internal/hub/forge_test.go",
+        "internal/hub/fakehub/"
+      ],
+      "depends_on": [
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Add the gateway provider and measuring in the box for service fix attempts",
+      "criteria": [
+        "13-REQ-6.4",
+        "13-REQ-6.5",
+        "13-REQ-7"
+      ],
+      "tests": [
+        "TS-13-44",
+        "TS-13-45",
+        "TS-13-49",
+        "TS-13-50",
+        "TS-13-51",
+        "TS-13-52",
+        "TS-13-53",
+        "TS-13-54",
+        "TS-13-55",
+        "TS-13-56"
+      ],
+      "steps": [
+        "Write TS-13-44, TS-13-45 and TS-13-49..TS-13-56 and confirm they fail",
+        "Add a gateway box provider in internal/box built from a lease's gateway URL and token (agentkit-go sandbox/gateway, check ../agentkit-go for the real Dial signature), registered only in a per-attempt box.Registry (never in box.Default, so af --sandbox gateway is a usage error); it counts as isolating; Box creation uses labels af.run_id, af.tool, af.job, af.attempt and an empty Env",
+        "Make brain.Process call programs by name under gateway as under podman, and let in-box brains (newAgentkitInBox, newClaude) start with no vendor key on the host when the box supplies it; give processes the credential names as NAME=\"$NAME\" references only; make driverInBox use the supplied registry",
+        "Add to internal/fix a measuring seam set (Detect, Baseline/Gate, RevertCheck) with host implementations as defaults and in-box implementations that, for each run, sync the host tree into the box, place the gate table (fix.WriteBoxFiles), run af lang detect / af gate run / af revert-check via Session.Exec, and decode the command envelope",
+        "Before the first ring-1 command in a box run af --version once: missing or failing af gives a non-retryable sandbox Failure naming the profile (AF_SANDBOX_PROFILE or hub's default) and saying its image must provide af; another version/commit raises box_af_version_mismatch and continues",
+        "A ring-1 envelope with another major schema_version or an undecodable result is a non-retryable sandbox Failure naming the profile; a box or gateway lost mid-command is a retryable sandbox failure that ends the loop",
+        "In service mode open the box before Preflight's detection, keep that one box for the whole attempt, and leave file view, repo map, path validation, export apply, commit and push on the host; keep verdict table, brief gate section and result fields unchanged and keep af --local on the host",
+        "Use internal/fakeclaude.Install so the local-backed gateway box has an af on PATH; assert the host gate and revert-check seams record zero calls"
+      ],
+      "touches": [
+        "internal/box/gateway.go",
+        "internal/box/registry.go",
+        "internal/box/open.go",
+        "internal/brain/process.go",
+        "internal/brain/agentkit_process.go",
+        "internal/brain/claude.go",
+        "internal/fix/preflight.go",
+        "internal/fix/measure.go",
+        "internal/fix/loop.go",
+        "internal/fix/boxmeasure.go",
+        "internal/afcmd/fix.go"
+      ],
+      "depends_on": [
+        1,
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Worker resolve: settings, refusals, input forms and the hub session",
+      "criteria": [
+        "13-REQ-4.1",
+        "13-REQ-4.2",
+        "13-REQ-4.6",
+        "13-REQ-8.5",
+        "13-REQ-10.1",
+        "13-REQ-10.2"
+      ],
+      "tests": [
+        "TS-13-27",
+        "TS-13-28",
+        "TS-13-31",
+        "TS-13-61",
+        "TS-13-74",
+        "TS-13-75"
+      ],
+      "steps": [
+        "Write TS-13-27, TS-13-28, TS-13-31, TS-13-61, TS-13-74 and TS-13-75 and confirm they fail",
+        "Create internal/worker with the Runner type implementing 12_agent_fox_jobs's Runner contract (reuse the jobs package types if present; otherwise define matching input/result/recorder types) plus the new round-position input field; unsubscribed/unreadable token results in an auth envelope pointing to PUT /api/v1/workspaces/{slug}",
+        "Resolve settings from hub variables with the R4 defaults and ranges (AF_BRAIN_TRIAGE/AF_BRAIN_FIX then AF_BRAIN, AF_MODEL default catalog.Default().DefaultModelID(\"anthropic\"), budget, turns, timeout 1m..24h, max attempts 1..10, sandbox profile, AF_FIX_LAND pr|branch|none); unset/empty take defaults, unknown ignored; scripted is rejected; out-of-range gives a worker-built failed envelope category config, retryable false, fix_hint.var, message with name and value, and no session",
+        "Refuse a fix on a carry_patch workspace or AF_FIX_LAND=patch with a failed unsupported envelope (not retryable, message says carry-patch landing comes in a later release) before any clone, lease, session, forge write or brain; triage on carry_patch proceeds",
+        "Turn input into loop input: issue number to the issue URL on the workspace repository; <path>#<N> compared case-insensitively (full namespace on GitLab); URLs must be on the workspace repository else a usage refusal; read the issue through hub at resolve and refuse a pull/merge request with a usage envelope before any write",
+        "Build refusal envelopes as the worker does (tool triage|fix, status failed or usage, error retryable false, empty arrays, usage source none, encoded via toolio's encoder); hub unavailable at resolve is a transient *toolio.Failure category hub",
+        "Draw a run id in YYYYMMDD_HHMMSS_<6 hex> format, open the hub session (archetype, resolved model, run_id) after resolve and before mark, report session id and run id to the recorder; 503 gives a transient hub error; 401/403 an auth envelope; no forge write and no lease in those cases",
+        "Use a worker environment lookup that yields nothing, and keep scripted reachable only through a test-only seam of the worker"
+      ],
+      "touches": [
+        "internal/worker/settings.go",
+        "internal/worker/resolve.go",
+        "internal/worker/input.go",
+        "internal/worker/envelope.go",
+        "internal/worker/runner.go",
+        "internal/worker/*_test.go"
+      ],
+      "depends_on": [
+        2,
+        3,
+        4
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Clone with the scoped Basic credential, hermetic git and the branch publish hook",
+      "criteria": [
+        "13-REQ-5.2",
+        "13-REQ-5.3",
+        "13-REQ-5.4",
+        "13-REQ-5.5",
+        "13-REQ-5.6",
+        "13-REQ-5.8",
+        "13-REQ-8.6"
+      ],
+      "tests": [
+        "TS-13-34",
+        "TS-13-35",
+        "TS-13-36",
+        "TS-13-37",
+        "TS-13-38",
+        "TS-13-40",
+        "TS-13-63"
+      ],
+      "steps": [
+        "Write TS-13-34..TS-13-38, TS-13-40 and TS-13-63 and confirm they fail",
+        "Add the worker's git runner on gitx.HermeticEnv plus GIT_CONFIG_COUNT/KEY_n/VALUE_n entries appended after HermeticEnv setting http.<hub url>.extraHeader to Authorization: Basic base64(agent-fox:<PAT>); no PAT on argv, in .git/config or any file; no prompt or askpass",
+        "Implement the clone step: remove any kept clone/ first, create clone/ (0700), clone the workspace hub clone URL with the base branch checked out, set local user.name agent-fox and user.email agent-fox@noreply.invalid",
+        "Classify clone failures: git server 401/403 gives an auth failed envelope (mirrored later); any other failure (transport, 5xx, timeout) gives a transient *toolio.Failure category git retryable true and no envelope",
+        "Pass the hermetic runner into the fix pipeline for every git command including the push (gitx runner seam from task 1), while box sync and checks.FileView keep the default runner",
+        "Add the post-push hook seam in fix.landing.push (internal/fix/land.go) threaded via FinishParams to Land and Park; the worker's hook calls hub PushBranch, up to 3 tries in all while hub is unavailable; a final failure is the push's failure: loop ends failed, category git, not retryable, branch kept on hub's git server and named in the envelope's next; no pull request is requested after failure",
+        "Test with a global git config containing a credential helper that writes a marker file; assert it is never invoked, and that the fake git server saw the Basic header"
+      ],
+      "touches": [
+        "internal/worker/clone.go",
+        "internal/worker/gitrunner.go",
+        "internal/fix/land.go",
+        "internal/fix/finish.go",
+        "internal/fix/park.go",
+        "internal/afcmd/fix.go"
+      ],
+      "depends_on": [
+        2,
+        5
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Lease, gateway box, timeout cut and release",
+      "criteria": [
+        "13-REQ-6.1",
+        "13-REQ-6.2",
+        "13-REQ-6.3",
+        "13-REQ-6.6",
+        "13-REQ-6.7",
+        "13-REQ-6.8"
+      ],
+      "tests": [
+        "TS-13-41",
+        "TS-13-42",
+        "TS-13-43",
+        "TS-13-46",
+        "TS-13-47",
+        "TS-13-48"
+      ],
+      "steps": [
+        "Write TS-13-41..TS-13-43, TS-13-46..TS-13-48 and confirm they fail",
+        "Request the lease only after settings, mode, input and session pass: body {purpose, labels:{job, attempt}} with profile only when AF_SANDBOX_PROFILE is set; report the sandbox id to the recorder",
+        "Lease answered 401/403 gives an auth failed envelope pointing to PUT /api/v1/workspaces/{slug}; any other refusal, unavailable answer or timeout, an unreachable or refusing gateway, or a lease with under 2 minutes left gives a transient *toolio.Failure category sandbox retryable true with hub's reason in the message",
+        "Build the attempt's own box registry with the gateway provider from the lease URL and token and the loop's box request carrying labels af.run_id, af.tool, af.job, af.attempt and no Env",
+        "Cut the loop's --timeout so it ends 2 minutes before expires_at and add warning lease_shortened_timeout; otherwise keep AF_TIMEOUT",
+        "Release the lease after the box closes on every path (success, failure, transient, cancel, shutdown, panic via defer/recover) on a context detached from the attempt's cancellation and bounded to 30 s; a failure adds warning lease_release_failed (logged under a transient error) without changing status"
+      ],
+      "touches": [
+        "internal/worker/lease.go",
+        "internal/worker/runner.go",
+        "internal/worker/lease_test.go"
+      ],
+      "depends_on": [
+        4,
+        5
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Run the attempt pipeline: loop invocation, transient errors vs envelopes, events and results",
+      "criteria": [
+        "13-REQ-4.5",
+        "13-REQ-4.7",
+        "13-REQ-5.1",
+        "13-REQ-5.7",
+        "13-REQ-8.1",
+        "13-REQ-8.2",
+        "13-REQ-8.3",
+        "13-REQ-8.4",
+        "13-REQ-8.7",
+        "13-REQ-8.8"
+      ],
+      "tests": [
+        "TS-13-30",
+        "TS-13-32",
+        "TS-13-33",
+        "TS-13-39",
+        "TS-13-57",
+        "TS-13-58",
+        "TS-13-59",
+        "TS-13-60",
+        "TS-13-62",
+        "TS-13-64"
+      ],
+      "steps": [
+        "Write TS-13-30, TS-13-32, TS-13-33, TS-13-39, TS-13-57..TS-13-60, TS-13-62 and TS-13-64 and confirm they fail",
+        "Orchestrate the order resolve, session, mark, clone, lease and box, run, mirror, release, report inside Runner.Run, using only clone/ and input/ (0700) under the attempt directory and never touching envelope.json, report.md or the directory itself",
+        "Invoke the loop in-process through afcmd with a fresh toolio.App: hub forge factory, workspace forge repository as target, hermetic git runner, gateway registry, in-box measuring, earlier questions (no question for each context string, question with options for each answer), the session's run id, flags from settings (fix with --attempts 1, resolved model passed to the brain, --timeout), NoSignals, and an event sink that forwards each line to the recorder; text goes on stdin with a title as first Markdown heading, a file is written as input/<base name> and passed by path",
+        "Emit worker step events {name, source:\"worker\"} for resolve, session, clone, lease, run, mirror, release and report; add envelope artifacts hub_session and sandbox",
+        "Classify endings: a loop envelope failed with retryable true and category sandbox, forge or hub becomes a transient *toolio.Failure with no envelope; every other ending returns a result with the envelope amended only by added warnings, side effects and artifacts, report text or nothing, and AF_MAX_ATTEMPTS (2 when stopped before variables were read); a push/publish failure stays a git non-retryable envelope",
+        "Apply the stop-early table: resolve refusals, hub unavailable and session 401/403 write nothing, take no lease, make no hub report; transient clone/lease/box failures and refused credentials still release a granted lease and run the report step (mirror is wired in the next task)",
+        "On return remove clone/ and input/ except keep clone/ on a shutdown cause or a transient error",
+        "Run a fakehub fix attempt with the scripted brain and check request order against TS-13-57"
+      ],
+      "touches": [
+        "internal/worker/runner.go",
+        "internal/worker/run.go",
+        "internal/worker/events.go",
+        "internal/worker/result.go",
+        "internal/worker/*_test.go"
+      ],
+      "depends_on": [
+        1,
+        5,
+        6,
+        7
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "Mirror outcomes to the issue and clean up on cancel or shutdown",
+      "criteria": [
+        "13-REQ-4.3",
+        "13-REQ-4.4",
+        "13-REQ-9"
+      ],
+      "tests": [
+        "TS-13-29",
+        "TS-13-66",
+        "TS-13-67",
+        "TS-13-68",
+        "TS-13-69",
+        "TS-13-70",
+        "TS-13-71",
+        "TS-13-72",
+        "TS-13-73"
+      ],
+      "steps": [
+        "Write TS-13-29 and TS-13-66..TS-13-73 and confirm they fail",
+        "Add the label/comment mirror in internal/worker using the hub forge client: prefix always from the subscription's label_prefix (AF_LABEL_PREFIX not read; warn label_prefix_ignored when set and different); mark sets <prefix>in-progress at step 3; the mirror writes to the issue the input named, or for a done text/file triage to the issue the loop created, and nothing otherwise",
+        "Setting a status label removes the other four status labels the issue carries, except a fix's in-progress keeps ready (removed only by landed, needs-human or failed)",
+        "Implement the outcome table: triage done confirmed/probable sets ready no comment; suspected/not_reproducible sets needs-human with a reason comment; any needs_human sets needs-human with the question comment; fix done or unverified+landed with pr/branch sets landed with fix_summary; landed with AF_FIX_LAND=none removes in-progress, sets no label, fix_summary saying nothing was kept; unverified+parked sets needs-human with fix_summary; other failed or usage sets failed with the failure comment",
+        "A transient error, or a failed brain/no_result retryable envelope with round position below AF_MAX_ATTEMPTS, removes in-progress and sets no status label or comment",
+        "Compose comments with a marker naming job, attempt and kind and skip posting when the marker is already on the issue; contents: question with lettered options and af jobs answer <job id> / POST /api/v1/jobs/{id}/answer; reason with confidence, where the diagnosis is, and POST /api/v1/workspaces/{slug}/triage with context; fix_summary with outcome, branch, PR or absence, verdict, Closes/Refs, unproven items (parked adds what failed and af jobs retry <job id> / POST /api/v1/jobs/{id}/retry); failure with category, message and the retry route; no absolute worker paths",
+        "A failing forge write adds status_label_failed, comment_failed or request_label_failed with a matching side effect and never changes status (logged under a transient error)",
+        "Cancel/unsubscribe cause: after the loop stops, within the 60 s grace, remove in-progress, put the job's request label back, leave ready, set no status label, post no comment, release and report using the PAT read at resolve; return the loop's envelope (or a worker-built envelope with category cancelled when the loop had not started) and labels set/removed",
+        "Shutdown cause: write nothing to the forge, keep clone/, release the lease and complete the session within the shutdown wait",
+        "Ensure the result's labels set/removed include mark, mirror and cancel cleanup writes"
+      ],
+      "touches": [
+        "internal/worker/mirror.go",
+        "internal/worker/comments.go",
+        "internal/worker/cancel.go",
+        "internal/worker/runner.go",
+        "internal/worker/mirror_test.go"
+      ],
+      "depends_on": [
+        3,
+        8
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 10,
+      "kind": "implement",
+      "title": "Report to hub, enforce the credential invariant and update the documentation",
+      "criteria": [
+        "13-REQ-10.3",
+        "13-REQ-10.4",
+        "13-REQ-10.5",
+        "13-REQ-10.6",
+        "13-REQ-10.8"
+      ],
+      "tests": [
+        "TS-13-65",
+        "TS-13-76",
+        "TS-13-77",
+        "TS-13-78",
+        "TS-13-79",
+        "TS-13-81"
+      ],
+      "steps": [
+        "Write TS-13-65, TS-13-76..TS-13-79 and TS-13-81 and confirm they fail",
+        "After the release post one usage record when a brain ran (resolved model, brain, tokens, cost, cost source, turns), post the loop's events in sequence order in batches of at most 500, and complete the session with the envelope status or failed under a transient error; failures add hub_usage_failed, hub_events_failed, hub_session_failed (logged under a transient error) and change nothing else",
+        "Verify the returned envelope differs from the loop's only by added warnings, side effects and artifacts, encoded as toolio encodes envelopes",
+        "Property-test the credential invariant (TS-13-78) over many scenarios including two attempts on two workspaces run concurrently under -race: set sentinels for ANTHROPIC_API_KEY, GITHUB_TOKEN, GH_TOKEN, GITLAB_TOKEN; assert no request to hub, git or gateway carries a sentinel, every box spec has empty Env, each request carries only its own workspace's PAT or lease token, and no environment lookup is read",
+        "Scan the envelope, events, comments, every file under the attempt tree and every Spec.Env of a full fix attempt for the PAT and lease token (TS-13-79)",
+        "Run make doc, then update docs/architecture.md (worker pipeline, transient errors vs envelopes, gateway box and the af the image must provide, measuring in the box, label mirror), docs/configuration.md and docs/model-usage.md (AF_* hub variables, defaults, ranges, default model, vendor-key source), docs/api.md (hub_session and sandbox artifacts, hub category, unsupported for carry-patch, new warnings, path artifacts are worker paths that cannot be retrieved), docs/development.md (moved command package and worker package), README.md (service runs attempts); leave docs/cli.md unchanged and never remove phrases the docs tests check",
+        "Add docs/errata/13_*.md for any divergence found, then run make check"
+      ],
+      "touches": [
+        "internal/worker/report.go",
+        "internal/worker/runner.go",
+        "internal/worker/invariant_test.go",
+        "docs/architecture.md",
+        "docs/configuration.md",
+        "docs/model-usage.md",
+        "docs/api.md",
+        "docs/development.md",
+        "README.md",
+        "docs/errata/"
+      ],
+      "depends_on": [
+        8,
+        9
+      ],
+      "done_when": [
+        "`make check` passes including the docs tests"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 11,
+      "kind": "integration",
+      "title": "Verify the worker execution paths end to end",
+      "tests": [
+        "TS-13-82",
+        "TS-13-83",
+        "TS-13-84",
+        "TS-13-85",
+        "TS-13-86",
+        "TS-13-87"
+      ],
+      "steps": [
+        "Write the smoke tests TS-13-82..TS-13-87 against real components (fakehub, its git server, in-process gateway over the local provider, hub forge client, git binary, fakeclaude af, scripted brain) and confirm they pass",
+        "Trace 13-PATH-1 to 13-PATH-6 through the real code: Runner.Run, resolve, session, mark, clone, lease, afcmd loop, publish hook, mirror, release, report; confirm each step calls the next and no stub remains",
+        "For every criterion with a contract, confirm the producer's result is consumed in production code (e.g. the recorder receives events and hub refs, the jobs layer's result carries labels and max attempts, the hub forge factory and gateway registry are passed to the loop)",
+        "Confirm the entry point from 12_agent_fox_jobs is live: the production service wiring uses worker.Runner in place of the unsupported placeholder and the jobs layer passes the round position",
+        "Search every file in the tasks' touches for panic(\"not implemented\"), TODO, NotImplementedError and bare return nil on non-trivial paths, and remove them",
+        "Run make check"
+      ],
+      "touches": [
+        "internal/worker/smoke_test.go"
+      ],
+      "depends_on": [
+        10
+      ],
+      "done_when": [
+        "`make test` passes offline with the six smoke tests included"
+      ],
+      "state": "pending"
+    }
+  ]
+}

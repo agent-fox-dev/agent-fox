@@ -1,0 +1,526 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "12",
+  "spec_name": "agent_fox_jobs",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/service/... ./cmd/agent-fox/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "11",
+      "reason": "supplies the config struct, SQLite store and migration list, hub client and fake hub, caller identity and cached workspace visibility, the /api/v1 mux with error envelope and decodeBody, subscriptions with token_state, the in-process PAT read and the DELETE workspace handler this spec extends"
+    },
+    {
+      "spec": "05",
+      "reason": "supplies toolio.Envelope, statuses and ExitCode, toolio.Failure and its categories, MaxInputBytes and the event vocabulary that attempts store and stream"
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Add workers/retain config, the jobs migrations, the job store and the job/attempt document model",
+      "criteria": [
+        "12-REQ-1.1",
+        "12-REQ-1.2",
+        "12-REQ-1.3",
+        "12-REQ-1.4",
+        "12-REQ-2"
+      ],
+      "tests": [
+        "TS-12-1",
+        "TS-12-2",
+        "TS-12-4",
+        "TS-12-11"
+      ],
+      "steps": [
+        "Read the core's code first (internal/service/config, store, api, cmd/agent-fox) and use its real names; the core spec is in .specs/11_agent_fox_service_core/. Create package internal/service/jobs.",
+        "Write TS-12-1, TS-12-2, TS-12-4 and TS-12-11 and confirm they fail",
+        "Extend the core config struct with [workers].count (int, default 2, 1..64) and [database].retain (Go duration, default 720h, 1h..8760h); an out-of-range or malformed value exits 2 before listening with an ERROR log record naming workers.count or database.retain, through the core's existing config-error path",
+        "Append three migrations to the core's append-only list: af_jobs, af_attempts (key job_id+n; columns state, trigger_kind, trigger_by, answer JSON, deliveries, transient_failures, hub refs, envelope status/exit_code/summary/error, usage, started_at, finished_at) and af_events (key job_id+seq, with attempt, ts, type, data); add the columns the job document needs (labels set/removed/restore, request_label, max_attempts, context JSON, input JSON, issue, source kind/by, unsubscribing handled elsewhere)",
+        "Create the attempts/ directory beside the database file with mode 0700 when missing (idempotent)",
+        "Implement the store: job id job_ + 20 lowercase hex from crypto/rand, attempt numbers from 1, times through one helper producing RFC 3339 UTC with milliseconds on an injectable clock, short transactions, conditional state-transition updates (UPDATE ... WHERE state=?) returning whether a row changed",
+        "Implement the job document builder: exactly the fields id, workspace, kind, input (without context), issue, source, request_label, state, blocked (lettered A,B,... options and answer_with, or null), attempt_count, current_attempt, result {status, exit_code, summary, error} from the latest finished attempt, artifacts/side_effects ([] by default), labels {set, removed, restore} or null, usage summed over finished attempts, hub or null, created_at, started_at, finished_at; plus the attempts array builder (n, state, trigger, answer, deliveries, transient_failures, status, exit_code, summary, error, usage, started_at, finished_at) for the single-job view",
+        "Enforce finished_at semantics in the store transition helpers: set on every entry into done, failed or cancelled, null otherwise, cleared when the job queues again; started_at set at first claim only",
+        "Wire the new config and migrations into cmd/agent-fox startup so the binary exits 2 on bad values"
+      ],
+      "touches": [
+        "internal/service/config",
+        "internal/service/store",
+        "internal/service/jobs/store.go",
+        "internal/service/jobs/model.go",
+        "internal/service/jobs/doc.go",
+        "cmd/agent-fox/main.go"
+      ],
+      "done_when": [
+        "the three af_ tables exist after migration and the binary refuses bad workers/retain values with exit code 2"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Validate and create jobs through the triage and fix routes and the Go entry points",
+      "criteria": [
+        "12-REQ-3"
+      ],
+      "tests": [
+        "TS-12-15",
+        "TS-12-16",
+        "TS-12-17",
+        "TS-12-19",
+        "TS-12-20",
+        "TS-12-22"
+      ],
+      "steps": [
+        "Write the six tests and confirm they fail; use the core's fake hub, its visibility check and its subscription store",
+        "Implement the issue parser: JSON positive integer; string of at most 2048 bytes that issuex.ParseIssueURL accepts with IsPullRequest false; or <path>#<N> with two or more /-separated segments of [A-Za-z0-9_.-] and positive integer N; everything else refused naming issue. Add a fuzz target",
+        "Implement request validation for text, title, file.name, file.content, context (at most 10 strings, each non-empty after trimming and at most 8 KiB, 32 KiB total) and exactly-one triage input form; errors name the field and map to 400 invalid_request; unknown fields are refused by the core decoder",
+        "Add per-route body limits to the core's decodeBody: 1 MiB on triage, 256 KiB on fix, 64 KiB elsewhere (13 413 payload_too_large above the limit)",
+        "Register POST /api/v1/workspaces/:slug/triage and /fix: 404 when the caller cannot see the workspace on hub or it is not subscribed or unsubscribing (add the unsubscribing mark as an in-memory set on the jobs service), 409 token_unreadable, 409 duplicate_job naming the open job's id for the same issue and kind among queued/running/blocked jobs; add the new error codes to the core's code table",
+        "Create in one transaction the job row, attempt 1 row (trigger create) and the job_state queued event with seq 1; enqueue only after commit through an injectable enqueue hook; an enqueue failure logs a WARN naming the job and the request still answers 202",
+        "source is {api, <hub user id>} and request_label null; answer 202 with the job document",
+        "Export Create(ctx, req) (source kind label/event/rebuild/triage, by, optional request label recorded as request_label, same validation and refusals as the routes, typed errors such as ErrDuplicate and ErrNotSubscribed) and OpenJob(workspace, kind, issue) returning the open job or a not-found result",
+        "Add a store fault-injection seam so TS-12-20 can fail the third insert and observe nothing persisted"
+      ],
+      "touches": [
+        "internal/service/jobs/create.go",
+        "internal/service/jobs/issue.go",
+        "internal/service/jobs/validate.go",
+        "internal/service/jobs/api.go",
+        "internal/service/api"
+      ],
+      "depends_on": [
+        1
+      ],
+      "done_when": [
+        "a valid fix and triage body answers 202 with a queued job and every invalid body answers 400 naming the field"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Store events before publishing them, with validation and a 256-event subscriber broker",
+      "criteria": [
+        "12-REQ-10.1",
+        "12-REQ-10.2",
+        "12-REQ-10.3"
+      ],
+      "tests": [
+        "TS-12-64",
+        "TS-12-65",
+        "TS-12-66"
+      ],
+      "steps": [
+        "Write TS-12-64, TS-12-65 and TS-12-66 and confirm they fail",
+        "Implement an event log per job: gap-free strictly increasing seq across attempts allocated inside the insert transaction (serialize per job with a mutex or SELECT max+1 in the transaction), each event with ts, job_id, attempt, type, data; the event is stored in af_events before it is published",
+        "Implement validation: a type not matching ^[a-z][a-z0-9_]*$, or job_state/attempt_start/attempt_end from a runner, is stored as invalid_event_type with data {type, data}; data over 64 KiB as JSON becomes {truncated:true, bytes:N}; unencodable data becomes {error:...}; jobs-layer emitters use an internal path that may use the reserved types",
+        "Implement a broker with per-subscriber buffers of 256 events; publishing never blocks, and a subscriber whose buffer is full is disconnected (channel closed, flagged slow); expose Subscribe-with-replay primitive that registers the subscriber before reading the stored tail so no event is lost or duplicated (dedupe by seq), and a Close that closes every subscriber",
+        "An event that cannot be stored logs a WARN, is dropped and is not published; Emit returns without error",
+        "Implement a recorder type with Emit(type, data) and a hub-reference setter, safe for concurrent use, bound to one attempt and with a 'closed' flag that makes later calls no-ops (used by later tasks)"
+      ],
+      "touches": [
+        "internal/service/jobs/events.go",
+        "internal/service/jobs/broker.go",
+        "internal/service/jobs/recorder.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "done_when": [
+        "stored seqs are gap-free for concurrent emitters under go test -race"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Add the jobqueue adapter, claim transaction, runner contract and fake runner",
+      "criteria": [
+        "12-REQ-4",
+        "12-REQ-5.1",
+        "12-REQ-5.2",
+        "12-REQ-5.3",
+        "12-REQ-5.7"
+      ],
+      "tests": [
+        "TS-12-3",
+        "TS-12-23",
+        "TS-12-24",
+        "TS-12-25",
+        "TS-12-27",
+        "TS-12-28",
+        "TS-12-30",
+        "TS-12-31",
+        "TS-12-35"
+      ],
+      "steps": [
+        "Read the real aflib/jobqueue API (module cache or go doc). If the pinned aflib commit lacks the package, bump aflib in go.mod/go.sum. If the module lacks durability, claiming, delayed retry or crash recovery, stop and write docs/errata/12_jobqueue_gap.md instead of building a queue",
+        "Write the nine tests and confirm they fail",
+        "Define the Runner interface and request/result types: the request carries ctx, job id, attempt, delivery (handover count), workspace, kind, input, context strings, answers so far in order (question, options, text), source, request label and the absolute attempt dir attempts/<job id>/<n>/ created before the call and a Recorder; the result carries envelope, report text, labels set/removed and max attempts (0 means 2); an error may be marked transient (type or wrapper). Add the exported cause predicate IsCancel(context.Cause) true for cancel and unsubscribe, false for shutdown",
+        "Create internal/service/jobs/fakerunner: scripted per call (envelope, plain error, transient toolio.Failure, panic, block until ctx cancelled or released), records every call's inputs and max concurrency, no network",
+        "Implement the adapter: item type attempt, key workspace slug, nonce <job id>:<n>, payload {job_id, attempt}; enqueue of a held item (pending, delayed or claimed) is a no-op; at most [workers].count attempts in a runner; one attempt per workspace at a time in enqueue order; add the per-workspace order/nonce/handover count only if the module lacks them",
+        "Implement claim: one transaction moves attempt to running, increments deliveries and moves job to running (sets started_at on first claim); acknowledge without calling the runner when the job is gone, not queued/running, or the attempt is not queued/running; emit attempt_start {attempt, delivery}; create the attempt dir and call the runner with a context cancelled with a cause",
+        "Until task 5, the finish of a runner call may record attempt and job done minimally; task 5 replaces it with the full rules",
+        "Start the jobs service from cmd/agent-fox with the core's *sql.DB; expose Close; make the job's hub field read the recorder's references while the attempt runs"
+      ],
+      "touches": [
+        "go.mod",
+        "go.sum",
+        "internal/service/jobs/queue.go",
+        "internal/service/jobs/runner.go",
+        "internal/service/jobs/claim.go",
+        "internal/service/jobs/service.go",
+        "internal/service/jobs/fakerunner/fakerunner.go",
+        "cmd/agent-fox/main.go"
+      ],
+      "depends_on": [
+        2,
+        3
+      ],
+      "done_when": [
+        "with count 2 the fake runner never sees more than two concurrent calls and two jobs on one workspace never overlap"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "End attempts: store the envelope, map outcomes to states, synthesize envelopes, automatic attempts, placeholder runner",
+      "criteria": [
+        "12-REQ-5.4",
+        "12-REQ-5.5",
+        "12-REQ-5.6",
+        "12-REQ-6.1",
+        "12-REQ-6.3",
+        "12-REQ-6.4",
+        "12-REQ-6.5",
+        "12-REQ-6.6",
+        "12-REQ-6.7"
+      ],
+      "tests": [
+        "TS-12-9",
+        "TS-12-10",
+        "TS-12-32",
+        "TS-12-34",
+        "TS-12-36",
+        "TS-12-38",
+        "TS-12-39",
+        "TS-12-40",
+        "TS-12-41",
+        "TS-12-42"
+      ],
+      "steps": [
+        "Write the ten tests and confirm they fail",
+        "Implement finish(): write envelope.json (as the runner gave it, bytes kept verbatim) and non-empty report.md, both mode 0600, in the attempt dir; emit attempt_end {attempt, state, status, exit_code} and job_state {state, attempt, at_rest, blocked?, result?} on every transition; update job result/artifacts/side_effects/labels/usage/finished_at from the attempt",
+        "Apply rules in order: done, or unverified with result.outcome not parked, makes attempt and job done; needs_human with a question makes attempt needs_human and job blocked with lettered options; status failed with category brain or no_result, retryable true, not spent transient retries and round size below the runner's max (0 means 2, clamped 1..10, round = latest non-auto attempt plus the auto attempts after it) makes attempt failed, attempt n+1 trigger auto with same context and answers, job queued with finished_at cleared and enqueued; everything else (parked fix, other retryable category, retryable false, spent transient retries, full round) fails attempt and job",
+        "Synthesize a failed envelope (toolio.SchemaVersion, tool = job kind, empty slices, usage cost_source none, exit code 1) for a *toolio.Failure found with errors.As (its category/message/retryable), a plain error (internal, not retryable), a panic recovered and logged at ERROR (internal), an unknown status or needs_human without a question (internal), and a return after cancel without envelope (cancelled)",
+        "Drop events, hub references and results from a runner after its attempt ended (recorder closed flag)",
+        "Wire the placeholder runner in cmd/agent-fox that returns a failed envelope with category unsupported and retryable false",
+        "Make the attempt's state transitions conditional so concurrent endings apply once"
+      ],
+      "touches": [
+        "internal/service/jobs/finish.go",
+        "internal/service/jobs/synth.go",
+        "internal/service/jobs/placeholder.go",
+        "cmd/agent-fox/main.go"
+      ],
+      "depends_on": [
+        4
+      ],
+      "done_when": [
+        "every finished attempt has an envelope.json and result.exit_code equals toolio.ExitCode(result.status)"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Retry transient failures on the same attempt, handle shutdown and restart, and sweep queued attempts",
+      "criteria": [
+        "12-REQ-7"
+      ],
+      "tests": [
+        "TS-12-21",
+        "TS-12-44",
+        "TS-12-45",
+        "TS-12-46",
+        "TS-12-47",
+        "TS-12-48",
+        "TS-12-49"
+      ],
+      "steps": [
+        "Write the seven tests and confirm they fail",
+        "Transient errors: on the first and second, increment transient_failures, return the attempt to queued with no envelope stored, and re-deliver the same attempt after 30 s and 2 min through an injectable backoff function/timer (use the queue's delayed retry; the attempt keeps its workspace place without a worker slot); the third ends the attempt failed with the synthesized envelope carrying the failure's category and fails the job with no automatic attempt whatever the retryable flag",
+        "Shutdown: Close stops claiming, cancels running attempts with the shutdown cause, waits up to 30 s (injectable) for runners; whatever a runner returns after the shutdown cause (result, error or panic) is discarded: nothing stored, no attempt_end, attempt and job stay running",
+        "Restart: the same attempt number is handed over again with deliveries incremented, no new attempt row, no backoff and no transient failure (rely on jobqueue crash recovery of claimed items plus the sweep)",
+        "Sweep: at start and every minute (injectable tick) enqueue every queued attempt row again, relying on the nonce no-op",
+        "Also finish TS-12-21: enqueue failure after create answers 202 and the sweep gets the attempt to the runner once"
+      ],
+      "touches": [
+        "internal/service/jobs/transient.go",
+        "internal/service/jobs/shutdown.go",
+        "internal/service/jobs/sweep.go",
+        "internal/service/jobs/service.go"
+      ],
+      "depends_on": [
+        5
+      ],
+      "done_when": [
+        "a restart on the same database file redelivers the interrupted attempt with handover count 2"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Cancel jobs with a 60 s grace and cancel open jobs on unsubscribe",
+      "criteria": [
+        "12-REQ-6.2",
+        "12-REQ-6.8",
+        "12-REQ-8.1",
+        "12-REQ-8.2",
+        "12-REQ-8.7"
+      ],
+      "tests": [
+        "TS-12-13",
+        "TS-12-26",
+        "TS-12-33",
+        "TS-12-37",
+        "TS-12-43",
+        "TS-12-50",
+        "TS-12-51",
+        "TS-12-56"
+      ],
+      "steps": [
+        "Write the eight tests and confirm they fail",
+        "POST /api/v1/jobs/:id/cancel from queued, running or blocked via a conditional transition: job becomes cancelled at once with finished_at set, labels.restore set to request_label when present, answer 200 with the job; checks 404 (unknown or invisible, same 404 as elsewhere) then 409 invalid_state naming the current state",
+        "A queued attempt (backoff included) becomes cancelled and never reaches the runner; a running attempt's context is cancelled with the cancel cause and its row becomes cancelled when the runner returns, labels following the runner's report and restore cleared when the runner reports having set the request label; emit an at-rest job_state once the last running attempt of the cancelled job ends",
+        "Grace: if the runner has not returned within 60 s (injectable) record the attempt cancelled with a synthesized cancelled envelope, emit attempt_end and the at-rest job_state, log an ERROR naming job and attempt; the runner keeps its workspace place and worker slot until it returns, and everything it reports or returns afterwards is dropped",
+        "at_rest is true exactly when the job is blocked/done/failed/cancelled and no attempt is running",
+        "Unsubscribe: hook the core's DELETE /api/v1/workspaces/:slug after its own checks: set the unsubscribing mark, cancel every queued/running/blocked job with the unsubscribe cause (which IsCancel reports as cancel), wait up to the same grace for running attempts, then let the core forget the token and answer 204; clear the mark if removal fails",
+        "Ensure the runner contract keeps the PAT readable during cleanup: document that runners read the PAT at attempt start (obligations 3 and 4) in code comments on the Runner interface"
+      ],
+      "touches": [
+        "internal/service/jobs/cancel.go",
+        "internal/service/jobs/grace.go",
+        "internal/service/jobs/unsubscribe.go",
+        "internal/service/api/subscribe.go"
+      ],
+      "depends_on": [
+        6
+      ],
+      "done_when": [
+        "the job reads cancelled immediately after cancel and the next job on the workspace starts only after the runner returns"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Answer and retry blocked and failed jobs with ordered checks and race safety",
+      "criteria": [
+        "12-REQ-8.3",
+        "12-REQ-8.4",
+        "12-REQ-8.5",
+        "12-REQ-8.6"
+      ],
+      "tests": [
+        "TS-12-12",
+        "TS-12-14",
+        "TS-12-18",
+        "TS-12-29",
+        "TS-12-52",
+        "TS-12-53",
+        "TS-12-54",
+        "TS-12-55"
+      ],
+      "steps": [
+        "Write the eight tests and confirm they fail",
+        "POST /api/v1/jobs/:id/answer from blocked taking exactly one of {answer} (non-empty after trimming, at most 8 KiB) or {option} (one of the question's ids); text is the free text or the option's label; queue attempt n+1 with trigger {answer, by} and stored {question, option?, text}, same context, clear finished_at, answer 202 with the job",
+        "POST /api/v1/jobs/:id/retry from failed with no body or {} (unknown field is 400); attempt n+1 trigger retry; 202",
+        "Check order for cancel/answer/retry: 404 unknown or invisible; 409 invalid_state naming the state; for answer and retry only 409 not_subscribed (not subscribed or unsubscribing) then 409 token_unreadable; then 400 for bad answer bodies; a refusal changes nothing",
+        "Races: all state changes use conditional transitions so exactly one of two concurrent actions wins and the other answers 409 invalid_state",
+        "Pass answered questions (with options and answer text, in order) to the runner for later attempts",
+        "Keep the 64 KiB body limit on these routes and verify an 8 KiB answer escaped as \\u00XX is accepted (TS-12-18 also covers triage/fix maximal bodies and 413s)"
+      ],
+      "touches": [
+        "internal/service/jobs/actions.go",
+        "internal/service/jobs/api.go",
+        "internal/service/api"
+      ],
+      "depends_on": [
+        7
+      ],
+      "done_when": [
+        "an option answer starts attempt 2 and the runner receives the question, its options and the option label"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "Read jobs: lists with filters and cursors, one job, envelope and report",
+      "criteria": [
+        "12-REQ-9"
+      ],
+      "tests": [
+        "TS-12-57",
+        "TS-12-58",
+        "TS-12-59",
+        "TS-12-60",
+        "TS-12-61",
+        "TS-12-62",
+        "TS-12-63"
+      ],
+      "steps": [
+        "Write the seven tests and confirm they fail",
+        "GET /api/v1/jobs lists jobs of every workspace that has jobs, subscribed or not, that the core's cached visibility check allows; hub unavailable for any needed workspace answers 502 hub_unavailable with no partial page",
+        "GET /api/v1/workspaces/:slug/jobs lists one workspace (404 when hub hides it; jobs of an unsubscribed workspace remain listed)",
+        "Parameters kind, state, issue (positive integer), limit (1..200, default 50), opaque base64 cursor over (created_at, id); newest first by created_at then id; {jobs, next_cursor} with next_cursor null on the last page; any bad value answers 400 invalid_request naming the parameter; list entries carry no attempts array",
+        "GET /api/v1/jobs/:id returns the document with attempts; GET /jobs/:id/attempts/:n/envelope serves envelope.json verbatim as application/json; .../report serves report.md as text/markdown; charset=utf-8",
+        "Every unknown job, invisible job, out-of-range attempt, missing envelope or report gives the identical 404 body (same code and message)"
+      ],
+      "touches": [
+        "internal/service/jobs/list.go",
+        "internal/service/jobs/read.go",
+        "internal/service/jobs/api.go"
+      ],
+      "depends_on": [
+        5
+      ],
+      "done_when": [
+        "following next_cursor yields each matching job exactly once"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 10,
+      "kind": "implement",
+      "title": "Serve the job event stream over SSE with replay, live tail and clean end",
+      "criteria": [
+        "12-REQ-10.4",
+        "12-REQ-10.5",
+        "12-REQ-10.6",
+        "12-REQ-10.7"
+      ],
+      "tests": [
+        "TS-12-67",
+        "TS-12-68",
+        "TS-12-69",
+        "TS-12-70"
+      ],
+      "steps": [
+        "Write the four tests and confirm they fail",
+        "GET /api/v1/jobs/:id/events answers text/event-stream with Cache-Control: no-cache; start after ?since (integer >= 0, bad value 400), else Last-Event-ID, else 0; unknown or invisible job gives the same 404 as 12-REQ-9.7",
+        "Subscribe to the broker before reading the stored tail, send stored events with seq above the start in order, then live events, dropping seqs already sent; frame id: <seq>, event: <type>, data: <one-line JSON {seq, ts, job_id, attempt, type, data}>; flush each frame with http.NewResponseController; clear the write deadline and make any wrapping ResponseWriter implement Unwrap",
+        "Send ': keepalive' every 15 s on an injectable ticker; end the stream at the end of replay when the job is at rest, otherwise after the first live job_state with at_rest true",
+        "Disconnect a subscriber that is more than 256 events behind without blocking the runner or others; the client recovers by reconnecting with its last id; the jobs service Close and server shutdown close every stream"
+      ],
+      "touches": [
+        "internal/service/jobs/sse.go",
+        "internal/service/jobs/broker.go",
+        "internal/service/jobs/api.go"
+      ],
+      "depends_on": [
+        7
+      ],
+      "done_when": [
+        "a reconnect with the last seen id yields exactly the missed events"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 11,
+      "kind": "implement",
+      "title": "Purge expired jobs on retention and document the jobs layer",
+      "criteria": [
+        "12-REQ-1.5",
+        "12-REQ-1.6",
+        "12-REQ-1.7",
+        "12-REQ-1.8"
+      ],
+      "tests": [
+        "TS-12-5",
+        "TS-12-6",
+        "TS-12-7",
+        "TS-12-8"
+      ],
+      "steps": [
+        "Write the four tests and confirm they fail",
+        "Implement the purge at start and every hour on an injectable clock: select done, failed and cancelled jobs with no running attempt, no runner still in progress (including a runner that overran its grace) and finished_at older than [database].retain; remove attempts/<job id>/ first (through an injectable remover), then the rows in af_events, af_attempts, af_jobs",
+        "Never purge blocked jobs, running jobs, or a cancelled job whose cancel is younger than retain (finished_at is the cancel time, not the question time)",
+        "If the directory cannot be removed keep the rows, log a WARN naming the job and retry on the next purge",
+        "Run make doc first, then update docs/api.md (routes, body limits 1 MiB/256 KiB/64 KiB, job/attempt/event documents, SSE framing and stream end, codes invalid_state, duplicate_job, not_subscribed, token_unreadable), docs/configuration.md ([workers] count and [database] retain), docs/model-usage.md (automatic attempts follow only brain and no_result failures, a job's usage is the summed usage of its attempts), docs/architecture.md (job states, queue key and ordering, runner contract and its four obligations, transient retries versus automatic attempts, event log), docs/development.md (the internal/service/jobs package in the layout table); create a file if the core has not",
+        "Add a docs test (docs/docs_test.go style) asserting the required terms in each file; do not remove existing doc text",
+        "Run make check"
+      ],
+      "touches": [
+        "internal/service/jobs/retain.go",
+        "docs/api.md",
+        "docs/configuration.md",
+        "docs/model-usage.md",
+        "docs/architecture.md",
+        "docs/development.md",
+        "docs/jobs_docs_test.go"
+      ],
+      "depends_on": [
+        8,
+        9,
+        10
+      ],
+      "done_when": [
+        "`make check` passes"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 12,
+      "kind": "integration",
+      "title": "Verify every jobs execution path end to end through the HTTP API and the real queue",
+      "tests": [
+        "TS-12-71",
+        "TS-12-72",
+        "TS-12-73",
+        "TS-12-74",
+        "TS-12-75",
+        "TS-12-76"
+      ],
+      "steps": [
+        "Write the six smoke tests against the real HTTP mux, jobs service, SQLite file, aflib/jobqueue, SSE handler, retention timer and the core's fake hub; confirm they pass",
+        "Trace 12-PATH-1 to 12-PATH-6 through the real code: create route -> store -> enqueue -> claim -> runner -> finish -> read routes; confirm each step calls the next and no stub remains",
+        "For every criterion with a contract confirm the producer's result is consumed by a caller in production code (the placeholder runner wired in cmd/agent-fox, the unsubscribe hook in the core's DELETE handler, the sweep and purge timers started by the service, the exported Create/OpenJob entry points)",
+        "Search every file in the tasks' touches for panic(\"not implemented\"), TODO, and bare return nil on non-trivial paths and remove them",
+        "Confirm the core's DELETE handler and mux call the jobs hooks from production code, not only tests",
+        "Run make check and make doc and confirm no generated docs drift"
+      ],
+      "touches": [
+        "internal/service/jobs/smoke_test.go",
+        "cmd/agent-fox/main.go"
+      ],
+      "depends_on": [
+        11
+      ],
+      "done_when": [
+        "`make check` passes offline"
+      ],
+      "state": "pending",
+      "optional": false
+    }
+  ]
+}

@@ -1,0 +1,559 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "11",
+  "spec_name": "agent_fox_service_core",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./cmd/agent-fox/... ./internal/hub/... ./internal/service/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "05_af_cli_envelope",
+      "reason": "agent-fox --version and GET /version reuse internal/toolio's version document and its ldflags-then-build-info fallback; the only toolio change is exporting the full document."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Load and validate config.toml",
+      "criteria": [
+        "11-REQ-2.1",
+        "11-REQ-2.2",
+        "11-REQ-2.3",
+        "11-REQ-2.4",
+        "11-REQ-2.5",
+        "11-REQ-2.6",
+        "11-REQ-2.7"
+      ],
+      "tests": [
+        "TS-11-9",
+        "TS-11-10",
+        "TS-11-11",
+        "TS-11-12",
+        "TS-11-15",
+        "TS-11-16"
+      ],
+      "steps": [
+        "Write TS-11-9, 10, 11, 12, 15, 16 as table-driven tests named like TestXxx_TS_11_N in internal/service/config/config_test.go (t.TempDir, t.Setenv, t.Chdir) and confirm they fail",
+        "Promote github.com/BurntSushi/toml v1.6.0 to a direct requirement in go.mod (go mod tidy)",
+        "Define Config{Server{Listen}, Hub{URL, AuthCacheTTL time.Duration}, Database{Path}, Secrets{KeyFile}} with toml tags; decode the TTL from a string via time.ParseDuration so a non-duration string fails naming hub.auth_cache_ttl",
+        "Implement Load(explicit string) (Config, error): lookup order --config, ./config.toml, $XDG_CONFIG_HOME/agent-fox/config.toml, $HOME/.config/agent-fox/config.toml; when none exists list every path tried; a TOML syntax error names the file and line/column (toml.ParseError)",
+        "After toml.DecodeFile refuse every md.Undecoded() key naming key.String(); map toml type errors to the dotted key where possible, falling back to the key from the error message",
+        "Expand ${NAME} (regexp [A-Za-z_][A-Za-z0-9_]*) in every string value after decoding via os.LookupEnv; an unset variable errors naming the variable and the dotted key; set-but-empty expands to empty; a bare $ is left alone",
+        "Apply defaults (listen 127.0.0.1:8090, ttl 60s, database.path from XDG_STATE_HOME or $HOME/.local/state/agent-fox/agent-fox.db) with a small XDG helper using os.UserHomeDir",
+        "Validate: hub.url required, absolute http/https, no query/fragment, trailing / dropped, path prefix kept; secrets.key_file required non-empty; ttl in [1s,15m] never clamped; server.listen passes net.SplitHostPort; every error names the dotted key",
+        "Resolve relative database.path and secrets.key_file against the config file's directory, returning absolute paths; expose a helper reporting whether hub.url is http with a non-loopback host (used later for the WARN)",
+        "Return plain errors only: no os.Exit, no toolio import"
+      ],
+      "touches": [
+        "internal/service/config/config.go",
+        "internal/service/config/config_test.go",
+        "go.mod",
+        "go.sum"
+      ],
+      "done_when": [
+        "`go test ./internal/service/config/... -count=1` passes"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Load the key file and seal/open workspace tokens",
+      "criteria": [
+        "11-REQ-3.1",
+        "11-REQ-3.2",
+        "11-REQ-3.3",
+        "11-REQ-3.4",
+        "11-REQ-3.5"
+      ],
+      "tests": [
+        "TS-11-18",
+        "TS-11-19",
+        "TS-11-20",
+        "TS-11-21",
+        "TS-11-22"
+      ],
+      "steps": [
+        "Write TS-11-18..22 in internal/service/secrets/secrets_test.go (the property test seeds a math/rand source from the test and logs the seed) and confirm they fail",
+        "Implement LoadKey(path) (Key, error): os.ReadFile, trim whitespace, base64.StdEncoding decode, require exactly 32 bytes; every error names the path and reason and never includes file contents",
+        "On non-Windows refuse info.Mode().Perm()&0o077 != 0 with an error naming the file and its octal mode; accept 0600, 0400, 0700 (use a build-tagged helper or runtime.GOOS check)",
+        "Implement Key.Seal(slug, token) []byte: AES-256-GCM, fresh 12-byte nonce from crypto/rand, additional data \"agent-fox/subscription/\"+slug, output = 0x01 || nonce || ciphertext+tag",
+        "Implement Key.Open(slug, sealed) (string, error): reject length < 1+12+16, unknown version byte, wrong key, altered byte or other slug with errors; never panic and never return plaintext on error; errors never include token or key bytes",
+        "Expose sentinel error ErrUnreadable-style wrapping so the store can classify failures with errors.Is",
+        "Keep Key's String/GoString/Format redacted so the key cannot be logged by accident"
+      ],
+      "touches": [
+        "internal/service/secrets/secrets.go",
+        "internal/service/secrets/secrets_test.go"
+      ],
+      "done_when": [
+        "`go test ./internal/service/secrets/... -count=1` passes"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Open the SQLite state store with migrations and subscription persistence",
+      "criteria": [
+        "11-REQ-4.1",
+        "11-REQ-4.2",
+        "11-REQ-4.3",
+        "11-REQ-4.4",
+        "11-REQ-4.5",
+        "11-REQ-4.6",
+        "11-REQ-9.7",
+        "11-REQ-9.8"
+      ],
+      "tests": [
+        "TS-11-24",
+        "TS-11-25",
+        "TS-11-26",
+        "TS-11-29",
+        "TS-11-70"
+      ],
+      "steps": [
+        "Write TS-11-24, 25, 26, 29, 70 in internal/service/store/store_test.go and confirm they fail",
+        "Add modernc.org/sqlite to go.mod/go.sum (go get modernc.org/sqlite; pin a version) and blank-import it in the store package",
+        "Implement Open(ctx, path, key secrets.Key) (*Store, error): MkdirAll parent 0700, create the file with 0600 when missing, open with DSN file:<path>?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1); verify the pragmas hold on a fresh pooled connection; errors name the path",
+        "Migrations: an ordered append-only []string; af_schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT); apply each unapplied one in its own transaction; never touch PRAGMA user_version or any table not prefixed af_",
+        "If the recorded max version exceeds the known count fail naming both versions and leave the file unchanged (check before writing anything)",
+        "Migration 1: af_subscriptions(slug TEXT UNIQUE NOT NULL, label_prefix, sealed_token BLOB, token_user TEXT NULL, subscribed_by, created_at, updated_at as RFC 3339 UTC)",
+        "Implement Upsert(ctx, slug, labelPrefix, token, tokenUser, subscribedBy, now) (sub Subscription, created bool, err error) as one INSERT ... ON CONFLICT(slug) DO UPDATE statement that keeps created_at; Get, List (sorted by slug), Delete (reports whether a row existed)",
+        "Subscription carries TokenState computed by opening the sealed token with the key ('ok' or 'unreadable'); the type exposes no token or ciphertext",
+        "Implement Token(ctx, slug) (string, error) returning the opened PAT; errors ErrNotSubscribed and ErrUnreadable (errors.Is) with no plaintext in either",
+        "Expose DB() *sql.DB, Ping(ctx) and Close()"
+      ],
+      "touches": [
+        "internal/service/store/store.go",
+        "internal/service/store/migrations.go",
+        "internal/service/store/store_test.go",
+        "go.mod",
+        "go.sum"
+      ],
+      "depends_on": [
+        2
+      ],
+      "done_when": [
+        "`go test ./internal/service/store/... -count=1` passes"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Build the hub client and the fakehub test double",
+      "criteria": [
+        "11-REQ-5.1",
+        "11-REQ-5.2",
+        "11-REQ-5.3",
+        "11-REQ-5.4",
+        "11-REQ-5.5",
+        "11-REQ-5.6",
+        "11-REQ-10.1",
+        "11-REQ-10.2"
+      ],
+      "tests": [
+        "TS-11-30",
+        "TS-11-31",
+        "TS-11-32",
+        "TS-11-33",
+        "TS-11-34",
+        "TS-11-35",
+        "TS-11-36",
+        "TS-11-71",
+        "TS-11-72"
+      ],
+      "steps": [
+        "Write TS-11-71 and TS-11-72 in internal/hub/fakehub/fakehub_test.go and TS-11-30..36 in internal/hub/client_test.go and confirm they fail",
+        "Implement internal/hub/fakehub mirroring internal/triage/fakeforge: New(t testing.TB) *Hub with URL, httptest.Server and t.Cleanup; AddUser(token, userID, slugs), AddWorkspaceToken(token, slugs), Count(path, tokenHash), Requests() in order, Fail(path, status), FailOnce, Hangup(path), Delay(path, d), Clear(); a token hash helper (hex sha256); /api/v1/user answers {id, login} or 401; /api/v1/workspaces/{slug} answers 200 or 403 for a known token not seeing it, 401 for an unknown token",
+        "Implement internal/hub Client{BaseURL, HTTP *http.Client, UserAgent} via New(baseURL, version); HTTP has a 10s timeout and CheckRedirect returning http.ErrUseLastResponse",
+        "User(ctx, token) (User{ID, Login}, error) and Workspace(ctx, token, slug) error: GET <base>/api/v1/user and <base>/api/v1/workspaces/<url.PathEscape(slug)> (set URL.RawPath so %2F survives), headers Authorization Bearer, Accept application/json, User-Agent agent-fox/<version>",
+        "Read at most 1 MiB via io.LimitReader; id accepted as JSON string or number (json.Number kept as decimal string), empty id is unavailable; body not a JSON object is unavailable",
+        "Status map: user 200 ok, 401/403 refused, 404/3xx/429/5xx/other unavailable; workspace 200 found, 401 refused, 403/404 not found, others unavailable",
+        "Errors: sentinels ErrRefused and ErrNotFound plus *UnavailableError{Status, Err} usable with errors.Is/errors.As; transport errors are unwrapped from *url.Error so no URL or token ends up in a message; assert in a property test (seeded from the test) that err.Error() never contains the token",
+        "Only this package names hub paths and the user id field"
+      ],
+      "touches": [
+        "internal/hub/client.go",
+        "internal/hub/client_test.go",
+        "internal/hub/fakehub/fakehub.go",
+        "internal/hub/fakehub/fakehub_test.go"
+      ],
+      "done_when": [
+        "`go test ./internal/hub/... -count=1` passes"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Build the HTTP surface: probes, error envelope, panic recovery, request logging",
+      "criteria": [
+        "11-REQ-7.1",
+        "11-REQ-7.2",
+        "11-REQ-7.3",
+        "11-REQ-7.5",
+        "11-REQ-7.6",
+        "11-REQ-7.7",
+        "11-REQ-7.8"
+      ],
+      "tests": [
+        "TS-11-47",
+        "TS-11-48",
+        "TS-11-51",
+        "TS-11-52"
+      ],
+      "steps": [
+        "Write TS-11-47, 48, 51, 52 in internal/service/api/server_test.go using httptest and a captured slog JSON buffer, and confirm they fail",
+        "Export the full version document from internal/toolio (e.g. func (a *App) VersionDocument() any or a package-level function returning the five-field struct) keeping Identity and the ldflags-then-build-info rule unchanged; the api package takes the document as an injected value so it never imports cmd",
+        "Create internal/service/api with errors.go: Code constants and the status table (invalid_request 400, unauthenticated 401, not_found 404, method_not_allowed 405, payload_too_large 413, unsupported_media_type 415, invalid_hub_token 422, internal 500, hub_unavailable 502, not_ready 503) and writeError emitting application/json {\"error\":{\"code\",\"message\"}} with no error_type",
+        "Add JSON body helper decodeBody(w, r, v): Content-Type via mime.ParseMediaType == application/json else 415; http.MaxBytesReader 64 KiB (413 on *http.MaxBytesError); DisallowUnknownFields; trailing data check; malformed/unknown/trailing give 400 invalid_request",
+        "Server: ServeMux with method patterns; GET /healthz {\"status\":\"ok\"}; GET /readyz pings the store ({\"status\":\"ready\"} or 503 not_ready); GET /version; custom handling so an unknown route is 404 not_found and a wrong method is 405 method_not_allowed in the envelope",
+        "Middleware chain: recover (500 internal, slog ERROR with debug.Stack in a stack attribute, no panic text in the response) and an access logger emitting one record msg 'request' with method, path, status, duration and user (only when known, set through a request-scoped holder); never log Authorization, bodies, tokens, ciphertext or the key",
+        "NewServer(deps) returns *http.Server with ReadHeaderTimeout > 0 (e.g. 10s); keep a hook to register extra routes so tests can add a panicking route"
+      ],
+      "touches": [
+        "internal/service/api/errors.go",
+        "internal/service/api/server.go",
+        "internal/service/api/server_test.go",
+        "internal/toolio/version.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "done_when": [
+        "`go test ./internal/service/api/... ./internal/toolio/... -count=1` passes"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Authenticate callers and check workspace visibility through hub with TTL caches",
+      "criteria": [
+        "11-REQ-6.1",
+        "11-REQ-6.2",
+        "11-REQ-6.3",
+        "11-REQ-6.4",
+        "11-REQ-6.5",
+        "11-REQ-6.6",
+        "11-REQ-6.7",
+        "11-REQ-6.8"
+      ],
+      "tests": [
+        "TS-11-37",
+        "TS-11-38",
+        "TS-11-39",
+        "TS-11-40",
+        "TS-11-42",
+        "TS-11-43",
+        "TS-11-45",
+        "TS-11-46"
+      ],
+      "steps": [
+        "Write TS-11-45 and TS-11-46 (property, run under -race) in internal/service/ttl/ttl_test.go and TS-11-37..40, 42, 43 in internal/service/api/auth_test.go using fakehub, an injected clock and a trivial authed route, and confirm they fail",
+        "Implement internal/service/ttl: generic Cache[V] with New(capacity, ttl, now func() time.Time), Get, Put, Delete, DeleteIf(pred), Len; mutex-protected; at capacity evict expired entries first, then the oldest; never return an entry after its TTL",
+        "Implement the auth component in internal/service/api: identity cache keyed by hex sha256 of the token holding {userID} or a refusal; visibility cache keyed by (token hash, slug) holding found or not-found; both capacity 10,000 and TTL from config",
+        "Middleware for /api/v1/*: parse Authorization (scheme case-insensitive Bearer, non-empty token) else 401 unauthenticated with no hub call; identity hit or call hub User; refused is cached and answers 401; unavailable is never cached and answers 502 hub_unavailable; store the user id on the request context and in the log holder",
+        "Slug routes: validate ^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$ first (400 invalid_request, before identity), then identity, then visibility via hub Workspace with the caller token: found passes, not found is cached and answers 404 not_found, unavailable is not cached and answers 502",
+        "A hub ErrRefused (401) on any call made with the caller's token evicts that token's identity entry and all its visibility entries (DeleteIf on the token hash) and answers 401 unauthenticated",
+        "Expose a Visible(ctx, token, slug) (bool, error) helper that routes and list handlers reuse, and a separate PAT path that calls the hub client directly and never touches either cache",
+        "Make the clock injectable through the server dependencies so tests advance it without sleeping"
+      ],
+      "touches": [
+        "internal/service/ttl/ttl.go",
+        "internal/service/ttl/ttl_test.go",
+        "internal/service/api/auth.go",
+        "internal/service/api/auth_test.go"
+      ],
+      "depends_on": [
+        4,
+        5
+      ],
+      "done_when": [
+        "`go test -race ./internal/service/ttl/... ./internal/service/api/... -count=1` passes"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Implement PUT /api/v1/workspaces/{slug} subscribe",
+      "criteria": [
+        "11-REQ-8.1",
+        "11-REQ-8.2",
+        "11-REQ-8.3",
+        "11-REQ-8.4",
+        "11-REQ-8.5",
+        "11-REQ-8.6",
+        "11-REQ-8.7",
+        "11-REQ-8.8",
+        "11-REQ-7.4"
+      ],
+      "tests": [
+        "TS-11-44",
+        "TS-11-50",
+        "TS-11-55",
+        "TS-11-56",
+        "TS-11-57",
+        "TS-11-58",
+        "TS-11-59",
+        "TS-11-60",
+        "TS-11-61",
+        "TS-11-62"
+      ],
+      "steps": [
+        "Write the tests in internal/service/api/subscribe_test.go with fakehub, a real store in t.TempDir() and a generated key, and confirm they fail",
+        "Register PUT /api/v1/workspaces/{slug} behind the slug and identity middleware",
+        "Decode {hub_token string, label_prefix *string} with the shared body helper (415/413/400 before any write); hub_token must be non-empty; label_prefix defaults to af: and must be 1-32 characters with no whitespace, control character or comma, else 400 invalid_request and no hub call with the PAT",
+        "Gate call: hub Workspace with the PAT using the client directly (never the caches): ErrRefused gives 422 invalid_hub_token saying hub refused the token; ErrNotFound gives 422 invalid_hub_token naming the slug; unavailable gives 502 hub_unavailable",
+        "Then best-effort hub User with the PAT: a user gives token_user, ErrRefused leaves it empty, unavailable gives 502 hub_unavailable; the gate runs strictly before the user call",
+        "Seal and upsert in one statement via the store, with subscribed_by = the caller's user id from context; respond 201 on create and 200 on replace with the subscription view JSON (slug, label_prefix, token_user null when empty, subscribed_by, token_state, created_at, updated_at)",
+        "Replace semantics: absent label_prefix resets to af:, token_user replaced by this request's answer, created_at kept, updated_at now (injected clock)",
+        "Verify nothing is written on any failure and neither cache is read, filled or evicted by PAT calls, even when the PAT equals the caller's token",
+        "Property test TS-11-62 (seeded from the test): for random PATs, slugs and prefixes scan the .db file, the -wal file and every response body for the PAT bytes"
+      ],
+      "touches": [
+        "internal/service/api/subscribe.go",
+        "internal/service/api/view.go",
+        "internal/service/api/subscribe_test.go"
+      ],
+      "depends_on": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "done_when": [
+        "`go test ./internal/service/api/... -count=1` passes"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Implement subscription view, list, get and delete, and secrecy checks",
+      "criteria": [
+        "11-REQ-9.1",
+        "11-REQ-9.2",
+        "11-REQ-9.3",
+        "11-REQ-9.4",
+        "11-REQ-9.5",
+        "11-REQ-9.6",
+        "11-REQ-3.6"
+      ],
+      "tests": [
+        "TS-11-23",
+        "TS-11-41",
+        "TS-11-54",
+        "TS-11-63",
+        "TS-11-64",
+        "TS-11-65",
+        "TS-11-66",
+        "TS-11-67",
+        "TS-11-68",
+        "TS-11-69"
+      ],
+      "steps": [
+        "Write the tests in internal/service/api/workspaces_test.go with fakehub and a real store and confirm they fail",
+        "Define the view type with exactly slug, label_prefix, token_user (*string, JSON null when empty), subscribed_by, token_state, created_at, updated_at; share it with the PUT handler (task 7)",
+        "GET /api/v1/workspaces: list store subscriptions, keep those the caller sees through the cached Visible check (sorted by slug), respond {\"workspaces\":[...]} with [] (never null); if hub is unavailable for any subscription answer 502 hub_unavailable with no partial list",
+        "GET /api/v1/workspaces/{slug}: the slug middleware already answers 404 for an invisible slug; answer 404 not_found with a body byte-identical to the invisible case when the slug is not subscribed (use one shared notFound response, no slug in the message)",
+        "DELETE /api/v1/workspaces/{slug}: same checks, delete the row, 204 with no body, 404 under the same rule (also when already deleted)",
+        "token_state ok/unreadable comes from the store; PUT and DELETE keep working for an unreadable subscription; TS-11-68 reopens the store with key A then key B on the same file and checks /healthz",
+        "TS-11-69 checks store.Token after create, replace and reopen; TS-11-23 and TS-11-54 run a scenario with distinctive key, PAT and caller token and scan stderr logs, error bodies, the db and -wal for key base64/raw bytes, the PAT, 'Bearer', hex/base64 of the sealed bytes",
+        "Fix any leak found (never log bodies, headers, tokens or ciphertext; error messages carry no plaintext)"
+      ],
+      "touches": [
+        "internal/service/api/workspaces.go",
+        "internal/service/api/view.go",
+        "internal/service/api/workspaces_test.go"
+      ],
+      "depends_on": [
+        7
+      ],
+      "done_when": [
+        "`go test ./internal/service/api/... -count=1` passes"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "Add the agent-fox binary skeleton, flags and make build target",
+      "criteria": [
+        "11-REQ-1.1",
+        "11-REQ-1.2",
+        "11-REQ-1.3"
+      ],
+      "tests": [
+        "TS-11-1",
+        "TS-11-2",
+        "TS-11-3"
+      ],
+      "steps": [
+        "Write TS-11-1, 2, 3 in cmd/agent-fox/main_test.go with a buildBinary helper copied from cmd/af/smoke_test.go (make build VERSION=9.9.9-test BIN_DIR=<tmp>; skip when make is missing) and confirm they fail",
+        "Create cmd/agent-fox/main.go with package-level var version, commit, buildTime string (ldflags) and a func main() that calls os.Exit(run(args, stdout, stderr))",
+        "Install the slog JSON handler on stderr before anything else; parse flags with a flag.FlagSet (--config, --version, --help); --version prints the toolio version document with name agent-fox as one JSON object and exits 0 without reading config; --help prints usage and exits 0",
+        "An unknown flag or a positional argument prints plain-text usage on stderr (not JSON) and exits 2",
+        "Makefile: add `go build -ldflags \"$(LDFLAGS)\" -o $(BIN_DIR)/agent-fox ./cmd/agent-fox` beside the af line in the build target",
+        "Leave the service start path as a stub returning an error until task 10; confirm af --version and agent-fox --version agree on version and commit",
+        "TS-11-2 runs with an empty HOME and no config on the path"
+      ],
+      "touches": [
+        "cmd/agent-fox/main.go",
+        "cmd/agent-fox/main_test.go",
+        "Makefile"
+      ],
+      "depends_on": [
+        5
+      ],
+      "done_when": [
+        "`make build` writes both binaries into BIN_DIR"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 10,
+      "kind": "implement",
+      "title": "Wire the service start, failure reporting, listening and graceful shutdown",
+      "criteria": [
+        "11-REQ-1.4",
+        "11-REQ-1.5",
+        "11-REQ-1.6",
+        "11-REQ-1.7",
+        "11-REQ-1.8",
+        "11-REQ-2.8"
+      ],
+      "tests": [
+        "TS-11-4",
+        "TS-11-5",
+        "TS-11-6",
+        "TS-11-7",
+        "TS-11-8",
+        "TS-11-13",
+        "TS-11-14",
+        "TS-11-17",
+        "TS-11-27",
+        "TS-11-28"
+      ],
+      "steps": [
+        "Write the tests in cmd/agent-fox/start_test.go (binary-level ones use the buildBinary helper, fakehub and temp dirs; TS-11-8 calls the run function with an injected failing net.Listener) and confirm they fail",
+        "Implement the start sequence in order: load config, load key, open store (migrations), build the api server with the hub client (hub.New(cfg.Hub.URL, version)) and the auth TTL",
+        "Any config, key or database error logs exactly one slog ERROR record, msg 'start failed' with an error attribute naming the key or file, and exits 2; nothing else is written to stderr, nothing is bound, and the database is not created when config is invalid",
+        "net.Listen failure (in use, permission denied, unresolvable or non-local host) logs one 'start failed' ERROR naming the address and reason and exits 1; no listening record",
+        "After bind, if hub.url is http with a non-loopback host log a WARN that caller tokens and PATs cross the link in clear, then log msg 'listening' with addr from listener.Addr().String()",
+        "Serve with signal.NotifyContext(SIGINT, SIGTERM); on signal call http.Server.Shutdown with a 30s deadline (in-flight requests complete), close the store, exit 0; a Serve error other than ErrServerClosed logs ERROR, closes the store and exits 1",
+        "Make the run function accept an injectable listener factory so TS-11-8 can simulate Accept failure",
+        "TS-11-4/13/14/27/28 assert exactly one JSON stderr line at level ERROR containing the dotted key, variable name, both versions (999 and the known one) or the database path; TS-11-27 also checks the file bytes are unchanged",
+        "TS-11-7 delays hub /api/v1/user in fakehub, sends SIGTERM mid-request, expects 200 for the request, refused new connections and exit 0"
+      ],
+      "touches": [
+        "cmd/agent-fox/main.go",
+        "cmd/agent-fox/run.go",
+        "cmd/agent-fox/start_test.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3,
+        8,
+        9
+      ],
+      "done_when": [
+        "`go test ./cmd/agent-fox/... -count=1` passes"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 11,
+      "kind": "implement",
+      "title": "Write the docs and commit generated docs",
+      "criteria": [
+        "11-REQ-10.3",
+        "11-REQ-10.4",
+        "11-REQ-10.5",
+        "11-REQ-10.6",
+        "11-REQ-10.7",
+        "11-REQ-10.8"
+      ],
+      "tests": [
+        "TS-11-73",
+        "TS-11-74",
+        "TS-11-75",
+        "TS-11-76",
+        "TS-11-77"
+      ],
+      "steps": [
+        "Write TS-11-73..77 as docs tests in docs/service_docs_test.go (read files relative to the docs directory and ../README.md) and confirm they fail",
+        "Create docs/api.md: routes, Bearer rule, subscription view (token_user may be null, label_prefix is the value given at subscribe and not necessarily the prefix in effect), PUT 201 on create and 200 on replace, every error code and status of 11-REQ-7.3, the envelope without error_type",
+        "docs/cli.md: add an agent-fox section with --config, --version, --help, exit codes 0/1/2 and meanings, and the lookup order ./config.toml then $XDG_CONFIG_HOME/agent-fox/config.toml ($HOME/.config when unset); keep existing af text",
+        "docs/configuration.md: add an agent-fox section with the five keys, defaults and ranges, a note that server.external_url and [workers] are not accepted in this release, and the key file with `(umask 077; openssl rand -base64 32 > key)`",
+        "docs/model-usage.md: state agent-fox runs no model in this release; docs/architecture.md: add a service section (process, state file, hub as identity provider); docs/development.md: add cmd/agent-fox, internal/hub, internal/hub/fakehub and internal/service/* to the layout table; README.md: describe the binary and `agent-fox --config`",
+        "Run `make doc` first and commit docs/generated/cmd/agent-fox.txt and the other regenerated files; do not remove existing text that docs/docs_test.go and docs/boxes_docs_test.go check",
+        "Run `make check` and confirm it passes offline"
+      ],
+      "touches": [
+        "docs/api.md",
+        "docs/cli.md",
+        "docs/configuration.md",
+        "docs/model-usage.md",
+        "docs/architecture.md",
+        "docs/development.md",
+        "README.md",
+        "docs/generated/cmd/agent-fox.txt",
+        "docs/service_docs_test.go"
+      ],
+      "depends_on": [
+        10
+      ],
+      "done_when": [
+        "`make check` exits 0"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 12,
+      "kind": "integration",
+      "title": "Verify the service paths end to end against the real binary",
+      "tests": [
+        "TS-11-49",
+        "TS-11-53",
+        "TS-11-78",
+        "TS-11-79",
+        "TS-11-80",
+        "TS-11-81",
+        "TS-11-82",
+        "TS-11-83",
+        "TS-11-84"
+      ],
+      "steps": [
+        "Write TS-11-79..84 as smoke tests in cmd/agent-fox/smoke_test.go (build the real binary, fakehub, temp dir, 0600 key, server.listen 127.0.0.1:0, read addr from the listening record) and TS-11-49, 53, 78 and confirm they pass",
+        "Trace 11-PATH-1..6 through production code: main run -> config -> key -> store -> api server -> auth middleware -> hub client -> sealer -> store; confirm each step calls the next and no stub remains",
+        "For each criterion with a contract confirm the producer's result is consumed in production code: store.Token is exported for later specs (tested only), but the view, caches, hub client and exit codes are all used by handlers/main",
+        "Confirm the toolio version document export is called by both cmd/agent-fox and api GET /version",
+        "Grep every task's touches (cmd/agent-fox, internal/hub, internal/service, internal/toolio/version.go) for TODO, panic(\"not implemented\"), NotImplementedError and bare `return nil` on non-trivial paths and remove any",
+        "Confirm TS-11-78: no non-loopback URL or dial address in the service tests and keys generated in t.TempDir()",
+        "Run `make check` and confirm it passes offline"
+      ],
+      "touches": [
+        "cmd/agent-fox/smoke_test.go",
+        "cmd/agent-fox/scan_test.go",
+        "internal/service/api/errors_test.go"
+      ],
+      "depends_on": [
+        10,
+        11
+      ],
+      "done_when": [
+        "`make check` passes with no network beyond loopback"
+      ],
+      "state": "pending"
+    }
+  ]
+}

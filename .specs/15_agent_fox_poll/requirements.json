@@ -1,0 +1,741 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "15",
+  "spec_name": "agent_fox_poll",
+  "schema_version": 2,
+  "introduction": "The agent-fox label poll: for every subscribed workspace, the service periodically lists open issues carrying the workspace's triage or fix request label through hub's forge API, turns each new request into exactly one job through the jobs layer, and consumes the label through hub, never running one request twice (absorbed, already-taken and held labels).",
+  "glossary": {
+    "absorbed label": "A request label found on an issue that already has an open (queued, running or blocked) job of the same kind; the poll removes it and creates no job.",
+    "complete listing": "A ListIssues result whose `Incomplete` is false.",
+    "consume": "Remove the request label through hub after the job for it was created, so adding the label again is a new request.",
+    "cycle": "One run of the poll for one workspace: reconcile records, read token and variables, then (if enabled) read the workspace record and list both request labels.",
+    "hold": "The state of a poll-created job cancelled while one of its attempts was in a runner (or purged before the poll saw it end): its request label, put back by the worker's cancel cleanup, is left alone until released.",
+    "loop": "The per-workspace goroutine that schedules that workspace's cycles.",
+    "owed removal": "A label removal the poll attempted and that failed (other than with not found); it is retried whenever the issue is listed under the label and settled by a complete listing that no longer contains the issue.",
+    "poll record": "A row of `af_poll_requests` describing one workspace, issue and label: whether its removal is owed and what the poll has seen of its job; it has no foreign key to `af_jobs`.",
+    "release clock": "The instant a hold's release delay is counted from: when the poll first sees no runner of the held job in progress, or when it found a purged job gone.",
+    "release delay": "5 minutes (injectable): a complete listing releases a hold only if it was requested at least this long after the release clock started.",
+    "request label": "`<prefix>triage` or `<prefix>fix`, where the prefix is the subscription's `label_prefix`; a person adds it to an issue to ask for a triage or a fix job.",
+    "supervisor": "The poll component that scans the store's subscriptions at start and every 60 seconds and keeps exactly one loop per subscribed workspace."
+  },
+  "requirements": [
+    {
+      "id": "15-REQ-1",
+      "title": "One poll loop per subscribed workspace",
+      "rationale": "Labelling an issue must trigger work with no client, without hammering hub or overlapping cycles.",
+      "criteria": [
+        {
+          "id": "15-REQ-1.1",
+          "pattern": "event_driven",
+          "condition": "agent-fox starts",
+          "system": "poll supervisor",
+          "action": "start after the jobs layer has started, read the store's subscriptions, and start exactly one loop per subscribed workspace"
+        },
+        {
+          "id": "15-REQ-1.2",
+          "pattern": "event_driven",
+          "condition": "a subscription scan, run at start and then every 60 seconds, finds a subscribed workspace that has no loop",
+          "system": "poll supervisor",
+          "action": "start one loop for that workspace, so that no workspace ever has more than one loop"
+        },
+        {
+          "id": "15-REQ-1.3",
+          "pattern": "event_driven",
+          "condition": "a subscription scan finds that a workspace with a loop is no longer subscribed",
+          "system": "poll supervisor",
+          "action": "stop that workspace's loop and cancel any cycle it has in flight",
+          "contract": "after the scan, the fake hub records no further request made with that workspace's PAT"
+        },
+        {
+          "id": "15-REQ-1.4",
+          "pattern": "ubiquitous",
+          "system": "poll loop",
+          "action": "start the workspace's first cycle after a random delay of 0 to 30 seconds, start each later cycle one interval (15-REQ-2) after the previous cycle ended, and never run two cycles of one workspace at the same time"
+        },
+        {
+          "id": "15-REQ-1.5",
+          "pattern": "state_driven",
+          "condition": "four cycles are running across all workspaces",
+          "system": "poll supervisor",
+          "action": "make any further due cycle wait until a running cycle ends and frees a slot"
+        },
+        {
+          "id": "15-REQ-1.6",
+          "pattern": "unwanted",
+          "condition": "a cycle has run for 5 minutes",
+          "system": "poll loop",
+          "action": "cancel the cycle, keep every job created, record written and label removed before the cancel, and schedule the next cycle as for a cycle that ended early (15-REQ-2.5)",
+          "contract": "the cycle's context is cancelled at 5 minutes of injected clock; its slot is freed"
+        },
+        {
+          "id": "15-REQ-1.7",
+          "pattern": "event_driven",
+          "condition": "agent-fox begins shutdown",
+          "system": "poll supervisor",
+          "action": "start no new cycle, cancel the cycles in flight, and return before the jobs layer begins its own shutdown",
+          "contract": "the poll's stop call returns before the jobs layer's stop is called"
+        },
+        {
+          "id": "15-REQ-1.8",
+          "pattern": "ubiquitous",
+          "system": "poll supervisor",
+          "action": "accept an injected clock, first-cycle delay, subscription scan period and hold release delay, defaulting to the wall clock, a random 0-30 s delay, 60 s and 5 minutes"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-2",
+      "title": "The interval and the label prefix",
+      "rationale": "AF_POLL_INTERVAL is the poll's only setting and bounds the forge rate limit it spends; the subscription prefix keeps the poll and the worker in agreement.",
+      "criteria": [
+        {
+          "id": "15-REQ-2.1",
+          "pattern": "event_driven",
+          "condition": "a cycle reads the workspace's resolved hub variables and `AF_POLL_INTERVAL` is unset or empty",
+          "system": "poll loop",
+          "action": "use an interval of 5 minutes"
+        },
+        {
+          "id": "15-REQ-2.2",
+          "pattern": "event_driven",
+          "condition": "a cycle reads `AF_POLL_INTERVAL` as a zero duration (`0`, `0s`, `0m`)",
+          "system": "poll loop",
+          "action": "end the cycle right after the variables read without reading the workspace record, listing issues or writing a label, and start the next cycle 5 minutes later",
+          "contract": "across 30 minutes of injected clock the fake hub records no list request and one variables read every 5 minutes"
+        },
+        {
+          "id": "15-REQ-2.3",
+          "pattern": "event_driven",
+          "condition": "a cycle reads `AF_POLL_INTERVAL` as a Go duration from `1m` to `24h` inclusive",
+          "system": "poll loop",
+          "action": "use that duration as the interval"
+        },
+        {
+          "id": "15-REQ-2.4",
+          "pattern": "unwanted",
+          "condition": "`AF_POLL_INTERVAL` is unparsable, negative, below `1m` or above `24h`",
+          "system": "poll loop",
+          "action": "use an interval of 5 minutes and log a `WARN` record naming the workspace, the variable and the value, once per distinct value",
+          "contract": "exactly one WARN record per distinct invalid value; list requests 5 minutes apart"
+        },
+        {
+          "id": "15-REQ-2.5",
+          "pattern": "event_driven",
+          "condition": "a cycle ends before it could read `AF_POLL_INTERVAL`",
+          "system": "poll loop",
+          "action": "start the next cycle after the interval the workspace last read, or after 5 minutes when the last value read disabled the poll or none has been read"
+        },
+        {
+          "id": "15-REQ-2.6",
+          "pattern": "ubiquitous",
+          "system": "poll",
+          "action": "name the request labels `<prefix>triage` and `<prefix>fix` from the subscription's `label_prefix` read from the store at the start of each cycle, and never use `AF_LABEL_PREFIX` to name them"
+        },
+        {
+          "id": "15-REQ-2.7",
+          "pattern": "unwanted",
+          "condition": "`AF_LABEL_PREFIX` is set and differs from the subscription's `label_prefix`",
+          "system": "poll",
+          "action": "keep using the subscription's prefix and log a `WARN` record once per distinct value",
+          "contract": "one WARN record per distinct differing value"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-3",
+      "title": "ListIssues in the hub forge client and the fake hub",
+      "rationale": "agent_fox_worker left ListIssues unavailable; the poll needs it, with hub's names kept inside internal/hub.",
+      "criteria": [
+        {
+          "id": "15-REQ-3.1",
+          "pattern": "event_driven",
+          "condition": "ListIssues is called with a filter holding `State: \"open\"`, exactly one label and a `Limit`",
+          "system": "hub forge client",
+          "action": "send `GET /api/v1/workspaces/{slug}/issues?state=open&labels=<query-escaped label>` with the PAT as bearer token, asking for pages of 100 and sending no sort parameter",
+          "contract": "returns issuex.IssueList with the issues in hub's order"
+        },
+        {
+          "id": "15-REQ-3.2",
+          "pattern": "ubiquitous",
+          "system": "hub forge client",
+          "action": "follow hub's further pages until it holds `Limit` issues or hub reports no further page, treating a page whose answer says nothing about further pages as the last"
+        },
+        {
+          "id": "15-REQ-3.3",
+          "pattern": "ubiquitous",
+          "system": "hub forge client",
+          "action": "set `Incomplete` to true only when it stopped at `Limit` while hub reported a further page",
+          "contract": "IssueList.Incomplete"
+        },
+        {
+          "id": "15-REQ-3.4",
+          "pattern": "ubiquitous",
+          "system": "hub forge client",
+          "action": "leave out of the returned list every item that hub marks as a pull or merge request"
+        },
+        {
+          "id": "15-REQ-3.5",
+          "pattern": "unwanted",
+          "condition": "the filter sets any other field (Assignee, Sort, Direction, a state other than open, or a label count other than one)",
+          "system": "hub forge client",
+          "action": "send no request and return the client's \"not available through hub\" error",
+          "contract": "non-nil error; the fake hub records no request"
+        },
+        {
+          "id": "15-REQ-3.6",
+          "pattern": "unwanted",
+          "condition": "hub answers a list page with an error",
+          "system": "hub forge client",
+          "action": "map the answer as for the client's other forge methods: 401/403 to *issuex.HTTPError, 404 to not found, 409 to issuex's conflict error, another 4xx to a rejected error carrying hub's message, 429 to rate-limited, and 5xx, transport errors, timeouts and bodies that are not the expected JSON to a retryable error",
+          "contract": "the returned error satisfies the matching issuex predicate (IsNotFound, IsRateLimited, ...)"
+        },
+        {
+          "id": "15-REQ-3.7",
+          "pattern": "ubiquitous",
+          "system": "hub forge client",
+          "action": "keep hub's route, field names, paging and pull-request marker inside `internal/hub`, and no longer list ListIssues among the unavailable methods"
+        },
+        {
+          "id": "15-REQ-3.8",
+          "pattern": "ubiquitous",
+          "system": "internal/hub/fakehub",
+          "action": "serve the issues-list route from its issue state with the `state` and `labels` filters, paging that can report a further page, issues that are pull requests, a removal lag (an issue stays listed under a label for a set number of lists after its removal) and an addition lag (an issue is left out of a label's lists for a set number of lists after the label was added)"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-4",
+      "title": "One cycle",
+      "rationale": "A fixed, deterministic order per cycle makes the poll testable and queues triage before fix.",
+      "criteria": [
+        {
+          "id": "15-REQ-4.1",
+          "pattern": "ubiquitous",
+          "system": "poll cycle",
+          "action": "in order: bring the workspace's poll records up to date with their jobs (15-REQ-6.4) with no hub request, read the subscription's label prefix and PAT from the store, read the workspace's resolved hub variables with the PAT, and, when enabled, read the workspace record for the forge repository and list `<prefix>triage` then `<prefix>fix`, each with a limit of 100",
+          "contract": "the fake hub records the variables read, the workspace record read, the triage list and the fix list in that order"
+        },
+        {
+          "id": "15-REQ-4.2",
+          "pattern": "ubiquitous",
+          "system": "poll cycle",
+          "action": "take each listing's issues in ascending issue number, whatever order hub returned, and apply 15-REQ-5 to each",
+          "contract": "with af:triage on 7 and af:fix on 42, the triage job for 7 is created before the fix job for 42"
+        },
+        {
+          "id": "15-REQ-4.3",
+          "pattern": "event_driven",
+          "condition": "a listing of a label comes back with `Incomplete` true",
+          "system": "poll cycle",
+          "action": "log a `WARN` record naming the workspace and the label, and not again for that label until a listing of it has come back complete",
+          "contract": "three incomplete listings in a row produce exactly one WARN record"
+        },
+        {
+          "id": "15-REQ-4.4",
+          "pattern": "state_driven",
+          "condition": "a listing is incomplete",
+          "system": "poll cycle",
+          "action": "release no hold and settle no owed removal on the basis of that listing, leaving issues past its last page to a later cycle"
+        },
+        {
+          "id": "15-REQ-4.5",
+          "pattern": "ubiquitous",
+          "system": "poll cycle",
+          "action": "for any issue that is closed, is a pull request, or carries neither request label, create no job and send no label removal for it"
+        },
+        {
+          "id": "15-REQ-4.6",
+          "pattern": "complex_event",
+          "condition": "a cycle runs",
+          "guard": "`DELETE /api/v1/workspaces/{slug}` for its workspace starts at the same time",
+          "system": "poll cycle",
+          "action": "create no job for that workspace",
+          "contract": "the jobs table holds no job for the workspace created by the poll after DELETE began"
+        },
+        {
+          "id": "15-REQ-4.7",
+          "pattern": "ubiquitous",
+          "system": "poll",
+          "action": "never write a PAT into any log record or any job field",
+          "contract": "no captured log record and no job row contains the PAT string"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-5",
+      "title": "What a listed issue becomes",
+      "rationale": "Each labelled request must become exactly one job, and a second request while one runs must be absorbed.",
+      "criteria": [
+        {
+          "id": "15-REQ-5.1",
+          "pattern": "event_driven",
+          "condition": "issue N is listed under label L of kind K and the jobs layer has an open (queued, running or blocked) job of kind K for N on the workspace",
+          "system": "poll cycle",
+          "action": "remove L from N (15-REQ-6), create no job, and log the absorbed label at `INFO` with the workspace, kind, issue and job id; an open job of the other kind does not absorb L",
+          "contract": "the job count is unchanged; the fake hub records one removal of L from N"
+        },
+        {
+          "id": "15-REQ-5.2",
+          "pattern": "unwanted",
+          "condition": "the removal of an absorbed label fails",
+          "system": "poll cycle",
+          "action": "write a poll record for N and L with the removal owed and no job",
+          "contract": "a later cycle that lists N under L after the open job ended removes L and creates no job"
+        },
+        {
+          "id": "15-REQ-5.3",
+          "pattern": "event_driven",
+          "condition": "issue N is listed under label L, no open job of kind K absorbs it, and a hold on L for N is in place (15-REQ-7)",
+          "system": "poll cycle",
+          "action": "leave L on N, create no job and send no removal"
+        },
+        {
+          "id": "15-REQ-5.4",
+          "pattern": "event_driven",
+          "condition": "issue N is listed under label L, neither absorbed nor held, and a removal of L from N is owed",
+          "system": "poll cycle",
+          "action": "remove L from N and create no job",
+          "contract": "the job count is unchanged"
+        },
+        {
+          "id": "15-REQ-5.5",
+          "pattern": "event_driven",
+          "condition": "issue N is listed under label L of kind K and none of rules absorbed, held or already taken applies (a failed job is not open)",
+          "system": "poll cycle",
+          "action": "create a job through the jobs layer's entry point with kind K, input `{issue: N}`, source `{kind: \"label\", by: \"label <L>\"}` and request label L, log it at `INFO` with the workspace, kind, issue and job id, and then consume L (15-REQ-6)",
+          "contract": "the job's source is {kind: \"label\", by: \"label af:fix\"} for L = af:fix and its request_label is L; the fake hub records the removal after the job exists"
+        },
+        {
+          "id": "15-REQ-5.6",
+          "pattern": "unwanted",
+          "condition": "the jobs entry point refuses with a duplicate because a job for the same workspace, kind and issue was created in the meantime",
+          "system": "poll cycle",
+          "action": "handle the issue as absorbed (15-REQ-5.1, 15-REQ-5.2)",
+          "contract": "exactly one job for the workspace, kind and issue exists; L is removed or recorded as owed"
+        },
+        {
+          "id": "15-REQ-5.7",
+          "pattern": "unwanted",
+          "condition": "the jobs entry point refuses with not subscribed",
+          "system": "poll cycle",
+          "action": "end the cycle at once and write no label",
+          "contract": "no further hub request in the cycle"
+        },
+        {
+          "id": "15-REQ-5.8",
+          "pattern": "unwanted",
+          "condition": "the jobs entry point refuses with token unreadable or returns any other error",
+          "system": "poll cycle",
+          "action": "log a `WARN` record, leave L on the issue, and end the cycle",
+          "contract": "no removal of L is sent; one WARN record"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-6",
+      "title": "Consuming the label and the poll's records",
+      "rationale": "A durable record of owed removals and job observations stops a failed removal or a purged job from turning one label into two jobs.",
+      "criteria": [
+        {
+          "id": "15-REQ-6.1",
+          "pattern": "ubiquitous",
+          "system": "poll store",
+          "action": "keep poll records in a table `af_poll_requests` created by a migration appended to the core's `af_` migration list, with no foreign key to `af_jobs`, so that records survive a restart and the retention purge of their job"
+        },
+        {
+          "id": "15-REQ-6.2",
+          "pattern": "event_driven",
+          "condition": "the poll creates a job",
+          "system": "poll cycle",
+          "action": "write a poll record right after the job is created and before the removal, carrying the workspace, the issue, the label, the job id, an owed flag and what the poll has seen of the job"
+        },
+        {
+          "id": "15-REQ-6.3",
+          "pattern": "unwanted",
+          "condition": "a poll record cannot be written",
+          "system": "poll cycle",
+          "action": "log a `WARN` record and still send the label removal",
+          "contract": "one WARN record; the removal request is recorded by the fake hub"
+        },
+        {
+          "id": "15-REQ-6.4",
+          "pattern": "event_driven",
+          "condition": "a cycle starts, before any hub request and whether or not the poll turns out to be enabled",
+          "system": "poll cycle",
+          "action": "read the job of each of the workspace's records whose job it has not yet seen end, and note: a `done` job, or a `cancelled` job without a hold, as ended holding nothing; a holding job, and the first time no runner of it is in progress; a job that is gone (purged) as holding from the moment it was found gone; and a `queued`, `running`, `blocked` or `failed` job as not ended"
+        },
+        {
+          "id": "15-REQ-6.5",
+          "pattern": "event_driven",
+          "condition": "a removal of L from N succeeds or hub answers it with not found (404)",
+          "system": "poll cycle",
+          "action": "confirm every owed removal recorded for N and L, logging no failure for the 404",
+          "contract": "no failure record; the owed flags for N and L are cleared"
+        },
+        {
+          "id": "15-REQ-6.6",
+          "pattern": "unwanted",
+          "condition": "a removal of L from N fails in any way other than not found",
+          "system": "poll cycle",
+          "action": "leave the removal owed, keep any job already created, retry the removal whenever N is listed under L, and continue or end the cycle as 15-REQ-8 says",
+          "contract": "the created job stands; the next cycle listing N under L removes L and creates no job"
+        },
+        {
+          "id": "15-REQ-6.7",
+          "pattern": "event_driven",
+          "condition": "a complete listing of L does not contain N",
+          "system": "poll cycle",
+          "action": "settle every owed removal for N and L"
+        },
+        {
+          "id": "15-REQ-6.8",
+          "pattern": "ubiquitous",
+          "system": "poll store",
+          "action": "drop a record once nothing is owed and nothing holds: its removal has been confirmed or settled and either its job ended holding nothing, its hold was released, or it has no job"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-7",
+      "title": "A label the service put back",
+      "rationale": "Without a hold, a request label the worker restores on cancel would become a new job and the cancel would spend again.",
+      "criteria": [
+        {
+          "id": "15-REQ-7.1",
+          "pattern": "ubiquitous",
+          "system": "poll",
+          "action": "treat a poll-created job as holding its request label from the moment it is cancelled while one of its attempts is in a runner (a cancel caused by an unsubscribe included), whatever the runner later reports, including when the runner overruns the cancel grace and the jobs layer drops its report"
+        },
+        {
+          "id": "15-REQ-7.2",
+          "pattern": "state_driven",
+          "condition": "a hold on L for N is in place",
+          "system": "poll cycle",
+          "action": "create no job for N and send no removal of L when a listing of L contains N",
+          "contract": "across the following cycles, before and after the runner returns and after a restart on the same database file, no job for N is created and L stays on N"
+        },
+        {
+          "id": "15-REQ-7.3",
+          "pattern": "ubiquitous",
+          "system": "poll",
+          "action": "start a hold's release clock when the poll first sees that no runner of the held job is in progress, or, for a job purged before the poll saw it end, when the poll found it gone"
+        },
+        {
+          "id": "15-REQ-7.4",
+          "pattern": "event_driven",
+          "condition": "a complete listing of L that does not contain N was requested at least the release delay (5 minutes) after the hold's release clock started",
+          "system": "poll cycle",
+          "action": "release the hold, so that L on N is a request again at a later listing",
+          "contract": "after a manual removal and such a listing, adding L again makes exactly one new job"
+        },
+        {
+          "id": "15-REQ-7.5",
+          "pattern": "unwanted",
+          "condition": "a listing of L without N was requested less than the release delay after the release clock started, or is incomplete",
+          "system": "poll cycle",
+          "action": "keep the hold in place",
+          "contract": "with an addition lag of two lists and an interval of 1m, none of the three cycles after the runner returned creates a job or removes L"
+        },
+        {
+          "id": "15-REQ-7.6",
+          "pattern": "ubiquitous",
+          "system": "poll",
+          "action": "treat a job cancelled while queued, while waiting out a transient backoff, or while blocked as holding nothing",
+          "contract": "adding its label again makes one new job at the next cycle"
+        },
+        {
+          "id": "15-REQ-7.7",
+          "pattern": "ubiquitous",
+          "system": "poll",
+          "action": "keep a hold until it is released, across restarts and across the retention purge of its job",
+          "contract": "after retention purges the cancelled job, the next three cycles create no job for N and leave L in place"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-8",
+      "title": "Failures",
+      "rationale": "A failing workspace must stay contained, visible once, and never stop others.",
+      "criteria": [
+        {
+          "id": "15-REQ-8.1",
+          "pattern": "unwanted",
+          "condition": "the store says the workspace is not subscribed when the cycle reads its prefix or PAT",
+          "system": "poll loop",
+          "action": "stop the loop",
+          "contract": "no further hub request for that workspace"
+        },
+        {
+          "id": "15-REQ-8.2",
+          "pattern": "unwanted",
+          "condition": "the store says the workspace's token is unreadable",
+          "system": "poll cycle",
+          "action": "send no hub request this cycle and log an `ERROR` record",
+          "contract": "the fake hub records no request for the workspace; one ERROR record"
+        },
+        {
+          "id": "15-REQ-8.3",
+          "pattern": "unwanted",
+          "condition": "hub is unavailable on any call: 429, 5xx, a transport error, a timeout, or a body that is not the expected JSON",
+          "system": "poll cycle",
+          "action": "end the cycle, log a `WARN` record, and run the next cycle one interval later",
+          "contract": "no job created and no label removed after the failing call; the next cycle creates the pending job"
+        },
+        {
+          "id": "15-REQ-8.4",
+          "pattern": "unwanted",
+          "condition": "hub refuses the PAT (401) or forbids the operation (403) on any call, or answers 404 to the workspace record read, the variables read or a list",
+          "system": "poll cycle",
+          "action": "end the cycle and log an `ERROR` record naming the hub operation and, for 401 and 403, pointing to `PUT /api/v1/workspaces/{slug}` to replace the token; the loop keeps running",
+          "contract": "one ERROR record across three cycles of the same failure"
+        },
+        {
+          "id": "15-REQ-8.5",
+          "pattern": "unwanted",
+          "condition": "hub rejects the workspace record read, the variables read or a list with another 4xx (409 included)",
+          "system": "poll cycle",
+          "action": "end the cycle and log an `ERROR` record naming the hub operation and carrying hub's message",
+          "contract": "one ERROR record"
+        },
+        {
+          "id": "15-REQ-8.6",
+          "pattern": "unwanted",
+          "condition": "hub rejects a label removal with another 4xx (409 included)",
+          "system": "poll cycle",
+          "action": "leave the removal owed, log an `ERROR` record naming the label removal, the issue, the label and hub's message, and go on with the next issue",
+          "contract": "the job already created stands; the next issue in the listing is still processed"
+        },
+        {
+          "id": "15-REQ-8.7",
+          "pattern": "ubiquitous",
+          "system": "poll",
+          "action": "log a failure when it first occurs and not again while the same failure (same row of R7's table and same hub operation, for a removal the same issue and label) repeats, until a cycle of that workspace completes without failure, which logs one `INFO` record saying the workspace's poll has recovered; a different failure is logged when it first occurs",
+          "contract": "a 503 list in one cycle and a 403 variables read in the next produce exactly one WARN and one ERROR record"
+        },
+        {
+          "id": "15-REQ-8.8",
+          "pattern": "ubiquitous",
+          "system": "poll supervisor",
+          "action": "never let one workspace's failure stop or delay another workspace's loop beyond the four shared slots",
+          "contract": "with widgets answering 403, gadgets is listed in the same cycles"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-9",
+      "title": "Jobs layer support",
+      "rationale": "The poll relies on one atomic duplicate check shared by every creator and on reading a job's cancel and runner state without its row being permanent.",
+      "criteria": [
+        {
+          "id": "15-REQ-9.1",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "for any two creators racing to create a job for the same workspace, kind and issue, run the duplicate check and the insert atomically so that exactly one job is created and the other creator receives the duplicate refusal",
+          "contract": "50 poll-versus-`POST /api/v1/workspaces/widgets/fix {\"issue\": 42}` races, each on a fresh database under go test -race, each leave exactly one fix job for 42 and af:fix removed from 42"
+        },
+        {
+          "id": "15-REQ-9.2",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "expose an exported read of a job by id giving its state, source, request label, whether its cancel reached an attempt in a runner, and whether a runner of it is still in progress",
+          "contract": "returns a distinguishable not-found error for a job that retention purged"
+        },
+        {
+          "id": "15-REQ-9.3",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "keep the retention purge unchanged, so that it deletes a finished job's rows in `af_events`, `af_attempts` and `af_jobs` while rows of `af_poll_requests` referring to the job stay in place",
+          "contract": "the purge returns no error and the poll record survives"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-10",
+      "title": "Documentation and offline end-to-end behaviour",
+      "rationale": "The steering requires the docs to describe the poll in the same change, and PRD 03 §9.3 requires an end-to-end proof.",
+      "criteria": [
+        {
+          "id": "15-REQ-10.1",
+          "pattern": "ubiquitous",
+          "system": "documentation",
+          "action": "after `make doc`, describe in `docs/api.md` the poll's `source` and `request_label` and absorbed, already-taken and held labels; in `docs/configuration.md` `AF_POLL_INTERVAL` (default `5m`, `0`, range `1m`-`24h`, invalid values) and that `label_prefix` names the request labels; in `docs/model-usage.md` that the poll runs no model and a restored label does not spend again; in `docs/architecture.md` the poll's loops, cycles, owed removals, holds and release delay, records outliving jobs, incomplete listings and per-cycle hub and forge cost; in `docs/development.md` the poll's code location; and in `README.md` that a subscribed workspace picks up labelled issues, leaving `docs/cli.md` unchanged",
+          "contract": "a docs test in docs/ checks these phrases and passes"
+        },
+        {
+          "id": "15-REQ-10.2",
+          "pattern": "event_driven",
+          "condition": "an open issue of a subscribed workspace carries `af:triage` and the real worker of agent_fox_worker runs with the fake hub, its git server, the in-process gateway over `local` and the scripted brain",
+          "system": "agent-fox",
+          "action": "create one job with `source.kind` `label`, remove `af:triage` through hub, run the job to `done`, rewrite the issue body with a `## Original report` section byte-identical to the original body, set `af:ready`, and create no second job at the next cycle",
+          "contract": "one job in state done; the fake hub records the label removal, the body rewrite and af:ready"
+        },
+        {
+          "id": "15-REQ-10.3",
+          "pattern": "ubiquitous",
+          "system": "test suite",
+          "action": "run every poll test offline with the fake hub, the jobs layer on a temporary database with the fake runner, and an injected clock, so that `make check` passes with no network",
+          "contract": "make check exits 0 offline"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "15-PATH-1",
+      "title": "A triage label becomes one job that the real worker runs to done",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "adds `af:triage` to an open issue of the subscribed workspace `widgets` on the forge (fake hub)"
+        },
+        {
+          "actor": "poll loop",
+          "action": "runs a cycle: reconciles records, reads the PAT from the store, reads the resolved variables and the workspace record through hub, and lists `af:triage` then `af:fix`"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "finds no open job, hold or owed removal and creates a triage job through the jobs layer with source {kind: label, by: \"label af:triage\"} and request_label af:triage, then writes a poll record"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "removes `af:triage` from the issue through the hub forge client and confirms the record's removal"
+        },
+        {
+          "actor": "worker",
+          "action": "runs the job with the scripted brain, rewrites the issue body with a `## Original report` section and sets `af:ready`; the job ends done"
+        },
+        {
+          "actor": "poll loop",
+          "action": "runs the next cycle, finds no labelled issue and creates no job"
+        }
+      ]
+    },
+    {
+      "id": "15-PATH-2",
+      "title": "A label on an issue with a running job is absorbed",
+      "steps": [
+        {
+          "actor": "API client",
+          "action": "creates a fix job for issue 42 with POST /api/v1/workspaces/widgets/fix {\"issue\": 42}"
+        },
+        {
+          "actor": "person",
+          "action": "adds `af:fix` to issue 42 while the fix job is running"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "lists `af:fix`, finds 42, and sees the open fix job through the jobs layer's open-job lookup"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "removes `af:fix` from 42 through hub, creates no job and logs the absorbed label at INFO"
+        }
+      ]
+    },
+    {
+      "id": "15-PATH-3",
+      "title": "A label the cancel put back is held, then released by a person",
+      "steps": [
+        {
+          "actor": "poll cycle",
+          "action": "creates a fix job for 42 from `af:fix` and removes the label"
+        },
+        {
+          "actor": "API client",
+          "action": "cancels the job while its attempt is in a runner"
+        },
+        {
+          "actor": "worker cancel cleanup",
+          "action": "puts `af:fix` back on 42 and the runner returns"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "reconciles its record, notes the hold and starts the release clock, and on listing 42 under `af:fix` creates no job and removes nothing"
+        },
+        {
+          "actor": "person",
+          "action": "removes `af:fix` from 42 by hand"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "lists `af:fix` completely without 42 at least 5 minutes after the release clock started and releases the hold"
+        },
+        {
+          "actor": "person",
+          "action": "adds `af:fix` to 42 again, and the next cycle creates exactly one new fix job"
+        }
+      ]
+    },
+    {
+      "id": "15-PATH-4",
+      "title": "A failed removal is owed and taken once, not twice",
+      "steps": [
+        {
+          "actor": "poll cycle",
+          "action": "creates a fix job for 42 from `af:fix` and writes a poll record"
+        },
+        {
+          "actor": "hub",
+          "action": "answers the removal of `af:fix` from 42 with 503"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "leaves the removal owed, logs a WARN record and ends the cycle; the job runs to done"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "in the next cycle lists 42 under `af:fix`, finds the owed removal, removes the label and creates no job"
+        },
+        {
+          "actor": "poll store",
+          "action": "drops the record once the removal is confirmed and the job ended holding nothing"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "github.com/agent-fox-dev/aflib/issuex",
+      "version": "v0.0.0-20261019184100-07adcb691832",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "Client.ListIssues",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "ListIssues(ctx context.Context, repo issuex.Repo, filter issuex.IssueFilter) (issuex.IssueList, error)",
+          "notes": "Read from the call site internal/toolio/dryrun.go:63; source not reachable."
+        },
+        {
+          "name": "IssueFilter",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "type IssueFilter struct { State string; Labels []string; Assignee string; Sort string; Direction string; Limit int }",
+          "notes": "From .specs/archive/01_issuex_core/prd.md:89-90; Limit defaults to 100."
+        },
+        {
+          "name": "IssueList",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "type IssueList struct { Issues []Issue; Incomplete bool }",
+          "notes": "From the archived issuex spec."
+        },
+        {
+          "name": "Client.RemoveLabel",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "RemoveLabel(ctx context.Context, ref issuex.IssueRef, label string) error",
+          "notes": "Implemented by internal/hub's forge client (agent_fox_worker)."
+        },
+        {
+          "name": "IsNotFound",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "func IsNotFound(err error) bool",
+          "notes": "Used to confirm a removal answered with 404."
+        },
+        {
+          "name": "HTTPError",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "type HTTPError struct { Status int; Message string }",
+          "notes": "401/403 and rejected answers carry hub's message."
+        }
+      ]
+    }
+  ]
+}

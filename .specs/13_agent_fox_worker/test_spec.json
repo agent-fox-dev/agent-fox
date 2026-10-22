@@ -1,0 +1,1553 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "13",
+  "spec_name": "agent_fox_worker",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-13-1",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.1"
+      ],
+      "title": "The move leaves af's commands, help, envelopes and --schema goldens unchanged",
+      "given": [
+        "every command implementation has moved from cmd/af into the importable package",
+        "cmd/af/main.go holds only main, the ldflags variables and the toolio.App construction"
+      ],
+      "when": "the existing af tests and the schema golden comparison are run",
+      "then": [
+        "every command's --schema output is byte-identical to cmd/af/testdata/schema.golden.json",
+        "the existing af tests pass unchanged",
+        "make check passes"
+      ],
+      "pseudocode": "out = run('af triage --schema'); assert out == golden['triage']; assert exit('make check') == 0"
+    },
+    {
+      "id": "TS-13-2",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.2"
+      ],
+      "title": "Supplied seams replace package variables and the process environment",
+      "given": [
+        "the process environment holds AF_MODEL=other, AF_SANDBOX=bogus and ANTHROPIC_API_KEY=sentinel",
+        "an in-process caller supplies a forge factory, a box registry with a provider af does not offer, a brain registry, brain options whose environment lookup yields nothing, and a git runner"
+      ],
+      "when": "a fix invocation runs in-process",
+      "then": [
+        "the supplied forge factory, box registry, brain registry and git runner are the ones called",
+        "no AF_MODEL, AF_SANDBOX or ANTHROPIC_API_KEY value from the process environment is read or used",
+        "the package-level registries and box.Default are untouched"
+      ],
+      "pseudocode": "t.Setenv('AF_MODEL','other'); inv = Invocation{Getenv: empty, Forge: spy, Registry: reg, Git: spyRunner}; run(inv); assert spy.called && reg.used && seenModel != 'other'"
+    },
+    {
+      "id": "TS-13-3",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.2"
+      ],
+      "title": "Seams not supplied default to af's current values",
+      "given": [
+        "an in-process caller supplies none of the seams"
+      ],
+      "when": "a command is invoked in-process with a locally scripted brain registered in the package defaults",
+      "then": [
+        "the default forge factory, box.Default, default brain registry, os environment lookup and ExecRunner are used, as af uses them today"
+      ]
+    },
+    {
+      "id": "TS-13-4",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.3"
+      ],
+      "title": "Earlier questions render in the fix brief as question plus answer or as material from a person",
+      "given": [
+        "context values [\"ctx1\", \"ans1\"] where ctx1 has no question and ans1 has a question with options A and B",
+        "a clone with no .agent-fox/run directories"
+      ],
+      "when": "the fix brief is built with the supplied earlier questions",
+      "then": [
+        "ans1 appears as the question, its options, then the answer",
+        "ctx1 appears as material from a person, not as an answer to a question that could not be found",
+        "the envelope carries no question_not_found warning",
+        "no run directory was searched"
+      ],
+      "pseudocode": "brief = build(ctx=[c1,a1], earlier=[nil,q1]); assert 'material from a person' in brief; assert q1.text in brief; assert no warning('question_not_found')"
+    },
+    {
+      "id": "TS-13-5",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.3"
+      ],
+      "title": "Triage's brief holds the question of the last context value that has one",
+      "given": [
+        "three context values where the first and second carry questions Q1 and Q2 and the third carries none"
+      ],
+      "when": "the triage brief is built with the supplied earlier questions",
+      "then": [
+        "the brief holds exactly one earlier question, Q2",
+        "all three values follow as answers or material",
+        "no question_not_found warning is raised"
+      ]
+    },
+    {
+      "id": "TS-13-6",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.4"
+      ],
+      "title": "An in-process invocation installs no signal handler and obeys only the caller's context, timeout and grace",
+      "given": [
+        "an in-process toolio invocation whose command blocks until its context ends"
+      ],
+      "when": "SIGHUP and SIGTERM are sent to the test process, then the caller's context is cancelled, in a second run --timeout elapses",
+      "then": [
+        "the signals do not cancel the invocation",
+        "cancelling the caller's context stops it",
+        "--timeout and the grace period still apply"
+      ],
+      "pseudocode": "go run(); syscall.Kill(pid,SIGHUP); assert !done; cancel(); assert done within grace"
+    },
+    {
+      "id": "TS-13-7",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.5"
+      ],
+      "title": "The event sink receives the same lines in the same order as events.jsonl",
+      "given": [
+        "an invocation with an event sink"
+      ],
+      "when": "a command emitting several events runs",
+      "then": [
+        "the sink's lines equal the lines of events.jsonl, in order",
+        "each line was delivered as it was written"
+      ],
+      "pseudocode": "assert sink.lines == readLines(runDir+'/events.jsonl')"
+    },
+    {
+      "id": "TS-13-8",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.6"
+      ],
+      "title": "A caller-chosen run id names the run directory and envelope; a malformed id is a usage error",
+      "given": [
+        "a valid run id 20250102_030405_abc123 and a malformed id 'run-1'"
+      ],
+      "when": "each is supplied to an invocation",
+      "then": [
+        "the valid id is the run directory's name and the envelope's run_id",
+        "the malformed id gives a usage envelope with exit code for usage",
+        "no run directory is created for the malformed id"
+      ]
+    },
+    {
+      "id": "TS-13-9",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.7"
+      ],
+      "title": "A caller-chosen target repository replaces --repo and the origin, and a foreign issue URL is a usage error",
+      "given": [
+        "a target repository host/owner/name and a --dir whose origin is another host"
+      ],
+      "when": "a text input and then an issue URL on a different repository are invoked",
+      "then": [
+        "the forge client factory is called with the target for the text input",
+        "the foreign issue URL gives a usage envelope",
+        "no forge request is recorded for the foreign URL"
+      ]
+    },
+    {
+      "id": "TS-13-10",
+      "kind": "property",
+      "verifies": [
+        "13-REQ-1.8"
+      ],
+      "title": "Concurrent invocations share no environment, working directory or package variable",
+      "given": [
+        "two Apps built independently with their own seams"
+      ],
+      "when": "for any pair of invocations (triage or fix, any inputs) run at the same time in one process under go test -race",
+      "then": [
+        "both complete with no data race reported",
+        "process environment variables are neither set nor read for either, the working directory is unchanged, and no package-level variable is written"
+      ],
+      "pseudocode": "for a,b in gen_pairs(): go run(a); go run(b); wait; assert cwd == before; assert envReads == 0"
+    },
+    {
+      "id": "TS-13-11",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-2.1"
+      ],
+      "title": "Every worker hub call is made at its route with the PAT and the escaped slug",
+      "given": [
+        "fakehub with a workspace whose slug needs path escaping"
+      ],
+      "when": "workspace record, resolved vars, session open, usage, complete, events batch, lease, release and branch push are each called",
+      "then": [
+        "fakehub records each at its documented method and path",
+        "each request carries the PAT as bearer credential",
+        "the slug is path-escaped in each path"
+      ],
+      "pseudocode": "for call in calls: call(client, pat, slug); r = fake.Requests(); assert r.path == expected && r.auth == pat"
+    },
+    {
+      "id": "TS-13-12",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-2.1"
+      ],
+      "title": "The worker's calls do not touch the identity or visibility caches",
+      "given": [
+        "a hub client with warm identity and visibility caches"
+      ],
+      "when": "the worker's calls are made",
+      "then": [
+        "cache contents and hit counters are unchanged",
+        "each call reaches fakehub"
+      ]
+    },
+    {
+      "id": "TS-13-13",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-2.2"
+      ],
+      "title": "A request is bounded to 10 s, follows no redirect and reads at most 1 MiB",
+      "given": [
+        "a hub client with an injectable clock and fakehub routes that delay, redirect with 302, or answer 2 MiB"
+      ],
+      "when": "an ordinary call hits each route",
+      "then": [
+        "the delayed answer fails after 10 s as unavailable",
+        "the 3xx is not followed and fakehub sees no second request",
+        "the oversize body is not read beyond 1 MiB and is classified unavailable"
+      ]
+    },
+    {
+      "id": "TS-13-14",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-2.2"
+      ],
+      "title": "No error value or message contains the PAT",
+      "given": [
+        "fakehub failing each call with 401, 403, 404, 422, 500, a hangup and a timeout, and a PAT 'pat-secret-xyz'"
+      ],
+      "when": "every worker call fails",
+      "then": [
+        "err.Error() never contains the PAT",
+        "wrapped errors' messages never contain the PAT"
+      ],
+      "pseudocode": "for e in errs: assert 'pat-secret-xyz' not in fmt.Sprintf('%+v', e)"
+    },
+    {
+      "id": "TS-13-15",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-2.3"
+      ],
+      "title": "The lease and branch push requests use a 5-minute bound",
+      "given": [
+        "fakehub delaying the lease answer 30 s and a second lease route delaying beyond 5 minutes, with a fake clock"
+      ],
+      "when": "the lease and the branch push are requested",
+      "then": [
+        "the lease answered after 30 s succeeds",
+        "the lease that outlasts 5 minutes returns an unavailable error",
+        "the attempt's context cancels sooner when it is shorter than 5 minutes"
+      ]
+    },
+    {
+      "id": "TS-13-16",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-2.4"
+      ],
+      "title": "Each answer class is distinguishable by errors.Is and errors.As",
+      "given": [
+        "fakehub answering 401, 403, 404, 400, 422 with an {error:{code,message}} body, 429, 500, a transport error and non-JSON"
+      ],
+      "when": "a worker call is made for each",
+      "then": [
+        "401 is refused",
+        "403 is forbidden with a message naming the operation, that the PAT lacks the scope, and PUT /api/v1/workspaces/{slug}",
+        "404 is not found",
+        "other 4xx is rejected with hub's message",
+        "429, 5xx, transport error, timeout and bad JSON are unavailable"
+      ]
+    },
+    {
+      "id": "TS-13-17",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-2.5"
+      ],
+      "title": "A 403 on the workspace-record read is forbidden, not not found",
+      "given": [
+        "fakehub answering GET /api/v1/workspaces/{slug} with 403"
+      ],
+      "when": "the worker reads the workspace record",
+      "then": [
+        "the returned error is forbidden, not ErrNotFound",
+        "its message points to PUT /api/v1/workspaces/{slug}"
+      ],
+      "pseudocode": "err = client.WorkspaceRecord(...); assert errors.Is(err, ErrForbidden) && !errors.Is(err, ErrNotFound)"
+    },
+    {
+      "id": "TS-13-18",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-2.6"
+      ],
+      "title": "A sandbox release answered 404 counts as released",
+      "given": [
+        "fakehub answering DELETE …/sandboxes/{id} with 404"
+      ],
+      "when": "the lease is released",
+      "then": [
+        "the call returns a nil error"
+      ]
+    },
+    {
+      "id": "TS-13-19",
+      "kind": "property",
+      "verifies": [
+        "13-REQ-2.7"
+      ],
+      "title": "Both resolved-variable encodings decode to the same map",
+      "given": [
+        "fakehub serving vars either as {\"vars\":{...}} or as a list of {name,value}"
+      ],
+      "when": "for any map of variable names to string values, encoded in each form",
+      "then": [
+        "both forms decode to the identical name-to-value map",
+        "hub's JSON field names appear only in the hub client package"
+      ],
+      "pseudocode": "for m in gen_maps(): assert decode(objForm(m)) == decode(listForm(m)) == m"
+    },
+    {
+      "id": "TS-13-20",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-3.1"
+      ],
+      "title": "Each supported forge method sends exactly one request at its mapped route",
+      "given": [
+        "a hub forge client bound to a slug and PAT, and fakehub with issue 42 and comments"
+      ],
+      "when": "GetRepository, ReadIssue, ListComments, UpdateIssue, CreateIssue, AddComment, AddLabels, RemoveLabel and CreatePullRequest are called",
+      "then": [
+        "each sends one request (ReadIssue: issue and its comments) at its mapped hub route",
+        "CreatePullRequest posts {title, body, head, base, draft} to …/pulls",
+        "answers decode into issuex types; Authenticated is true"
+      ]
+    },
+    {
+      "id": "TS-13-21",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-3.2"
+      ],
+      "title": "A different repository fails before any request is sent",
+      "given": [
+        "a client for host/owner/name"
+      ],
+      "when": "the factory, GetRepository, ReadIssue or CreateIssue is given another repository (host, owner or name differing)",
+      "then": [
+        "the error says the issue is not on the workspace's repository",
+        "fakehub records no request",
+        "comparison ignores case so OWNER/Name on the same host is accepted"
+      ]
+    },
+    {
+      "id": "TS-13-22",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-3.3"
+      ],
+      "title": "A repo or ref with an empty host is taken to be on the workspace's host",
+      "given": [
+        "a workspace repository on github.com"
+      ],
+      "when": "a repo and ref with empty host and matching owner/name are used, and one with a mismatching name",
+      "then": [
+        "the matching one is accepted and sends its request",
+        "the mismatching one is refused before any request"
+      ]
+    },
+    {
+      "id": "TS-13-23",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-3.4"
+      ],
+      "title": "ReadIssue marks a hub pull or merge request as a pull request",
+      "given": [
+        "fakehub issues, one reported as a pull request and one as a merge request"
+      ],
+      "when": "ReadIssue is called for each",
+      "then": [
+        "IssueThread.Issue.IsPR is true for both",
+        "IsPR is false for a normal issue"
+      ]
+    },
+    {
+      "id": "TS-13-24",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-3.5"
+      ],
+      "title": "The body limit follows the repository host",
+      "given": [
+        "clients for a GitLab host and a GitHub host"
+      ],
+      "when": "issuex.MaxBodyLength is called on each",
+      "then": [
+        "the GitLab client returns issuex.GitLabMaxBodyLength",
+        "the GitHub client returns GitHub's limit"
+      ]
+    },
+    {
+      "id": "TS-13-25",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-3.6"
+      ],
+      "title": "Unlisted issuex.Client methods send nothing and return a not-available error",
+      "given": [
+        "a hub forge client and fakehub"
+      ],
+      "when": "ListIssues, CreateLabel, CloseIssue, ReadPullRequest, MergePullRequest and ClosePullRequest are called",
+      "then": [
+        "each returns an error saying the operation is not available through hub in this release",
+        "fakehub records no request"
+      ]
+    },
+    {
+      "id": "TS-13-26",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-3.7"
+      ],
+      "title": "Hub forge errors map onto the issuex error types the loops classify",
+      "given": [
+        "fakehub answering forge calls with 401, 403, 404, 409, 429 and 503"
+      ],
+      "when": "each forge method is called",
+      "then": [
+        "401 and 403 are *issuex.HTTPError with that status and the 13-REQ-2.4 message",
+        "issuex.IsNotFound is true for 404",
+        "errors.Is(err, issuex.ErrConflict) for 409",
+        "issuex.IsRateLimited for 429",
+        "503 is a retryable error",
+        "the loops yield auth, forge and retryable as with a direct forge"
+      ]
+    },
+    {
+      "id": "TS-13-27",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-4.1"
+      ],
+      "title": "Variables apply with their defaults and ranges and reach the loop as flags",
+      "given": [
+        "variables set to valid boundary values (AF_TIMEOUT 1m and 24h, AF_MAX_ATTEMPTS 1 and 10), empty values, unknown variables, and AF_BRAIN_FIX overriding AF_BRAIN"
+      ],
+      "when": "the settings are resolved for triage and for fix",
+      "then": [
+        "unset and empty variables take the defaults (agentkit/claude, 2/10, 100/150, 15m/45m, 2, pr)",
+        "AF_SANDBOX_PROFILE is omitted by default",
+        "unknown variables are ignored",
+        "the loop receives the resolved values as flags"
+      ]
+    },
+    {
+      "id": "TS-13-28",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-4.2"
+      ],
+      "title": "An out-of-range variable fails the attempt as config before a session opens",
+      "given": [
+        "variables out of range: AF_MAX_BUDGET_USD=0, NaN, AF_MAX_TURNS=0, AF_TIMEOUT=30s and 25h, AF_MAX_ATTEMPTS=11, AF_BRAIN=scripted, AF_FIX_LAND=weird"
+      ],
+      "when": "an attempt is run for each",
+      "then": [
+        "a failed envelope with error.category config and retryable false",
+        "fix_hint.var names the variable and the message names the variable and its value",
+        "fakehub records no session request"
+      ],
+      "pseudocode": "for v in bad: r = run(vars=v); assert r.env.error.category=='config' && !r.env.error.retryable && r.env.fix_hint.var==v.name && fake.Count('POST /sessions')==0"
+    },
+    {
+      "id": "TS-13-29",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-4.3",
+        "13-REQ-4.4"
+      ],
+      "title": "The subscription's prefix is used and AF_LABEL_PREFIX is ignored with a warning",
+      "given": [
+        "a subscription label_prefix 'team:' and AF_LABEL_PREFIX='other:' set in the hub variables, and a run with it unset"
+      ],
+      "when": "an attempt marks and mirrors an issue",
+      "then": [
+        "every label written to fakehub starts with 'team:'",
+        "the envelope's warnings include label_prefix_ignored when the variable differs",
+        "no warning when it is unset or equals the subscription's prefix"
+      ]
+    },
+    {
+      "id": "TS-13-30",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-4.5"
+      ],
+      "title": "The fix loop runs with --attempts 1 and AF_MAX_ATTEMPTS is returned",
+      "given": [
+        "AF_MAX_ATTEMPTS=5"
+      ],
+      "when": "a fix attempt completes",
+      "then": [
+        "the result's max-attempts field is 5",
+        "the fix envelope reports one in-run attempt"
+      ]
+    },
+    {
+      "id": "TS-13-31",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-4.6"
+      ],
+      "title": "A fix on a carry_patch workspace or with AF_FIX_LAND=patch is refused as unsupported",
+      "given": [
+        "a carry_patch workspace, and separately a standard workspace with AF_FIX_LAND=patch, and a counting brain"
+      ],
+      "when": "a fix attempt is run",
+      "then": [
+        "a failed envelope with category unsupported, retryable false",
+        "the message says carry-patch landing comes in a later release",
+        "fakehub records no clone, lease, session request, label or comment",
+        "the brain ran zero times"
+      ]
+    },
+    {
+      "id": "TS-13-32",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-4.7"
+      ],
+      "title": "A triage on a carry_patch workspace runs normally",
+      "given": [
+        "a carry_patch workspace and a scripted brain submitting a probable diagnosis"
+      ],
+      "when": "a triage attempt is run",
+      "then": [
+        "the envelope is done and not an unsupported refusal"
+      ]
+    },
+    {
+      "id": "TS-13-33",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-5.1"
+      ],
+      "title": "The worker creates only clone/ and input/ with mode 0700 and leaves envelope.json, report.md and the directory alone",
+      "given": [
+        "an attempt directory pre-seeded with envelope.json and report.md with known contents"
+      ],
+      "when": "a file-input attempt runs and returns",
+      "then": [
+        "clone/ and input/ were created with mode 0700",
+        "the attempt directory still exists",
+        "the pre-seeded files are unchanged",
+        "no other entry was created in it"
+      ]
+    },
+    {
+      "id": "TS-13-34",
+      "kind": "integration",
+      "verifies": [
+        "13-REQ-5.2"
+      ],
+      "title": "The clone checks out the base branch and sets the committer identity locally",
+      "given": [
+        "fakehub's loopback git server with a repository whose base branch is 'develop'"
+      ],
+      "when": "the clone step runs",
+      "then": [
+        "git rev-parse --abbrev-ref HEAD in clone/ prints develop",
+        "local config user.name is agent-fox and user.email is agent-fox@noreply.invalid"
+      ]
+    },
+    {
+      "id": "TS-13-35",
+      "kind": "integration",
+      "verifies": [
+        "13-REQ-5.3"
+      ],
+      "title": "The PAT reaches git only as a scoped Basic header through the environment",
+      "given": [
+        "fakehub's git server recording the Authorization header and a recording git runner"
+      ],
+      "when": "a clone and a fix push are performed",
+      "then": [
+        "the git server receives Authorization: Basic base64(agent-fox:<PAT>)",
+        "no argv of any git command contains the PAT or the base64 header",
+        "no file under clone/ (including .git/config) contains the PAT",
+        "the header was passed as GIT_CONFIG_COUNT/KEY/VALUE with http.<hub url>.extraHeader"
+      ]
+    },
+    {
+      "id": "TS-13-36",
+      "kind": "integration",
+      "verifies": [
+        "13-REQ-5.4"
+      ],
+      "title": "Remote-reaching git commands are hermetic while the operator's credential helper is never invoked",
+      "given": [
+        "a global git config with a credential helper and askpass that write a marker file when invoked",
+        "GIT_TERMINAL_PROMPT enabled in the environment"
+      ],
+      "when": "the clone, the fix pipeline's git commands and the push run",
+      "then": [
+        "the marker file is never created",
+        "no prompt is attempted",
+        "the box sync and checks.FileView keep the default runner"
+      ]
+    },
+    {
+      "id": "TS-13-37",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-5.5"
+      ],
+      "title": "A clone refused with 401 or 403 ends as an auth failure envelope",
+      "given": [
+        "fakehub git server answering the clone with 401, then with 403"
+      ],
+      "when": "the attempt reaches the clone",
+      "then": [
+        "a failed envelope with category auth and retryable false",
+        "the mirror sets failed with one comment and in-progress is removed"
+      ]
+    },
+    {
+      "id": "TS-13-38",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-5.6"
+      ],
+      "title": "Any other clone failure is a transient git error with no envelope",
+      "given": [
+        "the git server answering 503, hanging up, or timing out"
+      ],
+      "when": "the attempt reaches the clone",
+      "then": [
+        "the worker returns an error carrying *toolio.Failure category git, retryable true",
+        "no envelope is returned"
+      ],
+      "pseudocode": "res, err = run(); var f *toolio.Failure; assert errors.As(err,&f) && f.Category=='git' && f.Retryable; assert res == nil"
+    },
+    {
+      "id": "TS-13-39",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-5.7"
+      ],
+      "title": "clone/ and input/ are removed on return except after a shutdown or a transient error",
+      "given": [
+        "attempts ending normally, with a shutdown cause, and with a transient error"
+      ],
+      "when": "each attempt returns",
+      "then": [
+        "after the normal return clone/ and input/ are absent",
+        "after the shutdown and the transient error clone/ is present"
+      ]
+    },
+    {
+      "id": "TS-13-40",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-5.8"
+      ],
+      "title": "A kept clone/ from an earlier delivery is removed and cloned afresh",
+      "given": [
+        "a clone/ left by an earlier delivery containing a marker file and a stale commit"
+      ],
+      "when": "a new delivery runs the clone step",
+      "then": [
+        "the marker file is gone",
+        "clone/ is a fresh clone of the base branch"
+      ]
+    },
+    {
+      "id": "TS-13-41",
+      "kind": "integration",
+      "verifies": [
+        "13-REQ-6.1"
+      ],
+      "title": "The lease request body carries purpose, labels and an optional profile, and the sandbox id is reported",
+      "given": [
+        "fakehub granting leases, and runs with AF_SANDBOX_PROFILE set and unset"
+      ],
+      "when": "an attempt reaches the lease step",
+      "then": [
+        "fakehub records one lease request {purpose, labels:{job, attempt}} with profile only when set",
+        "the recorder receives the granted sandbox id"
+      ]
+    },
+    {
+      "id": "TS-13-42",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-6.2"
+      ],
+      "title": "A lease refused with 401 or 403 ends as an auth failure envelope",
+      "given": [
+        "fakehub answering the lease with 401, then 403"
+      ],
+      "when": "the attempt reaches the lease step",
+      "then": [
+        "a failed envelope with category auth, retryable false",
+        "its message points to PUT /api/v1/workspaces/{slug}"
+      ]
+    },
+    {
+      "id": "TS-13-43",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-6.3"
+      ],
+      "title": "Other lease or box problems are transient sandbox errors",
+      "given": [
+        "a lease answered 503, a capacity rejection (409) with a reason, a lease timeout, an unreachable gateway, a gateway refusing box creation, and a lease expiring in 90 s"
+      ],
+      "when": "an attempt reaches the lease and box step for each",
+      "then": [
+        "the worker returns an error carrying *toolio.Failure category sandbox and retryable true",
+        "hub's reason is in the message when hub gave one",
+        "no envelope is returned"
+      ]
+    },
+    {
+      "id": "TS-13-44",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-6.4"
+      ],
+      "title": "The gateway provider creates the box with the four labels and empty Env and is not an af choice",
+      "given": [
+        "a lease pointing at an in-process gateway whose backend records specs"
+      ],
+      "when": "the gateway box is created, and 'af triage --sandbox gateway' is run",
+      "then": [
+        "the backend records a spec with labels af.run_id, af.tool, af.job and af.attempt and len(Spec.Env)==0",
+        "the provider counts as isolating and processes are called by name",
+        "af --sandbox gateway is a usage error"
+      ]
+    },
+    {
+      "id": "TS-13-45",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-6.5"
+      ],
+      "title": "A brain in a gateway box needs no host vendor key and names credentials by reference",
+      "given": [
+        "the worker's environment lookup yields nothing and the process holds ANTHROPIC_API_KEY=sentinel"
+      ],
+      "when": "an in-box brain starts a process in the gateway box",
+      "then": [
+        "the brain starts without error",
+        "the executed command contains ANTHROPIC_API_KEY=\"$ANTHROPIC_API_KEY\" and no key value"
+      ]
+    },
+    {
+      "id": "TS-13-46",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-6.6"
+      ],
+      "title": "The timeout is cut to end 2 minutes before the lease expires",
+      "given": [
+        "AF_TIMEOUT=45m and a lease expiring in 20 minutes, and a lease expiring in 2 hours"
+      ],
+      "when": "the loop is invoked",
+      "then": [
+        "the first loop's --timeout is the cut value (about 18m) and the envelope warns lease_shortened_timeout",
+        "the second keeps 45m with no warning"
+      ]
+    },
+    {
+      "id": "TS-13-47",
+      "kind": "integration",
+      "verifies": [
+        "13-REQ-6.7"
+      ],
+      "title": "A granted lease is released once, after the box closes, on every path",
+      "given": [
+        "attempts ending in success, failure, transient error, cancel, shutdown and a panic in the loop, with a recording backend"
+      ],
+      "when": "each attempt returns",
+      "then": [
+        "fakehub records exactly one DELETE …/sandboxes/{id} per granted lease",
+        "it is recorded after the box's Close",
+        "the release context is not cancelled by the attempt's cancellation and is bounded to 30 s"
+      ]
+    },
+    {
+      "id": "TS-13-48",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-6.8"
+      ],
+      "title": "A failed release adds lease_release_failed without changing the status",
+      "given": [
+        "fakehub answering the release with 500"
+      ],
+      "when": "a successful attempt and a transient-error attempt return",
+      "then": [
+        "the successful envelope's status is unchanged and its warnings include lease_release_failed",
+        "the transient case logs the failure and returns the transient error"
+      ]
+    },
+    {
+      "id": "TS-13-49",
+      "kind": "integration",
+      "verifies": [
+        "13-REQ-7.1"
+      ],
+      "title": "Detection, baseline, gate and revert check run in the box and never on the host",
+      "given": [
+        "a service fix attempt with a gateway backend recording executions and host gate and revert-check seams that count calls"
+      ],
+      "when": "the fix attempt runs to a verdict",
+      "then": [
+        "the backend records af lang detect, af gate run (baseline), af gate run (after the change) and af revert-check as executions",
+        "the tree was synced and the gate table placed before each run",
+        "the host-side gate and revert-check seams record zero calls"
+      ]
+    },
+    {
+      "id": "TS-13-50",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-7.2"
+      ],
+      "title": "af --version runs exactly once per box before the first ring-1 command",
+      "given": [
+        "a gateway backend recording commands"
+      ],
+      "when": "a fix attempt runs the four ring-1 commands",
+      "then": [
+        "exactly one af --version is recorded for the box and precedes every ring-1 command"
+      ]
+    },
+    {
+      "id": "TS-13-51",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-7.3"
+      ],
+      "title": "A box image without af fails the attempt as a permanent sandbox error naming the profile",
+      "given": [
+        "a backend where af is missing, and another where af --version exits non-zero, with AF_SANDBOX_PROFILE=py"
+      ],
+      "when": "the fix attempt reaches measuring",
+      "then": [
+        "a failed envelope with category sandbox and retryable false",
+        "the message names the profile 'py' (or hub's default when unset) and says its image must provide af",
+        "no ring-1 command was executed"
+      ]
+    },
+    {
+      "id": "TS-13-52",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-7.4"
+      ],
+      "title": "A different af version in the box warns and the attempt continues",
+      "given": [
+        "a box af reporting another version/commit than the worker's"
+      ],
+      "when": "a fix attempt runs",
+      "then": [
+        "the envelope's warnings include box_af_version_mismatch",
+        "the attempt reaches its verdict"
+      ]
+    },
+    {
+      "id": "TS-13-53",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-7.5"
+      ],
+      "title": "A ring-1 envelope with another major schema version or an undecodable result is a permanent sandbox failure",
+      "given": [
+        "a box af answering schema_version with another major, and another answering invalid JSON"
+      ],
+      "when": "the fix attempt runs the first ring-1 command",
+      "then": [
+        "a failed envelope with category sandbox, retryable false, naming the profile"
+      ]
+    },
+    {
+      "id": "TS-13-54",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-7.6"
+      ],
+      "title": "The box opens before detection and one box serves the whole attempt",
+      "given": [
+        "a backend recording creations and executions in order"
+      ],
+      "when": "a service fix attempt runs with measuring in the box",
+      "then": [
+        "the box creation precedes the first af lang detect",
+        "exactly one box creation is recorded",
+        "file view, repository map, path validation, export apply, commit and push ran on the host"
+      ]
+    },
+    {
+      "id": "TS-13-55",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-7.7"
+      ],
+      "title": "Verdict table, gate section and result fields keep their shape and af --local still measures on the host",
+      "given": [
+        "the same fix scenario run in service mode and under af --local"
+      ],
+      "when": "both complete",
+      "then": [
+        "verdict table, brief gate section and result fields have the same shape",
+        "af fix --local tests pass unchanged and call the host gate"
+      ]
+    },
+    {
+      "id": "TS-13-56",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-7.8"
+      ],
+      "title": "A box lost during measuring ends the loop with a retryable sandbox failure returned as a transient error",
+      "given": [
+        "a gateway backend that closes the connection during af gate run"
+      ],
+      "when": "the worker runs the fix attempt",
+      "then": [
+        "the loop envelope is failed, category sandbox, retryable true",
+        "the worker returns an error carrying *toolio.Failure category sandbox, retryable true, and no envelope"
+      ]
+    },
+    {
+      "id": "TS-13-57",
+      "kind": "integration",
+      "verifies": [
+        "13-REQ-8.1"
+      ],
+      "title": "The attempt's requests happen in the order resolve, session, mark, clone, lease, loop, mirror, release, report",
+      "given": [
+        "fakehub, its git server, the in-process gateway and the scripted brain"
+      ],
+      "when": "a fix attempt on issue 42 runs",
+      "then": [
+        "fakehub's request log shows workspace/vars/issue reads, session open, in-progress label, clone, lease, loop requests, branch push, pulls, mirror writes, release, usage, events batch and session complete in that order"
+      ],
+      "pseudocode": "log = fake.Requests(); assert indexOf('POST /sessions') < indexOf('add in-progress') < indexOf('git clone') < indexOf('POST sandboxes') < indexOf('push') < indexOf('POST pulls') < indexOf('comment') < indexOf('DELETE sandboxes') < indexOf('usage') < indexOf('events/batch') < indexOf('complete')"
+    },
+    {
+      "id": "TS-13-58",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-8.2"
+      ],
+      "title": "Infrastructure failures return transient errors and the jobs layer's fake retry redelivers",
+      "given": [
+        "hub 503 on the workspace record, the variables, the issue and the session open, and a loop envelope failed retryable with category sandbox, forge (rate limit) and hub"
+      ],
+      "when": "the worker runs for each",
+      "then": [
+        "each returns an error with *toolio.Failure of category hub, sandbox or forge as appropriate with retryable true",
+        "no envelope is returned",
+        "with the jobs layer's fake retry the same attempt is handed over again"
+      ]
+    },
+    {
+      "id": "TS-13-59",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-8.3"
+      ],
+      "title": "Permanent refusals return built envelopes that validate against the toolio schema",
+      "given": [
+        "refusals: config, unsupported, usage (input), auth (refused PAT, forbidden, unreadable token, missing subscription), and a push failure after the commit"
+      ],
+      "when": "the worker returns for each",
+      "then": [
+        "the result carries an envelope with tool triage or fix, status failed (usage for input refusal), error with retryable false, empty arrays, usage source none",
+        "auth messages point to PUT /api/v1/workspaces/{slug}",
+        "the push failure is a git, non-retryable envelope result",
+        "each envelope validates against the toolio envelope schema"
+      ]
+    },
+    {
+      "id": "TS-13-60",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-8.4"
+      ],
+      "title": "Each stop point has its documented forge writes, lease and hub report",
+      "given": [
+        "stops at: resolve refusal, hub unavailable at resolve/session, session 401/403, transient clone/lease/box, refused clone or lease credential"
+      ],
+      "when": "each attempt stops",
+      "then": [
+        "resolve refusal, hub-unavailable and session 401/403 write nothing to the forge, take no lease and make no hub report",
+        "transient clone/lease/box removes in-progress, releases a granted lease, posts events and completes the session failed",
+        "a refused clone or lease credential mirrors failed with one comment, releases a granted lease, posts events and completes failed"
+      ]
+    },
+    {
+      "id": "TS-13-61",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-8.5"
+      ],
+      "title": "Issue forms become the issue URL and refusals are usage envelopes with no write",
+      "given": [
+        "a workspace on github.com/Org/Repo and on a GitLab group/sub/project, issue inputs: 42, 'org/repo#42', 'other/repo#42', a URL on this repository, a URL on another, and a pull request"
+      ],
+      "when": "resolve runs for each",
+      "then": [
+        "matching forms become the issue's URL on the workspace repository (path case-insensitive, full namespace on GitLab)",
+        "other paths, foreign URLs and a pull request give a usage envelope saying the issue is not on the workspace's repository (or is a pull request)",
+        "fakehub records no write for refusals"
+      ]
+    },
+    {
+      "id": "TS-13-62",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-8.5"
+      ],
+      "title": "Text, titles, files and context values reach the loop as specified",
+      "given": [
+        "a text input with a title, a file input 'notes.md', context strings [c1,c2] and answers [a1 with question Q1]"
+      ],
+      "when": "the loop is invoked",
+      "then": [
+        "text goes on stdin with the title as first line as a Markdown heading",
+        "the file is written as input/notes.md and passed by path",
+        "--context values are c1, c2, then a1",
+        "the earlier questions give no question for c1 and c2 and Q1 with options for a1",
+        "the brief carries each question with its answer and no question_not_found warning"
+      ]
+    },
+    {
+      "id": "TS-13-63",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-8.6"
+      ],
+      "title": "The branch is published through hub after the git push and before the pull request, retrying while unavailable",
+      "given": [
+        "fakehub whose branch push route answers 503 twice then 200, and in another run 503 always"
+      ],
+      "when": "the fix pipeline pushes fix/42-…",
+      "then": [
+        "fakehub records the git push, then the branch push route, then POST …/pulls",
+        "the route is tried up to 3 times in all",
+        "after final failure no pull request is requested, the loop ends failed category git retryable false, and the envelope's next names the branch"
+      ]
+    },
+    {
+      "id": "TS-13-64",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-8.7"
+      ],
+      "title": "Events, hub references and artifacts reach the recorder and envelope",
+      "given": [
+        "a recorder spy and a full attempt"
+      ],
+      "when": "the attempt runs",
+      "then": [
+        "every loop event line reaches the recorder as emitted",
+        "step events {name, source:'worker'} exist for resolve, session, clone, lease, run, mirror, release and report",
+        "the recorder gets session id and run id once the session opens and the sandbox id once the lease is granted",
+        "the envelope artifacts include {kind:'hub_session'} and {kind:'sandbox'} with those names"
+      ]
+    },
+    {
+      "id": "TS-13-65",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-8.8"
+      ],
+      "title": "The returned envelope differs from the loop's only by added warnings, side effects and artifacts",
+      "given": [
+        "a loop envelope captured from the toolio shell and the result returned by the worker"
+      ],
+      "when": "both are compared field by field",
+      "then": [
+        "every loop field is byte-identical apart from added entries",
+        "the result holds the report text or nothing, the labels set and removed, and AF_MAX_ATTEMPTS (2 when stopped before variables were read)"
+      ]
+    },
+    {
+      "id": "TS-13-66",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-9.1"
+      ],
+      "title": "A text triage that ends needs_human writes nothing to the forge; a done one mirrors to the created issue",
+      "given": [
+        "text input with a scripted triage submission carrying a question, and another producing a created issue"
+      ],
+      "when": "each attempt runs",
+      "then": [
+        "the first returns a needs_human envelope and fakehub records no forge write",
+        "the second mirrors the status label to the issue the loop created"
+      ]
+    },
+    {
+      "id": "TS-13-67",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-9.2"
+      ],
+      "title": "Setting a status label removes the other four, except a fix's in-progress keeps ready",
+      "given": [
+        "issues carrying ready, needs-human or failed"
+      ],
+      "when": "a fix marks in-progress, a triage marks in-progress, and a fix outcome sets landed",
+      "then": [
+        "after a fix's mark an issue that carried ready carries ready and in-progress",
+        "a triage's in-progress removes ready",
+        "landed removes ready and any other status label"
+      ]
+    },
+    {
+      "id": "TS-13-68",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-9.3"
+      ],
+      "title": "Each outcome maps to its status label and comment",
+      "given": [
+        "outcomes: triage confirmed, probable, suspected, not_reproducible, needs_human; fix done and unverified landed with pr, branch and none; fix parked; other failed; usage"
+      ],
+      "when": "the mirror runs for each",
+      "then": [
+        "fakehub's labels and comments match the mapping table for each outcome",
+        "fix with AF_FIX_LAND=none removes in-progress, sets no label, and posts a fix_summary"
+      ]
+    },
+    {
+      "id": "TS-13-69",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-9.4"
+      ],
+      "title": "A transient error or a failure an automatic attempt follows removes in-progress and writes nothing else",
+      "given": [
+        "a transient error; a failed brain or no_result retryable envelope at position 1 with max 2; and the same at position 2"
+      ],
+      "when": "the attempt ends",
+      "then": [
+        "the first two remove in-progress, set no status label and post no comment, and the result labels show in-progress removed and none set",
+        "position 2 of 2 sets failed with a comment"
+      ]
+    },
+    {
+      "id": "TS-13-70",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-9.5"
+      ],
+      "title": "Comments carry markers and required content, no absolute paths, and are not reposted",
+      "given": [
+        "needs_human, suspected triage, landed and parked fix, and failed attempts, with the worker's clone path in the envelope"
+      ],
+      "when": "the mirror composes comments and the same attempt runs twice",
+      "then": [
+        "each comment carries a marker naming the job, attempt and kind",
+        "the question comment has lettered options and af jobs answer <job id> or POST /api/v1/jobs/{id}/answer",
+        "the reason, fix_summary (with Closes or Refs, unproven items, parked retry hints) and failure comments hold their required parts",
+        "no comment contains an absolute worker path",
+        "the re-run adds no second comment"
+      ]
+    },
+    {
+      "id": "TS-13-71",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-9.6"
+      ],
+      "title": "A failed forge write is a warning and side effect, never a status change",
+      "given": [
+        "fakehub failing the label add, the comment and the request-label put-back"
+      ],
+      "when": "the mark, mirror and cancel cleanup run",
+      "then": [
+        "the envelope carries status_label_failed, comment_failed or request_label_failed with a matching side effect",
+        "the envelope's status is unchanged",
+        "under a transient error the failure is logged"
+      ]
+    },
+    {
+      "id": "TS-13-72",
+      "kind": "integration",
+      "verifies": [
+        "13-REQ-9.7"
+      ],
+      "title": "A cancelled running attempt restores the request label within the grace",
+      "given": [
+        "a job with request label af:fix on an issue carrying af:ready, a blocking brain, and the subscription removed after resolve"
+      ],
+      "when": "the attempt's context is cancelled with a cancel cause, then with an unsubscribe cause",
+      "then": [
+        "within 60 s in-progress is removed and af:fix is put back, af:ready stays, no status label and no comment are written",
+        "the lease is released and the session reported using the PAT read at resolve",
+        "the result carries the loop's envelope and labels set af:fix, removed in-progress",
+        "a cancel before the loop starts builds an envelope with category cancelled"
+      ]
+    },
+    {
+      "id": "TS-13-73",
+      "kind": "integration",
+      "verifies": [
+        "13-REQ-9.8"
+      ],
+      "title": "A shutdown writes nothing to the forge, keeps clone/ and releases the lease",
+      "given": [
+        "a running attempt with in-progress set"
+      ],
+      "when": "its context is cancelled with a shutdown cause",
+      "then": [
+        "fakehub records no label or comment write after the cancel",
+        "clone/ remains",
+        "exactly one lease release is recorded",
+        "the session is completed within the shutdown wait"
+      ]
+    },
+    {
+      "id": "TS-13-74",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-10.1"
+      ],
+      "title": "The session's model, run id and the brain's model agree",
+      "given": [
+        "a run with AF_MODEL unset and one with AF_MODEL=m1"
+      ],
+      "when": "the attempt opens its session and the loop runs",
+      "then": [
+        "the session model is the catalog's default Anthropic model id (or m1), the brain is passed it, and the usage record carries it",
+        "run_id matches YYYYMMDD_HHMMSS_<6 hex> and equals the envelope's run_id",
+        "the session opens before the in-progress mark"
+      ]
+    },
+    {
+      "id": "TS-13-75",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-10.2"
+      ],
+      "title": "A session that cannot open stops the attempt with no forge write and no lease",
+      "given": [
+        "fakehub answering the session open with 503, then 401, then 403"
+      ],
+      "when": "the attempt runs",
+      "then": [
+        "503 returns a transient error category hub retryable true",
+        "401 and 403 return a failed envelope with category auth",
+        "no label or comment is written and no lease is requested"
+      ]
+    },
+    {
+      "id": "TS-13-76",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-10.3"
+      ],
+      "title": "After release, one usage record, sequence-ordered 500-event batches and the completion are posted",
+      "given": [
+        "a loop that emitted 1200 events with brain usage, and a transient-error attempt"
+      ],
+      "when": "the attempt reports to hub",
+      "then": [
+        "one usage record carries the model, brain, tokens, cost, cost source and turns",
+        "events arrive as three batches of 500, 500 and 200 in sequence order",
+        "the session is completed with the envelope's status, or failed under a transient error",
+        "no usage record is posted when no brain ran"
+      ],
+      "pseudocode": "assert [len(b) for b in fake.EventBatches()] == [500,500,200]"
+    },
+    {
+      "id": "TS-13-77",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-10.4"
+      ],
+      "title": "A failing usage, events or complete call adds a warning and nothing else changes",
+      "given": [
+        "fakehub failing usage, events batch and session complete in turn"
+      ],
+      "when": "the attempt returns",
+      "then": [
+        "the envelope carries hub_usage_failed, hub_events_failed or hub_session_failed respectively",
+        "the status and other fields are unchanged",
+        "under a transient error the failure is logged"
+      ]
+    },
+    {
+      "id": "TS-13-78",
+      "kind": "property",
+      "verifies": [
+        "13-REQ-10.5"
+      ],
+      "title": "Every request carries only its own attempt's credentials",
+      "given": [
+        "sentinels in ANTHROPIC_API_KEY, GITHUB_TOKEN, GH_TOKEN and GITLAB_TOKEN, a distinct PAT and lease token per workspace"
+      ],
+      "when": "for any attempt (triage or fix, any outcome), including two run concurrently on two workspaces under go test -race",
+      "then": [
+        "no request to hub, the git server or the gateway carries a sentinel",
+        "every box spec has an empty Env and no sentinel",
+        "every hub and git request carries only its workspace's PAT and every gateway request only its lease token",
+        "no environment lookup is read"
+      ],
+      "pseudocode": "for scenario in gen_attempts(): run_concurrently(a,b); for r in fake.Requests(): assert r.cred in {a.pat} for a's; for s in specs: assert len(s.Env)==0"
+    },
+    {
+      "id": "TS-13-79",
+      "kind": "integration",
+      "verifies": [
+        "13-REQ-10.6"
+      ],
+      "title": "Neither the PAT nor the lease token appears in any output or file after a full fix attempt",
+      "given": [
+        "a full fix attempt on fakehub with known PAT and lease token"
+      ],
+      "when": "the envelope, events, comments, every file under the attempt tree and every recorded Spec.Env are scanned",
+      "then": [
+        "neither token is found anywhere"
+      ]
+    },
+    {
+      "id": "TS-13-80",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-10.7"
+      ],
+      "title": "fakehub serves the worker's endpoints and its git server accepts only the Basic PAT",
+      "given": [
+        "fakehub with workspace, vars, issues, pulls, sessions and leases set",
+        "a git server credentialed for agent-fox:<PAT>"
+      ],
+      "when": "each endpoint is called, failures are injected by route, and the git server is hit with a bearer token, a wrong user, a wrong password and the correct Basic header",
+      "then": [
+        "endpoints serve the test-set state and every request is recorded and counted",
+        "injected failures apply per route",
+        "the bearer and other credentials get 401",
+        "a lease points at an in-process gateway whose backend records specs and commands"
+      ]
+    },
+    {
+      "id": "TS-13-81",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-10.8"
+      ],
+      "title": "Documentation describes the worker and make check passes including the docs tests",
+      "given": [
+        "make doc has been run"
+      ],
+      "when": "docs/architecture.md, configuration.md, model-usage.md, api.md, development.md and README.md are read and make check is run",
+      "then": [
+        "each document contains the content required by 13-REQ-10.8",
+        "docs/cli.md is unchanged",
+        "make check passes, including the docs tests"
+      ]
+    },
+    {
+      "id": "TS-13-82",
+      "kind": "smoke",
+      "verifies": [
+        "13-PATH-1",
+        "13-REQ-8.1",
+        "13-REQ-9.3"
+      ],
+      "title": "A fix attempt on issue 42 lands a pull request end to end",
+      "given": [
+        "fakehub with a standard workspace and issue 42 carrying no status label",
+        "its git server, an in-process gateway over the local provider, and the scripted brain"
+      ],
+      "when": "the worker runs a fix attempt on issue 42 with round position 1",
+      "then": [
+        "a hub session opens and its session id and run id reach the recorder",
+        "af:in-progress is set, the clone comes from the git server, and the sandbox id is reported",
+        "fix/42-… is pushed, the branch push route is called, then POST …/pulls",
+        "one fix_summary comment is posted, af:landed set and af:in-progress removed",
+        "the lease is released, then usage, an events batch and the completion are posted",
+        "the envelope is done with pull request, hub_session and sandbox artifacts and labels af:landed set, af:in-progress removed"
+      ],
+      "real_components": [
+        "worker",
+        "toolio shell",
+        "fix loop",
+        "fakehub",
+        "fakehub git server",
+        "in-process gateway over local provider",
+        "hub forge client",
+        "git binary",
+        "fakeclaude af"
+      ]
+    },
+    {
+      "id": "TS-13-83",
+      "kind": "smoke",
+      "verifies": [
+        "13-PATH-2",
+        "13-REQ-9.3"
+      ],
+      "title": "A triage attempt replaces the body and sets ready end to end",
+      "given": [
+        "fakehub with an issue, the gateway and a scripted brain submitting a probable diagnosis"
+      ],
+      "when": "the worker runs a triage attempt on the issue",
+      "then": [
+        "the body is replaced through hub and the ## Original report section is byte-identical to the original body",
+        "af:ready is set, af:in-progress removed and no comment posted",
+        "the lease is released and the session reported",
+        "the envelope is done with labels af:ready set"
+      ],
+      "real_components": [
+        "worker",
+        "toolio shell",
+        "triage loop",
+        "fakehub",
+        "fakehub git server",
+        "in-process gateway over local provider",
+        "hub forge client"
+      ]
+    },
+    {
+      "id": "TS-13-84",
+      "kind": "smoke",
+      "verifies": [
+        "13-PATH-3",
+        "13-REQ-9.5"
+      ],
+      "title": "A triage whose submission asks a question blocks on a person",
+      "given": [
+        "fakehub with an issue and a scripted triage submission carrying a question with lettered options"
+      ],
+      "when": "the worker runs a triage attempt on the issue",
+      "then": [
+        "the envelope is needs_human",
+        "af:needs-human is set",
+        "exactly one comment holds the question, its lettered options and af jobs answer <job id>"
+      ],
+      "real_components": [
+        "worker",
+        "toolio shell",
+        "triage loop",
+        "fakehub",
+        "fakehub git server",
+        "in-process gateway over local provider",
+        "hub forge client"
+      ]
+    },
+    {
+      "id": "TS-13-85",
+      "kind": "smoke",
+      "verifies": [
+        "13-PATH-4",
+        "13-REQ-4.6"
+      ],
+      "title": "A fix on a carry_patch workspace is refused at resolve",
+      "given": [
+        "fakehub with a carry_patch workspace and a counting brain"
+      ],
+      "when": "the worker runs a fix attempt",
+      "then": [
+        "the result envelope is failed with error.category unsupported and retryable false",
+        "fakehub records no clone, lease, session request, label or comment",
+        "the brain ran zero times"
+      ],
+      "real_components": [
+        "worker",
+        "toolio shell",
+        "hub client",
+        "fakehub",
+        "fakehub git server"
+      ]
+    },
+    {
+      "id": "TS-13-86",
+      "kind": "smoke",
+      "verifies": [
+        "13-PATH-5",
+        "13-REQ-9.7"
+      ],
+      "title": "A cancelled fix attempt restores the request label end to end",
+      "given": [
+        "a fix job with request label af:fix on issue 42 carrying af:ready, a brain blocked in the loop"
+      ],
+      "when": "the attempt's context is cancelled with a cancel cause",
+      "then": [
+        "within the 60 s grace in-progress is removed, af:fix is put back and af:ready stays",
+        "no comment is posted",
+        "the lease is released and hub is reported to",
+        "the result's labels show af:fix set and af:in-progress removed"
+      ],
+      "real_components": [
+        "worker",
+        "toolio shell",
+        "fix loop",
+        "fakehub",
+        "fakehub git server",
+        "in-process gateway over local provider",
+        "hub forge client"
+      ]
+    },
+    {
+      "id": "TS-13-87",
+      "kind": "smoke",
+      "verifies": [
+        "13-PATH-6",
+        "13-REQ-8.2"
+      ],
+      "title": "A lease refused with 503 comes back as a transient error and is retried",
+      "given": [
+        "fakehub answering the first lease request with 503 and the jobs layer's fake retry"
+      ],
+      "when": "the worker runs a fix attempt",
+      "then": [
+        "af:in-progress is removed, events are posted, the session is completed failed and clone/ is kept",
+        "the worker returns an error carrying a sandbox *toolio.Failure with retryable true and no envelope",
+        "the fake retry hands the same attempt over again"
+      ],
+      "real_components": [
+        "worker",
+        "toolio shell",
+        "fakehub",
+        "fakehub git server",
+        "hub forge client",
+        "jobs fake retry"
+      ]
+    }
+  ]
+}

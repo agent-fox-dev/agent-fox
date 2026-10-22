@@ -1,0 +1,478 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "16",
+  "spec_name": "af_service_client",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/afclient/... ./internal/toolio/... ./cmd/af/... ./docs/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "05",
+      "reason": "modifies the toolio shell (mode choice before parse, resume argv override, input setter, new categories/warnings/event) and docs/cli.md"
+    },
+    {
+      "spec": "08",
+      "reason": "af triage requires --local for the loop and its fix suggestion gains --local"
+    },
+    {
+      "spec": "09",
+      "reason": "af fix requires --local for the loop"
+    },
+    {
+      "spec": "11",
+      "reason": "service core: subscription routes, error envelope and codes, fakehub for the end-to-end smoke tests"
+    },
+    {
+      "spec": "12",
+      "reason": "jobs routes, job and attempt documents, SSE framing, fake runner for the end-to-end smoke tests"
+    },
+    {
+      "spec": "13",
+      "reason": "commands and their unit tests live where its move puts them; its in-process loop invocation must keep working without --local"
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Client core: server URL, credential file, request layer and `af workspace list`",
+      "criteria": [
+        "16-REQ-3",
+        "16-REQ-4.1",
+        "16-REQ-4.2",
+        "16-REQ-4.3",
+        "16-REQ-4.4",
+        "16-REQ-4.5",
+        "16-REQ-4.7"
+      ],
+      "tests": [
+        "TS-16-17",
+        "TS-16-18",
+        "TS-16-19",
+        "TS-16-20",
+        "TS-16-21",
+        "TS-16-22",
+        "TS-16-23",
+        "TS-16-24",
+        "TS-16-25",
+        "TS-16-26"
+      ],
+      "steps": [
+        "Write TS-16-17..TS-16-26 (run through newApp().Main with t.Setenv HOME/AF_URL and an httptest recording fake service) and confirm they fail",
+        "Create package internal/afclient (library: plain/typed errors, never imports internal/toolio, never os.Exit). Add ParseServer(flagValue, envValue) -> {URL, Source(\"--server\"|\"AF_URL\"), FromFlag}: --server wins, empty AF_URL is unset, absolute http/https with host, optional path prefix, one trailing '/' dropped, query/fragment/userinfo refused; error messages name the source and rule and never echo userinfo; Insecure() true for http with non-loopback host (localhost, 127.0.0.0/8, ::1 via net.ParseIP().IsLoopback())",
+        "Add LoadCredential(home func() (string, error)) reading ~/.af/config.toml with github.com/BurntSushi/toml (make it a direct requirement in go.mod) into map[string]any: typed errors for home-not-found/unreadable (io), missing file / missing, non-string or empty token (auth, with fix hint suggest \"af login --token-file FILE\"), invalid TOML / token with line break or control char (config); every message names the path and never the token; on Unix report group/other permission bits for the warning",
+        "Add a Client in internal/afclient: base URL, credential, User-Agent af/<version>, Do(ctx, method, path, query, body) sending Authorization Bearer, Accept and JSON Content-Type, http.Client with CheckRedirect returning http.ErrUseLastResponse; the credential is attached only to requests built on the server's base URL; non-2xx initially returns a generic service error (full mapping comes in the next task)",
+        "In internal/toolio add the categories service, conflict, hub, job_cancelled (failure.go) and the warning codes server_insecure, credential_file_permissions, attempt_envelope_unavailable (warnings.go WarningCodes); add a Run helper to set env.Input (kind/origin/truncated) and a resume-argv override on Outcome/NeedsHuman used later",
+        "In cmd/af add client_common.go: shared helper that resolves server (flag --server + AF_URL), raises server_insecure, loads the credential in the R4 order (after server), raises credential_file_permissions, and maps afclient errors to toolio.Failure with R3 categories and the fix_hint",
+        "Register `af workspace list` (GET /api/v1/workspaces, result {workspaces}, flag --server, Timeout flag with DefaultTimeout 0, no forge/run dir) in cmd/af/main.go register()",
+        "Define a Go result type for it and its result schema; keep the schema golden update for the final docs/schema task"
+      ],
+      "touches": [
+        "internal/afclient/server.go",
+        "internal/afclient/credential.go",
+        "internal/afclient/client.go",
+        "internal/toolio/failure.go",
+        "internal/toolio/warnings.go",
+        "internal/toolio/app.go",
+        "cmd/af/client_common.go",
+        "cmd/af/workspace.go",
+        "cmd/af/main.go",
+        "go.mod"
+      ],
+      "done_when": [
+        "`af workspace list` with no server, a bad server or a bad credential file fails before any request is sent"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Request bounds, redirect refusal, answer mapping, messages, hints and verbatim documents",
+      "criteria": [
+        "16-REQ-6"
+      ],
+      "tests": [
+        "TS-16-28",
+        "TS-16-38",
+        "TS-16-39",
+        "TS-16-40",
+        "TS-16-41",
+        "TS-16-42",
+        "TS-16-43",
+        "TS-16-44"
+      ],
+      "steps": [
+        "Write TS-16-28 and TS-16-38..TS-16-44 against a scripted fake service (injectable clock/timeouts) and confirm they fail",
+        "In internal/afclient implement the full answer mapping table of 16-REQ-6.5: 400/404 usage (not retryable), 401 and 422 auth, 409 conflict, 502 hub retryable, 500 service, 503/504/other 5xx service retryable, 3xx and other 4xx (405/413/415/418) service not retryable, transport error or 2-minute bound service retryable, oversize/non-JSON body service not retryable; return a typed *Error{Status, Code, Message, Category, Retryable, Hint}",
+        "Bound each non-stream request by min(2 minutes, command's remaining --timeout) using context with an injectable clock/deadline; read at most 8 MiB (io.LimitReader+1 to detect overflow); never follow redirects and never send anything to a 3xx target",
+        "Build messages: service error.message followed by (error.code), or `the service answered <status>`; transport errors name the server URL and its source (--server or AF_URL); a 404 names the job id or workspace slug and says it does not exist or hub does not let the caller see it",
+        "Attach fix hints: 401 {suggest \"af login --token-file FILE\"}; 404 on a workspace route and 409 not_subscribed/token_unreadable {suggest \"af workspace subscribe <slug> --hub-token-file FILE\"} with the real slug; 422 {flag \"--hub-token-file\"}",
+        "Return service JSON documents as json.RawMessage so unknown fields survive; read only needed fields via small decode structs",
+        "Make cmd/af/client_common.go map *afclient.Error to toolio.Failure (status usage for category usage); confirm exit codes 2/1 follow",
+        "Ensure no default --timeout on any client command (DefaultTimeout 0) and a --timeout expiry gives the shell's timeout failure"
+      ],
+      "touches": [
+        "internal/afclient/client.go",
+        "internal/afclient/errors.go",
+        "cmd/af/client_common.go",
+        "cmd/af/workspace.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "done_when": [
+        "a redirect target recorded zero requests in the tests"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "`af login` with byte-preserving credential file rewrite",
+      "criteria": [
+        "16-REQ-5"
+      ],
+      "tests": [
+        "TS-16-29",
+        "TS-16-30",
+        "TS-16-31",
+        "TS-16-32",
+        "TS-16-33",
+        "TS-16-34",
+        "TS-16-35",
+        "TS-16-36",
+        "TS-16-37"
+      ],
+      "steps": [
+        "Write TS-16-29..TS-16-37 (including injected write-phase faults and the local-check ordering test) and confirm they fail",
+        "In internal/afclient add ReadSecretFile(path|\"-\", stdin) trimming and validating: non-empty, one line, no control chars, <=4096 bytes; read failures are typed io errors naming the path or stdin, content-rule failures are typed usage errors (reused later for the workspace PAT; callers pass the flag name `--token-file` or `--hub-token-file`)",
+        "Add a credential-file editor: validate an existing file (readable else io; parses as TOML else config) and locate the top-level `token = \"...\"` or `token = '...'` line before any table header (value a one-line basic or literal string, optional trailing comment; reject multi-line strings, dotted keys, `\"a\" \"b\"`); layout failure is config naming the file, saying its layout is not the one af expects and that `afc login` or an edit fixes it",
+        "Add ReplaceToken(content, cred) replacing only the value bytes with a TOML basic string (escape quotes/backslashes/control chars), preserving every other byte incl. CRLF, comments, tables, trailing comment; a new file is exactly `token = \"<cred>\"`",
+        "Add an atomic writer behind an injectable FS interface: MkdirAll ~/.af 0700, os.CreateTemp in ~/.af, write, Sync, Close, chmod 0600, os.Rename over config.toml; on any failure remove the temp file, return io error naming the path and leave the existing file untouched",
+        "Register `af login --token-file <file|->` (RawStdin, no positional args; a positional argument is a usage error) in cmd/af running the steps in order: read credential, server (R2), existing file check, GET /api/v1/workspaces with the new credential (2xx accept; 401 -> auth with message that the service refused this credential; other errors map per R6 with a message saying the credential could not be checked, never `refused`), write; result {credential_file, server}, never the credential",
+        "Follow the R4 order of local checks: flags, then token-file read/content, then server, then existing file; no request unless all pass",
+        "Add result type and schema for {credential_file, server}"
+      ],
+      "touches": [
+        "internal/afclient/secret.go",
+        "internal/afclient/tomledit.go",
+        "internal/afclient/write.go",
+        "cmd/af/login.go",
+        "cmd/af/main.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "done_when": [
+        "a 401 or 502 on the check leaves ~/.af/config.toml byte-identical or absent"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Event-stream follower with tries, backoff and `af jobs watch`",
+      "criteria": [
+        "16-REQ-9"
+      ],
+      "tests": [
+        "TS-16-61",
+        "TS-16-62",
+        "TS-16-63",
+        "TS-16-64",
+        "TS-16-65",
+        "TS-16-66",
+        "TS-16-67",
+        "TS-16-68"
+      ],
+      "steps": [
+        "Write TS-16-61..TS-16-68 against a scripted SSE fake service with an injected clock (sleep recorder) and a rapid/property-style generator for cuts and duplicate frames; confirm they fail",
+        "In internal/afclient add an SSE reader over bufio.Reader (buffer for lines up to 1 MiB): frames by id:/event:/data: lines and blank line, CRLF or LF, ignore comment lines and unknown fields, 60 s idle cut using an injectable timer; Accept text/event-stream; no 2-minute bound on the stream",
+        "Add Follow(ctx, id, since, hooks) implementing tries: events request with since=last seq, then on stream end one GET /api/v1/jobs/{id}; at rest = state blocked/done/failed/cancelled and no attempt running; drop events with seq <= last delivered; call OnEvent for each delivered event with the raw event document",
+        "Failed-try accounting: a try ending not at rest with no new event is failed (EOF, drop, idle cut, unreadable frame, 5xx or transport error on events or on job read); a delivering try resets the count; delay before next try 1 s after a delivering try and 1,2,4,8 s after failed tries 1-4; the fifth consecutive failure returns a typed give-up error with the last failure's category (hub for 502, else service), retryable true, and the last seq, with no wait after it",
+        "A 401, 404, 3xx or other 4xx on either request returns the R6 mapped error at once with no further try",
+        "Add cmd/af/jobs.go with `af jobs watch <id> [--since N]`: record the job artifact before following, emit each delivered event as the af event job_event (data = the event document) via Run.Emit, write each event document as one compact JSON line to Run.Stderr, give-up failure gets next `af jobs watch <id> --since <last>` (+ `--server <url>` when from the flag)",
+        "Result building (envelope fetch and status mapping) is the next task; here at-rest returns the job document as result {job, envelope:null} with status done so the command is functional",
+        "Keep Follow free of toolio imports; inject clock via a Clock interface field"
+      ],
+      "touches": [
+        "internal/afclient/sse.go",
+        "internal/afclient/follow.go",
+        "cmd/af/jobs.go",
+        "cmd/af/main.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "done_when": [
+        "the property test shows every event once in ascending order for arbitrary cuts and duplicates"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Outcome of following: envelope fetch, status mapping, needs_human resume, interrupt handling",
+      "criteria": [
+        "16-REQ-10"
+      ],
+      "tests": [
+        "TS-16-69",
+        "TS-16-70",
+        "TS-16-71",
+        "TS-16-72",
+        "TS-16-73",
+        "TS-16-74"
+      ],
+      "steps": [
+        "Write TS-16-69..TS-16-74 using the scripted fake service and `af jobs watch` as the entry point, and confirm they fail (TS-16-75, the interrupt test, is owned by the final schema/compat task because it runs through `af fix --wait`)",
+        "In internal/afclient add Finish(ctx, id): read the job with attempts, pick the highest-numbered attempt whose state is not queued/running, GET /attempts/{n}/envelope; a 404 leaves envelope null with no warning, any other failure leaves it null and records warning attempt_envelope_unavailable; no finished attempt means no fetch",
+        "In cmd/af add a shared followJob(run, id, ...) used by watch, queue, answer and retry: after Follow, build result {job, envelope} (both json.RawMessage) and map status: done -> envelope result.status (done or unverified; done when result null); failed -> result.status failed/unverified/usage with result.error category/message/retryable/fix_hint, category internal when error null; cancelled -> failed, category job_cancelled, not retryable, message says cancelled on the service, ignoring the attempt envelope category; blocked -> needs_human with the question text and option labels in order",
+        "Use the resume-argv override added to toolio: blocked resume argv is af jobs answer <id> --wait (+ --server <url> when from the flag), flag --context; make Run/Outcome carry the override so newNeedsHuman uses it instead of the invocation argv",
+        "Append only the attempt envelope's warnings to af's own warnings; do not copy its artifacts, side effects, next or usage; af's usage stays the no-brain usage; following adds no next of its own at rest",
+        "On shell timeout/signal during followJob: stop following, send no cancel request, and only on that path add Next entries `af jobs watch <id>` and `af jobs cancel <id>` (each with --server when from the flag), via a deferred/observed ctx.Err() check; the job artifact was recorded before following",
+        "Add the job-result Go type and schema (job/envelope allow other fields)"
+      ],
+      "touches": [
+        "internal/afclient/finish.go",
+        "cmd/af/jobs.go",
+        "cmd/af/client_follow.go",
+        "internal/toolio/app.go",
+        "internal/toolio/envelope.go"
+      ],
+      "depends_on": [
+        4
+      ],
+      "done_when": [
+        "a blocked job's needs_human resume.argv is exactly [\"af\",\"jobs\",\"answer\",<id>,\"--wait\"] with flag --context"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Workspace subscribe/get/unsubscribe and jobs list/get/cancel/answer/retry",
+      "criteria": [
+        "16-REQ-8"
+      ],
+      "tests": [
+        "TS-16-53",
+        "TS-16-54",
+        "TS-16-55",
+        "TS-16-56",
+        "TS-16-57",
+        "TS-16-58",
+        "TS-16-59",
+        "TS-16-60"
+      ],
+      "steps": [
+        "Write TS-16-53..TS-16-60 against a scripted fake service and confirm they fail",
+        "Register `af workspace subscribe <slug> --hub-token-file <file|-> [--prefix P]`: read the PAT with ReadSecretFile (flag name --hub-token-file; io for read failure, usage for content rule), PUT /api/v1/workspaces/{slug} (path-escaped) with {hub_token} and label_prefix only when --prefix is given; 200 and 201 both succeed, summary says subscribed (201) or replaced (200); result is the view verbatim; the PAT never appears in any output",
+        "Register `af workspace get <slug>` (view) and `af workspace unsubscribe <slug>` (DELETE; result {slug} on 204; summary says the workspace's open jobs were cancelled); a missing slug is a usage error; a 400 maps to usage",
+        "Register `af jobs list [--workspace S] [--state S] [--cursor C]`: GET /api/v1/workspaces/{S}/jobs or /api/v1/jobs, state and cursor query keys only when given; result the page {jobs, next_cursor}; when next_cursor is non-null add next repeating the command with --cursor <next_cursor> (with --server when from the flag, and the other given flags)",
+        "Register `af jobs get <id>` and `af jobs cancel <id>` (POST /cancel) returning {job, envelope:null}, status done; `cancel` has no --wait",
+        "Register `af jobs retry <id> [--wait]` (POST /retry body {}) and `af jobs answer <id> (<text>|--context <text>|--option <id>) [--wait]` (POST /answer): exactly one answer else usage with no request; --option uppercased and sent as {option} without reading the job; text must be non-empty after trim, then GET the job and send {option} when text equals an option id of the blocked question ignoring case, else {answer}",
+        "With --wait on answer and retry, record the job artifact and call the shared followJob from the previous task",
+        "A 409 maps to conflict via the shared mapper, carrying the subscribe fix hint for not_subscribed/token_unreadable",
+        "Add result types and schemas for subscription view, {workspaces}, {slug} and the job page (allow additional properties)"
+      ],
+      "touches": [
+        "cmd/af/workspace.go",
+        "cmd/af/jobs.go",
+        "cmd/af/main.go"
+      ],
+      "depends_on": [
+        5
+      ],
+      "done_when": [
+        "the resume argv `af jobs answer <id> --wait --context B` parses and sends {option:\"B\"}"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Mode dispatch and `af triage|fix --workspace` queuing",
+      "criteria": [
+        "16-REQ-7",
+        "16-REQ-1.1",
+        "16-REQ-1.2"
+      ],
+      "tests": [
+        "TS-16-1",
+        "TS-16-2",
+        "TS-16-45",
+        "TS-16-46",
+        "TS-16-47",
+        "TS-16-48",
+        "TS-16-49",
+        "TS-16-50",
+        "TS-16-51",
+        "TS-16-52"
+      ],
+      "steps": [
+        "Write TS-16-1, TS-16-2 and TS-16-45..TS-16-52 and confirm they fail",
+        "In internal/toolio add a command-mode hook: a Command may declare a Mode selector (func(args []string) (chosen *Command, err *Failure)) consulted in Main between match and parse, so the choice happens before parse, forge client, input resolution and run dir; keep App.Main behaviour unchanged for commands without it",
+        "In cmd/af add the mode scan for `triage` and `fix` (initially: find --local/--workspace words after the command path and before `--`, with one or two dashes and =value forms) and the dispatch: local -> the existing loop command untouched, service -> the new service-mode command; neither -> usage error whose message names `--workspace <slug>` (on the service --server/AF_URL names) and `--local`, fix_hint {flag \"--workspace\"} when a server is named (flag or AF_URL) else {flag \"--local\"}; both -> usage naming both flags. The full value-flag and refused-flag rules are the next task",
+        "Register the in-process-safe wiring so the loop commands stay registered for in-process callers (13_agent_fox_worker) without --local: the mode hook is installed only by the af binary's registration, not by the loop commands themselves",
+        "Implement the service-mode commands (Input: InputNone, RawStdin, MaxArgs 1, Context, Timeout with DefaultTimeout 0, no UsesForge/UsesRunDir/Repo/DryRun) with input classification: `-` stdin text; any http(s) URL trimmed -> issue string with no forge variable consulted; positive integer or #N -> issue JSON number; <path>#<N> (>=2 segments of [A-Za-z0-9_.-]) -> issue string; existing regular file -> file{name base, content}; else text. `fix` accepts only issue forms, otherwise usage naming N, #N, owner/repo#N or issue URL",
+        "Text/file content: trim, non-empty, no NUL, valid UTF-8 (usage); directory usage; unreadable file io; cut at a UTF-8 boundary so content+toolio truncation marker <= MaxInputBytes (131072), set input.truncated and warning input_truncated; report env input {kind, origin (URL or absolute path else \"\"), truncated}",
+        "Post to POST /api/v1/workspaces/{slug}/triage|fix with the slug path-escaped and --context values as `context` (absent when none); on 202 record artifact {kind job, name id, url <server>/api/v1/jobs/<id>} at once; without --wait finish done with result {job, envelope:null}, a summary naming job and workspace, and next `af jobs watch <id>` (+ --server <url> only when from the flag); with --wait (a flag of service mode only) call the shared followJob; 409 duplicate_job maps to conflict carrying the service message",
+        "Order local checks: flags, then positional/input (stdin/file reads), then server, then credential; none sends a request on failure"
+      ],
+      "touches": [
+        "internal/toolio/app.go",
+        "cmd/af/mode.go",
+        "cmd/af/serve_queue.go",
+        "cmd/af/main.go",
+        "cmd/af/triage.go",
+        "cmd/af/fix.go"
+      ],
+      "depends_on": [
+        6
+      ],
+      "done_when": [
+        "a no-mode `af fix <url>` exits 2 before any forge read"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Mode scan rules, refused flags per mode, and help for both modes",
+      "criteria": [
+        "16-REQ-1.3",
+        "16-REQ-1.4",
+        "16-REQ-1.5",
+        "16-REQ-1.6",
+        "16-REQ-1.7",
+        "16-REQ-1.8",
+        "16-REQ-2.1",
+        "16-REQ-2.2",
+        "16-REQ-2.3"
+      ],
+      "tests": [
+        "TS-16-3",
+        "TS-16-4",
+        "TS-16-5",
+        "TS-16-6",
+        "TS-16-7",
+        "TS-16-8",
+        "TS-16-9",
+        "TS-16-10",
+        "TS-16-11"
+      ],
+      "steps": [
+        "Write TS-16-3..TS-16-11 using recording fake forge and service and confirm they fail",
+        "Make the mode scan read words as the shell's parseInterspersed does (reuse its splitFlag/isBoolFlag helpers exported from internal/toolio or move the scan into toolio): only words after the command path and before the first `--`; a word after `--` is never a mode; a word that is the value of any value-taking flag of either mode (the loop's flags, the service flags, --context, --output, --emit-events, --timeout, --server, ...) is that flag's value, so `--context --local` names no mode",
+        "Read --workspace as `--workspace v`, `--workspace=v`, with one or two dashes; a missing or empty value is a usage error naming --workspace; read --local as a Go bool flag (`--local`, `=true`, `-local=1` choose local; `=false` counts as not given; value strconv.ParseBool refuses is a usage error naming --local)",
+        "Refuse in local mode --server and --wait (usage naming the flag); refuse in service mode --dir, --repo, --dry-run, --land, --brain, --sandbox, --borrowed-hands, --budget, --max-turns, --script (both commands), --label (triage) and --base, --attempts, --no-verify (fix), naming the flag; accept --context, --timeout, --output, --emit-events in both modes; all refusals happen before forge, input, run dir and requests",
+        "Update shell help (`--help`, `help <cmd>`, and requests() which must still treat `--help` after a value flag as the value) so `af triage` and `af fix` help describe both modes with their flags (--local, --workspace, --server, --wait, loop-only flags)",
+        "Tests assert zero forge requests, zero service requests and no `.agent-fox/run/` directory under the working dir or --dir for each refused invocation, including mode words given as other flags' values and `--workspace` with `--dir`"
+      ],
+      "touches": [
+        "cmd/af/mode.go",
+        "internal/toolio/flags.go",
+        "internal/toolio/app.go",
+        "internal/toolio/help.go"
+      ],
+      "depends_on": [
+        7
+      ],
+      "done_when": [
+        "`af triage x --context --local` exits 2 with the no-mode message"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "Local-mode compatibility, triage --local suggestion, schemas, secrecy sweep and documentation",
+      "criteria": [
+        "16-REQ-2.4",
+        "16-REQ-2.5",
+        "16-REQ-2.6",
+        "16-REQ-2.7",
+        "16-REQ-2.8",
+        "16-REQ-4.6"
+      ],
+      "tests": [
+        "TS-16-12",
+        "TS-16-13",
+        "TS-16-14",
+        "TS-16-15",
+        "TS-16-16",
+        "TS-16-27",
+        "TS-16-75"
+      ],
+      "steps": [
+        "Write TS-16-12..TS-16-16, TS-16-27 and TS-16-75 and confirm they fail (TS-16-75 runs `af fix --workspace --wait` with a SIGINT/--timeout against a scripted service holding the stream open)",
+        "Add `--local` to every existing cmd/af test that calls the top-level fix/triage loop (helpers in fix_test.go, fix_end_test.go, fix_boxes_test.go, smoke_boxes_test.go, triage_boxes_test.go, triage_loop_test.go, triage_edges_test.go, sandbox_scan_test.go list) and confirm local results are unchanged with AF_URL on a closed port; no connection attempted",
+        "Change triage's fix suggestion (cmd/af/triage.go near the r.Next(af fix <url> --dir <dir>)) to argv [af fix <issue url> --dir <dir> --local] for both the loop and `af triage land`; update hasNext exact-argv assertions in triage_outcome_test.go",
+        "Add a test that a fresh in-process toolio.App with the loops registered without the mode hook (as the worker does) runs `fix`/`triage` with no --local and sends no service request",
+        "Make triage/fix `--schema` admit both the local result and the job result (oneOf), register result schemas for every new command, regenerate cmd/af/testdata/schema.golden.json with `go test ./internal/toolio ./cmd/af -update`, and verify top-level schema properties match each Go result type's JSON fields and samples with extra fields validate",
+        "Write the sentinel secrecy property test: random sentinel credential and PAT across login, subscribe, jobs and fix --workspace --wait with a service that echoes headers/bodies in errors; scan stdout, stderr, --output and --emit-events; fix any leak (scrub echoed secrets from service messages)",
+        "Run `make doc`, then update docs/cli.md (mode rule and how words are read, new commands/flags, local-check order, answer table, categories service/conflict/hub/job_cancelled with cancelled still a signal, warnings server_insecure/credential_file_permissions/attempt_envelope_unavailable, event job_event, resume.argv override in the needs_human section, triage/fix synopses with --local, `af fix <issue url> --dir <dir> --local`, registered command count), docs/configuration.md and docs/model-usage.md (AF_URL, ~/.af/config.toml and token, result.job.usage, no model on this machine in service mode), docs/architecture.md, docs/development.md (afclient package row), README.md client quick start",
+        "Add a docs test (docs/docs_test.go style) checking those terms, and record every divergence in docs/errata/16_service_client_divergences.md; do not remove any phrase existing docs tests check"
+      ],
+      "touches": [
+        "cmd/af/triage.go",
+        "cmd/af/triage_outcome_test.go",
+        "cmd/af/schema_test.go",
+        "cmd/af/testdata/schema.golden.json",
+        "docs/cli.md",
+        "docs/configuration.md",
+        "docs/model-usage.md",
+        "docs/architecture.md",
+        "docs/development.md",
+        "README.md",
+        "docs/docs_test.go",
+        "docs/errata/16_service_client_divergences.md"
+      ],
+      "depends_on": [
+        8
+      ],
+      "done_when": [
+        "`make check` passes offline"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 10,
+      "kind": "integration",
+      "title": "Verify the service-client paths end to end against the real service",
+      "tests": [
+        "TS-16-76",
+        "TS-16-77",
+        "TS-16-78",
+        "TS-16-79",
+        "TS-16-80",
+        "TS-16-81"
+      ],
+      "steps": [
+        "Write the smoke tests TS-16-76..TS-16-81: 76-78 run newApp().Main against the real service handler of specs 11 and 12 in process over fakehub with the jobs fake runner (add a small in-process constructor/test helper in those packages if none exists); 79-81 use the recording fakes, the scripted brain and the scripted SSE service with an injected clock; confirm they pass",
+        "Trace 16-PATH-1 (login -> check GET /workspaces -> write config.toml 0600 -> subscribe PUT 201/200), 16-PATH-2 (queue -> job artifact -> events -> job read -> attempt envelope -> exit code), 16-PATH-3 (blocked -> resume argv + --context B -> {option:\"B\"} -> attempt 2) through the real code and confirm each step calls the next and no stub remains",
+        "Trace 16-PATH-4, 16-PATH-5 and 16-PATH-6: mode scan before forge/run dir, local triage next `--local`, and watch resuming with since=k after a cut with duplicates dropped",
+        "Confirm every criterion with a contract has a production consumer: the resume-argv override is consumed by toolio's newNeedsHuman, the input setter by the queue command, the new categories/warnings/event by toolio's envelope validation, the mode hook by the af binary's register()",
+        "Confirm the in-process loop entry point used by 13_agent_fox_worker is still called from production code without --local and never reaches the client",
+        "Grep internal/afclient, cmd/af and internal/toolio for panic(\"not implemented\"), TODO, and bare `return nil` on non-trivial paths, and remove any that remain",
+        "Run `make check` offline and confirm it passes"
+      ],
+      "touches": [
+        "cmd/af/smoke_client_test.go",
+        "internal/afclient/smoke_test.go"
+      ],
+      "depends_on": [
+        9
+      ],
+      "done_when": [
+        "`make check` passes offline",
+        "all six smoke tests pass"
+      ],
+      "state": "pending"
+    }
+  ]
+}

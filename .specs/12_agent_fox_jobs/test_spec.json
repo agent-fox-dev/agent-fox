@@ -1,0 +1,1538 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "12",
+  "spec_name": "agent_fox_jobs",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-12-1",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-1.1"
+      ],
+      "title": "A config without the new keys loads with workers 2 and retain 720h, and in-range values load as given",
+      "given": [
+        "a config.toml with only the core's keys"
+      ],
+      "when": "the config is loaded; then loaded again with [workers].count = 64 and [database].retain = \"1h\" and with count = 1 and retain = \"8760h\"",
+      "then": [
+        "defaults are count 2 and retain 720h",
+        "the boundary values 1, 64, 1h and 8760h are accepted"
+      ],
+      "pseudocode": "c = Load(minimal); assert c.Workers.Count == 2 and c.Database.Retain == 720h; for b in bounds: assert Load(b) ok"
+    },
+    {
+      "id": "TS-12-2",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-1.2"
+      ],
+      "title": "An out-of-range or malformed workers/retain value stops the binary with exit 2, an ERROR naming the key and no listener",
+      "given": [
+        "the built agent-fox binary and a temp config directory"
+      ],
+      "when": "the binary is started with count = 0, 65, \"two\" and with retain = \"30m\", \"8761h\", \"soon\"",
+      "then": [
+        "each run exits with code 2",
+        "stderr holds an ERROR record that names workers.count or database.retain respectively",
+        "the configured listen address never accepts a connection"
+      ],
+      "pseudocode": "for cfg in bad: r = run(binary, cfg); assert r.exit == 2; assert 'ERROR' in r.log and key in r.log; assert not dial(listen)"
+    },
+    {
+      "id": "TS-12-3",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-1.3"
+      ],
+      "title": "Starting the service creates the three af_ tables beside jobqueue's tables and an attempts directory with mode 0700",
+      "given": [
+        "a fresh temp dir with no database file"
+      ],
+      "when": "the store opens, migrations run and the jobs service starts",
+      "then": [
+        "af_jobs, af_attempts and af_events exist",
+        "jobqueue's own tables exist in the same file",
+        "attempts/ beside the database file has mode 0700",
+        "a second start with the directory present leaves it unchanged"
+      ],
+      "pseudocode": "svc = Start(dir); assert tables ⊇ {af_jobs,af_attempts,af_events}; assert stat(dir/attempts).Mode().Perm()==0700"
+    },
+    {
+      "id": "TS-12-4",
+      "kind": "property",
+      "verifies": [
+        "12-REQ-1.4"
+      ],
+      "title": "Every created job has a job_ id of 20 lowercase hex characters, attempts numbered from 1, and millisecond UTC times",
+      "given": [
+        "a jobs store on a temp database"
+      ],
+      "when": "for any sequence of created jobs, answers, retries and automatic attempts (seeded generator)",
+      "then": [
+        "every job id matches ^job_[0-9a-f]{20}$ and ids are unique",
+        "each job's attempt numbers are 1..k consecutive",
+        "every stored and served time matches ^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d\\.\\d{3}Z$"
+      ],
+      "pseudocode": "for seq in gen(): run(seq); assert re(id); assert nums == range(1,k+1); assert all(re(t) for t in times)"
+    },
+    {
+      "id": "TS-12-5",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-1.5"
+      ],
+      "title": "The purge removes expired done, failed and cancelled jobs with their directories and rows, including a job cancelled while queued",
+      "given": [
+        "an injected clock",
+        "retain of 1h",
+        "done, failed, cancelled-while-queued and cancelled-while-running jobs with finished_at older than retain and attempt directories on disk"
+      ],
+      "when": "the clock advances beyond retain and the purge runs, at start and on the hourly tick",
+      "then": [
+        "each expired job's attempts/<job id>/ directory is gone",
+        "its rows in af_events, af_attempts and af_jobs are gone",
+        "GET /api/v1/jobs/:id answers 404 for each",
+        "a job whose finished_at is younger than retain is untouched"
+      ],
+      "pseudocode": "clock.Advance(retain+1m); purge(); for j in expired: assert !exists(dir(j)); assert rows(j)==0; assert get(j).status==404"
+    },
+    {
+      "id": "TS-12-6",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-1.6"
+      ],
+      "title": "The purge keeps blocked jobs, running jobs, in-progress runners and recently cancelled jobs, even when the question is older than retain",
+      "given": [
+        "an injected clock and retain of 1h",
+        "a blocked job asked long ago",
+        "a job cancelled while blocked whose question is older than retain but whose cancel is recent",
+        "a cancelled job whose runner has not returned",
+        "a running job"
+      ],
+      "when": "the purge runs after the clock passes retain from the question time",
+      "then": [
+        "all four jobs remain readable through GET /api/v1/jobs/:id",
+        "their directories and rows remain",
+        "after retain passes since the cancel, the cancelled-while-blocked job is purged"
+      ],
+      "pseudocode": "purge(); for j in kept: assert get(j).status==200; clock.Advance(retain); purge(); assert get(cancelledWhileBlocked).status==404"
+    },
+    {
+      "id": "TS-12-7",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-1.7"
+      ],
+      "title": "A purge whose attempts directory cannot be removed keeps the job's rows, logs a WARN naming the job and retries next purge",
+      "given": [
+        "an expired failed job whose attempts directory removal fails (injected remover error)",
+        "a captured slog handler"
+      ],
+      "when": "the purge runs, then the failure is cleared and the purge runs again",
+      "then": [
+        "after the first purge the job is still readable with status 200 and its rows exist",
+        "a WARN record names the job id",
+        "after the second purge the directory and rows are gone and GET answers 404"
+      ],
+      "pseudocode": "fs.failRemove = true; purge(); assert get(j).status==200; assert warn(j); fs.failRemove=false; purge(); assert get(j).status==404"
+    },
+    {
+      "id": "TS-12-8",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-1.8"
+      ],
+      "title": "The documentation files name the jobs terms the spec requires",
+      "given": [
+        "the docs directory"
+      ],
+      "when": "a docs test reads api.md, configuration.md, model-usage.md, architecture.md and development.md",
+      "then": [
+        "api.md mentions the jobs routes, body limits, SSE, invalid_state, duplicate_job, not_subscribed and token_unreadable",
+        "configuration.md mentions [workers] count and [database] retain",
+        "model-usage.md mentions automatic attempts, brain, no_result and summed usage",
+        "architecture.md mentions the job states, queue key, runner contract, transient retries and event log",
+        "development.md mentions the jobs package"
+      ],
+      "pseudocode": "for file, terms in required: for t in terms: assert t in read(file)"
+    },
+    {
+      "id": "TS-12-9",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-2.1",
+        "12-REQ-2.2"
+      ],
+      "title": "Every single-job response and list entry carries exactly the documented fields, and blocked is an object only while blocked",
+      "given": [
+        "a service with the fake hub and a scripted fake runner",
+        "one queued, one blocked (options X, Y, Z), one done job"
+      ],
+      "when": "each job is read through GET /jobs/:id and GET /jobs",
+      "then": [
+        "the key set of each document equals the 12 documented plus list fields: id, workspace, kind, input, issue, source, request_label, state, blocked, attempt_count, current_attempt, result, artifacts, side_effects, labels, usage, hub, created_at, started_at, finished_at",
+        "input holds no context",
+        "request_label is null for API-created jobs",
+        "blocked for the blocked job is {reason needs_human, question, options with ids A, B, C, answer_with 'POST /api/v1/jobs/<id>/answer'}",
+        "blocked is null in the queued and done jobs"
+      ],
+      "pseudocode": "doc = get(id); assert keys(doc)==FIELDS; assert doc.request_label==null; assert blocked.options.ids==['A','B','C']"
+    },
+    {
+      "id": "TS-12-10",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-2.3"
+      ],
+      "title": "result, artifacts and side_effects come from the latest finished attempt's envelope with exit_code matching the status",
+      "given": [
+        "a job whose attempt 1 ended failed and attempt 2 ended done with two artifacts and one side effect",
+        "another job with no finished attempt"
+      ],
+      "when": "both jobs are read",
+      "then": [
+        "the first job's result is {status done, exit_code 0, summary, error null} from attempt 2",
+        "its artifacts and side_effects are those of attempt 2",
+        "the second job has result null and both arrays []",
+        "for every finished job result.exit_code equals toolio.ExitCode(result.status)"
+      ],
+      "pseudocode": "assert doc.result.exit_code == ExitCode(doc.result.status); assert unfinished.result==null and unfinished.artifacts==[]"
+    },
+    {
+      "id": "TS-12-11",
+      "kind": "property",
+      "verifies": [
+        "12-REQ-2.4"
+      ],
+      "title": "A job's usage equals the sum of cost, input tokens, output tokens and turns over its finished attempts",
+      "given": [
+        "a jobs store"
+      ],
+      "when": "for any job with 1 to 6 finished attempts whose envelopes carry random non-negative usage",
+      "then": [
+        "usage.cost_usd, input_tokens, output_tokens and turns equal the sums over the attempts' usage",
+        "an unfinished attempt contributes nothing"
+      ],
+      "pseudocode": "for jobs in gen(): assert doc.usage.turns == sum(a.usage.turns for a in finished)"
+    },
+    {
+      "id": "TS-12-12",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-2.5"
+      ],
+      "title": "started_at is set at first claim and finished_at is set exactly in done, failed and cancelled and cleared when the job queues again",
+      "given": [
+        "a service with a fake runner",
+        "jobs driven to done, failed, cancelled-from-queued and cancelled-from-blocked",
+        "an injected clock"
+      ],
+      "when": "each job is read at every step, then answered, retried and given an automatic attempt",
+      "then": [
+        "started_at is null while queued and set at the first claim, and unchanged by later claims",
+        "finished_at is non-null exactly when state is done, failed or cancelled, including cancel from queued or blocked",
+        "finished_at of a job cancelled while blocked is the cancel time, not the question time",
+        "answer, retry and an automatic attempt clear finished_at to null"
+      ],
+      "pseudocode": "assert (doc.finished_at!=null) == (doc.state in {done,failed,cancelled})"
+    },
+    {
+      "id": "TS-12-13",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-2.6"
+      ],
+      "title": "labels shows set, removed and restore, or null, and hub shows the running attempt's references only while it runs",
+      "given": [
+        "a fake runner that reports hub references (session, run, sandbox) and labels set/removed through the recorder, then blocks",
+        "a job with no label activity"
+      ],
+      "when": "the job is read during the run and after the attempt ends; and a job with request_label X is cancelled while queued",
+      "then": [
+        "during the run hub is {session_id, run_id, sandbox_id}",
+        "after the attempt ends hub is null",
+        "labels carries set and removed as last reported with restore null",
+        "a job with no label values has labels null",
+        "the cancelled job with request label X has labels.restore X"
+      ],
+      "pseudocode": "rec.Hub(s,r,b); assert get(id).hub=={s,r,b}; release(); assert get(id).hub==null"
+    },
+    {
+      "id": "TS-12-14",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-2.7"
+      ],
+      "title": "GET /jobs/:id adds attempts ordered by n with trigger, answer, deliveries, transient failures, outcome fields and times",
+      "given": [
+        "a job with attempt 1 (create) ended needs_human, attempt 2 (answer option B) ended failed after one transient failure"
+      ],
+      "when": "GET /api/v1/jobs/:id is called and also GET /api/v1/jobs",
+      "then": [
+        "status 200 and attempts has two entries ordered by n",
+        "entry 2 has trigger {kind answer, by the caller}, answer {question, option B, text}, deliveries 2, transient_failures 1",
+        "each entry has state, status, exit_code, summary, error, usage, started_at and finished_at",
+        "the list entries carry no attempts field"
+      ],
+      "pseudocode": "d = get(id); assert [a.n for a in d.attempts]==[1,2]; assert d.attempts[1].trigger.kind=='answer'"
+    },
+    {
+      "id": "TS-12-15",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-3.1"
+      ],
+      "title": "Valid triage (issue, text with title, file) and fix bodies each create a queued job with source api and null request_label",
+      "given": [
+        "the fake hub where the caller sees widgets",
+        "a subscribed widgets workspace with a readable token"
+      ],
+      "when": "POST triage with {issue:7}, {text,title}, {file:{name,content}} plus context, and POST fix with {issue:42, context:[...]}",
+      "then": [
+        "each answers 202 with a job in state queued",
+        "source is {kind api, by the hub user id} and request_label is null",
+        "kind is triage or fix as routed and issue is 7, null, null and 42"
+      ],
+      "pseudocode": "r = post('/workspaces/widgets/fix', {issue:42}); assert r.status==202; assert r.json.state=='queued'; assert r.json.source=={'kind':'api','by':uid}"
+    },
+    {
+      "id": "TS-12-16",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-3.2"
+      ],
+      "title": "Each invalid field is refused with 400 invalid_request naming the field and nothing is stored",
+      "given": [
+        "a subscribed widgets workspace"
+      ],
+      "when": "requests are posted with: empty/whitespace text; invalid UTF-8; NUL byte; text of MaxInputBytes+1; title with a newline; 257-byte title; file.name with / or NUL or empty or 256 bytes; 11 context strings; an empty context string; a 8 KiB+1 string; context totalling over 32 KiB; none or two of issue/text/file; an unknown field",
+      "then": [
+        "every response is 400 with error.code invalid_request",
+        "the message names the offending field",
+        "no af_jobs row is written"
+      ],
+      "pseudocode": "for body, field in cases: r = post(triage, body); assert r.status==400; assert field in r.json.error.message; assert count(af_jobs)==0"
+    },
+    {
+      "id": "TS-12-17",
+      "kind": "property",
+      "verifies": [
+        "12-REQ-3.3"
+      ],
+      "title": "An issue value is accepted exactly for a positive integer, an issue URL that is not a pull or merge request, or <path>#<N>",
+      "given": [
+        "the issue parser"
+      ],
+      "when": "for any generated issue value: integers (negative, zero, fraction, huge), GitHub and GitLab issue, pull and merge request URLs, other URLs, <path>#<N> strings with 1, 2 or more segments and bad characters, strings over 2048 bytes",
+      "then": [
+        "accepted values yield the issue number from the integer, URL or #N",
+        "every other value is refused and the route answers 400 naming issue"
+      ],
+      "pseudocode": "for v in gen(): n, ok = ParseIssue(v); assert ok == oracle(v); if ok: assert n == oracleNumber(v)"
+    },
+    {
+      "id": "TS-12-18",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-3.4"
+      ],
+      "title": "The maximal valid bodies escaped as \\u00XX answer 202, and bodies over each route's limit answer 413",
+      "given": [
+        "a subscribed workspace",
+        "a triage body of 128 KiB text, 32 KiB context and 256-byte title with every byte \\u00XX escaped",
+        "a file body with 128 KiB content and 255-byte name escaped",
+        "a fix body with a 2048-byte issue string and 32 KiB context escaped"
+      ],
+      "when": "each body is posted to its route; and bodies of 1 MiB+1, 256 KiB+1 and 64 KiB+1 bytes are posted to triage, fix and answer",
+      "then": [
+        "the maximal valid bodies answer 202, not 413",
+        "over-limit bodies answer 413 payload_too_large",
+        "an 8 KiB answer escaped byte by byte on the answer route is accepted (not 413)"
+      ],
+      "pseudocode": "assert post(triage, escape(maxTriage)).status==202; assert post(fix, big(256K+1)).status==413"
+    },
+    {
+      "id": "TS-12-19",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-3.5"
+      ],
+      "title": "Invisible, unsubscribed, unsubscribing, unreadable-token and duplicate-issue requests are refused with the specified codes",
+      "given": [
+        "fake hub with widgets visible and gadgets not visible",
+        "a workspace with an unreadable token",
+        "an open fix job for issue 42 on widgets"
+      ],
+      "when": "fix jobs are created for gadgets, an unsubscribed slug, a workspace marked unsubscribing, the unreadable-token workspace, and again for issue 42 on widgets (also as a URL for the same number); a triage job for issue 42 is created",
+      "then": [
+        "the first three answer 404 not_found",
+        "the unreadable token answers 409 token_unreadable",
+        "the duplicate answers 409 duplicate_job and the message names the open job's id",
+        "the triage job for issue 42 is accepted (different kind)",
+        "no job row is stored for refused requests"
+      ],
+      "pseudocode": "r = post(fix,{issue:42}); assert r.status==409 and r.code=='duplicate_job' and firstId in r.message"
+    },
+    {
+      "id": "TS-12-20",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-3.6"
+      ],
+      "title": "The job row, attempt 1 row and queued job_state event are stored together or not at all, and enqueue happens after the commit",
+      "given": [
+        "a store with an injectable fault on the third insert",
+        "an enqueue hook that records whether the transaction is committed when it is called"
+      ],
+      "when": "a job is created normally, then created with the event insert failing",
+      "then": [
+        "normal creation yields one job, attempt 1 with trigger create and event seq 1 job_state queued",
+        "the enqueue hook ran after commit",
+        "the failed creation leaves no job, attempt or event row and nothing enqueued"
+      ],
+      "pseudocode": "store.fail('events'); err = Create(); assert err!=nil; assert count(jobs)==count(attempts)==count(events)==0"
+    },
+    {
+      "id": "TS-12-21",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-3.7"
+      ],
+      "title": "A failed enqueue still answers 202 with the queued job, logs a WARN, and the sweep gets the attempt to the runner",
+      "given": [
+        "a queue adapter whose enqueue fails once",
+        "a captured slog handler",
+        "an injected sweep tick"
+      ],
+      "when": "POST fix is called, then the sweep tick fires",
+      "then": [
+        "the response is 202 with state queued",
+        "a WARN names the job id",
+        "after the sweep the fake runner is called once for attempt 1"
+      ],
+      "pseudocode": "q.failNext(); r = post(fix); assert r.status==202; tick(sweep); assert runner.calls==[(job,1)]"
+    },
+    {
+      "id": "TS-12-22",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-3.8"
+      ],
+      "title": "The Go entry points create a job with a label source and request label, apply the routes' refusals, and look up the open job",
+      "given": [
+        "a subscribed workspace, an unsubscribed one, and an existing open fix job for issue 42"
+      ],
+      "when": "CreateJob is called with source kind label, by 'poll', request label 'af:fix', issue 9; with source kind event and a duplicate issue; with the unsubscribed workspace; and OpenJob is called for (widgets, fix, 42), (widgets, fix, 99) and (widgets, triage, 42)",
+      "then": [
+        "the created job has source {label, poll} and request_label 'af:fix'",
+        "the duplicate returns the duplicate_job error and the unsubscribed workspace returns the not subscribed error",
+        "OpenJob returns the open job for 42 and a not-found result for the other two",
+        "once the job is done OpenJob returns not found"
+      ],
+      "pseudocode": "j = jobs.Create(ctx, req{source:{'label','poll'}, label:'af:fix'}); assert j.request_label=='af:fix'; assert errors.Is(dup, ErrDuplicate)"
+    },
+    {
+      "id": "TS-12-23",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-4.1"
+      ],
+      "title": "An attempt is one queue item keyed by workspace with nonce <job id>:<n>, and enqueuing it again is a no-op in every item state",
+      "given": [
+        "the queue adapter on a real SQLite database",
+        "a fake runner that blocks"
+      ],
+      "when": "the same attempt is enqueued twice while pending, again while delayed (backoff), and again while claimed",
+      "then": [
+        "the queue holds one item of type attempt with key widgets, nonce '<job id>:1' and payload {job_id, attempt}",
+        "the runner is called once",
+        "no second item appears in any state"
+      ],
+      "pseudocode": "q.Enqueue(a); q.Enqueue(a); assert q.count()==1; block runner; q.Enqueue(a); assert q.count()==1; assert runner.calls==1"
+    },
+    {
+      "id": "TS-12-24",
+      "kind": "property",
+      "verifies": [
+        "12-REQ-4.2"
+      ],
+      "title": "No more than [workers].count attempts are ever in the runner at once",
+      "given": [
+        "a service with a blocking fake runner that tracks concurrent calls"
+      ],
+      "when": "for any count from 1 to 4 and any mix of jobs across 1 to 6 workspaces, released in random order (seeded)",
+      "then": [
+        "the maximum observed concurrency never exceeds count",
+        "every job eventually reaches the runner"
+      ],
+      "pseudocode": "for count, jobs in gen(): run(); assert runner.maxConcurrent <= count; assert all done"
+    },
+    {
+      "id": "TS-12-25",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-4.3"
+      ],
+      "title": "Jobs on one workspace never overlap and run in enqueue order, while jobs on two workspaces overlap with count 2",
+      "given": [
+        "[workers].count = 2",
+        "a blocking fake runner that records enter/exit times"
+      ],
+      "when": "two jobs on widgets and one job on gadgets are created in the order W1, W2, G1",
+      "then": [
+        "W1 and G1 are in the runner at the same time",
+        "W2 does not start until W1 has returned",
+        "with several jobs enqueued on one workspace the calls occur in enqueue order"
+      ],
+      "pseudocode": "waitCalls(W1,G1); assert not called(W2); release(W1); waitCalls(W2)"
+    },
+    {
+      "id": "TS-12-26",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-4.4"
+      ],
+      "title": "A transient backoff keeps its workspace's place without a worker slot, and an overrunning runner keeps both place and slot",
+      "given": [
+        "[workers].count = 1",
+        "an injected backoff and grace",
+        "jobs A and B on widgets and C on gadgets"
+      ],
+      "when": "A's runner returns a transient error and B is queued behind it; then in a second run A's runner ignores a cancel past the grace",
+      "then": [
+        "during A's backoff B does not start, but C on gadgets uses the free slot",
+        "after the backoff A is handed over again before B",
+        "for the overrunning runner B does not start until that runner returns, and with count 1 C does not start either"
+      ],
+      "pseudocode": "assert not started(B) while A.backoff; assert started(C); after overrun: assert not started(B) until A.returned"
+    },
+    {
+      "id": "TS-12-27",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-4.5"
+      ],
+      "title": "A handover moves attempt and job to running, adds one delivery, emits attempt_start and calls the runner, atomically",
+      "given": [
+        "a queued job",
+        "a store with an injectable fault in the claim transaction"
+      ],
+      "when": "the queue hands the attempt over; and in another case the claim transaction fails",
+      "then": [
+        "attempt state running, job state running, deliveries 1",
+        "an attempt_start event with {attempt 1, delivery 1} precedes the runner call",
+        "when the claim transaction fails none of the three changes is visible and the runner is not called",
+        "a redelivery raises deliveries to 2 by exactly one"
+      ],
+      "pseudocode": "claim(); assert attempt.deliveries==1 and job.state=='running'; assert events.last.type=='attempt_start'"
+    },
+    {
+      "id": "TS-12-28",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-4.6"
+      ],
+      "title": "A claim for a missing job, a job that is not queued or running, or an attempt that is not queued or running acknowledges the item without calling the runner",
+      "given": [
+        "queue items for a deleted job, a cancelled job, a done job, and an attempt in state cancelled of a running job"
+      ],
+      "when": "each item is handed over",
+      "then": [
+        "the fake runner records no call for any of them",
+        "each queue item is acknowledged and removed from the queue",
+        "no attempt row changes"
+      ],
+      "pseudocode": "for item in cases: handle(item); assert runner.calls==[]; assert q.has(item)==false"
+    },
+    {
+      "id": "TS-12-29",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-5.1"
+      ],
+      "title": "The runner is given the context, ids, handover count, job inputs, context strings, answered questions in order, source, request label and a pre-created absolute attempt directory",
+      "given": [
+        "a job created by the label entry point with request label 'af:fix', input issue 42 and two context strings",
+        "a fake runner recording each call, which returns needs_human twice"
+      ],
+      "when": "the job runs, is answered ('free text'), runs again and is answered with option B",
+      "then": [
+        "call 3 records job id, attempt 3, delivery 1, workspace, kind, input, both context strings, source and request label",
+        "it lists both answered questions in order, each with its options and answer text (free text; B's label)",
+        "the attempt directory is absolute, equals attempts/<job id>/3 beside the database and exists at call time"
+      ],
+      "pseudocode": "c = runner.calls[2]; assert c.Answers==[a1,a2]; assert isAbs(c.Dir) and exists(c.Dir)"
+    },
+    {
+      "id": "TS-12-30",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-5.2"
+      ],
+      "title": "The exported cancel predicate is true for cancel and unsubscribe causes and false for shutdown",
+      "given": [
+        "attempt contexts cancelled with each cause"
+      ],
+      "when": "the predicate is applied to context.Cause(ctx) for cancel, unsubscribe, shutdown and for a never-cancelled context",
+      "then": [
+        "cancel gives cancelled=true",
+        "unsubscribe gives cancelled=true",
+        "shutdown gives cancelled=false",
+        "the shutdown cause is distinguishable from the other two"
+      ],
+      "pseudocode": "assert IsCancel(Cause(cancelCtx)); assert IsCancel(Cause(unsubCtx)); assert !IsCancel(Cause(shutdownCtx))"
+    },
+    {
+      "id": "TS-12-31",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-5.3"
+      ],
+      "title": "Concurrent recorder calls under the race detector produce gap-free seqs, and hub references show in the job during the run",
+      "given": [
+        "a running attempt with a blocking fake runner",
+        "go test -race"
+      ],
+      "when": "32 goroutines each call Emit 50 times and set hub references while GET /jobs/:id is polled",
+      "then": [
+        "stored seqs for the job are 1..k without a gap or duplicate",
+        "the race detector reports nothing",
+        "GET /jobs/:id shows hub {session_id, run_id, sandbox_id} during the run"
+      ],
+      "pseudocode": "parallel(32, emit x50); seqs = select seq from af_events; assert seqs == range(1,len+1)"
+    },
+    {
+      "id": "TS-12-32",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-5.4"
+      ],
+      "title": "A runner result carries envelope, report text, labels set and removed and max attempts, where max 0 means 2",
+      "given": [
+        "fake runners returning results with max attempts 0, 1 and 3 and with report text empty and non-empty"
+      ],
+      "when": "the jobs layer consumes each result after a brain failed-retryable envelope",
+      "then": [
+        "report.md is written only for non-empty report text",
+        "labels set and removed are stored on the job",
+        "max 0 allows exactly 2 attempts in the round, 1 allows 1, 3 allows 3",
+        "a transient error is handled as in 12-REQ-7 and any other error as in 12-REQ-6"
+      ],
+      "pseudocode": "for max,expectAttempts in [(0,2),(1,1),(3,3)]: assert attemptsInRound(run(max))==expectAttempts"
+    },
+    {
+      "id": "TS-12-33",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-5.5"
+      ],
+      "title": "Events, hub references and a result sent by a runner after its attempt ended are dropped",
+      "given": [
+        "a cancelled attempt whose runner overran the grace (injected short grace) and a finished attempt whose recorder handle was kept"
+      ],
+      "when": "the late runner calls Emit and sets hub references, then returns a done envelope",
+      "then": [
+        "af_events holds no new rows and nothing is published to subscribers",
+        "the attempt row, envelope.json and the job are unchanged",
+        "the job's hub stays null"
+      ],
+      "pseudocode": "before = snapshot(db); rec.Emit('step',{}); rec.Hub(..); return done; assert snapshot(db)==before"
+    },
+    {
+      "id": "TS-12-34",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-5.6"
+      ],
+      "title": "The placeholder runner fails every attempt as unsupported, not retryable",
+      "given": [
+        "a service wired with the placeholder runner"
+      ],
+      "when": "a fix job is created and runs",
+      "then": [
+        "the job ends failed with one attempt",
+        "result.error.category is unsupported and retryable is false",
+        "no attempt 2 exists"
+      ],
+      "pseudocode": "id = post(fix).id; wait(failed); d = get(id); assert d.result.error.category=='unsupported' and len(d.attempts)==1"
+    },
+    {
+      "id": "TS-12-35",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-5.7"
+      ],
+      "title": "The exported fake runner scripts return, plain error, transient failure, panic and blocking per call and records every call's inputs",
+      "given": [
+        "the fake runner package imported from a test outside the jobs package"
+      ],
+      "when": "a script of five steps (envelope, plain error, transient Failure, panic, block-until-cancel/release) is run against five calls",
+      "then": [
+        "each call behaves as scripted",
+        "every call's inputs are recorded in order",
+        "it needs no network, hub, key or container engine"
+      ],
+      "pseudocode": "f = fakerunner.New(script); for i in range(5): f.Run(ctx, req); assert f.Calls()[i].JobID == ..."
+    },
+    {
+      "id": "TS-12-36",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-6.1"
+      ],
+      "title": "A finished attempt stores envelope.json and a non-empty report.md with mode 0600, emits attempt_end and updates the job",
+      "given": [
+        "a fake runner returning a done envelope with a report text",
+        "another returning an empty report"
+      ],
+      "when": "both jobs run",
+      "then": [
+        "attempts/<job id>/1/envelope.json exists with mode 0600 and GET .../envelope returns its bytes verbatim",
+        "report.md exists with mode 0600 only for the non-empty report",
+        "an attempt_end event carries {attempt 1, state done, status done, exit_code 0}",
+        "job result, artifacts, side_effects, labels, usage and finished_at are set from the attempt"
+      ],
+      "pseudocode": "assert readFile(env) == http.get(envelopeURL).body; assert perm(env)==0600; assert !exists(reportPath2)"
+    },
+    {
+      "id": "TS-12-37",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-6.2"
+      ],
+      "title": "When the job was cancelled meanwhile, the attempt is recorded cancelled, labels follow the runner and restore clears when the runner set the request label",
+      "given": [
+        "a job with request_label 'af:fix' and a running fake runner that on cancel returns an envelope reporting it set label 'af:fix'",
+        "a second job whose runner returns reporting no labels"
+      ],
+      "when": "each job is cancelled and its runner returns",
+      "then": [
+        "the attempt is cancelled and the job stays cancelled",
+        "labels follow the runner's report",
+        "labels.restore is cleared for the first job and remains 'af:fix' for the second",
+        "the last event is a job_state with at_rest true"
+      ],
+      "pseudocode": "cancel(id); release(); assert get(id).state=='cancelled'; assert get(id).labels.restore==null; assert lastEvent.data.at_rest"
+    },
+    {
+      "id": "TS-12-38",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-6.3"
+      ],
+      "title": "done, and unverified with an outcome other than parked, record the attempt and the job done",
+      "given": [
+        "fake runner envelopes: done; unverified with result.outcome landed; unverified without an outcome"
+      ],
+      "when": "each job runs",
+      "then": [
+        "each job is done",
+        "exit_code is 0 for done and 4 for unverified",
+        "each attempt is done"
+      ],
+      "pseudocode": "for env,code in cases: assert get(run(env)).state=='done' and result.exit_code==code"
+    },
+    {
+      "id": "TS-12-39",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-6.4"
+      ],
+      "title": "A needs_human envelope with a question records the attempt needs_human and the job blocked with lettered options",
+      "given": [
+        "a fake runner returning needs_human with question Q and three options with labels"
+      ],
+      "when": "the job runs",
+      "then": [
+        "attempt state needs_human, job state blocked",
+        "blocked.question is Q",
+        "blocked.options ids are A, B, C with the envelope's labels",
+        "finished_at is null and an at-rest job_state is emitted"
+      ],
+      "pseudocode": "d = get(id); assert d.state=='blocked'; assert [o.id for o in d.blocked.options]==['A','B','C']"
+    },
+    {
+      "id": "TS-12-40",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-6.5"
+      ],
+      "title": "A retryable brain or no_result failure queues an automatic attempt with the same context and answers, bounded by the runner's maximum",
+      "given": [
+        "fake runner failing with category brain retryable, then no_result retryable",
+        "runner max attempts 0 (default 2) and 3, clamped to 1–10 when 0, 99",
+        "a job that has an earlier answer"
+      ],
+      "when": "jobs run to the end of the round",
+      "then": [
+        "a failed attempt makes attempt n+1 with trigger auto and the same context and answers, and the job is queued with finished_at null",
+        "with max 2 the second attempt's failure leaves the job failed with exactly 2 attempts in the round",
+        "99 clamps to 10 attempts",
+        "the round restarts after answer or retry, which gives a full set of attempts again"
+      ],
+      "pseudocode": "assert attempts(job).triggers==['create','auto']; assert get(job).state=='failed' after 2"
+    },
+    {
+      "id": "TS-12-41",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-6.6"
+      ],
+      "title": "A parked fix, a retryable failure of another category, retryable false and spent transient retries fail the job without another attempt",
+      "given": [
+        "fake runner envelopes: unverified with outcome parked; failed sandbox retryable; failed forge retryable; failed brain retryable false; failed usage"
+      ],
+      "when": "each job runs once",
+      "then": [
+        "each job is failed and each attempt failed",
+        "no attempt n+1 exists",
+        "the parked fix has result.exit_code 4"
+      ],
+      "pseudocode": "for env in cases: j = run(env); assert j.state=='failed' and len(j.attempts)==1"
+    },
+    {
+      "id": "TS-12-42",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-6.7"
+      ],
+      "title": "An attempt without a usable envelope gets a synthesized failed envelope with the right category and exit code 1",
+      "given": [
+        "fake runner endings: a toolio.Failure wrapped with fmt.Errorf (non-transient, category forge, retryable true), a plain error, a panic, an unknown status envelope, needs_human without a question, return after a cancel with no envelope"
+      ],
+      "when": "each attempt ends",
+      "then": [
+        "every attempt has an envelope.json with schema_version toolio.SchemaVersion, tool equal to the job kind, status failed, empty arrays and usage cost_source none",
+        "the Failure case carries its category, message and retryable flag",
+        "the plain error, panic and invalid envelopes carry category internal and retryable false",
+        "the panic is logged at ERROR",
+        "the cancel case carries category cancelled",
+        "result.exit_code is 1 in all cases"
+      ],
+      "pseudocode": "for ending, cat in cases: e = envelope(run(ending)); assert e.error.category==cat; assert e.usage.cost_source=='none'"
+    },
+    {
+      "id": "TS-12-43",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-6.8"
+      ],
+      "title": "job_state is emitted on every transition with at_rest computed correctly and the last event of every finished job is an at-rest job_state",
+      "given": [
+        "jobs driven to blocked, done, failed, and cancelled (with a runner still running at cancel)"
+      ],
+      "when": "the event logs are read",
+      "then": [
+        "each transition has a job_state {state, attempt, at_rest, blocked?, result?}",
+        "at_rest is true when blocked, done, failed or cancelled with no running attempt, and false for a cancelled job whose runner still runs",
+        "one more job_state follows when the last running attempt of a cancelled job ends",
+        "the last event of each finished job's log is a job_state with at_rest true"
+      ],
+      "pseudocode": "ev = events(id); assert ev[-1].type=='job_state' and ev[-1].data.at_rest"
+    },
+    {
+      "id": "TS-12-44",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-7.1"
+      ],
+      "title": "The first and second transient failures return the same attempt to queued and hand it over after 30 s and 2 min (injected)",
+      "given": [
+        "injected backoffs recorded by a fake timer",
+        "a fake runner returning a transient toolio.Failure{sandbox, retryable} twice and then a done envelope"
+      ],
+      "when": "the job runs",
+      "then": [
+        "transient_failures is 1 then 2 and no envelope is stored between",
+        "the requested backoffs are 30 s then 2 min (production values)",
+        "the runner is called again with attempt 1 and deliveries 2 then 3",
+        "the job finishes done with no attempt 2"
+      ],
+      "pseudocode": "assert timer.delays==[30s,120s]; assert calls.attempts==[1,1,1]; assert len(attempts)==1"
+    },
+    {
+      "id": "TS-12-45",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-7.2"
+      ],
+      "title": "The third transient failure fails the attempt and the job with the failure's category and no automatic attempt",
+      "given": [
+        "a fake runner returning transient Failure{sandbox, retryable true} three times"
+      ],
+      "when": "the job runs with injected backoffs",
+      "then": [
+        "the job is failed with result.error.category sandbox",
+        "transient_failures is 3",
+        "no attempt 2 exists even though retryable is true",
+        "the same holds for a transient Failure with category brain"
+      ],
+      "pseudocode": "d = get(id); assert d.state=='failed' and d.attempts[0].transient_failures==3 and len(d.attempts)==1"
+    },
+    {
+      "id": "TS-12-46",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-7.3"
+      ],
+      "title": "Shutdown stops claiming, cancels running attempts with the shutdown cause and waits up to 30 s for runners",
+      "given": [
+        "a running attempt held by a fake runner that records the cause",
+        "a queued job on another workspace and an injected shutdown wait"
+      ],
+      "when": "the jobs service is closed",
+      "then": [
+        "the runner's context cause reads as a shutdown, not a cancel",
+        "the queued job is not claimed after the close began",
+        "close returns once the runner returns, and after the injected 30 s wait if the runner never returns"
+      ],
+      "pseudocode": "go svc.Close(); assert !IsCancel(Cause(runner.ctx)); assert !runner.calledFor(queued)"
+    },
+    {
+      "id": "TS-12-47",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-7.4"
+      ],
+      "title": "Whatever a runner returns after a shutdown cause is discarded and the attempt stays running",
+      "given": [
+        "running attempts whose fake runners, after the shutdown cause, return a done envelope, a plain error and a panic respectively"
+      ],
+      "when": "the service shuts down",
+      "then": [
+        "no envelope.json is written",
+        "attempt and job remain running in the database",
+        "no attempt_end or at-rest job_state is stored",
+        "no panic escapes the jobs layer"
+      ],
+      "pseudocode": "svc.Close(); assert !exists(envPath); assert row.attempt.state=='running' and row.job.state=='running'"
+    },
+    {
+      "id": "TS-12-48",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-7.5"
+      ],
+      "title": "After a restart on the same database the interrupted attempt is handed over again with handover count 2 and no new row",
+      "given": [
+        "a database file where a fake runner held attempt 1 when the service stopped"
+      ],
+      "when": "a new service starts on the same file with a fresh fake runner",
+      "then": [
+        "the runner receives attempt 1 with handover count 2",
+        "no attempt 2 row exists and transient_failures is unchanged",
+        "no backoff timer was requested",
+        "a second restart gives handover count 3"
+      ],
+      "pseudocode": "svc2 = Start(sameDB); c = runner2.next(); assert c.Attempt==1 and c.Delivery==2; assert count(attempts)==1"
+    },
+    {
+      "id": "TS-12-49",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-7.6"
+      ],
+      "title": "At start and every minute the sweep enqueues queued attempts again so no queued work is lost and none runs twice",
+      "given": [
+        "jobs left queued at a stop and an attempt whose enqueue failed",
+        "an injectable sweep tick",
+        "a job whose item is already held by the queue"
+      ],
+      "when": "the service starts and the tick fires repeatedly",
+      "then": [
+        "the queued attempts reach the runner",
+        "the attempt already held by the queue is called exactly once",
+        "no attempt is delivered twice because of the sweep"
+      ],
+      "pseudocode": "start(); tick(); tick(); assert sorted(runner.calls)==expected; assert no duplicates"
+    },
+    {
+      "id": "TS-12-50",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-8.1"
+      ],
+      "title": "Cancel moves the job to cancelled at once with finished_at, sets restore, cancels a queued attempt without running it and cancels the running context",
+      "given": [
+        "a running job with the fake runner blocking",
+        "a queued job on the same workspace with request_label 'af:fix'",
+        "a job whose attempt waits out a backoff",
+        "a blocked job with request_label"
+      ],
+      "when": "POST /api/v1/jobs/:id/cancel is called for each",
+      "then": [
+        "each answers 200 with state cancelled and finished_at set",
+        "labels.restore equals the request label for jobs that have one and labels is null otherwise",
+        "the queued and backoff attempts become cancelled and never reach the runner",
+        "the running attempt's context cause reads as a cancel and its row becomes cancelled when the runner returns"
+      ],
+      "pseudocode": "r = post('/jobs/'+id+'/cancel'); assert r.status==200 and r.json.state=='cancelled' and r.json.finished_at"
+    },
+    {
+      "id": "TS-12-51",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-8.2"
+      ],
+      "title": "A runner that overruns the cancel grace has its attempt recorded cancelled, an ERROR logged, and keeps its place and slot until it returns",
+      "given": [
+        "an injected 60 s grace shortened for the test",
+        "a fake runner that ignores its context until released",
+        "a second job on the same workspace",
+        "a captured slog handler"
+      ],
+      "when": "the first job is cancelled and the grace elapses",
+      "then": [
+        "the attempt is recorded cancelled with a synthesized envelope of category cancelled",
+        "attempt_end and an at-rest job_state are emitted and the event stream ends",
+        "an ERROR record names the job and the attempt",
+        "the second job does not reach the runner until the first runner returns",
+        "what the runner reports after returning is dropped"
+      ],
+      "pseudocode": "cancel(j1); clock.Advance(grace); assert env(j1).error.category=='cancelled'; assert !runner.started(j2); release(j1); assert runner.started(j2)"
+    },
+    {
+      "id": "TS-12-52",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-8.3"
+      ],
+      "title": "Answering a blocked job with an option or free text queues attempt n+1 with the stored question, option and text",
+      "given": [
+        "a blocked job with options A, B, C"
+      ],
+      "when": "POST answer {option: 'B'} on one job and {answer: '  free text '} on another",
+      "then": [
+        "each answers 202 with the job in state queued and finished_at null",
+        "attempt 2 has trigger {answer, by caller} and answer {question, option B, text = B's label}",
+        "the free answer stores the trimmed-nonempty text with no option",
+        "the runner of attempt 2 receives the question, its options and the answer text"
+      ],
+      "pseudocode": "r = post(answer,{option:'B'}); assert r.status==202; assert runner.calls[1].Answers[-1].Text==labelB"
+    },
+    {
+      "id": "TS-12-53",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-8.4"
+      ],
+      "title": "Retry on a failed job queues attempt n+1 with trigger retry, accepting no body or {}",
+      "given": [
+        "a failed job"
+      ],
+      "when": "POST retry is called with an empty body, and on another failed job with {}",
+      "then": [
+        "each answers 202 with the job in state queued",
+        "attempt n+1 has trigger kind retry",
+        "a body with an unknown field is refused with 400"
+      ],
+      "pseudocode": "r = post(retry); assert r.status==202 and attempts[-1].trigger.kind=='retry'"
+    },
+    {
+      "id": "TS-12-54",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-8.5"
+      ],
+      "title": "Cancel, answer and retry refuse in the specified order with 404, invalid_state, not_subscribed, token_unreadable or 400 and change nothing",
+      "given": [
+        "a job on a workspace the caller cannot see",
+        "a queued job",
+        "a done job",
+        "a blocked job on an unsubscribed workspace",
+        "a failed job whose token is unreadable",
+        "a blocked job"
+      ],
+      "when": "each action is called: any action on an unknown id and the invisible job; answer, retry and cancel on wrong-state jobs; answer and retry on the unsubscribed and unreadable workspaces; answer with {}, {answer:'x',option:'A'}, whitespace answer, answer over 8 KiB and option 'Z'",
+      "then": [
+        "404 not_found for unknown and invisible",
+        "409 invalid_state with the message naming the current state, evaluated before the subscription checks",
+        "409 not_subscribed and 409 token_unreadable for answer and retry only (cancel still works on the unsubscribed workspace)",
+        "400 invalid_request for each bad answer body",
+        "no state, attempt or event changes in any refused case"
+      ],
+      "pseudocode": "assert post(cancel,done).code=='invalid_state' and 'done' in msg; assert snapshot unchanged"
+    },
+    {
+      "id": "TS-12-55",
+      "kind": "property",
+      "verifies": [
+        "12-REQ-8.6"
+      ],
+      "title": "For any two actions racing on one job exactly one is applied and the other answers 409 invalid_state",
+      "given": [
+        "jobs in states queued, running, blocked and failed"
+      ],
+      "when": "for any pair of actions from cancel, answer, retry (valid for the state) fired concurrently on one job under the race detector, repeated with a seeded schedule",
+      "then": [
+        "exactly one request returns a 2xx",
+        "the other returns 409 invalid_state",
+        "the job has exactly one resulting transition and at most one new attempt"
+      ],
+      "pseudocode": "for state, a, b in gen(): r = parallel(a,b); assert count(2xx)==1 and count(409 invalid_state)==1"
+    },
+    {
+      "id": "TS-12-56",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-8.7"
+      ],
+      "title": "Unsubscribe marks the workspace, cancels queued, running and blocked jobs with the unsubscribe cause, waits for runners and clears the mark if removal fails",
+      "given": [
+        "a widgets workspace with a queued, a running and a blocked job",
+        "a fake runner that checks IsCancel on its cause",
+        "a core DELETE whose removal can be made to fail"
+      ],
+      "when": "DELETE /api/v1/workspaces/widgets is called while a create, an answer and a retry are attempted concurrently; and in a second case the removal fails",
+      "then": [
+        "the three jobs read cancelled",
+        "the runner's cause reads as a cancel",
+        "a create during the DELETE answers 404, answer and retry answer 409 not_subscribed",
+        "the DELETE answers 204 after the running attempt returns and the jobs and history remain",
+        "when removal fails the mark is cleared and creation is accepted again"
+      ],
+      "pseudocode": "go delete(widgets); assert post(fix).status==404; release(); assert delete.status==204; assert all(state=='cancelled')"
+    },
+    {
+      "id": "TS-12-57",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-9.1"
+      ],
+      "title": "GET /jobs lists the jobs of every visible workspace, subscribed or not, and omits invisible ones",
+      "given": [
+        "fake hub where the caller sees widgets and gadgets but not secret",
+        "jobs on widgets, gadgets (since unsubscribed) and secret"
+      ],
+      "when": "GET /api/v1/jobs is called",
+      "then": [
+        "the status is 200 with {jobs, next_cursor}",
+        "jobs of widgets and the unsubscribed gadgets are present",
+        "no job of secret is present"
+      ],
+      "pseudocode": "r = get('/jobs'); assert slugs(r.jobs)=={'widgets','gadgets'}"
+    },
+    {
+      "id": "TS-12-58",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-9.2"
+      ],
+      "title": "GET /jobs answers 502 hub_unavailable with no partial page when hub fails for any needed workspace",
+      "given": [
+        "jobs on widgets and gadgets and a fake hub failing visibility for gadgets only (uncached)"
+      ],
+      "when": "GET /api/v1/jobs is called",
+      "then": [
+        "the status is 502 with error.code hub_unavailable",
+        "the body has no jobs array"
+      ],
+      "pseudocode": "hub.failFor('gadgets'); r = get('/jobs'); assert r.status==502 and r.json.error.code=='hub_unavailable' and 'jobs' not in r.json"
+    },
+    {
+      "id": "TS-12-59",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-9.3"
+      ],
+      "title": "GET /workspaces/:slug/jobs lists that workspace's jobs including after unsubscribe, and 404s when hub hides the workspace",
+      "given": [
+        "jobs on widgets, widgets later unsubscribed",
+        "a workspace hidden on hub"
+      ],
+      "when": "the per-workspace list is read for widgets and for the hidden workspace",
+      "then": [
+        "widgets answers 200 {jobs, next_cursor} with its jobs left",
+        "the hidden workspace answers 404 not_found"
+      ],
+      "pseudocode": "assert get('/workspaces/widgets/jobs').status==200; assert get('/workspaces/hidden/jobs').status==404"
+    },
+    {
+      "id": "TS-12-60",
+      "kind": "property",
+      "verifies": [
+        "12-REQ-9.4"
+      ],
+      "title": "Following next_cursor yields every filtered job exactly once, newest first by created_at then id",
+      "given": [
+        "a store with jobs of both kinds, several states and issues, including equal created_at values"
+      ],
+      "when": "for any job set, any filter of kind, state and issue and any limit 1..200 (seeded), the pages are followed from no cursor",
+      "then": [
+        "the concatenated pages equal the filtered set ordered by created_at descending then id",
+        "no job appears twice",
+        "next_cursor is null exactly on the last page",
+        "the default limit is 50"
+      ],
+      "pseudocode": "for jobs, f, limit in gen(): pages = follow(f, limit); assert flatten(pages) == oracle(jobs, f); assert last(pages).next_cursor==null"
+    },
+    {
+      "id": "TS-12-61",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-9.5"
+      ],
+      "title": "Invalid kind, state, issue, limit and cursor values answer 400 invalid_request naming the parameter",
+      "given": [
+        "both list routes"
+      ],
+      "when": "requests are sent with kind=bug, state=paused, issue=0, issue=x, limit=0, limit=201, limit=abc and cursor=!!!",
+      "then": [
+        "each answers 400 invalid_request",
+        "the message names the offending parameter"
+      ],
+      "pseudocode": "for q,p in cases: r = get('/jobs?'+q); assert r.status==400 and p in r.json.error.message"
+    },
+    {
+      "id": "TS-12-62",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-9.6"
+      ],
+      "title": "The envelope route serves envelope.json verbatim as application/json and the report route serves report.md as text/markdown",
+      "given": [
+        "a finished attempt with an envelope and a report, whose stored envelope bytes are not canonical JSON formatting"
+      ],
+      "when": "GET .../attempts/1/envelope and .../attempts/1/report are called",
+      "then": [
+        "both answer 200",
+        "the envelope body equals the file bytes with Content-Type application/json",
+        "the report body equals the file bytes with Content-Type text/markdown; charset=utf-8"
+      ],
+      "pseudocode": "assert body(env)==readFile(envPath); assert ct(rep)=='text/markdown; charset=utf-8'"
+    },
+    {
+      "id": "TS-12-63",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-9.7"
+      ],
+      "title": "Unknown job, invisible workspace, bad attempt number, missing envelope and missing report all answer an identical 404",
+      "given": [
+        "an existing visible job with attempt 1 running (no envelope), a finished attempt with no report, a job on a hidden workspace"
+      ],
+      "when": "each of the routes is requested: unknown id, hidden job, attempt 0 and 9, running attempt's envelope, finished attempt's report",
+      "then": [
+        "every response is 404",
+        "every body has the same code and message"
+      ],
+      "pseudocode": "bodies = {get(u).body for u in urls}; assert len(bodies)==1; assert all(status==404)"
+    },
+    {
+      "id": "TS-12-64",
+      "kind": "property",
+      "verifies": [
+        "12-REQ-10.1"
+      ],
+      "title": "Stored event seqs for a job are 1..k without a gap, stored before they are published",
+      "given": [
+        "an event log with a subscriber that checks the store at delivery time"
+      ],
+      "when": "for any sequence of events from the jobs layer and concurrent runner goroutines across attempts",
+      "then": [
+        "stored seqs are exactly 1..k",
+        "every event has ts, job_id, attempt, type and data",
+        "an event is already in af_events when a subscriber receives it"
+      ],
+      "pseudocode": "for evs in gen(): emitAll(evs); assert seqs==range(1,k+1); sub.onRecv = lambda e: assert stored(e.seq)"
+    },
+    {
+      "id": "TS-12-65",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-10.2"
+      ],
+      "title": "Malformed or reserved types become invalid_event_type, oversized data is truncated and unencodable data is replaced, and the attempt continues",
+      "given": [
+        "a recorder for a running attempt"
+      ],
+      "when": "events are emitted with types 'Bad-Type', '', 'job_state', 'attempt_start', 'attempt_end'; with 70 KiB data; and with a channel as data",
+      "then": [
+        "bad and reserved types are stored as invalid_event_type with data {type: given, data: given}",
+        "oversized data is stored as {truncated: true, bytes: N}",
+        "unencodable data is stored as {error: '...'}",
+        "all events are streamed with the replacement and the emit calls return normally"
+      ],
+      "pseudocode": "rec.Emit('job_state', d); e = last(); assert e.type=='invalid_event_type' and e.data=={'type':'job_state','data':d}"
+    },
+    {
+      "id": "TS-12-66",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-10.3"
+      ],
+      "title": "An event that cannot be stored is logged at WARN and dropped without error and without publishing",
+      "given": [
+        "a store failing event inserts and a subscriber"
+      ],
+      "when": "the runner calls Emit",
+      "then": [
+        "the call returns without error",
+        "a WARN is logged",
+        "the subscriber receives nothing",
+        "a later successful event takes the next gap-free seq"
+      ],
+      "pseudocode": "store.fail(); rec.Emit('step',{}); assert warn; assert sub.received==[]; store.ok(); rec.Emit(..); assert seq==1"
+    },
+    {
+      "id": "TS-12-67",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-10.4"
+      ],
+      "title": "The events route answers text/event-stream with no-cache, frames each event as id/event/data, and honours since, Last-Event-ID, then 0",
+      "given": [
+        "a done job with stored events 1..8"
+      ],
+      "when": "GET events is called with ?since=3, with Last-Event-ID: 5 only, with both (since 2, header 6), with none; with since=-1 and since=x; for an unknown and an invisible job",
+      "then": [
+        "the Content-Type is text/event-stream and Cache-Control is no-cache",
+        "frames are 'id: <seq>', 'event: <type>', 'data: <one-line JSON with seq, ts, job_id, attempt, type, data>'",
+        "the streams start at seq 4, 6, 3 and 1 respectively",
+        "a bad since answers 400",
+        "an unknown and an invisible job answer the same 404 as in 12-REQ-9.7"
+      ],
+      "pseudocode": "assert ids(stream(since=3))==[4..8]; assert ids(stream(hdr=5))==[6..8]; assert ids(stream(since=2,hdr=6))==[3..8]"
+    },
+    {
+      "id": "TS-12-68",
+      "kind": "property",
+      "verifies": [
+        "12-REQ-10.5"
+      ],
+      "title": "For any starting point and any interleaving of stored and live events a stream has no missing and no repeated event, and reconnecting resumes losslessly",
+      "given": [
+        "a running job emitting events concurrently with subscribers connecting"
+      ],
+      "when": "for any starting point k and any interleaving (seeded) of emits and subscribe times, with a reconnect at a random last id",
+      "then": [
+        "the received seqs are exactly k+1..n in order",
+        "no seq is received twice",
+        "the concatenation of the first stream up to the cut and the reconnected stream equals the full log"
+      ],
+      "pseudocode": "for k, schedule in gen(): got = collect(subscribe(k), schedule); assert got.seqs == range(k+1, n+1)"
+    },
+    {
+      "id": "TS-12-69",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-10.6"
+      ],
+      "title": "Keepalive comments every 15 s, stream ends after replay when at rest, otherwise after the first live at-rest job_state",
+      "given": [
+        "an injectable keepalive ticker",
+        "a done job and a running job"
+      ],
+      "when": "a stream is opened on the done job; and on the running job where the ticker fires and the job is later cancelled",
+      "then": [
+        "the done job's stream ends at the end of the replay with the last frame a job_state at_rest true",
+        "the running job's stream carries ': keepalive' on each tick",
+        "the stream ends after the first live job_state with at_rest true and not before",
+        "a job_state with at_rest false does not end the stream"
+      ],
+      "pseudocode": "tick(); assert ': keepalive' in read(); cancel(); release(); assert closed and last.data.at_rest"
+    },
+    {
+      "id": "TS-12-70",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-10.7"
+      ],
+      "title": "A subscriber more than 256 events behind is disconnected without blocking the runner and recovers by reconnecting; shutdown closes all streams",
+      "given": [
+        "a stalled SSE client with a full buffer",
+        "a second healthy subscriber",
+        "a runner emitting 1000 events"
+      ],
+      "when": "the runner emits while the stalled client does not read; then the server shuts down with open streams",
+      "then": [
+        "the emits never block and the healthy subscriber receives every event",
+        "the stalled stream is closed",
+        "reconnecting with its last id receives exactly the missing events",
+        "on shutdown every open stream closes"
+      ],
+      "pseudocode": "emit(1000); assert elapsed < bound; assert healthy.seqs==range(1,1001); assert stalled.closed; assert reconnect(last).seqs==missing; svc.Close(); assert all closed"
+    },
+    {
+      "id": "TS-12-71",
+      "kind": "smoke",
+      "verifies": [
+        "12-PATH-1",
+        "12-REQ-2.3",
+        "12-REQ-9.6"
+      ],
+      "title": "A fix request runs to done through the HTTP API and the stored envelope reads back byte for byte",
+      "given": [
+        "the fake hub with widgets visible",
+        "widgets subscribed with a readable token",
+        "a fake runner returning a done envelope with artifacts and usage"
+      ],
+      "when": "POST /api/v1/workspaces/widgets/fix {\"issue\": 42} is posted and the job is polled until at rest, then GET /jobs/:id and GET /jobs/:id/attempts/1/envelope are read",
+      "then": [
+        "the POST answers 202 with state queued",
+        "the runner is called once for attempt 1",
+        "the job reads done with the envelope's artifacts, summed usage, result.exit_code 0 and one attempt",
+        "the envelope route returns the stored bytes exactly"
+      ],
+      "pseudocode": "r = post(fix,{issue:42}); wait(done); assert get(id).result.exit_code==0; assert envBody==readFile(path)",
+      "real_components": [
+        "HTTP mux and handlers",
+        "jobs service",
+        "SQLite store",
+        "aflib/jobqueue",
+        "core fake hub",
+        "visibility cache"
+      ]
+    },
+    {
+      "id": "TS-12-72",
+      "kind": "smoke",
+      "verifies": [
+        "12-PATH-2",
+        "12-REQ-8.3"
+      ],
+      "title": "A triage job blocks on a question, is answered with option B and runs attempt 2 with the answer",
+      "given": [
+        "the fake hub and a subscribed widgets workspace",
+        "a fake runner that returns needs_human with options for attempt 1 and done for attempt 2"
+      ],
+      "when": "a triage job is created, read while blocked, and POST answer {\"option\":\"B\"} is posted",
+      "then": [
+        "the job reads blocked with lettered options",
+        "the answer returns 202",
+        "attempt 2 reaches the runner with the question, its options and B's label as the answer",
+        "the job ends done with two attempts and attempt 2's trigger is answer"
+      ],
+      "pseudocode": "id = post(triage).id; wait(blocked); post(answer,{option:'B'}); wait(done); assert runner.calls[1].Answers[0].Text==labelB",
+      "real_components": [
+        "HTTP mux and handlers",
+        "jobs service",
+        "SQLite store",
+        "aflib/jobqueue",
+        "core fake hub"
+      ]
+    },
+    {
+      "id": "TS-12-73",
+      "kind": "smoke",
+      "verifies": [
+        "12-PATH-3",
+        "12-REQ-8.1",
+        "12-REQ-10.6"
+      ],
+      "title": "A running job is cancelled while a client follows its events and the next job on the workspace starts after the runner returns",
+      "given": [
+        "a running fix job held by a fake runner",
+        "a second queued job on the same workspace",
+        "an open SSE stream on the first job"
+      ],
+      "when": "POST cancel is posted and the runner then returns after seeing the cancel cause",
+      "then": [
+        "the cancel answers 200 with state cancelled and finished_at set",
+        "the runner sees a cancel cause",
+        "the second job starts only after the runner returned",
+        "the stream receives the at-rest job_state as its last frame and closes"
+      ],
+      "pseudocode": "stream = open(events); post(cancel); assert IsCancel(runner.cause); release(); assert last(stream).data.at_rest; assert runner.started(job2)",
+      "real_components": [
+        "HTTP mux and handlers",
+        "jobs service",
+        "SQLite store",
+        "aflib/jobqueue",
+        "SSE handler",
+        "event log",
+        "core fake hub"
+      ]
+    },
+    {
+      "id": "TS-12-74",
+      "kind": "smoke",
+      "verifies": [
+        "12-PATH-4",
+        "12-REQ-7.5",
+        "12-REQ-7.6"
+      ],
+      "title": "Stopping the service while a runner holds attempt 1 and restarting on the same database hands attempt 1 over again and runs queued jobs",
+      "given": [
+        "a database file with attempt 1 held by a fake runner",
+        "two more jobs queued on the same workspace at the stop"
+      ],
+      "when": "the service is closed, then a new service starts on the same database file",
+      "then": [
+        "the runner discards what it returned and attempt 1 stays running",
+        "after the restart the runner receives attempt 1 with handover count 2",
+        "no attempt 2 row exists",
+        "the queued jobs then run once each in order"
+      ],
+      "pseudocode": "svc.Close(); svc2 = Start(db); assert next(runner2).Delivery==2; assert count(attempts(job1))==1; assert queuedJobsRan",
+      "real_components": [
+        "HTTP mux and handlers",
+        "jobs service",
+        "SQLite database file",
+        "aflib/jobqueue",
+        "sweep",
+        "core fake hub"
+      ]
+    },
+    {
+      "id": "TS-12-75",
+      "kind": "smoke",
+      "verifies": [
+        "12-PATH-5",
+        "12-REQ-8.7"
+      ],
+      "title": "Unsubscribing a workspace cancels its open jobs, refuses new work meanwhile and then answers 204",
+      "given": [
+        "widgets with a running, a queued and a blocked job",
+        "a running fake runner that returns after the cancel"
+      ],
+      "when": "DELETE /api/v1/workspaces/widgets is sent and a POST fix for widgets is sent during it",
+      "then": [
+        "the concurrent POST answers 404",
+        "the three jobs read cancelled after the runner returns",
+        "the DELETE answers 204 and the subscription is gone",
+        "the jobs remain readable until retention"
+      ],
+      "pseudocode": "go del = delete(widgets); assert post(fix).status==404; release(); assert del.status==204; assert states=={'cancelled'}",
+      "real_components": [
+        "HTTP mux and handlers",
+        "jobs service",
+        "SQLite store",
+        "aflib/jobqueue",
+        "core subscriptions and secrets store",
+        "core fake hub"
+      ]
+    },
+    {
+      "id": "TS-12-76",
+      "kind": "smoke",
+      "verifies": [
+        "12-PATH-6",
+        "12-REQ-1.5",
+        "12-REQ-1.6"
+      ],
+      "title": "The hourly purge on an injected clock removes expired jobs and keeps blocked ones",
+      "given": [
+        "done, failed, cancelled-while-queued and blocked jobs with attempt directories",
+        "an injected clock and retain 1h"
+      ],
+      "when": "the clock passes retain and the retention timer fires, then jobs are read through the API",
+      "then": [
+        "the expired jobs' directories and rows are gone and GET /jobs/:id answers 404",
+        "the blocked job remains readable",
+        "a recently finished job remains readable"
+      ],
+      "pseudocode": "clock.Advance(2h); fireRetention(); assert get(done).status==404; assert get(blocked).status==200",
+      "real_components": [
+        "HTTP mux and handlers",
+        "jobs service",
+        "SQLite store",
+        "attempts directory on disk",
+        "retention timer",
+        "core fake hub"
+      ]
+    }
+  ]
+}

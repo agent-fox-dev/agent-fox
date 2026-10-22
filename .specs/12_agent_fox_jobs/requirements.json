@@ -1,0 +1,833 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "12",
+  "spec_name": "agent_fox_jobs",
+  "schema_version": 2,
+  "introduction": "The jobs layer of the agent-fox service: durable triage and fix jobs against subscribed hub workspaces, the attempts that carry them out behind a Runner seam on top of aflib/jobqueue, the jobs HTTP API with a stored, replayable SSE event log, and retention.",
+  "glossary": {
+    "at rest": "A job that is blocked, done, failed or cancelled and has no running attempt.",
+    "attempt": "One brain-level try at a job (af_attempts row keyed by job id and number n, starting at 1). States: queued, running, done, needs_human, failed, cancelled.",
+    "automatic attempt": "A new attempt with trigger auto, queued by the jobs layer after a failed envelope of category brain or no_result with retryable true.",
+    "cancel cause": "The cause attached to a cancelled attempt context: cancel, unsubscribe (which also reads as a cancel) or shutdown (which does not).",
+    "cancel grace": "The 60 s a cancelled or unsubscribed runner has to return before its attempt is recorded cancelled without it.",
+    "delivery": "One handover of an attempt to a runner. The attempt's deliveries count is the handover count passed to the runner (1 on the first delivery).",
+    "job": "The durable record (af_jobs row) of one triage or fix request against one workspace, with its attempts and event log. States: queued, running, blocked, done, failed, cancelled.",
+    "open job": "A job in state queued, running or blocked.",
+    "recorder": "The concurrency-safe sink a runner reports through while it runs: events for the job log and the attempt's hub references.",
+    "round": "The latest attempt whose trigger is not auto, plus the auto attempts after it. Its size is bounded by the maximum attempts the runner reports, clamped to 1-10 (0 means 2).",
+    "runner": "The component behind the Runner seam that carries out one attempt and returns a result or an error. This spec ships a placeholder runner and an exported fake runner.",
+    "synthesized envelope": "A failed toolio envelope the jobs layer writes for an attempt that ended without a usable envelope (error, panic, cancel, overrun grace, invalid envelope).",
+    "transient failure": "An error a runner marks transient (infrastructure: box, lease, hub, forge connectivity). It asks for the same attempt to be handed over again after a backoff, up to three failures.",
+    "unsubscribing": "The mark the workspace DELETE sets while it cancels and waits for a workspace's jobs; new work for the workspace is refused while it is set."
+  },
+  "requirements": [
+    {
+      "id": "12-REQ-1",
+      "title": "Configuration, storage, retention and documentation",
+      "rationale": "Jobs need bounded concurrency, durable tables, a place for attempt artifacts and a bound on how long finished jobs are kept.",
+      "criteria": [
+        {
+          "id": "12-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "service configuration",
+          "action": "accept [workers].count as an integer from 1 to 64 (default 2) and [database].retain as a Go duration from 1h to 8760h (default 720h)",
+          "contract": "a config.toml without either key loads with count 2 and retain 720h"
+        },
+        {
+          "id": "12-REQ-1.2",
+          "pattern": "unwanted",
+          "condition": "[workers].count is out of range or not an integer, or [database].retain is malformed or out of range",
+          "system": "agent-fox",
+          "action": "refuse to start before listening and log an ERROR record that names the offending key",
+          "contract": "process exit code 2; no listener is opened"
+        },
+        {
+          "id": "12-REQ-1.3",
+          "pattern": "event_driven",
+          "condition": "the service starts",
+          "system": "jobs store",
+          "action": "apply migrations appended to the core's list that create af_jobs, af_attempts (keyed by job id and attempt number) and af_events (keyed by job id and seq), and create an attempts/ directory beside the database file with mode 0700 when it is missing",
+          "contract": "the three tables exist in the core's SQLite file alongside jobqueue's own tables; attempts/ exists with mode 0700"
+        },
+        {
+          "id": "12-REQ-1.4",
+          "pattern": "ubiquitous",
+          "system": "jobs store",
+          "action": "for any created job, assign an id of the form job_ followed by 20 lowercase hex characters drawn from crypto/rand, number its attempts from 1 consecutively, and write every time stamp as RFC 3339 UTC with milliseconds",
+          "contract": "ids match ^job_[0-9a-f]{20}$; times match YYYY-MM-DDTHH:MM:SS.sssZ"
+        },
+        {
+          "id": "12-REQ-1.5",
+          "pattern": "event_driven",
+          "condition": "the purge runs, at start and then every hour on an injectable clock",
+          "system": "retention purge",
+          "action": "remove every job that is done, failed or cancelled, has no running attempt and no runner still in progress, and whose finished_at is older than [database].retain, removing first its attempts/<job id>/ directory and then its rows in af_events, af_attempts and af_jobs",
+          "contract": "the purged job's directory and rows are gone; GET /api/v1/jobs/:id answers 404"
+        },
+        {
+          "id": "12-REQ-1.6",
+          "pattern": "ubiquitous",
+          "system": "retention purge",
+          "action": "never remove a blocked job, a job with a running attempt or runner in progress, or a cancelled job whose cancel happened less than retain ago, including one cancelled while blocked whose question is older than retain",
+          "contract": "such jobs remain readable through GET /api/v1/jobs/:id after the purge"
+        },
+        {
+          "id": "12-REQ-1.7",
+          "pattern": "unwanted",
+          "condition": "a purged job's attempts directory cannot be removed",
+          "system": "retention purge",
+          "action": "keep the job's rows for the next purge and log a WARN naming the job",
+          "contract": "the job is still readable; the next purge retries it"
+        },
+        {
+          "id": "12-REQ-1.8",
+          "pattern": "ubiquitous",
+          "system": "documentation",
+          "action": "describe in docs/api.md the jobs routes and body limits, the job, attempt and event documents, SSE framing and stream end, and the codes invalid_state, duplicate_job, not_subscribed and token_unreadable; in docs/configuration.md [workers].count and [database].retain; in docs/model-usage.md that automatic attempts follow only brain and no_result failures and that a job's usage is the sum of its attempts; in docs/architecture.md the job states, queue key and ordering, runner contract and its four obligations, transient retries versus automatic attempts, and the event log; and in docs/development.md the new package",
+          "contract": "a docs test finds each named term in the named file"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-2",
+      "title": "Job and attempt documents",
+      "rationale": "One document shape serves every jobs route so a client needs one decoder.",
+      "criteria": [
+        {
+          "id": "12-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "jobs API",
+          "action": "serve every job as a document with id, workspace, kind (triage or fix), input as posted without the context, issue (number or null), source {kind, by}, request_label (or null; always null for a job created through the API), state, blocked, attempt_count, current_attempt, result, artifacts, side_effects, labels, usage, hub, created_at, started_at and finished_at",
+          "contract": "JSON object with exactly these fields on every single-job response and in every list entry"
+        },
+        {
+          "id": "12-REQ-2.2",
+          "pattern": "state_driven",
+          "condition": "a job is blocked",
+          "system": "jobs API",
+          "action": "set blocked to {reason: \"needs_human\", question, options: [{id, label}] with ids lettered A, B, ... in order, answer_with: \"POST /api/v1/jobs/<id>/answer\"}, and set blocked to null in every other state",
+          "contract": "blocked object as described, or null"
+        },
+        {
+          "id": "12-REQ-2.3",
+          "pattern": "ubiquitous",
+          "system": "jobs API",
+          "action": "take result {status, exit_code, summary, error}, artifacts and side_effects from the envelope of the latest finished attempt, with result null and both arrays [] when no attempt has finished or the envelope has none",
+          "contract": "result.exit_code equals toolio.ExitCode(result.status) for every finished job"
+        },
+        {
+          "id": "12-REQ-2.4",
+          "pattern": "ubiquitous",
+          "system": "jobs API",
+          "action": "for any job, report usage as the sum of cost_usd, input_tokens, output_tokens and turns over every finished attempt",
+          "contract": "usage fields equal the sums over the attempts' usage"
+        },
+        {
+          "id": "12-REQ-2.5",
+          "pattern": "ubiquitous",
+          "system": "jobs store",
+          "action": "set started_at when an attempt of the job is first claimed, set finished_at at every transition into done, failed or cancelled (a cancel from queued or blocked included), keep finished_at null while the job is queued, running or blocked, and clear it when an answer, a retry or an automatic attempt queues the job again",
+          "contract": "finished_at is non-null exactly when state is done, failed or cancelled"
+        },
+        {
+          "id": "12-REQ-2.6",
+          "pattern": "ubiquitous",
+          "system": "jobs API",
+          "action": "show labels as {set, removed, restore}, where set and removed are as the runner last reported them and restore is the request label a cancel says belongs back and no runner has reported writing, or null when none of the three has a value; show hub as the current attempt's {session_id, run_id, sandbox_id} while it runs, else null",
+          "contract": "labels object or null; hub object or null"
+        },
+        {
+          "id": "12-REQ-2.7",
+          "pattern": "event_driven",
+          "condition": "a client reads GET /api/v1/jobs/:id",
+          "system": "jobs API",
+          "action": "add an attempts array listing for each attempt n, state, trigger {kind (create, answer, retry or auto), by}, answer (or null), deliveries, transient_failures, status, exit_code, summary, error, usage, started_at and finished_at",
+          "contract": "HTTP 200 with the job document plus attempts ordered by n"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-3",
+      "title": "Creating jobs",
+      "rationale": "Triage and fix requests arrive through the API and, later, through triggers that share the same validation.",
+      "criteria": [
+        {
+          "id": "12-REQ-3.1",
+          "pattern": "event_driven",
+          "condition": "a caller posts POST /api/v1/workspaces/:slug/triage with exactly one of {issue}, {text, title?} or {file: {name, content}} plus an optional context, or POST /api/v1/workspaces/:slug/fix with {issue, context?}, and the body is valid",
+          "system": "jobs API",
+          "action": "create a queued job with source {kind: \"api\", by: <hub user id>} and request_label null",
+          "contract": "HTTP 202 with the job document in state queued"
+        },
+        {
+          "id": "12-REQ-3.2",
+          "pattern": "unwanted",
+          "condition": "a field breaks its rule: text or file.content empty after trimming, not valid UTF-8, containing NUL or over toolio.MaxInputBytes; title not one line or over 256 bytes; file.name not a base name of 1 to 255 bytes or containing / or NUL; context not an array of at most 10 strings each non-empty after trimming and at most 8 KiB and together at most 32 KiB; or not exactly one triage input form",
+          "system": "jobs API",
+          "action": "refuse the request and store nothing",
+          "contract": "HTTP 400 invalid_request with a message that names the field; no job row is written"
+        },
+        {
+          "id": "12-REQ-3.3",
+          "pattern": "ubiquitous",
+          "system": "issue parser",
+          "action": "for any issue value, accept it exactly when it is a JSON positive integer, a string of at most 2048 bytes that issuex.ParseIssueURL accepts without IsPullRequest, or a string <path>#<N> where path is two or more /-separated segments of [A-Za-z0-9_.-] and N is a positive integer, and take the issue number from it",
+          "contract": "accepted values yield the issue number; every other value (pull or merge request URL, other URL, other string, zero, negative, fraction) answers 400 naming issue"
+        },
+        {
+          "id": "12-REQ-3.4",
+          "pattern": "ubiquitous",
+          "system": "jobs API",
+          "action": "limit request bodies to 1 MiB on the triage route, 256 KiB on the fix route and 64 KiB on every other route, so that the largest valid body with every string byte escaped as \\u00XX still fits",
+          "contract": "a maximal valid body escaped byte by byte answers 202, not 413; a body over the route's limit answers 413 payload_too_large"
+        },
+        {
+          "id": "12-REQ-3.5",
+          "pattern": "unwanted",
+          "condition": "the caller cannot see the workspace on hub, the workspace is not subscribed or is unsubscribing, the subscription's token is unreadable, or the issue is already the input of an open job of the same kind on the workspace",
+          "system": "jobs API",
+          "action": "refuse to create the job",
+          "contract": "HTTP 404 not_found for the first three cases; HTTP 409 token_unreadable for the token; HTTP 409 duplicate_job with a message naming the open job's id for the duplicate"
+        },
+        {
+          "id": "12-REQ-3.6",
+          "pattern": "event_driven",
+          "condition": "a job is created",
+          "system": "jobs store",
+          "action": "store the job row, the attempt 1 row with trigger create and the job_state event for queued in one transaction, and enqueue the attempt's queue item only after the transaction commits",
+          "contract": "either all three records exist or none does"
+        },
+        {
+          "id": "12-REQ-3.7",
+          "pattern": "unwanted",
+          "condition": "enqueuing the queue item fails after the job is stored",
+          "system": "jobs API",
+          "action": "log a WARN naming the job and leave the job queued for the sweep to enqueue",
+          "contract": "HTTP 202 with the queued job; the attempt reaches the runner after the next sweep (within one minute)"
+        },
+        {
+          "id": "12-REQ-3.8",
+          "pattern": "ubiquitous",
+          "system": "jobs package",
+          "action": "export a Go entry point that creates a job with a given source kind (label, event, rebuild or triage), its by and an optional consumed request label recorded as request_label, applying the routes' validation and refusals, and an entry point that returns the open job for a (workspace, kind, issue number)",
+          "contract": "create returns the job document or the same refusal errors as the routes; lookup returns the open job or a not-found result"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-4",
+      "title": "Queue, ordering and claiming",
+      "rationale": "One attempt at a time per workspace and a global worker bound keep clones and leases from colliding while letting workspaces proceed in parallel.",
+      "criteria": [
+        {
+          "id": "12-REQ-4.1",
+          "pattern": "ubiquitous",
+          "system": "queue adapter",
+          "action": "represent each attempt as one aflib/jobqueue item of type attempt, key the workspace slug, nonce <job id>:<n> and payload {\"job_id\", \"attempt\"}, and make enqueuing an attempt the queue already holds (pending, delayed or claimed) a no-op",
+          "contract": "enqueuing the same attempt twice leaves one item and one runner call"
+        },
+        {
+          "id": "12-REQ-4.2",
+          "pattern": "ubiquitous",
+          "system": "queue adapter",
+          "action": "for any mix of jobs across workspaces, keep at most [workers].count attempts in a runner at once",
+          "contract": "with count 2 and three workspaces, the fake runner never observes more than two concurrent calls"
+        },
+        {
+          "id": "12-REQ-4.3",
+          "pattern": "ubiquitous",
+          "system": "queue adapter",
+          "action": "run the attempts of one workspace one at a time in the order they were enqueued, while attempts of different workspaces run concurrently when worker slots are free",
+          "contract": "two jobs on one workspace never overlap in the runner; jobs on two workspaces overlap with count 2"
+        },
+        {
+          "id": "12-REQ-4.4",
+          "pattern": "state_driven",
+          "condition": "an attempt is waiting out a transient backoff, or a runner has overrun its cancel grace",
+          "system": "queue adapter",
+          "action": "keep that workspace's place so that no later attempt of the workspace starts before it ends; a waiting attempt does not occupy a worker slot, while an overrunning runner keeps its slot until it returns",
+          "contract": "the next job on the workspace reaches the runner only after the earlier runner has returned"
+        },
+        {
+          "id": "12-REQ-4.5",
+          "pattern": "event_driven",
+          "condition": "the queue hands an attempt over",
+          "system": "jobs layer",
+          "action": "in one transaction move the attempt to running, increment its deliveries and move the job to running, then emit attempt_start {attempt, delivery} and call the runner",
+          "contract": "deliveries increases by exactly one per handover; job state reads running"
+        },
+        {
+          "id": "12-REQ-4.6",
+          "pattern": "unwanted",
+          "condition": "at claim time the job is gone, the job is no longer queued or running, or the attempt is no longer queued or running",
+          "system": "jobs layer",
+          "action": "acknowledge the queue item without calling the runner",
+          "contract": "the fake runner records no call for that attempt; the item is removed from the queue"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-5",
+      "title": "Runner contract",
+      "rationale": "The attempt pipeline belongs to later specs; this seam fixes what they receive, report and return.",
+      "criteria": [
+        {
+          "id": "12-REQ-5.1",
+          "pattern": "event_driven",
+          "condition": "the jobs layer calls a runner for an attempt",
+          "system": "jobs layer",
+          "action": "pass the attempt's context and the job id, attempt number, handover count (1 on the first delivery), workspace, kind, input, the request's context strings, every question answered so far in order with its options and answer text, the source, the request label, and the absolute directory attempts/<job id>/<n>/ created before the call",
+          "contract": "the fake runner records these values for each call"
+        },
+        {
+          "id": "12-REQ-5.2",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "cancel an attempt's context with a cause from which the runner can tell a cancel, an unsubscribe (which also reports as a cancel) and a shutdown (which does not report as a cancel) apart",
+          "contract": "an exported predicate on context.Cause returns cancelled=true for cancel and unsubscribe and false for shutdown"
+        },
+        {
+          "id": "12-REQ-5.3",
+          "pattern": "ubiquitous",
+          "system": "recorder",
+          "action": "accept, safely under concurrent use, events for the job's log and the attempt's hub references (session id, run id, sandbox id), and show those references in the job's hub field while the attempt runs",
+          "contract": "concurrent Emit calls under the race detector produce gap-free seqs; GET /jobs/:id shows hub during the run"
+        },
+        {
+          "id": "12-REQ-5.4",
+          "pattern": "ubiquitous",
+          "system": "runner",
+          "action": "return either a result carrying the envelope, the report text (empty when none), the labels set and removed and the most attempts a round may make (0 meaning 2), or an error that may be marked transient",
+          "contract": "the jobs layer treats a transient error per 12-REQ-7 and everything else per 12-REQ-6"
+        },
+        {
+          "id": "12-REQ-5.5",
+          "pattern": "unwanted",
+          "condition": "the attempt has ended (finished, or recorded cancelled after the grace) and its runner still sends events, hub references or a result",
+          "system": "jobs layer",
+          "action": "drop them without storing or publishing anything",
+          "contract": "af_events and the attempt row are unchanged by the late report"
+        },
+        {
+          "id": "12-REQ-5.6",
+          "pattern": "ubiquitous",
+          "system": "agent-fox",
+          "action": "wire a placeholder runner that ends every attempt with a failed envelope of error category unsupported and retryable false",
+          "contract": "a job run by the placeholder ends failed with result.error.category unsupported and one attempt"
+        },
+        {
+          "id": "12-REQ-5.7",
+          "pattern": "ubiquitous",
+          "system": "fake runner",
+          "action": "provide an exported fake runner whose behaviour each test scripts per call (return an envelope, a plain error, a transient toolio.Failure, a panic, or block until its context is cancelled or a release) and which records every call's inputs",
+          "contract": "importable from later specs' tests; no network, hub, key or container engine required"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-6",
+      "title": "Ending an attempt",
+      "rationale": "Each runner ending maps to exactly one attempt and job state, and every finished attempt has an envelope.",
+      "criteria": [
+        {
+          "id": "12-REQ-6.1",
+          "pattern": "event_driven",
+          "condition": "a runner returns and its context was not cancelled for a shutdown",
+          "system": "jobs layer",
+          "action": "write the envelope as envelope.json and a non-empty report as report.md, both mode 0600, in the attempt's directory, emit attempt_end {attempt, state, status, exit_code}, and update the job's result, artifacts, side_effects, labels, usage and finished_at from that attempt",
+          "contract": "GET /jobs/:id/attempts/:n/envelope returns the stored bytes"
+        },
+        {
+          "id": "12-REQ-6.2",
+          "pattern": "complex_event",
+          "condition": "a runner returns",
+          "guard": "the job was cancelled while the attempt ran",
+          "system": "jobs layer",
+          "action": "record the attempt cancelled, keep the job cancelled, take the job's labels from the runner's report, clear labels.restore when the runner reports having set the request label, and emit a job_state with at_rest true",
+          "contract": "job state cancelled; the event stream's last event is job_state at_rest true"
+        },
+        {
+          "id": "12-REQ-6.3",
+          "pattern": "event_driven",
+          "condition": "the returned envelope's status is done, or unverified with a result.outcome other than parked",
+          "system": "jobs layer",
+          "action": "record the attempt done and the job done",
+          "contract": "job state done; result.exit_code 0 for done and 4 for unverified"
+        },
+        {
+          "id": "12-REQ-6.4",
+          "pattern": "event_driven",
+          "condition": "the returned envelope's status is needs_human with a question",
+          "system": "jobs layer",
+          "action": "record the attempt needs_human and the job blocked with the question and its lettered options",
+          "contract": "job state blocked; blocked.options carry ids A, B, ... and labels from the envelope"
+        },
+        {
+          "id": "12-REQ-6.5",
+          "pattern": "complex_event",
+          "condition": "the returned envelope's status is failed with error.category brain or no_result and error.retryable true",
+          "guard": "the attempt did not end by spending its transient retries and the current round has fewer attempts than the runner's maximum clamped to 1-10",
+          "system": "jobs layer",
+          "action": "record the attempt failed, queue attempt n+1 with trigger auto and the same context and answers, and move the job to queued",
+          "contract": "a new attempt row with trigger auto exists; job state queued with finished_at null"
+        },
+        {
+          "id": "12-REQ-6.6",
+          "pattern": "event_driven",
+          "condition": "an attempt ends in any way not matched by 12-REQ-6.2 to 12-REQ-6.5, including a parked fix, a retryable failure of another category, retryable false, spent transient retries or a full round",
+          "system": "jobs layer",
+          "action": "record the attempt failed and the job failed without queuing another attempt",
+          "contract": "job state failed; no attempt n+1 exists"
+        },
+        {
+          "id": "12-REQ-6.7",
+          "pattern": "unwanted",
+          "condition": "the runner gives no usable envelope: it returned a *toolio.Failure (found with errors.As), a plain error, panicked, returned an unknown status or needs_human without a question, or returned after a cancel without an envelope or overran the cancel grace",
+          "system": "jobs layer",
+          "action": "synthesize a failed envelope with the toolio schema version, tool set to the job's kind, empty arrays and usage source none, whose error is the failure's category, message and retryable flag for a Failure; category internal, not retryable, for a plain error, a panic (logged at ERROR) or an invalid envelope; and category cancelled for a cancel",
+          "contract": "envelope.json exists for the attempt and result.exit_code is 1"
+        },
+        {
+          "id": "12-REQ-6.8",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "emit job_state {state, attempt, at_rest, blocked?, result?} on every job transition and once more when the last running attempt of a cancelled job ends, with at_rest true exactly when the job is blocked, done, failed or cancelled and none of its attempts is running",
+          "contract": "the last event of every finished job's log is a job_state with at_rest true"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-7",
+      "title": "Transient retries, shutdown, restart and sweep",
+      "rationale": "Infrastructure failures and restarts must not spend brain attempts, and stored work must not be lost.",
+      "criteria": [
+        {
+          "id": "12-REQ-7.1",
+          "pattern": "event_driven",
+          "condition": "a runner returns an error marked transient for the first or second time on an attempt",
+          "system": "jobs layer",
+          "action": "increment the attempt's transient_failures, return the attempt to queued with no envelope stored, and hand the same attempt over again after a backoff of 30 s after the first and 2 min after the second (injectable in tests)",
+          "contract": "the fake runner is called again with the same attempt number; no attempt n+1 exists"
+        },
+        {
+          "id": "12-REQ-7.2",
+          "pattern": "event_driven",
+          "condition": "a runner returns an error marked transient for the third time on an attempt",
+          "system": "jobs layer",
+          "action": "end the attempt as failed with the synthesized envelope carrying the failure's category and fail the job, without an automatic attempt whatever the failure's retryable flag",
+          "contract": "job state failed; result.error.category equals the failure's category (for example sandbox); transient_failures 3; no attempt 2"
+        },
+        {
+          "id": "12-REQ-7.3",
+          "pattern": "event_driven",
+          "condition": "the service shuts down",
+          "system": "jobs layer",
+          "action": "stop claiming, cancel running attempts with the shutdown cause, and wait up to 30 s for their runners to return",
+          "contract": "shutdown completes within the 30 s wait plus the core's own shutdown"
+        },
+        {
+          "id": "12-REQ-7.4",
+          "pattern": "complex_event",
+          "condition": "a runner returns a result, returns an error or panics",
+          "guard": "its attempt context was cancelled for a shutdown before it returned",
+          "system": "jobs layer",
+          "action": "discard what the runner returned, store nothing and leave the attempt running",
+          "contract": "no envelope.json is written; attempt and job remain running in the database"
+        },
+        {
+          "id": "12-REQ-7.5",
+          "pattern": "event_driven",
+          "condition": "the service restarts on the same database file with an attempt left running",
+          "system": "jobs layer",
+          "action": "hand the same attempt number over again with deliveries and the handover count incremented, without a new attempt row, a backoff or a transient failure",
+          "contract": "the fake runner receives attempt 1 with handover count 2; no attempt 2 row exists; transient_failures unchanged"
+        },
+        {
+          "id": "12-REQ-7.6",
+          "pattern": "event_driven",
+          "condition": "the service starts, and then every minute",
+          "system": "sweep",
+          "action": "enqueue every attempt row in state queued again, relying on the nonce no-op for items the queue already holds",
+          "contract": "jobs queued at a stop, and attempts whose enqueue failed, reach the runner; no attempt reaches it twice"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-8",
+      "title": "Cancel, answer, retry and unsubscribe",
+      "rationale": "People steer jobs after creation, and an unsubscribe must not leave work running against a forgotten token.",
+      "criteria": [
+        {
+          "id": "12-REQ-8.1",
+          "pattern": "event_driven",
+          "condition": "a caller posts POST /api/v1/jobs/:id/cancel for a queued, running or blocked job",
+          "system": "jobs API",
+          "action": "move the job to cancelled at once with finished_at set, set labels.restore to its request_label when it has one, mark a queued attempt (one waiting out a backoff included) cancelled so it never reaches the runner, and cancel a running attempt's context with the cancel cause",
+          "contract": "HTTP 200 with the job in state cancelled; the running attempt's row becomes cancelled when its runner returns"
+        },
+        {
+          "id": "12-REQ-8.2",
+          "pattern": "unwanted",
+          "condition": "a cancelled or unsubscribed attempt's runner has not returned within the 60 s cancel grace",
+          "system": "jobs layer",
+          "action": "record the attempt cancelled with the synthesized cancelled envelope, emit attempt_end and the job's at-rest job_state, log an ERROR naming the job and the attempt, and keep the runner's workspace place and worker slot until it returns",
+          "contract": "the event stream ends; the next job on the workspace does not start until the runner returns"
+        },
+        {
+          "id": "12-REQ-8.3",
+          "pattern": "event_driven",
+          "condition": "a caller posts POST /api/v1/jobs/:id/answer for a blocked job with exactly one of {answer} (non-empty after trimming, at most 8 KiB) or {option} (one of the question's option ids)",
+          "system": "jobs API",
+          "action": "queue attempt n+1 with trigger {kind: answer, by} and the stored {question, option?, text}, where text is the free answer or the option's label, and move the job to queued",
+          "contract": "HTTP 202 with the queued job; the runner of attempt n+1 receives the question, its options and the answer text"
+        },
+        {
+          "id": "12-REQ-8.4",
+          "pattern": "event_driven",
+          "condition": "a caller posts POST /api/v1/jobs/:id/retry for a failed job with no body or {}",
+          "system": "jobs API",
+          "action": "queue attempt n+1 with trigger retry and move the job to queued",
+          "contract": "HTTP 202 with the queued job"
+        },
+        {
+          "id": "12-REQ-8.5",
+          "pattern": "unwanted",
+          "condition": "a cancel, answer or retry fails a check, evaluated in order: the job does not exist or is on a workspace the caller cannot see; the job is in a state the action does not start from; for answer and retry, the workspace is not subscribed or is unsubscribing, or its token is unreadable; or the answer body is not exactly one valid answer or option",
+          "system": "jobs API",
+          "action": "refuse the action and change nothing",
+          "contract": "HTTP 404 not_found; HTTP 409 invalid_state naming the current state; HTTP 409 not_subscribed; HTTP 409 token_unreadable; HTTP 400 invalid_request for a bad answer body"
+        },
+        {
+          "id": "12-REQ-8.6",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "for any two actions racing on one job, apply exactly one through a conditional state transition",
+          "contract": "one request succeeds and the other answers HTTP 409 invalid_state"
+        },
+        {
+          "id": "12-REQ-8.7",
+          "pattern": "event_driven",
+          "condition": "the core's DELETE /api/v1/workspaces/:slug passes its own checks",
+          "system": "jobs layer",
+          "action": "mark the workspace unsubscribing so creation is refused as not subscribed and answer and retry answer 409 not_subscribed, cancel every open job of the workspace with the unsubscribe cause, wait up to the 60 s grace for running attempts (treating any still running as a cancel whose grace ran out), then let the core forget the token and clear the mark if the removal fails",
+          "contract": "the workspace's queued, running and blocked jobs read cancelled; a create during the DELETE answers 404; jobs and history remain until retention"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-9",
+      "title": "Reading jobs",
+      "rationale": "Clients list and inspect jobs without learning about jobs on workspaces they cannot see.",
+      "criteria": [
+        {
+          "id": "12-REQ-9.1",
+          "pattern": "event_driven",
+          "condition": "a caller reads GET /api/v1/jobs",
+          "system": "jobs API",
+          "action": "list the jobs of every workspace that has jobs, subscribed or not, that the core's cached visibility check lets the caller see",
+          "contract": "HTTP 200 {jobs: [...], next_cursor}"
+        },
+        {
+          "id": "12-REQ-9.2",
+          "pattern": "unwanted",
+          "condition": "hub is unavailable for any workspace GET /api/v1/jobs needs to check",
+          "system": "jobs API",
+          "action": "answer without a partial page",
+          "contract": "HTTP 502 hub_unavailable"
+        },
+        {
+          "id": "12-REQ-9.3",
+          "pattern": "event_driven",
+          "condition": "a caller reads GET /api/v1/workspaces/:slug/jobs",
+          "system": "jobs API",
+          "action": "list that workspace's jobs, including those left on a workspace that is no longer subscribed, and answer 404 when the caller cannot see the workspace on hub",
+          "contract": "HTTP 200 {jobs, next_cursor} or HTTP 404 not_found"
+        },
+        {
+          "id": "12-REQ-9.4",
+          "pattern": "ubiquitous",
+          "system": "jobs API",
+          "action": "for any set of jobs and filter of kind, state and issue, return pages of limit jobs (1 to 200, default 50) newest first by created_at then id, with an opaque next_cursor that is null on the last page, so that following the cursors yields every matching job exactly once",
+          "contract": "concatenated pages equal the filtered, ordered job set"
+        },
+        {
+          "id": "12-REQ-9.5",
+          "pattern": "unwanted",
+          "condition": "kind, state, issue, limit or cursor has an invalid value",
+          "system": "jobs API",
+          "action": "refuse the list request",
+          "contract": "HTTP 400 invalid_request naming the parameter"
+        },
+        {
+          "id": "12-REQ-9.6",
+          "pattern": "event_driven",
+          "condition": "a caller reads GET /api/v1/jobs/:id/attempts/:n/envelope or GET /api/v1/jobs/:id/attempts/:n/report",
+          "system": "jobs API",
+          "action": "serve the stored envelope.json verbatim as application/json, or report.md as text/markdown; charset=utf-8",
+          "contract": "HTTP 200 with the file's bytes unchanged"
+        },
+        {
+          "id": "12-REQ-9.7",
+          "pattern": "unwanted",
+          "condition": "the job does not exist, is on a workspace the caller cannot see, the attempt number is out of range, or the attempt has no envelope or no report",
+          "system": "jobs API",
+          "action": "answer with one indistinguishable not-found response",
+          "contract": "HTTP 404 with the same code and message in every case"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-10",
+      "title": "Event log and SSE",
+      "rationale": "A client must follow a job live and recover from any disconnect without losing or repeating events.",
+      "criteria": [
+        {
+          "id": "12-REQ-10.1",
+          "pattern": "ubiquitous",
+          "system": "event log",
+          "action": "for any sequence of events on a job, store each in af_events before publishing it, with seq strictly increasing and gap-free per job across attempts, and with ts, job_id, attempt, type and data",
+          "contract": "stored seqs for a job are 1..k with no gap"
+        },
+        {
+          "id": "12-REQ-10.2",
+          "pattern": "unwanted",
+          "condition": "an event's type does not match ^[a-z][a-z0-9_]*$ or is job_state, attempt_start or attempt_end from a runner, its data exceeds 64 KiB as JSON, or its data cannot be encoded",
+          "system": "event log",
+          "action": "store the type as invalid_event_type with data {\"type\": <given type>, \"data\": <given data>}, replace oversized data with {\"truncated\": true, \"bytes\": N}, and replace unencodable data with {\"error\": \"...\"}",
+          "contract": "the event is stored and streamed with the replacement; the attempt continues"
+        },
+        {
+          "id": "12-REQ-10.3",
+          "pattern": "unwanted",
+          "condition": "an event cannot be stored",
+          "system": "event log",
+          "action": "log a WARN, drop the event and let the attempt go on",
+          "contract": "the runner's report call returns without error; no event is published"
+        },
+        {
+          "id": "12-REQ-10.4",
+          "pattern": "event_driven",
+          "condition": "a caller reads GET /api/v1/jobs/:id/events",
+          "system": "SSE handler",
+          "action": "answer text/event-stream with Cache-Control: no-cache, start after the since query parameter (an integer of at least 0), else the Last-Event-ID header, else 0, and frame each event as id: <seq>, event: <type>, data: <one-line JSON {seq, ts, job_id, attempt, type, data}>",
+          "contract": "HTTP 200 SSE stream; a bad since answers 400; an invisible or unknown job answers 404 as in 12-REQ-9.7"
+        },
+        {
+          "id": "12-REQ-10.5",
+          "pattern": "ubiquitous",
+          "system": "SSE handler",
+          "action": "for any starting point and any interleaving of stored and live events, send the stored events with seq greater than the starting point in order and then the live events, with no event missing and none sent twice",
+          "contract": "a client that reconnects with the last id it saw receives exactly the events it missed"
+        },
+        {
+          "id": "12-REQ-10.6",
+          "pattern": "state_driven",
+          "condition": "a stream is open",
+          "system": "SSE handler",
+          "action": "send a : keepalive comment every 15 s, end the stream at the end of the replay when the job is at rest, and otherwise end it after the first live job_state whose at_rest is true",
+          "contract": "the last frame of an ended stream is a job_state with at_rest true"
+        },
+        {
+          "id": "12-REQ-10.7",
+          "pattern": "unwanted",
+          "condition": "a subscriber falls more than 256 events behind, or the server shuts down",
+          "system": "SSE handler",
+          "action": "disconnect that subscriber without blocking the runner or other subscribers, and close every stream on shutdown",
+          "contract": "the stream closes; reconnecting with the last id resumes losslessly"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "12-PATH-1",
+      "title": "A fix request runs to done",
+      "steps": [
+        {
+          "actor": "client",
+          "action": "posts POST /api/v1/workspaces/widgets/fix {\"issue\": 42}"
+        },
+        {
+          "actor": "jobs API",
+          "action": "validates the body, checks visibility, subscription and duplicates, stores the job, attempt 1 and the queued job_state, enqueues the item and answers 202 with the queued job"
+        },
+        {
+          "actor": "queue adapter",
+          "action": "claims the attempt, moves attempt and job to running and emits attempt_start"
+        },
+        {
+          "actor": "fake runner",
+          "action": "returns a done envelope for attempt 1"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "writes envelope.json, records the attempt and job done and emits attempt_end and an at-rest job_state"
+        },
+        {
+          "actor": "client",
+          "action": "reads GET /api/v1/jobs/:id (state done, exit_code 0, one attempt) and GET /api/v1/jobs/:id/attempts/1/envelope (the stored bytes)"
+        }
+      ]
+    },
+    {
+      "id": "12-PATH-2",
+      "title": "A blocked job is answered and runs again",
+      "steps": [
+        {
+          "actor": "client",
+          "action": "creates a triage job through POST /api/v1/workspaces/widgets/triage"
+        },
+        {
+          "actor": "fake runner",
+          "action": "returns a needs_human envelope with a question and options"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "records the attempt needs_human and the job blocked with lettered options"
+        },
+        {
+          "actor": "client",
+          "action": "posts POST /api/v1/jobs/:id/answer {\"option\": \"B\"} and receives 202"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "queues attempt 2 with trigger answer and hands it to the runner with the question, its options and B's label as the answer"
+        }
+      ]
+    },
+    {
+      "id": "12-PATH-3",
+      "title": "A running job is cancelled while a client follows its events",
+      "steps": [
+        {
+          "actor": "client",
+          "action": "opens GET /api/v1/jobs/:id/events on a running job"
+        },
+        {
+          "actor": "client",
+          "action": "posts POST /api/v1/jobs/:id/cancel and receives 200 with state cancelled and finished_at set"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "cancels the runner's context with the cancel cause"
+        },
+        {
+          "actor": "fake runner",
+          "action": "sees a cancel cause and returns"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "records the attempt cancelled, emits an at-rest job_state and starts the next job on the workspace"
+        },
+        {
+          "actor": "SSE handler",
+          "action": "sends the at-rest job_state and closes the stream"
+        }
+      ]
+    },
+    {
+      "id": "12-PATH-4",
+      "title": "A restart hands an interrupted attempt over again",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "stops agent-fox while the fake runner holds attempt 1"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "cancels the attempt with the shutdown cause and discards what the runner returns, leaving it running"
+        },
+        {
+          "actor": "operator",
+          "action": "starts agent-fox on the same database file"
+        },
+        {
+          "actor": "queue adapter",
+          "action": "recovers the claimed item and the sweep re-enqueues queued attempts"
+        },
+        {
+          "actor": "fake runner",
+          "action": "receives attempt 1 with handover count 2, and the jobs queued at the stop run after it"
+        }
+      ]
+    },
+    {
+      "id": "12-PATH-5",
+      "title": "Unsubscribing a workspace cancels its open jobs",
+      "steps": [
+        {
+          "actor": "client",
+          "action": "sends DELETE /api/v1/workspaces/widgets"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "marks widgets unsubscribing and refuses a concurrent POST /api/v1/workspaces/widgets/fix with 404"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "cancels the queued, running and blocked jobs with the unsubscribe cause and waits for running attempts up to 60 s"
+        },
+        {
+          "actor": "service core",
+          "action": "forgets the token, removes the subscription and answers 204"
+        }
+      ]
+    },
+    {
+      "id": "12-PATH-6",
+      "title": "The hourly purge removes expired jobs",
+      "steps": [
+        {
+          "actor": "retention timer",
+          "action": "fires the purge on the injected clock"
+        },
+        {
+          "actor": "retention purge",
+          "action": "selects done, failed and cancelled jobs with no running attempt whose finished_at is older than retain, skipping blocked jobs"
+        },
+        {
+          "actor": "retention purge",
+          "action": "removes each job's attempts/<job id>/ directory and then its af_events, af_attempts and af_jobs rows"
+        },
+        {
+          "actor": "client",
+          "action": "reads GET /api/v1/jobs/:id for a purged job and receives 404"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "github.com/agent-fox-dev/aflib/jobqueue",
+      "version": "aflib v0.0.0-20261019184100-07adcb691832 (bumped if the package is missing)",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "jobqueue (package capabilities)",
+          "import_path": "github.com/agent-fox-dev/aflib/jobqueue",
+          "signature": "unknown; assumed: SQLite queue on a caller-supplied *sql.DB, items with type/key/nonce/payload, per-type handlers on a bounded worker pool, per-key serialization, delayed retry, crash recovery of claimed items, cancellation via handler context",
+          "notes": "Source unreadable from this repository. The adapter reads the real API at implementation; a missing core capability stops implementation with an erratum docs/errata/12_*.md."
+        }
+      ]
+    },
+    {
+      "package": "github.com/agent-fox-dev/aflib/issuex",
+      "version": "aflib v0.0.0-20261019184100-07adcb691832",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "ParseIssueURL",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "func ParseIssueURL(s string) (IssueRef, bool)",
+          "notes": "Inferred from internal/toolio/input.go:87; accepts GitHub/GitLab issue, PR and MR URLs."
+        },
+        {
+          "name": "IssueRef",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "type IssueRef struct { Repo ...; Number int; IsPullRequest bool }",
+          "notes": "Fields inferred from cmd/af/fix_brief.go:102 and internal/toolio/dryrun_test.go:157."
+        }
+      ]
+    }
+  ]
+}

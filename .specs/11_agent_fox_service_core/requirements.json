@@ -1,0 +1,847 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "11",
+  "spec_name": "agent_fox_service_core",
+  "schema_version": 2,
+  "introduction": "agent-fox is a long-running HTTP service, separate from the af CLI, that starts from one config.toml, keeps its state in one SQLite file, treats hub as the only authority on who is calling and which workspaces they may see, and lets a caller subscribe a hub workspace by handing over a workspace PAT that is sealed with AES-256-GCM at rest and never returned. Jobs, the worker, the poll and the CLI client are built on this foundation in later specs.",
+  "glossary": {
+    "PAT": "A hub workspace personal access token handed over at subscribe; stored sealed and used by later specs to act on the workspace.",
+    "apikit envelope": "The error body shape {\"error\":{\"code\":…,\"message\":…,\"error_type\"?}} from PRD 01 §6.2; error_type is never sent in this release.",
+    "caller token": "The bearer token a client sends to agent-fox; it is validated against hub's GET /api/v1/user and identifies the caller by hub user id.",
+    "hub": "The external service that is the identity provider and workspace authority; agent-fox calls its API under <hub.url>/api/v1.",
+    "identity cache": "An in-memory TTL cache keyed by the hex SHA-256 of a caller token holding hub's answer to who the token belongs to (user id or refusal).",
+    "seal": "AES-256-GCM encryption of a PAT with additional data agent-fox/subscription/<slug>, stored as version byte 0x01, 12-byte nonce, ciphertext and tag.",
+    "start failure": "Any failure before the listener is bound; it writes exactly one JSON log record at level ERROR with msg 'start failed' and an error attribute, then exits 1 or 2.",
+    "subscription": "A row in the af_-prefixed subscriptions table linking a hub workspace slug to a sealed PAT, a label prefix and bookkeeping fields.",
+    "token_state": "Field of the subscription view: ok when the stored sealed PAT opens with the deployment's key, unreadable otherwise.",
+    "version document": "The JSON object {name, version, commit, build_time, go_version} produced by internal/toolio with ldflags values first and build info as fallback.",
+    "visibility cache": "An in-memory TTL cache keyed by (token hash, slug) holding hub's answer to whether the caller can see the workspace (found or not found)."
+  },
+  "requirements": [
+    {
+      "id": "11-REQ-1",
+      "title": "The agent-fox binary and its command line",
+      "rationale": "A server's lifecycle (flags, signals, logs, exit codes) needs its own binary rather than toolio's one-envelope command shell.",
+      "criteria": [
+        {
+          "id": "11-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "build",
+          "action": "build cmd/agent-fox so that make build writes $(BIN_DIR)/agent-fox beside $(BIN_DIR)/af with the same -X main.version/commit/buildTime ldflags"
+        },
+        {
+          "id": "11-REQ-1.2",
+          "pattern": "event_driven",
+          "condition": "agent-fox is invoked with --version or with --help",
+          "system": "agent-fox",
+          "action": "for --version print the version document as one JSON object with name agent-fox, version, commit, build_time and go_version using the same ldflags-then-build-info fallback as af --version (reusing internal/toolio's exported document), and for --help print the usage; in both cases read no configuration",
+          "contract": "exit code 0; --version stdout parses as one JSON object with exactly those five fields"
+        },
+        {
+          "id": "11-REQ-1.3",
+          "pattern": "unwanted",
+          "condition": "agent-fox is invoked with an unknown flag or a positional argument",
+          "system": "agent-fox",
+          "action": "print a plain-text usage message on stderr and not start",
+          "contract": "exit code 2; nothing listens"
+        },
+        {
+          "id": "11-REQ-1.4",
+          "pattern": "unwanted",
+          "condition": "the configuration, the key file or the database is invalid at start",
+          "system": "agent-fox",
+          "action": "write exactly one JSON log record at level ERROR with msg 'start failed' and an error attribute naming the key or file at fault, bind nothing and write no listening record",
+          "contract": "exit code 2; stderr holds exactly one JSON record, level ERROR"
+        },
+        {
+          "id": "11-REQ-1.5",
+          "pattern": "unwanted",
+          "condition": "binding server.listen fails at start because the address is in use, permission is denied, or the host does not resolve or is not local",
+          "system": "agent-fox",
+          "action": "write exactly one JSON log record at level ERROR with msg 'start failed' and an error attribute naming the address and reason, and write no listening record",
+          "contract": "exit code 1; stderr holds exactly one JSON record, level ERROR"
+        },
+        {
+          "id": "11-REQ-1.6",
+          "pattern": "event_driven",
+          "condition": "the listener is bound",
+          "system": "agent-fox",
+          "action": "log a listening record whose addr attribute is the actually bound address, so that listen = \"127.0.0.1:0\" yields a usable port",
+          "contract": "one JSON record with msg 'listening' and attribute addr host:port with a non-zero port"
+        },
+        {
+          "id": "11-REQ-1.7",
+          "pattern": "event_driven",
+          "condition": "the running service receives SIGINT or SIGTERM",
+          "system": "agent-fox",
+          "action": "stop accepting connections, wait up to 30 seconds for requests in flight to finish, close the database and exit",
+          "contract": "exit code 0; an in-flight request started before the signal completes with its response"
+        },
+        {
+          "id": "11-REQ-1.8",
+          "pattern": "unwanted",
+          "condition": "the listener fails after start",
+          "system": "agent-fox",
+          "action": "log the failure at level ERROR, close the database and exit",
+          "contract": "exit code 1"
+        }
+      ]
+    },
+    {
+      "id": "11-REQ-2",
+      "title": "Configuration",
+      "rationale": "One validated file is the whole deployment surface, and a misspelt or out-of-range key must be refused rather than silently defaulted.",
+      "criteria": [
+        {
+          "id": "11-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "config loader",
+          "action": "read the file named by --config when given, otherwise the first that exists of ./config.toml and $XDG_CONFIG_HOME/agent-fox/config.toml ($HOME/.config/agent-fox/config.toml when XDG_CONFIG_HOME is unset), parsed with github.com/BurntSushi/toml"
+        },
+        {
+          "id": "11-REQ-2.2",
+          "pattern": "unwanted",
+          "condition": "no --config is given and none of the lookup paths exists, or the --config file does not exist or is not valid TOML",
+          "system": "config loader",
+          "action": "fail start with an error listing every path tried, or naming the file and parse position",
+          "contract": "start failure with exit code 2 (11-REQ-1.4)"
+        },
+        {
+          "id": "11-REQ-2.3",
+          "pattern": "event_driven",
+          "condition": "a configuration file sets only hub.url and secrets.key_file",
+          "system": "config loader",
+          "action": "apply the defaults server.listen = 127.0.0.1:8090, hub.auth_cache_ttl = 60s and database.path = $XDG_STATE_HOME/agent-fox/agent-fox.db ($HOME/.local/state when unset), drop a trailing / from hub.url, and resolve a relative database.path or secrets.key_file against the config file's directory",
+          "contract": "the loaded configuration holds those defaults and absolute paths; the service starts and listens"
+        },
+        {
+          "id": "11-REQ-2.4",
+          "pattern": "ubiquitous",
+          "system": "config loader",
+          "action": "after decoding, expand ${NAME} (NAME matching [A-Za-z_][A-Za-z0-9_]*) from the environment in every string value, with a variable set to empty expanding to empty so that a required key left empty fails as missing"
+        },
+        {
+          "id": "11-REQ-2.5",
+          "pattern": "unwanted",
+          "condition": "a string value references a ${NAME} that is unset in the environment",
+          "system": "config loader",
+          "action": "fail start with an error naming the variable and the dotted key holding it",
+          "contract": "start failure with exit code 2; the error attribute contains the variable name"
+        },
+        {
+          "id": "11-REQ-2.6",
+          "pattern": "unwanted",
+          "condition": "the file contains a key outside server.listen, hub.url, hub.auth_cache_ttl, database.path and secrets.key_file (server.external_url, [workers] and database.retain included), or a value of the wrong type",
+          "system": "config loader",
+          "action": "fail start with an error naming the dotted key",
+          "contract": "start failure with exit code 2; the error attribute contains the dotted key, for example server.external_url"
+        },
+        {
+          "id": "11-REQ-2.7",
+          "pattern": "unwanted",
+          "condition": "hub.auth_cache_ttl is outside 1s to 15m inclusive (for example 16m or 500ms), hub.url or secrets.key_file is missing or empty, hub.url is not an absolute http or https URL or carries a query or fragment, or server.listen is rejected by net.SplitHostPort",
+          "system": "config loader",
+          "action": "refuse the value without clamping and fail start with an error naming the dotted key",
+          "contract": "start failure with exit code 2; the error attribute contains the dotted key"
+        },
+        {
+          "id": "11-REQ-2.8",
+          "pattern": "event_driven",
+          "condition": "hub.url uses http and its host is not a loopback address",
+          "system": "agent-fox",
+          "action": "accept the configuration and log a WARN record saying caller tokens and PATs cross the link in clear, written after the listener is bound and before the listening record",
+          "contract": "service starts; a failed start still writes only its one ERROR record"
+        }
+      ]
+    },
+    {
+      "id": "11-REQ-3",
+      "title": "The key file and the sealing of workspace tokens",
+      "rationale": "A PAT at rest must be unreadable without the deployment key, bound to its row, and never leak through logs or errors.",
+      "criteria": [
+        {
+          "id": "11-REQ-3.1",
+          "pattern": "unwanted",
+          "condition": "secrets.key_file is missing or unreadable, is not standard base64 after trimming surrounding whitespace, or does not decode to exactly 32 bytes",
+          "system": "key loader",
+          "action": "fail start with an error naming the file and the reason, without including the file's contents",
+          "contract": "start failure with exit code 2; the error attribute contains the key file path"
+        },
+        {
+          "id": "11-REQ-3.2",
+          "pattern": "unwanted",
+          "condition": "on Unix the key file has any group or other permission bit set (mode & 0o077 != 0)",
+          "system": "key loader",
+          "action": "fail start with an error naming the file and its mode, while accepting owner-only modes 0600, 0400 and 0700",
+          "contract": "start failure with exit code 2 for 0644 or 0640; start proceeds for 0600, 0400 and 0700"
+        },
+        {
+          "id": "11-REQ-3.3",
+          "pattern": "ubiquitous",
+          "system": "sealer",
+          "action": "seal a token with AES-256-GCM using a fresh 12-byte nonce from crypto/rand for every seal and additional data agent-fox/subscription/<slug>, storing version byte 0x01, then the nonce, then the ciphertext with its tag",
+          "contract": "sealed value length = 1 + 12 + len(token) + 16 and first byte 0x01"
+        },
+        {
+          "id": "11-REQ-3.4",
+          "pattern": "ubiquitous",
+          "system": "sealer",
+          "action": "for any token and slug, open(slug, seal(slug, token)) with the same key returns the token, and two seals of the same token differ"
+        },
+        {
+          "id": "11-REQ-3.5",
+          "pattern": "unwanted",
+          "condition": "a sealed value is opened with a wrong key, with one byte altered, under another slug, with an unknown version byte, or truncated to any shorter length",
+          "system": "sealer",
+          "action": "return an error and never panic",
+          "contract": "non-nil error; no plaintext returned"
+        },
+        {
+          "id": "11-REQ-3.6",
+          "pattern": "ubiquitous",
+          "system": "agent-fox",
+          "action": "never log the key or a plaintext token, never include either in an error message, and never write a plaintext token anywhere except as input to the AEAD",
+          "contract": "stderr, every error message and every file other than the sealed column contain neither the key bytes nor any plaintext token"
+        }
+      ]
+    },
+    {
+      "id": "11-REQ-4",
+      "title": "The state database",
+      "rationale": "One SQLite file holds the state, with table names and a migration record that leave room for aflib/jobqueue in the same file.",
+      "criteria": [
+        {
+          "id": "11-REQ-4.1",
+          "pattern": "event_driven",
+          "condition": "the service opens database.path at start",
+          "system": "store",
+          "action": "create the parent directory with mode 0700 and the file with mode 0600 when missing, open it through database/sql with the modernc.org/sqlite driver, and set journal_mode=WAL, busy_timeout=5000 and foreign_keys=ON",
+          "contract": "PRAGMA journal_mode answers wal, busy_timeout 5000, foreign_keys 1; new file mode 0600, new directory mode 0700"
+        },
+        {
+          "id": "11-REQ-4.2",
+          "pattern": "ubiquitous",
+          "system": "store",
+          "action": "name every table it owns with the prefix af_, record applied migrations in an af_-prefixed table of its own without reading or writing PRAGMA user_version, and never read or write a table it does not own"
+        },
+        {
+          "id": "11-REQ-4.3",
+          "pattern": "event_driven",
+          "condition": "the store is opened",
+          "system": "store",
+          "action": "apply every not-yet-applied migration of its ordered, append-only list at start, each in one transaction, so that reopening an up-to-date file applies nothing",
+          "contract": "after two opens the migration record lists each migration exactly once"
+        },
+        {
+          "id": "11-REQ-4.4",
+          "pattern": "unwanted",
+          "condition": "the database records a migration version higher than this binary knows",
+          "system": "store",
+          "action": "fail start with an error naming both the recorded and the known version, and leave the file unchanged",
+          "contract": "start failure with exit code 2"
+        },
+        {
+          "id": "11-REQ-4.5",
+          "pattern": "unwanted",
+          "condition": "the database file cannot be created, opened or migrated",
+          "system": "store",
+          "action": "return an error naming the file, which fails start",
+          "contract": "start failure with exit code 2; the error attribute contains database.path"
+        },
+        {
+          "id": "11-REQ-4.6",
+          "pattern": "ubiquitous",
+          "system": "store",
+          "action": "in migration 1 create the subscriptions table recording a unique slug, the label prefix, the sealed PAT, the hub user id behind the PAT or nothing, the user id of the caller who last subscribed it, and created and updated times stored as RFC 3339 UTC"
+        }
+      ]
+    },
+    {
+      "id": "11-REQ-5",
+      "title": "The hub client",
+      "rationale": "One place knows hub's paths and answer shapes, so a correction to hub's API is a local change.",
+      "criteria": [
+        {
+          "id": "11-REQ-5.1",
+          "pattern": "ubiquitous",
+          "system": "hub client",
+          "action": "make exactly two kinds of call, GET <hub.url>/api/v1/user and GET <hub.url>/api/v1/workspaces/<path-escaped slug>, each sending Authorization: Bearer <token>, Accept: application/json and User-Agent: agent-fox/<version>"
+        },
+        {
+          "id": "11-REQ-5.2",
+          "pattern": "ubiquitous",
+          "system": "hub client",
+          "action": "bound every request by 10 seconds unless the context is shorter, read at most 1 MiB of a response body, and not follow redirects"
+        },
+        {
+          "id": "11-REQ-5.3",
+          "pattern": "event_driven",
+          "condition": "hub answers 200 with a JSON object",
+          "system": "hub client",
+          "action": "for the user call return the user identified by a non-empty id field (a string, or a number kept as its decimal string) with an optional login, and for the workspace call return the workspace as found",
+          "contract": "user value {id: string, login: string or empty}; workspace found"
+        },
+        {
+          "id": "11-REQ-5.4",
+          "pattern": "unwanted",
+          "condition": "hub answers 401, 403 or 404",
+          "system": "hub client",
+          "action": "classify 401 as refused for both calls, 403 as refused for the user call and not found for the workspace call, and 404 as unavailable for the user call and not found for the workspace call",
+          "contract": "an error that callers classify as refused, not found or unavailable"
+        },
+        {
+          "id": "11-REQ-5.5",
+          "pattern": "unwanted",
+          "condition": "hub answers 3xx, 429 or 5xx, the transport fails, the request times out, or the 200 body is not a JSON object or the user object lacks a non-empty id",
+          "system": "hub client",
+          "action": "classify the failure as unavailable",
+          "contract": "an error that callers classify as unavailable"
+        },
+        {
+          "id": "11-REQ-5.6",
+          "pattern": "ubiquitous",
+          "system": "hub client",
+          "action": "let callers tell refused, not found and unavailable apart with errors.Is or errors.As without parsing message text, and never include the token in any error value or message",
+          "contract": "errors.Is/errors.As identify refused, not found and unavailable; err.Error() never contains the token"
+        }
+      ]
+    },
+    {
+      "id": "11-REQ-6",
+      "title": "Caller identity and workspace visibility",
+      "rationale": "Hub's answers are the whole access rule, cached by token hash with a bounded TTL so hub is not called for every request.",
+      "criteria": [
+        {
+          "id": "11-REQ-6.1",
+          "pattern": "unwanted",
+          "condition": "a request to a route under /api/v1 has no Authorization header, a scheme other than Bearer (matched case-insensitively), or an empty token",
+          "system": "auth middleware",
+          "action": "answer without calling hub",
+          "contract": "HTTP 401 with error code unauthenticated; hub request count unchanged"
+        },
+        {
+          "id": "11-REQ-6.2",
+          "pattern": "event_driven",
+          "condition": "a request carries a bearer token",
+          "system": "auth middleware",
+          "action": "look up the identity cache keyed by the hex SHA-256 of the token, use a hit within auth_cache_ttl of hub's answer without calling hub, otherwise call hub's user endpoint and cache the user id, which becomes the request's caller",
+          "contract": "a token validated once is not sent to GET /api/v1/user again within the TTL and is sent again after the TTL"
+        },
+        {
+          "id": "11-REQ-6.3",
+          "pattern": "unwanted",
+          "condition": "hub refuses the caller token on the user call",
+          "system": "auth middleware",
+          "action": "cache the refusal for auth_cache_ttl and answer the request",
+          "contract": "HTTP 401 unauthenticated; the same token is not sent to hub again within the TTL"
+        },
+        {
+          "id": "11-REQ-6.4",
+          "pattern": "unwanted",
+          "condition": "hub is unavailable on an identity or visibility call made with the caller's token",
+          "system": "auth middleware",
+          "action": "cache nothing and answer the request",
+          "contract": "HTTP 502 hub_unavailable; the next request calls hub again"
+        },
+        {
+          "id": "11-REQ-6.5",
+          "pattern": "event_driven",
+          "condition": "a request targets a route with {slug}",
+          "system": "auth middleware",
+          "action": "check in order: the slug against ^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$ (else 400 invalid_request), the identity, then visibility from hub's workspace call with the caller's token cached by (token hash, slug) for auth_cache_ttl; let found through and cache not found",
+          "contract": "not found answers HTTP 404 not_found with a body byte-identical to the one for a slug that is not subscribed"
+        },
+        {
+          "id": "11-REQ-6.6",
+          "pattern": "unwanted",
+          "condition": "hub answers 401 to a call made with a cached caller token on the caller's behalf",
+          "system": "auth middleware",
+          "action": "evict the token's identity entry and all of its visibility entries",
+          "contract": "HTTP 401 unauthenticated; the next request with that token calls GET /api/v1/user again"
+        },
+        {
+          "id": "11-REQ-6.7",
+          "pattern": "ubiquitous",
+          "system": "auth middleware",
+          "action": "never read, fill or evict the identity or visibility cache for a call made with a subscription PAT, even when the PAT equals the caller's token"
+        },
+        {
+          "id": "11-REQ-6.8",
+          "pattern": "ubiquitous",
+          "system": "TTL cache",
+          "action": "hold at most 10,000 entries per cache, evicting expired entries first and then the oldest when full, be safe for concurrent use, and take its clock as an injectable function so expiry is tested by advancing it without sleeping"
+        }
+      ]
+    },
+    {
+      "id": "11-REQ-7",
+      "title": "The HTTP surface",
+      "rationale": "Probes, a fixed apikit error envelope and redacted logs make the service operable and safe to put behind a proxy.",
+      "criteria": [
+        {
+          "id": "11-REQ-7.1",
+          "pattern": "event_driven",
+          "condition": "a client sends GET /healthz, GET /readyz or GET /version without a token",
+          "system": "HTTP server",
+          "action": "answer /healthz with {\"status\":\"ok\"}, /readyz with {\"status\":\"ready\"} after a successful database ping, and /version with the version document of 11-REQ-1.2",
+          "contract": "HTTP 200 with application/json for each"
+        },
+        {
+          "id": "11-REQ-7.2",
+          "pattern": "unwanted",
+          "condition": "the database ping fails on GET /readyz",
+          "system": "HTTP server",
+          "action": "answer not ready",
+          "contract": "HTTP 503 with error code not_ready"
+        },
+        {
+          "id": "11-REQ-7.3",
+          "pattern": "ubiquitous",
+          "system": "HTTP server",
+          "action": "answer every error as application/json with body {\"error\":{\"code\":…,\"message\":…}} and no error_type, mapping invalid_request 400, unauthenticated 401, not_found 404 (also for an unknown route), method_not_allowed 405, payload_too_large 413, unsupported_media_type 415, invalid_hub_token 422, internal 500, hub_unavailable 502, not_ready 503",
+          "contract": "Content-Type application/json; body has error.code and error.message and no error_type; status matches the code"
+        },
+        {
+          "id": "11-REQ-7.4",
+          "pattern": "unwanted",
+          "condition": "a request body is not Content-Type application/json (parameters allowed), exceeds 64 KiB, or is malformed JSON, has unknown fields or has trailing data",
+          "system": "HTTP server",
+          "action": "refuse the request before any write",
+          "contract": "HTTP 415 unsupported_media_type, 413 payload_too_large, or 400 invalid_request respectively"
+        },
+        {
+          "id": "11-REQ-7.5",
+          "pattern": "unwanted",
+          "condition": "a handler panics",
+          "system": "HTTP server",
+          "action": "recover, log the panic with its stack at level ERROR, and keep the process serving",
+          "contract": "HTTP 500 internal; a following request is answered"
+        },
+        {
+          "id": "11-REQ-7.6",
+          "pattern": "ubiquitous",
+          "system": "HTTP server",
+          "action": "set a non-zero ReadHeaderTimeout on the http.Server"
+        },
+        {
+          "id": "11-REQ-7.7",
+          "pattern": "ubiquitous",
+          "system": "agent-fox",
+          "action": "write every stderr line after flag parsing as a log/slog JSON record, with one record per request carrying method, path, status, duration and, when known, the caller's user id"
+        },
+        {
+          "id": "11-REQ-7.8",
+          "pattern": "ubiquitous",
+          "system": "agent-fox",
+          "action": "never log the Authorization header, request or response bodies, tokens, ciphertext or the key"
+        }
+      ]
+    },
+    {
+      "id": "11-REQ-8",
+      "title": "Subscribing a workspace",
+      "rationale": "A caller hands over a workspace PAT that hub confirms can see the workspace, so later specs can act on it.",
+      "criteria": [
+        {
+          "id": "11-REQ-8.1",
+          "pattern": "event_driven",
+          "condition": "a caller who can see slug on hub sends PUT /api/v1/workspaces/{slug} with {\"hub_token\": PAT, \"label_prefix\"?: string} and slug is not yet subscribed, and hub's workspace call with the PAT finds slug",
+          "system": "subscription API",
+          "action": "seal the PAT (11-REQ-3.3) and insert the row in one upsert statement with label_prefix (default af:), token_user, subscribed_by = the caller's user id, and created_at = updated_at = now",
+          "contract": "HTTP 201 with the subscription view (11-REQ-9.1)"
+        },
+        {
+          "id": "11-REQ-8.2",
+          "pattern": "complex_event",
+          "condition": "a valid PUT /api/v1/workspaces/{slug} passes every check",
+          "guard": "slug is already subscribed",
+          "system": "subscription API",
+          "action": "replace the row in full: an absent label_prefix resets to af:, token_user takes this request's answer (empty stays empty), subscribed_by becomes the current caller, created_at is kept and updated_at is now",
+          "contract": "HTTP 200 with the subscription view"
+        },
+        {
+          "id": "11-REQ-8.3",
+          "pattern": "unwanted",
+          "condition": "hub_token is missing or empty, or label_prefix is not 1 to 32 characters or contains whitespace, a control character or a comma",
+          "system": "subscription API",
+          "action": "refuse the request without calling hub with the PAT and without writing",
+          "contract": "HTTP 400 invalid_request; the subscriptions table is unchanged"
+        },
+        {
+          "id": "11-REQ-8.4",
+          "pattern": "ubiquitous",
+          "system": "subscription API",
+          "action": "after the caller and body checks, make two fresh hub calls with the PAT that bypass both caches, first the workspace call for slug as the gate and then the user call as best effort, storing the user's id as token_user or leaving token_user empty when hub refuses the PAT on the user call"
+        },
+        {
+          "id": "11-REQ-8.5",
+          "pattern": "unwanted",
+          "condition": "hub refuses the PAT on the gate workspace call (401)",
+          "system": "subscription API",
+          "action": "write nothing and leave both caches untouched",
+          "contract": "HTTP 422 invalid_hub_token with a message saying hub refused the token"
+        },
+        {
+          "id": "11-REQ-8.6",
+          "pattern": "unwanted",
+          "condition": "hub does not find slug for the PAT on the gate workspace call (403 or 404)",
+          "system": "subscription API",
+          "action": "write nothing and leave both caches untouched",
+          "contract": "HTTP 422 invalid_hub_token with a message naming the workspace slug"
+        },
+        {
+          "id": "11-REQ-8.7",
+          "pattern": "unwanted",
+          "condition": "hub is unavailable on either the gate call or the user call made with the PAT",
+          "system": "subscription API",
+          "action": "write nothing and leave both caches untouched",
+          "contract": "HTTP 502 hub_unavailable; the subscriptions table is unchanged"
+        },
+        {
+          "id": "11-REQ-8.8",
+          "pattern": "ubiquitous",
+          "system": "subscription API",
+          "action": "for any stored subscription, keep the PAT's bytes out of the database file, its WAL and every response body"
+        }
+      ]
+    },
+    {
+      "id": "11-REQ-9",
+      "title": "Reading and removing subscriptions",
+      "rationale": "Callers who can see a workspace on hub can inspect and remove its subscription, and later specs can read the opened PAT in-process.",
+      "criteria": [
+        {
+          "id": "11-REQ-9.1",
+          "pattern": "ubiquitous",
+          "system": "subscription API",
+          "action": "render a subscription as {slug, label_prefix, token_user, subscribed_by, token_state, created_at, updated_at}, with label_prefix the value given at subscribe or af:, token_user null when empty, and neither the token nor its ciphertext"
+        },
+        {
+          "id": "11-REQ-9.2",
+          "pattern": "event_driven",
+          "condition": "a caller sends GET /api/v1/workspaces",
+          "system": "subscription API",
+          "action": "return every subscription whose slug the caller can see per the cached visibility check, sorted by slug",
+          "contract": "HTTP 200 with {\"workspaces\":[view…]}; a caller who cannot see widgets gets a list without widgets"
+        },
+        {
+          "id": "11-REQ-9.3",
+          "pattern": "unwanted",
+          "condition": "hub is unavailable on the visibility check for any subscription while listing",
+          "system": "subscription API",
+          "action": "answer with no partial list",
+          "contract": "HTTP 502 hub_unavailable"
+        },
+        {
+          "id": "11-REQ-9.4",
+          "pattern": "event_driven",
+          "condition": "a caller sends GET /api/v1/workspaces/{slug}",
+          "system": "subscription API",
+          "action": "return the subscription view, or answer not found when slug is not subscribed or the caller cannot see it",
+          "contract": "HTTP 200 with the view, or HTTP 404 not_found with the same body in both not-found cases"
+        },
+        {
+          "id": "11-REQ-9.5",
+          "pattern": "event_driven",
+          "condition": "a caller sends DELETE /api/v1/workspaces/{slug}",
+          "system": "subscription API",
+          "action": "remove the row, sealed token included, or answer not found under the rule of 11-REQ-9.4",
+          "contract": "HTTP 204 with no body, or HTTP 404 not_found"
+        },
+        {
+          "id": "11-REQ-9.6",
+          "pattern": "state_driven",
+          "condition": "the service runs with a key file",
+          "system": "subscription API",
+          "action": "report token_state ok for a subscription whose sealed token opens with that key and unreadable otherwise, and keep serving every route including PUT and DELETE for an unreadable one",
+          "contract": "after restart with the same key the view shows token_state ok; with a different key it shows unreadable and the service still answers /healthz 200"
+        },
+        {
+          "id": "11-REQ-9.7",
+          "pattern": "event_driven",
+          "condition": "code inside the process reads a subscription's PAT by slug",
+          "system": "store",
+          "action": "return the opened plaintext PAT",
+          "contract": "the PAT given at subscribe"
+        },
+        {
+          "id": "11-REQ-9.8",
+          "pattern": "unwanted",
+          "condition": "the in-process PAT read is for a slug that is not subscribed or whose token does not open",
+          "system": "store",
+          "action": "return an error and never panic, with no plaintext in the error",
+          "contract": "non-nil error distinguishable as not subscribed or unreadable"
+        }
+      ]
+    },
+    {
+      "id": "11-REQ-10",
+      "title": "Test support and documentation",
+      "rationale": "Later specs extend the fake hub, and the steering requires every new surface to be documented in the same change.",
+      "criteria": [
+        {
+          "id": "11-REQ-10.1",
+          "pattern": "ubiquitous",
+          "system": "internal/hub/fakehub",
+          "action": "serve GET /api/v1/user and GET /api/v1/workspaces/{slug} from an httptest table mapping tokens to users and users to visible workspaces, where a token may also be given workspaces without a user so that /user refuses it while the workspace call finds the workspace"
+        },
+        {
+          "id": "11-REQ-10.2",
+          "pattern": "ubiquitous",
+          "system": "internal/hub/fakehub",
+          "action": "count and record every request by path and token hash, and fail a chosen route with a given status or by hanging up when told to",
+          "contract": "per-(path, token hash) request counts readable by tests; a failed route answers the configured status or closes the connection"
+        },
+        {
+          "id": "11-REQ-10.3",
+          "pattern": "ubiquitous",
+          "system": "docs",
+          "action": "create docs/api.md covering the routes, the bearer authentication rule, the subscription view with token_user possibly null and label_prefix being the value given at subscribe, PUT's 201 on create and 200 on replace, the error codes, and the envelope without error_type",
+          "contract": "docs/api.md exists and names every route and every error code of 11-REQ-7.3"
+        },
+        {
+          "id": "11-REQ-10.4",
+          "pattern": "ubiquitous",
+          "system": "docs",
+          "action": "give docs/cli.md an agent-fox section with the flags --config, --version and --help, exit codes 0, 1 and 2 with their meaning, and the config file lookup order"
+        },
+        {
+          "id": "11-REQ-10.5",
+          "pattern": "ubiquitous",
+          "system": "docs",
+          "action": "give docs/configuration.md an agent-fox section listing the keys of 11-REQ-2, stating that server.external_url and [workers] are not accepted in this release, and describing the key file with the recipe (umask 077; openssl rand -base64 32 > key)"
+        },
+        {
+          "id": "11-REQ-10.6",
+          "pattern": "ubiquitous",
+          "system": "docs",
+          "action": "state in docs/model-usage.md that agent-fox runs no model in this release, add a service section to docs/architecture.md (process, state file, hub as identity provider), list cmd/agent-fox, internal/hub and the service packages in docs/development.md's layout table, and describe the binary and how to start it in README.md"
+        },
+        {
+          "id": "11-REQ-10.7",
+          "pattern": "ubiquitous",
+          "system": "docs",
+          "action": "commit the output of make doc under docs/generated/, including docs/generated/cmd/agent-fox.txt"
+        },
+        {
+          "id": "11-REQ-10.8",
+          "pattern": "ubiquitous",
+          "system": "build",
+          "action": "pass make check offline, with no network beyond loopback, no real hub and no pre-existing key file",
+          "contract": "make check exits 0"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "11-PATH-1",
+      "title": "An operator starts agent-fox from a minimal config and probes it",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs agent-fox --config c.toml where c.toml sets only [hub].url and [secrets].key_file (a 0600 base64 32-byte key) and server.listen 127.0.0.1:0"
+        },
+        {
+          "actor": "agent-fox",
+          "action": "loads and validates the configuration, loads the key, creates and migrates the SQLite file, binds the listener and logs a listening record with the bound addr"
+        },
+        {
+          "actor": "operator",
+          "action": "sends GET /healthz, GET /readyz and GET /version without a token"
+        },
+        {
+          "actor": "agent-fox",
+          "action": "answers 200 {\"status\":\"ok\"}, 200 {\"status\":\"ready\"} and 200 with the version document"
+        },
+        {
+          "actor": "operator",
+          "action": "sends SIGTERM and the process closes the database and exits 0"
+        }
+      ]
+    },
+    {
+      "id": "11-PATH-2",
+      "title": "A bad configuration is refused before listening",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs agent-fox --config c.toml where c.toml sets server.external_url or auth_cache_ttl = \"16m\""
+        },
+        {
+          "actor": "agent-fox",
+          "action": "rejects the configuration before binding and writes one JSON ERROR record with msg 'start failed' whose error names the dotted key"
+        },
+        {
+          "actor": "operator",
+          "action": "observes exit code 2 and no listening record"
+        }
+      ]
+    },
+    {
+      "id": "11-PATH-3",
+      "title": "A caller subscribes a workspace and lists it",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "sends PUT /api/v1/workspaces/widgets with bearer caller token and {\"hub_token\": PAT}"
+        },
+        {
+          "actor": "agent-fox",
+          "action": "validates the caller token with hub GET /api/v1/user and caches the identity by token hash"
+        },
+        {
+          "actor": "agent-fox",
+          "action": "checks with hub GET /api/v1/workspaces/widgets using the caller token that the caller sees widgets, and caches the visibility"
+        },
+        {
+          "actor": "agent-fox",
+          "action": "calls hub's workspace and user endpoints with the PAT, bypassing both caches"
+        },
+        {
+          "actor": "agent-fox",
+          "action": "seals the PAT with AES-256-GCM, upserts the af_ subscriptions row and answers 201 with the subscription view without the PAT"
+        },
+        {
+          "actor": "caller",
+          "action": "sends GET /api/v1/workspaces and receives a list holding widgets, while a caller who cannot see widgets gets a list without it and 404 on GET /api/v1/workspaces/widgets"
+        }
+      ]
+    },
+    {
+      "id": "11-PATH-4",
+      "title": "A subscription survives a restart with the same key and degrades with another key",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "stops agent-fox after widgets is subscribed and restarts it with the same key file"
+        },
+        {
+          "actor": "caller",
+          "action": "sends GET /api/v1/workspaces/widgets"
+        },
+        {
+          "actor": "agent-fox",
+          "action": "opens the sealed PAT with the key and answers the view with token_state ok"
+        },
+        {
+          "actor": "operator",
+          "action": "restarts agent-fox with a different key file"
+        },
+        {
+          "actor": "agent-fox",
+          "action": "starts, and answers the view of widgets with token_state unreadable while /healthz still answers 200"
+        }
+      ]
+    },
+    {
+      "id": "11-PATH-5",
+      "title": "A token revoked on hub is evicted and revalidated",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "sends GET /api/v1/workspaces/widgets with a token whose identity is cached"
+        },
+        {
+          "actor": "hub",
+          "action": "answers 401 to the visibility call made with that token"
+        },
+        {
+          "actor": "agent-fox",
+          "action": "evicts the token's identity and visibility entries and answers 401 unauthenticated"
+        },
+        {
+          "actor": "caller",
+          "action": "sends another request with the same token"
+        },
+        {
+          "actor": "agent-fox",
+          "action": "calls hub GET /api/v1/user again to revalidate the token"
+        }
+      ]
+    },
+    {
+      "id": "11-PATH-6",
+      "title": "A caller removes a subscription",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "sends DELETE /api/v1/workspaces/widgets with a bearer token that can see widgets on hub"
+        },
+        {
+          "actor": "agent-fox",
+          "action": "runs the slug, identity and visibility checks, deletes the subscription row and its sealed PAT, and answers 204"
+        },
+        {
+          "actor": "caller",
+          "action": "sends GET /api/v1/workspaces/widgets and receives 404 not_found"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "github.com/BurntSushi/toml",
+      "version": "v1.6.0",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "DecodeFile",
+          "import_path": "github.com/BurntSushi/toml",
+          "signature": "func DecodeFile(path string, v any) (MetaData, error)",
+          "notes": "Source is in the module cache, outside the repository; signature from the PRD."
+        },
+        {
+          "name": "MetaData.Undecoded",
+          "import_path": "github.com/BurntSushi/toml",
+          "signature": "func (md *MetaData) Undecoded() []Key",
+          "notes": "Used to refuse unknown keys."
+        },
+        {
+          "name": "Key.String",
+          "import_path": "github.com/BurntSushi/toml",
+          "signature": "func (k Key) String() string",
+          "notes": "Gives the dotted key name for error messages."
+        },
+        {
+          "name": "ParseError",
+          "import_path": "github.com/BurntSushi/toml",
+          "signature": "type ParseError struct",
+          "notes": "Carries the position of a syntax error."
+        }
+      ]
+    },
+    {
+      "package": "modernc.org/sqlite",
+      "version": "not yet in go.mod (new requirement, pin at implementation)",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "driver registration",
+          "import_path": "modernc.org/sqlite",
+          "signature": "import _ \"modernc.org/sqlite\" // registers database/sql driver \"sqlite\"",
+          "notes": "Assumed; pragmas in DSN as file:<path>?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)."
+        }
+      ]
+    },
+    {
+      "package": "hub HTTP API",
+      "version": "api/v1",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "GET /api/v1/user",
+          "import_path": "<hub.url>/api/v1/user",
+          "signature": "GET with Authorization: Bearer <token> -> 200 {id: string|number, login?: string} | 401",
+          "notes": "Field name id is an assumption to confirm against hub's published API; only the hub client knows it."
+        },
+        {
+          "name": "GET /api/v1/workspaces/{slug}",
+          "import_path": "<hub.url>/api/v1/workspaces/{slug}",
+          "signature": "GET with Authorization: Bearer <token> -> 200 workspace object | 401 | 403 | 404",
+          "notes": "No field of the workspace object is read by this spec."
+        }
+      ]
+    }
+  ]
+}

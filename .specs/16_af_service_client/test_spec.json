@@ -1,0 +1,1571 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "16",
+  "spec_name": "af_service_client",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-16-1",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-1.1"
+      ],
+      "title": "af fix or triage with neither --local nor --workspace exits 2 naming both modes, with the hint depending on whether a server is named",
+      "given": [
+        "a temp working dir",
+        "a recording fake forge and a recording fake service"
+      ],
+      "when": "`af fix <issue url>` and `af triage 42` are run with no mode, once with AF_URL set and once with it unset",
+      "then": [
+        "status is usage and exit code is 2",
+        "error.message names `--workspace`, `--server`, `AF_URL` and `--local`",
+        "error.fix_hint is {flag:\"--workspace\"} when a server is named and {flag:\"--local\"} otherwise"
+      ],
+      "pseudocode": "for cmd in [fix,triage]: for url in [set,unset]: env=run(cmd,input); assert env.status=='usage' and exit==2; assert hint.flag == ('--workspace' if url else '--local')"
+    },
+    {
+      "id": "TS-16-2",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-1.2"
+      ],
+      "title": "--local together with --workspace is a usage error naming both flags",
+      "given": [
+        "a recording fake service"
+      ],
+      "when": "`af fix 42 --local --workspace widgets` and `af triage 42 --workspace=w --local` are run",
+      "then": [
+        "status usage, exit code 2",
+        "message names `--local` and `--workspace`"
+      ],
+      "pseudocode": "env=run('fix','42','--local','--workspace','widgets'); assert exit==2; assert '--local' in msg and '--workspace' in msg"
+    },
+    {
+      "id": "TS-16-3",
+      "kind": "integration",
+      "verifies": [
+        "16-REQ-1.3"
+      ],
+      "title": "A refused mode invocation reaches neither the forge nor the service and creates no run directory",
+      "given": [
+        "a recording fake forge, a recording fake service, GITHUB_TOKEN set and AF_URL naming the fake",
+        "an empty working dir"
+      ],
+      "when": "invocations refused by R1 or R2 are run: no mode, both modes, `--local --wait`, `--workspace` with `--dir`, and no server",
+      "then": [
+        "every one exits 2",
+        "the forge recorded zero requests",
+        "the service recorded zero requests",
+        "no `.agent-fox/run/` directory exists under the working dir or --dir"
+      ],
+      "pseudocode": "for args in refused: run(args); assert forge.requests==[] and svc.requests==[]; assert not exists('.agent-fox/run')"
+    },
+    {
+      "id": "TS-16-4",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-1.4"
+      ],
+      "title": "Words after `--` are the input and never a mode, and only words before it are scanned",
+      "given": [
+        "a recording fake service"
+      ],
+      "when": "`af triage -- --local` and `af fix --workspace widgets -- 42`  and `af triage x -- --workspace` are run",
+      "then": [
+        "`-- --local` names no mode: exit 2 with the no-mode message",
+        "`--workspace widgets -- 42` chooses service mode",
+        "a `--workspace` after `--` is not read as a mode: exit 2 no-mode message"
+      ],
+      "pseudocode": "assert run('triage','--','--local').exit==2; assert mode('fix','--workspace','widgets','--','42')=='service'"
+    },
+    {
+      "id": "TS-16-5",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-1.5"
+      ],
+      "title": "A mode word that is the value of a value-taking flag is that flag's value",
+      "given": [
+        "a recording fake service and forge"
+      ],
+      "when": "`af triage x --context --local`, `af triage x --context --workspace w`, `af fix 1 --output --local` and `af fix 1 --emit-events=--local` are run",
+      "then": [
+        "the first three name no mode and exit 2",
+        "no forge or service request is sent and no run directory is created",
+        "`--local` is accepted as the value of the flag in each case rather than as a mode"
+      ],
+      "pseudocode": "env=run('triage','x','--context','--local'); assert env.exit==2 and 'no mode' semantics"
+    },
+    {
+      "id": "TS-16-6",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-1.6"
+      ],
+      "title": "Mode flags are read with one or two dashes, and a missing or empty --workspace value is a usage error",
+      "given": [
+        "a fake service that accepts queue requests"
+      ],
+      "when": "`--workspace w`, `-workspace w`, `--workspace=w` and `-workspace=w` are given, then `--workspace` as the last word, `--workspace=` and `--workspace ''`",
+      "then": [
+        "the first four choose service mode",
+        "the last three exit 2 with a message naming `--workspace`"
+      ],
+      "pseudocode": "for form in forms: assert mode(form)=='service'; for bad in [last,'--workspace=',empty]: assert exit==2 and '--workspace' in msg"
+    },
+    {
+      "id": "TS-16-7",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-1.7"
+      ],
+      "title": "--local follows Go boolean syntax: true values choose local, false counts as not given, garbage is a usage error",
+      "given": [
+        "a fake forge"
+      ],
+      "when": "`--local`, `--local=true`, `-local=1`, `--local=false` (alone and with --workspace w) and `--local=maybe` are given",
+      "then": [
+        "`--local`, `--local=true`, `-local=1` choose local mode",
+        "`--local=false` alone is the no-mode usage error; with --workspace it chooses service mode",
+        "`--local=maybe` exits 2 with a message naming `--local`"
+      ],
+      "pseudocode": "assert mode('--local=true')=='local'; assert run('--local=false').exit==2; assert '--local' in run('--local=maybe').msg"
+    },
+    {
+      "id": "TS-16-8",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-1.8"
+      ],
+      "title": "Help for triage and fix describes both modes and each mode's flags",
+      "given": [
+        "no forge or service"
+      ],
+      "when": "`af triage --help`, `af help triage`, `af fix --help` and `af help fix` are run",
+      "then": [
+        "each exits 0",
+        "the text mentions `--local`, `--workspace`, `--server`, `--wait` and the loop-only flags",
+        "`af triage x --context --help` still treats --help as the context value"
+      ],
+      "pseudocode": "for a in forms: out=run(a); assert exit==0; assert all(t in out for t in ['--local','--workspace','--server','--wait'])"
+    },
+    {
+      "id": "TS-16-9",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-2.1"
+      ],
+      "title": "Local mode refuses --server and --wait with a usage error naming the flag",
+      "given": [
+        "a recording fake forge and service"
+      ],
+      "when": "`af fix 42 --local --server http://x`, `af triage 42 --local --wait` are run",
+      "then": [
+        "status usage, exit code 2",
+        "message names the refused flag",
+        "no forge read, no service request, no run directory"
+      ],
+      "pseudocode": "for flag in ['--server http://x','--wait']: env=run(...); assert exit==2 and flag_name in msg; assert no_traces()"
+    },
+    {
+      "id": "TS-16-10",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-2.2"
+      ],
+      "title": "Service mode refuses every loop-only flag, naming it, and sends no request",
+      "given": [
+        "a recording fake service"
+      ],
+      "when": "for each of --dir, --repo, --dry-run, --land, --brain, --sandbox, --borrowed-hands, --budget, --max-turns, --script (both commands), --label (triage) and --base, --attempts, --no-verify (fix), the command is run with --workspace w",
+      "then": [
+        "each exits 2 with status usage",
+        "the message names that flag",
+        "no request is sent"
+      ],
+      "pseudocode": "for (cmd,flag) in table: env=run(cmd,'1','--workspace','w',flag,val); assert exit==2 and flag in msg; assert svc.requests==[]"
+    },
+    {
+      "id": "TS-16-11",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-2.3"
+      ],
+      "title": "--context, --timeout, --output and --emit-events are accepted on triage and fix in both modes",
+      "given": [
+        "a fake service that queues jobs",
+        "a stubbed local loop"
+      ],
+      "when": "each of the four flags is added to a `--workspace` and to a `--local` invocation of both commands",
+      "then": [
+        "none of them yields a usage error about that flag in either mode"
+      ],
+      "pseudocode": "for mode in modes: for flag in four: assert not usage_error_naming(flag)"
+    },
+    {
+      "id": "TS-16-12",
+      "kind": "integration",
+      "verifies": [
+        "16-REQ-2.4"
+      ],
+      "title": "Local mode behaves exactly as before the spec even with AF_URL on a closed port",
+      "given": [
+        "scripted brain and fake forge as used by the existing local triage and fix tests",
+        "AF_URL set to a closed local port"
+      ],
+      "when": "`af fix <issue> --local` and `af triage <issue> --local` run with the same flags as the pre-spec baseline",
+      "then": [
+        "statuses, exit codes, results, events, warnings and run directory contents equal the pre-spec golden outputs",
+        "the only envelope difference is triage's fix suggestion in next",
+        "no connection to the closed port is attempted"
+      ],
+      "pseudocode": "env=run('fix',url,'--local',...); assert normalize(env)==baseline; assert port_attempts==0"
+    },
+    {
+      "id": "TS-16-13",
+      "kind": "integration",
+      "verifies": [
+        "16-REQ-2.5"
+      ],
+      "title": "Triage's fix suggestion ends with --local, from the loop and from triage land",
+      "given": [
+        "a scripted triage ending in a confirmed diagnosis and another in a probable diagnosis",
+        "a prepared run for `af triage land`"
+      ],
+      "when": "triage runs with --local and `af triage land` is run",
+      "then": [
+        "next contains argv [\"af\",\"fix\",<issue url>,\"--dir\",<dir>,\"--local\"] exactly",
+        "running that argv does not give the no-mode usage error"
+      ],
+      "pseudocode": "assert hasNext(env, ['af','fix',url,'--dir',dir,'--local'])"
+    },
+    {
+      "id": "TS-16-14",
+      "kind": "integration",
+      "verifies": [
+        "16-REQ-2.6"
+      ],
+      "title": "An in-process invocation of the loops without --local still runs and never contacts a service",
+      "given": [
+        "a fresh toolio.App with the loops registered as the worker does",
+        "a recording fake service named by AF_URL"
+      ],
+      "when": "the loops are invoked in process with flags and no --local or --workspace",
+      "then": [
+        "the loop runs as before (no no-mode usage error)",
+        "the service recorded zero requests",
+        "the existing worker invocation tests pass unchanged"
+      ],
+      "pseudocode": "app=newInProcessApp(); env=app.Main(['af','fix',url,'--dir',d]); assert env.status != usage_nomode; assert svc.requests==[]"
+    },
+    {
+      "id": "TS-16-15",
+      "kind": "integration",
+      "verifies": [
+        "16-REQ-2.7"
+      ],
+      "title": "Every new command registers a schema and the golden matches --schema output byte for byte",
+      "given": [
+        "the registered af app",
+        "cmd/af/testdata/schema.golden.json"
+      ],
+      "when": "`--schema` is produced for every command and compared with the golden; the schemas for the job result, job page, subscription view, {workspaces}, {slug} and {credential_file, server} are validated against sample results with extra fields",
+      "then": [
+        "output equals the golden byte for byte",
+        "samples with unknown extra fields validate",
+        "`af triage --schema` and `af fix --schema` validate both a local result and a job result",
+        "each schema's top-level properties match its Go result type's JSON fields"
+      ],
+      "pseudocode": "assert dumpSchemas()==read(golden); for s in samples: assert validate(s.schema, s.doc)"
+    },
+    {
+      "id": "TS-16-16",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-2.8"
+      ],
+      "title": "A docs test finds every required term in the documentation and no checked phrase is removed",
+      "given": [
+        "docs/cli.md, docs/configuration.md, docs/model-usage.md, docs/architecture.md, docs/development.md, README.md, docs/errata/16_*.md"
+      ],
+      "when": "the docs test reads each file",
+      "then": [
+        "cli.md holds the mode rule, new commands and flags, the categories service, conflict, hub, job_cancelled, the warnings server_insecure, credential_file_permissions, attempt_envelope_unavailable, the event job_event, `af fix <issue url> --dir <dir> --local` and the registered command count",
+        "configuration.md and model-usage.md name AF_URL, ~/.af/config.toml, token and result.job.usage",
+        "architecture, development and README name the client",
+        "existing docs tests still pass"
+      ],
+      "pseudocode": "for (file,terms) in required: for t in terms: assert t in read(file)"
+    },
+    {
+      "id": "TS-16-17",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-3.1"
+      ],
+      "title": "--server wins over AF_URL and an empty AF_URL counts as unset",
+      "given": [
+        "two scripted fake services A and B"
+      ],
+      "when": "a service command runs with --server A and AF_URL=B; then with only AF_URL=B; then with AF_URL='' and no flag",
+      "then": [
+        "the first sends its requests only to A",
+        "the second sends to B",
+        "the third is the no-server usage error"
+      ],
+      "pseudocode": "assert hits(A)>0 and hits(B)==0; ...; assert run().exit==2"
+    },
+    {
+      "id": "TS-16-18",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-3.2"
+      ],
+      "title": "An http or https server with a path prefix is accepted and one trailing slash is dropped",
+      "given": [
+        "a scripted fake service under a path prefix /prefix"
+      ],
+      "when": "the server is given as `http://127.0.0.1:P/prefix/` and `http://127.0.0.1:P/prefix`",
+      "then": [
+        "requests go to `/prefix/api/v1/...` with no double slash",
+        "`https://` URLs with a host are accepted"
+      ],
+      "pseudocode": "assert recorded.path.startswith('/prefix/api/v1/')"
+    },
+    {
+      "id": "TS-16-19",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-3.3"
+      ],
+      "title": "A malformed server URL is a usage error naming its source and the rule, and sends nothing",
+      "given": [
+        "a recording fake service"
+      ],
+      "when": "the server is `localhost:80`, `ftp://h`, `http://`, `http://h/?q=1`, `http://h/#f`, `http://u:p@h`, once via --server and once via AF_URL",
+      "then": [
+        "status usage, exit code 2",
+        "message names `--server` or `AF_URL` according to the source, and the broken rule",
+        "the password of a user-info URL never appears in the output",
+        "no request is sent"
+      ],
+      "pseudocode": "for u in bad: for src in [flag,env]: env=run(src,u); assert exit==2 and src_name in msg"
+    },
+    {
+      "id": "TS-16-20",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-3.4"
+      ],
+      "title": "A service command with no server is a usage error naming --server and AF_URL, plus --local for triage and fix",
+      "given": [
+        "AF_URL unset",
+        "a valid credential file"
+      ],
+      "when": "`af workspace list` and `af fix 1 --workspace w` are run",
+      "then": [
+        "status usage, exit code 2, fix_hint {flag:\"--server\", env:\"AF_URL\"}",
+        "the message of the fix command also names `--local`",
+        "nothing is sent"
+      ],
+      "pseudocode": "env=run('workspace','list'); assert env.error.fix_hint=={'flag':'--server','env':'AF_URL'}"
+    },
+    {
+      "id": "TS-16-21",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-3.5"
+      ],
+      "title": "A non-loopback http server raises server_insecure and the command continues; loopback does not",
+      "given": [
+        "a fake transport answering 200 for any host"
+      ],
+      "when": "`af workspace list` is run with servers http://example.com, http://localhost:1, http://127.0.0.2:1, http://[::1]:1 and https://example.com",
+      "then": [
+        "only http://example.com raises warning server_insecure",
+        "the command still completes with exit 0"
+      ],
+      "pseudocode": "assert ('server_insecure' in codes(run(u))) == (u=='http://example.com')"
+    },
+    {
+      "id": "TS-16-22",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-4.1"
+      ],
+      "title": "The request carries the top-level token of ~/.af/config.toml and other keys are ignored",
+      "given": [
+        "HOME holds .af/config.toml with other keys, a table with its own `token`, and a top-level token `T1`",
+        "a scripted fake service"
+      ],
+      "when": "`af workspace list` is run",
+      "then": [
+        "Authorization is `Bearer T1`",
+        "other keys and the table's token are ignored"
+      ],
+      "pseudocode": "assert svc.last.header['Authorization']=='Bearer T1'"
+    },
+    {
+      "id": "TS-16-23",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-4.2"
+      ],
+      "title": "An unfindable home or unreadable credential file fails io naming the path before any request",
+      "given": [
+        "a recording fake service",
+        "(a) no HOME, (b) the credential path is a directory, (c) the file has mode 000 (non-root, Unix)"
+      ],
+      "when": "`af workspace list` is run in each case",
+      "then": [
+        "status failed, exit code 1, category io",
+        "message names the path",
+        "no request is sent"
+      ],
+      "pseudocode": "for case in cases: env=run(); assert env.exit==1 and env.error.category=='io'; assert svc.requests==[]"
+    },
+    {
+      "id": "TS-16-24",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-4.3"
+      ],
+      "title": "A missing file or a missing, non-string or empty token fails auth with the login hint",
+      "given": [
+        "a recording fake service",
+        "cases: no file, no token key, token = 5, token = \"\""
+      ],
+      "when": "`af workspace list` is run in each case",
+      "then": [
+        "status failed, exit code 1, category auth",
+        "message names the file and says to run `af login --token-file FILE` or `afc login`",
+        "fix_hint is {suggest:\"af login --token-file FILE\"}",
+        "no request is sent"
+      ],
+      "pseudocode": "for case in cases: env=run(); assert env.error.category=='auth' and env.error.fix_hint.suggest=='af login --token-file FILE'"
+    },
+    {
+      "id": "TS-16-25",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-4.4"
+      ],
+      "title": "A credential file that is not TOML, or a token with a line break or control character, fails config",
+      "given": [
+        "a recording fake service",
+        "cases: `token = ` garbage, a token containing \\n, a token containing \\x07"
+      ],
+      "when": "`af workspace list` is run in each case",
+      "then": [
+        "status failed, exit code 1, category config",
+        "message names the file",
+        "no request is sent and the token value is not echoed"
+      ],
+      "pseudocode": "for case in cases: env=run(); assert env.error.category=='config'"
+    },
+    {
+      "id": "TS-16-26",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-4.5"
+      ],
+      "title": "On Unix a group- or other-accessible credential file raises credential_file_permissions and the command goes on",
+      "given": [
+        "a credential file with mode 0644, a second with 0600",
+        "a fake service answering 200"
+      ],
+      "when": "`af workspace list` is run with each",
+      "then": [
+        "0644 raises warning credential_file_permissions naming the file, exit 0",
+        "0600 raises no such warning"
+      ],
+      "pseudocode": "assert 'credential_file_permissions' in codes(run(mode=0o644)); assert not in codes(run(mode=0o600))"
+    },
+    {
+      "id": "TS-16-27",
+      "kind": "property",
+      "verifies": [
+        "16-REQ-4.6"
+      ],
+      "title": "A credential and a workspace PAT never appear in any output",
+      "given": [
+        "a scripted fake service that sometimes succeeds and sometimes fails, and may echo request headers or bodies into error messages"
+      ],
+      "when": "for any command among login, workspace subscribe, jobs and fix --workspace --wait, any sentinel credential and PAT, and any answer of the service",
+      "then": [
+        "the sentinel credential and sentinel PAT are absent from stdout, stderr, the --output file, the --emit-events file, every error message and every warning"
+      ],
+      "pseudocode": "for cmd,cred,pat,answer in gen(): out=run(cmd,--output o,--emit-events e); for s in [cred,pat]: for f in [stdout,stderr,o,e]: assert s not in f"
+    },
+    {
+      "id": "TS-16-28",
+      "kind": "integration",
+      "verifies": [
+        "16-REQ-4.7"
+      ],
+      "title": "The credential reaches only the server's host, even when the service redirects elsewhere",
+      "given": [
+        "a scripted service A that redirects to a second recording server B"
+      ],
+      "when": "`af workspace list --server A` runs",
+      "then": [
+        "B received no request",
+        "no request to any host other than A carries the Authorization header"
+      ],
+      "pseudocode": "assert B.requests==[]"
+    },
+    {
+      "id": "TS-16-29",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-5.1"
+      ],
+      "title": "af login reads the credential from a file or stdin, never the command line, and an unreadable source is io",
+      "given": [
+        "a fake service answering 200 to the check",
+        "a token file, a missing path, a stdin that errors"
+      ],
+      "when": "`af login --token-file f`, `--token-file -`, `--token-file missing`, and stdin read failure are run",
+      "then": [
+        "the first two succeed with the file's/stdin's token on the check request",
+        "the missing path and the stdin failure are status failed, exit 1, category io naming the path or stdin",
+        "no argument other than --token-file's value is taken as a credential: a positional argument is refused"
+      ],
+      "pseudocode": "assert svc.check.header=='Bearer '+tok; assert run('login','--token-file','missing').error.category=='io'"
+    },
+    {
+      "id": "TS-16-30",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-5.2"
+      ],
+      "title": "An empty, multi-line, control-character or oversized credential is a usage error and nothing is written",
+      "given": [
+        "a fake service",
+        "a HOME with no credential file"
+      ],
+      "when": "af login reads a token file that is blank, has two lines, holds \\x01, or is 4097 bytes; and one of exactly 4096 bytes",
+      "then": [
+        "the bad ones: status usage, exit code 2, message names `--token-file`, no request and no file written",
+        "the 4096-byte token passes the content rule",
+        "surrounding whitespace and one trailing newline are trimmed"
+      ],
+      "pseudocode": "for t in bad: assert run(t).exit==2 and '--token-file' in msg; assert not exists(config)"
+    },
+    {
+      "id": "TS-16-31",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-5.3"
+      ],
+      "title": "An unreadable, unparsable or wrongly laid-out existing credential file fails without a check request and stays byte-identical",
+      "given": [
+        "existing files: unreadable (mode 000), invalid TOML, no token line, token only after a [table], token with a multi-line string, `token = \"a\" \"b\"`, token via dotted key",
+        "a recording fake service"
+      ],
+      "when": "`af login --token-file f` is run against each",
+      "then": [
+        "io for unreadable, config for the others, status failed, exit 1",
+        "layout message names the file, says its layout is not the one af expects and that `afc login` or an edit fixes it",
+        "no request to the service",
+        "the file's bytes are unchanged"
+      ],
+      "pseudocode": "for case in cases: before=read(cfg); env=run(); assert env.error.category==case.cat; assert read(cfg)==before; assert svc.requests==[]"
+    },
+    {
+      "id": "TS-16-32",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-5.4"
+      ],
+      "title": "After the local checks pass, af login sends GET /api/v1/workspaces with the new credential and accepts any 2xx",
+      "given": [
+        "a scripted service answering 200, 204-like 2xx variants"
+      ],
+      "when": "`af login --token-file f` is run",
+      "then": [
+        "exactly one request: GET /api/v1/workspaces with `Authorization: Bearer <new token>`",
+        "a 2xx answer proceeds to the write"
+      ],
+      "pseudocode": "assert svc.requests==[('GET','/api/v1/workspaces')]"
+    },
+    {
+      "id": "TS-16-33",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-5.5"
+      ],
+      "title": "A 401 on the check fails auth saying the credential was refused and writes nothing",
+      "given": [
+        "a service answering 401",
+        "(a) no credential file, (b) an existing file"
+      ],
+      "when": "`af login --token-file f` is run",
+      "then": [
+        "status failed, exit code 1, category auth",
+        "message says the service refused this credential",
+        "no file is created and an existing one is unchanged"
+      ],
+      "pseudocode": "assert env.error.category=='auth' and 'refused' in msg; assert unchanged(cfg)"
+    },
+    {
+      "id": "TS-16-34",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-5.6"
+      ],
+      "title": "A 502, other answer, transport error or timeout on the check says the credential was not checked and writes nothing",
+      "given": [
+        "services answering 502, 500, 404, a closed port, and one that stalls past the request bound (injected clock)"
+      ],
+      "when": "`af login --token-file f` is run against each",
+      "then": [
+        "a 502 gives status failed, exit 1, category hub, retryable true",
+        "others follow the 16-REQ-6.5 table",
+        "the message says the credential could not be checked and never says refused",
+        "the credential file is unchanged or absent"
+      ],
+      "pseudocode": "assert env.error.category=='hub' and env.error.retryable; assert 'could not be checked' in msg and 'refused' not in msg"
+    },
+    {
+      "id": "TS-16-35",
+      "kind": "integration",
+      "verifies": [
+        "16-REQ-5.7"
+      ],
+      "title": "A first login writes mode 0600 and a re-login replaces only the token value, keeping every other byte",
+      "given": [
+        "a fake service answering 200",
+        "HOME without ~/.af; then a file with comments, other keys, a table and a literal-string `token = 'old'  # note` line",
+        "a credential containing quotes and backslashes"
+      ],
+      "when": "`af login --token-file -` is run twice",
+      "then": [
+        "first: ~/.af created 0700, config.toml is exactly `token = \"<cred>\"` with mode 0600",
+        "second: only the value on the token line changes, to a TOML basic string; all other bytes (comments, keys, tables, CRLF endings) are identical; mode 0600",
+        "result is {credential_file, server} and never contains the credential; exit 0",
+        "the file parses back to the same token"
+      ],
+      "pseudocode": "assert read(cfg)==expected; assert stat(cfg).mode==0o600; assert toml.decode(read(cfg))['token']==cred; assert cred not in stdout"
+    },
+    {
+      "id": "TS-16-36",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-5.8"
+      ],
+      "title": "Each write-phase failure is io naming the path, removes the temp file and leaves the existing file intact",
+      "given": [
+        "injected failures in turn: creating ~/.af, writing the temp file, sync, close, rename",
+        "a service answering 200",
+        "an existing credential file"
+      ],
+      "when": "`af login --token-file f` is run for each failure",
+      "then": [
+        "status failed, exit code 1, category io",
+        "message names the path",
+        "no temp file remains in ~/.af",
+        "the existing file's bytes are unchanged"
+      ],
+      "pseudocode": "for fault in faults: env=run(fault); assert env.error.category=='io'; assert listdir(.af)==['config.toml']; assert read(cfg)==before"
+    },
+    {
+      "id": "TS-16-37",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-6.1"
+      ],
+      "title": "An invocation with several local mistakes reports the first in the fixed order, and sends nothing",
+      "given": [
+        "a recording fake service",
+        "a missing credential file and no server"
+      ],
+      "when": "commands carrying combined mistakes are run: (flag error + bad input + bad server + no credential), (bad input + bad server + no credential), (bad server + no credential), (no server + no credential), and for login (bad token file content + existing bad file)",
+      "then": [
+        "each reports the earliest failing check: flags, then input/arguments, then server, then credential (or for login the existing file)",
+        "a usage mistake is always reported before an auth or config failure",
+        "no request is sent in any case"
+      ],
+      "pseudocode": "assert run(flag_err,bad_input,bad_url).msg mentions flag; assert run(bad_input,bad_url).msg mentions input; ..."
+    },
+    {
+      "id": "TS-16-38",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-6.2"
+      ],
+      "title": "Every request carries the bearer, User-Agent and Accept headers, and bodies are JSON",
+      "given": [
+        "a recording fake service",
+        "App.Identity version V"
+      ],
+      "when": "a PUT subscribe, a POST queue, a GET job and a GET events stream are issued",
+      "then": [
+        "all carry Authorization Bearer <credential> and User-Agent `af/V`",
+        "events request has Accept text/event-stream, the others application/json",
+        "requests with a body carry Content-Type application/json"
+      ],
+      "pseudocode": "for r in svc.requests: assert r.UA=='af/'+V; assert r.accept == ('text/event-stream' if events else 'application/json')"
+    },
+    {
+      "id": "TS-16-39",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-6.3"
+      ],
+      "title": "Requests are bounded by 2 minutes or the remaining --timeout, bodies by 8 MiB, and --timeout has no default",
+      "given": [
+        "an injected clock",
+        "a service that never answers",
+        "a service that returns a body over 8 MiB"
+      ],
+      "when": "a plain request runs without --timeout, then with --timeout 5s, then the oversized body is fetched",
+      "then": [
+        "without --timeout the request is cut at 2 minutes with category service, retryable true",
+        "with --timeout 5s the command ends at 5 s with the shell's timeout failure",
+        "the oversized body gives category service, retryable false, and no more than 8 MiB is read",
+        "no default --timeout applies to any client command"
+      ],
+      "pseudocode": "clock.advance(120s); assert env.error=={'service',retryable:true}; assert bytesRead<=8*MiB"
+    },
+    {
+      "id": "TS-16-40",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-6.4"
+      ],
+      "title": "A 3xx is not followed and is mapped as a non-retryable service failure",
+      "given": [
+        "a scripted service answering 301, 302, 307 and 308 with a Location pointing at a recording server"
+      ],
+      "when": "`af workspace get w` is run",
+      "then": [
+        "status failed, exit code 1, category service, retryable false",
+        "the Location target recorded no request"
+      ],
+      "pseudocode": "assert env.error.category=='service' and not env.error.retryable; assert target.requests==[]"
+    },
+    {
+      "id": "TS-16-41",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-6.5"
+      ],
+      "title": "Each row of the answer table gives its status, exit code, category and retryable flag",
+      "given": [
+        "a scripted service that answers the chosen status for `af workspace get w`"
+      ],
+      "when": "the service answers 400, 401, 404, 409, 422, 502, 500, 503, 504, 507, 405, 413, 415, 418, a dropped connection, and a 200 whose body is not JSON",
+      "then": [
+        "400 and 404: usage, exit 2, category usage, not retryable",
+        "401 and 422: failed, exit 1, category auth, not retryable",
+        "409: failed, category conflict, not retryable",
+        "502: failed, category hub, retryable",
+        "500: failed, category service, not retryable",
+        "503, 504, 507: failed, category service, retryable",
+        "405, 413, 415, 418: failed, category service, not retryable",
+        "transport error: failed, service, retryable",
+        "non-JSON 200: failed, service, not retryable"
+      ],
+      "pseudocode": "for (status,exp) in table: env=run(answer=status); assert (env.status,env.exit,env.error.category,env.error.retryable)==exp"
+    },
+    {
+      "id": "TS-16-42",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-6.6"
+      ],
+      "title": "Failure messages carry the service message and code, the server source for transport errors, and the thing a 404 asked for",
+      "given": [
+        "a scripted service"
+      ],
+      "when": "it answers {error:{code:\"invalid_request\",message:\"bad\"}}, then an empty 500 body, then 404 for job j and for workspace w; and a transport error with --server and with AF_URL",
+      "then": [
+        "message is `bad (invalid_request)`",
+        "an empty body gives `the service answered 500`",
+        "a 404 names the job id or the slug and says it does not exist or hub does not let the caller see it",
+        "a transport error names the server URL and `--server` or `AF_URL` accordingly"
+      ],
+      "pseudocode": "assert msg=='bad (invalid_request)'; assert 'j' in msg404job; assert '--server' in transportMsgFlag"
+    },
+    {
+      "id": "TS-16-43",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-6.7"
+      ],
+      "title": "Failures carry the fix hint of their answer",
+      "given": [
+        "a scripted service"
+      ],
+      "when": "it answers 401, 404 on a workspace route, 409 not_subscribed, 409 token_unreadable, 409 invalid_state, 404 on a job route, and 422",
+      "then": [
+        "401: {suggest:\"af login --token-file FILE\"}",
+        "404 on workspace route, 409 not_subscribed and token_unreadable: {suggest:\"af workspace subscribe <slug> --hub-token-file FILE\"} with the real slug",
+        "422: {flag:\"--hub-token-file\"}",
+        "409 invalid_state and a 404 on a job route carry no such hint"
+      ],
+      "pseudocode": "assert env.error.fix_hint==expected"
+    },
+    {
+      "id": "TS-16-44",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-6.8"
+      ],
+      "title": "Service documents reach results as received, unknown fields included",
+      "given": [
+        "a scripted service returning job, page and subscription documents with extra unknown fields and nested values"
+      ],
+      "when": "`af jobs get`, `af jobs list`, `af workspace get` run",
+      "then": [
+        "result.job, the page and the subscription view hold every field of the document, including unknown ones, with equal values"
+      ],
+      "pseudocode": "assert json_equal(env.result.job, served_job)"
+    },
+    {
+      "id": "TS-16-45",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-7.1"
+      ],
+      "title": "Each input form of af triage --workspace becomes the right request field",
+      "given": [
+        "a recording service answering 202",
+        "an existing regular file notes.txt"
+      ],
+      "when": "inputs `-` (stdin), `https://github.com/o/r/issues/1`, `http://example.org/x`, `42`, `#42`, `o/r#7`, `a/b/c#7`, `notes.txt`, `some words` and `7x` are given",
+      "then": [
+        "`-`: {text}",
+        "both URLs: {issue:<URL string>}, no classification and no GITHUB_API_URL consulted",
+        "`42` and `#42`: {issue: 42} as a JSON number",
+        "`o/r#7` and `a/b/c#7`: {issue:\"o/r#7\"} as a string",
+        "`notes.txt`: {file:{name:\"notes.txt\", content}}",
+        "`some words` and `7x`: {text}"
+      ],
+      "pseudocode": "assert body('42')=={'issue':42}; assert body('o/r#7')=={'issue':'o/r#7'}; assert body('notes.txt').file.name=='notes.txt'"
+    },
+    {
+      "id": "TS-16-46",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-7.2"
+      ],
+      "title": "af fix --workspace accepts only issue forms and refuses text, files and stdin with a usage error",
+      "given": [
+        "a recording service",
+        "an existing file and free text"
+      ],
+      "when": "`af fix --workspace w` gets `-`, `notes.txt`, `some words`, then N, #N, owner/repo#N and an issue URL",
+      "then": [
+        "the first three: usage, exit 2, message says af fix takes `N`, `#N`, `owner/repo#N` or an issue URL, no request",
+        "the last four are sent as issue"
+      ],
+      "pseudocode": "for bad in [...]: assert exit==2 and svc.requests==[]"
+    },
+    {
+      "id": "TS-16-47",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-7.3"
+      ],
+      "title": "Empty, NUL, invalid UTF-8 and directory inputs are usage errors and an unreadable file is io, all before any request",
+      "given": [
+        "a recording service",
+        "stdin and files with whitespace only, a NUL byte, bytes 0xff 0xfe, a directory, and a file with mode 000"
+      ],
+      "when": "`af triage --workspace w <input>` is run with each",
+      "then": [
+        "empty, NUL, invalid UTF-8, directory: status usage, exit 2",
+        "unreadable file: status failed, exit 1, category io",
+        "no request is sent"
+      ],
+      "pseudocode": "for case in cases: env=run(case); assert (env.exit,cat)==case.expected; assert svc.requests==[]"
+    },
+    {
+      "id": "TS-16-48",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-7.4"
+      ],
+      "title": "Over-long content is cut at a UTF-8 boundary so content plus marker fits MaxInputBytes",
+      "given": [
+        "a recording service",
+        "content of 131072+1000 bytes of 3-byte runes, and content of exactly 131072 bytes"
+      ],
+      "when": "it is sent as stdin text and as a file",
+      "then": [
+        "the sent content length is at most 131072 bytes and is valid UTF-8",
+        "the content ends with the truncation marker",
+        "envelope input.truncated is true and warning input_truncated is raised",
+        "content of exactly 131072 bytes is sent unchanged with truncated false"
+      ],
+      "pseudocode": "assert len(sent)<=131072 and utf8.valid(sent); assert env.input.truncated and 'input_truncated' in codes"
+    },
+    {
+      "id": "TS-16-49",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-7.5"
+      ],
+      "title": "The envelope's input reports kind, origin and truncated for each input form",
+      "given": [
+        "a service answering 202"
+      ],
+      "when": "the input is an issue URL, an issue number, a file, text, and stdin",
+      "then": [
+        "kind is issue, issue, file, text, stdin respectively",
+        "origin is the URL for the URL, the absolute path for the file, and \"\" otherwise",
+        "truncated is reported for each"
+      ],
+      "pseudocode": "assert env.input=={'kind':'file','origin':abs(path),'truncated':false}"
+    },
+    {
+      "id": "TS-16-50",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-7.6"
+      ],
+      "title": "The body is posted to the workspace's triage or fix route with the slug escaped and --context values in order",
+      "given": [
+        "a recording service answering 202"
+      ],
+      "when": "`af triage 1 --workspace 'a b/c' --context x --context y` and `af fix 1 --workspace w` are run",
+      "then": [
+        "the paths are /api/v1/workspaces/a%20b%2Fc/triage and /api/v1/workspaces/w/fix",
+        "the first body has context [\"x\",\"y\"], the second has no context key"
+      ],
+      "pseudocode": "assert body.context==['x','y']; assert 'context' not in body2"
+    },
+    {
+      "id": "TS-16-51",
+      "kind": "integration",
+      "verifies": [
+        "16-REQ-7.7"
+      ],
+      "title": "A 202 records the job artifact at once and without --wait finishes done with next pointing at watch",
+      "given": [
+        "a scripted service answering 202 with a job document",
+        "the server given via --server, and in another run via AF_URL"
+      ],
+      "when": "`af fix 42 --workspace widgets` is run",
+      "then": [
+        "artifacts hold {kind:\"job\",name:<id>,url:<server>/api/v1/jobs/<id>}",
+        "status done, exit 0, result {job, envelope:null}",
+        "summary names the job and the workspace",
+        "next is `af jobs watch <id>` with `--server <url>` only when the server came from the flag"
+      ],
+      "pseudocode": "assert env.artifacts[0]=={...}; assert env.result.envelope is None; assert env.next[0].argv==['af','jobs','watch',id,'--server',url]"
+    },
+    {
+      "id": "TS-16-52",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-7.8"
+      ],
+      "title": "A 409 duplicate_job fails conflict with the service's message naming the open job",
+      "given": [
+        "a service answering 409 {code:duplicate_job, message naming job_abc}"
+      ],
+      "when": "`af fix 42 --workspace w` is run",
+      "then": [
+        "status failed, exit code 1, category conflict, retryable false",
+        "message contains the service's text naming the open job and `(duplicate_job)`"
+      ],
+      "pseudocode": "assert env.error.category=='conflict' and 'job_abc' in msg"
+    },
+    {
+      "id": "TS-16-53",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-8.1"
+      ],
+      "title": "workspace subscribe sends the PAT and optional prefix, and treats 201 and 200 as success",
+      "given": [
+        "a service answering 201 on one run and 200 on another"
+      ],
+      "when": "`af workspace subscribe widgets --hub-token-file f` and with `--prefix P` are run",
+      "then": [
+        "PUT /api/v1/workspaces/widgets body is {hub_token} and has label_prefix only with --prefix",
+        "exit 0 on 201 (summary says subscribed) and on 200 (summary says replaced)",
+        "result is the view as received"
+      ],
+      "pseudocode": "assert body=={'hub_token':pat}; assert body2=={'hub_token':pat,'label_prefix':'P'}"
+    },
+    {
+      "id": "TS-16-54",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-8.2"
+      ],
+      "title": "Bad PAT files fail before any request: io for read failures, usage for content rules",
+      "given": [
+        "a recording service",
+        "a missing file, a stdin read error, empty, multi-line, control char and 4097-byte contents"
+      ],
+      "when": "`af workspace subscribe w --hub-token-file <x>` is run with each",
+      "then": [
+        "read failures: failed, exit 1, category io naming the file or stdin",
+        "content rules: usage, exit 2, message names `--hub-token-file`",
+        "no request is sent and the PAT is not echoed"
+      ],
+      "pseudocode": "assert env.error.category=='io'; assert '--hub-token-file' in msg"
+    },
+    {
+      "id": "TS-16-55",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-8.3"
+      ],
+      "title": "workspace list, get and unsubscribe use their routes and return their results",
+      "given": [
+        "a service answering the documented documents, 204 on DELETE, and 400 for a bad slug"
+      ],
+      "when": "`af workspace list`, `get w`, `unsubscribe w`, and `get 'BAD!'` are run",
+      "then": [
+        "GET /api/v1/workspaces gives {workspaces}",
+        "GET /api/v1/workspaces/w gives the view",
+        "DELETE gives result {slug:\"w\"} on 204 with a summary saying its open jobs were cancelled",
+        "the 400 gives usage exit 2; a missing slug is a usage error"
+      ],
+      "pseudocode": "assert env.result=={'slug':'w'}; assert run('workspace','get','BAD!').exit==2"
+    },
+    {
+      "id": "TS-16-56",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-8.4"
+      ],
+      "title": "jobs list picks the route, passes state and cursor only when given, and next repeats the command with the next cursor",
+      "given": [
+        "a recording service returning pages with next_cursor \"c2\" and null"
+      ],
+      "when": "`af jobs list`, `list --workspace S --state blocked --cursor c1`, and a last page are run",
+      "then": [
+        "routes are GET /api/v1/jobs and /api/v1/workspaces/S/jobs; state and cursor query keys appear only when given",
+        "result is the page {jobs, next_cursor}",
+        "next carries the command with `--cursor c2` when next_cursor is not null, and no next on the last page",
+        "a 400 maps to usage"
+      ],
+      "pseudocode": "assert query=={'state':'blocked','cursor':'c1'}; assert env.next[0].argv[-2:]==['--cursor','c2']"
+    },
+    {
+      "id": "TS-16-57",
+      "kind": "integration",
+      "verifies": [
+        "16-REQ-8.5"
+      ],
+      "title": "jobs get, cancel, retry and answer send their requests and return {job, envelope:null}; --wait follows with the job recorded",
+      "given": [
+        "a scripted service that answers each job route and serves a short event stream for --wait"
+      ],
+      "when": "`jobs get j`, `cancel j`, `retry j`, `answer j x`, then `retry j --wait` and `answer j x --wait` are run",
+      "then": [
+        "routes: GET /jobs/j, POST /jobs/j/cancel, POST /jobs/j/retry with body {}, POST /jobs/j/answer",
+        "without --wait each is status done exit 0 with result {job, envelope:null}",
+        "with --wait the job artifact is recorded and the job is followed to rest",
+        "`cancel` does not accept --wait"
+      ],
+      "pseudocode": "assert body_retry=={}; assert env.result.envelope is None; assert env_wait.artifacts[0].name=='j'"
+    },
+    {
+      "id": "TS-16-58",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-8.6"
+      ],
+      "title": "jobs answer with no answer or with more than one is a usage error and sends nothing",
+      "given": [
+        "a recording service"
+      ],
+      "when": "`af jobs answer j`, `answer j t --context u`, `answer j --context u --option A`, `answer j t --option A` are run",
+      "then": [
+        "each is status usage, exit code 2",
+        "no request is sent"
+      ],
+      "pseudocode": "for args in combos: assert run(args).exit==2 and svc.requests==[]"
+    },
+    {
+      "id": "TS-16-59",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-8.7"
+      ],
+      "title": "answer uppercases --option, and text matching an option id ignoring case is sent as the option",
+      "given": [
+        "a service whose job j is blocked with options A and B",
+        "empty text, `b`, `B`, `free text`"
+      ],
+      "when": "`answer j --option b`, `answer j b`, `answer j --context B`, `answer j 'free text'`, and `answer j '  '` are run",
+      "then": [
+        "--option b sends {option:\"B\"} without reading the job",
+        "text `b` and `B` read the job first and send {option:\"B\"}",
+        "`free text` is sent as {answer:\"free text\"}",
+        "blank text: usage, exit 2"
+      ],
+      "pseudocode": "assert body=={'option':'B'}; assert body2=={'answer':'free text'}"
+    },
+    {
+      "id": "TS-16-60",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-8.8"
+      ],
+      "title": "A 409 on a job command fails conflict with the service message and the fix hint",
+      "given": [
+        "a service answering 409 invalid_state, not_subscribed and token_unreadable"
+      ],
+      "when": "`af jobs cancel j`, `retry j`, `answer j --option A` are run",
+      "then": [
+        "status failed, exit 1, category conflict, retryable false",
+        "message carries the service's text and code",
+        "not_subscribed and token_unreadable carry the subscribe fix hint"
+      ],
+      "pseudocode": "assert env.error.category=='conflict' and not env.error.retryable"
+    },
+    {
+      "id": "TS-16-61",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-9.1"
+      ],
+      "title": "The SSE reader frames id, event and data lines, ignores comments and unknown fields, and accepts 1 MiB lines",
+      "given": [
+        "a scripted stream with `: keepalive` comments, `retry:` and unknown fields, CRLF and LF endings, multi-field frames, and a data line of about 1 MiB"
+      ],
+      "when": "the follower reads it, starting at 0 and (for watch) with --since 5",
+      "then": [
+        "the first request is events?since=0, and since=5 for --since 5",
+        "every frame is delivered as its event document",
+        "comments and unknown fields have no effect",
+        "the 1 MiB line is accepted"
+      ],
+      "pseudocode": "assert delivered==expected_docs; assert request.query.since=='5'"
+    },
+    {
+      "id": "TS-16-62",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-9.2"
+      ],
+      "title": "Events with seq not above the last delivered are dropped and each delivered event is emitted as job_event",
+      "given": [
+        "a stream with seq 1,2,2,1,3 in one connection"
+      ],
+      "when": "the job is followed with --emit-events f",
+      "then": [
+        "f holds job_event for seq 1,2,3 once each, with data {seq,ts,job_id,attempt,type,data}"
+      ],
+      "pseudocode": "assert [e.data.seq for e in events(f)]==[1,2,3]"
+    },
+    {
+      "id": "TS-16-63",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-9.3"
+      ],
+      "title": "watch writes one compact JSON line per event to stderr in seq order and --wait writes nothing to stderr",
+      "given": [
+        "a stream of three events ending with at_rest true"
+      ],
+      "when": "`af jobs watch j` and `af fix 1 --workspace w --wait` run against it",
+      "then": [
+        "watch stderr holds exactly three lines, each compact JSON of the event document, in seq order",
+        "--wait stderr is empty"
+      ],
+      "pseudocode": "assert stderr.splitlines()==[compact(e) for e in events]; assert wait_stderr==''"
+    },
+    {
+      "id": "TS-16-64",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-9.4"
+      ],
+      "title": "A stream end of any kind is followed by a job read, and following ends only when that read says at rest",
+      "given": [
+        "scripted streams ending by EOF, a dropped connection, an unreadable frame, and 60 s of silence on an injected clock",
+        "job reads saying running first and at rest later; and a job `done` with a `running` attempt"
+      ],
+      "when": "the job is followed",
+      "then": [
+        "after each stream end exactly one GET /api/v1/jobs/{id} is made",
+        "not at rest (including state done with a running attempt) leads to another events request with since = last seq",
+        "at rest ends the following"
+      ],
+      "pseudocode": "assert sequence==[events(0),job,events(k),job]"
+    },
+    {
+      "id": "TS-16-65",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-9.5"
+      ],
+      "title": "Failed tries count by cause and the delay before each try is 1, 2, 4, 8 s, or 1 s after a try that delivered an event",
+      "given": [
+        "an injected clock that records sleeps",
+        "tries ending by EOF, drop, idle cut, unreadable frame, 5xx and transport error on the events request, and 5xx on the job read"
+      ],
+      "when": "the follower sees an event-delivering try and then a run of failed tries, and a delivering try after two failures",
+      "then": [
+        "delay after an event-delivering try is 1 s",
+        "delays after failed tries 1 to 4 in a row are 1, 2, 4, 8 s",
+        "a delivering try resets the count so the next failure waits 1 s",
+        "every cause listed counts as a failed try"
+      ],
+      "pseudocode": "assert clock.sleeps==[1,1,2,4,8]; assert after_reset==[1,1]"
+    },
+    {
+      "id": "TS-16-66",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-9.6"
+      ],
+      "title": "The fifth failed try in a row ends following retryable, with the last failure's category and a watch --since next",
+      "given": [
+        "a service whose every try fails with 502 and another with 503 or a transport error",
+        "last delivered seq k; server from the flag in one run"
+      ],
+      "when": "the job is followed",
+      "then": [
+        "exactly five tries are made and no wait follows the fifth",
+        "status failed, exit 1, retryable true; category hub for a 502, service otherwise",
+        "message names the job and says it may still be running",
+        "next is `af jobs watch <id> --since k`, with `--server <url>` when from the flag"
+      ],
+      "pseudocode": "assert tries==5 and sleeps==[1,2,4,8]; assert env.next[0].argv[:5]==['af','jobs','watch',id,'--since']"
+    },
+    {
+      "id": "TS-16-67",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-9.7"
+      ],
+      "title": "A 401, 404, 3xx or other 4xx during following stops at once with the R6 mapping",
+      "given": [
+        "a service answering the events request, or the job read, with 401, 404, 302, 400 and 418"
+      ],
+      "when": "the job is followed",
+      "then": [
+        "exactly one try is made and no wait occurs",
+        "status, exit code and category are those of the 16-REQ-6.5 table"
+      ],
+      "pseudocode": "assert tries==1 and sleeps==[]; assert (cat)==table[status]"
+    },
+    {
+      "id": "TS-16-68",
+      "kind": "property",
+      "verifies": [
+        "16-REQ-9.8",
+        "16-REQ-9.2"
+      ],
+      "title": "For any pattern of cuts and duplicate frames every event is delivered exactly once in ascending order",
+      "given": [
+        "a scripted service holding events 1..n and a job that reaches rest after the last",
+        "an injected clock"
+      ],
+      "when": "for any n from 1 to 50, any set of cut points, any duplicate or out-of-order replays of earlier frames, and any resume that honours since=k",
+      "then": [
+        "--emit-events holds job_event for seq 1..n exactly once and ascending",
+        "each reconnect requests since equal to the last delivered seq",
+        "following ends at rest"
+      ],
+      "pseudocode": "for n,cuts,dups in gen(): run(); assert [e.seq for e in emitted]==list(range(1,n+1)); assert all(req.since==prev_last for req in reconnects)"
+    },
+    {
+      "id": "TS-16-69",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-10.1"
+      ],
+      "title": "At rest the job is read with attempts and the envelope of the highest finished attempt is fetched; a 404 leaves null and other failures warn",
+      "given": [
+        "a job at rest with attempts 1 done, 2 failed, 3 queued; variants: envelope route 404, 500",
+        "a job with only queued/running attempts"
+      ],
+      "when": "the follower builds the result",
+      "then": [
+        "GET /jobs/{id}/attempts/2/envelope is requested (not 3)",
+        "result is {job, envelope}",
+        "a 404 gives envelope null with no warning",
+        "another failure gives envelope null and warning attempt_envelope_unavailable",
+        "no finished attempt means no envelope fetch"
+      ],
+      "pseudocode": "assert fetched==['/attempts/2/envelope']; assert 'attempt_envelope_unavailable' in codes"
+    },
+    {
+      "id": "TS-16-70",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-10.2"
+      ],
+      "title": "Only the attempt envelope's warnings are appended; artifacts, side effects, next and usage are not copied",
+      "given": [
+        "an attempt envelope with warnings, artifacts, side_effects, next and usage"
+      ],
+      "when": "following ends at rest",
+      "then": [
+        "af's warnings include af's own then the envelope's warnings",
+        "af's artifacts hold only the job artifact",
+        "af's next has no entries added by following and usage stays the no-brain usage"
+      ],
+      "pseudocode": "assert env.warnings==own+att.warnings; assert env.next==[]; assert env.usage==NO_BRAIN"
+    },
+    {
+      "id": "TS-16-71",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-10.3"
+      ],
+      "title": "A done job takes the envelope's result.status, done when result is null",
+      "given": [
+        "a job done with envelope result.status done, one with unverified (outcome parked), one with result null"
+      ],
+      "when": "following ends at rest",
+      "then": [
+        "exit 0 and status done; exit 4 and status unverified; exit 0 and done for null result"
+      ],
+      "pseudocode": "assert exit_codes==[0,4,0]"
+    },
+    {
+      "id": "TS-16-72",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-10.4"
+      ],
+      "title": "A blocked job ends needs_human with its question, option labels and the answer resume argv",
+      "given": [
+        "a blocked job with a question and options A and B",
+        "server via flag in one run and via AF_URL in another"
+      ],
+      "when": "following ends at rest",
+      "then": [
+        "status needs_human, exit 3",
+        "needs_human question text and option labels in order",
+        "resume is {argv:[\"af\",\"jobs\",\"answer\",<id>,\"--wait\"], flag:\"--context\"} with `--server <url>` added to argv when from the flag"
+      ],
+      "pseudocode": "assert env.needs_human.resume=={'argv':['af','jobs','answer',id,'--wait'],'flag':'--context'}"
+    },
+    {
+      "id": "TS-16-73",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-10.5"
+      ],
+      "title": "A failed job takes the envelope's status and error, and is category internal when the error is null",
+      "given": [
+        "failed jobs whose envelope has: failed with error{category,message,retryable,fix_hint}, unverified, usage, and failed with error null"
+      ],
+      "when": "following ends at rest",
+      "then": [
+        "exit 1, 4, 2, 1 respectively",
+        "the failure carries the envelope error's category, message, retryable and fix hint",
+        "a null error gives category internal"
+      ],
+      "pseudocode": "assert env.error==att.error; assert null_case.error.category=='internal'"
+    },
+    {
+      "id": "TS-16-74",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-10.6"
+      ],
+      "title": "A cancelled job ends failed job_cancelled whatever the attempt envelope's category",
+      "given": [
+        "a cancelled job whose attempt envelope has category cancelled, and one with another category, and one with no envelope"
+      ],
+      "when": "following ends at rest",
+      "then": [
+        "status failed, exit 1, category job_cancelled, retryable false",
+        "message says the job was cancelled on the service"
+      ],
+      "pseudocode": "assert env.error.category=='job_cancelled' and not env.error.retryable"
+    },
+    {
+      "id": "TS-16-75",
+      "kind": "integration",
+      "verifies": [
+        "16-REQ-10.7"
+      ],
+      "title": "A signal or --timeout during --wait sends no cancel and leaves watch and cancel suggestions and the job artifact",
+      "given": [
+        "a service whose stream stays open on a running job and records all requests",
+        "a --wait run, and a finished --wait run for contrast"
+      ],
+      "when": "SIGINT is sent to the running af; in another run --timeout expires",
+      "then": [
+        "category cancelled for the signal, timeout for the bound",
+        "no POST .../cancel was received",
+        "artifacts name the job",
+        "next holds `af jobs watch <id>` and `af jobs cancel <id>` (with --server when from the flag)",
+        "a --wait that reaches rest has neither entry"
+      ],
+      "pseudocode": "assert env.error.category=='cancelled'; assert not any(r.path.endswith('/cancel') for r in svc.requests); assert argvs(env.next)==[watch,cancel]"
+    },
+    {
+      "id": "TS-16-76",
+      "kind": "smoke",
+      "verifies": [
+        "16-PATH-1",
+        "16-REQ-5.7",
+        "16-REQ-8.1"
+      ],
+      "title": "A person logs in and subscribes a workspace against the real service over fakehub",
+      "given": [
+        "the service of specs 11 and 12 in process over fakehub with a user token and a workspace PAT",
+        "empty HOME and AF_URL naming the service"
+      ],
+      "when": "`af login --token-file -` with the token on stdin, then `af workspace subscribe widgets --hub-token-file f` are run, and the subscribe is run again",
+      "then": [
+        "login exits 0 and ~/.af/config.toml has mode 0600 holding the token",
+        "subscribe exits 0 with the subscription view (service answered 201)",
+        "the repeated subscribe also exits 0 (service answered 200)",
+        "the sentinel token and PAT are in no output"
+      ],
+      "real_components": [
+        "af binary command line (newApp().Main)",
+        "real service HTTP handler",
+        "fakehub",
+        "credential file in a temp HOME"
+      ]
+    },
+    {
+      "id": "TS-16-77",
+      "kind": "smoke",
+      "verifies": [
+        "16-PATH-2",
+        "16-REQ-7.7",
+        "16-REQ-10.3",
+        "16-REQ-10.5"
+      ],
+      "title": "A fix job queued with --wait ends with the runner's outcome against the real service",
+      "given": [
+        "the real service handler over fakehub with the jobs layer's fake runner, workspace widgets subscribed",
+        "a stored credential"
+      ],
+      "when": "`af fix 42 --workspace widgets --wait` is run with the runner returning done; then with unverified/parked, a non-retryable failed envelope, and `af jobs watch <id>` on the done job",
+      "then": [
+        "done: exit 0, result.job.state done, result.envelope equals attempt 1's stored envelope",
+        "unverified parked: exit 4",
+        "non-retryable failed: exit 1 with the same error.category",
+        "watch writes every event of the job to stderr in seq order, one JSON line each"
+      ],
+      "real_components": [
+        "af command line",
+        "real service HTTP handler with jobs routes",
+        "fakehub",
+        "jobs fake runner",
+        "SSE follower"
+      ]
+    },
+    {
+      "id": "TS-16-78",
+      "kind": "smoke",
+      "verifies": [
+        "16-PATH-3",
+        "16-REQ-10.4",
+        "16-REQ-8.7"
+      ],
+      "title": "A blocked triage job is answered through its resume argv and attempt 2 receives the option label",
+      "given": [
+        "the real service over fakehub with the fake runner returning needs_human with options A and B on attempt 1",
+        "a stored credential"
+      ],
+      "when": "`af triage 42 --workspace widgets --wait` is run, then its needs_human.resume.argv with `--context B` appended",
+      "then": [
+        "the first run exits 3 with resume {argv:[\"af\",\"jobs\",\"answer\",<id>,\"--wait\"], flag:\"--context\"}",
+        "the second run posts {option:\"B\"}, attempt 2 starts, and its runner receives option B's label as the answer",
+        "the second run exits with attempt 2's envelope's code"
+      ],
+      "real_components": [
+        "af command line",
+        "real service HTTP handler with jobs routes",
+        "fakehub",
+        "jobs fake runner",
+        "SSE follower"
+      ]
+    },
+    {
+      "id": "TS-16-79",
+      "kind": "smoke",
+      "verifies": [
+        "16-PATH-4",
+        "16-REQ-1.1",
+        "16-REQ-1.3"
+      ],
+      "title": "A fix with no mode is refused before anything happens",
+      "given": [
+        "a recording fake forge and a recording fake service",
+        "an empty working directory",
+        "GITHUB_TOKEN set"
+      ],
+      "when": "`af fix https://github.com/o/r/issues/1` is run with neither --local nor --workspace",
+      "then": [
+        "a usage envelope naming `--workspace`, `--server`/`AF_URL` and `--local` is written",
+        "exit code is 2",
+        "the forge and the service recorded zero requests",
+        "no `.agent-fox/run/` directory exists"
+      ],
+      "real_components": [
+        "af binary command line (newApp().Main)",
+        "toolio shell",
+        "recording fake forge and service"
+      ]
+    },
+    {
+      "id": "TS-16-80",
+      "kind": "smoke",
+      "verifies": [
+        "16-PATH-5",
+        "16-REQ-2.4",
+        "16-REQ-2.5"
+      ],
+      "title": "A local triage runs as before and suggests a local fix",
+      "given": [
+        "a fake forge serving the issue and a scripted brain reaching a confirmed diagnosis",
+        "AF_URL set to a closed port",
+        "a stored run directory under --dir"
+      ],
+      "when": "`af triage <issue url> --local --dir <dir>` is run",
+      "then": [
+        "the issue is resolved from the forge and the run directory is created",
+        "exit 0 with next argv [\"af\",\"fix\",<issue url>,\"--dir\",<dir>,\"--local\"]",
+        "no request is attempted to the agent-fox service"
+      ],
+      "real_components": [
+        "af command line",
+        "toolio shell",
+        "local triage loop",
+        "fake forge",
+        "scripted brain"
+      ]
+    },
+    {
+      "id": "TS-16-81",
+      "kind": "smoke",
+      "verifies": [
+        "16-PATH-6",
+        "16-REQ-9.8",
+        "16-REQ-9.3"
+      ],
+      "title": "Watching a job resumes after a dropped stream and delivers every event once",
+      "given": [
+        "a scripted fake service that sends events 1..k then cuts the connection, answers the job read as not at rest, then on since=k replays a duplicate frame, sends the rest and a final job_state at_rest true",
+        "an injected clock",
+        "a stored credential"
+      ],
+      "when": "`af jobs watch <id> --emit-events events.jsonl` is run",
+      "then": [
+        "the second events request has since=k after a 1 s wait",
+        "stderr and events.jsonl hold every event exactly once in seq order",
+        "the final attempt envelope is fetched and the exit code is the job's status"
+      ],
+      "real_components": [
+        "af command line",
+        "SSE follower",
+        "HTTP client",
+        "scripted fake service",
+        "events file writer"
+      ]
+    }
+  ]
+}

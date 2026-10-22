@@ -1,0 +1,800 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "14",
+  "spec_name": "agent_fox_worker_recovery",
+  "schema_version": 2,
+  "introduction": "The agent-fox worker's recovery layer lets one attempt of a triage or fix job survive a service shutdown, a process death and a lost sandbox: a later delivery of the same attempt resumes from an on-disk journal and outcome file beside the attempt's clone, re-measures an unpublished change before publishing, never repeats a forge write it recorded, replaces a lost box once within a delivery, and a periodic reconciliation pass releases orphaned leases and completes sessions no delivery finished.",
+  "glossary": {
+    "attempt's brain spend": "Cost, cost source, input and output tokens and turns of every brain run of the attempt: the spend carried over in the journal from removed run directories plus the brain_end records of the current run's ledger.",
+    "delivery": "One call of the worker by the jobs layer for an attempt; the handover count is 1 on the first delivery and is incremented each time the jobs layer hands the same attempt over again after a shutdown, a crash or a transient error.",
+    "journal": "recovery/journal.json in the attempt directory: the worker's credential-free record of an attempt's run, session, leases, deliveries, brain spend, landing plan and landing, mirror and report steps done.",
+    "landing plan": "The journal entry recorded before the first push: branch, commit, outcome, status, measured verdict, whether the change closes the issue, pull request title, body and draft flag, and the warnings so far.",
+    "lost box": "A box that, after it was opened, fails an operation because the sandbox is gone or unreachable: tool error code sandbox_unavailable, a gateway answer that the sandbox does not exist or its lease expired, or the gateway not being reachable.",
+    "orphan lease": "A hub sandbox lease whose job label names a job in this database and whose attempt label names an attempt no runner of this process is carrying out.",
+    "outcome file": "recovery/outcome.json in the attempt directory: the attempt's final envelope, report text and most attempts, marked as mirrored or not yet mirrored.",
+    "pinned file": "The run directory's fix.json or triage.json, which holds what the preflight and brief produced: base, base head, gate table, baseline gate id, brief prefix and round count.",
+    "reconciliation pass": "The background sweep that releases orphan leases and completes the hub sessions of ended attempts whose journal records an uncompleted session.",
+    "resume stage": "Where a resumed delivery picks up: outcome (a stored outcome file), published (the change is on hub's git server), applied (an accepted fix report was applied), submitted (an accepted question or triage diagnosis), or brain (the brain must run).",
+    "stage-abort seam": "A test-only hook that stops a delivery right after a named stage without any cleanup, simulating a process death."
+  },
+  "requirements": [
+    {
+      "id": "14-REQ-1",
+      "title": "The attempt journal and deliveries that stop without an outcome",
+      "rationale": "A resume can only continue what was durably recorded beside the clone it describes.",
+      "criteria": [
+        {
+          "id": "14-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "worker",
+          "action": "keep the journal at recovery/journal.json in the attempt directory, with recovery/ created as a named subdirectory of mode 0700 that the worker never removes, the journal file of mode 0600, replaced atomically through a temporary file and synced to disk, and updated each time a pipeline step completes before the next step starts",
+          "contract": "a reader of journal.json at any instant parses either the previous or the new complete document; stat shows mode 0700 for recovery/ and 0600 for journal.json"
+        },
+        {
+          "id": "14-REQ-1.2",
+          "pattern": "ubiquitous",
+          "system": "worker",
+          "action": "record in the journal its format version, the job id, the attempt number, the kind, the clone directory relative to the attempt directory, the workspace's hub_url without user information, the forge repository, the pinned brain, model, sandbox profile, landing mode, budget and turn bound, the run id, base branch and base head, the hub session id, its run id and whether it was completed, every lease by sandbox id with expires_at and whether it was released, each delivery's handover count, start time and ending (outcome, transient, shutdown, or none), the attempt's brain spend, the landing plan, the landing steps done (pushed, hub_push, pull_request {number, url}, created_issue {number, url}), the mirror steps done (status_labels, comment) and the report steps done (usage_posted, events_posted, session_completed)",
+          "contract": "journal.json decodes into a document carrying every field listed"
+        },
+        {
+          "id": "14-REQ-1.3",
+          "pattern": "ubiquitous",
+          "system": "worker",
+          "action": "for any delivery, write no file under the attempt's recovery/ directory that contains the subscription's PAT, a lease token, an Authorization header value or a URL with user information",
+          "contract": "a byte search of every file under recovery/ for the PAT and every lease token issued to the attempt finds no match"
+        },
+        {
+          "id": "14-REQ-1.4",
+          "pattern": "unwanted",
+          "condition": "the landing plan cannot be written to the journal",
+          "system": "worker",
+          "action": "make no push to hub's git server, no call of hub's branch push route and no forge write in that delivery, and keep the clone",
+          "contract": "the runner returns a transient error carrying a toolio.Failure with category io and retryable true; the fake hub records zero git pushes and zero forge writes for the delivery"
+        },
+        {
+          "id": "14-REQ-1.5",
+          "pattern": "unwanted",
+          "condition": "any journal write other than the landing plan fails",
+          "system": "worker",
+          "action": "raise the warning journal_unwritable once in that delivery and continue the delivery from the state it holds in memory",
+          "contract": "the envelope carries exactly one journal_unwritable warning and the delivery's result is the one an uninterrupted delivery would return"
+        },
+        {
+          "id": "14-REQ-1.6",
+          "pattern": "event_driven",
+          "condition": "a delivery is stopped for a shutdown or returns a transient error",
+          "system": "worker",
+          "action": "release its lease and record the release in the journal, record the delivery's ending as shutdown or transient, post no usage and no events batch, leave the hub session uncompleted, write no outcome file, and leave the clone, the run directory and any local branch the interrupted loop parked unchanged",
+          "contract": "the fake hub records zero POST /sessions/:id/usage, zero events batches and zero POST /sessions/:id/complete for the delivery, and recovery/outcome.json does not exist"
+        },
+        {
+          "id": "14-REQ-1.7",
+          "pattern": "event_driven",
+          "condition": "a delivery is stopped for a shutdown or returns a transient error",
+          "system": "worker",
+          "action": "keep the worker's existing behaviour on these paths: a shutdown makes no forge write, and a transient error removes the in-progress label",
+          "contract": "after a shutdown the fake forge records zero writes; after a transient error the issue no longer carries the in-progress status label"
+        }
+      ]
+    },
+    {
+      "id": "14-REQ-2",
+      "title": "How a delivery starts: fresh, resumed or discarded",
+      "rationale": "The handover count together with the journal decides whether a delivery starts fresh, resumes or discards, so one rule covers restarts, crashes and transient re-handovers.",
+      "criteria": [
+        {
+          "id": "14-REQ-2.1",
+          "pattern": "event_driven",
+          "condition": "a delivery's handover count is 1",
+          "system": "worker",
+          "action": "remove any clone and journal in the attempt directory and start the attempt fresh",
+          "contract": "the delivery sends one clone request and opens one new hub session"
+        },
+        {
+          "id": "14-REQ-2.2",
+          "pattern": "complex_event",
+          "condition": "a delivery's handover count is above 1",
+          "guard": "the attempt directory holds neither a journal nor a clone, or a journal that records no completed clone",
+          "system": "worker",
+          "action": "remove any partial clone, start as a first delivery would, reuse the session the journal records when it records an uncompleted one, and raise no resume_discarded warning",
+          "contract": "the envelope carries no resume_discarded warning; when the journal records an uncompleted session, the fake hub records zero additional POST /sessions"
+        },
+        {
+          "id": "14-REQ-2.3",
+          "pattern": "complex_event",
+          "condition": "a delivery's handover count is above 1",
+          "guard": "the journal reads with a known format version and names this job, attempt and kind, the clone is a git work tree whose origin URL is the workspace's current hub_url, the workspace's current forge repository is the journal's, and the run directory the journal names opens, holds its pinned file and has a ledger whose every line parses",
+          "system": "worker",
+          "action": "resume the attempt: re-read the PAT, workspace, variables and thread, apply the resolve checks (carry_patch refusal, AF_FIX_LAND=patch, variable range checks) to the current values, set the in-progress label unless resuming from a stored outcome, take base, base head, gate table, baseline and brief from the pinned file and brain, model, sandbox profile, landing mode, budget and turn bound from the journal, read AF_TIMEOUT afresh and AF_MAX_ATTEMPTS as the current value, and run neither the loop's preflight nor its brief again",
+          "contract": "the delivery sends no clone request; a base branch, landing mode, model or budget changed on hub since the first delivery does not change the run"
+        },
+        {
+          "id": "14-REQ-2.4",
+          "pattern": "unwanted",
+          "condition": "on a delivery with handover count above 1, a journal or clone exists and fails a resume condition",
+          "system": "worker",
+          "action": "raise resume_discarded with the reason (journal_unreadable, clone_invalid, origin_changed, forge_repository_changed, run_missing or ledger_unreadable), and when the journal reads, release every lease it records as unreleased and carry over the attempt's brain spend; then remove the clone and start as a first delivery would, opening no new session and using the recorded session's run id when the journal records an uncompleted session",
+          "contract": "the envelope carries resume_discarded naming the reason, the delivery sends one clone request, the job keeps the same attempt number, and with a readable journal recording an uncompleted session the fake hub records zero additional POST /sessions and that session is the one completed"
+        },
+        {
+          "id": "14-REQ-2.5",
+          "pattern": "event_driven",
+          "condition": "a resumed delivery needs a hub session",
+          "system": "worker",
+          "action": "report to the journal's session when it is recorded as uncompleted; when the journal records it as completed and the delivery still has something to report, open a new session with the run's run id and post to it only usage the journal does not record as posted; and report the session id and run id in effect to the recorder",
+          "contract": "the job document's hub session id and run id equal the session the delivery reports to"
+        },
+        {
+          "id": "14-REQ-2.6",
+          "pattern": "event_driven",
+          "condition": "a resumed or discarded delivery is about to take a lease",
+          "system": "worker",
+          "action": "release every lease the journal records as unreleased before taking its own, counting a hub 404 as released",
+          "contract": "the fake hub records the DELETE of each unreleased journal lease before the delivery's POST /workspaces/:slug/sandboxes"
+        },
+        {
+          "id": "14-REQ-2.7",
+          "pattern": "unwanted",
+          "condition": "the journal, the clone and hub's git server disagree in a way the resume rules do not cover, such as base branch commits without the run's Agent-Fox-Run trailer or the run's branch on hub's git server at a commit other than the plan's",
+          "system": "worker",
+          "action": "end the attempt without publishing anything and clean up as the worker does for any failed attempt",
+          "contract": "a failed envelope with error category internal, retryable false, and a message naming what was found"
+        }
+      ]
+    },
+    {
+      "id": "14-REQ-3",
+      "title": "Skipping the brain and bringing the clone back",
+      "rationale": "A brain run already paid for must not be repeated, but a valid submission alone does not prove the change reached the clone.",
+      "criteria": [
+        {
+          "id": "14-REQ-3.1",
+          "pattern": "event_driven",
+          "condition": "a resumed delivery decides whether to run the brain",
+          "system": "worker",
+          "action": "skip the brain only when submission.json parses as a submission file of the run's kind whose run_id is the journal's run id and whose payload_sha256 is the hash of its payload, the ledger's last submission_accepted record carries that hash, the payload passes the kind's check again against the clone's tree (submission.Check; triage.Validate for triage), and, for a fix report only, an apply record follows that submission_accepted record",
+          "contract": "with all conditions met the scripted brain is not invoked; a fix report accepted without a following apply record makes the brain run"
+        },
+        {
+          "id": "14-REQ-3.2",
+          "pattern": "complex_event",
+          "condition": "a resumed fix delivery skips the brain",
+          "guard": "the run's change is not on hub's git server",
+          "system": "worker",
+          "action": "check out the base branch at the base head with the run's change in the working tree, taking the change from the working tree or from an unpushed local branch whose commits after the base head all carry Agent-Fox-Run: <run id>, bringing that branch's change into the working tree and deleting the local branch",
+          "contract": "the landing pushes a branch whose name equals the name an uninterrupted run would use, with no -2 suffix"
+        },
+        {
+          "id": "14-REQ-3.3",
+          "pattern": "event_driven",
+          "condition": "a resumed fix delivery runs the brain",
+          "system": "worker",
+          "action": "hard-reset the clone to the base head, clean it keeping .agent-fox/, delete every local branch of the run, and run the worker's fix loop with one in-run attempt in the same run directory",
+          "contract": "the first resumed round starts from the base head with no change from an earlier delivery in the tree"
+        },
+        {
+          "id": "14-REQ-3.4",
+          "pattern": "event_driven",
+          "condition": "the fix loop runs on a resumed delivery or after a box replacement",
+          "system": "worker",
+          "action": "continue fix.json's round count so the first round is the one after the last recorded, give the first round the earlier questions and no earlier refusal, feed a later refusal to the next round within the remaining bounds, and end the loop through fix.Finish",
+          "contract": "fix.json's round count after the delivery equals the rounds recorded before it plus the rounds run in it"
+        },
+        {
+          "id": "14-REQ-3.5",
+          "pattern": "event_driven",
+          "condition": "a resumed triage delivery runs the brain",
+          "system": "worker",
+          "action": "reuse the triage clone as it is and run the triage loop again in the same run directory",
+          "contract": "the delivery sends no clone request"
+        }
+      ]
+    },
+    {
+      "id": "14-REQ-4",
+      "title": "One budget and one usage total per attempt",
+      "rationale": "A fresh budget per delivery could spend several times the bound, and usage must account for every delivery.",
+      "criteria": [
+        {
+          "id": "14-REQ-4.1",
+          "pattern": "event_driven",
+          "condition": "a brain run starts on a resumed delivery or after a box replacement",
+          "system": "worker",
+          "action": "give it the pinned budget minus the attempt's brain spend and the pinned turn bound minus the attempt's turns",
+          "contract": "the brain options carry a budget and turn bound equal to those differences"
+        },
+        {
+          "id": "14-REQ-4.2",
+          "pattern": "unwanted",
+          "condition": "no budget or no turns are left for the attempt when a brain run would start",
+          "system": "worker",
+          "action": "end the attempt without running the brain",
+          "contract": "a failed envelope with error category budget and retryable false; the scripted brain is not invoked"
+        },
+        {
+          "id": "14-REQ-4.3",
+          "pattern": "unwanted",
+          "condition": "the current run's ledger holds a brain_start record with no brain_end after it before the next brain_start or the end of the ledger",
+          "system": "worker",
+          "action": "count that brain run as zero spend against the budget and the usage",
+          "contract": "the envelope carries the warning brain_spend_unrecorded naming the brain_start record's ledger sequence number and its round"
+        },
+        {
+          "id": "14-REQ-4.4",
+          "pattern": "event_driven",
+          "condition": "the journal is written after a brain run ended",
+          "system": "worker",
+          "action": "refresh the journal's attempt brain spend: cost, cost source, input tokens, output tokens and turns",
+          "contract": "journal.json's spend equals the carried spend plus the sum of the current ledger's brain_end records"
+        },
+        {
+          "id": "14-REQ-4.5",
+          "pattern": "event_driven",
+          "condition": "a discarded resume removes a clone",
+          "system": "worker",
+          "action": "carry over as already spent the larger of the journal's recorded spend and the previously carried spend plus the removed run's brain_end records when that ledger reads",
+          "contract": "a following delivery's remaining budget and envelope usage include the removed run's spend"
+        },
+        {
+          "id": "14-REQ-4.6",
+          "pattern": "ubiquitous",
+          "system": "brain.Execute",
+          "action": "record input_tokens and output_tokens from the brain's outcome in every brain_end ledger record, beside the existing fields",
+          "contract": "each brain_end record decodes with integer input_tokens and output_tokens fields"
+        },
+        {
+          "id": "14-REQ-4.7",
+          "pattern": "ubiquitous",
+          "system": "worker",
+          "action": "for any attempt, report as usage in the envelope and in the hub usage record the sum of the spend carried over in the journal and the brain_end records of the current run's ledger",
+          "contract": "after a resume, the done envelope's usage cost equals delivery 1's brain spend plus delivery 2's"
+        }
+      ]
+    },
+    {
+      "id": "14-REQ-5",
+      "title": "Landing a resumed attempt",
+      "rationale": "Once something is published it is never redone, and an unpublished change is re-measured rather than trusted.",
+      "criteria": [
+        {
+          "id": "14-REQ-5.1",
+          "pattern": "event_driven",
+          "condition": "a landing is about to make its first push",
+          "system": "worker",
+          "action": "record in the journal the landing plan: branch, commit, outcome (landed or parked), status, measured verdict, whether the change closes the issue, pull request title, body and draft flag, and the warnings raised so far",
+          "contract": "journal.json holds the landing plan before the fake hub records the push"
+        },
+        {
+          "id": "14-REQ-5.2",
+          "pattern": "event_driven",
+          "condition": "a resumed delivery finds, by reading the remote with the PAT, the landing plan's branch on hub's git server at the plan's commit",
+          "system": "worker",
+          "action": "measure and commit nothing again, take no lease, run no brain, finish from the plan the landing steps the journal does not record as done, then run the mirror",
+          "contract": "the result reports the plan's branch, commit and verdict and the pull request; with a recorded pull request the fake hub records zero new pull requests and zero lease requests"
+        },
+        {
+          "id": "14-REQ-5.3",
+          "pattern": "ubiquitous",
+          "system": "worker",
+          "action": "record a pull request and an issue created for a triage of text or a file in the journal as soon as hub answers, never repeat a recorded one, repeat an unrecorded push, hub branch push route call or label write, and leave comment idempotency to the worker's marker",
+          "contract": "across all deliveries of one attempt the fake forge records at most one pull request, at most one created issue and at most one comment per marker"
+        },
+        {
+          "id": "14-REQ-5.4",
+          "pattern": "complex_event",
+          "condition": "a resumed delivery holds an accepted and applied fix report",
+          "guard": "the change is not on hub's git server",
+          "system": "worker",
+          "action": "take one lease with the pinned profile, sync the clone, check the baseline, measure the change once with the pinned table and baseline, then land a change that passes or park a refused change with no further brain round, as fix.LandRun does",
+          "contract": "the fake hub records one lease request and the scripted brain is not invoked; a landed change yields one pull request, one comment and the landed label"
+        },
+        {
+          "id": "14-REQ-5.5",
+          "pattern": "unwanted",
+          "condition": "before measuring on a resumed delivery or with a replacement box, the baseline result fix.json names is missing from the clone's .agent-fox/gate/<id>/",
+          "system": "worker",
+          "action": "run the baseline again in the box at the pinned base head with the pinned table, with the run's change set aside and restored afterwards, make fix.json name the new baseline, and measure against it",
+          "contract": "the measurement compares against a baseline result present on the host and its verdict is not unverified for lack of a baseline"
+        },
+        {
+          "id": "14-REQ-5.6",
+          "pattern": "unwanted",
+          "condition": "a resumed fix change is empty once the protected paths are put back",
+          "system": "worker",
+          "action": "end the attempt without landing or parking",
+          "contract": "a failed envelope with error category no_result and retryable false"
+        },
+        {
+          "id": "14-REQ-5.7",
+          "pattern": "event_driven",
+          "condition": "a resumed delivery holds an accepted fix question or triage question",
+          "system": "worker",
+          "action": "take no lease and let the mirror post the question comment and set the label once, guarded by the worker's marker",
+          "contract": "a needs_human envelope; the issue carries exactly one question comment for the attempt"
+        },
+        {
+          "id": "14-REQ-5.8",
+          "pattern": "event_driven",
+          "condition": "a resumed delivery holds an accepted triage diagnosis",
+          "system": "worker",
+          "action": "take no lease and land it again through triage.Land against the clone's tree, passing the journal's created issue, if any, as the issue an earlier landing created",
+          "contract": "the new body's ## Original report section is byte-identical to the original body, and a triage of text interrupted after hub created its issue lands into that issue so the repository gains one issue"
+        }
+      ]
+    },
+    {
+      "id": "14-REQ-6",
+      "title": "The outcome file and the attempt's bookkeeping",
+      "rationale": "Without a stored outcome, a crash after the outcome would run the brain again for an attempt that had already ended.",
+      "criteria": [
+        {
+          "id": "14-REQ-6.1",
+          "pattern": "event_driven",
+          "condition": "an attempt's outcome becomes known",
+          "system": "worker",
+          "action": "write recovery/outcome.json, mode 0600, atomically and synced, before the mirror, holding the envelope, report text and most attempts marked not yet mirrored; record each mirror step (status_labels, comment) in the journal as it is done; and rewrite outcome.json marked mirrored with the amended envelope and the labels set and removed once the mirror finishes, both writes before the release, usage, events batch and session completion",
+          "contract": "outcome.json exists marked not mirrored before the first mirror write and marked mirrored before the lease DELETE"
+        },
+        {
+          "id": "14-REQ-6.2",
+          "pattern": "event_driven",
+          "condition": "a resumed delivery finds a valid outcome.json for this job and attempt",
+          "system": "worker",
+          "action": "run no loop and take no lease; when it is not yet mirrored, repeat the status label writes the journal does not record and post the comment only when the worker's marker is absent from the issue; release the leases the journal records as unreleased; and finish the report steps the journal does not record as done, completing the existing session without a new POST /sessions",
+          "contract": "the runner returns the stored envelope with only the warning attempt_resumed added; the scripted brain is not invoked and the fake hub records zero lease requests"
+        },
+        {
+          "id": "14-REQ-6.3",
+          "pattern": "ubiquitous",
+          "system": "worker",
+          "action": "post usage, post the events batch and complete the session only from the delivery that produces the attempt's outcome or a resumed delivery that finds it stored",
+          "contract": "for one attempt the fake hub records at most one events batch sequence and at most one session completion"
+        },
+        {
+          "id": "14-REQ-6.4",
+          "pattern": "ubiquitous",
+          "system": "worker",
+          "action": "for any attempt, post usage to its session once with the attempt's total and never again once the journal records usage_posted",
+          "contract": "the fake hub records exactly one usage record per completed attempt, holding the attempt's total"
+        }
+      ]
+    },
+    {
+      "id": "14-REQ-7",
+      "title": "Replacing a box lost during a delivery",
+      "rationale": "A sandbox gone mid-run is retryable once with a new lease, and replacing it in place keeps an applied change.",
+      "criteria": [
+        {
+          "id": "14-REQ-7.1",
+          "pattern": "ubiquitous",
+          "system": "box layer",
+          "action": "make a box failure caused by a gone or unreachable sandbox (tool error code sandbox_unavailable, a gateway not-found or lease-expired answer, or an unreachable gateway) recognisable with errors.Is, keeping its category, retryable flag and message unchanged",
+          "contract": "errors.Is(err, the box-loss sentinel) is true for those failures and false for others; Failure.Category, Retryable and Error() are unchanged"
+        },
+        {
+          "id": "14-REQ-7.2",
+          "pattern": "event_driven",
+          "condition": "a box is lost for the first time in a delivery",
+          "system": "worker",
+          "action": "stop the work in progress before fix.Finish so it becomes neither a landing nor a parking, record the loss in the journal, release the lost lease (404 counts as released; a failure is logged at WARN and left to reconciliation), take a new lease with the pinned profile and the same purpose, open the box, sync the clone and report the new sandbox id to the recorder",
+          "contract": "the envelope carries box_replaced naming both sandbox ids and the job's hub.sandbox_id is the new box's"
+        },
+        {
+          "id": "14-REQ-7.3",
+          "pattern": "event_driven",
+          "condition": "a replacement lease is granted",
+          "system": "worker",
+          "action": "cut the delivery's deadline to end 2 minutes before the replacement's expires_at when that is earlier, raising lease_shortened_timeout, and treat a replacement with less than 2 minutes left as refused",
+          "contract": "the delivery's context deadline is no later than expires_at minus 2 minutes"
+        },
+        {
+          "id": "14-REQ-7.4",
+          "pattern": "event_driven",
+          "condition": "a replacement box is open",
+          "system": "worker",
+          "action": "continue from where the attempt stands: with an accepted and applied submission, skip the brain, check the baseline, measure and land or park; otherwise reset the clone to the base and run the loop with what is left of the attempt's budget",
+          "contract": "an applied change is measured without a brain run; otherwise the brain's budget equals the pinned budget minus the attempt's spend"
+        },
+        {
+          "id": "14-REQ-7.5",
+          "pattern": "unwanted",
+          "condition": "a box is lost a second time in the same delivery, or the replacement lease is refused, has less than 2 minutes left, or cannot be opened",
+          "system": "worker",
+          "action": "end the delivery as a transient error so the jobs layer's backoff applies and its next delivery resumes",
+          "contract": "the runner returns an error carrying toolio.Failure with category sandbox and retryable true"
+        },
+        {
+          "id": "14-REQ-7.6",
+          "pattern": "unwanted",
+          "condition": "a sandbox failure is not a box loss: hub refuses the first lease, the first box cannot be opened, or another sandbox failure occurs",
+          "system": "worker",
+          "action": "take no replacement lease and handle the failure as the worker spec does",
+          "contract": "the envelope carries no box_replaced warning and the fake hub records one lease request"
+        }
+      ]
+    },
+    {
+      "id": "14-REQ-8",
+      "title": "Reconciling orphaned leases and open sessions",
+      "rationale": "Releases and session completions that failed at an attempt's end must not leave boxes held or sessions open indefinitely.",
+      "criteria": [
+        {
+          "id": "14-REQ-8.1",
+          "pattern": "event_driven",
+          "condition": "the service starts, and every 15 minutes after that",
+          "system": "reconciliation pass",
+          "action": "run one pass without delaying listening or claiming, never run two passes at once, stop a pass on shutdown, and take the interval from an injectable value in tests",
+          "contract": "the service accepts requests before the first pass completes; overlapping ticks start no second concurrent pass"
+        },
+        {
+          "id": "14-REQ-8.2",
+          "pattern": "event_driven",
+          "condition": "a pass handles a subscription whose token opens",
+          "system": "reconciliation pass",
+          "action": "list the workspace's leases through hub with the PAT, following pagination, and release each lease whose job label names a job in this database and whose attempt label names an attempt no runner of this process is carrying out, counting a 404 as released",
+          "contract": "the fake hub records one DELETE per orphan lease and the lease is absent from the next listing"
+        },
+        {
+          "id": "14-REQ-8.3",
+          "pattern": "ubiquitous",
+          "system": "reconciliation pass",
+          "action": "for any lease with no job label, a job label this database does not know, or an attempt a runner of this process is carrying out, leave the lease unreleased",
+          "contract": "the fake hub records no DELETE for those leases"
+        },
+        {
+          "id": "14-REQ-8.4",
+          "pattern": "event_driven",
+          "condition": "a pass finds an attempt of this database that has ended (done, failed, cancelled or needs_human) whose journal records a session that was not completed",
+          "system": "reconciliation pass",
+          "action": "post the usage the journal records as spent and not yet posted, complete the session with the stored outcome's status or failed when there is none, record both steps in the journal, and post no events batch",
+          "contract": "the fake hub records exactly one usage post and one completion for that session across all passes, and zero events batches"
+        },
+        {
+          "id": "14-REQ-8.5",
+          "pattern": "unwanted",
+          "condition": "an ended attempt's journal does not read",
+          "system": "reconciliation pass",
+          "action": "leave the attempt and its session untouched",
+          "contract": "the fake hub records no usage post or completion for that attempt"
+        },
+        {
+          "id": "14-REQ-8.6",
+          "pattern": "unwanted",
+          "condition": "a workspace's token is unreadable, or hub answers 401, 403, 5xx or not at all for it",
+          "system": "reconciliation pass",
+          "action": "log at WARN naming the workspace and never the token, continue with the next workspace, and retry that workspace on the next pass",
+          "contract": "other workspaces' orphans are released in the same pass and the missed ones on the next pass; no log line contains a token"
+        },
+        {
+          "id": "14-REQ-8.7",
+          "pattern": "ubiquitous",
+          "system": "reconciliation pass",
+          "action": "log each release and each completed session at INFO with the workspace, the sandbox id or session id, the job and the attempt",
+          "contract": "one INFO line per release and per completion carrying those four fields"
+        }
+      ]
+    },
+    {
+      "id": "14-REQ-9",
+      "title": "Visibility of resumes and replacements",
+      "rationale": "An operator must be able to tell from the events and envelope that an attempt was resumed and from where.",
+      "criteria": [
+        {
+          "id": "14-REQ-9.1",
+          "pattern": "event_driven",
+          "condition": "a delivery resumes or discards a resume",
+          "system": "worker",
+          "action": "emit a step event named resume whose data holds the handover count, the stage (outcome, published, applied, submitted or brain), whether the brain was skipped, and the reason when the resume was discarded",
+          "contract": "the job's event log holds one step event with name resume for the delivery"
+        },
+        {
+          "id": "14-REQ-9.2",
+          "pattern": "event_driven",
+          "condition": "a box is replaced",
+          "system": "worker",
+          "action": "emit a step event named box_replaced carrying the lost and the new sandbox ids",
+          "contract": "the job's event log holds one step event with name box_replaced"
+        },
+        {
+          "id": "14-REQ-9.3",
+          "pattern": "event_driven",
+          "condition": "a resumed delivery returns an envelope",
+          "system": "worker",
+          "action": "add the warning attempt_resumed naming the handover count, the stage and whether the brain was skipped, plus resume_discarded, box_replaced, journal_unwritable and brain_spend_unrecorded when they apply",
+          "contract": "each warning code matches ^[a-z][a-z0-9_]*$ and appears in the envelope's warnings; at the outcome stage attempt_resumed is the only difference from the stored envelope"
+        }
+      ]
+    },
+    {
+      "id": "14-REQ-10",
+      "title": "Documentation and offline tests",
+      "rationale": "Outdated docs are regressions, and recovery must be verifiable without network, keys or containers.",
+      "criteria": [
+        {
+          "id": "14-REQ-10.1",
+          "pattern": "event_driven",
+          "condition": "the spec is implemented and make doc has run",
+          "system": "documentation",
+          "action": "update docs/architecture.md (journal and outcome file under recovery/, resume stages and rules, pinned settings, re-measuring and re-running a missing baseline, box replacement, reconciliation), docs/api.md (warning codes attempt_resumed, resume_discarded, box_replaced, journal_unwritable, brain_spend_unrecorded, and that deliveries above 1 means resumed), docs/cli.md (only the brain_end fields input_tokens and output_tokens), docs/model-usage.md (no second brain run with a valid submission, remaining-budget runs, usage across deliveries and brain_spend_unrecorded), docs/development.md (fake hub lease listing and the stage-abort seam), and docs/errata/14_*.md for any divergence",
+          "contract": "make check passes and each named document contains the listed terms"
+        },
+        {
+          "id": "14-REQ-10.2",
+          "pattern": "ubiquitous",
+          "system": "test suite",
+          "action": "run every recovery test offline against the worker's fake hub, an in-process gateway over local and the scripted brain, simulating a process death with a test-only seam that stops a delivery right after a named stage without cleanup and a graceful shutdown through the real jobs layer restarted on the same database file",
+          "contract": "make check passes with loopback httptest only, no hub, no API key and no container engine"
+        },
+        {
+          "id": "14-REQ-10.3",
+          "pattern": "ubiquitous",
+          "system": "fake hub",
+          "action": "serve GET /workspaces/:slug/sandboxes listing leases with id, labels, purpose and expires_at, accept seeded labelled leases, keep session state, and allow a test to make a leased sandbox unavailable mid-run",
+          "contract": "a test can seed four leases, list them, and observe which were deleted"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "14-PATH-1",
+      "title": "A fix attempt crashes after apply and is re-measured and landed",
+      "steps": [
+        {
+          "actor": "jobs layer",
+          "action": "delivers a fix attempt on issue 42 with handover count 1"
+        },
+        {
+          "actor": "worker",
+          "action": "clones, leases a box, runs the scripted brain, applies the tree and records the apply; the stage-abort seam stops the delivery with no cleanup"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "delivers the same attempt with handover count 2 on the same attempt directory"
+        },
+        {
+          "actor": "worker",
+          "action": "reads the journal, validates clone and run directory, finds an accepted and applied submission, sends no clone request and skips the brain"
+        },
+        {
+          "actor": "worker",
+          "action": "releases delivery 1's lease, takes one new lease, checks the baseline and measures the change in the box"
+        },
+        {
+          "actor": "hub",
+          "action": "receives the push of fix/42-… with no -2 suffix, one pull request, one comment and the af:landed label"
+        },
+        {
+          "actor": "worker",
+          "action": "writes outcome.json, posts one usage record including delivery 1's spend, completes the session and returns a done envelope with attempt_resumed"
+        }
+      ]
+    },
+    {
+      "id": "14-PATH-2",
+      "title": "A graceful shutdown during the fix land is resumed after restart",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "stops the jobs layer while a fix attempt lands"
+        },
+        {
+          "actor": "worker",
+          "action": "parks the applied change on a local branch, releases its lease, records the shutdown, posts no usage and no events and leaves the session open"
+        },
+        {
+          "actor": "operator",
+          "action": "restarts the service on the same database file"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "hands the attempt over again with the handover count incremented"
+        },
+        {
+          "actor": "worker",
+          "action": "brings the parked branch's change back into the working tree, deletes the branch, re-measures in a new lease and lands"
+        },
+        {
+          "actor": "hub",
+          "action": "holds one pull request, one completed session and one usage record with the attempt's total; the job ends done"
+        }
+      ]
+    },
+    {
+      "id": "14-PATH-3",
+      "title": "A crash after the pull request was opened finishes the landing",
+      "steps": [
+        {
+          "actor": "worker",
+          "action": "delivery 1 records the landing plan, pushes, records the pull request and is stopped by the stage-abort seam"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "delivers the attempt with handover count 2"
+        },
+        {
+          "actor": "worker",
+          "action": "reads the remote with the PAT and finds the plan's branch at the plan's commit; takes no lease and runs no brain"
+        },
+        {
+          "actor": "hub",
+          "action": "receives no second pull request, exactly one comment and the status labels"
+        },
+        {
+          "actor": "worker",
+          "action": "returns an envelope reporting delivery 1's pull request with attempt_resumed"
+        }
+      ]
+    },
+    {
+      "id": "14-PATH-4",
+      "title": "A crash after the outcome was stored replays only the bookkeeping",
+      "steps": [
+        {
+          "actor": "worker",
+          "action": "delivery 1 writes outcome.json and is stopped by the stage-abort seam before or after the mirror"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "delivers the attempt with handover count 2"
+        },
+        {
+          "actor": "worker",
+          "action": "finds a valid outcome.json, runs no loop, takes no lease and finishes the unrecorded mirror steps"
+        },
+        {
+          "actor": "hub",
+          "action": "receives at most one comment, the usage once and the completion of delivery 1's session with no second POST /sessions"
+        },
+        {
+          "actor": "worker",
+          "action": "returns the stored envelope with only attempt_resumed added"
+        }
+      ]
+    },
+    {
+      "id": "14-PATH-5",
+      "title": "A triage of text crashed after issue creation lands into the same issue",
+      "steps": [
+        {
+          "actor": "worker",
+          "action": "delivery 1 runs triage of text, hub creates the issue, the journal records created_issue and the seam stops the delivery before the landing record"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "delivers the attempt with handover count 2"
+        },
+        {
+          "actor": "worker",
+          "action": "validates the accepted diagnosis against the clone's tree, takes no lease, runs no brain and calls triage.Land with the recorded issue as Created"
+        },
+        {
+          "actor": "hub",
+          "action": "replaces that issue's body; the repository gains one issue in total"
+        }
+      ]
+    },
+    {
+      "id": "14-PATH-6",
+      "title": "A box lost during the brain is replaced within the delivery",
+      "steps": [
+        {
+          "actor": "worker",
+          "action": "runs the scripted brain in a leased box"
+        },
+        {
+          "actor": "fake hub",
+          "action": "makes the sandbox unavailable so a tool call answers sandbox_unavailable"
+        },
+        {
+          "actor": "worker",
+          "action": "stops the round before fix.Finish, records the loss, releases the lost lease, takes a new lease, cuts the deadline to 2 minutes before its expires_at, opens the box and syncs the clone"
+        },
+        {
+          "actor": "recorder",
+          "action": "stores the new sandbox id as the job's hub.sandbox_id"
+        },
+        {
+          "actor": "worker",
+          "action": "resets the clone to the base, reruns the loop with the remaining budget, lands and returns an envelope carrying box_replaced"
+        }
+      ]
+    },
+    {
+      "id": "14-PATH-7",
+      "title": "The reconciliation pass releases an orphan lease and completes an open session",
+      "steps": [
+        {
+          "actor": "service",
+          "action": "starts and launches a reconciliation pass without delaying listening"
+        },
+        {
+          "actor": "reconciliation pass",
+          "action": "lists each workspace's leases with the PAT; a 5xx from one workspace is logged at WARN and skipped"
+        },
+        {
+          "actor": "reconciliation pass",
+          "action": "releases the lease labelled for a known attempt with no runner, keeping unlabelled, unknown-job and running-attempt leases"
+        },
+        {
+          "actor": "reconciliation pass",
+          "action": "finds an ended attempt whose journal records an open session, posts its unposted usage and completes the session failed"
+        },
+        {
+          "actor": "hub",
+          "action": "records one lease DELETE, one usage post and one session completion; the next pass releases what the failed workspace missed"
+        }
+      ]
+    },
+    {
+      "id": "14-PATH-8",
+      "title": "A crash before apply reruns the brain with the remaining budget",
+      "steps": [
+        {
+          "actor": "worker",
+          "action": "delivery 1 records submission_accepted but is stopped by the seam before apply"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "delivers the attempt with handover count 2"
+        },
+        {
+          "actor": "worker",
+          "action": "finds no apply record, hard-resets the clone to the base head, cleans keeping .agent-fox/ and runs the fix loop with the pinned budget minus delivery 1's spend"
+        },
+        {
+          "actor": "hub",
+          "action": "receives one push, one pull request and the usage covering both deliveries"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "github.com/agent-fox-dev/agentkit-go/sandbox",
+      "version": "replaced to ../agentkit-go/sandbox",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "Sandbox",
+          "import_path": "github.com/agent-fox-dev/agentkit-go/sandbox",
+          "signature": "interface { Sync(ctx, src) error; Export(ctx, name string, dst) error; Close(ctx) error; Spec() sandbox.Spec }",
+          "notes": "Read from call sites in internal/box/session.go; no gone-sandbox sentinel is referenced in the repository."
+        }
+      ]
+    },
+    {
+      "package": "github.com/agent-fox-dev/agentkit-go/core",
+      "version": "replaced to ../agentkit-go/core",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "ErrResult",
+          "import_path": "github.com/agent-fox-dev/agentkit-go/core",
+          "signature": "func ErrResult(code, detail string) core.ToolResult",
+          "notes": "Tool error code sandbox_unavailable implied by internal/box/fs.go and internal/box/exec_test.go."
+        }
+      ]
+    },
+    {
+      "package": "hub HTTP API",
+      "version": "unversioned",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "GET /workspaces/:slug/sandboxes",
+          "import_path": "hub",
+          "signature": "GET /workspaces/:slug/sandboxes -> [{id, labels, purpose, expires_at}] (paginated if hub paginates)",
+          "notes": "Assumed from PRD 01 §6.4 and PRD 03 §6."
+        },
+        {
+          "name": "DELETE /workspaces/:slug/sandboxes/:id",
+          "import_path": "hub",
+          "signature": "DELETE /workspaces/:slug/sandboxes/:id -> 2xx, or 404 when already gone",
+          "notes": "404 counts as released."
+        }
+      ]
+    }
+  ]
+}

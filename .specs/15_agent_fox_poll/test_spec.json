@@ -1,0 +1,1336 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "15",
+  "spec_name": "agent_fox_poll",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-15-1",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-1.1"
+      ],
+      "title": "The poll starts after the jobs layer and starts one loop per subscribed workspace",
+      "given": [
+        "a temporary database with subscriptions widgets and gadgets",
+        "a recording start hook on the jobs layer and on the poll supervisor"
+      ],
+      "when": "agent-fox's start sequence runs",
+      "then": [
+        "the poll supervisor start is recorded after the jobs layer start",
+        "exactly one loop exists for widgets and one for gadgets"
+      ],
+      "pseudocode": "start(); assert order.index('poll') > order.index('jobs'); assert loops == {'widgets':1,'gadgets':1}"
+    },
+    {
+      "id": "TS-15-2",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-1.2"
+      ],
+      "title": "A subscription scan starts a loop for a new subscription and never a second loop for an existing one",
+      "given": [
+        "the supervisor running with a scan period of 60 s on an injected clock",
+        "widgets subscribed and polled"
+      ],
+      "when": "gadgets is subscribed, the clock advances 60 s twice",
+      "then": [
+        "gadgets gets exactly one loop",
+        "widgets still has exactly one loop",
+        "the first poll of gadgets happens within one scan period plus the first-cycle delay"
+      ],
+      "pseudocode": "subscribe('gadgets'); clock.advance(60s); clock.advance(60s); assert loopCount('gadgets')==1 and loopCount('widgets')==1"
+    },
+    {
+      "id": "TS-15-3",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-1.3"
+      ],
+      "title": "Unsubscribing stops the loop and cancels an in-flight cycle",
+      "given": [
+        "widgets subscribed, a cycle in flight held by a fake hub delay on the list request"
+      ],
+      "when": "the subscription is deleted from the store and the next scan runs",
+      "then": [
+        "the in-flight cycle's context is cancelled",
+        "the loop is gone",
+        "the fake hub records no further request with the widgets PAT after the scan"
+      ],
+      "pseudocode": "hub.delay('issues'); startCycle(); store.delete('widgets'); scan(); n=hub.count(pat); clock.advance(1h); assert hub.count(pat)==n"
+    },
+    {
+      "id": "TS-15-4",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-1.4"
+      ],
+      "title": "First cycle waits the injected delay, later cycles start one interval after the previous ended, and cycles never overlap",
+      "given": [
+        "a first-cycle delay source returning 17 s",
+        "a fake hub whose list request takes 2 minutes of injected clock",
+        "AF_POLL_INTERVAL 2m"
+      ],
+      "when": "the clock advances for 20 minutes",
+      "then": [
+        "the first cycle starts at 17 s",
+        "each later cycle starts 2 minutes after the previous cycle ended",
+        "at most one cycle of widgets is in flight at any time",
+        "the default delay source only ever yields values in [0,30s]"
+      ],
+      "pseudocode": "record start/end times; assert start[i+1]-end[i]==2m; assert maxConcurrent==1; for _ in 1000: assert 0<=defaultDelay()<=30s"
+    },
+    {
+      "id": "TS-15-5",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-1.5"
+      ],
+      "title": "At most four cycles run at once across workspaces",
+      "given": [
+        "six subscribed workspaces",
+        "a fake hub that holds every variables read until released",
+        "first-cycle delay zero"
+      ],
+      "when": "all six cycles become due together",
+      "then": [
+        "exactly four variables reads are in flight",
+        "the other two wait",
+        "when one is released a waiting cycle starts",
+        "the in-flight count never exceeds 4"
+      ],
+      "pseudocode": "assert hub.inflight()==4; release(1); wait; assert hub.inflight()==4 and hub.started==5"
+    },
+    {
+      "id": "TS-15-6",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-1.6"
+      ],
+      "title": "A cycle running for 5 minutes is cancelled, keeps what it did and frees its slot",
+      "given": [
+        "af:triage on issue 7 and af:fix on issue 42",
+        "the fake hub answers the fix list only after hanging",
+        "the triage job for 7 already created and its label removed"
+      ],
+      "when": "the injected clock advances 5 minutes while the fix list hangs",
+      "then": [
+        "the cycle context is cancelled at 5 minutes",
+        "the triage job and the removal of af:triage stand",
+        "the slot is free for another workspace",
+        "the next cycle starts after the interval the workspace last read"
+      ],
+      "pseudocode": "clock.advance(5m); assert ctx.err==Canceled; assert jobs.count==1; assert slots.free==4; assert nextStart==now+lastInterval"
+    },
+    {
+      "id": "TS-15-7",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-1.7"
+      ],
+      "title": "Shutdown starts no new cycle, cancels cycles in flight and returns before the jobs layer stops",
+      "given": [
+        "a cycle in flight held on hub",
+        "recording stop hooks on the poll and on the jobs layer"
+      ],
+      "when": "agent-fox begins shutdown",
+      "then": [
+        "the in-flight cycle is cancelled",
+        "the poll's stop call returns before the jobs layer's stop is called",
+        "advancing the clock afterwards starts no cycle"
+      ],
+      "pseudocode": "shutdown(); assert order==['poll.stop returned','jobs.stop called']; clock.advance(1h); assert hub.count()==before"
+    },
+    {
+      "id": "TS-15-8",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-1.8"
+      ],
+      "title": "The supervisor defaults to wall clock, random 0-30 s delay, 60 s scan and 5 minute release delay, and accepts injected values",
+      "given": [
+        "a supervisor built with no options",
+        "a supervisor built with injected clock, delay, scan period and release delay"
+      ],
+      "when": "the effective configuration is read",
+      "then": [
+        "defaults are wall clock, a delay in [0,30s], scan period 60 s, release delay 5 minutes",
+        "injected values replace each default"
+      ],
+      "pseudocode": "d=New(); assert d.scan==60s and d.release==5m and d.clock is time.Now; i=New(opts); assert i.scan==injected"
+    },
+    {
+      "id": "TS-15-9",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-2.1",
+        "15-REQ-2.3"
+      ],
+      "title": "Unset AF_POLL_INTERVAL polls 5 minutes apart and 2m polls 2 minutes apart",
+      "given": [
+        "workspace widgets with AF_POLL_INTERVAL unset on the fake hub"
+      ],
+      "when": "the clock advances through several cycles, then the variable is set to 2m and the clock advances again",
+      "then": [
+        "with the variable unset, list requests are 5 minutes apart",
+        "after the change to 2m, list requests are 2 minutes apart",
+        "24h is accepted as 24h and 1m as 1m"
+      ],
+      "pseudocode": "gaps=diff(hub.listTimes()); assert all(g==5m); hub.setVar('AF_POLL_INTERVAL','2m'); ...assert all(g==2m)"
+    },
+    {
+      "id": "TS-15-10",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-2.2"
+      ],
+      "title": "A zero interval disables listing but the variable is read every 5 minutes",
+      "given": [
+        "AF_POLL_INTERVAL set to 0 (also 0s and 0m in turn)",
+        "issues labelled af:triage and af:fix exist"
+      ],
+      "when": "the clock advances 30 minutes",
+      "then": [
+        "the fake hub records no list request and no workspace record read",
+        "the fake hub records exactly one variables read every 5 minutes",
+        "no job is created and no label is removed",
+        "changing the variable to 1m makes the next check list"
+      ],
+      "pseudocode": "assert hub.count('issues')==0 and hub.count('workspace')==0; assert gaps(hub.varReads)==5m; hub.setVar('1m'); advance(5m); assert hub.count('issues')>0"
+    },
+    {
+      "id": "TS-15-11",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-2.4"
+      ],
+      "title": "An invalid AF_POLL_INTERVAL falls back to 5 minutes with one WARN per distinct value",
+      "given": [
+        "a captured slog handler",
+        "values 30s, abc, -1m and 25h set in turn, each across several cycles"
+      ],
+      "when": "cycles run for each value",
+      "then": [
+        "list requests are 5 minutes apart for every value",
+        "exactly one WARN record per distinct value naming the workspace, the variable and the value",
+        "a repeated value logs no second record"
+      ],
+      "pseudocode": "for v in ['30s','abc','-1m','25h']: set(v); run 3 cycles; assert warns(v)==1 and gaps==5m"
+    },
+    {
+      "id": "TS-15-12",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-2.5"
+      ],
+      "title": "A cycle that ends before reading the variable waits the last interval read, or 5 minutes after a zero or none",
+      "given": [
+        "AF_POLL_INTERVAL 2m read in one cycle",
+        "then the variables read answers 503"
+      ],
+      "when": "the failing cycle ends; separately, 0 was read and then the variables read answers 503; separately, the very first variables read answers 503",
+      "then": [
+        "after 2m was read, the next cycle starts 2 minutes after the failed one",
+        "after 0 was read, the next cycle starts 5 minutes later",
+        "with none read, the next cycle starts 5 minutes later"
+      ],
+      "pseudocode": "assert nextStart(after_2m)==end+2m; assert nextStart(after_0)==end+5m; assert nextStart(none)==end+5m"
+    },
+    {
+      "id": "TS-15-13",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-2.6"
+      ],
+      "title": "The request labels come from the subscription prefix read at the start of each cycle",
+      "given": [
+        "widgets subscribed with prefix af:",
+        "AF_LABEL_PREFIX set to other: on the hub"
+      ],
+      "when": "a cycle runs, the subscription prefix is changed to ci: in the store, and another cycle runs",
+      "then": [
+        "the first cycle lists af:triage then af:fix",
+        "the second cycle lists ci:triage then ci:fix",
+        "no list ever uses the other: prefix"
+      ],
+      "pseudocode": "assert hub.listLabels(cycle1)==['af:triage','af:fix']; store.setPrefix('ci:'); assert hub.listLabels(cycle2)==['ci:triage','ci:fix']"
+    },
+    {
+      "id": "TS-15-14",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-2.7"
+      ],
+      "title": "A differing AF_LABEL_PREFIX logs one WARN per distinct value and is otherwise ignored",
+      "given": [
+        "subscription prefix af:",
+        "a captured slog handler"
+      ],
+      "when": "AF_LABEL_PREFIX is x: for three cycles, then y: for two cycles, and af: for one cycle",
+      "then": [
+        "exactly one WARN for x: and one for y:",
+        "no WARN for af:",
+        "the subscription prefix is used in every list"
+      ],
+      "pseudocode": "assert warns('x:')==1 and warns('y:')==1 and warns('af:')==0"
+    },
+    {
+      "id": "TS-15-15",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-3.1"
+      ],
+      "title": "ListIssues sends the issues-list request with state, an escaped label, the bearer PAT and no sort",
+      "given": [
+        "the fake hub with workspace widgets and a PAT",
+        "a hub forge client bound to widgets"
+      ],
+      "when": "ListIssues is called with State open, Labels [\"af:fix\"] and Limit 100",
+      "then": [
+        "the fake hub records GET /api/v1/workspaces/widgets/issues with state=open and labels=af%3Afix",
+        "the Authorization header is the bearer PAT",
+        "no sort or direction parameter is sent",
+        "the issues come back in hub's order"
+      ],
+      "pseudocode": "list=c.ListIssues(ctx,repo,Filter{State:'open',Labels:['af:fix'],Limit:100}); r=hub.last(); assert r.query=='state=open&labels=af%3Afix' (plus page size) and 'sort' not in r.query"
+    },
+    {
+      "id": "TS-15-16",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-3.2",
+        "15-REQ-3.3"
+      ],
+      "title": "ListIssues follows further pages and sets Incomplete only when it stopped at Limit with more reported",
+      "given": [
+        "the fake hub with 250 open issues under af:fix paged by 100",
+        "another listing whose last page says nothing about further pages"
+      ],
+      "when": "ListIssues is called with Limit 100, with Limit 250, and with Limit 300",
+      "then": [
+        "Limit 100 returns 100 issues and Incomplete true",
+        "Limit 250 returns 250 issues and Incomplete false when hub reports no further page",
+        "Limit 300 returns 250 issues and Incomplete false",
+        "a page whose answer says nothing about further pages is treated as last"
+      ],
+      "pseudocode": "assert (len(l100.Issues),l100.Incomplete)==(100,True); assert (len(l250.Issues),l250.Incomplete)==(250,False)"
+    },
+    {
+      "id": "TS-15-17",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-3.4"
+      ],
+      "title": "Items hub marks as pull or merge requests are left out of the list",
+      "given": [
+        "fake hub issues 5 (issue), 6 (pull request) and 7 (merge request), all labelled af:fix"
+      ],
+      "when": "ListIssues lists af:fix",
+      "then": [
+        "only issue 5 is returned"
+      ],
+      "pseudocode": "assert [i.Number for i in list.Issues]==[5]"
+    },
+    {
+      "id": "TS-15-18",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-3.5"
+      ],
+      "title": "A filter with any other field sends nothing and returns the not-available error",
+      "given": [
+        "a hub forge client and the fake hub"
+      ],
+      "when": "ListIssues is called with Assignee set, Sort set, Direction set, State closed, zero labels, and two labels, in turn",
+      "then": [
+        "every call returns a non-nil 'not available through hub' error",
+        "the fake hub records no request"
+      ],
+      "pseudocode": "for f in bad_filters: err=c.ListIssues(ctx,repo,f); assert err!=nil and 'not available through hub' in err.Error(); assert hub.requests()==[]"
+    },
+    {
+      "id": "TS-15-19",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-3.6"
+      ],
+      "title": "List page errors map to the issuex error predicates",
+      "given": [
+        "the fake hub answering the list with each status in turn"
+      ],
+      "when": "ListIssues is called and hub answers 401, 403, 404, 409, 422 with a message, 429, 503, a dropped connection, a timeout, and a body that is not JSON",
+      "then": [
+        "401 and 403 give *issuex.HTTPError with that status",
+        "404 satisfies issuex.IsNotFound",
+        "409 gives issuex's conflict error",
+        "422 gives a rejected error carrying hub's message",
+        "429 satisfies issuex.IsRateLimited",
+        "503, transport error, timeout and bad JSON give a retryable error"
+      ],
+      "pseudocode": "table of (status, predicate); assert predicate(err) for each"
+    },
+    {
+      "id": "TS-15-20",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-3.7"
+      ],
+      "title": "Hub's field names stay inside internal/hub and ListIssues is no longer an unavailable method",
+      "given": [
+        "the source tree and the hub forge client's unavailable-method test"
+      ],
+      "when": "the test scans non-hub packages for hub's issues-list route, page and pull-request marker names and inspects the unavailable-method list",
+      "then": [
+        "no package outside internal/hub and its fake mentions them",
+        "ListIssues is not in the unavailable-method list",
+        "other unavailable methods still send nothing"
+      ],
+      "pseudocode": "assert not grep(hubNames, excluding 'internal/hub'); assert 'ListIssues' not in unavailableMethods"
+    },
+    {
+      "id": "TS-15-21",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-3.8"
+      ],
+      "title": "The fake hub serves the issues list with filters, paging, pull requests and both lags",
+      "given": [
+        "the fake hub with open and closed issues, a pull request, and 150 issues under one label"
+      ],
+      "when": "the list route is called with state and labels filters, paged, after a label removal with removal lag 2, and after a label addition with addition lag 2",
+      "then": [
+        "state and labels filters narrow the result",
+        "paging reports a further page when more remain",
+        "pull requests are returned with the marker",
+        "after removal with lag 2 the issue is still listed under the label for two lists then disappears",
+        "after addition with lag 2 the issue is left out of the label's lists for two lists then appears"
+      ],
+      "pseudocode": "hub.removalLag(2); remove(42,'af:fix'); assert 42 in list() twice then not in list()"
+    },
+    {
+      "id": "TS-15-22",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-4.1"
+      ],
+      "title": "One enabled cycle reads variables, the workspace record, then lists triage and fix, with limit 100",
+      "given": [
+        "widgets subscribed, polling enabled"
+      ],
+      "when": "one cycle runs",
+      "then": [
+        "the fake hub records, in order: variables read, workspace record read, triage list, fix list",
+        "each list has a limit of 100",
+        "the poll's records were reconciled before the first hub request"
+      ],
+      "pseudocode": "assert hub.paths()==['vars','workspace','issues(af:triage)','issues(af:fix)']"
+    },
+    {
+      "id": "TS-15-23",
+      "kind": "property",
+      "verifies": [
+        "15-REQ-4.2"
+      ],
+      "title": "Issues are processed in ascending number whatever order hub returns, triage list before fix list",
+      "given": [
+        "the real jobs layer with the fake runner on a temporary database"
+      ],
+      "when": "for any set of distinct open issue numbers labelled af:triage or af:fix, and any order hub returns them in",
+      "then": [
+        "jobs are created in order of the triage list in ascending issue number, then the fix list in ascending issue number",
+        "with af:triage on 7 and af:fix on 42 the triage job for 7 is created before the fix job for 42"
+      ],
+      "pseudocode": "for nums,perm in gen(): hub.setOrder(perm); cycle(); assert created==sorted(triageNums)+sorted(fixNums)"
+    },
+    {
+      "id": "TS-15-24",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-4.3"
+      ],
+      "title": "Three incomplete listings in a row produce exactly one WARN naming workspace and label",
+      "given": [
+        "af:fix listing that is always incomplete (more than 100 issues)",
+        "a captured slog handler"
+      ],
+      "when": "three cycles run, then one complete listing, then an incomplete one again",
+      "then": [
+        "exactly one WARN naming widgets and af:fix across the first three cycles",
+        "after a complete listing the warning is logged again on the next incomplete one"
+      ],
+      "pseudocode": "assert warns('af:fix')==1 after 3 cycles; ...==2 after the later incomplete one"
+    },
+    {
+      "id": "TS-15-25",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-4.4"
+      ],
+      "title": "An incomplete listing releases no hold and settles no owed removal",
+      "given": [
+        "a held label on 42 whose release delay has elapsed",
+        "an owed removal for issue 43",
+        "an incomplete af:fix listing that contains neither 42 nor 43"
+      ],
+      "when": "a cycle runs",
+      "then": [
+        "the hold on 42 is still in place",
+        "the owed removal for 43 is still owed",
+        "a later complete listing without them releases and settles both"
+      ],
+      "pseudocode": "assert rec(42).hold and rec(43).owed after incomplete; after complete: assert not rec(42).hold and not rec(43).owed"
+    },
+    {
+      "id": "TS-15-26",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-4.5"
+      ],
+      "title": "A pull request with af:fix, a closed issue with af:triage and an issue labelled only bug create no job and lose no label",
+      "given": [
+        "pull request 3 with af:fix",
+        "closed issue 4 with af:triage",
+        "open issue 5 labelled bug"
+      ],
+      "when": "a cycle runs",
+      "then": [
+        "no job is created",
+        "the fake hub records no label removal",
+        "the labels remain on all three"
+      ],
+      "pseudocode": "assert jobs.count()==0 and hub.removals()==[]"
+    },
+    {
+      "id": "TS-15-27",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-4.6"
+      ],
+      "title": "A cycle racing DELETE of the workspace creates no job after DELETE began",
+      "given": [
+        "af:fix on issue 42 and the real API and jobs layer",
+        "the cycle held just before job creation"
+      ],
+      "when": "DELETE /api/v1/workspaces/widgets starts while the cycle proceeds",
+      "then": [
+        "the jobs table holds no job for widgets created by the poll after DELETE began",
+        "no label is removed after the not-subscribed refusal"
+      ],
+      "pseudocode": "hold; go delete(); release; assert not any(j.created_at>deleteStart)"
+    },
+    {
+      "id": "TS-15-28",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-4.7"
+      ],
+      "title": "No log record and no job row contains the PAT",
+      "given": [
+        "widgets with a distinctive PAT",
+        "a captured slog handler",
+        "scenarios with success, 403, 503, 409 and an unreadable token"
+      ],
+      "when": "cycles run through all scenarios",
+      "then": [
+        "no captured log record contains the PAT",
+        "no job row, source or request label contains the PAT"
+      ],
+      "pseudocode": "assert pat not in logs and pat not in dump(af_jobs)"
+    },
+    {
+      "id": "TS-15-29",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-5.1"
+      ],
+      "title": "A label on an issue with an open job of the same kind is absorbed and logged",
+      "given": [
+        "fix job for 42 created through the API and running",
+        "af:fix added to 42",
+        "an open triage job for 42 and af:fix on 42 in a second scenario",
+        "a blocked fix job for 42 in a third scenario"
+      ],
+      "when": "a cycle runs in each scenario",
+      "then": [
+        "running and blocked: no job is created, one removal of af:fix from 42 is recorded, an INFO record names workspace, kind, issue and job id",
+        "open triage job of the other kind does not absorb af:fix; a fix job is created",
+        "the job count is unchanged where absorbed"
+      ],
+      "pseudocode": "assert jobs.count()==before and hub.removals('af:fix',42)==1 and info_absorbed(job.id)"
+    },
+    {
+      "id": "TS-15-30",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-5.2"
+      ],
+      "title": "A failed absorbing removal is owed, and later removed without a job once the open job ended",
+      "given": [
+        "running API fix job for 42",
+        "af:fix added to 42",
+        "the removal of af:fix from 42 answers 503"
+      ],
+      "when": "a cycle runs, the API job ends done, the next cycle runs, and one more cycle runs",
+      "then": [
+        "the first cycle creates no job and writes a record with the removal owed and no job",
+        "the next cycle removes af:fix and creates no job",
+        "the cycle after creates nothing"
+      ],
+      "pseudocode": "assert rec.job is None and rec.owed; end job; cycle(); assert removed and jobs.count()==1; cycle(); assert jobs.count()==1"
+    },
+    {
+      "id": "TS-15-31",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-5.3"
+      ],
+      "title": "A listed issue under a hold is left alone",
+      "given": [
+        "a hold on af:fix for 42 in place"
+      ],
+      "when": "a cycle lists af:fix with 42",
+      "then": [
+        "no job is created",
+        "no removal of af:fix is sent",
+        "the label stays on 42"
+      ],
+      "pseudocode": "assert jobs.count()==before and hub.removals()==[]"
+    },
+    {
+      "id": "TS-15-32",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-5.4"
+      ],
+      "title": "An owed removal is retried and creates no job",
+      "given": [
+        "a record for 42 and af:fix with the removal owed, its job done",
+        "the fake hub lists 42 under af:fix"
+      ],
+      "when": "a cycle runs",
+      "then": [
+        "af:fix is removed from 42",
+        "the job count is unchanged"
+      ],
+      "pseudocode": "cycle(); assert hub.removals('af:fix',42)==1 and jobs.count()==1"
+    },
+    {
+      "id": "TS-15-33",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-5.5"
+      ],
+      "title": "A new request creates one job with label source and request_label, then consumes the label",
+      "given": [
+        "open issue 7 with af:triage and open issue 42 with af:fix",
+        "the real jobs layer with the fake runner"
+      ],
+      "when": "one cycle runs, then another",
+      "then": [
+        "two jobs: triage for 7 created first, then fix for 42",
+        "their source is {kind:label, by:'label af:triage'} and {kind:label, by:'label af:fix'}",
+        "their request_label is af:triage and af:fix",
+        "one removal each is recorded after its job exists",
+        "INFO records name workspace, kind, issue and job id",
+        "the next cycle creates no job"
+      ],
+      "pseudocode": "assert job7.source=={'kind':'label','by':'label af:triage'} and job7.request_label=='af:triage'; assert hub.removalTime(7)>job7.created; cycle(); assert jobs.count()==2"
+    },
+    {
+      "id": "TS-15-34",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-5.6"
+      ],
+      "title": "A duplicate refusal is handled as absorbed and exactly one job exists",
+      "given": [
+        "the entry point refuses with duplicate because an API job for 42 appeared after the open-job check"
+      ],
+      "when": "the cycle handles af:fix on 42",
+      "then": [
+        "exactly one fix job for 42 exists",
+        "af:fix is removed from 42, or recorded as owed when the removal fails"
+      ],
+      "pseudocode": "assert count(jobs, kind='fix', issue=42)==1 and (hub.removed or rec.owed)"
+    },
+    {
+      "id": "TS-15-35",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-5.7"
+      ],
+      "title": "A not-subscribed refusal ends the cycle at once with no label written",
+      "given": [
+        "af:triage on 7 and af:fix on 42",
+        "the jobs entry point refuses the first create with not subscribed"
+      ],
+      "when": "the cycle runs",
+      "then": [
+        "no further hub request is sent after the refusal",
+        "no removal is sent",
+        "no job is created"
+      ],
+      "pseudocode": "assert hub.requestsAfter(refusal)==[] and hub.removals()==[]"
+    },
+    {
+      "id": "TS-15-36",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-5.8"
+      ],
+      "title": "A token-unreadable or other create error logs one WARN, leaves the label and ends the cycle",
+      "given": [
+        "af:triage on 7 and af:fix on 42",
+        "the entry point returns token unreadable, then another error in a second scenario"
+      ],
+      "when": "the cycle runs",
+      "then": [
+        "no removal of af:triage from 7 is sent",
+        "one WARN record is logged",
+        "the fix list's issue 42 is not processed in this cycle"
+      ],
+      "pseudocode": "assert hub.removals()==[] and warns()==1 and jobs.count()==0"
+    },
+    {
+      "id": "TS-15-37",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-6.1"
+      ],
+      "title": "The migration creates af_poll_requests with no foreign key to af_jobs, appended to the list",
+      "given": [
+        "a fresh database migrated by the store"
+      ],
+      "when": "the schema is inspected and the store is reopened",
+      "then": [
+        "table af_poll_requests exists",
+        "PRAGMA foreign_key_list(af_poll_requests) is empty",
+        "the new migration is the last entry and earlier entries are unchanged",
+        "records survive reopening the database file"
+      ],
+      "pseudocode": "assert fk_list=='[]'; write rec; reopen(); assert rec exists"
+    },
+    {
+      "id": "TS-15-38",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-6.2"
+      ],
+      "title": "A poll record is written after the job is created and before the removal",
+      "given": [
+        "af:fix on 42",
+        "a hook on the fake hub that reads the poll table when the removal arrives"
+      ],
+      "when": "a cycle creates the job",
+      "then": [
+        "at the time of the removal request, a record for widgets, 42, af:fix carries the job id and the removal owed",
+        "after success the owed flag is cleared"
+      ],
+      "pseudocode": "hub.onRemove=lambda: snapshot=rec(); assert snapshot.job_id==job.id and snapshot.owed"
+    },
+    {
+      "id": "TS-15-39",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-6.3"
+      ],
+      "title": "A record that cannot be written logs a WARN and the removal still goes ahead",
+      "given": [
+        "af:fix on 42",
+        "the poll table's writes fail"
+      ],
+      "when": "a cycle runs",
+      "then": [
+        "one WARN record about the record",
+        "the fake hub records the removal of af:fix from 42",
+        "the job exists"
+      ],
+      "pseudocode": "breakTable(); cycle(); assert warns()==1 and hub.removals('af:fix',42)==1"
+    },
+    {
+      "id": "TS-15-40",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-6.4"
+      ],
+      "title": "A cycle reconciles its records with their jobs before any hub request, enabled or not",
+      "given": [
+        "records for jobs that are done, cancelled without a hold, cancelled with a hold and no runner left, purged, queued, running, blocked and failed",
+        "AF_POLL_INTERVAL 0"
+      ],
+      "when": "a cycle starts and the first hub request is observed",
+      "then": [
+        "reconciliation happened before the first hub request",
+        "done and cancelled-without-hold records are marked ended holding nothing",
+        "the cancelled-with-hold record has its release clock started at the first time no runner is in progress",
+        "the purged record holds from the moment found gone",
+        "queued, running, blocked and failed records are not ended"
+      ],
+      "pseudocode": "reconcile(); assert state(rec_done)=='ended' ... assert rec_purged.hold and rec_purged.clock==now; assert state(rec_failed)=='open'"
+    },
+    {
+      "id": "TS-15-41",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-6.5"
+      ],
+      "title": "A successful or 404 removal confirms every owed removal for the issue and label, with no failure record",
+      "given": [
+        "two owed records for 42 and af:fix",
+        "hub answers the removal with 404 in one scenario and 200 in another"
+      ],
+      "when": "a cycle lists 42 under af:fix",
+      "then": [
+        "both owed flags are cleared",
+        "no ERROR or WARN record is logged for the 404"
+      ],
+      "pseudocode": "hub.removeAnswer(404); cycle(); assert owed(42,'af:fix')==0 and failures()==[]"
+    },
+    {
+      "id": "TS-15-42",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-6.6"
+      ],
+      "title": "A failed removal leaves the job standing and owed, and the next cycle removes without a job",
+      "given": [
+        "the removal of af:fix from 42 answers 503",
+        "the fake runner finishes the job to done before the next cycle"
+      ],
+      "when": "a cycle runs, then the next cycle runs, then one more",
+      "then": [
+        "the job is created and ends done",
+        "the next cycle removes af:fix and creates no job",
+        "the cycle after creates nothing",
+        "adding af:fix to 42 again then creates exactly one new job"
+      ],
+      "pseudocode": "assert jobs==1; cycle(); assert jobs==1 and removed; cycle(); assert jobs==1; hub.add(42,'af:fix'); cycle(); assert jobs==2"
+    },
+    {
+      "id": "TS-15-43",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-6.7"
+      ],
+      "title": "A complete listing without the issue settles every owed removal for it",
+      "given": [
+        "owed removals for 42 and af:fix, a person removed the label by hand"
+      ],
+      "when": "a complete af:fix listing that does not contain 42 is processed",
+      "then": [
+        "the owed removals are settled",
+        "a later af:fix label on 42 makes a new job"
+      ],
+      "pseudocode": "cycle(); assert owed(42)==0; hub.add(42); cycle(); assert jobs.count()==before+1"
+    },
+    {
+      "id": "TS-15-44",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-6.8"
+      ],
+      "title": "A record is dropped once nothing is owed and nothing holds, and not before",
+      "given": [
+        "records: owed removal with done job; confirmed with open job; confirmed with done job; confirmed with released hold; no-job record confirmed"
+      ],
+      "when": "a cycle reconciles and runs",
+      "then": [
+        "the confirmed done-job, released-hold and confirmed no-job records are gone",
+        "the owed record and the open-job record remain"
+      ],
+      "pseudocode": "assert ids(records)=={owed_id, open_id}"
+    },
+    {
+      "id": "TS-15-45",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-7.1"
+      ],
+      "title": "A poll-created job cancelled while in a runner holds from the cancel, whatever the runner reports",
+      "given": [
+        "a poll-created fix job for 42 held by the fake runner",
+        "scenarios: runner returns reporting af:fix set; runner overruns the 60 s grace and the report is dropped; cancel caused by unsubscribe"
+      ],
+      "when": "the job is cancelled and cycles run before and after the runner returns",
+      "then": [
+        "the record holds from the cancel in every scenario",
+        "no job for 42 is created and af:fix stays on 42"
+      ],
+      "pseudocode": "cancel(job); hub.add(42,'af:fix'); cycle(); assert holds(rec) and jobs.count()==1"
+    },
+    {
+      "id": "TS-15-46",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-7.2"
+      ],
+      "title": "A hold keeps the label alone before and after the runner returns and after a restart",
+      "given": [
+        "a poll-created fix job cancelled while the fake runner holds the attempt",
+        "af:fix put back on 42 before the runner returns"
+      ],
+      "when": "a cycle runs in the window, the runner returns reporting af:fix set, three more cycles run, the service restarts on the same database file, and three more cycles run",
+      "then": [
+        "no job for 42 is created in any cycle",
+        "no removal of af:fix is recorded",
+        "af:fix stays on 42"
+      ],
+      "pseudocode": "for c in cycles: cycle(); assert jobs.count('fix',42)==1 and hub.removals('af:fix',42)==1 (the original consumption only)"
+    },
+    {
+      "id": "TS-15-47",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-7.3"
+      ],
+      "title": "The release clock starts when no runner of the job is in progress, or when a purged job was found gone",
+      "given": [
+        "a held job whose runner returns at T",
+        "a held job purged before the poll saw it end, found gone at T2",
+        "a recording clock"
+      ],
+      "when": "cycles run before the runner returns, after it returns, and after the purge",
+      "then": [
+        "no release clock before the runner returns",
+        "the clock equals the first cycle time that saw no runner in progress",
+        "for the purged job the clock equals the time it was found gone"
+      ],
+      "pseudocode": "assert rec.clock is None; runner.return(); cycle(); assert rec.clock==clock.now()"
+    },
+    {
+      "id": "TS-15-48",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-7.4"
+      ],
+      "title": "A complete listing without the issue, requested 5 minutes after the clock started, releases the hold",
+      "given": [
+        "a hold with the release clock started",
+        "af:fix removed from 42 by hand"
+      ],
+      "when": "a complete af:fix listing without 42 is requested at least 5 minutes after the clock started, then af:fix is added to 42 again",
+      "then": [
+        "the hold is released",
+        "the next cycle creates exactly one new fix job for 42"
+      ],
+      "pseudocode": "hub.remove(42); clock.advance(5m); cycle(); assert not hold; hub.add(42); cycle(); assert jobs.count('fix',42)==2"
+    },
+    {
+      "id": "TS-15-49",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-7.5"
+      ],
+      "title": "With an addition lag of two lists and interval 1m, the three cycles after the runner returned neither create a job nor remove the label",
+      "given": [
+        "AF_POLL_INTERVAL 1m",
+        "a cancelled poll-created fix job for 42, runner returned",
+        "the fake hub leaves af:fix on 42 out of the next two lists"
+      ],
+      "when": "three cycles run one minute apart",
+      "then": [
+        "the first two cycles list af:fix without 42, the third with 42",
+        "none creates a job or removes af:fix",
+        "a complete listing without 42 requested less than 5 minutes after the clock does not release the hold"
+      ],
+      "pseudocode": "hub.additionLag(2); for i in 3: cycle(); assert jobs.count('fix',42)==1 and no removal"
+    },
+    {
+      "id": "TS-15-50",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-7.6"
+      ],
+      "title": "A job cancelled while queued, in transient backoff or blocked holds nothing",
+      "given": [
+        "poll-created jobs cancelled while queued, while waiting out a transient backoff, and while blocked"
+      ],
+      "when": "af:fix is added again to the issue and the next cycle runs",
+      "then": [
+        "each issue gets exactly one new job at the next cycle",
+        "the record is not holding"
+      ],
+      "pseudocode": "cancel(queuedJob); hub.add(n,'af:fix'); cycle(); assert jobs.count('fix',n)==2"
+    },
+    {
+      "id": "TS-15-51",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-7.7"
+      ],
+      "title": "A hold survives retention purging the cancelled job",
+      "given": [
+        "a cancelled poll-created job with a hold and af:fix on 42",
+        "the clock moved past [database].retain and the purge ran"
+      ],
+      "when": "three cycles run",
+      "then": [
+        "the job's rows are gone",
+        "no job for 42 is created",
+        "af:fix stays on 42"
+      ],
+      "pseudocode": "clock.advance(retain+1h); purge(); for i in 3: cycle(); assert jobs.count('fix',42)==0 and hub.has(42,'af:fix')"
+    },
+    {
+      "id": "TS-15-52",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-8.1"
+      ],
+      "title": "A not-subscribed answer from the store stops the loop",
+      "given": [
+        "widgets deleted from the store while its loop is waiting"
+      ],
+      "when": "the next cycle reads the prefix and PAT",
+      "then": [
+        "the loop stops",
+        "the fake hub records no request for widgets afterward"
+      ],
+      "pseudocode": "store.delete(); clock.advance(5m); assert loops('widgets')==0 and hub.count(pat)==0"
+    },
+    {
+      "id": "TS-15-53",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-8.2"
+      ],
+      "title": "An unreadable token gives no hub request and one ERROR record",
+      "given": [
+        "widgets whose stored token cannot be decrypted"
+      ],
+      "when": "cycles run",
+      "then": [
+        "the fake hub records no request for the workspace",
+        "exactly one ERROR record is logged across repeated cycles"
+      ],
+      "pseudocode": "assert hub.requests()==[] and errors()==1"
+    },
+    {
+      "id": "TS-15-54",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-8.3"
+      ],
+      "title": "A hub 503 on the list creates nothing and the next cycle one interval later creates the job",
+      "given": [
+        "af:fix on 42",
+        "the fake hub answers the list with 503 once"
+      ],
+      "when": "a cycle runs and the clock advances one interval",
+      "then": [
+        "no job and no removal after the failing call",
+        "one WARN record",
+        "the next cycle creates the job"
+      ],
+      "pseudocode": "hub.failOnce('issues',503); cycle(); assert jobs==0; advance(interval); assert jobs==1"
+    },
+    {
+      "id": "TS-15-55",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-8.4"
+      ],
+      "title": "A 403 on the list gives one ERROR across three cycles naming the operation and PUT route",
+      "given": [
+        "hub answers 403 to the list for widgets",
+        "a second workspace gadgets with a labelled issue"
+      ],
+      "when": "three cycles of widgets run",
+      "then": [
+        "exactly one ERROR record for widgets",
+        "it names the operation and contains PUT /api/v1/workspaces/widgets",
+        "the loop keeps running",
+        "401 and a 404 on the workspace record also give an ERROR"
+      ],
+      "pseudocode": "assert errors(widgets)==1 and 'PUT /api/v1/workspaces/widgets' in rec.msg"
+    },
+    {
+      "id": "TS-15-56",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-8.5"
+      ],
+      "title": "A rejected read or list ends the cycle with one ERROR carrying hub's message",
+      "given": [
+        "hub answers the variables read, the workspace record read, or a list with 409 and a message, in turn"
+      ],
+      "when": "a cycle runs for each",
+      "then": [
+        "the cycle ends",
+        "one ERROR record names the hub operation and carries hub's message"
+      ],
+      "pseudocode": "assert 'conflict text' in errors()[0].msg"
+    },
+    {
+      "id": "TS-15-57",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-8.6"
+      ],
+      "title": "A 409 on a label removal leaves it owed, logs one ERROR, and goes on to the next issue",
+      "given": [
+        "af:fix on 42 and 43",
+        "hub answers the removal of af:fix from 42 with 409 and a message"
+      ],
+      "when": "a cycle runs, then the next cycle",
+      "then": [
+        "the job for 42 stands",
+        "one ERROR record names the label removal, issue 42, af:fix and hub's message",
+        "issue 43 is still processed",
+        "the next cycle removes the label and creates no job when hub accepts"
+      ],
+      "pseudocode": "assert jobs.count()==2 and errors()==1 and 'af:fix' in msg and '42' in msg"
+    },
+    {
+      "id": "TS-15-58",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-8.7"
+      ],
+      "title": "A failure is logged once until recovery; a different failure is logged; recovery logs one INFO",
+      "given": [
+        "a 503 list in one cycle and a 403 variables read in the next",
+        "then the same 403 repeated, then success"
+      ],
+      "when": "the cycles run",
+      "then": [
+        "exactly one WARN and one ERROR record",
+        "the repeated 403 logs nothing more",
+        "a cycle with no failure logs one INFO record saying the poll recovered",
+        "after recovery the same failure is logged again"
+      ],
+      "pseudocode": "assert (warns,errors)==(1,1); cycle_ok(); assert infos('recovered')==1"
+    },
+    {
+      "id": "TS-15-59",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-8.8"
+      ],
+      "title": "A failing workspace does not stop another workspace's loop",
+      "given": [
+        "widgets answering 403 on every call",
+        "gadgets with a labelled issue"
+      ],
+      "when": "three cycles run",
+      "then": [
+        "gadgets is listed in the same cycles and its job is created",
+        "widgets loop keeps running"
+      ],
+      "pseudocode": "assert hub.count('gadgets','issues')==3 and jobs('gadgets')==1"
+    },
+    {
+      "id": "TS-15-60",
+      "kind": "property",
+      "verifies": [
+        "15-REQ-9.1"
+      ],
+      "title": "Racing creators for one workspace, kind and issue yield exactly one job",
+      "given": [
+        "a fresh temporary database per iteration, 50 iterations, run under go test -race",
+        "af:fix on 42"
+      ],
+      "when": "for any interleaving of a poll cycle that finds af:fix on 42 and POST /api/v1/workspaces/widgets/fix {\"issue\":42}",
+      "then": [
+        "exactly one fix job for 42 exists",
+        "the loser receives the duplicate refusal",
+        "af:fix is removed from 42, either as the poll's new request or as absorbed"
+      ],
+      "pseudocode": "for i in 50: db=fresh(); go cycle(); go post(); wait(); assert count(fix,42)==1 and hub.removals('af:fix',42)>=1"
+    },
+    {
+      "id": "TS-15-61",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-9.2"
+      ],
+      "title": "The jobs layer exposes a read of a job by id with state, source, request label, cancel and runner flags, and a distinguishable not-found",
+      "given": [
+        "a running job, a job cancelled while its runner holds the attempt, and a purged job id"
+      ],
+      "when": "the read is called for each",
+      "then": [
+        "state, source, request_label are returned",
+        "the cancel-reached-a-runner flag is true and the runner-in-progress flag is true until the runner returns, then false",
+        "the purged id returns an error satisfying the not-found check"
+      ],
+      "pseudocode": "v=jobs.Get(id); assert v.CancelledInRunner and v.RunnerInProgress; assert errors.Is(jobs.Get(purged),ErrNotFound)"
+    },
+    {
+      "id": "TS-15-62",
+      "kind": "integration",
+      "verifies": [
+        "15-REQ-9.3"
+      ],
+      "title": "The retention purge returns no error and leaves af_poll_requests rows in place",
+      "given": [
+        "a finished job with a poll record referring to it, past [database].retain"
+      ],
+      "when": "retention purges",
+      "then": [
+        "rows in af_events, af_attempts and af_jobs for the job are gone",
+        "the purge returns no error",
+        "the poll record survives"
+      ],
+      "pseudocode": "err=purge(); assert err==nil and count(af_jobs,id)==0 and count(af_poll_requests,job_id=id)==1"
+    },
+    {
+      "id": "TS-15-63",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-10.1"
+      ],
+      "title": "The docs describe the poll in each named file and docs/cli.md is unchanged",
+      "given": [
+        "the docs after make doc"
+      ],
+      "when": "the docs test checks the phrases",
+      "then": [
+        "docs/api.md names request_label, source kind label, absorbed, already-taken and held labels",
+        "docs/configuration.md names AF_POLL_INTERVAL, 5m, 0, 1m, 24h, and label_prefix",
+        "docs/model-usage.md says the poll runs no model and a restored label does not spend again",
+        "docs/architecture.md covers loops, cycles, owed removals, holds, release delay, records outliving jobs, incomplete listings, cost per cycle",
+        "docs/development.md names the poll's code location",
+        "README.md says a subscribed workspace picks up labelled issues",
+        "docs/cli.md has no poll text"
+      ],
+      "pseudocode": "for f,phrases in table: assert all(p in read(f) for p in phrases)"
+    },
+    {
+      "id": "TS-15-64",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-10.3"
+      ],
+      "title": "Every poll test runs offline",
+      "given": [
+        "the poll's test files and the test network guard"
+      ],
+      "when": "the tests are scanned and run with outbound non-loopback dials refused",
+      "then": [
+        "all hub URLs in poll tests are loopback httptest servers",
+        "no test dials a non-loopback address",
+        "make check passes without network"
+      ],
+      "pseudocode": "assert no non-loopback dial recorded during go test ./internal/service/poll/..."
+    },
+    {
+      "id": "TS-15-65",
+      "kind": "smoke",
+      "verifies": [
+        "15-PATH-1",
+        "15-REQ-10.2"
+      ],
+      "title": "A triage label becomes one job that the real worker runs to done",
+      "given": [
+        "the fake hub with its git server, the in-process gateway over local, the scripted brain and the real worker",
+        "widgets subscribed with prefix af:",
+        "open issue with af:triage and an original body"
+      ],
+      "when": "one poll cycle runs, the worker finishes the job, and the next cycle runs",
+      "then": [
+        "exactly one job with source.kind label exists and ends done",
+        "af:triage is removed through hub",
+        "the issue body is rewritten with a ## Original report section byte-identical to the original body",
+        "af:ready is set",
+        "the next cycle creates no second job"
+      ],
+      "pseudocode": "cycle(); waitDone(job); assert body contains '## Original report\\n'+orig; assert 'af:ready' in labels; cycle(); assert jobs.count()==1",
+      "real_components": [
+        "poll supervisor and cycle",
+        "real jobs layer on a temporary SQLite database",
+        "real worker of agent_fox_worker",
+        "internal/hub forge client",
+        "fake hub and its git server",
+        "in-process gateway over local",
+        "scripted brain",
+        "poll store af_poll_requests"
+      ]
+    },
+    {
+      "id": "TS-15-66",
+      "kind": "smoke",
+      "verifies": [
+        "15-PATH-2",
+        "15-REQ-5.1"
+      ],
+      "title": "A label added to an issue with a running API fix job is absorbed",
+      "given": [
+        "the real API, jobs layer on a temporary database with the fake runner holding the attempt, the fake hub, and a poll cycle"
+      ],
+      "when": "POST /api/v1/workspaces/widgets/fix {\"issue\":42} creates a running job, af:fix is added to 42 and a cycle runs",
+      "then": [
+        "no second job is created",
+        "af:fix is removed from 42 through hub",
+        "an INFO record names the absorbed label with workspace, kind, issue and job id"
+      ],
+      "pseudocode": "post fix 42; hub.add(42,'af:fix'); cycle(); assert jobs.count()==1 and hub.removals('af:fix',42)==1",
+      "real_components": [
+        "HTTP API handler",
+        "real jobs layer on a temporary SQLite database",
+        "fake runner",
+        "poll supervisor and cycle",
+        "internal/hub forge client",
+        "fake hub"
+      ]
+    },
+    {
+      "id": "TS-15-67",
+      "kind": "smoke",
+      "verifies": [
+        "15-PATH-3",
+        "15-REQ-7.4"
+      ],
+      "title": "A label the cancel put back is held, released after a manual removal, and then one new job is made",
+      "given": [
+        "the real jobs layer with the fake runner, the fake hub, the poll cycle and the poll store",
+        "a poll-created fix job for 42 whose label was removed"
+      ],
+      "when": "the job is cancelled while the runner holds it, the label is put back and the runner returns, cycles run, a person removes af:fix, 5 minutes pass and a complete listing without 42 runs, then af:fix is added again",
+      "then": [
+        "during the hold no job is created and af:fix is not removed",
+        "the hold is released by the complete listing",
+        "adding af:fix again makes exactly one new fix job"
+      ],
+      "pseudocode": "cycle(); cancel(job); hub.add(42,'af:fix'); runner.return(set=['af:fix']); cycle()x3; hub.remove(42); advance(5m); cycle(); hub.add(42); cycle(); assert jobs.count('fix',42)==2",
+      "real_components": [
+        "HTTP API handler",
+        "real jobs layer on a temporary SQLite database",
+        "fake runner",
+        "poll supervisor and cycle",
+        "poll store af_poll_requests",
+        "internal/hub forge client",
+        "fake hub"
+      ]
+    },
+    {
+      "id": "TS-15-68",
+      "kind": "smoke",
+      "verifies": [
+        "15-PATH-4",
+        "15-REQ-6.6"
+      ],
+      "title": "A failed removal is owed and the label is taken once, not twice",
+      "given": [
+        "the real jobs layer with the fake runner, the fake hub, the poll store and cycle",
+        "the removal of af:fix from 42 answers 503 once"
+      ],
+      "when": "a cycle creates the job and the removal fails, the job ends done, the next cycle runs, and another cycle follows",
+      "then": [
+        "one job exists after the first cycle and a WARN is logged",
+        "the next cycle removes af:fix and creates no job",
+        "the record is dropped",
+        "the cycle after creates nothing"
+      ],
+      "pseudocode": "hub.failOnce('remove',503); cycle(); finish(job); cycle(); assert jobs.count()==1 and hub.removed(42,'af:fix') and records==[]; cycle(); assert jobs.count()==1",
+      "real_components": [
+        "real jobs layer on a temporary SQLite database",
+        "fake runner",
+        "poll supervisor and cycle",
+        "poll store af_poll_requests",
+        "internal/hub forge client",
+        "fake hub"
+      ]
+    }
+  ]
+}

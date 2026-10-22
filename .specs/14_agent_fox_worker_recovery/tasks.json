@@ -1,0 +1,536 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "14",
+  "spec_name": "agent_fox_worker_recovery",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/worker/... ./internal/service/... ./internal/hub/... ./internal/box/... ./internal/brain/... ./internal/fix/... ./internal/triage/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "11",
+      "reason": "subscription list, in-process PAT read by slug, hub client and fake hub, which this spec extends with lease listing, seeded leases, session state and a killable sandbox"
+    },
+    {
+      "spec": "12",
+      "reason": "runner contract (handover count, attempt directory, transient errors, shutdown cause, recorder hub references), job lookup by id, attempt states and redelivery after a restart"
+    },
+    {
+      "spec": "13",
+      "reason": "the worker pipeline, clone, lease with job/attempt labels, gateway box, mirror and comment marker, usage/events/release that this spec adds the journal, outcome file, resume paths, box replacement and reconciliation to"
+    },
+    {
+      "spec": "09",
+      "reason": "fix.Measure, LandRun, Land, Park, Finish, the Agent-Fox-Run trailer and UniqueBranchName naming are reused unchanged"
+    },
+    {
+      "spec": "08",
+      "reason": "triage.Land (repeatable, Created parameter) and triage.Validate are reused for resumed triage landings"
+    },
+    {
+      "spec": "07",
+      "reason": "brain.Execute's brain_end ledger record gains input_tokens and output_tokens; Tally is seeded from carried spend"
+    },
+    {
+      "spec": "10",
+      "reason": "box failures from a gone sandbox become recognisable with errors.Is without changing category, retryable flag or message"
+    },
+    {
+      "spec": "05",
+      "reason": "RunDir, OpenRunDir, Ledger, the envelope and the warning code format"
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Foundations: brain_end token fields, box-loss sentinel and fake hub lease/session/kill controls",
+      "criteria": [
+        "14-REQ-4.6",
+        "14-REQ-7.1",
+        "14-REQ-10.3"
+      ],
+      "tests": [
+        "TS-14-27",
+        "TS-14-43",
+        "TS-14-61"
+      ],
+      "steps": [
+        "Write TS-14-27, TS-14-43 and TS-14-61 and confirm they fail",
+        "In internal/brain/execute.go add input_tokens and output_tokens (from Outcome) to every brain_end ledger record, zero integers when the brain reports none; keep the existing fields",
+        "In internal/box add an exported sentinel (box.ErrUnavailable) and wrap the failures from tool code sandbox_unavailable, gateway not-found / lease-expired answers and an unreachable gateway so errors.Is matches; leave Failure.Category, Retryable and Error() byte-identical (implement via an Unwrap on a wrapper that delegates Error())",
+        "Extend internal/hub/fakehub with GET /workspaces/:slug/sandboxes (id, labels, purpose, expires_at, with optional pagination), SeedLeases/SeedLease with labels, a Deleted() observer, 404 on DELETE of an unknown lease, session state (opened, usage, complete status) and KillSandbox(id) making the gateway answer as gone",
+        "Add hub.Client ListSandboxes (following pagination) returning typed leases in internal/hub",
+        "Run make check"
+      ],
+      "touches": [
+        "internal/brain/execute.go",
+        "internal/brain/execute_test.go",
+        "internal/box/session.go",
+        "internal/box/exec.go",
+        "internal/box/fs.go",
+        "internal/box/unavailable_test.go",
+        "internal/hub/",
+        "internal/hub/fakehub/"
+      ],
+      "done_when": [
+        "existing brain and box tests still pass with unchanged Failure messages"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Attempt journal, deliveries that stop without an outcome and the stage-abort seam",
+      "criteria": [
+        "14-REQ-1"
+      ],
+      "tests": [
+        "TS-14-1",
+        "TS-14-2",
+        "TS-14-3",
+        "TS-14-4",
+        "TS-14-5",
+        "TS-14-6",
+        "TS-14-7"
+      ],
+      "steps": [
+        "Write TS-14-1..TS-14-7 and confirm they fail",
+        "Create internal/worker/recovery with a Journal document (version, job, attempt, kind, relative clone dir, hub_url without user info, forge repository, pinned brain/model/profile/landing mode/budget/turn bound, run id, base branch/head, session {id, run_id, completed}, leases {sandbox id, expires_at, released}, deliveries {count, started, ending}, spend, landing plan, landing steps, mirror steps, report steps) and Store with Load/Write",
+        "Write via a temp file in recovery/ (0700), chmod 0600, fsync file and directory, rename atomically; never write a PAT, lease token, Authorization value or userinfo URL (strip userinfo when recording hub_url)",
+        "Create recovery/ as a named 0700 subdirectory beside clone/ and input/; exclude it from the worker's cleanup on return",
+        "Wire journal updates into the worker pipeline after each completed step (session, clone, run id/base, lease, brain end, landing, mirror, report); a failed write raises journal_unwritable once per delivery and the delivery continues from memory",
+        "Make the landing-plan write mandatory: on failure make no push, no hub branch push and no forge write, keep the clone and return a transient toolio.Failure of category io, retryable",
+        "On shutdown or transient error: release the lease and record the release, record the ending as shutdown/transient, post no usage and no events batch, leave the session open, write no outcome file, leave clone/run dir/parked branch untouched; keep the shutdown-writes-nothing and transient-removes-in-progress-label behaviour",
+        "Add a test-only stage-abort seam (internal/worker/stageabort.go) that stops a delivery right after a named stage (e.g. clone, submission_accepted, applied, plan_recorded, pushed, pull_request, outcome_written, mirror_done, created_issue) without cleanup, returning a sentinel to the test",
+        "Add a no-credential property test walking recovery/ over generated delivery sequences"
+      ],
+      "touches": [
+        "internal/worker/recovery/",
+        "internal/worker/runner.go",
+        "internal/worker/run.go",
+        "internal/worker/stageabort.go",
+        "internal/worker/cleanup.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "done_when": [
+        "no file under recovery/ contains the PAT or any lease token"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Delivery start: fresh, resumed or discarded, session reuse, lease release and carried spend",
+      "criteria": [
+        "14-REQ-2",
+        "14-REQ-4.5"
+      ],
+      "tests": [
+        "TS-14-8",
+        "TS-14-9",
+        "TS-14-10",
+        "TS-14-11",
+        "TS-14-12",
+        "TS-14-13",
+        "TS-14-14",
+        "TS-14-15",
+        "TS-14-16",
+        "TS-14-26"
+      ],
+      "steps": [
+        "Write the listed tests and confirm they fail",
+        "Add a start decision in internal/worker/start.go: handover count 1 removes any clone and journal and starts fresh; later deliveries with no journal/clone, or a journal with no completed clone, remove a partial clone, reuse an uncompleted journal session and raise no warning",
+        "Resume only when the journal reads with a known version naming this job, attempt and kind, the clone is a git work tree whose origin equals the current hub_url, the forge repository matches, the run directory opens, the pinned file (fix.json/triage.json) exists and the ledger parses; otherwise raise resume_discarded with reason journal_unreadable, clone_invalid, origin_changed, forge_repository_changed, run_missing or ledger_unreadable",
+        "On discard with a readable journal: release every unreleased lease (404 = released), compute carried spend as the larger of the journal's spend and previous carry plus the removed ledger's brain_end sum (journal's when the ledger does not read), remove the clone, start as a first delivery reusing an uncompleted session and its run id",
+        "On resume re-read PAT, workspace, variables and thread and apply the current resolve checks (carry_patch, AF_FIX_LAND=patch, ranges); set the in-progress label; take base/table/baseline/brief from the pinned file and brain/model/profile/landing mode/budget/turn bound from the journal; read AF_TIMEOUT afresh and AF_MAX_ATTEMPTS as current",
+        "Add a spend type and Remaining(pinned budget, pinned turns) used for the brain options; end with failed category budget handled in task 5",
+        "Session handling: report to the journal's uncompleted session without POST /sessions; open a new session with the run's run id when the recorded one was completed and post only unposted usage; report session id and run id to the recorder",
+        "Release every unreleased journal lease before taking a new lease",
+        "Catch-all: base-branch commits lacking the Agent-Fox-Run trailer, or the run's branch on hub's git server at another commit, end the attempt failed with category internal, not retryable, naming what was found, with the worker's failed-attempt cleanup"
+      ],
+      "touches": [
+        "internal/worker/start.go",
+        "internal/worker/resume.go",
+        "internal/worker/runner.go",
+        "internal/worker/session.go",
+        "internal/worker/lease.go",
+        "internal/worker/spend.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "done_when": [
+        "a changed base branch, landing mode, model or budget on hub does not change a resumed run"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Skip the brain, bring the clone back, and rerun the loop from the base",
+      "criteria": [
+        "14-REQ-3"
+      ],
+      "tests": [
+        "TS-14-17",
+        "TS-14-18",
+        "TS-14-19",
+        "TS-14-20",
+        "TS-14-21"
+      ],
+      "steps": [
+        "Write the listed tests and confirm they fail",
+        "Add internal/worker/skipbrain.go: skip the brain only when submission.json parses as a submission File of the run's kind with run_id equal to the journal's run id and a matching payload_sha256, the ledger's last submission_accepted carries that hash, the payload passes submission.Check (triage.Validate for triage) against the clone's tree, and (fix report only) an apply record follows that submission_accepted",
+        "Add clone restore in internal/worker/restore.go for a skipped fix brain whose change is not on hub's git server: checkout the base at the base head; take the change from the working tree or from an unpushed local branch whose commits after the base head all carry Agent-Fox-Run: <run id> (use gitx.CommitsSince/HeadMessage), apply its change to the working tree (ResetSoft then unstage) and delete the branch so UniqueBranchName returns the original name",
+        "For a resumed fix that runs the brain: gitx.ResetHard to the base head, CleanExcept keeping .agent-fox/, delete every local branch of the run, then run fix.RunLoop with one in-run attempt in the same run directory, continuing fix.json's round count, giving the first round the earlier questions and no refusal, feeding later refusals to the next round and ending through fix.Finish",
+        "For a resumed triage that runs the brain reuse the clone and rerun the triage loop in the same run directory without a clone request",
+        "Add the resume stage computation (outcome, published, applied, submitted, brain) used by later tasks and the resume step event",
+        "Run make check"
+      ],
+      "touches": [
+        "internal/worker/skipbrain.go",
+        "internal/worker/restore.go",
+        "internal/worker/fixrun.go",
+        "internal/worker/triagerun.go",
+        "internal/fix/loop.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "done_when": [
+        "no -2 suffix on the pushed branch name after the parked branch is deleted"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "One budget and one usage total per attempt",
+      "criteria": [
+        "14-REQ-4.1",
+        "14-REQ-4.2",
+        "14-REQ-4.3",
+        "14-REQ-4.4",
+        "14-REQ-4.7"
+      ],
+      "tests": [
+        "TS-14-22",
+        "TS-14-23",
+        "TS-14-24",
+        "TS-14-25",
+        "TS-14-28"
+      ],
+      "steps": [
+        "Write the listed tests and confirm they fail",
+        "Add internal/worker/spend.go: scan the current ledger's brain_start/brain_end records; sum brain_end cost, cost source, input/output tokens and turns; seed brain.Tally with carried spend plus the sums",
+        "Detect a brain_start with no brain_end before the next brain_start or the end of the ledger: count it as zero and raise brain_spend_unrecorded carrying the brain_start's ledger seq and its round",
+        "Give every brain run on a resumed delivery or after a box replacement budget = pinned budget minus spend and turns = pinned turns minus attempt turns; with nothing left end failed category budget, not retryable, without invoking the brain",
+        "Refresh the journal's spend after every brain run ends so it equals carried plus the ledger's brain_end sum",
+        "Report envelope usage and the single hub usage record as carried spend plus the current ledger's brain_end records",
+        "Run make check"
+      ],
+      "touches": [
+        "internal/worker/spend.go",
+        "internal/worker/fixrun.go",
+        "internal/worker/triagerun.go",
+        "internal/worker/report.go"
+      ],
+      "depends_on": [
+        4
+      ],
+      "done_when": [
+        "a done envelope after a resume reports delivery 1's brain spend plus delivery 2's"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Landing plan, published-change detection and recorded landing steps",
+      "criteria": [
+        "14-REQ-5.1",
+        "14-REQ-5.2",
+        "14-REQ-5.3"
+      ],
+      "tests": [
+        "TS-14-29",
+        "TS-14-30",
+        "TS-14-31",
+        "TS-14-38"
+      ],
+      "steps": [
+        "Write the listed tests and confirm they fail",
+        "Before the first push, record the landing plan in the journal (branch, commit, outcome landed|parked, status, measured verdict, closes-issue, PR title, body, draft, warnings so far) via a hook in fix.Land/Park threaded through FinishParams, ahead of the worker's push hook",
+        "Record pushed, hub_push, pull_request {number,url} and created_issue {number,url} in the journal as soon as hub answers",
+        "On a resumed fix delivery read the remote with the PAT (gitx RemoteBranchExists / ls-remote with commit); when the plan's branch is there at the plan's commit measure and commit nothing, take no lease and run no brain; finish the unrecorded landing steps from the plan (repeat push/hub push/labels, never a recorded pull request) then the mirror, reporting the plan's branch, commit, verdict and pull request",
+        "Treat a pull request refused on a resume as the existing warning pull_request_failed",
+        "For a triage of text or file, pass the journal's created_issue to triage.Land as Created so a resumed landing replaces that issue's body and creates no second one",
+        "Add a property test over generated crash-stage sequences asserting at most one PR, one created issue and one comment per marker",
+        "Run make check"
+      ],
+      "touches": [
+        "internal/worker/landing.go",
+        "internal/worker/published.go",
+        "internal/fix/land.go",
+        "internal/fix/finish.go",
+        "internal/triage/land.go",
+        "internal/worker/triagerun.go"
+      ],
+      "depends_on": [
+        5
+      ],
+      "done_when": [
+        "journal.json holds the plan before the fake hub records the first push"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Re-measure an unpublished change, baseline rerun, no_result and question/diagnosis resumes",
+      "criteria": [
+        "14-REQ-5.4",
+        "14-REQ-5.5",
+        "14-REQ-5.6",
+        "14-REQ-5.7",
+        "14-REQ-5.8"
+      ],
+      "tests": [
+        "TS-14-32",
+        "TS-14-33",
+        "TS-14-34",
+        "TS-14-35",
+        "TS-14-36",
+        "TS-14-37"
+      ],
+      "steps": [
+        "Write the listed tests and confirm they fail",
+        "For an accepted and applied fix report not on hub's git server: take one lease with the pinned profile, sync the clone, check the baseline, then measure once with the pinned table and baseline (fix.LandRun semantics: land a passing change, park a refused one, no brain round)",
+        "Baseline check: when clone/.agent-fox/gate/<fix.json BaselineGateID>/ is missing, set the run's change aside (stash or temp copy), run the baseline in the box at the pinned base head with the pinned table, restore the change, update fix.json with the new baseline and measure against it; a box failure is handled as box loss (task 9) or the worker's transient sandbox error",
+        "A change empty once protected paths are restored ends failed, category no_result, not retryable, with no branch landed or parked",
+        "A fix question or triage question returns needs_human with no lease; the mirror posts the question comment and label once, guarded by the worker's marker",
+        "A triage diagnosis lands again through triage.Land against the clone's tree with no lease and no brain run; assert the ## Original report section is byte-identical",
+        "Run make check"
+      ],
+      "touches": [
+        "internal/worker/remeasure.go",
+        "internal/worker/baseline.go",
+        "internal/worker/fixrun.go",
+        "internal/worker/triagerun.go",
+        "internal/fix/landcmd.go"
+      ],
+      "depends_on": [
+        6
+      ],
+      "done_when": [
+        "the re-measure verdict is never unverified for lack of a baseline"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Outcome file, mirror journalling, stored-outcome resume and resume visibility",
+      "criteria": [
+        "14-REQ-6",
+        "14-REQ-9.1",
+        "14-REQ-9.3"
+      ],
+      "tests": [
+        "TS-14-39",
+        "TS-14-40",
+        "TS-14-41",
+        "TS-14-42",
+        "TS-14-57"
+      ],
+      "steps": [
+        "Write the listed tests and confirm they fail",
+        "Write recovery/outcome.json (0600, atomic, synced) holding envelope, report text, most attempts and a mirrored flag as soon as the outcome is known and before the mirror; journal each mirror step (status_labels, comment); rewrite it mirrored with the amended envelope and labels set/removed after the mirror; both writes before the release, usage, events and completion",
+        "Never write outcome.json on a shutdown or transient-error delivery",
+        "On a resumed delivery with a valid outcome.json for this job and attempt: run no loop, take no lease; finish an unmirrored mirror (repeat label writes, post the comment only if the marker is absent); release unreleased journal leases; finish unrecorded report steps completing the existing session without POST /sessions; return the stored envelope with only attempt_resumed added",
+        "Post usage once with the attempt's total, record usage_posted/events_posted/session_completed in the journal, and report only from the outcome-producing delivery or a resumed delivery finding the outcome stored",
+        "Emit a step event named resume (handover count, stage outcome|published|applied|submitted|brain, brain skipped, discard reason) and add the warnings attempt_resumed (count, stage, brain skipped) plus resume_discarded, box_replaced, journal_unwritable and brain_spend_unrecorded where they apply, all codes matching ^[a-z][a-z0-9_]*$",
+        "Run make check"
+      ],
+      "touches": [
+        "internal/worker/outcome.go",
+        "internal/worker/mirror.go",
+        "internal/worker/report.go",
+        "internal/worker/resume.go",
+        "internal/worker/events.go"
+      ],
+      "depends_on": [
+        7
+      ],
+      "done_when": [
+        "at the outcome stage attempt_resumed is the only difference from the stored envelope"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "Replace a lost box once within a delivery",
+      "criteria": [
+        "14-REQ-7.2",
+        "14-REQ-7.3",
+        "14-REQ-7.4",
+        "14-REQ-7.5",
+        "14-REQ-7.6",
+        "14-REQ-9.2"
+      ],
+      "tests": [
+        "TS-14-44",
+        "TS-14-45",
+        "TS-14-46",
+        "TS-14-47",
+        "TS-14-48",
+        "TS-14-49",
+        "TS-14-58"
+      ],
+      "steps": [
+        "Write the listed tests and confirm they fail",
+        "Add internal/worker/boxloss.go: classify a loss via errors.Is(err, box.ErrUnavailable) for brain tool calls, host exec, sync, export, file write and gate runs; a refused first lease, an unopenable first box or another sandbox failure is not a loss (no replacement lease)",
+        "Stop the in-flight work on a loss before fix.Finish so it is neither landed nor parked (intercept the round failure in the worker's loop wrapper), record the loss in the journal and release the lost lease (404 = released; failure logged at WARN, journal keeps it unreleased)",
+        "Take one replacement lease with the pinned profile and same purpose; cut the delivery deadline to expires_at minus 2 minutes with lease_shortened_timeout; a replacement with under 2 minutes left counts as refused; open the box, sync the clone and report the new sandbox id to the recorder",
+        "Raise box_replaced with both ids and emit a step event box_replaced",
+        "Continue from where the attempt stands: an accepted and applied submission skips the brain (baseline check, measure, land or park); otherwise reset the clone to the base and run the loop with the remaining budget",
+        "A second loss, or a replacement refused, too short or unopenable, returns a transient toolio.Failure category sandbox, retryable, releasing the lease and keeping the clone",
+        "Run make check"
+      ],
+      "touches": [
+        "internal/worker/boxloss.go",
+        "internal/worker/lease.go",
+        "internal/worker/runner.go",
+        "internal/worker/fixrun.go"
+      ],
+      "depends_on": [
+        8
+      ],
+      "done_when": [
+        "a replacement box never produces a parked branch from the lost box's partial work"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 10,
+      "kind": "implement",
+      "title": "Reconciliation pass for orphaned leases and open sessions",
+      "criteria": [
+        "14-REQ-8"
+      ],
+      "tests": [
+        "TS-14-50",
+        "TS-14-51",
+        "TS-14-52",
+        "TS-14-53",
+        "TS-14-54",
+        "TS-14-55",
+        "TS-14-56"
+      ],
+      "steps": [
+        "Write the listed tests and confirm they fail",
+        "Create internal/service/reconcile with a Reconciler taking the subscription list, store token reader, hub client, job lookup by id, attempt listing, the jobs layer's live-runner registry, a logger and an injectable interval",
+        "Run one pass at service start in a goroutine (never delaying listening or claiming), then every 15 minutes; allow only one pass at a time and stop on the service's shutdown context",
+        "Lease sweep: per subscription whose token opens, list leases with the PAT following pagination; release each whose job label names a job in this database and whose attempt has no runner in this process (404 = released); keep unlabelled, unknown-job and running-attempt leases",
+        "Session sweep: for ended attempts (done, failed, cancelled, needs_human) whose journal records an uncompleted session post the unposted usage, complete the session with the stored outcome's status or failed, record both journal steps, post no events batch; leave an attempt with an unreadable journal alone",
+        "A workspace with an unreadable token or hub 401/403/5xx/no answer logs WARN naming the workspace and never the token, continues to the next workspace and is retried next pass",
+        "Log each release and each completed session at INFO with workspace, sandbox_id or session_id, job and attempt",
+        "Wire the reconciler into the service start-up in cmd/agent-fox / internal/service",
+        "Run make check"
+      ],
+      "touches": [
+        "internal/service/reconcile/",
+        "internal/service/",
+        "cmd/agent-fox/"
+      ],
+      "depends_on": [
+        1,
+        2
+      ],
+      "done_when": [
+        "the service accepts requests before the first pass completes"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 11,
+      "kind": "implement",
+      "title": "Documentation and offline guarantee for recovery",
+      "criteria": [
+        "14-REQ-10.1",
+        "14-REQ-10.2"
+      ],
+      "tests": [
+        "TS-14-59",
+        "TS-14-60"
+      ],
+      "steps": [
+        "Write TS-14-59 (docs terms test beside docs/docs_test.go, never removing existing text) and TS-14-60 (offline guard: no ANTHROPIC_API_KEY, loopback-only dials, no podman) and confirm they fail",
+        "Run make doc",
+        "Update docs/architecture.md: journal and outcome file under recovery/, resume stages and rules, pinned settings, re-measuring and baseline rerun, box replacement, reconciliation",
+        "Update docs/api.md: warning codes attempt_resumed, resume_discarded, box_replaced, journal_unwritable, brain_spend_unrecorded and that deliveries above 1 means resumed",
+        "Update docs/cli.md with only the brain_end fields input_tokens and output_tokens",
+        "Update docs/model-usage.md (no second brain run with a valid submission, remaining-budget runs, usage across deliveries, brain_spend_unrecorded) and docs/development.md (fake hub lease listing, stage-abort seam)",
+        "Add docs/errata/14_*.md recording any divergence from the PRD",
+        "Run make check"
+      ],
+      "touches": [
+        "docs/architecture.md",
+        "docs/api.md",
+        "docs/cli.md",
+        "docs/model-usage.md",
+        "docs/development.md",
+        "docs/errata/14_recovery_divergences.md",
+        "docs/docs_test.go"
+      ],
+      "depends_on": [
+        9,
+        10
+      ],
+      "done_when": [
+        "make check passes offline"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 12,
+      "kind": "integration",
+      "title": "Verify all recovery paths end to end",
+      "tests": [
+        "TS-14-62",
+        "TS-14-63",
+        "TS-14-64",
+        "TS-14-65",
+        "TS-14-66",
+        "TS-14-67",
+        "TS-14-68",
+        "TS-14-69"
+      ],
+      "steps": [
+        "Write TS-14-62..TS-14-69 as smoke tests over the fake hub, in-process gateway over local, scripted brain and (for TS-14-63) the real jobs layer on a database file restarted, and confirm they pass",
+        "Trace 14-PATH-1 to 14-PATH-8 through real code: confirm each step calls the next (runner -> start decision -> skip-brain/restore -> baseline -> measure -> landing plan -> push -> mirror -> outcome file -> release -> report; box loss -> replacement; reconciler -> hub client) and no stub remains",
+        "For every criterion with a contract confirm the producer's result is consumed in production code: journal/outcome readers in the runner, box.ErrUnavailable in the loop wrapper, reconciler started by the service, stage-abort seam reachable only from tests",
+        "Confirm the jobs layer's runner entry point calls the worker with the handover count and attempt directory in production code, and that the recorder receives session, run and sandbox ids",
+        "Grep every file in all tasks' touches for panic(\"not implemented\"), TODO, NotImplementedError and bare return nil on non-trivial paths and remove them",
+        "Run make check"
+      ],
+      "touches": [
+        "internal/worker/smoke_test.go",
+        "internal/service/reconcile/smoke_test.go"
+      ],
+      "depends_on": [
+        11
+      ],
+      "done_when": [
+        "`make check` passes offline"
+      ],
+      "state": "pending"
+    }
+  ]
+}

@@ -1,0 +1,1340 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "14",
+  "spec_name": "agent_fox_worker_recovery",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-14-1",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-1.1"
+      ],
+      "title": "The journal is written mode 0600 in a 0700 recovery directory by atomic synced replacement and never removed by the worker",
+      "given": [
+        "an empty attempt directory"
+      ],
+      "when": "the journal is written twice, with a concurrent reader polling journal.json in a loop, and the worker's attempt cleanup runs",
+      "then": [
+        "recovery/ has mode 0700 and journal.json has mode 0600",
+        "every read parses as either the first or the second complete document",
+        "no temporary file is left behind",
+        "recovery/ and journal.json still exist after the worker's cleanup"
+      ],
+      "pseudocode": "for i in 1..2: j.Write(state_i); reader goroutine: b=read(journal.json); assert json.Valid(b) and (decode(b)==state_1 or state_2); assert stat(recovery).mode==0700; assert stat(journal).mode==0600; worker.Cleanup(); assert exists(journal)"
+    },
+    {
+      "id": "TS-14-2",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-1.2"
+      ],
+      "title": "A journal written after a full fix delivery decodes with every documented field",
+      "given": [
+        "a fix attempt run to completion against the fake hub with the scripted brain"
+      ],
+      "when": "recovery/journal.json is decoded into the journal document",
+      "then": [
+        "format version, job id, attempt number and kind are set",
+        "clone dir is relative to the attempt dir and hub_url carries no user information",
+        "forge repository, pinned brain, model, profile, landing mode, budget and turn bound are present",
+        "run id, base branch, base head, session id, session run id and completed flag are present",
+        "each lease has sandbox id, expires_at and released flag",
+        "each delivery has handover count, start time and ending",
+        "brain spend, landing plan, landing steps pushed, hub_push, pull_request and mirror steps status_labels, comment and report steps usage_posted, events_posted, session_completed are present"
+      ],
+      "pseudocode": "j = decode(read(recovery/journal.json)); assert j.Version>0; assert j.Job==jobID; assert !contains(j.HubURL,'@'); assert len(j.Leases)==1 and j.Leases[0].Released; assert j.Landing.PullRequest.Number>0; assert j.Report.SessionCompleted"
+    },
+    {
+      "id": "TS-14-3",
+      "kind": "property",
+      "verifies": [
+        "14-REQ-1.3"
+      ],
+      "title": "No file under recovery/ ever contains the PAT, a lease token, an Authorization value or a URL with user information",
+      "given": [
+        "a fake hub issuing a distinctive PAT and distinctive lease tokens, with clone URLs that embed credentials for the git process"
+      ],
+      "when": "for any delivery sequence drawn from first delivery, stage-abort at any named stage then resume, shutdown then resume, transient error then resume, and box replacement",
+      "then": [
+        "a byte search of every file under recovery/ for the PAT and for every lease token issued finds no match",
+        "no file contains the string Authorization: or a scheme://user:pass@ URL"
+      ],
+      "pseudocode": "for seq in gen_delivery_sequences(): run(seq); for f in walk(attempt/recovery): b=read(f); assert !contains(b, pat); for t in leaseTokens: assert !contains(b,t); assert !regex('://[^/@\\s]+@').match(b)"
+    },
+    {
+      "id": "TS-14-4",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-1.4"
+      ],
+      "title": "When the landing plan cannot be journalled the delivery writes nothing to hub's git server or the forge and returns a transient io error",
+      "given": [
+        "a fix attempt with an accepted and applied change",
+        "journal writes made to fail exactly when the landing plan is written"
+      ],
+      "when": "the delivery reaches the landing",
+      "then": [
+        "the runner returns an error carrying toolio.Failure with category io and retryable true",
+        "the fake hub records zero git pushes, zero branch push route calls and zero forge writes for the delivery",
+        "the clone is kept"
+      ],
+      "pseudocode": "inject(journal.FailOn('landing_plan')); err = runner.Run(req); f = AsFailure(err); assert f.Category=='io' && f.Retryable; assert hub.Count('git push')==0; assert forge.Writes()==0; assert exists(clone)"
+    },
+    {
+      "id": "TS-14-5",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-1.5"
+      ],
+      "title": "A journal write failure other than the landing plan raises journal_unwritable once and the delivery completes normally",
+      "given": [
+        "a fix attempt where every journal write except the landing plan fails"
+      ],
+      "when": "the delivery runs through to its outcome",
+      "then": [
+        "the envelope carries exactly one journal_unwritable warning",
+        "the result is done with one pull request, as an uninterrupted delivery returns"
+      ],
+      "pseudocode": "inject(journal.FailAllExcept('landing_plan')); env = run(); assert count(env.warnings, 'journal_unwritable')==1; assert env.status=='done'; assert forge.PullRequests()==1"
+    },
+    {
+      "id": "TS-14-6",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-1.6"
+      ],
+      "title": "A delivery stopped for a shutdown or ending in a transient error posts no usage, no events, leaves the session open and writes no outcome file",
+      "given": [
+        "a fix attempt in a leased box with a parked interrupted branch after a stop mid-loop"
+      ],
+      "when": "one delivery is cancelled with a shutdown cause and another delivery returns a transient error",
+      "then": [
+        "the fake hub records zero POST /sessions/:id/usage, zero events batches and zero session completions for each delivery",
+        "the lease is released and the journal records released true and the delivery ending as shutdown or transient",
+        "recovery/outcome.json does not exist",
+        "the clone, the run directory and the parked local branch are unchanged"
+      ],
+      "pseudocode": "for cause in [shutdown, transient]: run(cause); assert hub.Count('usage')==0; assert hub.Count('events')==0; assert hub.Count('complete')==0; assert j.Leases[0].Released; assert j.Deliveries[-1].Ending==cause; assert !exists(outcome.json)"
+    },
+    {
+      "id": "TS-14-7",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-1.7"
+      ],
+      "title": "A shutdown writes nothing to the forge and a transient error removes the in-progress label",
+      "given": [
+        "a fix attempt whose issue carries the in-progress label"
+      ],
+      "when": "a delivery is stopped for a shutdown, and another attempt's delivery returns a transient error",
+      "then": [
+        "after the shutdown the fake forge records zero writes",
+        "after the transient error the issue no longer carries the in-progress status label"
+      ],
+      "pseudocode": "run(shutdown); assert forge.Writes()==0; run(transient); assert !labels(issue).Contains('af:in-progress')"
+    },
+    {
+      "id": "TS-14-8",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-2.1"
+      ],
+      "title": "A first delivery removes a leftover clone and journal and starts fresh",
+      "given": [
+        "an attempt directory holding a stale clone and a stale journal"
+      ],
+      "when": "the runner is called with handover count 1",
+      "then": [
+        "the stale clone and journal are gone before the run",
+        "the fake hub records one clone request and one POST /sessions"
+      ],
+      "pseudocode": "seed(attempt/clone, attempt/recovery/journal.json); run(count=1); assert hub.Count('clone')==1; assert hub.Count('POST /sessions')==1; assert !contains(newJournal, staleMarker)"
+    },
+    {
+      "id": "TS-14-9",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-2.2"
+      ],
+      "title": "A later delivery with nothing to discard starts as a first delivery without a resume_discarded warning and reuses an open session",
+      "given": [
+        "delivery 1 failed transiently at resolve, leaving no journal and no clone",
+        "a second case with a journal recording an uncompleted session and no completed clone, and a partial clone directory"
+      ],
+      "when": "the runner is called with handover count 2",
+      "then": [
+        "the envelope carries no resume_discarded warning",
+        "the partial clone is removed and a clone request is sent",
+        "in the second case the fake hub records zero additional POST /sessions"
+      ],
+      "pseudocode": "run(count=2); assert !has(env.warnings,'resume_discarded'); assert hub.Count('clone')==1; case2: assert hub.Count('POST /sessions')==priorSessions"
+    },
+    {
+      "id": "TS-14-10",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-2.3"
+      ],
+      "title": "A resumed delivery sends no clone request and keeps the settings the run started with when hub values changed",
+      "given": [
+        "delivery 1 stopped after the apply stage",
+        "hub workspace variables changed since: base branch, landing mode, model and budget"
+      ],
+      "when": "the runner is called with handover count 2",
+      "then": [
+        "no clone request is sent",
+        "base, base head, table and baseline come from fix.json and brain, model, profile, landing mode, budget and turn bound from the journal",
+        "the run's outcome matches the pinned settings, not the changed values",
+        "AF_TIMEOUT is read afresh and AF_MAX_ATTEMPTS is the current value returned with the result"
+      ],
+      "pseudocode": "hub.SetVar('AF_MAX_BUDGET_USD','0.01'); hub.SetBase('other'); run(count=2); assert hub.Count('clone')==0; assert landedBase==pinnedBase; assert session.model==journal.model"
+    },
+    {
+      "id": "TS-14-11",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-2.3"
+      ],
+      "title": "Resolve checks apply to the current values on a resumed delivery",
+      "given": [
+        "delivery 1 interrupted after the apply stage",
+        "the workspace has since moved to carry_patch landing"
+      ],
+      "when": "the runner is called with handover count 2",
+      "then": [
+        "the delivery is refused with the worker's carry_patch refusal",
+        "no lease is taken and no brain is run"
+      ],
+      "pseudocode": "hub.SetLandMode('carry_patch'); env = run(count=2); assert env.error.category==workerCarryPatchRefusalCategory; assert hub.Count('lease')==0"
+    },
+    {
+      "id": "TS-14-12",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-2.4"
+      ],
+      "title": "Each rejected resume condition raises resume_discarded with its reason and starts from a fresh clone on the same attempt",
+      "given": [
+        "a journal and clone left by delivery 1, rejected in turn by: garbled journal, clone not a work tree, changed hub_url origin, changed forge repository, missing run directory, torn ledger"
+      ],
+      "when": "the runner is called with handover count 2 for each case",
+      "then": [
+        "the envelope carries resume_discarded naming journal_unreadable, clone_invalid, origin_changed, forge_repository_changed, run_missing or ledger_unreadable respectively",
+        "one clone request is sent and the job keeps the same attempt number",
+        "with a readable journal the unreleased leases were released and a recorded uncompleted session gets zero additional POST /sessions and is the one completed"
+      ],
+      "pseudocode": "for (mutate, reason) in cases: setup(); mutate(); env = run(count=2); assert warn(env,'resume_discarded').reason==reason; assert hub.Count('clone')==1; assert attemptNo==1"
+    },
+    {
+      "id": "TS-14-13",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-2.4",
+        "14-REQ-4.5"
+      ],
+      "title": "An unreadable ledger discards the resume but delivery 1's spend, session and run id carry over",
+      "given": [
+        "delivery 1 spent 0.40 USD in one brain run recorded in the journal and was stopped before apply",
+        "the run's ledger then corrupted so a line does not parse"
+      ],
+      "when": "the runner is called with handover count 2",
+      "then": [
+        "resume_discarded carries reason ledger_unreadable",
+        "the brain's budget option is the pinned budget minus 0.40",
+        "the envelope usage includes delivery 1's spend",
+        "delivery 1's session is completed and the fake hub records no second POST /sessions"
+      ],
+      "pseudocode": "corrupt(ledger); env = run(count=2); assert w.reason=='ledger_unreadable'; assert brainOpts.Budget==pinned-0.40; assert env.usage.cost>=0.40; assert hub.Count('POST /sessions')==1; assert session.completed"
+    },
+    {
+      "id": "TS-14-14",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-2.5"
+      ],
+      "title": "A resumed delivery reports to the journal's open session, or opens a new session when it was completed, and tells the recorder",
+      "given": [
+        "a journal recording an uncompleted session in one case and a completed session with unposted usage in another"
+      ],
+      "when": "a resumed delivery runs to the outcome",
+      "then": [
+        "in the first case the delivery posts to the recorded session and opens none",
+        "in the second case it opens one new session with the run's run id and posts only usage not recorded as posted",
+        "the recorder's session id and run id equal the session in effect"
+      ],
+      "pseudocode": "run(count=2); assert hub.Count('POST /sessions')==expected; assert recorder.Session==sessionPostedTo; assert recorder.RunID==journal.RunID"
+    },
+    {
+      "id": "TS-14-15",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-2.6"
+      ],
+      "title": "Unreleased journal leases are released before the delivery takes its own lease",
+      "given": [
+        "a journal recording two leases as unreleased, one of which hub already deleted (404)"
+      ],
+      "when": "a resumed delivery that must lease a box runs",
+      "then": [
+        "the fake hub records DELETE of each unreleased lease before POST /workspaces/:slug/sandboxes",
+        "the 404 lease is counted as released and the journal marks both released"
+      ],
+      "pseudocode": "run(count=2); reqs=hub.Requests(); assert idx(DELETE l1)<idx(POST sandboxes); assert idx(DELETE l2)<idx(POST sandboxes); assert all(j.Leases[:2].Released)"
+    },
+    {
+      "id": "TS-14-16",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-2.7"
+      ],
+      "title": "A disagreement the resume rules do not cover ends the attempt failed with category internal and publishes nothing",
+      "given": [
+        "a resumed fix attempt whose base branch has commits without the run's Agent-Fox-Run trailer",
+        "a second case where the run's branch is on hub's git server at a commit other than the plan's"
+      ],
+      "when": "the runner is called with handover count 2",
+      "then": [
+        "the envelope is failed with error category internal, retryable false and a message naming what was found",
+        "no push, pull request or comment is made",
+        "cleanup is as for any failed attempt"
+      ],
+      "pseudocode": "env=run(count=2); assert env.status=='failed'; assert env.error.category=='internal' && !env.error.retryable; assert contains(env.error.message,'trailer'); assert forge.Writes()==0"
+    },
+    {
+      "id": "TS-14-17",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-3.1"
+      ],
+      "title": "The brain is skipped only when every submission condition holds",
+      "given": [
+        "a run directory with a valid submission.json, a matching last submission_accepted record and an apply record"
+      ],
+      "when": "the skip decision is evaluated while each condition is broken in turn: wrong kind, wrong run_id, payload hash mismatch, last submission_accepted hash differs, payload fails submission.Check against the tree, fix report with no apply record after the accepted record",
+      "then": [
+        "with all conditions met the decision is skip and the scripted brain is not invoked",
+        "each broken condition makes the decision run the brain",
+        "a fix question with no apply record still skips",
+        "a triage diagnosis is checked with triage.Validate"
+      ],
+      "pseudocode": "assert Skip(rd)==true; for broken in cases: assert Skip(broken)==false; assert Skip(questionWithoutApply)==true"
+    },
+    {
+      "id": "TS-14-18",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-3.2"
+      ],
+      "title": "An unpushed parked interrupted commit is brought back into the working tree and the branch name is reused without a suffix",
+      "given": [
+        "a fix attempt stopped during the land so that the applied change sits on a local branch of commit(s) all carrying Agent-Fox-Run: <run id>",
+        "the run's change is not on hub's git server"
+      ],
+      "when": "the resumed delivery skips the brain and lands",
+      "then": [
+        "the base branch is checked out at the base head with the change in the working tree",
+        "the local parked branch is deleted",
+        "the pushed branch name equals the name an uninterrupted run would use, with no -2 suffix"
+      ],
+      "pseudocode": "run(count=2); assert git.CurrentBranch()==base || landedBranch==expected; assert !git.LocalBranchExists(parked); assert hub.PushedBranch=='fix/42-'+slug; assert !endsWith(branch,'-2')"
+    },
+    {
+      "id": "TS-14-19",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-3.3",
+        "14-REQ-3.4"
+      ],
+      "title": "When the brain runs again the clone is reset to the base head and fix.json's round count carries on",
+      "given": [
+        "delivery 1 recorded one round in fix.json and left a partial change plus a local run branch in the clone",
+        "the ledger has no accepted submission with an apply record"
+      ],
+      "when": "the resumed delivery runs the fix loop",
+      "then": [
+        "the hard reset and clean keeping .agent-fox/ remove the partial change and untracked files but keep the run directory",
+        "every local branch of the run is deleted",
+        "the first resumed round starts from the base head with no earlier refusal and carries the earlier questions",
+        "fix.json's round count after the delivery equals the rounds before plus the rounds run"
+      ],
+      "pseudocode": "run(count=2); assert firstRoundTreeClean; assert !git.LocalBranchExists(runBranch); assert st.Rounds==before+ran; assert exists(rundir/ledger)"
+    },
+    {
+      "id": "TS-14-20",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-3.4"
+      ],
+      "title": "A refusal in a resumed loop is fed to the next round within bounds and the loop ends through fix.Finish",
+      "given": [
+        "a resumed fix delivery whose scripted brain first submits a change the gate refuses, then a passing one"
+      ],
+      "when": "the resumed loop runs",
+      "then": [
+        "the second round's task carries the refusal",
+        "the loop ends through fix.Finish with a landed pull request",
+        "fix.json's round count advances by two"
+      ],
+      "pseudocode": "run(count=2); assert round2.Task.contains(refusal); assert env.status=='done'; assert st.Rounds==before+2"
+    },
+    {
+      "id": "TS-14-21",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-3.5"
+      ],
+      "title": "A resumed triage delivery reuses the clone and reruns the triage loop in the same run directory",
+      "given": [
+        "a triage attempt interrupted before its submission was accepted"
+      ],
+      "when": "the runner is called with handover count 2",
+      "then": [
+        "no clone request is sent",
+        "the triage loop runs in the same run directory and run id",
+        "the attempt completes"
+      ],
+      "pseudocode": "run(count=2); assert hub.Count('clone')==0; assert runDir==journal.RunDir; assert brain.Invocations==1"
+    },
+    {
+      "id": "TS-14-22",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-4.1"
+      ],
+      "title": "A brain run on a resumed delivery gets the pinned budget and turns minus the attempt's spend",
+      "given": [
+        "pinned budget 1.00 USD and 20 turns",
+        "delivery 1 spent 0.30 USD and 5 turns recorded in brain_end"
+      ],
+      "when": "the resumed delivery's brain starts",
+      "then": [
+        "the brain options carry budget 0.70 and turn bound 15"
+      ],
+      "pseudocode": "run(count=2); o=scripted.LastOptions(); assert approx(o.MaxBudget,0.70); assert o.MaxTurns==15"
+    },
+    {
+      "id": "TS-14-23",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-4.2"
+      ],
+      "title": "With no budget or no turns left the attempt ends failed with category budget and the brain does not run",
+      "given": [
+        "delivery 1 spent the whole budget, in one case, and all turns in another"
+      ],
+      "when": "the runner is called with handover count 2 and the brain would run",
+      "then": [
+        "the envelope is failed with error category budget and retryable false",
+        "the scripted brain is not invoked"
+      ],
+      "pseudocode": "env=run(count=2); assert env.error.category=='budget' && !env.error.retryable; assert brain.Invocations==0"
+    },
+    {
+      "id": "TS-14-24",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-4.3"
+      ],
+      "title": "A brain_start with no brain_end counts as zero spend and raises brain_spend_unrecorded with sequence and round",
+      "given": [
+        "a run ledger holding brain_start at seq N for round R, with no brain_end before the next brain_start or the end of ledger",
+        "another brain run with a brain_end of 0.20 USD"
+      ],
+      "when": "a resumed delivery computes the attempt's spend",
+      "then": [
+        "the cut-short run counts as zero against the budget and usage",
+        "usage cost equals only the recorded brain_end 0.20",
+        "the envelope carries brain_spend_unrecorded naming seq N and round R"
+      ],
+      "pseudocode": "env=run(count=2); w=warn(env,'brain_spend_unrecorded'); assert w.seq==N && w.round==R; assert approx(env.usage.cost,0.20)"
+    },
+    {
+      "id": "TS-14-25",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-4.4"
+      ],
+      "title": "The journal's brain spend is refreshed after a brain run ends and equals carried spend plus the ledger's brain_end sum",
+      "given": [
+        "a carried spend of 0.10 USD and a run with two brain runs of 0.20 and 0.15"
+      ],
+      "when": "the journal is read after the second brain run",
+      "then": [
+        "journal spend cost is 0.45 with cost source, input tokens, output tokens and turns summed"
+      ],
+      "pseudocode": "run(); j=read(journal); assert approx(j.Spend.Cost,0.10+sum(brain_end.cost_usd)); assert j.Spend.InputTokens==sum(brain_end.input_tokens)"
+    },
+    {
+      "id": "TS-14-26",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-4.5"
+      ],
+      "title": "A discarded resume carries over the larger of the journal's spend and the previous carry plus the removed ledger's spend",
+      "given": [
+        "a journal spend of 0.30 and a readable removed ledger with brain_end totalling 0.50 plus carried 0.10",
+        "a second case with journal spend 0.90 and ledger 0.20 with carry 0.10",
+        "a third case where the ledger does not read"
+      ],
+      "when": "the carry-over is computed",
+      "then": [
+        "the first case carries 0.60",
+        "the second carries 0.90",
+        "the third carries the journal's recorded spend"
+      ],
+      "pseudocode": "assert Carry(0.30,0.10,ledger(0.50))==0.60; assert Carry(0.90,0.10,ledger(0.20))==0.90; assert Carry(j,c,unreadable)==j"
+    },
+    {
+      "id": "TS-14-27",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-4.6"
+      ],
+      "title": "Every brain_end ledger record carries integer input_tokens and output_tokens",
+      "given": [
+        "brain.Execute run with the scripted brain returning an Outcome with 1200 input and 340 output tokens"
+      ],
+      "when": "the run ledger is read",
+      "then": [
+        "the brain_end record decodes with input_tokens 1200 and output_tokens 340 beside the existing fields",
+        "a brain that reports no tokens records zero integers"
+      ],
+      "pseudocode": "Execute(req); e=lastRecord(ledger,'brain_end'); assert e.input_tokens==1200 && e.output_tokens==340; assert hasKey(e,'cost_usd')"
+    },
+    {
+      "id": "TS-14-28",
+      "kind": "property",
+      "verifies": [
+        "14-REQ-4.7"
+      ],
+      "title": "The reported usage always equals the carried spend plus the current ledger's brain_end records",
+      "given": [
+        "a fake hub and the scripted brain with generated per-run costs and tokens"
+      ],
+      "when": "for any number of deliveries, any split of brain runs between deliveries and any carried spend",
+      "then": [
+        "the done envelope's usage cost, tokens and turns equal the carried spend plus the sum of the current ledger's brain_end records",
+        "the hub usage record holds the same total"
+      ],
+      "pseudocode": "for plan in gen_splits(): run_all(plan); assert env.usage==carried+sum(ledger.brain_end); assert hub.usage.total==env.usage"
+    },
+    {
+      "id": "TS-14-29",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-5.1"
+      ],
+      "title": "The landing plan is journalled before the first push",
+      "given": [
+        "a fix attempt about to land"
+      ],
+      "when": "the landing makes its first push",
+      "then": [
+        "journal.json holds the plan (branch, commit, outcome, status, verdict, closes-issue, PR title, body, draft, warnings) before the fake hub records the push"
+      ],
+      "pseudocode": "hub.OnPush(func(){ j=read(journal); assert j.Landing.Plan!=nil && j.Landing.Plan.Branch==pushedBranch })"
+    },
+    {
+      "id": "TS-14-30",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-5.2"
+      ],
+      "title": "A change already on hub's git server is finished from the plan without measuring, leasing or running the brain",
+      "given": [
+        "delivery 1 pushed the plan's branch and recorded the pull request, then stopped"
+      ],
+      "when": "delivery 2 reads the remote with the PAT",
+      "then": [
+        "nothing is measured or committed again and no lease is requested",
+        "the result reports the plan's branch, commit and verdict and delivery 1's pull request",
+        "the fake hub records zero new pull requests"
+      ],
+      "pseudocode": "run(count=2); assert hub.Count('lease')==0; assert hub.PullRequests()==1; assert env.result.branch==plan.Branch && env.result.commit==plan.Commit; assert brain.Invocations==0"
+    },
+    {
+      "id": "TS-14-31",
+      "kind": "property",
+      "verifies": [
+        "14-REQ-5.3"
+      ],
+      "title": "Across all deliveries of one attempt at most one pull request, one created issue and one comment per marker are made",
+      "given": [
+        "a fix attempt and a triage-of-text attempt on the fake forge"
+      ],
+      "when": "for any choice of crash stages (a stage-abort after any named stage, repeated over several deliveries)",
+      "then": [
+        "the fake forge records at most one pull request",
+        "at most one created issue",
+        "at most one comment per marker",
+        "unrecorded pushes, branch push route calls and label writes may repeat without changing the result"
+      ],
+      "pseudocode": "for stages in gen_crash_sequences(): run_until_done(stages); assert forge.PRs<=1; assert forge.CreatedIssues<=1; for m in markers: assert forge.CommentsWith(m)<=1"
+    },
+    {
+      "id": "TS-14-32",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-5.4"
+      ],
+      "title": "A resumed applied fix report takes one lease, re-measures once and lands without a brain round",
+      "given": [
+        "an accepted and applied fix report not on hub's git server"
+      ],
+      "when": "delivery 2 runs",
+      "then": [
+        "the fake hub records one lease request",
+        "the scripted brain is not invoked",
+        "one pull request, one comment and the landed label result"
+      ],
+      "pseudocode": "run(count=2); assert hub.Count('lease')==1; assert brain.Invocations==0; assert forge.PRs==1 && forge.Comments==1; assert has(labels,'af:landed')"
+    },
+    {
+      "id": "TS-14-33",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-5.4"
+      ],
+      "title": "A refused re-measure parks the change with no further brain round",
+      "given": [
+        "an applied change that the gate on the re-measure refuses"
+      ],
+      "when": "delivery 2 measures",
+      "then": [
+        "the change is parked as fix.LandRun does",
+        "the scripted brain is not invoked",
+        "the job ends failed with the parked outcome"
+      ],
+      "pseudocode": "gate.Refuse(); env=run(count=2); assert env.outcome=='parked'; assert brain.Invocations==0"
+    },
+    {
+      "id": "TS-14-34",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-5.5"
+      ],
+      "title": "A missing baseline result is run again in the box with the change set aside and restored",
+      "given": [
+        "the clone's .agent-fox/gate/<baselineId>/ removed before the resume"
+      ],
+      "when": "delivery 2 measures",
+      "then": [
+        "the baseline runs again in the box at the pinned base head with the pinned table",
+        "the run's change is set aside and restored afterwards",
+        "fix.json names the new baseline",
+        "the verdict is not unverified for lack of a baseline"
+      ],
+      "pseudocode": "rm(gate/<id>); env=run(count=2); assert st.BaselineGateID!=oldID; assert exists(gate/newID); assert env.verdict!='unverified'; assert workingTreeEqualsChange()"
+    },
+    {
+      "id": "TS-14-35",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-5.6"
+      ],
+      "title": "A resumed change that is empty once protected paths are restored ends failed with no_result not retryable",
+      "given": [
+        "an applied change touching only protected paths"
+      ],
+      "when": "delivery 2 re-measures",
+      "then": [
+        "the envelope is failed with category no_result and retryable false",
+        "no branch is landed or parked"
+      ],
+      "pseudocode": "env=run(count=2); assert env.error.category=='no_result' && !env.error.retryable; assert hub.Pushes()==0 && !anyLocalBranch"
+    },
+    {
+      "id": "TS-14-36",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-5.7"
+      ],
+      "title": "A resumed accepted question takes no lease and the issue has exactly one question comment",
+      "given": [
+        "a fix question and a triage question each accepted, delivery 1 having already posted the comment in one case"
+      ],
+      "when": "delivery 2 runs",
+      "then": [
+        "a needs_human envelope is returned",
+        "no lease request is made",
+        "the issue carries exactly one question comment for the attempt"
+      ],
+      "pseudocode": "run(count=2); assert env.status=='needs_human'; assert hub.Count('lease')==0; assert count(comments, marker)==1"
+    },
+    {
+      "id": "TS-14-37",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-5.8"
+      ],
+      "title": "A resumed triage diagnosis lands again with a byte-identical Original report section and no lease",
+      "given": [
+        "a triage attempt interrupted after its diagnosis was accepted"
+      ],
+      "when": "delivery 2 runs",
+      "then": [
+        "no lease is taken and the brain is not run",
+        "the new body's ## Original report section is byte-identical to the original body"
+      ],
+      "pseudocode": "run(count=2); assert section(newBody,'## Original report')==origBody; assert hub.Count('lease')==0"
+    },
+    {
+      "id": "TS-14-38",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-5.8",
+        "14-REQ-5.3"
+      ],
+      "title": "A triage of text interrupted after issue creation lands into the same issue",
+      "given": [
+        "a triage of text where hub created the issue and the journal recorded created_issue, stopped before the run's landing record"
+      ],
+      "when": "delivery 2 calls triage.Land with the journal's issue as Created",
+      "then": [
+        "that issue's body is replaced",
+        "the repository holds one issue, not two"
+      ],
+      "pseudocode": "run(count=2); assert forge.IssueCount()==1; assert forge.Issue(n).Body.contains('## Diagnosis')"
+    },
+    {
+      "id": "TS-14-39",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-6.1"
+      ],
+      "title": "outcome.json exists marked not mirrored before the first mirror write and mirrored before the lease release",
+      "given": [
+        "a fix attempt running through its mirror"
+      ],
+      "when": "the delivery's hub and forge requests are observed in order",
+      "then": [
+        "recovery/outcome.json (mode 0600) exists with mirrored false before the first label or comment write",
+        "each mirror step status_labels and comment is journalled as done",
+        "outcome.json is rewritten mirrored true with the amended envelope before the lease DELETE, usage, events and completion"
+      ],
+      "pseudocode": "forge.OnFirstWrite(func(){ o=read(outcome); assert !o.Mirrored }); hub.OnDelete(func(){ o=read(outcome); assert o.Mirrored; assert stat(outcome).mode==0600 })"
+    },
+    {
+      "id": "TS-14-40",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-6.2"
+      ],
+      "title": "A stored outcome is returned with only attempt_resumed added and no loop, no lease and no new session",
+      "given": [
+        "delivery 1 stopped after the outcome was written but before the mirror, in one case, and after the mirror before the report in another",
+        "a failed attempt whose brain left no submission, stopped before the mirror"
+      ],
+      "when": "delivery 2 runs",
+      "then": [
+        "the stored envelope is returned with only attempt_resumed added",
+        "status label writes are repeated, and the comment is posted only when the marker is absent",
+        "the brain is not invoked and the fake hub records zero lease requests",
+        "unreleased leases are released and the existing session is completed without a new POST /sessions"
+      ],
+      "pseudocode": "run(count=2); assert diff(env, stored)==[warn attempt_resumed]; assert brain.Invocations==0; assert hub.Count('lease')==0; assert hub.Count('POST /sessions')==1; assert count(comments,marker)<=1"
+    },
+    {
+      "id": "TS-14-41",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-6.3"
+      ],
+      "title": "Only the delivery producing the outcome or finding it stored posts events and completes the session",
+      "given": [
+        "an attempt interrupted by a shutdown, then a transient error, then finished by a third delivery"
+      ],
+      "when": "all deliveries ran",
+      "then": [
+        "the fake hub records at most one events batch sequence and exactly one session completion across all deliveries"
+      ],
+      "pseudocode": "assert hub.Count('events batch seq')<=1; assert hub.Count('complete')==1"
+    },
+    {
+      "id": "TS-14-42",
+      "kind": "property",
+      "verifies": [
+        "14-REQ-6.4"
+      ],
+      "title": "Usage is posted once per completed attempt with the attempt's total",
+      "given": [
+        "the fake hub with attempts interrupted at generated stages"
+      ],
+      "when": "for any attempt interrupted at any sequence of stages and then completed",
+      "then": [
+        "the fake hub records exactly one usage record per completed attempt, holding the attempt's total",
+        "no usage is posted again once the journal records usage_posted"
+      ],
+      "pseudocode": "for plan in gen_interruptions(): run_all(plan); assert hub.Count('usage')==1; assert hub.Usage[0]==attemptTotal"
+    },
+    {
+      "id": "TS-14-43",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-7.1"
+      ],
+      "title": "A gone or unreachable sandbox is recognisable with errors.Is while category, retryable flag and message are unchanged",
+      "given": [
+        "box failures from tool code sandbox_unavailable, a gateway not-found answer, a lease-expired answer, an unreachable gateway and other sandbox failures"
+      ],
+      "when": "errors.Is is checked against the box-loss sentinel and Failure fields are compared with the pre-change values",
+      "then": [
+        "errors.Is is true for the loss cases and false for others",
+        "Failure.Category, Retryable and Error() are identical to before"
+      ],
+      "pseudocode": "for c in lossCases: assert errors.Is(c.err, box.ErrUnavailable); assert c.err.Category==c.cat && c.err.Retryable==c.retry && c.err.Error()==c.msg; for c in other: assert !errors.Is(c.err, box.ErrUnavailable)"
+    },
+    {
+      "id": "TS-14-44",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-7.2"
+      ],
+      "title": "The first box loss is replaced in place: the lost lease is released, a new lease taken, the clone synced and the recorder told",
+      "given": [
+        "the fake hub makes the leased sandbox unavailable during a brain tool call"
+      ],
+      "when": "the delivery reaches the loss",
+      "then": [
+        "fix.Finish does not park or land the interrupted work",
+        "the lost lease is DELETEd (a 404 counts as released) and the journal records the loss",
+        "a new lease with the pinned profile and same purpose is taken, the box opened and the clone synced",
+        "the envelope carries box_replaced naming both sandbox ids and the job's hub.sandbox_id is the new box's"
+      ],
+      "pseudocode": "hub.KillSandbox(first); env=run(); assert has(env.warnings,'box_replaced'); assert hub.Deleted(first); assert hub.Count('lease')==2; assert recorder.SandboxID==second; assert noParkedBranchFromLoss"
+    },
+    {
+      "id": "TS-14-45",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-7.2"
+      ],
+      "title": "A failed release of the lost lease is logged at WARN and left to reconciliation",
+      "given": [
+        "hub answers 500 to the DELETE of the lost lease"
+      ],
+      "when": "the box is replaced",
+      "then": [
+        "the delivery still replaces the box",
+        "a WARN line is logged",
+        "the journal records the lost lease as unreleased"
+      ],
+      "pseudocode": "hub.Fail('DELETE sandbox',500); run(); assert log.Has(WARN); assert !j.Lease(first).Released"
+    },
+    {
+      "id": "TS-14-46",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-7.3"
+      ],
+      "title": "The delivery's deadline is cut to 2 minutes before the replacement's expires_at, and a replacement with under 2 minutes counts as refused",
+      "given": [
+        "a replacement lease expiring in 10 minutes in one case, in 90 seconds in another"
+      ],
+      "when": "the box is replaced",
+      "then": [
+        "with 10 minutes the context deadline is no later than expires_at minus 2 minutes and lease_shortened_timeout is raised",
+        "with 90 seconds the replacement counts as refused and the delivery returns a transient sandbox error"
+      ],
+      "pseudocode": "run(); dl,_=ctx.Deadline(); assert dl<=expiresAt.Add(-2*time.Minute); assert has(env.warnings,'lease_shortened_timeout'); case2: assert Failure(err).Category=='sandbox'"
+    },
+    {
+      "id": "TS-14-47",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-7.4"
+      ],
+      "title": "After replacement an applied change is measured without a brain run, otherwise the loop reruns with the remaining budget",
+      "given": [
+        "a box lost after the apply in one case, and during the brain in the other with 0.25 USD already spent of a 1.00 budget"
+      ],
+      "when": "the replacement box is open",
+      "then": [
+        "the first case checks the baseline, measures and lands with zero further brain invocations",
+        "the second resets the clone to the base and the brain's budget is 0.75"
+      ],
+      "pseudocode": "case1: assert brain.Invocations==before && landed; case2: assert o.MaxBudget==0.75; assert treeCleanAtRound1"
+    },
+    {
+      "id": "TS-14-48",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-7.5"
+      ],
+      "title": "A second loss or a refused or unopenable replacement ends the delivery as a retryable transient sandbox error",
+      "given": [
+        "the sandbox lost twice in one delivery, then in other cases the replacement lease refused or the replacement box unopenable"
+      ],
+      "when": "the delivery runs",
+      "then": [
+        "the runner returns an error carrying toolio.Failure with category sandbox and retryable true",
+        "the lease is released and the clone kept"
+      ],
+      "pseudocode": "err=run(); f=AsFailure(err); assert f.Category=='sandbox' && f.Retryable"
+    },
+    {
+      "id": "TS-14-49",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-7.6"
+      ],
+      "title": "A refused first lease, an unopenable first box or another sandbox failure takes no replacement lease",
+      "given": [
+        "hub refuses the first lease, in other cases the first box fails to open or sync fails for a reason in the tree"
+      ],
+      "when": "the delivery runs",
+      "then": [
+        "the envelope carries no box_replaced warning",
+        "the fake hub records exactly one lease request",
+        "the failure is handled as the worker spec does"
+      ],
+      "pseudocode": "hub.RefuseLease(); run(); assert !has(env.warnings,'box_replaced'); assert hub.Count('lease')==1"
+    },
+    {
+      "id": "TS-14-50",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-8.1"
+      ],
+      "title": "The reconciliation pass runs at start without delaying listening and never overlaps",
+      "given": [
+        "a fake hub that delays lease listing and an injected short interval"
+      ],
+      "when": "the service starts and several ticks fire while the first pass is still running",
+      "then": [
+        "the service accepts requests before the first pass completes",
+        "no second concurrent pass starts",
+        "a pass stops on shutdown"
+      ],
+      "pseudocode": "hub.Delay('GET sandboxes',1s); svc.Start(interval=10ms); assert http.Get(svc,'/healthz').OK before pass1Done; assert maxConcurrentPasses==1; svc.Stop(); assert passStopped"
+    },
+    {
+      "id": "TS-14-51",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-8.2"
+      ],
+      "title": "An orphan lease for a known attempt with no runner is released and absent from the next listing",
+      "given": [
+        "a fake hub with a lease labelled for a job and attempt this database knows, no runner carrying it out, listed across two pages"
+      ],
+      "when": "a reconciliation pass runs",
+      "then": [
+        "the fake hub records one DELETE for the orphan lease",
+        "a 404 on the DELETE counts as released",
+        "the next listing no longer shows it"
+      ],
+      "pseudocode": "seedLease(labels{job:J,attempt:1}); pass.Run(); assert hub.Deletes==[L]; assert !contains(hub.ListLeases(),L)"
+    },
+    {
+      "id": "TS-14-52",
+      "kind": "property",
+      "verifies": [
+        "14-REQ-8.3"
+      ],
+      "title": "Leases without a job label, with an unknown job, or for a running attempt are never released",
+      "given": [
+        "a fake hub seeded with generated leases"
+      ],
+      "when": "for any lease with no labels, a job label unknown to this database, or an attempt a runner of this process is carrying out",
+      "then": [
+        "the fake hub records no DELETE for those leases across any number of passes"
+      ],
+      "pseudocode": "for l in gen_keepable_leases(): seed(l); pass.Run(); assert !hub.Deleted(l.id)"
+    },
+    {
+      "id": "TS-14-53",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-8.4"
+      ],
+      "title": "An ended attempt whose journal records an open session gets its unposted usage and a completion exactly once",
+      "given": [
+        "an attempt ended after its transient retries were spent, journal recording an open session and unposted usage",
+        "a second ended attempt with a stored outcome status needs_human"
+      ],
+      "when": "two passes run",
+      "then": [
+        "the fake hub records exactly one usage post and one completion per session across both passes",
+        "the completion status is failed when there is no stored outcome and the outcome's status otherwise",
+        "the journal records both steps and no events batch is posted"
+      ],
+      "pseudocode": "pass.Run(); pass.Run(); assert hub.Count('usage',s)==1 && hub.Count('complete',s)==1; assert hub.CompleteStatus(s1)=='failed'; assert hub.Count('events')==0"
+    },
+    {
+      "id": "TS-14-54",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-8.5"
+      ],
+      "title": "An ended attempt whose journal does not read is left untouched",
+      "given": [
+        "an ended attempt with a garbled journal"
+      ],
+      "when": "a pass runs",
+      "then": [
+        "the fake hub records no usage post or completion for that attempt"
+      ],
+      "pseudocode": "write(journal,'{garbage'); pass.Run(); assert hub.Count('usage')==0 && hub.Count('complete')==0"
+    },
+    {
+      "id": "TS-14-55",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-8.6"
+      ],
+      "title": "A failing workspace is logged at WARN without its token and does not stop the others; the next pass catches up",
+      "given": [
+        "two subscribed workspaces, one with an unreadable token or hub answering 5xx, 401, 403 or hangup, each with an orphan lease"
+      ],
+      "when": "two passes run, the failure cleared before the second",
+      "then": [
+        "the other workspace's orphan is released in the first pass",
+        "a WARN line names the failed workspace and no log line contains a token",
+        "the missed orphan is released in the second pass"
+      ],
+      "pseudocode": "hub.Fail('ws-a',500); pass.Run(); assert hub.Deleted(orphanB) && !hub.Deleted(orphanA); assert log.Has(WARN,'ws-a'); assert !log.ContainsAny(tokens); hub.Clear(); pass.Run(); assert hub.Deleted(orphanA)"
+    },
+    {
+      "id": "TS-14-56",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-8.7"
+      ],
+      "title": "Each release and each completed session is logged at INFO with workspace, id, job and attempt",
+      "given": [
+        "one orphan lease and one open session"
+      ],
+      "when": "a pass runs",
+      "then": [
+        "one INFO line per release and per completion carries workspace, sandbox id or session id, job and attempt"
+      ],
+      "pseudocode": "pass.Run(); lines=log.Info(); assert len(lines)==2; for l in lines: assert has(l,'workspace','job','attempt'); assert has(lines[0],'sandbox_id') and has(lines[1],'session_id')"
+    },
+    {
+      "id": "TS-14-57",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-9.1",
+        "14-REQ-9.3"
+      ],
+      "title": "A resumed delivery emits a resume step event and its envelope carries attempt_resumed and the discard and spend warnings that apply",
+      "given": [
+        "delivery 1 stopped before apply, and a discarded-resume case",
+        "the stored-outcome case"
+      ],
+      "when": "delivery 2 runs",
+      "then": [
+        "the job's event log holds one step event named resume with handover count, stage (outcome, published, applied, submitted or brain), brain-skipped flag and the discard reason when discarded",
+        "attempt_resumed names the handover count, the stage and whether the brain was skipped",
+        "every warning code matches ^[a-z][a-z0-9_]*$",
+        "at the outcome stage attempt_resumed is the only difference from the stored envelope"
+      ],
+      "pseudocode": "run(count=2); ev=events(type='step',name='resume'); assert len(ev)==1 && ev[0].data.stage in stages; for w in env.warnings: assert regex('^[a-z][a-z0-9_]*$').match(w.code)"
+    },
+    {
+      "id": "TS-14-58",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-9.2"
+      ],
+      "title": "A box replacement emits a box_replaced step event with both sandbox ids",
+      "given": [
+        "a box lost once during the delivery"
+      ],
+      "when": "the box is replaced",
+      "then": [
+        "the job's event log holds one step event named box_replaced carrying the lost and the new sandbox ids"
+      ],
+      "pseudocode": "run(); ev=events(name='box_replaced'); assert len(ev)==1; assert ev[0].data.lost==first && ev[0].data.new==second"
+    },
+    {
+      "id": "TS-14-59",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-10.1"
+      ],
+      "title": "The documentation names the recovery terms and make check passes",
+      "given": [
+        "the spec implemented and make doc run"
+      ],
+      "when": "docs/architecture.md, docs/api.md, docs/cli.md, docs/model-usage.md, docs/development.md and docs/errata/14_*.md are read by the docs tests",
+      "then": [
+        "architecture.md names journal, outcome.json, recovery/, resume stages, re-measure, baseline rerun, box replacement and reconciliation",
+        "api.md lists attempt_resumed, resume_discarded, box_replaced, journal_unwritable, brain_spend_unrecorded and deliveries above 1",
+        "cli.md names input_tokens and output_tokens for brain_end",
+        "model-usage.md and development.md carry their listed terms",
+        "an errata file docs/errata/14_*.md exists"
+      ],
+      "pseudocode": "for (file,terms) in required: for t in terms: assert contains(read(file),t); assert glob('docs/errata/14_*.md')!=[]"
+    },
+    {
+      "id": "TS-14-60",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-10.2"
+      ],
+      "title": "The recovery tests run offline with loopback httptest, an in-process gateway over local and the scripted brain",
+      "given": [
+        "no network, no API key and no container engine"
+      ],
+      "when": "the recovery tests run through the stage-abort seam and the real jobs layer restarted on the same database file",
+      "then": [
+        "the tests pass with only loopback listeners",
+        "no test requires a hub, a key or podman"
+      ],
+      "pseudocode": "env.Unset('ANTHROPIC_API_KEY'); assert only_loopback_dials(); run(recoverySuite); assert pass"
+    },
+    {
+      "id": "TS-14-61",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-10.3"
+      ],
+      "title": "The fake hub lists labelled leases, accepts seeded leases, keeps session state and can make a sandbox unavailable",
+      "given": [
+        "a fake hub seeded with four leases"
+      ],
+      "when": "GET /workspaces/:slug/sandboxes is called, one lease is deleted, and one leased sandbox is made unavailable",
+      "then": [
+        "the listing carries id, labels, purpose and expires_at for all four",
+        "the deleted lease is observable as deleted and absent from the next listing",
+        "session state records opened, usage and completion",
+        "the unavailable sandbox answers as gone to the gateway"
+      ],
+      "pseudocode": "h.SeedLeases(4); l=GET(sandboxes); assert len(l)==4; DELETE(l[0]); assert h.Deleted()==[l[0].id]; h.KillSandbox(l[1].id); assert gatewayCall(l[1]).gone"
+    },
+    {
+      "id": "TS-14-62",
+      "kind": "smoke",
+      "verifies": [
+        "14-PATH-1",
+        "14-REQ-3.2",
+        "14-REQ-4.7",
+        "14-REQ-2.6"
+      ],
+      "title": "A fix attempt crashed right after the apply is resumed, re-measured and landed with no -2 suffix",
+      "given": [
+        "the worker's fake hub, an in-process gateway over local and the scripted brain",
+        "delivery 1 of a fix attempt on issue 42 stopped by the seam right after the apply"
+      ],
+      "when": "the runner is called again with handover count 2 on the same attempt directory",
+      "then": [
+        "no clone request is sent and the brain is not invoked",
+        "delivery 1's lease is released and exactly one new lease is taken",
+        "fix/42-… is pushed without a -2 suffix, one pull request opened, one comment posted and af:landed set",
+        "a done envelope with attempt_resumed whose usage includes delivery 1's spend",
+        "outcome.json is written and one usage record is posted and the session completed"
+      ],
+      "real_components": [
+        "worker pipeline",
+        "journal and outcome file",
+        "fix.Measure and fix.Land",
+        "gitx with a local remote",
+        "in-process gateway over local box",
+        "fake hub",
+        "scripted brain"
+      ]
+    },
+    {
+      "id": "TS-14-63",
+      "kind": "smoke",
+      "verifies": [
+        "14-PATH-2"
+      ],
+      "title": "A graceful shutdown during the fix land is resumed after restarting the real jobs layer on the same database",
+      "given": [
+        "the real jobs layer on a database file, the fake hub and the scripted brain",
+        "the jobs layer is stopped while the attempt lands"
+      ],
+      "when": "the jobs layer is restarted on the same database file and hands the attempt over again",
+      "then": [
+        "the stopped delivery posted no usage and no events batch and left the session open",
+        "the parked local branch is brought back and deleted",
+        "the job ends done with exactly one pull request, one completed session and one usage record holding the attempt's total"
+      ],
+      "real_components": [
+        "real jobs layer with sqlite database",
+        "worker pipeline",
+        "journal",
+        "fix.Land and fix.Park",
+        "gitx with a local remote",
+        "in-process gateway over local box",
+        "fake hub",
+        "scripted brain"
+      ]
+    },
+    {
+      "id": "TS-14-64",
+      "kind": "smoke",
+      "verifies": [
+        "14-PATH-3",
+        "14-REQ-5.2",
+        "14-REQ-5.3"
+      ],
+      "title": "A crash after the pull request was opened finishes the landing without a second pull request",
+      "given": [
+        "delivery 1 recorded the landing plan, pushed and recorded the pull request, then stopped by the seam"
+      ],
+      "when": "the runner is called with handover count 2",
+      "then": [
+        "the remote read finds the plan's branch at the plan's commit",
+        "no lease is taken, no brain run and no second pull request",
+        "exactly one comment is posted and the status labels are set",
+        "the envelope reports delivery 1's pull request with attempt_resumed"
+      ],
+      "real_components": [
+        "worker pipeline",
+        "journal",
+        "fix.Land",
+        "gitx with a local remote",
+        "fake hub and fake forge",
+        "in-process gateway over local box",
+        "scripted brain"
+      ]
+    },
+    {
+      "id": "TS-14-65",
+      "kind": "smoke",
+      "verifies": [
+        "14-PATH-4",
+        "14-REQ-6.2",
+        "14-REQ-6.4"
+      ],
+      "title": "A crash after the outcome was stored replays only the bookkeeping",
+      "given": [
+        "delivery 1 wrote outcome.json and was stopped by the seam after the mirror and before the report",
+        "a second run stopped before the mirror for a failed attempt with no submission"
+      ],
+      "when": "the runner is called with handover count 2",
+      "then": [
+        "no loop runs and no lease is taken",
+        "at most one comment is posted",
+        "the usage is posted once and delivery 1's session is completed with no second POST /sessions",
+        "the stored envelope is returned with only attempt_resumed added"
+      ],
+      "real_components": [
+        "worker pipeline",
+        "journal and outcome file",
+        "mirror",
+        "fake hub and fake forge",
+        "in-process gateway over local box",
+        "scripted brain"
+      ]
+    },
+    {
+      "id": "TS-14-66",
+      "kind": "smoke",
+      "verifies": [
+        "14-PATH-5",
+        "14-REQ-5.8"
+      ],
+      "title": "A triage of text crashed after issue creation lands into the same issue",
+      "given": [
+        "delivery 1 ran triage of text, hub created the issue, created_issue was journalled and the seam stopped before the landing record"
+      ],
+      "when": "the runner is called with handover count 2",
+      "then": [
+        "the accepted diagnosis is validated against the clone's tree with no lease and no brain run",
+        "that issue's body is replaced",
+        "the repository gains one issue in total"
+      ],
+      "real_components": [
+        "worker pipeline",
+        "journal",
+        "triage.Validate and triage.Land",
+        "fake hub and fake forge",
+        "scripted brain"
+      ]
+    },
+    {
+      "id": "TS-14-67",
+      "kind": "smoke",
+      "verifies": [
+        "14-PATH-6",
+        "14-REQ-7.2",
+        "14-REQ-9.2"
+      ],
+      "title": "A box lost during the brain is replaced within the delivery and the attempt lands",
+      "given": [
+        "the fake hub makes the leased sandbox unavailable during a brain tool call"
+      ],
+      "when": "the delivery runs to its end",
+      "then": [
+        "the lost lease is released and a new lease taken with the deadline cut to 2 minutes before its expires_at",
+        "the recorder holds the new sandbox id as hub.sandbox_id",
+        "the clone is reset to the base, the loop reruns with the remaining budget and lands",
+        "the envelope carries box_replaced"
+      ],
+      "real_components": [
+        "worker pipeline",
+        "box layer with sentinel",
+        "in-process gateway over local box",
+        "fake hub with unavailable sandbox control",
+        "fix loop and fix.Finish",
+        "scripted brain"
+      ]
+    },
+    {
+      "id": "TS-14-68",
+      "kind": "smoke",
+      "verifies": [
+        "14-PATH-7",
+        "14-REQ-8.2",
+        "14-REQ-8.3",
+        "14-REQ-8.4",
+        "14-REQ-8.6"
+      ],
+      "title": "The reconciliation pass releases the orphan, keeps the other three leases and completes an open session",
+      "given": [
+        "a fake hub holding four leases: one for a known attempt with no runner, one for an unknown job, one without labels and one for a running attempt",
+        "one workspace answering 5xx and an ended attempt whose journal records an open session"
+      ],
+      "when": "the service starts and the pass runs, then a second pass runs after the failure clears",
+      "then": [
+        "one DELETE for the orphan lease only",
+        "a WARN for the failing workspace without a token and the other workspaces processed",
+        "one usage post and one session completion failed for the open session",
+        "the next pass releases what the failed workspace missed"
+      ],
+      "real_components": [
+        "service start",
+        "reconciliation pass",
+        "job store",
+        "jobs layer runner registry",
+        "hub client",
+        "fake hub"
+      ]
+    },
+    {
+      "id": "TS-14-69",
+      "kind": "smoke",
+      "verifies": [
+        "14-PATH-8",
+        "14-REQ-3.1",
+        "14-REQ-3.3",
+        "14-REQ-4.1"
+      ],
+      "title": "A crash before the apply reruns the brain from the base with the remaining budget",
+      "given": [
+        "delivery 1 recorded submission_accepted and was stopped by the seam before the apply"
+      ],
+      "when": "the runner is called with handover count 2",
+      "then": [
+        "no apply record is found so the clone is hard-reset to the base head and cleaned keeping .agent-fox/",
+        "the fix loop runs with the pinned budget minus delivery 1's spend",
+        "one push, one pull request and a usage record covering both deliveries"
+      ],
+      "real_components": [
+        "worker pipeline",
+        "journal",
+        "fix loop",
+        "gitx with a local remote",
+        "in-process gateway over local box",
+        "fake hub and fake forge",
+        "scripted brain"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1631 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "11",
+  "spec_name": "agent_fox_service_core",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-11-1",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-1.1"
+      ],
+      "title": "make build writes agent-fox beside af with the same ldflags",
+      "given": [
+        "a temporary BIN_DIR and make available"
+      ],
+      "when": "make build VERSION=9.9.9-test BIN_DIR=<tmp> is run and each binary is run with --version",
+      "then": [
+        "both <tmp>/af and <tmp>/agent-fox exist and are executable",
+        "agent-fox --version reports version 9.9.9-test",
+        "af --version reports the same version and commit"
+      ],
+      "pseudocode": "run('make build VERSION=9.9.9-test BIN_DIR='+tmp); assert exists(tmp/agent-fox) and exists(tmp/af); v=json(run(tmp/agent-fox,'--version')); assert v.version=='9.9.9-test'; assert v.commit==json(run(tmp/af,'--version')).commit"
+    },
+    {
+      "id": "TS-11-2",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-1.2"
+      ],
+      "title": "--version prints the five-field document and --help prints usage, both exit 0 without reading configuration",
+      "given": [
+        "the agent-fox binary built by make build",
+        "no config file anywhere on the lookup path and an empty HOME"
+      ],
+      "when": "agent-fox --version and agent-fox --help are run separately",
+      "then": [
+        "--version exits 0 and stdout is exactly one JSON object with name agent-fox, version, commit, build_time and go_version and no other field",
+        "--help exits 0 and prints usage mentioning --config, --version and --help",
+        "neither run fails for lack of a configuration file"
+      ],
+      "pseudocode": "r=run(bin,'--version'); assert r.code==0; d=json(r.stdout); assert keys(d)=={'name','version','commit','build_time','go_version'}; assert d.name=='agent-fox'; h=run(bin,'--help'); assert h.code==0; assert '--config' in (h.stdout+h.stderr)"
+    },
+    {
+      "id": "TS-11-3",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-1.3"
+      ],
+      "title": "An unknown flag or a positional argument prints plain usage on stderr and exits 2",
+      "given": [
+        "the agent-fox binary"
+      ],
+      "when": "agent-fox --bogus and agent-fox extra are run",
+      "then": [
+        "both exit with code 2",
+        "stderr is plain-text usage and not a JSON log record",
+        "nothing listens and no listening record is written"
+      ],
+      "pseudocode": "for args in (['--bogus'],['extra']): r=run(bin,*args); assert r.code==2; assert not parses_as_json(r.stderr); assert 'listening' not in r.stderr"
+    },
+    {
+      "id": "TS-11-4",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-1.4"
+      ],
+      "title": "Invalid configuration, key or database writes exactly one start failed ERROR record and exits 2",
+      "given": [
+        "a config with unknown key server.external_url",
+        "a config whose key file is missing",
+        "a config whose database.path is a directory that cannot be opened as a database"
+      ],
+      "when": "agent-fox --config <file> is run for each case",
+      "then": [
+        "each run exits 2",
+        "stderr holds exactly one line, a JSON slog record with level ERROR and msg 'start failed'",
+        "the error attribute names the key or file at fault",
+        "no listening record is written and nothing listens"
+      ],
+      "pseudocode": "for case in cases: r=run(bin,'--config',case.file); assert r.code==2; recs=json_lines(r.stderr); assert len(recs)==1; assert recs[0].level=='ERROR' and recs[0].msg=='start failed'; assert case.needle in recs[0].error"
+    },
+    {
+      "id": "TS-11-5",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-1.5"
+      ],
+      "title": "A bind failure exits 1 with exactly one start failed ERROR record naming the address",
+      "given": [
+        "a loopback port already held by another listener",
+        "a config with server.listen set to that address",
+        "a second config with a host that does not resolve"
+      ],
+      "when": "agent-fox --config <file> is run for each config",
+      "then": [
+        "each run exits 1",
+        "stderr holds exactly one JSON record at level ERROR with msg 'start failed'",
+        "the error attribute contains the address and a reason",
+        "no listening record is written"
+      ],
+      "pseudocode": "ln=net.Listen('127.0.0.1:0'); r=run(bin,'--config',cfg(listen=ln.Addr())); assert r.code==1; recs=json_lines(r.stderr); assert len(recs)==1 and recs[0].msg=='start failed'; assert ln.Addr() in recs[0].error"
+    },
+    {
+      "id": "TS-11-6",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-1.6"
+      ],
+      "title": "The listening record carries the actually bound address when listen port is 0",
+      "given": [
+        "a valid config with server.listen 127.0.0.1:0"
+      ],
+      "when": "agent-fox is started and its stderr is read",
+      "then": [
+        "a JSON record with msg 'listening' appears",
+        "its addr attribute is host:port with a non-zero port",
+        "GET http://<addr>/healthz answers 200"
+      ],
+      "pseudocode": "p=start(bin,cfg); rec=wait_record(p.stderr,'listening'); host,port=split(rec.addr); assert port!='0'; assert get('http://'+rec.addr+'/healthz').status==200"
+    },
+    {
+      "id": "TS-11-7",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-1.7"
+      ],
+      "title": "SIGTERM and SIGINT drain in-flight requests, close the database and exit 0",
+      "given": [
+        "a running agent-fox whose fake hub delays GET /api/v1/user by about one second",
+        "a request in flight that needs that hub call"
+      ],
+      "when": "SIGTERM is sent while the request is in flight (and, in a second run, SIGINT)",
+      "then": [
+        "the in-flight request completes with its normal response",
+        "new connections are refused after the signal",
+        "the process exits 0 well before 30 seconds"
+      ],
+      "pseudocode": "p=start(bin,cfg); fut=async(get(addr+'/api/v1/workspaces',bearer='t')); sleep(200ms); p.signal(SIGTERM); assert fut.result().status==200; assert p.wait()==0; assert connect(addr).refused"
+    },
+    {
+      "id": "TS-11-8",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-1.8"
+      ],
+      "title": "A listener failure after start is logged at ERROR and the run function returns exit code 1",
+      "given": [
+        "the service run function with a listener whose Accept fails after start",
+        "a real opened store"
+      ],
+      "when": "the run function serves and the listener returns a non-shutdown error",
+      "then": [
+        "an ERROR record is logged",
+        "the database is closed",
+        "the returned exit code is 1"
+      ],
+      "pseudocode": "code=run(cfg, listener=failingListener()); assert code==1; assert 'ERROR' in logs; assert store.closed"
+    },
+    {
+      "id": "TS-11-9",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-2.1"
+      ],
+      "title": "Config lookup prefers --config, then ./config.toml, then XDG then HOME/.config",
+      "given": [
+        "temp directories holding distinct config files at each lookup location",
+        "XDG_CONFIG_HOME set in one case and unset in another with HOME pointing to a temp dir"
+      ],
+      "when": "the loader is called with an explicit path, then with none from a working directory with and without ./config.toml",
+      "then": [
+        "an explicit path wins over every other file",
+        "./config.toml wins over the XDG file",
+        "$XDG_CONFIG_HOME/agent-fox/config.toml is used when set",
+        "$HOME/.config/agent-fox/config.toml is used when XDG_CONFIG_HOME is unset"
+      ],
+      "pseudocode": "assert Load(explicit).Hub.URL=='http://explicit'; chdir(withLocal); assert Load('').Hub.URL=='http://local'; chdir(empty); setenv(XDG,x); assert Load('').Hub.URL=='http://xdg'; unsetenv(XDG); assert Load('').Hub.URL=='http://home'"
+    },
+    {
+      "id": "TS-11-10",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-2.2"
+      ],
+      "title": "A missing config lists every path tried and invalid TOML names the file and position",
+      "given": [
+        "no --config and no file at any lookup path",
+        "a --config pointing to a nonexistent file",
+        "a --config file with a TOML syntax error on line 3"
+      ],
+      "when": "the loader is called in each case",
+      "then": [
+        "the first error contains every lookup path tried",
+        "the second error names the file",
+        "the third error names the file and the line/column of the parse error",
+        "the binary run for each case exits 2"
+      ],
+      "pseudocode": "err=Load(''); for p in lookupPaths: assert p in err.Error(); err=Load(badToml); assert file in err.Error() and 'line 3' in err.Error()"
+    },
+    {
+      "id": "TS-11-11",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-2.3"
+      ],
+      "title": "A minimal config gets defaults, a trailing slash dropped and relative paths resolved against the config directory",
+      "given": [
+        "a config in a temp dir setting only hub.url = http://hub.local:9000/ and secrets.key_file = key",
+        "XDG_STATE_HOME set to a temp dir, then unset with HOME set"
+      ],
+      "when": "the config is loaded",
+      "then": [
+        "server.listen is 127.0.0.1:8090",
+        "hub.auth_cache_ttl is 60s",
+        "hub.url has no trailing slash",
+        "secrets.key_file is the absolute path <config dir>/key",
+        "database.path is $XDG_STATE_HOME/agent-fox/agent-fox.db, or $HOME/.local/state/agent-fox/agent-fox.db when unset",
+        "a relative database.path is resolved against the config file's directory"
+      ],
+      "pseudocode": "c=Load(f); assert c.Server.Listen=='127.0.0.1:8090'; assert c.Hub.AuthCacheTTL==60s; assert c.Hub.URL=='http://hub.local:9000'; assert c.Secrets.KeyFile==join(dir,'key'); assert c.Database.Path==join(xdg,'agent-fox/agent-fox.db')"
+    },
+    {
+      "id": "TS-11-12",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-2.4"
+      ],
+      "title": "${NAME} is expanded in decoded string values and an empty variable expands to empty",
+      "given": [
+        "environment HUBHOST=hub.local and KEYDIR=/k and EMPTYVAR set to empty",
+        "a config with hub.url = \"http://${HUBHOST}:1\" and secrets.key_file = \"${KEYDIR}/key\"",
+        "a second config with secrets.key_file = \"${EMPTYVAR}\""
+      ],
+      "when": "each config is loaded",
+      "then": [
+        "the first config holds http://hub.local:1 and /k/key",
+        "the second fails as secrets.key_file missing/empty rather than as an unset variable",
+        "a $ not followed by {NAME} is left alone"
+      ],
+      "pseudocode": "c=Load(f1); assert c.Hub.URL=='http://hub.local:1'; assert c.Secrets.KeyFile=='/k/key'; err=Load(f2); assert 'secrets.key_file' in err.Error()"
+    },
+    {
+      "id": "TS-11-13",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-2.5"
+      ],
+      "title": "An unset ${VAR} fails start naming the variable and the key, exit 2",
+      "given": [
+        "a config with hub.url = \"${NO_SUCH_VAR_XYZ}\" and the variable unset"
+      ],
+      "when": "agent-fox --config <file> is run",
+      "then": [
+        "exit code 2",
+        "exactly one ERROR 'start failed' record",
+        "its error attribute contains NO_SUCH_VAR_XYZ and hub.url"
+      ],
+      "pseudocode": "r=run(bin,'--config',f); assert r.code==2; e=json_lines(r.stderr)[0].error; assert 'NO_SUCH_VAR_XYZ' in e and 'hub.url' in e"
+    },
+    {
+      "id": "TS-11-14",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-2.6"
+      ],
+      "title": "Unknown keys and wrong-typed values are refused naming the dotted key, exit 2",
+      "given": [
+        "configs adding server.external_url, a [workers] table with count, database.retain, a misspelt hub.auth_cach_ttl, and hub.url = 5 (wrong type)"
+      ],
+      "when": "agent-fox --config <file> is run for each config",
+      "then": [
+        "each run exits 2",
+        "the error attribute contains the dotted key: server.external_url, workers.count (or workers), database.retain, hub.auth_cach_ttl, hub.url"
+      ],
+      "pseudocode": "for c in cases: r=run(bin,'--config',c.file); assert r.code==2; assert c.key in json_lines(r.stderr)[0].error"
+    },
+    {
+      "id": "TS-11-15",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-2.7"
+      ],
+      "title": "auth_cache_ttl is accepted from 1s to 15m inclusive and refused outside without clamping",
+      "given": [
+        "configs with hub.auth_cache_ttl of 500ms, 1s, 15m, 16m and a non-duration string"
+      ],
+      "when": "each is loaded",
+      "then": [
+        "1s and 15m load with exactly those values",
+        "500ms, 16m and the non-duration string fail with an error containing hub.auth_cache_ttl",
+        "no refused value is clamped into range"
+      ],
+      "pseudocode": "assert Load(ttl('1s')).Hub.AuthCacheTTL==1s; assert Load(ttl('15m')).Hub.AuthCacheTTL==15m; for v in ('500ms','16m','x'): assert 'hub.auth_cache_ttl' in Load(ttl(v)).Error()"
+    },
+    {
+      "id": "TS-11-16",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-2.7"
+      ],
+      "title": "Missing or malformed hub.url, key_file and server.listen are refused naming the dotted key",
+      "given": [
+        "configs with hub.url missing, empty, relative, ftp://x, with ?q=1, with #frag",
+        "a config with secrets.key_file missing",
+        "a config with server.listen = \"nocolon\""
+      ],
+      "when": "each is loaded",
+      "then": [
+        "each fails with an error containing the dotted key hub.url, secrets.key_file or server.listen",
+        "a hub.url with a path prefix such as https://h/prefix is accepted",
+        "server.listen 127.0.0.1:0 is accepted"
+      ],
+      "pseudocode": "for c in bad: assert c.key in Load(c.file).Error(); assert Load(prefixed).Hub.URL=='https://h/prefix'"
+    },
+    {
+      "id": "TS-11-17",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-2.8"
+      ],
+      "title": "A non-loopback http hub.url logs a WARN after bind and before listening",
+      "given": [
+        "a config with hub.url = http://hub.example.internal:8080",
+        "a second config with hub.url = http://127.0.0.1:1",
+        "a valid key file and a temp database"
+      ],
+      "when": "agent-fox is started with each config and its stderr read until the listening record",
+      "then": [
+        "the first run starts and logs a WARN record saying tokens cross the link in clear, before the listening record",
+        "the second run logs no such WARN",
+        "a failed start in the first config writes only its one ERROR record and no WARN"
+      ],
+      "pseudocode": "recs=records_until(p.stderr,'listening'); assert index(recs,level=='WARN') < index(recs,msg=='listening'); assert no_warn(second)"
+    },
+    {
+      "id": "TS-11-18",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-3.1"
+      ],
+      "title": "A missing, non-base64 or wrong-length key file fails naming the file and never its contents",
+      "given": [
+        "a key path that does not exist",
+        "a 0600 key file with the text 'not base64 !!!secretmarker'",
+        "a 0600 key file holding base64 of 31 bytes and one holding 33 bytes"
+      ],
+      "when": "the key loader is called for each, and agent-fox is run for the missing case",
+      "then": [
+        "each returns an error containing the key file path",
+        "no error contains the file's contents",
+        "a valid file with surrounding whitespace/newline loads",
+        "the binary exits 2 with the path in the error attribute for the missing file"
+      ],
+      "pseudocode": "for f in bad: err=LoadKey(f); assert f in err.Error(); assert 'secretmarker' not in err.Error(); assert LoadKey(valid_with_newline) ok"
+    },
+    {
+      "id": "TS-11-19",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-3.2"
+      ],
+      "title": "Key files with group or other permission bits are refused and owner-only modes accepted",
+      "given": [
+        "valid key files chmodded to 0644, 0640, 0600, 0400 and 0700 (non-Windows)"
+      ],
+      "when": "the key loader is called for each",
+      "then": [
+        "0644 and 0640 fail with an error naming the file and its mode",
+        "0600, 0400 and 0700 load successfully",
+        "starting the binary with the 0644 file exits 2"
+      ],
+      "pseudocode": "for m in (0o644,0o640): chmod(f,m); err=LoadKey(f); assert f in err and oct(m) in err; for m in (0o600,0o400,0o700): chmod(f,m); assert LoadKey(f) ok"
+    },
+    {
+      "id": "TS-11-20",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-3.3"
+      ],
+      "title": "A sealed value has version byte 0x01, a 12-byte nonce and ciphertext plus tag",
+      "given": [
+        "a 32-byte key and a sealer"
+      ],
+      "when": "a token of known length is sealed for a slug",
+      "then": [
+        "the first byte is 0x01",
+        "total length is 1 + 12 + len(token) + 16",
+        "the bytes do not contain the plaintext",
+        "the value opens only when additional data agent-fox/subscription/<slug> is used (decrypting by hand with AES-GCM succeeds)"
+      ],
+      "pseudocode": "s=Seal('widgets',tok); assert s[0]==1 and len(s)==1+12+len(tok)+16; assert tok not in s; assert gcm.Open(nil,s[1:13],s[13:],'agent-fox/subscription/widgets')==tok"
+    },
+    {
+      "id": "TS-11-21",
+      "kind": "property",
+      "verifies": [
+        "11-REQ-3.4"
+      ],
+      "title": "Sealing then opening round-trips and two seals of the same token differ",
+      "given": [
+        "a random 32-byte key and a seed taken from the test"
+      ],
+      "when": "for any token (including empty-adjacent, unicode and long strings) and any valid slug, it is sealed twice and opened",
+      "then": [
+        "open(slug, seal(slug, token)) returns the token with the same key",
+        "the two seals of the same token differ"
+      ],
+      "pseudocode": "for tok,slug in gen(): a=Seal(slug,tok); b=Seal(slug,tok); assert Open(slug,a)==tok; assert a!=b"
+    },
+    {
+      "id": "TS-11-22",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-3.5"
+      ],
+      "title": "Opening fails with an error, never a panic, for a wrong key, altered byte, other slug, unknown version or truncation",
+      "given": [
+        "a sealed value for slug widgets under key A"
+      ],
+      "when": "it is opened with key B, with each single byte flipped, under slug gadgets, with version byte 0x02, and truncated to every length from 0 to len-1",
+      "then": [
+        "every attempt returns a non-nil error and empty plaintext",
+        "no attempt panics"
+      ],
+      "pseudocode": "for variant in variants: pt,err=Open(variant); assert err!=nil and pt==''; for n in range(len(s)): assert Open(s[:n]) errors"
+    },
+    {
+      "id": "TS-11-23",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-3.6"
+      ],
+      "title": "Neither the key nor a plaintext token appears in logs, errors or files outside the sealed column",
+      "given": [
+        "a running service against a fake hub with a distinctive key and a distinctive PAT",
+        "failing cases: wrong PAT, hub 500, unreadable token"
+      ],
+      "when": "a subscription is created and read, failures are provoked, and stderr, error bodies, the database file and WAL and the data directory files are scanned",
+      "then": [
+        "the key's base64 and raw bytes appear nowhere",
+        "the plaintext PAT appears in no stderr line, no error body, and no file except via the AEAD ciphertext (not as bytes)"
+      ],
+      "pseudocode": "run_scenario(); for blob in (stderr, error_bodies, read(db), read(db+'-wal')): assert key_b64 not in blob and key_raw not in blob and PAT not in blob"
+    },
+    {
+      "id": "TS-11-24",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-4.1"
+      ],
+      "title": "Opening a new database creates a 0700 directory, a 0600 file and sets the pragmas",
+      "given": [
+        "a database path inside a directory that does not exist"
+      ],
+      "when": "the store is opened and the pragmas queried",
+      "then": [
+        "the parent directory has mode 0700 and the file mode 0600",
+        "PRAGMA journal_mode returns wal",
+        "PRAGMA busy_timeout returns 5000",
+        "PRAGMA foreign_keys returns 1 (on a fresh connection from the pool as well)"
+      ],
+      "pseudocode": "s=Open(path); assert mode(dir)==0o700 and mode(path)==0o600; assert q('PRAGMA journal_mode')=='wal'; assert q('PRAGMA busy_timeout')==5000; assert q('PRAGMA foreign_keys')==1"
+    },
+    {
+      "id": "TS-11-25",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-4.2"
+      ],
+      "title": "Every owned table is af_-prefixed, user_version is untouched and a foreign table is never changed",
+      "given": [
+        "a database pre-populated with a table named jobs with rows and PRAGMA user_version set to 42"
+      ],
+      "when": "the store is opened, subscriptions are written and read, and the schema inspected",
+      "then": [
+        "every table in sqlite_master other than the foreign jobs table starts with af_",
+        "PRAGMA user_version is still 42",
+        "the jobs table and its rows are unchanged",
+        "the migration record lives in an af_-prefixed table"
+      ],
+      "pseudocode": "seed(jobs, user_version=42); s=Open(path); put_get_delete(s); for t in tables: assert t=='jobs' or t.startswith('af_'); assert user_version()==42; assert rows(jobs)==seed"
+    },
+    {
+      "id": "TS-11-26",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-4.3"
+      ],
+      "title": "Migrations apply once in order and reopening applies nothing",
+      "given": [
+        "an empty database path"
+      ],
+      "when": "the store is opened twice",
+      "then": [
+        "after the first open the migration record lists migration 1",
+        "after the second open each migration is listed exactly once",
+        "a migration that fails midway leaves no partial change (its transaction rolls back)"
+      ],
+      "pseudocode": "Open(p).Close(); Open(p).Close(); rows=q('select version from af_schema_migrations'); assert rows==[1]; assert failing_migration_rolled_back()"
+    },
+    {
+      "id": "TS-11-27",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-4.4"
+      ],
+      "title": "A database recording a newer migration than the binary knows fails start naming both versions and is unchanged",
+      "given": [
+        "a database whose migration record holds version 999 while the binary knows 1"
+      ],
+      "when": "the store is opened and agent-fox --config is run on it",
+      "then": [
+        "the store error names 999 and the known version",
+        "the binary exits 2 with a start failed record containing both numbers",
+        "the file bytes are unchanged"
+      ],
+      "pseudocode": "seed_version(999); before=sha(db); r=run(bin,cfg); assert r.code==2; e=json_lines(r.stderr)[0].error; assert '999' in e and '1' in e; assert sha(db)==before"
+    },
+    {
+      "id": "TS-11-28",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-4.5"
+      ],
+      "title": "A database that cannot be created or opened fails start with database.path in the error, exit 2",
+      "given": [
+        "database.path under a parent that is a regular file",
+        "database.path that is a file of non-SQLite garbage"
+      ],
+      "when": "agent-fox --config is run for each",
+      "then": [
+        "each exits 2",
+        "the error attribute of the single ERROR record contains the database path"
+      ],
+      "pseudocode": "for p in bad_paths: r=run(bin,cfg(db=p)); assert r.code==2; assert p in json_lines(r.stderr)[0].error"
+    },
+    {
+      "id": "TS-11-29",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-4.6"
+      ],
+      "title": "Migration 1 creates a subscriptions table with unique slug and RFC 3339 UTC times",
+      "given": [
+        "a freshly migrated store"
+      ],
+      "when": "two rows with the same slug are inserted directly and a row is stored through the store API",
+      "then": [
+        "the table has columns for slug, label prefix, sealed token, token user (nullable), subscribed by and created/updated times",
+        "the second insert of the same slug violates uniqueness",
+        "stored created_at and updated_at parse as RFC 3339 and end in Z (UTC)"
+      ],
+      "pseudocode": "assert dup_insert fails with unique error; row=get('widgets'); t=time.Parse(RFC3339,row.created_at); assert t.Location()==UTC"
+    },
+    {
+      "id": "TS-11-30",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-5.1"
+      ],
+      "title": "The hub client sends the two GET calls with bearer, accept and user-agent headers and an escaped slug",
+      "given": [
+        "an httptest server recording requests and a client with version 1.2.3"
+      ],
+      "when": "User(ctx, 'tok') and Workspace(ctx, 'tok', 'a b/c?') are called",
+      "then": [
+        "the paths are /api/v1/user and /api/v1/workspaces/a%20b%2Fc%3F under the configured base path prefix",
+        "method is GET",
+        "Authorization is 'Bearer tok', Accept is application/json, User-Agent is agent-fox/1.2.3",
+        "no other path is requested"
+      ],
+      "pseudocode": "c.User(ctx,'tok'); c.Workspace(ctx,'tok','a b/c?'); r=srv.requests; assert r[0].path=='/api/v1/user'; assert r[1].rawpath=='/api/v1/workspaces/a%20b%2Fc%3F'; assert r[0].header['Authorization']=='Bearer tok'"
+    },
+    {
+      "id": "TS-11-31",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-5.2"
+      ],
+      "title": "The hub client times out after 10 seconds or the context deadline, caps bodies at 1 MiB and does not follow redirects",
+      "given": [
+        "a server that hangs, a server answering 302 to a second server, and a server sending a body larger than 1 MiB"
+      ],
+      "when": "calls are made with a long context and with a 50ms context, and the redirect and large body are requested",
+      "then": [
+        "the client's default timeout is 10s and a 50ms context ends the call in about 50ms as unavailable",
+        "the second server in the redirect receives no request, so the token never reaches another host",
+        "at most 1 MiB of the large body is read and the answer is unavailable"
+      ],
+      "pseudocode": "assert c.HTTP.Timeout==10s; err=c.User(ctx50ms,'t'); assert Unavailable(err); c.User(ctx,'t') on 302; assert target.requests==0; assert bytes_read<=1<<20+1"
+    },
+    {
+      "id": "TS-11-32",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-5.3"
+      ],
+      "title": "A 200 user object yields the id as a string whether sent as a string or number, and a 200 workspace is found",
+      "given": [
+        "a hub answering {\"id\":\"usr_1\",\"login\":\"ann\"}, {\"id\":42}, and a workspace object {\"slug\":\"widgets\"}"
+      ],
+      "when": "User and Workspace are called",
+      "then": [
+        "the first user has id usr_1 and login ann",
+        "the numeric id is kept as the string \"42\" with empty login",
+        "Workspace returns without error (found)"
+      ],
+      "pseudocode": "assert c.User()=={id:'usr_1',login:'ann'}; assert c.User()=={id:'42',login:''}; assert c.Workspace() err==nil"
+    },
+    {
+      "id": "TS-11-33",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-5.4"
+      ],
+      "title": "Hub 401, 403 and 404 map to refused, not found and unavailable per call",
+      "given": [
+        "a hub answering each of 401, 403, 404 for both calls"
+      ],
+      "when": "User and Workspace are called for each status",
+      "then": [
+        "user: 401 refused, 403 refused, 404 unavailable",
+        "workspace: 401 refused, 403 not found, 404 not found",
+        "each error is classified by errors.Is/As with no message parsing"
+      ],
+      "pseudocode": "table={('user',401):Refused,('user',403):Refused,('user',404):Unavailable,('ws',401):Refused,('ws',403):NotFound,('ws',404):NotFound}; for (call,st),want in table: assert classify(call(st))==want"
+    },
+    {
+      "id": "TS-11-34",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-5.5"
+      ],
+      "title": "3xx, 429, 5xx, transport errors, timeouts and bad 200 bodies are all unavailable",
+      "given": [
+        "a hub answering 301, 302, 429, 500, 503, hanging up, answering 200 with non-JSON, 200 with a JSON array, 200 user without id, 200 user with empty id"
+      ],
+      "when": "User is called for each and Workspace for the status and body cases",
+      "then": [
+        "every case is classified unavailable and none as refused or not found"
+      ],
+      "pseudocode": "for case in cases: assert classify(c.User(case))==Unavailable; for case in status_and_body_cases: assert classify(c.Workspace(case))==Unavailable"
+    },
+    {
+      "id": "TS-11-35",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-5.6"
+      ],
+      "title": "Hub errors are told apart by errors.Is or errors.As and never contain the token",
+      "given": [
+        "failures of each class produced by a fake hub, with token 'tok-SECRET-123'"
+      ],
+      "when": "errors from User and Workspace are inspected",
+      "then": [
+        "errors.Is(err, ErrRefused) or errors.Is(err, ErrNotFound) or errors.As(err, *UnavailableError) identifies the class",
+        "the three classes are mutually exclusive",
+        "err.Error() does not contain the token, including for transport errors that embed the URL"
+      ],
+      "pseudocode": "for err in errs: assert exactly_one(is_refused(err),is_notfound(err),is_unavailable(err)); assert 'tok-SECRET-123' not in err.Error()"
+    },
+    {
+      "id": "TS-11-36",
+      "kind": "property",
+      "verifies": [
+        "11-REQ-5.6"
+      ],
+      "title": "No hub error message ever contains the token",
+      "given": [
+        "a fake hub that can answer any status or hang up, seeded from the test"
+      ],
+      "when": "for any token of printable characters (length 8 to 64) and any failure mode (status, hangup, bad body, timeout), a hub call is made",
+      "then": [
+        "err.Error() never contains the token"
+      ],
+      "pseudocode": "for tok,mode in gen(): err=call(tok,mode); assert err==nil or tok not in err.Error()"
+    },
+    {
+      "id": "TS-11-37",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-6.1"
+      ],
+      "title": "A missing, non-Bearer or empty-token Authorization header is answered 401 without calling hub",
+      "given": [
+        "a service with a fake hub that counts requests"
+      ],
+      "when": "GET /api/v1/workspaces is sent with no header, 'Basic abc', 'Bearer' and 'Bearer ' (empty token), and with 'bearer tok' lowercase",
+      "then": [
+        "the first four answer 401 with error code unauthenticated",
+        "the hub request count is zero after those four",
+        "lowercase 'bearer tok' is accepted as the scheme and reaches hub"
+      ],
+      "pseudocode": "for h in bad: r=get('/api/v1/workspaces',auth=h); assert r.status==401 and r.json.error.code=='unauthenticated'; assert hub.total()==0; get(auth='bearer tok'); assert hub.count('/api/v1/user',hash('tok'))==1"
+    },
+    {
+      "id": "TS-11-38",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-6.2"
+      ],
+      "title": "A validated caller token is not sent to /user again within the TTL and is sent again after it",
+      "given": [
+        "a service with auth_cache_ttl 60s and an injectable clock",
+        "a fake hub mapping token t1 to a user"
+      ],
+      "when": "three requests are made with t1 within the TTL, the clock advances past the TTL, and a fourth request is made",
+      "then": [
+        "the hub's /api/v1/user count for hash(t1) is 1 after the first three requests",
+        "it is 2 after the fourth",
+        "the cache key is the hex SHA-256 of the token (the raw token is not a key)"
+      ],
+      "pseudocode": "for i in 3: get(t1); assert hub.count('/api/v1/user',h(t1))==1; clock.advance(61s); get(t1); assert hub.count('/api/v1/user',h(t1))==2"
+    },
+    {
+      "id": "TS-11-39",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-6.3"
+      ],
+      "title": "A token hub refused answers 401 and is not sent again within the TTL",
+      "given": [
+        "a service with a TTL and a fake hub that refuses token bad with 401"
+      ],
+      "when": "two requests are made with the bad token, the clock advances past the TTL and a third is made",
+      "then": [
+        "both first requests answer 401 unauthenticated",
+        "hub saw /api/v1/user once for the token after two requests",
+        "hub saw it twice after the TTL"
+      ],
+      "pseudocode": "assert get(bad).status==401; assert get(bad).status==401; assert hub.count(user,h(bad))==1; clock.advance(ttl+1); get(bad); assert hub.count(user,h(bad))==2"
+    },
+    {
+      "id": "TS-11-40",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-6.4"
+      ],
+      "title": "Hub unavailable on identity or visibility answers 502 and caches nothing",
+      "given": [
+        "a fake hub failing /api/v1/user with 500 for token t, and later failing /api/v1/workspaces/widgets with 503 for a validated caller"
+      ],
+      "when": "a request is made, hub recovers, and the request is repeated",
+      "then": [
+        "the first answers 502 hub_unavailable",
+        "the repeat calls hub again and succeeds",
+        "the visibility outage also answers 502 and the next request calls hub's workspace endpoint again"
+      ],
+      "pseudocode": "hub.fail('/api/v1/user',500); assert get(t).status==502 and code=='hub_unavailable'; hub.clear(); assert get(t).status==200; assert hub.count(user,h(t))==2"
+    },
+    {
+      "id": "TS-11-41",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-6.5"
+      ],
+      "title": "A hidden workspace answers 404 byte-identical to an unsubscribed one, with visibility cached per (token, slug)",
+      "given": [
+        "widgets subscribed; caller A sees widgets on hub; caller B does not; slug ghost is subscribed nowhere and visible to nobody",
+        "a service with a TTL and injectable clock"
+      ],
+      "when": "B requests GET /api/v1/workspaces/widgets and A requests GET /api/v1/workspaces/ghost-visible-but-unsubscribed, B repeats the request, then the clock advances",
+      "then": [
+        "both answer 404 not_found with byte-identical bodies (apart from nothing slug-specific)",
+        "B's repeat is served from the visibility cache (hub workspace count for B,widgets stays 1)",
+        "after the TTL hub's workspace count becomes 2",
+        "a found workspace for A is also cached for the TTL"
+      ],
+      "pseudocode": "r1=get('/api/v1/workspaces/widgets',B); r2=get('/api/v1/workspaces/zzz',A); assert r1.body==r2.body and r1.status==404; get(B); assert hub.count(ws('widgets'),h(B))==1"
+    },
+    {
+      "id": "TS-11-42",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-6.5"
+      ],
+      "title": "The slug syntax is checked first, before identity, with 400 invalid_request",
+      "given": [
+        "a service and a fake hub counting requests"
+      ],
+      "when": "GET /api/v1/workspaces/<slug> is sent with an invalid slug ('-bad', 'a b', a 101-character slug, 'x!') and an invalid token",
+      "then": [
+        "every invalid slug answers 400 invalid_request even with an unauthenticated token",
+        "hub receives no request for them",
+        "slugs 'a', 'A.b_c-1' and a 100-character slug pass the syntax check"
+      ],
+      "pseudocode": "for s in bad: r=get('/api/v1/workspaces/'+s,'Bearer nope'); assert r.status==400 and r.json.error.code=='invalid_request'; assert hub.total()==0"
+    },
+    {
+      "id": "TS-11-43",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-6.6"
+      ],
+      "title": "A hub 401 on a caller-token call evicts the identity and all visibility entries",
+      "given": [
+        "caller token t validated and cached, and visibility cached for widgets and gadgets",
+        "then hub answers 401 to the workspace call for gizmos made with t"
+      ],
+      "when": "GET /api/v1/workspaces/gizmos is sent, then GET /api/v1/workspaces/widgets with the same token",
+      "then": [
+        "the first answers 401 unauthenticated",
+        "the next request calls GET /api/v1/user again",
+        "the visibility for widgets and gadgets is fetched again (counts increase)"
+      ],
+      "pseudocode": "warm(t,'widgets','gadgets'); hub.fail_once(ws('gizmos'),401); assert get('gizmos',t).status==401; u=hub.count(user,h(t)); get('widgets',t); assert hub.count(user,h(t))==u+1; assert hub.count(ws('widgets'),h(t))==2"
+    },
+    {
+      "id": "TS-11-44",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-6.7"
+      ],
+      "title": "PAT calls never read, fill or evict the caches even when the PAT equals the caller token",
+      "given": [
+        "a caller token t whose identity and visibility are cached",
+        "a PUT whose hub_token equals t, and a PUT whose PAT hub refuses with 401"
+      ],
+      "when": "PUT /api/v1/workspaces/widgets is made with hub_token == t, with a refused PAT, and then a request with the caller's token follows",
+      "then": [
+        "the PAT calls reach hub even though the cache holds an answer for the same token hash",
+        "a hub 401 on the PAT gate answers 422 and leaves the caller's cached entries in place (no extra /user call afterwards)",
+        "a PAT-only token never creates cache entries for its hash"
+      ],
+      "pseudocode": "warm(t); put(t, pat=t); assert hub.count(ws('widgets'),h(t))>=2; put(t, pat=refused); before=hub.count(user,h(t)); get(t); assert hub.count(user,h(t))==before"
+    },
+    {
+      "id": "TS-11-45",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-6.8"
+      ],
+      "title": "The TTL cache expires by an injected clock, drops expired entries first and then the oldest when full",
+      "given": [
+        "a cache with capacity 10,000, an injectable clock and TTL 60s"
+      ],
+      "when": "entries are added, the clock is advanced past some of them, and the cache is filled beyond capacity",
+      "then": [
+        "an entry is a hit until TTL and a miss after, with no sleeping",
+        "at 10,000 entries inserting one more evicts an expired entry before any live one",
+        "with no expired entry the oldest live entry is evicted",
+        "size never exceeds 10,000"
+      ],
+      "pseudocode": "c=New(10000,clock); fill(c,10000); clock.advance(30s) ; add one fresh; clock.advance(31s); put('new'); assert c.len<=10000; assert c.has('fresh') and not c.has(oldest_expired)"
+    },
+    {
+      "id": "TS-11-46",
+      "kind": "property",
+      "verifies": [
+        "11-REQ-6.8"
+      ],
+      "title": "The TTL cache stays within its bound and is race-free under concurrent use",
+      "given": [
+        "a cache of capacity 10,000 with an injected clock, run with the race detector"
+      ],
+      "when": "for any interleaving of concurrent puts, gets, evictions and clock advances from many goroutines over any key set larger than the capacity",
+      "then": [
+        "len never exceeds 10,000",
+        "no data race is reported",
+        "a get never returns a value after its TTL has passed"
+      ],
+      "pseudocode": "parallel(16, lambda: for op in gen_ops(seed): apply(c,op)); assert c.len()<=10000; assert no_race"
+    },
+    {
+      "id": "TS-11-47",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-7.1"
+      ],
+      "title": "/healthz, /readyz and /version answer 200 JSON without a token",
+      "given": [
+        "a service with an open database"
+      ],
+      "when": "GET /healthz, /readyz and /version are sent with no Authorization header",
+      "then": [
+        "each answers 200 with Content-Type application/json",
+        "/healthz body is {\"status\":\"ok\"}",
+        "/readyz body is {\"status\":\"ready\"}",
+        "/version has name agent-fox and the version document fields"
+      ],
+      "pseudocode": "assert get('/healthz').json=={'status':'ok'}; assert get('/readyz').json=={'status':'ready'}; assert get('/version').json.name=='agent-fox'"
+    },
+    {
+      "id": "TS-11-48",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-7.2"
+      ],
+      "title": "/readyz answers 503 not_ready when the database ping fails",
+      "given": [
+        "a service whose database handle is closed after start"
+      ],
+      "when": "GET /readyz is sent",
+      "then": [
+        "status 503",
+        "error code not_ready",
+        "/healthz still answers 200"
+      ],
+      "pseudocode": "store.Close(); r=get('/readyz'); assert r.status==503 and r.json.error.code=='not_ready'; assert get('/healthz').status==200"
+    },
+    {
+      "id": "TS-11-49",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-7.3"
+      ],
+      "title": "Every error is an application/json envelope with code and message, no error_type, and the mapped status",
+      "given": [
+        "a running service with hub and a store"
+      ],
+      "when": "requests provoke each code: invalid slug, no token, unknown route, wrong method on /healthz, 65 KiB body, text/plain body, refused PAT, forced handler panic, hub failure, closed db for readyz",
+      "then": [
+        "statuses are 400, 401, 404, 405, 413, 415, 422, 500, 502 and 503 for invalid_request, unauthenticated, not_found, method_not_allowed, payload_too_large, unsupported_media_type, invalid_hub_token, internal, hub_unavailable and not_ready",
+        "Content-Type is application/json",
+        "the body has error.code and error.message and no error_type key"
+      ],
+      "pseudocode": "for case in cases: r=do(case); assert r.status==case.status; assert r.ctype.startswith('application/json'); e=r.json.error; assert e.code==case.code and e.message!=''; assert 'error_type' not in e"
+    },
+    {
+      "id": "TS-11-50",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-7.4"
+      ],
+      "title": "Bad request bodies are refused before any write with 415, 413 or 400",
+      "given": [
+        "a valid caller and visible workspace widgets, an empty subscriptions table"
+      ],
+      "when": "PUT /api/v1/workspaces/widgets is sent with Content-Type text/plain, with 'application/json; charset=utf-8' (valid), with a body over 64 KiB, with malformed JSON, with an unknown field, and with trailing data after the object",
+      "then": [
+        "text/plain answers 415 unsupported_media_type",
+        "oversized answers 413 payload_too_large",
+        "malformed JSON, unknown field and trailing data each answer 400 invalid_request",
+        "the charset parameter form is accepted",
+        "the subscriptions table is empty after the refused requests"
+      ],
+      "pseudocode": "assert put(ctype='text/plain').status==415; assert put(body='x'*65537).status==413; for b in ('{', '{\"hub_token\":\"p\",\"x\":1}', '{\"hub_token\":\"p\"} {}'): assert put(body=b).status==400; assert count()==0"
+    },
+    {
+      "id": "TS-11-51",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-7.5"
+      ],
+      "title": "A handler panic answers 500 internal, logs the stack at ERROR and the process keeps serving",
+      "given": [
+        "a service with a test handler that panics registered in the same middleware chain",
+        "a captured log buffer"
+      ],
+      "when": "the panicking route is requested and then /healthz",
+      "then": [
+        "the panicking request answers 500 with error code internal",
+        "an ERROR record containing a stack trace is logged",
+        "the panic message does not leak into the response body",
+        "/healthz answers 200 afterwards"
+      ],
+      "pseudocode": "r=get('/boom'); assert r.status==500 and r.json.error.code=='internal'; assert any(rec.level=='ERROR' and 'goroutine' in rec.stack); assert get('/healthz').status==200"
+    },
+    {
+      "id": "TS-11-52",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-7.6"
+      ],
+      "title": "The http.Server has a non-zero ReadHeaderTimeout",
+      "given": [
+        "the server constructed by the service for a config"
+      ],
+      "when": "its ReadHeaderTimeout field is inspected",
+      "then": [
+        "ReadHeaderTimeout is greater than zero"
+      ],
+      "pseudocode": "srv=NewServer(cfg,...); assert srv.ReadHeaderTimeout>0"
+    },
+    {
+      "id": "TS-11-53",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-7.7"
+      ],
+      "title": "Every stderr line is a slog JSON record and each request logs method, path, status, duration and caller",
+      "given": [
+        "a running agent-fox binary with a fake hub and an authenticated caller"
+      ],
+      "when": "a few requests are made, one authenticated and one not, and stderr is parsed",
+      "then": [
+        "every stderr line after flag parsing parses as JSON with time, level and msg",
+        "each request has exactly one record with method, path, status, duration",
+        "the authenticated request's record carries the caller's user id",
+        "an unauthenticated request's record has no user id"
+      ],
+      "pseudocode": "for line in stderr_lines: rec=json(line); assert rec.level and rec.msg; reqs=[r for r in recs if r.msg=='request']; assert len(reqs)==n; assert reqs[0].user=='usr_1'"
+    },
+    {
+      "id": "TS-11-54",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-7.8"
+      ],
+      "title": "Authorization headers, bodies, tokens, ciphertext and the key never reach the log",
+      "given": [
+        "a running service with a distinctive caller token, PAT and key, and a captured log"
+      ],
+      "when": "subscribe, read, list, delete and error requests are made",
+      "then": [
+        "the log contains no 'Bearer', no caller token, no PAT, no request or response body text, no ciphertext bytes (hex or base64) and no key bytes"
+      ],
+      "pseudocode": "run_all(); for needle in (caller_tok,pat,'Bearer',key_b64,hex(sealed),b64(sealed),'label_prefix'): assert needle not in log"
+    },
+    {
+      "id": "TS-11-55",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-8.1"
+      ],
+      "title": "A new subscription answers 201 with the view and stores a sealed row",
+      "given": [
+        "caller token c belongs to usr_1 and sees widgets on hub",
+        "PAT p is accepted by hub for widgets and belongs to usr_9",
+        "widgets is not yet subscribed"
+      ],
+      "when": "PUT /api/v1/workspaces/widgets is sent with {\"hub_token\":p,\"label_prefix\":\"x:\"}",
+      "then": [
+        "status 201",
+        "the body is the subscription view with slug widgets, label_prefix x:, token_user usr_9, subscribed_by usr_1, equal created_at and updated_at",
+        "exactly one row exists in the subscriptions table and its sealed token starts with 0x01",
+        "omitting label_prefix on a new subscription yields af:"
+      ],
+      "pseudocode": "r=put('widgets',c,{'hub_token':p,'label_prefix':'x:'}); assert r.status==201; v=r.json; assert v.token_user=='usr_9' and v.subscribed_by=='usr_1'; assert v.created_at==v.updated_at; assert count()==1"
+    },
+    {
+      "id": "TS-11-56",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-8.2"
+      ],
+      "title": "Replacing a subscription answers 200 and replaces the row in full keeping created_at",
+      "given": [
+        "widgets subscribed by usr_1 with label_prefix x: and token_user usr_9",
+        "a second caller usr_2 who can see widgets, with a new PAT that /user refuses"
+      ],
+      "when": "usr_2 sends PUT /api/v1/workspaces/widgets with only hub_token (no label_prefix) and the clock moves forward",
+      "then": [
+        "status 200",
+        "label_prefix reset to af:",
+        "token_user is null (empty stays empty)",
+        "subscribed_by is usr_2",
+        "created_at is unchanged and updated_at is later",
+        "the table still has one row and the PAT in-process read returns the new PAT"
+      ],
+      "pseudocode": "r=put('widgets',c2,{'hub_token':p2}); assert r.status==200; v=r.json; assert v.label_prefix=='af:' and v.token_user is None and v.subscribed_by=='usr_2'; assert v.created_at==old.created_at and v.updated_at>old.updated_at; assert store.Token('widgets')==p2"
+    },
+    {
+      "id": "TS-11-57",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-8.3"
+      ],
+      "title": "A missing or empty hub_token or a bad label_prefix answers 400 without calling hub with the PAT or writing",
+      "given": [
+        "a visible workspace, an empty subscriptions table, and hub counters keyed by PAT hash"
+      ],
+      "when": "PUT is sent with hub_token missing, hub_token empty, and label_prefix empty, 33 characters, with a space, with a tab/control character, and with a comma",
+      "then": [
+        "each answers 400 invalid_request",
+        "hub saw no request carrying the PAT",
+        "the subscriptions table is unchanged",
+        "a 32-character prefix without those characters is accepted"
+      ],
+      "pseudocode": "for body in bad: assert put('widgets',c,body).status==400; assert hub.count_for(h(pat))==0; assert count()==0; assert put('widgets',c,{'hub_token':pat,'label_prefix':'a'*32}).status==201"
+    },
+    {
+      "id": "TS-11-58",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-8.4"
+      ],
+      "title": "Subscribe makes two fresh PAT calls, gate first then user best effort, bypassing both caches",
+      "given": [
+        "caller token c with warm identity and visibility caches",
+        "a PAT that hub lets see widgets but refuses on /user"
+      ],
+      "when": "PUT is sent twice in a row with that PAT",
+      "then": [
+        "each PUT sends hub the workspace call with the PAT before the user call with the PAT (recorded order)",
+        "both calls are repeated on the second PUT (no cache hit)",
+        "the subscription is stored with token_user null when /user refuses the PAT",
+        "the PAT's hash never creates entries that serve a later caller request"
+      ],
+      "pseudocode": "put(); put(); r=hub.requests_for(h(pat)); assert [x.path for x in r]==[ws,user,ws,user]; assert view.token_user is None"
+    },
+    {
+      "id": "TS-11-59",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-8.5"
+      ],
+      "title": "A PAT hub refuses on the gate answers 422 invalid_hub_token and writes nothing",
+      "given": [
+        "a visible workspace and a PAT hub answers 401 to on the workspace call",
+        "warm caches for the caller"
+      ],
+      "when": "PUT /api/v1/workspaces/widgets is sent with that PAT",
+      "then": [
+        "status 422 with error code invalid_hub_token",
+        "the message says hub refused the token",
+        "the subscriptions table is unchanged",
+        "the caller's cache entries are still in place"
+      ],
+      "pseudocode": "r=put(...); assert r.status==422 and r.json.error.code=='invalid_hub_token'; assert 'refused' in r.json.error.message; assert count()==0"
+    },
+    {
+      "id": "TS-11-60",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-8.6"
+      ],
+      "title": "A PAT that does not find the workspace (403 or 404) answers 422 naming the workspace and writes nothing",
+      "given": [
+        "a PAT hub answers 403 to on widgets, and another it answers 404 to"
+      ],
+      "when": "PUT /api/v1/workspaces/widgets is sent with each",
+      "then": [
+        "each answers 422 invalid_hub_token",
+        "the message names widgets",
+        "the subscriptions table is unchanged and the caches untouched"
+      ],
+      "pseudocode": "for pat in (p403,p404): r=put('widgets',c,{'hub_token':pat}); assert r.status==422; assert 'widgets' in r.json.error.message; assert count()==0"
+    },
+    {
+      "id": "TS-11-61",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-8.7"
+      ],
+      "title": "Hub unavailable on the gate or the user call with the PAT answers 502 and writes nothing",
+      "given": [
+        "a fake hub failing the workspace route with 500 in one case and the user route with 503 in another, for PAT calls"
+      ],
+      "when": "PUT /api/v1/workspaces/widgets is sent in each case",
+      "then": [
+        "each answers 502 hub_unavailable",
+        "the subscriptions table is unchanged",
+        "neither cache is touched (no entries for the PAT, caller entries unchanged)"
+      ],
+      "pseudocode": "for route in (ws,user): hub.fail_for_pat(route,500); r=put(); assert r.status==502 and r.json.error.code=='hub_unavailable'; assert count()==0"
+    },
+    {
+      "id": "TS-11-62",
+      "kind": "property",
+      "verifies": [
+        "11-REQ-8.8"
+      ],
+      "title": "A stored PAT's bytes appear in neither the database file, its WAL nor any response body",
+      "given": [
+        "a service with a real SQLite file in WAL mode, seeded from the test"
+      ],
+      "when": "for any PAT of printable characters (length 8 to 200) and any slug and label_prefix valid, it is subscribed, replaced, listed, fetched and deleted",
+      "then": [
+        "the PAT's bytes appear in no response body from any call",
+        "they appear in neither the .db file nor the -wal file at any point after the PUT, even before checkpoint"
+      ],
+      "pseudocode": "for pat,slug,prefix in gen(): bodies=[put(...),get(...),list(),delete()]; for b in bodies: assert pat not in b; assert pat not in read(db) and pat not in read(db+'-wal')"
+    },
+    {
+      "id": "TS-11-63",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-9.1"
+      ],
+      "title": "The subscription view has exactly the seven fields, null token_user and no token or ciphertext",
+      "given": [
+        "a stored subscription with empty token_user and one with token_user usr_9"
+      ],
+      "when": "the view is rendered to JSON",
+      "then": [
+        "keys are exactly slug, label_prefix, token_user, subscribed_by, token_state, created_at, updated_at",
+        "token_user is JSON null when empty and the id otherwise",
+        "label_prefix is the stored value (af: by default)",
+        "no key contains token or ciphertext and the sealed bytes appear nowhere"
+      ],
+      "pseudocode": "d=json(render(sub)); assert set(d)=={'slug','label_prefix','token_user','subscribed_by','token_state','created_at','updated_at'}; assert d['token_user'] is None"
+    },
+    {
+      "id": "TS-11-64",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-9.2"
+      ],
+      "title": "GET /workspaces lists only visible subscriptions sorted by slug",
+      "given": [
+        "subscriptions zeta, widgets and alpha",
+        "caller A sees all three; caller B sees only alpha"
+      ],
+      "when": "A and B each send GET /api/v1/workspaces",
+      "then": [
+        "A gets 200 {\"workspaces\":[alpha,widgets,zeta]} in that order",
+        "B gets a list with only alpha",
+        "an empty list is [] not null for a caller who sees nothing"
+      ],
+      "pseudocode": "assert slugs(get('/api/v1/workspaces',A))==['alpha','widgets','zeta']; assert slugs(get(B))==['alpha']; assert get(C).json=={'workspaces':[]}"
+    },
+    {
+      "id": "TS-11-65",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-9.3"
+      ],
+      "title": "Listing answers 502 with no partial list when hub is unavailable for any subscription",
+      "given": [
+        "three subscriptions and a hub that fails the workspace route for one slug with 500"
+      ],
+      "when": "GET /api/v1/workspaces is sent",
+      "then": [
+        "status 502 with error code hub_unavailable",
+        "the body has no workspaces key"
+      ],
+      "pseudocode": "hub.fail(ws('widgets'),500); r=get('/api/v1/workspaces'); assert r.status==502 and 'workspaces' not in r.json"
+    },
+    {
+      "id": "TS-11-66",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-9.4"
+      ],
+      "title": "GET /workspaces/{slug} returns the view, or an identical 404 for unsubscribed and invisible slugs",
+      "given": [
+        "widgets subscribed; caller A sees it; caller B does not; slug nothing is visible to B but not subscribed"
+      ],
+      "when": "A fetches widgets; B fetches widgets; B fetches nothing",
+      "then": [
+        "A gets 200 with the view",
+        "B's two 404 answers are not_found with byte-identical bodies",
+        "the body never confirms the existence of widgets to B"
+      ],
+      "pseudocode": "assert get('widgets',A).status==200; r1=get('widgets',B); r2=get('nothing',B); assert r1.status==r2.status==404; assert r1.body==r2.body"
+    },
+    {
+      "id": "TS-11-67",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-9.5"
+      ],
+      "title": "DELETE removes the row and sealed token and answers 204, or 404 under the GET rule",
+      "given": [
+        "widgets subscribed; caller A sees it; caller B does not"
+      ],
+      "when": "B sends DELETE, then A sends DELETE, then A sends DELETE again",
+      "then": [
+        "B's DELETE answers 404 not_found and the row remains",
+        "A's DELETE answers 204 with an empty body and the row is gone from the table",
+        "the second DELETE answers 404",
+        "the in-process PAT read now fails as not subscribed"
+      ],
+      "pseudocode": "assert delete('widgets',B).status==404; assert count()==1; r=delete('widgets',A); assert r.status==204 and r.body==''; assert count()==0; assert delete('widgets',A).status==404"
+    },
+    {
+      "id": "TS-11-68",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-9.6"
+      ],
+      "title": "After restart the token_state is ok with the same key and unreadable with another, and the service keeps serving",
+      "given": [
+        "a subscription created under key A in a database file",
+        "a store reopened with key A and then with key B"
+      ],
+      "when": "GET /api/v1/workspaces/widgets is sent after each restart, and PUT and DELETE are sent against the unreadable one",
+      "then": [
+        "with key A token_state is ok",
+        "with key B token_state is unreadable and the view has no token",
+        "/healthz answers 200 with key B",
+        "PUT replaces the unreadable subscription and token_state becomes ok under key B",
+        "DELETE removes an unreadable subscription (204)"
+      ],
+      "pseudocode": "restart(keyA); assert get(w).json.token_state=='ok'; restart(keyB); assert get(w).json.token_state=='unreadable'; assert get('/healthz').status==200; assert put(w).status==200 and get(w).json.token_state=='ok'"
+    },
+    {
+      "id": "TS-11-69",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-9.7"
+      ],
+      "title": "The in-process PAT read returns the plaintext given at subscribe",
+      "given": [
+        "a service with a subscription for widgets created with PAT p"
+      ],
+      "when": "the in-process read store.Token(ctx, 'widgets') is called, including after a replace and after a reopen with the same key",
+      "then": [
+        "it returns p",
+        "after a replace it returns the new PAT",
+        "after reopening with the same key it still returns p"
+      ],
+      "pseudocode": "put(w,p); assert store.Token(ctx,'widgets')==p; put(w,p2); assert store.Token(ctx,'widgets')==p2"
+    },
+    {
+      "id": "TS-11-70",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-9.8"
+      ],
+      "title": "The in-process PAT read errors distinguishably for an unsubscribed slug and an unreadable token, without the plaintext",
+      "given": [
+        "a store with a subscription sealed under key A, opened with key B",
+        "a slug that is not subscribed"
+      ],
+      "when": "Token(ctx, slug) is called for both",
+      "then": [
+        "the unsubscribed slug returns an error identifiable as not subscribed (errors.Is)",
+        "the unreadable one returns an error identifiable as unreadable, not as not subscribed",
+        "neither error contains the plaintext PAT and neither call panics"
+      ],
+      "pseudocode": "_,err=Token('missing'); assert errors.Is(err,ErrNotSubscribed); _,err=Token('widgets'); assert errors.Is(err,ErrUnreadable) and pat not in err.Error()"
+    },
+    {
+      "id": "TS-11-71",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-10.1"
+      ],
+      "title": "fakehub serves /user and /workspaces/{slug} from a token, user and workspace table, including workspace-only tokens",
+      "given": [
+        "a fakehub with token t1->usr_1 seeing widgets, and token t2 given workspace widgets without a user"
+      ],
+      "when": "/api/v1/user and /api/v1/workspaces/widgets and /api/v1/workspaces/other are requested with t1, t2 and an unknown token",
+      "then": [
+        "t1 gets the user and finds widgets and not other (403 or 404)",
+        "t2 is refused by /user (401) but finds widgets",
+        "an unknown token gets 401 on both"
+      ],
+      "pseudocode": "h=fakehub.New(t); h.AddUser('t1','usr_1',['widgets']); h.AddWorkspaceToken('t2',['widgets']); assert get(h,'/api/v1/user','t2').status==401; assert get(h,'/api/v1/workspaces/widgets','t2').status==200"
+    },
+    {
+      "id": "TS-11-72",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-10.2"
+      ],
+      "title": "fakehub counts and records requests by path and token hash and fails routes on demand",
+      "given": [
+        "a fakehub with a user table"
+      ],
+      "when": "requests are made, then a route is set to fail with 503, then to hang up",
+      "then": [
+        "Count(path, hash(token)) returns the per-(path, token hash) counts and the recorded list has every request in order",
+        "the failed route answers 503",
+        "the hang-up route closes the connection so the client sees a transport error",
+        "clearing the failure restores normal answers"
+      ],
+      "pseudocode": "get(user,'t1'); get(user,'t1'); assert h.Count('/api/v1/user',sha('t1'))==2; h.Fail('/api/v1/user',503); assert get(user,'t1').status==503; h.Hangup('/api/v1/user'); assert transport_error(get(user,'t1'))"
+    },
+    {
+      "id": "TS-11-73",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-10.3"
+      ],
+      "title": "docs/api.md exists and names every route, error code, 201/200 rule, null token_user and label_prefix meaning",
+      "given": [
+        "the repository's docs directory"
+      ],
+      "when": "docs/api.md is read by a docs test",
+      "then": [
+        "it names GET /healthz, /readyz, /version, GET /api/v1/workspaces, GET, PUT and DELETE /api/v1/workspaces/{slug}",
+        "it names every error code of 11-REQ-7.3",
+        "it states 201 on create and 200 on replace, token_user may be null, label_prefix is the value given at subscribe, the Bearer rule and that error_type is not sent"
+      ],
+      "pseudocode": "doc=read('docs/api.md'); for s in routes+codes+('201','200','null','given at subscribe','Bearer','error_type'): assert s in doc"
+    },
+    {
+      "id": "TS-11-74",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-10.4"
+      ],
+      "title": "docs/cli.md has an agent-fox section with flags, exit codes and lookup order",
+      "given": [
+        "docs/cli.md"
+      ],
+      "when": "a docs test reads it",
+      "then": [
+        "it has an agent-fox section naming --config, --version and --help",
+        "it explains exit codes 0, 1 and 2",
+        "it lists ./config.toml and $XDG_CONFIG_HOME/agent-fox/config.toml",
+        "the existing af content is still present"
+      ],
+      "pseudocode": "doc=read('docs/cli.md'); assert 'agent-fox' in doc; for s in ('--config','--version','--help','./config.toml','XDG_CONFIG_HOME/agent-fox/config.toml'): assert s in doc"
+    },
+    {
+      "id": "TS-11-75",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-10.5"
+      ],
+      "title": "docs/configuration.md documents the keys, the unsupported keys and the umask 077 key recipe",
+      "given": [
+        "docs/configuration.md"
+      ],
+      "when": "a docs test reads it",
+      "then": [
+        "it lists server.listen, hub.url, hub.auth_cache_ttl, database.path and secrets.key_file",
+        "it says server.external_url and [workers] are not accepted in this release",
+        "it contains the exact recipe (umask 077; openssl rand -base64 32 > key)"
+      ],
+      "pseudocode": "doc=read('docs/configuration.md'); assert '(umask 077; openssl rand -base64 32 > key)' in doc; assert 'server.external_url' in doc and '[workers]' in doc"
+    },
+    {
+      "id": "TS-11-76",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-10.6"
+      ],
+      "title": "model-usage, architecture, development and README describe the service",
+      "given": [
+        "docs/model-usage.md, docs/architecture.md, docs/development.md and README.md"
+      ],
+      "when": "a docs test reads them",
+      "then": [
+        "model-usage says agent-fox runs no model in this release",
+        "architecture has a service section covering the process, the state file and hub as the identity provider",
+        "development's layout table lists cmd/agent-fox, internal/hub and the service packages",
+        "README describes the agent-fox binary and how to start it"
+      ],
+      "pseudocode": "assert 'no model' in read('docs/model-usage.md'); assert 'cmd/agent-fox' in read('docs/development.md') and 'internal/hub' in read('docs/development.md'); assert 'agent-fox --config' in read('README.md')"
+    },
+    {
+      "id": "TS-11-77",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-10.7"
+      ],
+      "title": "The generated docs include docs/generated/cmd/agent-fox.txt",
+      "given": [
+        "the committed docs/generated tree"
+      ],
+      "when": "a test checks the file",
+      "then": [
+        "docs/generated/cmd/agent-fox.txt exists and is non-empty",
+        "it documents package main of cmd/agent-fox"
+      ],
+      "pseudocode": "b=read('docs/generated/cmd/agent-fox.txt'); assert len(b)>0 and 'package main' in b"
+    },
+    {
+      "id": "TS-11-78",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-10.8"
+      ],
+      "title": "The service tests use only loopback networking and need no real hub or pre-existing key",
+      "given": [
+        "the repository's service test files and an environment with no network and no key file"
+      ],
+      "when": "a scan test reads every test and fakehub source under cmd/agent-fox, internal/hub and the service packages, and make check is the CI gate",
+      "then": [
+        "no URL or dial address other than loopback (127.0.0.1, ::1, localhost, httptest) and reserved example names used only as unresolved strings",
+        "every test that needs a key generates one in t.TempDir()",
+        "make check exits 0 offline"
+      ],
+      "pseudocode": "for f in service_test_files: for url in urls(f): assert is_loopback_or_inert(url); assert 'AF_KEY' not in env_reads(f)"
+    },
+    {
+      "id": "TS-11-79",
+      "kind": "smoke",
+      "verifies": [
+        "11-PATH-1",
+        "11-REQ-1.6",
+        "11-REQ-7.1"
+      ],
+      "title": "An operator starts agent-fox from a minimal config, probes it and stops it with SIGTERM",
+      "given": [
+        "a built agent-fox binary",
+        "a config setting only hub.url (a fake hub) and secrets.key_file (0600, base64 of 32 bytes) plus server.listen 127.0.0.1:0, in a temp dir"
+      ],
+      "when": "the binary is started, the listening addr is read from stderr, /healthz, /readyz and /version are requested without a token, and SIGTERM is sent",
+      "then": [
+        "a listening record with a non-zero port appears",
+        "/healthz answers 200 {\"status\":\"ok\"}, /readyz 200 {\"status\":\"ready\"}, /version 200 with name agent-fox",
+        "the SQLite file exists with mode 0600",
+        "the process exits 0 after SIGTERM"
+      ],
+      "pseudocode": "p=start(bin,'--config',c); addr=wait_listening(p); assert get(addr,'/healthz').json=={'status':'ok'}; assert get(addr,'/readyz').json=={'status':'ready'}; assert get(addr,'/version').json.name=='agent-fox'; p.signal(SIGTERM); assert p.wait()==0",
+      "real_components": [
+        "agent-fox binary",
+        "config loader",
+        "key loader",
+        "SQLite store",
+        "HTTP server"
+      ]
+    },
+    {
+      "id": "TS-11-80",
+      "kind": "smoke",
+      "verifies": [
+        "11-PATH-2",
+        "11-REQ-1.4",
+        "11-REQ-2.6",
+        "11-REQ-2.7"
+      ],
+      "title": "A config with server.external_url or auth_cache_ttl 16m is refused before listening",
+      "given": [
+        "a built agent-fox binary",
+        "one config with server.external_url set and another with hub.auth_cache_ttl = \"16m\""
+      ],
+      "when": "agent-fox --config <file> is run for each",
+      "then": [
+        "each exits 2",
+        "stderr holds one JSON record at level ERROR with msg 'start failed'",
+        "the error attribute names server.external_url or hub.auth_cache_ttl respectively",
+        "no listening record is written and no database file is created"
+      ],
+      "pseudocode": "for c,key in ((ext,'server.external_url'),(ttl,'hub.auth_cache_ttl')): r=run(bin,'--config',c); assert r.code==2; recs=json_lines(r.stderr); assert len(recs)==1 and key in recs[0].error; assert not exists(dbpath)",
+      "real_components": [
+        "agent-fox binary",
+        "config loader",
+        "slog JSON logger"
+      ]
+    },
+    {
+      "id": "TS-11-81",
+      "kind": "smoke",
+      "verifies": [
+        "11-PATH-3",
+        "11-REQ-8.1",
+        "11-REQ-9.2",
+        "11-REQ-9.4"
+      ],
+      "title": "A caller subscribes widgets with a PAT and lists it, while a caller who cannot see widgets does not",
+      "given": [
+        "a running agent-fox binary against a fakehub where caller A sees widgets and caller B does not",
+        "a PAT that the fakehub lets see widgets",
+        "a real SQLite file in WAL mode"
+      ],
+      "when": "A sends PUT /api/v1/workspaces/widgets with the PAT, then A and B each send GET /api/v1/workspaces, and B sends GET /api/v1/workspaces/widgets",
+      "then": [
+        "the PUT answers 201 with a view that has no PAT",
+        "hub saw /user and workspace calls for A's token and both PAT calls",
+        "the database file and its WAL do not contain the PAT bytes",
+        "A's list holds widgets, B's list does not, and B gets 404 for widgets"
+      ],
+      "pseudocode": "r=put(addr,'widgets',A,{'hub_token':pat}); assert r.status==201 and pat not in r.body; assert 'widgets' in slugs(get(addr,'/api/v1/workspaces',A)); assert 'widgets' not in slugs(get(B)); assert get(addr,'/api/v1/workspaces/widgets',B).status==404; assert pat not in read(db)+read(db+'-wal')",
+      "real_components": [
+        "agent-fox binary",
+        "auth middleware and caches",
+        "hub client",
+        "fakehub",
+        "sealer",
+        "SQLite store"
+      ]
+    },
+    {
+      "id": "TS-11-82",
+      "kind": "smoke",
+      "verifies": [
+        "11-PATH-4",
+        "11-REQ-9.6"
+      ],
+      "title": "A subscription reads back ok after restart with the same key and unreadable with a different key",
+      "given": [
+        "agent-fox running with key A against a fakehub, with widgets subscribed",
+        "the same database file"
+      ],
+      "when": "the process is stopped and restarted with key A, widgets is read, then restarted with key B and widgets and /healthz are read",
+      "then": [
+        "after the key A restart the view has token_state ok",
+        "after the key B restart the service starts, the view has token_state unreadable and /healthz answers 200",
+        "no view or log contains the PAT"
+      ],
+      "pseudocode": "subscribe(); restart(keyA); assert view().token_state=='ok'; restart(keyB); assert view().token_state=='unreadable'; assert get('/healthz').status==200",
+      "real_components": [
+        "agent-fox binary",
+        "key loader",
+        "sealer",
+        "SQLite store",
+        "fakehub"
+      ]
+    },
+    {
+      "id": "TS-11-83",
+      "kind": "smoke",
+      "verifies": [
+        "11-PATH-5",
+        "11-REQ-6.6"
+      ],
+      "title": "A token revoked on hub is evicted on its next hub 401 and revalidated on the next request",
+      "given": [
+        "a running agent-fox with a TTL of 60s against a fakehub",
+        "a token whose identity is cached and widgets subscribed and visible"
+      ],
+      "when": "the fakehub is told to answer 401 to the workspace call for that token, the caller requests GET /api/v1/workspaces/widgets (visibility cache cold for another slug), then requests again",
+      "then": [
+        "the first request answers 401 unauthenticated",
+        "the second request makes agent-fox call /api/v1/user for that token again (count increased by one)",
+        "with the token still refused by /user the second request also answers 401"
+      ],
+      "pseudocode": "warm(t); hub.fail_once(ws('gizmos'),401); assert get('/api/v1/workspaces/gizmos',t).status==401; n=hub.count(user,h(t)); get('/api/v1/workspaces/widgets',t); assert hub.count(user,h(t))==n+1",
+      "real_components": [
+        "agent-fox binary",
+        "auth middleware and caches",
+        "hub client",
+        "fakehub"
+      ]
+    },
+    {
+      "id": "TS-11-84",
+      "kind": "smoke",
+      "verifies": [
+        "11-PATH-6",
+        "11-REQ-9.5"
+      ],
+      "title": "A caller removes a subscription and then cannot read it",
+      "given": [
+        "a running agent-fox against a fakehub with widgets subscribed and visible to the caller"
+      ],
+      "when": "the caller sends DELETE /api/v1/workspaces/widgets and then GET /api/v1/workspaces/widgets",
+      "then": [
+        "DELETE answers 204 with no body",
+        "the subscriptions table has no widgets row and no sealed token remains",
+        "GET answers 404 not_found"
+      ],
+      "pseudocode": "assert delete(addr,'widgets',t).status==204; assert row_count(db)==0; r=get(addr,'/api/v1/workspaces/widgets',t); assert r.status==404 and r.json.error.code=='not_found'",
+      "real_components": [
+        "agent-fox binary",
+        "auth middleware and caches",
+        "hub client",
+        "fakehub",
+        "SQLite store"
+      ]
+    }
+  ]
+}
