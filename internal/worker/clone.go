@@ -35,7 +35,7 @@ const (
 func (r *Runner) clone(ctx context.Context, a *attempt) *outcome {
 	a.step("clone")
 	if a.resume != nil { // the clone of the attempt is the one that was kept
-		return r.resetClone(ctx, a)
+		return r.prepareResumedClone(ctx, a)
 	}
 	dir := a.cloneDir
 	if err := os.RemoveAll(dir); err != nil {

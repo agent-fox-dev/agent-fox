@@ -25,16 +25,20 @@ func (e *env) stopAfter(stage string, mutate ...func(*jobs.Request)) {
 	_, err := e.runner.Run(context.Background(), e.request(jobs.KindFix, issueInput("42"), mutate...))
 	e.runner.abortAfter = ""
 	var stopped stageAbort
-	if !errors.As(err, &stopped) || stopped.stage != stage {
+	name, _, _ := strings.Cut(stage, "#")
+	if !errors.As(err, &stopped) || stopped.stage != name {
 		e.t.Fatalf("the first delivery returned %v, want it stopped after %s", err, stage)
 	}
 }
 
-// deliver runs the delivery n of the fix of issue 42.
+// deliver runs the delivery n of the fix of issue 42, within half an hour: the loop of a fix gives a
+// second round only the time that the deadline leaves, and the two minutes of run are too few for it.
 func (e *env) deliver(n int, mutate ...func(*jobs.Request)) (jobs.Result, error) {
 	e.t.Helper()
 	mutate = append([]func(*jobs.Request){func(r *jobs.Request) { r.Delivery = n }}, mutate...)
-	return e.run(e.request(jobs.KindFix, issueInput("42"), mutate...))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+	return e.runner.Run(ctx, e.request(jobs.KindFix, issueInput("42"), mutate...))
 }
 
 // spyOnGit records the git commands of the attempts the environment runs.
@@ -235,8 +239,10 @@ func TestAResumedDeliveryKeepsTheSettingsTheRunStartedWithWhateverChangedOnHub_T
 	if result["land"] != "pr" || result["base"] != "main" || result["pull_request"] == nil {
 		t.Errorf("the run landed as %v on %v with %v, want the pinned landing mode and base, and a pull request", result["land"], result["base"], result["pull_request"])
 	}
-	if seen.Brain != pinned.Brain || seen.Model != "model-one" || seen.MaxTurns != pinned.MaxTurns || seen.Land != "pr" {
-		t.Errorf("the loop ran with %+v, want the settings of the journal", *seen)
+	// The turn bound is the pinned one less the turns that the first delivery's brain used (the scripted brain
+	// took 4), and not the 1 that hub says now.
+	if seen.Brain != pinned.Brain || seen.Model != "model-one" || seen.MaxTurns != pinned.MaxTurns-4 || seen.Land != "pr" || seen.Budget != 3 {
+		t.Errorf("the loop ran with %+v, want the settings of the journal, with the turns that were spent taken off", *seen)
 	}
 	if seen.Timeout != 20*time.Minute || res.MaxAttempts != 7 {
 		t.Errorf("timeout %s and most attempts %d, want the current 20m and 7", seen.Timeout, res.MaxAttempts)
@@ -593,7 +599,7 @@ func TestTheSpendThatOutlivesADiscardedCloneIsTheLargerOfWhatTheJournalAndTheLed
 // Verifies: 14-REQ-3.3
 func TestAResumedFixThatRunsTheBrainAgainStartsFromACleanCloneAtTheBaseHead(t *testing.T) {
 	e := loopEnv(t, fixFiles, nil, nil, fixSteps()...)
-	e.stopAfter("applied")
+	e.stopAfter("briefed") // no submission yet: the brain runs again
 	clone := filepath.Join(e.dir, cloneDirName)
 	runID := e.hub.Sessions()[0].RunID
 	git := func(args ...string) string {
@@ -606,6 +612,9 @@ func TestAResumedFixThatRunsTheBrainAgainStartsFromACleanCloneAtTheBaseHead(t *t
 	}
 	head := git("rev-parse", "HEAD")
 	if err := os.WriteFile(filepath.Join(clone, "stray.txt"), []byte("left by the first delivery"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(clone, "src", "greet.sh"), []byte("echo half a change\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	git("branch", "fix/stray-of-the-run", "HEAD")
@@ -638,5 +647,21 @@ func TestAResumedFixThatRunsTheBrainAgainStartsFromACleanCloneAtTheBaseHead(t *t
 	}
 	if ledgerErr != nil {
 		t.Errorf("the run directory was gone when the loop began: %v", ledgerErr)
+	}
+}
+
+// TestEqualCostsAreToldApartByTheirTurnsAndThenTheirTokens pins the order of two spends of one cost: a run
+// of a brain that is not priced is still spent.
+func TestEqualCostsAreToldApartByTheirTurnsAndThenTheirTokens(t *testing.T) {
+	two, six := recovery.Spend{Turns: 2}, recovery.Spend{Turns: 6}
+	if got := carry(two, recovery.Spend{}, &six); got.Turns != 6 {
+		t.Errorf("a journal of 2 turns and a ledger of 6 carry %d turns, want 6", got.Turns)
+	}
+	if got := carry(six, recovery.Spend{}, &two); got.Turns != 6 {
+		t.Errorf("a journal of 6 turns and a ledger of 2 carry %d turns, want 6", got.Turns)
+	}
+	few, many := recovery.Spend{Turns: 2, InputTokens: 10}, recovery.Spend{Turns: 2, OutputTokens: 400}
+	if got := carry(few, recovery.Spend{}, &many); got.OutputTokens != 400 {
+		t.Errorf("of two spends of equal cost and turns the one with more tokens is %+v", got)
 	}
 }

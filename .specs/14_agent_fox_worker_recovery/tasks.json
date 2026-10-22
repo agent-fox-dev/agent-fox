@@ -205,7 +205,7 @@
       "done_when": [
         "no -2 suffix on the pushed branch name after the parked branch is deleted"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 5,

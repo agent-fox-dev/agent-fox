@@ -30,10 +30,22 @@ func carry(recorded, carried recovery.Spend, removed *recovery.Spend) recovery.S
 	if removed == nil {
 		return recorded
 	}
-	if sum := addSpend(carried, *removed); sum.CostUSD > recorded.CostUSD {
+	if sum := addSpend(carried, *removed); moreThan(sum, recorded) {
 		return sum
 	}
 	return recorded
+}
+
+// moreThan says whether a is more spend than b: the larger cost, and between equal costs (a brain that
+// reports none, or a source that is not priced) the more turns, and then the more tokens.
+func moreThan(a, b recovery.Spend) bool {
+	switch {
+	case a.CostUSD != b.CostUSD:
+		return a.CostUSD > b.CostUSD
+	case a.Turns != b.Turns:
+		return a.Turns > b.Turns
+	}
+	return a.InputTokens+a.OutputTokens > b.InputTokens+b.OutputTokens
 }
 
 // ledgerSpend is what the brain runs that a run directory records cost: the sum of its brain_end

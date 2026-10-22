@@ -163,20 +163,7 @@ func (p FinishParams) exhausted(ctx context.Context, in ResultInput) (Ending, er
 
 // stepsFor is the steps of the caller with a plan that carries the result of the run as it stands, which
 // is the input of the result with what the landing came to so far.
-func (p FinishParams) stepsFor(in ResultInput) LandSteps {
-	steps := p.Steps
-	if steps.Plan == nil {
-		return steps
-	}
-	inner := steps.Plan
-	steps.Plan = func(ctx context.Context, plan Plan) error {
-		in := in
-		in.Outcome, in.Branch, in.Commit = plan.Outcome, plan.Branch, plan.Commit
-		plan.Result = NewResult(in)
-		return inner(ctx, plan)
-	}
-	return steps
-}
+func (p FinishParams) stepsFor(in ResultInput) LandSteps { return p.Steps.withResult(in) }
 
 // subject is the subject of the last report that was accepted, or none.
 func (p FinishParams) subject() string {

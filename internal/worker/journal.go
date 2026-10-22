@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -219,7 +220,22 @@ func (r *Runner) ledgerSink(a *attempt) func(kind string, data json.RawMessage) 
 // stageAbort. The panic is the death: it unwinds past the cleanup, and the shell of the loop, which
 // recovers it, is asked afterwards.
 func (r *Runner) reached(a *attempt, stage string) {
-	if r.abortAfter == "" || r.abortAfter != stage {
+	if r.abortAfter == "" {
+		return
+	}
+	name, nth := r.abortAfter, 1 // "applied#2" is the second time the stage is reached
+	if i := strings.LastIndex(name, "#"); i >= 0 {
+		if n, err := strconv.Atoi(name[i+1:]); err == nil && n > 0 {
+			name, nth = name[:i], n
+		}
+	}
+	if name != stage {
+		return
+	}
+	if a.stagesReached == nil {
+		a.stagesReached = map[string]int{}
+	}
+	if a.stagesReached[stage]++; a.stagesReached[stage] != nth {
 		return
 	}
 	a.aborted = stage

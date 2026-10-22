@@ -135,9 +135,29 @@ func (r *Runner) laterDelivery(ctx context.Context, a *attempt, fresh recovery.J
 	}
 	spent := carry(old.Spend, old.Carried, &ledger)
 	a.resume = &resumeState{journal: old, stage: stageBrain}
+	if accepted, _ := acceptedSubmission(a.req.Kind, a.cloneDir, runID); accepted != nil && accepted.stage(a.req.Kind) == stageApplied {
+		a.resume.stage = stageApplied
+	}
 	r.leave(a, spent)
 	old.Settings = a.pinned
 	return old, nil
+}
+
+// prepareResumedClone makes the clone of a resumed delivery what the stage it picks up from needs: a fix
+// whose brain is skipped has the change of the run in its working tree, and any other has the base alone,
+// for the brain to run again. A change that no longer passes the check of its submission against the tree is
+// not one to measure: the brain runs.
+func (r *Runner) prepareResumedClone(ctx context.Context, a *attempt) *outcome {
+	if a.resume.stage == stageApplied {
+		if out := r.restoreChange(ctx, a); out != nil {
+			return out
+		}
+		if stage, _ := skipStage(ctx, a.req.Kind, a.cloneDir, a.resume.journal.Run.ID); stage == stageApplied {
+			return nil
+		}
+		a.resume.stage = stageBrain
+	}
+	return r.resetClone(ctx, a)
 }
 
 // leave notes what the attempt has spent, and what is left of the bounds it was pinned to, for the brain

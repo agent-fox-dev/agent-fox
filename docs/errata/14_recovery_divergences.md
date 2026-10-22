@@ -102,5 +102,7 @@ finishes a landing from its plan (tasks 6 and 7), and returns a stored outcome (
 (the settings, the session, the leases, the spend). What a resumed delivery does is, until the tasks that follow
 land, the one rule that needs none of them: it puts the clone back to the base the run began at
 (`resetClone`, `internal/worker/restore.go`) and runs the loop again in the same run directory with what is left
-of the budget (`afcmd.Config.Resume`, `fixAttempt.resume`). Tasks 4 to 8 replace that with the stages of R4 to R6,
-and the key below ends with task 8. Deviation key: `resume_runs_the_brain_until_task_8`.
+of the budget (`afcmd.Config.Resume`, `fixAttempt.resume`). Task 4 ended it for a fix report that the host
+accepted and applied (the change is restored into the working tree, measured and landed or parked without the
+brain: `skipStage`, `restoreChange`, `fixAttempt.landApplied`); tasks 6 to 8 do the same for a landing that was
+begun, a question or a diagnosis, and a stored outcome, and the key below ends with task 8. Deviation key: `resume_runs_the_brain_until_task_8`.

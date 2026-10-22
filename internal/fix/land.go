@@ -197,6 +197,22 @@ type LandSteps struct {
 	PullRequest func(ref PullRequestRef)
 }
 
+// withResult is the steps with a plan that carries the result of the run as it stands: the input of the
+// result with what the landing came to so far.
+func (s LandSteps) withResult(in ResultInput) LandSteps {
+	if s.Plan == nil {
+		return s
+	}
+	inner := s.Plan
+	s.Plan = func(ctx context.Context, plan Plan) error {
+		in := in
+		in.Outcome, in.Branch, in.Commit = plan.Outcome, plan.Branch, plan.Commit
+		plan.Result = NewResult(in)
+		return inner(ctx, plan)
+	}
+	return s
+}
+
 // planFailure is the failure of a landing whose plan could not be recorded: nothing has left the machine,
 // and a delivery that comes after this one can finish what was begun.
 func planFailure(branch string, err error) *toolio.Failure {

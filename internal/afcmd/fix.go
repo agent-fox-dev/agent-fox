@@ -139,6 +139,10 @@ func fixLoop(c *Config, r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 				return nil
 			}
 		}
+		if c.Resume != nil && c.Resume.Applied {
+			a.landed, a.landedErr = a.landApplied(m)
+			return nil
+		}
 		a.loop(sess, m)
 		return nil
 	})
@@ -147,6 +151,9 @@ func fixLoop(c *Config, r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 	}
 	if a.prepareErr != nil {
 		return toolio.Outcome{}, a.prepareErr
+	}
+	if c.Resume != nil && c.Resume.Applied {
+		return a.landed, a.landedErr
 	}
 	pre, state, ended, loopErr, info := a.pre, a.state, a.ended, a.loopErr, a.info
 
@@ -192,6 +199,33 @@ type fixAttempt struct {
 	loopErr    error
 	info       fix.BoxInfo
 	prepareErr error
+	// landed is how a run that carries on from the tree it applied ended.
+	landed    toolio.Outcome
+	landedErr error
+}
+
+// landApplied measures the change that an earlier delivery applied to the checkout, once, and lands it, or
+// parks it when the measuring refuses it: the brain does not run.
+func (a *fixAttempt) landApplied(m measuring) (toolio.Outcome, error) {
+	r, state := a.r, a.state
+	a.c.seededTally(r, a.o.settings.Brain) // the usage of the run is the attempt's, though no brain runs
+	got, err := fix.LandRun(r.Ctx, fix.LandRunParams{
+		Dir: r.Dir, Git: a.pre.Git, RunID: r.RunDir.ID, RunPath: r.RunDir.Path, State: state, Mode: string(a.o.land),
+		Forge: r.Forge, Target: repoOfState(state.Target), Reporter: r,
+		Record: func(kind string, data any) { record(r, kind, data) },
+		WriteReport: func(text string) error {
+			if err := r.RunDir.WriteReport(text); err != nil {
+				return err
+			}
+			r.Artifact(toolio.Artifact{Kind: "report", Path: filepath.Join(r.RunDir.Path, "report.md")})
+			return nil
+		},
+		Gate: m.gate, Conform: m.conform, PostPush: a.c.PostPush, Steps: a.c.landSteps(r),
+	})
+	if err != nil {
+		return toolio.Outcome{}, err
+	}
+	return toolio.Outcome{Status: got.Status, Summary: got.Summary, Result: got.Result}, nil
 }
 
 // begin is the start of the run: the preflight and the brief, or, for a run that is carried on, what

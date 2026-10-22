@@ -84,8 +84,13 @@ type Config struct {
 	Spent brain.Outcome
 }
 
-// Resume says that the run of the command is carried on.
-type Resume struct{}
+// Resume says that the run of the command is carried on, and from where.
+type Resume struct {
+	// Applied says the run holds a fix report that the host accepted and applied to the tree of the checkout:
+	// the brain does not run again, and the tree is measured once and landed, or parked when the
+	// measuring refuses it.
+	Applied bool
+}
 
 // seededTally is the tally of an invocation: it starts from what the attempt had spent, which the run
 // then reports as its usage, whether a brain runs again or not.

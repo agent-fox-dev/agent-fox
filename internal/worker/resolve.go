@@ -89,8 +89,9 @@ type attempt struct {
 	scratch []string
 	// journal is the journal of the attempt, nil before it is made. aborted is the stage a test stopped
 	// the delivery at, see stageAbort.
-	journal *journalHandle
-	aborted string
+	journal       *journalHandle
+	aborted       string
+	stagesReached map[string]int
 	// resume is what the delivery carries on from, nil for one that begins the attempt afresh. pinned
 	// are the settings the run was started with, and spent what the brain runs of the attempt cost
 	// before this delivery.
