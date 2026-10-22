@@ -100,9 +100,3 @@ func printVersion(stdout io.Writer) int {
 	}
 	return 0
 }
-
-// startService runs the service until it is stopped.
-func startService(configPath string, logger *slog.Logger) int {
-	logger.Error("start failed", "error", "the service is not implemented yet")
-	return 1
-}
