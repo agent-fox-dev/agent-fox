@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/box"
@@ -94,25 +95,6 @@ func (r *Runner) leaseFailure(ctx context.Context, a *attempt, err error) *outco
 	return transientFailure(toolio.CategorySandbox, "hub did not lease a sandbox: "+reason)
 }
 
-// boxOutcome is the outcome of a box that could not be opened in the gateway of the lease: the
-// gateway cannot be reached, does not take the token, or refuses the box. It is the
-// infrastructure, a transient error of category sandbox, unless the attempt was stopped, which is
-// its own end. The token of the lease is not in the message.
-func (r *Runner) boxOutcome(ctx context.Context, a *attempt, err error) *outcome {
-	if ctx.Err() != nil {
-		return &outcome{err: context.Cause(ctx)}
-	}
-	message := err.Error()
-	var failure *toolio.Failure
-	if errors.As(err, &failure) {
-		message = failure.Message
-	}
-	if a.lease != nil && a.lease.Token != "" {
-		message = strings.ReplaceAll(message, a.lease.Token, "[token]")
-	}
-	return transientFailure(toolio.CategorySandbox, message)
-}
-
 // releaseLease releases the lease of the attempt, once, whichever path gets here first: the end
 // of the attempt, or the unwinding of a panic. It is made on a context that the cancellation of
 // the attempt does not reach, bounded to 30 seconds, and after the box was closed, which the loop
@@ -122,6 +104,7 @@ func (r *Runner) releaseLease(ctx context.Context, a *attempt) error {
 		if a.lease == nil {
 			return
 		}
+		a.step("release")
 		release, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.releaseBound())
 		defer cancel()
 		a.releaseErr = r.cfg.Hub.ReleaseLease(release, a.pat, a.req.Workspace, a.lease.ID)
@@ -149,13 +132,36 @@ func (r *Runner) finish(ctx context.Context, a *attempt, out *outcome) (jobs.Res
 		warnings = append(warnings, toolio.Warning{Code: WarnLeaseReleaseFailed, Message: fmt.Sprintf(
 			"the sandbox %s could not be released: %v; hub destroys it when it expires at %s", a.lease.ID, err, a.lease.ExpiresAt.UTC().Format(time.RFC3339))})
 	}
-	if len(warnings) > 0 && len(out.result.Envelope) > 0 {
-		patched, err := toolio.AddWarnings(out.result.Envelope, warnings...)
+	if len(out.result.Envelope) > 0 {
+		am := toolio.Amendment{Warnings: warnings}
+		if a.sessionID != "" {
+			am.Artifacts = append(am.Artifacts, toolio.Artifact{Kind: "hub_session", Name: a.sessionID})
+		}
+		if a.lease != nil {
+			am.Artifacts = append(am.Artifacts, toolio.Artifact{Kind: "sandbox", Name: a.lease.ID})
+		}
+		patched, err := toolio.Amend(out.result.Envelope, am)
 		if err != nil {
-			r.cfg.Logger.Warn("the warnings of the attempt could not be added to its envelope", "job", a.req.JobID, "attempt", a.req.Attempt, "error", err.Error())
+			r.cfg.Logger.Warn("the envelope of the attempt could not be amended", "job", a.req.JobID, "attempt", a.req.Attempt, "error", err.Error())
 		} else {
 			out.result.Envelope = patched
 		}
 	}
+	r.cleanup(ctx, a, out)
 	return out.result, out.err
+}
+
+// cleanup removes what the attempt made in its directory, once the lease is released: input/, and
+// clone/ unless the attempt is to be handed over again or was shut down. The envelope, the report
+// and the directory itself are the jobs layer's and are not touched.
+func (r *Runner) cleanup(ctx context.Context, a *attempt, out *outcome) {
+	remove := []string{filepath.Join(a.req.Dir, inputDirName)}
+	if !keepsClone(ctx, out) {
+		remove = append(remove, filepath.Join(a.req.Dir, cloneDirName))
+	}
+	for _, dir := range remove {
+		if err := os.RemoveAll(dir); err != nil {
+			r.cfg.Logger.Warn("a directory of the attempt could not be removed", "job", a.req.JobID, "attempt", a.req.Attempt, "dir", dir, "error", err.Error())
+		}
+	}
 }

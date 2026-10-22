@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -287,35 +288,80 @@ func (e *Envelope) Seal(started, finished time.Time) {
 // newline, arrays as [] and never null.
 func (e *Envelope) Marshal() ([]byte, error) { return e.marshal() }
 
-// AddWarnings adds warnings to the encoded envelope data, which is an envelope as Marshal
-// renders it, and returns the document with nothing else changed: its result, its status and the
-// order of its fields are as they were, and the added warnings are indented as the rest.
-func AddWarnings(data []byte, add ...Warning) ([]byte, error) {
-	span, err := valueOf(data, "warnings")
-	if err != nil {
-		return nil, err
+// Amendment is what a caller outside the shell adds to an envelope that the shell wrote.
+type Amendment struct {
+	Warnings    []Warning
+	Artifacts   []Artifact
+	SideEffects []SideEffect
+}
+
+// Amend adds the warnings, the artifacts and the side effects of am to the encoded envelope data,
+// which is an envelope as Marshal renders it, and returns the document with nothing else changed:
+// its result, its status and the order of its fields are as they were, and what is added is
+// indented as the rest. Each list is added to the one the envelope has, after what it holds.
+func Amend(data []byte, am Amendment) ([]byte, error) {
+	var edits []edit
+	for _, f := range []func() (edit, bool, error){
+		func() (edit, bool, error) { return listEdit(data, "warnings", am.Warnings) },
+		func() (edit, bool, error) { return listEdit(data, "artifacts", am.Artifacts) },
+		func() (edit, bool, error) { return listEdit(data, "side_effects", am.SideEffects) },
+	} {
+		e, any, err := f()
+		if err != nil {
+			return nil, err
+		}
+		if any {
+			edits = append(edits, e)
+		}
 	}
-	var warnings []Warning
-	if err := json.Unmarshal(data[span[0]:span[1]], &warnings); err != nil {
-		return nil, fmt.Errorf("the warnings of the envelope are not a list of warnings: %w", err)
-	}
-	if len(add) == 0 {
+	if len(edits) == 0 {
 		return data, nil
+	}
+	slices.SortFunc(edits, func(a, b edit) int { return b.start - a.start }) // from the end, so that the spans stay true
+	out := slices.Clone(data)
+	for _, e := range edits {
+		out = append(out[:e.start], append(slices.Clone(e.text), out[e.end:]...)...)
+	}
+	return out, nil
+}
+
+// AddWarnings adds warnings to the encoded envelope data; see Amend.
+func AddWarnings(data []byte, add ...Warning) ([]byte, error) {
+	return Amend(data, Amendment{Warnings: add})
+}
+
+// edit replaces data[start:end] with text.
+type edit struct {
+	start, end int
+	text       []byte
+}
+
+// listEdit is the edit that adds items to the list that is the value of the field of the
+// envelope data, and whether there is one: nothing added is no edit, and a list the document does
+// not have is an error.
+func listEdit[T any](data []byte, field string, add []T) (edit, bool, error) {
+	if len(add) == 0 {
+		return edit{}, false, nil
+	}
+	span, err := valueOf(data, field)
+	if err != nil {
+		return edit{}, false, err
+	}
+	var items []T
+	if err := json.Unmarshal(data[span[0]:span[1]], &items); err != nil {
+		return edit{}, false, fmt.Errorf("the %s of the envelope are not a list: %w", field, err)
 	}
 	var compact bytes.Buffer
 	enc := json.NewEncoder(&compact)
 	enc.SetEscapeHTML(false)
-	if err := enc.Encode(append(warnings, add...)); err != nil {
-		return nil, err
+	if err := enc.Encode(append(items, add...)); err != nil {
+		return edit{}, false, err
 	}
 	var indented bytes.Buffer
 	if err := json.Indent(&indented, bytes.TrimSpace(compact.Bytes()), "  ", "  "); err != nil {
-		return nil, err
+		return edit{}, false, err
 	}
-	out := make([]byte, 0, len(data)+indented.Len())
-	out = append(out, data[:span[0]]...)
-	out = append(out, indented.Bytes()...)
-	return append(out, data[span[1]:]...), nil
+	return edit{start: span[0], end: span[1], text: indented.Bytes()}, true, nil
 }
 
 // valueOf is where the value of the field of the top-level object in data starts and ends.

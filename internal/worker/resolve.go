@@ -58,6 +58,10 @@ type attempt struct {
 	// and releaseErr is how it went.
 	releaseOnce sync.Once
 	releaseErr  error
+	// events are the lines of the events of the loop, kept for the report to hub; mu guards them,
+	// as the loop writes them from its own goroutines.
+	mu     sync.Mutex
+	events [][]byte
 	// closers are what the attempt gives back when it ends, last made first.
 	closers []func()
 }

@@ -63,6 +63,8 @@ type sink struct {
 	mu     sync.Mutex
 	events []sunk
 	hubs   [][3]string
+	// hook, when it is set, is called with every event after it was kept, without the lock.
+	hook func(typ string, data json.RawMessage)
 }
 
 type sunk struct {
@@ -73,8 +75,19 @@ type sunk struct {
 func (s *sink) Emit(typ string, data any) {
 	raw, _ := json.Marshal(data)
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.events = append(s.events, sunk{typ, raw})
+	hook := s.hook
+	s.mu.Unlock()
+	if hook != nil {
+		hook(typ, raw)
+	}
+}
+
+// emitted are the events kept, as type and data.
+func (s *sink) emitted() []sunk {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]sunk(nil), s.events...)
 }
 
 func (s *sink) Hub(sessionID, runID, sandboxID string) {

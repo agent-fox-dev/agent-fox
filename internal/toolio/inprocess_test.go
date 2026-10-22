@@ -435,3 +435,79 @@ func TestAddWarningsChangesNothingButTheWarnings(t *testing.T) {
 		}
 	})
 }
+
+// TestAmendAddsWarningsArtifactsAndSideEffectsAndNothingElse verifies that the three lists can be
+// added to at once, each after what it held, and that the document is otherwise byte for byte what
+// it was.
+func TestAmendAddsWarningsArtifactsAndSideEffectsAndNothingElse(t *testing.T) {
+	env := NewEnvelope("fix")
+	env.Result = struct {
+		Zeta  int    `json:"zeta"`
+		Alpha string `json:"alpha"`
+	}{1, "a"} // a result whose fields are not in alphabetical order, which a decoder into a map would sort
+	env.Warnings = []Warning{{Code: "w1", Message: "one"}}
+	env.Artifacts = []Artifact{{Kind: "branch", Name: "fix/7-x"}}
+	env.SideEffects = []SideEffect{{Kind: "push", Target: "origin/fix/7-x", State: StateDone}}
+	env.Seal(time.Unix(100, 0), time.Unix(160, 0))
+	data, err := env.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Amend(data, Amendment{
+		Warnings:    []Warning{{Code: "w2", Message: "two"}},
+		Artifacts:   []Artifact{{Kind: "hub_session", Name: "ses_1"}, {Kind: "sandbox", Name: "sbx_1"}},
+		SideEffects: []SideEffect{{Kind: "label", Target: "issue 7", State: StateFailed, Detail: "hub said <no>"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var back Envelope
+	if err := json.Unmarshal(got, &back); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, got)
+	}
+	if len(back.Warnings) != 2 || back.Warnings[1].Code != "w2" || len(back.Artifacts) != 3 || back.Artifacts[0].Kind != "branch" || back.Artifacts[1].Name != "ses_1" || back.Artifacts[2].Kind != "sandbox" ||
+		len(back.SideEffects) != 2 || back.SideEffects[0].Kind != "push" || back.SideEffects[1] != (SideEffect{Kind: "label", Target: "issue 7", State: StateFailed, Detail: "hub said <no>"}) {
+		t.Errorf("warnings %+v, artifacts %+v, side effects %+v", back.Warnings, back.Artifacts, back.SideEffects)
+	}
+	// Taking the three lists out of both documents leaves the same bytes.
+	strip := func(doc []byte) string {
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(doc, &m); err != nil {
+			t.Fatal(err)
+		}
+		delete(m, "warnings")
+		delete(m, "artifacts")
+		delete(m, "side_effects")
+		out, _ := json.Marshal(m)
+		return string(out)
+	}
+	if i, j := strings.Index(string(got), `"zeta"`), strings.Index(string(got), `"alpha"`); i < 0 || j < i {
+		t.Errorf("the order of the fields of the result changed:\n%s", got)
+	}
+	if strip(got) != strip(data) {
+		t.Errorf("the document changed beyond the three lists:\n%s\nwas\n%s", got, data)
+	}
+	if !strings.Contains(string(got), "\n    {\n      \"kind\": \"hub_session\",\n      \"name\": \"ses_1\"\n    },\n") || !strings.Contains(string(got), "hub said <no>") {
+		t.Errorf("what was added is not indented as the rest, or is escaped:\n%s", got)
+	}
+
+	t.Run("nothing to add", func(t *testing.T) {
+		if same, err := Amend(data, Amendment{}); err != nil || string(same) != string(data) {
+			t.Errorf("got %v, want the document as it was", err)
+		}
+	})
+	t.Run("only one list", func(t *testing.T) {
+		only, err := Amend(data, Amendment{Artifacts: []Artifact{{Kind: "sandbox", Name: "sbx_9"}}})
+		var b Envelope
+		if err != nil || json.Unmarshal(only, &b) != nil || len(b.Artifacts) != 2 || len(b.Warnings) != 1 || len(b.SideEffects) != 1 {
+			t.Errorf("got %s, %v", only, err)
+		}
+	})
+	t.Run("a document with a list missing", func(t *testing.T) {
+		if _, err := Amend([]byte(`{"warnings": []}`), Amendment{Artifacts: []Artifact{{Kind: "x"}}}); err == nil {
+			t.Error("an envelope with no artifacts was amended")
+		}
+	})
+}

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/box"
-	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -42,9 +41,9 @@ func ended(a *attempt, failure *toolio.Failure) *outcome {
 
 // inBox is the step of a test that stands for the loop: it opens the box of the attempt through
 // its registry, as the loop does, runs body in it and closes it, and ends the attempt as body
-// says. A box that cannot be opened ends the attempt as the worker ends an attempt for it.
-func (e *env) inBox(body func(ctx context.Context, a *attempt) *outcome) stage {
-	return stage{"loop", func(ctx context.Context, a *attempt) *outcome {
+// says. A box that cannot be opened is a transient sandbox failure, as the loop's is.
+func (e *env) inBox(body func(ctx context.Context, a *attempt) *outcome) func(ctx context.Context, a *attempt) *outcome {
+	return func(ctx context.Context, a *attempt) *outcome {
 		var out *outcome
 		err := box.With(ctx, box.Request{
 			Provider: box.GatewayName, HostDir: a.cloneDir, RunID: a.runID, Tool: string(a.req.Kind), Labels: a.boxLabels, Registry: a.boxes,
@@ -53,10 +52,10 @@ func (e *env) inBox(body func(ctx context.Context, a *attempt) *outcome) stage {
 			return nil
 		})
 		if err != nil {
-			return e.runner.boxOutcome(ctx, a, err)
+			return transientFailure(toolio.CategorySandbox, err.Error())
 		}
 		return out
-	}}
+	}
 }
 
 // succeeds is the body of a loop that comes to a done envelope.
@@ -210,12 +209,11 @@ func TestOtherLeaseOrBoxProblemsAreTransientSandboxErrors_TS_13_43(t *testing.T)
 		"a gateway refusing to make a box": {setup: func(e *env) { e.hub.Gateway().RefuseBoxes("no room for another box") }, leased: true, contains: "no room for another box"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			e := leaseEnv(t, nil)
-			e.runner.after = []stage{e.inBox(succeeds)}
+			e := loopEnv(t, fixFiles, nil, nil, fixSteps()...) // the gateway cases are the real loop's
 			tc.setup(e)
 
 			start := time.Now()
-			res, err := e.run(e.fixRequest())
+			res, err := e.run(e.request(jobs.KindFix, issueInput("42")))
 
 			f := transient(err)
 			if f == nil || f.Category != toolio.CategorySandbox || !f.Retryable {
@@ -266,7 +264,7 @@ func TestTheTimeoutIsCutToEndTwoMinutesBeforeTheLeaseExpires_TS_13_46(t *testing
 		t.Run(name, func(t *testing.T) {
 			e := leaseEnv(t, tc.vars)
 			e.hub.SetLeaseTTL(tc.ttl)
-			e.runner.after = []stage{e.inBox(func(_ context.Context, a *attempt) *outcome {
+			e.runner.loop = e.inBox(func(_ context.Context, a *attempt) *outcome {
 				if got := a.settings.Timeout; got < tc.low || got > tc.hi || got != got.Truncate(time.Second) {
 					t.Errorf("the timeout of the loop is %v, want a whole number of seconds from %v to %v", got, tc.low, tc.hi)
 				}
@@ -275,7 +273,7 @@ func TestTheTimeoutIsCutToEndTwoMinutesBeforeTheLeaseExpires_TS_13_46(t *testing
 					t.Errorf("the flags of the loop are %q, want the timeout of the settings", flags)
 				}
 				return ended(a, nil)
-			})}
+			})
 
 			res, err := e.run(e.fixRequest())
 
@@ -376,7 +374,7 @@ func TestAGrantedLeaseIsReleasedOnceAfterTheBoxClosesOnEveryPath_TS_13_47(t *tes
 			e := leaseEnv(t, nil)
 			ctx, cancel := context.WithCancelCause(context.Background())
 			defer cancel(nil)
-			e.runner.after = []stage{e.inBox(tc.body(cancel))}
+			e.runner.loop = e.inBox(tc.body(cancel))
 
 			var res jobs.Result
 			var err error
@@ -447,11 +445,11 @@ func TestAFailedReleaseAddsAWarningWithoutChangingTheStatus_TS_13_48(t *testing.
 		e.hub.SetLeaseTTL(3 * time.Hour) // the default timeout of a fix fits, so that the release is the only warning
 		e.hub.Inject("DELETE", sandboxesPath+"/*", fakehub.Fault{Status: 500})
 		var sealed []byte
-		e.runner.after = []stage{e.inBox(func(_ context.Context, a *attempt) *outcome {
+		e.runner.loop = e.inBox(func(_ context.Context, a *attempt) *outcome {
 			out := ended(a, nil)
 			sealed = out.result.Envelope
 			return out
-		})}
+		})
 
 		res, err := e.run(e.fixRequest())
 
@@ -473,8 +471,10 @@ func TestAFailedReleaseAddsAWarningWithoutChangingTheStatus_TS_13_48(t *testing.
 		if msg := warnings[0].(map[string]any)["message"].(string); !strings.Contains(msg, e.hub.Leases()[0].ID) || strings.Contains(msg, pat) {
 			t.Errorf("message = %q, want the lease and not the token", msg)
 		}
-		delete(env, "warnings")
-		delete(was, "warnings")
+		for _, field := range []string{"warnings", "artifacts"} { // the lists the worker adds to
+			delete(env, field)
+			delete(was, field)
+		}
 		if !bytes.Equal(mustJSON(env), mustJSON(was)) {
 			t.Errorf("the envelope was changed beyond its warnings:\n%s\nwas\n%s", mustJSON(env), mustJSON(was))
 		}
@@ -485,9 +485,9 @@ func TestAFailedReleaseAddsAWarningWithoutChangingTheStatus_TS_13_48(t *testing.
 		e.hub.Inject("DELETE", sandboxesPath+"/*", fakehub.Fault{Status: 500})
 		var logged bytes.Buffer
 		e.runner.cfg.Logger = slog.New(slog.NewTextHandler(&logged, nil))
-		e.runner.after = []stage{e.inBox(func(context.Context, *attempt) *outcome {
+		e.runner.loop = e.inBox(func(context.Context, *attempt) *outcome {
 			return transientFailure(toolio.CategorySandbox, "the box was lost")
-		})}
+		})
 
 		res, err := e.run(e.fixRequest())
 
@@ -515,48 +515,20 @@ func TestAFailedReleaseAddsAWarningWithoutChangingTheStatus_TS_13_48(t *testing.
 	})
 }
 
-// TestAnAttemptThatIsStoppedWhileItLeasesOrOpensTheBoxIsStoppedAndNotTransient pins that a
-// context that ended is its own end, whichever call it interrupted, and that the token of the
-// lease is not in the message of a box that could not be opened.
+// TestAnAttemptThatIsStoppedWhileItWaitsForTheLeaseIsStoppedAndNotTransient pins that a context
+// that ended is its own end, and not a lease that hub did not grant.
 // Verifies: 13-REQ-6.3
-func TestAnAttemptThatIsStoppedWhileItLeasesOrOpensTheBoxIsStoppedAndNotTransient(t *testing.T) {
-	t.Run("while it waits for the lease", func(t *testing.T) {
-		e := leaseEnv(t, nil)
-		e.hub.Inject("POST", sandboxesPath, fakehub.Fault{Delay: 30 * time.Second})
-		ctx, cancel := context.WithCancelCause(context.Background())
-		time.AfterFunc(400*time.Millisecond, func() { cancel(jobs.ErrCancelled) })
+func TestAnAttemptThatIsStoppedWhileItWaitsForTheLeaseIsStoppedAndNotTransient(t *testing.T) {
+	e := leaseEnv(t, nil)
+	e.hub.Inject("POST", sandboxesPath, fakehub.Fault{Delay: 30 * time.Second})
+	ctx, cancel := context.WithCancelCause(context.Background())
+	time.AfterFunc(400*time.Millisecond, func() { cancel(jobs.ErrCancelled) })
 
-		res, err := e.runner.Run(ctx, e.fixRequest())
+	res, err := e.runner.Run(ctx, e.fixRequest())
 
-		if !errors.Is(err, jobs.ErrCancelled) || jobs.IsTransient(err) || len(res.Envelope) != 0 {
-			t.Errorf("result %q, error %v, want the cancellation and no envelope", res.Envelope, err)
-		}
-	})
-
-	t.Run("while it opens the box", func(t *testing.T) {
-		e := leaseEnv(t, nil)
-		a := &attempt{req: e.fixRequest()}
-		ctx, cancel := context.WithCancelCause(context.Background())
-		cancel(jobs.ErrShutdown)
-
-		out := e.runner.boxOutcome(ctx, a, errors.New("the gateway went away"))
-
-		if !errors.Is(out.err, jobs.ErrShutdown) || jobs.IsTransient(out.err) {
-			t.Errorf("error = %v, want the shutdown", out.err)
-		}
-	})
-
-	t.Run("the token of the lease is not shown", func(t *testing.T) {
-		e := leaseEnv(t, nil)
-		a := &attempt{req: e.fixRequest(), lease: &hub.Lease{ID: "sbx_1", Token: "sbl_secret-of-the-lease"}}
-
-		out := e.runner.boxOutcome(context.Background(), a, &toolio.Failure{Category: toolio.CategorySandbox, Message: "dialling with sbl_secret-of-the-lease failed"})
-
-		f := transient(out.err)
-		if f == nil || strings.Contains(f.Message, "sbl_secret") || !strings.Contains(f.Message, "[token]") || f.Category != toolio.CategorySandbox || !f.Retryable {
-			t.Errorf("failure = %+v, want a retryable sandbox failure without the token", f)
-		}
-	})
+	if !errors.Is(err, jobs.ErrCancelled) || jobs.IsTransient(err) || len(res.Envelope) != 0 {
+		t.Errorf("result %q, error %v, want the cancellation and no envelope", res.Envelope, err)
+	}
 }
 
 // TestTheBoxOfTheLoopIsMadeWithTheLabelsOfTheJobAndTheAttempt checks the wiring of the labels
@@ -565,7 +537,7 @@ func TestAnAttemptThatIsStoppedWhileItLeasesOrOpensTheBoxIsStoppedAndNotTransien
 // Verifies: 13-REQ-6.4
 func TestTheBoxOfTheLoopIsMadeWithTheLabelsOfTheJobAndTheAttempt(t *testing.T) {
 	e := leaseEnv(t, nil)
-	e.runner.after = []stage{e.inBox(succeeds)}
+	e.runner.loop = e.inBox(succeeds)
 	req := e.fixRequest()
 	req.Attempt = 2
 

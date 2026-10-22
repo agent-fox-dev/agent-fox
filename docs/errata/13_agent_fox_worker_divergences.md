@@ -152,21 +152,16 @@ warning `push_failed`. Tests: `TestAPostPushHookThatFailsEndsTheLandingFailedWit
 (`internal/fix`), `TestTheBranchIsPublishedThroughHub…_TS_13_63` (`internal/worker`) and the run through the
 command (`internal/afcmd`).
 
-## 13. A lease with a second to spare is not enough, and the box cases are made by a step that stands for the loop (task 7)
+## 13. A lease with a second to spare is not enough (task 7)
 
-**Spec:** "the lease has less than 2 minutes left before `expires_at`" (R6.3); "the gateway cannot be
-reached or refuses to create the box" (R6.3, TS-13-43).
+**Spec:** "the lease has less than 2 minutes left before `expires_at`" (R6.3).
 
 **Code:** the timeout of the loop is `expires_at − now − 2m` cut to a whole number of seconds, and a
 lease whose cut would be under a second is refused as having too little time, since a timeout of 0
-means no timeout (`Runner.lease`, `internal/worker/lease.go`). The gateway is dialled and the box is
-made by the loop (`box.With` in `afcmd.fixLoop`), which is task 8; `Runner.boxOutcome` is the outcome of
-a box that could not be opened (a transient `sandbox` error with the token of the lease hidden), and the
-tests of the two gateway cases of TS-13-43 open the box of the attempt through its registry in a step
-that stands for the loop (`env.inBox`, `Runner.after`), with the gateway stopped and with the gateway
-refusing boxes (`fakehub.Gateway.Stop`, `RefuseBoxes`). Test:
-`TestOtherLeaseOrBoxProblemsAreTransientSandboxErrors_TS_13_43`. Deviation key:
-`box_cases_through_a_stand_in_for_the_loop`.
+means no timeout (`Runner.lease`, `internal/worker/lease.go`). Test:
+`TestOtherLeaseOrBoxProblemsAreTransientSandboxErrors_TS_13_43` (a lease of 90 seconds; the gateway
+that is gone and the gateway that refuses the box are the real loop's, which ends failed, `sandbox` and
+retryable, and so a transient error). Deviation key: `lease_too_short_below_a_second_of_cut`.
 
 ## 14. The warnings of the worker are added to the encoded envelope (task 7)
 
@@ -178,4 +173,38 @@ released, so `lease_release_failed` cannot be known when it is made. `Runner.fin
 to the encoded envelope with `toolio.AddWarnings`, which changes nothing else in the document, not the
 order of its fields and not its result (`internal/toolio/envelope.go`; test
 `TestAddWarningsChangesNothingButTheWarnings`). The status of the envelope is never touched.
+
+## 15. The tests of the order, the stop points and the events are completed by the tasks that add the steps (task 8)
+
+**Spec:** TS-13-57 (the order of the requests, with the label and the comment, the usage, the batch of
+events and the completion), TS-13-60 (the stop points, with `in-progress` removed, the events posted and the
+session completed `failed`) and TS-13-64 (the step events for `mirror` and `report`).
+
+**Code:** the steps that write the mark, the mirror and the report to hub are tasks 9 and 10, and their
+steps do not exist in task 8. The tests of task 8 assert the order of the steps that exist (the reads, the
+session, the clone, the lease, the requests of the loop, the push, the publication, the pull request and the
+release), the stop points as far as they go (no forge write, no lease and no report for a refusal at resolve
+and a session that is not opened; a granted lease released for the rest), and the step events from `resolve`
+to `release`. Tasks 9 and 10 add the rest to the same tests. Deviation keys:
+`order_and_stop_points_completed_by_tasks_9_and_10`, `step_events_completed_by_tasks_9_and_10`.
+
+## 16. "The jobs layer's fake retry" is a second delivery of the same request (task 8)
+
+**Spec:** TS-13-58 "with the jobs layer's fake retry the same attempt is handed over again".
+
+**Code:** the jobs layer's service needs a store, a clock and an HTTP mux, and its tests are in another
+package, so the test delivers the same `jobs.Request` twice with `Delivery` 2 the second time, after the
+cause of the transient error is gone, and checks that the second delivery runs from the start: a clone that
+the first kept is removed and made afresh, and a new lease is taken
+(`TestInfrastructureFailuresReturn…_TS_13_58`). What the layer does with a transient error is
+`jobs.IsTransient`, which the test checks on the error. Deviation key: `fake_retry_is_a_second_delivery`.
+
+## 17. An attempt that is stopped returns the cause of its context; the round position waits (task 8)
+
+**Spec:** "a result carrying the loop's envelope … whose labels show the request label set and in-progress
+removed" (R9.7), and "its round position" (R8.1, R9.4).
+
+**Code:** `loopOutcome` returns the cause of the context, with no envelope, when the attempt was stopped
+while the loop ran; the result that carries the labels of a cancellation, and `jobs.Request.Round` that the
+guard of 13-REQ-9.4 reads, are task 9's.
 

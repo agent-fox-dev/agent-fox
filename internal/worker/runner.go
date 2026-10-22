@@ -65,8 +65,11 @@ type Runner struct {
 	sleep        func(ctx context.Context, d time.Duration) error
 	// releaseTimeout bounds the release of the lease, defaultReleaseTimeout when it is 0.
 	releaseTimeout time.Duration
-	// after are steps that follow the lease; the loop will be the one, and a test puts its own.
-	after []stage
+	// extraFlags are flags put after the ones of the settings, which a test uses to choose the
+	// scripted brain, that no variable may name.
+	extraFlags []string
+	// loop, when it is set, is the step that stands for the loop in a test; nil is the loop.
+	loop func(ctx context.Context, a *attempt) *outcome
 }
 
 var _ jobs.Runner = (*Runner)(nil)
@@ -122,7 +125,11 @@ type stage struct {
 
 // stages are the steps of an attempt, in order.
 func (r *Runner) stages() []stage {
-	return append([]stage{{"resolve", r.resolve}, {"session", r.openSession}, {"clone", r.clone}, {"lease", r.lease}}, r.after...)
+	run := r.run
+	if r.loop != nil {
+		run = r.loop
+	}
+	return []stage{{"resolve", r.resolve}, {"session", r.openSession}, {"clone", r.clone}, {"lease", r.lease}, {"run", run}}
 }
 
 // Run carries out the attempt: resolve, the session, the clone and the lease. An attempt that has not ended

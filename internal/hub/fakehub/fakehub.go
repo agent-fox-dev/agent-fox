@@ -77,6 +77,8 @@ type Fault struct {
 	Oversize int
 	// Once makes the fault apply to the next request only.
 	Once bool
+	// Skip lets this many requests through before the fault applies.
+	Skip int
 }
 
 // rule makes a route fail.
@@ -85,6 +87,7 @@ type rule struct {
 	path      string
 	tokenHash string // when set, only requests with this token
 	fault     Fault
+	let       int // how many requests the rule has let through, for Fault.Skip
 }
 
 // matches says whether the rule is for the path: the path itself, or any path under the prefix
@@ -376,6 +379,10 @@ func (h *Hub) take(method, path, tokenHash string) *Fault {
 	for i := len(h.rules) - 1; i >= 0; i-- {
 		r := h.rules[i]
 		if !r.matches(path) || (r.method != "" && r.method != method) || (r.tokenHash != "" && r.tokenHash != tokenHash) {
+			continue
+		}
+		if r.let < r.fault.Skip {
+			h.rules[i].let++
 			continue
 		}
 		if r.fault.Once {

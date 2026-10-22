@@ -990,6 +990,25 @@ worker, the poll, the `af` client) build on:
   that the cancellation does not reach, bounded to 30 seconds. A release that fails leaves the status of the
   envelope as it is and adds the warning `lease_release_failed`; under a transient error it is logged.
   `toolio.AddWarnings` adds the warnings to the encoded envelope and changes nothing else in it.
+- **The loop and how the attempt ends.** After the lease the worker runs the loop in its own process, as the
+  `af` command it is (`internal/afcmd`), with a shell of its own that no signal stops, only the context of the
+  attempt: the forge is hub's for the workspace's repository, the box providers are the gateway of the lease
+  alone, the git runner is the clone's, the checks of the repository are measured in the box, and the settings
+  are the flags (`--brain`, `--budget`, `--max-turns`, `--timeout`, and for a fix `--attempts 1` and `--land`;
+  the model goes to the brain in its options). The environment of the process is read by nothing: the brain
+  gets a lookup that finds nothing. An issue is its URL on the workspace's repository, a text goes on stdin
+  with its title as a Markdown heading, a file is written to `input/<base name>` (mode 0600 in a directory of
+  mode 0700) and passed by path, and the strings of context come as `--context` values, then the answers;
+  the earlier questions say there is no question for a string and give the question with its options for an
+  answer. Every line of the loop's events reaches the job's recorder as it is written, beside the worker's
+  own `step` events (`resolve`, `session`, `clone`, `lease`, `run` and `release`). The attempt ends in one
+  of two ways. A loop whose envelope is `failed` with a retryable error of category `sandbox`, `forge` or `hub`
+  is the infrastructure: a transient error that carries that failure, with no envelope, which the jobs
+  layer hands over again. Every other ending is a result with the envelope the loop wrote, amended only by
+  added warnings, side effects and artifacts (`hub_session` and `sandbox`), the report of the run, and
+  `AF_MAX_ATTEMPTS` as the most attempts of a round (2 when the attempt stopped before the variables were read).
+  When the attempt returns, `input/` is removed and so is `clone/`, except after a transient error and after a
+  shutdown; `envelope.json`, `report.md` and the attempt directory are the jobs layer's and are never touched.
 - **Tests.** `internal/hub/fakehub` is an `httptest` hub in the manner of `fakeforge`: a table of tokens,
   users and workspaces, a record of every request, and failures, hang-ups, delays, redirects and oversize
   answers by method and route on demand. It serves the calls above in the shapes of hub's OpenAPI

@@ -444,3 +444,18 @@ func TestTheGatewayCanBeStoppedAndMadeToRefuseBoxes(t *testing.T) {
 		p.Close()
 	}
 }
+
+// TestAFaultCanLetTheFirstRequestsThrough checks the harness: a fault with a Skip lets that many
+// requests of its route through, and applies to the ones after them.
+func TestAFaultCanLetTheFirstRequestsThrough(t *testing.T) {
+	h := worker(t)
+	h.Inject("GET", "/api/v1/workspaces/acme/issues/42", Fault{Status: 429, Skip: 2})
+	var got []int
+	for range 4 {
+		status, _ := call(t, h, "GET", "/api/v1/workspaces/acme/issues/42", pat, nil)
+		got = append(got, status)
+	}
+	if !slices.Equal(got, []int{200, 200, 429, 429}) {
+		t.Errorf("statuses = %v, want two requests let through and the rest failed", got)
+	}
+}
