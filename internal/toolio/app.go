@@ -460,15 +460,7 @@ func (inv *invocation) finish() int {
 	inv.collect()
 	env.ensureEncodable()
 
-	finished := inv.app.now()
-	env.StartedAt = stamp(inv.started)
-	env.FinishedAt = stamp(finished)
-	env.DurationMS = finished.Sub(inv.started).Milliseconds()
-	env.ExitCode = ExitCode(env.Status)
-	env.Summary = oneLine(env.Summary)
-	if env.Summary == "" && env.Error != nil {
-		env.Summary = defaultSummary(env.Error.Category)
-	}
+	env.Seal(inv.started, inv.app.now())
 	return inv.publish()
 }
 

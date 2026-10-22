@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // SchemaVersion is the envelope's schema_version.
@@ -255,3 +256,32 @@ func encodeIndented(v any) ([]byte, error) {
 	}
 	return buf.Bytes(), nil
 }
+
+// NewEnvelope returns the envelope of a run of the tool that has not been given anything yet: the
+// schema version, no input, and the zero usage with no cost source. A caller outside the shell,
+// the worker of the service, makes the envelopes of the runs it refuses with it.
+func NewEnvelope(tool string) *Envelope {
+	return &Envelope{SchemaVersion: SchemaVersion, Tool: tool, Input: InputInfo{Kind: KindNone}, Usage: Usage{CostSource: CostNone}}
+}
+
+// Fail makes the envelope a failure, as the shell does: status usage for the usage category,
+// failed for any other, with the error object from f.
+func (e *Envelope) Fail(f *Failure) { e.fail(f) }
+
+// Seal makes the envelope what it is to be when the run has ended: an envelope that can be
+// encoded, the times of the run, the exit code of its status, and a summary on one line.
+func (e *Envelope) Seal(started, finished time.Time) {
+	e.ensureEncodable()
+	e.StartedAt = stamp(started)
+	e.FinishedAt = stamp(finished)
+	e.DurationMS = finished.Sub(started).Milliseconds()
+	e.ExitCode = ExitCode(e.Status)
+	e.Summary = oneLine(e.Summary)
+	if e.Summary == "" && e.Error != nil {
+		e.Summary = defaultSummary(e.Error.Category)
+	}
+}
+
+// Marshal renders the envelope as the shell prints it: two-space indented, one trailing
+// newline, arrays as [] and never null.
+func (e *Envelope) Marshal() ([]byte, error) { return e.marshal() }
