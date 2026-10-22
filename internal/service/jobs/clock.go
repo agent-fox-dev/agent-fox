@@ -13,11 +13,11 @@ type Clock interface {
 	NewTicker(d time.Duration) Ticker
 }
 
-// Ticker is the ticker of a Clock.
-type Ticker interface {
-	// C is the channel the ticks arrive on.
+// Ticker is the ticker of a Clock: C is the channel the ticks arrive on, and Stop ends
+// it. It is an alias of the interface itself, so that a clock of another package can
+// return it without naming this one.
+type Ticker = interface {
 	C() <-chan time.Time
-	// Stop ends the ticker.
 	Stop()
 }
 

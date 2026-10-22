@@ -278,7 +278,7 @@
       "done_when": [
         "a restart on the same database file redelivers the interrupted attempt with handover count 2"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

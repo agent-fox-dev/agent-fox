@@ -96,3 +96,44 @@ that were made before it.
 
 **Test:** `TestResultArtifactsAndSideEffects…_TS_12_10` and `TestAFailedEnvelopeOfTheBrain…_TS_12_40` run one
 job at a time because of it.
+
+## 7. The wait after a transient failure is the handler's, on the layer's clock (task 6)
+
+**Spec:** step 6.2 has the same attempt handed over again after 30 s and 2 min "through an injectable backoff
+function/timer (use the queue's delayed retry; the attempt keeps its workspace place without a worker slot)".
+
+**Queue:** a retry of `aflib/jobqueue` waits for a delay that its policy computes from the number of retries
+(`computeBackoff`) and from the system's time, so a test can neither inject nor record it (TS-12-44 asks for
+the waits to be recorded and the clock to move), and an item that waits is not `running`, so its group is free
+and the next item of the workspace is claimed: the place is lost.
+
+**Code:** the handler that runs the attempt stays in the handler while the attempt waits. The item stays
+claimed, so the queue serializes the workspace behind it (the place is kept), and the handler gives up its
+slot for the wait (`internal/service/jobs/queue.go`, `attempt`). That needs more workers in the queue than
+slots, so that the handler of an attempt that waits, and of one that waits for a slot, holds a worker and no
+slot: the queue has `[workers].count` + 16 workers (`service.go`, `parkedWorkers`), and the slots are a
+semaphore of `[workers].count` tokens. With more than 16 workspaces waiting at once, a workspace whose item
+is not yet claimed waits for a worker. The waits are 30 s and 2 min on the `Clock` of the layer
+(`transient.go`). What the layer does ask of the queue's retry is the hand-back (items 3 and 8).
+
+**Test:** TS-12-44 and TS-12-45 (`recovery_test.go`) record the waits on the fake clock;
+`TestATransientBackoffKeepsItsWorkspacesPlaceAndFreesItsSlot_TS_12_26` is the half of TS-12-26 about a backoff
+(the half about an overrun comes with task 7). Commit trailer key: `transient_backoff_waited_in_the_handler`.
+
+## 8. A shutdown hands the item back to the queue; it does not complete it (task 6)
+
+**Spec:** after a shutdown the attempt stays `running` and "the queue hands those attempts over again under the
+same attempt number" (R9), by the queue's crash recovery.
+
+**Queue:** a handler that returns without an error completes its item, and crash recovery only resets items that
+are `running` when the queue starts, which an item whose handler returned is not.
+
+**Code:** when the runner returns and the cause of its context is a shutdown, nothing it returned is kept, and
+the handler returns an error that the queue is to retry (`errHandedBack`). The item is `failed` with a delay
+of `RetryDelay` (1 s), the queue puts it back to queued on its own, and the new service claims it: the attempt
+is `running`, so it is handed over again with one more delivery, with no wait of the layer's and no transient
+failure. A crash leaves the item `running`, and the queue's own recovery does the same. The queue's grace at
+shutdown is 200 ms, because the layer waits for the runners itself (30 s on its clock) before it stops the
+queue.
+
+**Test:** TS-12-46, TS-12-47 and TS-12-48 (`recovery_test.go`).

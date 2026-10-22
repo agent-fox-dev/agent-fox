@@ -90,6 +90,25 @@ func withRunner(r jobs.Runner) func(*jobs.Config) { return func(c *jobs.Config) 
 // withWorkers is a configuration that makes [workers].count n.
 func withWorkers(n int) func(*jobs.Config) { return func(c *jobs.Config) { c.Workers = n } }
 
+// withClock is a configuration that gives the service the clock.
+func withClock(c jobs.Clock) func(*jobs.Config) { return func(cfg *jobs.Config) { cfg.Clock = c } }
+
+// newService builds another service on the same state file, as a restart does, with
+// the runner and the clock; it is closed when the test ends.
+func (e *env) newService(runner jobs.Runner, clock jobs.Clock) *jobs.Service {
+	e.t.Helper()
+	svc, err := jobs.New(jobs.Config{
+		DB: e.DB, Subscriptions: e.Store, Logger: slog.New(slog.NewJSONHandler(e.Logs, nil)), Clock: clock,
+		Workers: 2, AttemptsDir: filepath.Join(e.Dir, "attempts"), Runner: runner,
+		PollInterval: 5 * time.Millisecond, RetryDelay: time.Millisecond,
+	})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	e.t.Cleanup(func() { svc.Close() })
+	return svc
+}
+
 // withoutEnqueue is a configuration under which a job that is made is not put in the
 // queue, so that a test puts the attempts there in the order it chooses.
 func withoutEnqueue() func(*jobs.Config) {

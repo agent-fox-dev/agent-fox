@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/agent-fox-dev/aflib/jobqueue"
 )
@@ -39,9 +40,13 @@ type attemptPayload struct {
 	Attempt int    `json:"attempt"`
 }
 
-// errYield is the error of a handler that asks the queue to hand its item back
-// because the attempt is not the first of its workspace.
-var errYield = errors.New("the attempt is not the first of its workspace")
+// Errors of a handler that ask the queue to hand the item back.
+var (
+	// errYield: the attempt is not the first of its workspace.
+	errYield = errors.New("the attempt is not the first of its workspace")
+	// errHandedBack: the service is stopping, and the attempt is left as it is.
+	errHandedBack = errors.New("the service is stopping")
+)
 
 // Enqueue puts the attempt in the queue, belonging to the workspace of its job. An
 // attempt that the queue has already, pending, delayed, claimed or done, is left as it
@@ -108,33 +113,130 @@ func (s *Service) handle(qctx context.Context, payload json.RawMessage) (any, bo
 	case dispYield:
 		return nil, true, errYield
 	}
-
-	_, err = s.store.Claim(ctx, p.JobID, p.Attempt)
-	switch {
-	case errors.Is(err, ErrNotClaimable):
-		return nil, false, nil
-	case err != nil:
-		s.log.Warn("an attempt could not be claimed; the queue will hand it over again",
-			"job", p.JobID, "attempt", p.Attempt, "error", err.Error())
-		return nil, true, err
-	}
-	if err := s.run(ctx, p); err != nil {
-		s.log.Warn("an attempt could not be started; the queue will hand it over again",
-			"job", p.JobID, "attempt", p.Attempt, "error", err.Error())
-		return nil, true, err
-	}
-	return nil, false, nil
+	return s.attempt(ctx, p)
 }
 
-// run calls the runner for the attempt that was claimed, and records what it came to.
-func (s *Service) run(ctx context.Context, p attemptPayload) error {
-	req, err := s.store.RunRequest(ctx, p.JobID, p.Attempt)
+// stopped reports whether the service is stopping.
+func (s *Service) stopped() bool {
+	select {
+	case <-s.stopping:
+		return true
+	default:
+		return false
+	}
+}
+
+// acquire waits for a slot, and says whether it got one. A service that is stopping
+// grants none, even when a slot is free: a select between the two would choose either. (An
+// attempt that gets its slot as the service begins to stop is told of the shutdown by
+// invoke, and is handed back.)
+func (s *Service) acquire() bool {
+	if s.stopped() {
+		return false
+	}
+	select {
+	case s.slots <- struct{}{}:
+		return true
+	case <-s.stopping:
+		return false
+	}
+}
+
+// release gives the slot back.
+func (s *Service) release() { <-s.slots }
+
+// pause waits for d on the clock, and says whether it did: it gives up when the service stops.
+func (s *Service) pause(d time.Duration) bool {
+	select {
+	case <-s.clock.After(d):
+		return true
+	case <-s.stopping:
+		return false
+	}
+}
+
+// attempt hands the attempt over to the runner and sees it through. Each pass is a slot,
+// a claim and a call. A transient failure puts the attempt back, gives up the slot for the
+// wait that the failure calls for (the attempt keeps the place of its workspace, because
+// this handler is the one the queue runs for the workspace) and goes round again; a
+// shutdown leaves the attempt as it is; anything else ends it.
+func (s *Service) attempt(ctx context.Context, p attemptPayload) (any, bool, error) {
+	for {
+		if !s.acquire() {
+			return nil, true, errHandedBack
+		}
+		_, err := s.store.Claim(ctx, p.JobID, p.Attempt)
+		switch {
+		case errors.Is(err, ErrNotClaimable):
+			s.release()
+			return nil, false, nil
+		case err != nil:
+			s.release()
+			s.log.Warn("an attempt could not be claimed; the queue will hand it over again",
+				"job", p.JobID, "attempt", p.Attempt, "error", err.Error())
+			return nil, true, err
+		}
+
+		req, out, cause, err := s.invoke(ctx, p)
+		if err == nil {
+			switch {
+			case errors.Is(cause, ErrShutdown):
+				// The attempt was stopped so that it can go on after the restart: what the
+				// runner returned is not what the attempt came to.
+				s.release()
+				return nil, true, errHandedBack
+			case IsTransient(out.err):
+				var wait time.Duration
+				if wait, err = s.transient(ctx, req, out); err == nil && wait > 0 {
+					s.release()
+					if !s.pause(wait) {
+						return nil, true, errHandedBack
+					}
+					continue
+				}
+			default:
+				err = s.finish(ctx, req, out, false)
+			}
+		}
+		s.release()
+		if err != nil {
+			s.log.Warn("an attempt could not be ended or started; the queue will hand it over again",
+				"job", p.JobID, "attempt", p.Attempt, "error", err.Error())
+			return nil, true, err
+		}
+		return nil, false, nil
+	}
+}
+
+// transient deals with a transient failure of a runner. The third ends the attempt, as
+// failed, and never as a reason for an automatic attempt. The first and the second put the
+// attempt back to queued and return how long to wait before it is handed over again.
+func (s *Service) transient(ctx context.Context, req Request, out called) (time.Duration, error) {
+	failures, err := s.store.NoteTransient(ctx, req.JobID, req.Attempt)
 	if err != nil {
-		return err
+		return 0, err
+	}
+	if failures >= maxTransient {
+		return 0, s.finish(ctx, req, out, true)
+	}
+	returned, err := s.store.Backoff(ctx, req.JobID, req.Attempt)
+	if err != nil || !returned {
+		return 0, err
+	}
+	return backoffs[failures-1], nil
+}
+
+// invoke makes the request for the attempt that was claimed, calls the runner with a
+// context that is cancelled with a cause when the attempt has to stop, and returns what it
+// came to, with the cause of the cancellation of the context at the moment it returned.
+func (s *Service) invoke(ctx context.Context, p attemptPayload) (req Request, out called, cause error, err error) {
+	req, err = s.store.RunRequest(ctx, p.JobID, p.Attempt)
+	if err != nil {
+		return req, out, nil, err
 	}
 	req.Dir = filepath.Join(s.attemptsDir, p.JobID, strconv.Itoa(p.Attempt))
 	if err := makeDir(req.Dir); err != nil {
-		return err
+		return req, out, nil, err
 	}
 	req.Recorder = newRecorder(s.store, s.log, p.JobID, p.Attempt)
 
@@ -143,14 +245,18 @@ func (s *Service) run(ctx context.Context, p attemptPayload) error {
 	s.mu.Lock()
 	s.inflight[run.key] = run
 	s.mu.Unlock()
+	if s.stopped() { // the service began to stop after the claim, and before the attempt was known
+		cancel(ErrShutdown)
+	}
 
-	out := s.call(rctx, req)
+	out = s.callRunner(rctx, req)
 
+	cause = context.Cause(rctx)
 	req.Recorder.close()
 	s.mu.Lock()
 	delete(s.inflight, run.key)
 	s.mu.Unlock()
 	close(run.returned)
 	cancel(nil)
-	return s.finish(ctx, req, out)
+	return req, out, cause, nil
 }

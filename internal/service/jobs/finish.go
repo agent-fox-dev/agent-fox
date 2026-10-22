@@ -34,8 +34,8 @@ type called struct {
 	panicked *panicInfo
 }
 
-// call calls the runner and keeps a panic of it from stopping the worker.
-func (s *Service) call(ctx context.Context, req Request) (out called) {
+// callRunner calls the runner and keeps a panic of it from stopping the worker.
+func (s *Service) callRunner(ctx context.Context, req Request) (out called) {
 	defer func() {
 		if v := recover(); v != nil {
 			out = called{panicked: &panicInfo{value: v, stack: debug.Stack()}}
@@ -57,14 +57,16 @@ type verdict struct {
 
 // finish records what a call of the runner came to: it settles the envelope, applies
 // the first of the rules that matches, and stores the files and the rows in one go.
-func (s *Service) finish(ctx context.Context, req Request, out called) error {
+// spent says that the attempt ends because its transient failures are used up, which
+// is never a reason for an automatic attempt.
+func (s *Service) finish(ctx context.Context, req Request, out called, spent bool) error {
 	env, raw := s.envelopeOf(req, out)
 	attempts, err := loadAttempts(ctx, s.store.db, req.JobID)
 	if err != nil {
 		return err
 	}
 	max := roundLimit(out.res.MaxAttempts)
-	v := ruling(env, attempts, req.Attempt, max)
+	v := ruling(env, attempts, req.Attempt, max, spent)
 
 	end := endArgs{
 		jobID: req.JobID, attempt: req.Attempt, verdict: v, env: env, maxAttempts: max,
@@ -137,7 +139,7 @@ func roundLimit(reported int) int {
 // ruling applies the first of the rules of 12-REQ-6 that matches the envelope. The
 // round of attempt n is the latest attempt whose trigger is not auto, up to n, and the
 // automatic attempts after it.
-func ruling(env toolio.Envelope, attempts []attemptRow, n, max int) verdict {
+func ruling(env toolio.Envelope, attempts []attemptRow, n, max int, spent bool) verdict {
 	switch env.Status {
 	case toolio.StatusDone:
 		return verdict{attempt: AttemptDone, job: StateDone}
@@ -148,7 +150,7 @@ func ruling(env toolio.Envelope, attempts []attemptRow, n, max int) verdict {
 	case toolio.StatusNeedsHuman:
 		return verdict{attempt: AttemptNeedsHuman, job: StateBlocked}
 	case toolio.StatusFailed:
-		if e := env.Error; e != nil && e.Retryable && (e.Category == toolio.CategoryBrain || e.Category == toolio.CategoryNoResult) &&
+		if e := env.Error; e != nil && !spent && e.Retryable && (e.Category == toolio.CategoryBrain || e.Category == toolio.CategoryNoResult) &&
 			roundSize(attempts, n) < max {
 			return verdict{attempt: AttemptFailed, job: StateQueued, auto: true}
 		}

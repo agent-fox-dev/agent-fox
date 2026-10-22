@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -178,5 +179,74 @@ func TestAnAutomaticAttemptHasTheSameContextAndAnswersAndARoundRestartsAtAHumanA
 	defer mu.Unlock()
 	if last := requests[len(requests)-1]; len(last.Answers) != 1 || fmt.Sprint(last.Context) != fmt.Sprint(job.Context) {
 		t.Errorf("the attempt after the retry was given answers %+v and context %v, want the job's", last.Answers, last.Context)
+	}
+}
+
+// TestAServiceThatIsStoppingGrantsNoSlotAndCancelsWhatItIsToRun checks the two places
+// where a service that stops must not go on: it grants no slot, whether one is free or
+// not, and an attempt that it was about to call the runner for, after it began to stop,
+// is told of the shutdown before the runner is called.
+// Verifies: 12-REQ-7.3
+func TestAServiceThatIsStoppingGrantsNoSlotAndCancelsWhatItIsToRun(t *testing.T) {
+	var cause error
+	called := make(chan struct{})
+	svc := internalService(t, funcRunner(func(ctx context.Context, req Request) (Result, error) {
+		cause = context.Cause(ctx)
+		close(called)
+		return Result{}, nil
+	}))
+	if !svc.acquire() {
+		t.Fatal("a service that is running granted no slot")
+	}
+	svc.release()
+
+	id, err := svc.store.CreateJob(ctx, newJob(KindFix, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.store.Claim(ctx, id, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for range 200 { // a select between a free slot and the stop would choose either
+		if svc.acquire() {
+			t.Fatal("a service that is stopping granted a slot that was free")
+		}
+	}
+	if _, _, got, err := svc.invoke(ctx, attemptPayload{JobID: id, Attempt: 1}); err != nil || !errors.Is(got, ErrShutdown) {
+		t.Errorf("invoke after the stop: cause %v, err %v, want the shutdown", got, err)
+	}
+	<-called
+	if !errors.Is(cause, ErrShutdown) || IsCancel(cause) {
+		t.Errorf("the runner's context had the cause %v when it was called, want a shutdown and not a cancel", cause)
+	}
+}
+
+// TestAnAttemptOfAFinishedJobDoesNotKeepTheNextOneWaiting checks that the first open
+// attempt of a workspace is looked for among the attempts of jobs that are open: a job
+// that is finished and has an attempt that is still marked queued (a crash can leave
+// one) does not make the attempts after it hand their items back.
+// Verifies: 12-REQ-4.3
+func TestAnAttemptOfAFinishedJobDoesNotKeepTheNextOneWaiting(t *testing.T) {
+	db := openDB(t)
+	st := NewStore(db, newTestClock().Now)
+	stale, err := st.CreateJob(ctx, newJob(KindFix, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := st.CreateJob(ctx, newJob(KindFix, 2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("UPDATE af_jobs SET state = 'cancelled', finished_at = '2026-10-22T08:00:00.000Z' WHERE id = ?", stale); err != nil {
+		t.Fatal(err)
+	}
+	if what, err := st.Plan(ctx, next, 1); err != nil || what != dispClaim {
+		t.Errorf("Plan = %v, %v, want to claim: the attempt of the cancelled job is not in the way", what, err)
+	}
+	if what, err := st.Plan(ctx, stale, 1); err != nil || what != dispAck {
+		t.Errorf("Plan of the attempt of the cancelled job = %v, %v, want to acknowledge", what, err)
 	}
 }

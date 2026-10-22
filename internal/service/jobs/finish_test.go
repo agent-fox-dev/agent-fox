@@ -479,24 +479,25 @@ func TestThePlaceholderRunnerFailsEveryAttemptAsUnsupportedAndNotRetryable_TS_12
 // only while the job is blocked. (The routes that serve them come with task 9.)
 // Verifies: 12-REQ-2.1, 12-REQ-2.2
 func TestEveryJobDocumentHasExactlyTheDocumentedFieldsAndBlockedOnlyWhileBlocked_TS_12_9(t *testing.T) {
+	// The third job is held in the runner, so the fourth waits behind it, queued.
 	r := fakerunner.New(
 		fakerunner.Envelope(fakerunner.Env(toolio.StatusNeedsHuman, fakerunner.WithQuestion("Which?", "X", "Y", "Z"))),
 		fakerunner.Done(),
+		fakerunner.Block(fakerunner.Step{}),
 	)
-	e := newEnv(t, withRunner(r), withoutEnqueue())
+	e := newEnv(t, withRunner(r))
 	post := func(issue int) jobs.Doc {
 		resp := e.call("POST", "/api/v1/workspaces/widgets/fix", map[string]any{"issue": issue, "context": []string{"a private note"}})
 		return resp.Doc(t)
 	}
-	blocked, done, queued := post(1), post(2), post(3)
-	for _, id := range []string{blocked.ID, done.ID} {
-		if err := e.Svc.Enqueue(ctx, id, 1); err != nil {
-			t.Fatal(err)
-		}
-	}
+	blocked, done, _, queued := post(1), post(2), post(3), post(4)
 	e.Start()
 	e.waitState(blocked.ID, jobs.StateBlocked)
 	e.waitState(done.ID, jobs.StateDone)
+	waitCalls(t, r, 3)
+	if d := e.get(queued.ID); d.State != jobs.StateQueued {
+		t.Fatalf("the fourth job is %s, want it queued behind the third", d.State)
+	}
 
 	fields := []string{"artifacts", "attempt_count", "blocked", "created_at", "current_attempt", "finished_at", "hub", "id", "input", "issue",
 		"kind", "labels", "request_label", "result", "side_effects", "source", "started_at", "state", "usage", "workspace"}

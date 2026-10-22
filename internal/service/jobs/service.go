@@ -28,8 +28,9 @@ type Config struct {
 	Logger        *slog.Logger
 	// Clock is the clock of the layer; the system's when nil.
 	Clock Clock
-	// Enqueue puts an attempt in the queue once it is stored. A job whose attempt it
-	// could not queue stays queued, and the sweep queues it. The queue's own when nil.
+	// Enqueue puts an attempt in the queue when a job or an automatic attempt is made. A
+	// job whose attempt it could not queue stays queued, and the sweep, which uses the
+	// queue itself, queues it. The queue's own when nil; the tests replace it.
 	Enqueue func(ctx context.Context, jobID string, attempt int) error
 	// StoreFault is a seam for the tests, see Store.SetFault.
 	StoreFault func(op string) error
@@ -65,10 +66,21 @@ type Service struct {
 	gate          sync.RWMutex
 	unsubscribing map[string]int
 
+	// slots holds one token for each attempt that is in a runner. The queue has more
+	// workers than slots, so that an attempt that waits out a backoff, or waits for a
+	// slot, holds a worker of the queue and its workspace's place, and no slot.
+	slots chan struct{}
+
 	mu       sync.Mutex
 	inflight map[attemptKey]*attemptRun
 	started  bool
+	stopping chan struct{}
+	stopOnce sync.Once
+	loops    sync.WaitGroup
 }
+
+// parkedWorkers is how many more workers the queue has than there are slots.
+const parkedWorkers = 16
 
 // New builds the Service: it makes the tables of the queue in the state file, and
 // registers the handler of the attempts. Nothing runs until Start.
@@ -82,6 +94,8 @@ func New(cfg Config) (*Service, error) {
 		return nil, errors.New("jobs: no runner")
 	case cfg.AttemptsDir == "":
 		return nil, errors.New("jobs: no directory for the attempts")
+	case cfg.Workers < 1:
+		return nil, fmt.Errorf("jobs: %d workers, want at least 1", cfg.Workers)
 	}
 	dir, err := filepath.Abs(cfg.AttemptsDir)
 	if err != nil {
@@ -90,7 +104,7 @@ func New(cfg Config) (*Service, error) {
 	s := &Service{
 		subs: cfg.Subscriptions, log: cfg.Logger, clock: cfg.Clock, enqueue: cfg.Enqueue,
 		runner: cfg.Runner, attemptsDir: dir, unsubscribing: map[string]int{},
-		inflight: map[attemptKey]*attemptRun{},
+		inflight: map[attemptKey]*attemptRun{}, stopping: make(chan struct{}), slots: make(chan struct{}, cfg.Workers),
 	}
 	if s.log == nil {
 		s.log = slog.Default()
@@ -115,7 +129,7 @@ func New(cfg Config) (*Service, error) {
 	if delay <= 0 {
 		delay = time.Second
 	}
-	s.queue, err = jobqueue.New(cfg.DB, s.log, jobqueue.WithWorkers(cfg.Workers), jobqueue.WithPollInterval(poll), jobqueue.WithGracePeriod(queueGrace))
+	s.queue, err = jobqueue.New(cfg.DB, s.log, jobqueue.WithWorkers(cfg.Workers+parkedWorkers), jobqueue.WithPollInterval(poll), jobqueue.WithGracePeriod(queueGrace))
 	if err != nil {
 		return nil, err
 	}
@@ -131,13 +145,9 @@ func New(cfg Config) (*Service, error) {
 	return s, nil
 }
 
-// queueGrace is how long the queue waits for its handlers when it is stopped. The
-// layer waits for the runners itself, before it stops the queue.
-const queueGrace = 30 * time.Second
-
-// Start starts the queue: it makes the directory of the attempts, hands back to the
-// queue the items that were claimed when the process before this one ended, and starts
-// the workers.
+// Start starts the queue: it makes the directory of the attempts, hands over again the
+// items that were claimed when the process before this one ended, starts the workers,
+// and sweeps once and then every minute.
 func (s *Service) Start() error {
 	if err := makeDir(s.attemptsDir); err != nil {
 		return err
@@ -148,23 +158,13 @@ func (s *Service) Start() error {
 	s.mu.Lock()
 	s.started = true
 	s.mu.Unlock()
+	// The attempts that were queued when the process before this one ended are in the
+	// queue, but one that was stored and not queued is not: the sweep queues it.
+	s.sweep(context.Background())
+	ticker := s.clock.NewTicker(sweepEvery)
+	s.loops.Add(1)
+	go s.sweepLoop(ticker)
 	return nil
-}
-
-// Close stops the service: it stops claiming, cancels the attempts that are running
-// with the shutdown cause, and waits for the runners to return.
-func (s *Service) Close() error {
-	s.mu.Lock()
-	for _, run := range s.inflight {
-		run.cancel(ErrShutdown)
-	}
-	started := s.started
-	s.mu.Unlock()
-	if !started {
-		return nil // there are no workers to wait for
-	}
-	s.queue.Shutdown()
-	return s.queue.Wait()
 }
 
 // Get is the document of a job with its attempts.

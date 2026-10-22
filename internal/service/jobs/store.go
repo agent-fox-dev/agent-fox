@@ -476,7 +476,8 @@ func (s *Store) Claim(ctx context.Context, jobID string, attempt int) (Claimed, 
 	err := s.run(ctx, jobID, func(x *txn) error {
 		now := formatTime(s.now())
 		res, err := x.ExecContext(ctx,
-			`UPDATE af_attempts SET state = 'running', deliveries = deliveries + 1, started_at = COALESCE(started_at, ?)
+			`UPDATE af_attempts SET state = 'running', deliveries = deliveries + 1, started_at = COALESCE(started_at, ?),
+			   hub_session = NULL, hub_run = NULL, hub_sandbox = NULL
 			 WHERE job_id = ? AND n = ? AND state IN ('queued', 'running')`, now, jobID, attempt)
 		if err != nil {
 			return fmt.Errorf("attempt %d of %s: %w", attempt, jobID, err)
