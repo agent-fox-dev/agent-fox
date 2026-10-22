@@ -48,6 +48,7 @@ func (r *Runner) loopApp(a *attempt) *toolio.App {
 	app.Target = a.repo
 	app.EventSink = a.eventSink(r.cfg.Now)
 	app.LedgerSink = r.ledgerSink(a)
+	app.ReuseRunDir = a.resume != nil
 	app.Now, app.Rand = r.cfg.Now, r.cfg.Rand
 	return app
 }
@@ -65,8 +66,13 @@ func (r *Runner) loopConfig(a *attempt) *afcmd.Config {
 		}
 		questions = append(questions, &toolio.Question{Text: answer.Question, Options: options})
 	}
+	var resume *afcmd.Resume
+	if a.resume != nil {
+		resume = &afcmd.Resume{}
+	}
 	return &afcmd.Config{
 		Version: r.cfg.Version, Commit: r.cfg.Commit, BuildTime: r.cfg.BuildTime,
+		Resume: resume, Spent: outcomeOf(a.spent),
 		Forge:     r.cfg.Hub.ForgeFactory(a.pat, a.req.Workspace, a.repo),
 		Boxes:     a.boxes,
 		Brain:     brain.Options{Model: a.settings.Model, Getenv: nothing},

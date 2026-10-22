@@ -4,6 +4,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/fix"
+	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/project"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
@@ -120,7 +123,7 @@ func fixLoop(c *Config, r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 	a := &fixAttempt{c: c, r: r, o: o, entry: entry, boxEntry: boxEntry, opts: opts}
 	if c.InBox == nil {
 		// On the host: the checks of the repository run here, before the box is opened.
-		if err := a.prepare(measuring{gate: c.gate(), conform: c.conform()}); err != nil {
+		if err := a.begin(measuring{gate: c.gate(), conform: c.conform()}); err != nil {
 			return toolio.Outcome{}, err
 		}
 	}
@@ -132,7 +135,7 @@ func fixLoop(c *Config, r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 			// is where the checks of the repository run.
 			measurer := a.measurer(sess)
 			m = measuring{detect: measurer.Detect, gate: measurer.Gate, conform: measurer.RevertCheck}
-			if a.prepareErr = a.prepare(m); a.prepareErr != nil {
+			if a.prepareErr = a.begin(m); a.prepareErr != nil {
 				return nil
 			}
 		}
@@ -191,6 +194,41 @@ type fixAttempt struct {
 	prepareErr error
 }
 
+// begin is the start of the run: the preflight and the brief, or, for a run that is carried on, what
+// they left.
+func (a *fixAttempt) begin(m measuring) error {
+	if a.c.Resume != nil {
+		return a.resume()
+	}
+	return a.prepare(m)
+}
+
+// resume takes up a run that was begun: its pinned file says the base, the table and the baseline, and
+// its brief says the prefix that every round shares. The preflight and the brief are not made again.
+func (a *fixAttempt) resume() error {
+	r := a.r
+	state, err := fix.LoadState(r.RunDir.Path)
+	if err != nil {
+		return &toolio.Failure{Category: toolio.CategoryInternal, Message: fmt.Sprintf("the run %s cannot be carried on: %v", r.RunDir.ID, err)}
+	}
+	document, err := os.ReadFile(filepath.Join(r.RunDir.Path, "brief.md"))
+	if err != nil {
+		return &toolio.Failure{Category: toolio.CategoryInternal, Message: fmt.Sprintf("the run %s cannot be carried on: %v", r.RunDir.ID, err)}
+	}
+	prefix, _, err := fix.SplitBrief(string(document), state)
+	if err != nil {
+		return &toolio.Failure{Category: toolio.CategoryInternal, Message: fmt.Sprintf("the run %s cannot be carried on: %v", r.RunDir.ID, err)}
+	}
+	b, err := a.entry.New(a.opts)
+	if err != nil {
+		return err
+	}
+	a.pre = fix.Preflighted{Git: gitx.New(r.Dir, a.c.git()), Base: state.Base, BaseHead: state.BaseHead, Brain: b}
+	a.start = startedRun{state: state, prefix: fix.Prefix{Text: prefix}}
+	a.state = state
+	return nil
+}
+
 // prepare makes the checks that need no model and starts the run: the preflight, with the
 // detection and the baseline made by m, and the brief.
 func (a *fixAttempt) prepare(m measuring) error {
@@ -215,8 +253,9 @@ func (a *fixAttempt) prepare(m measuring) error {
 // loop runs the rounds in the session, measuring with m.
 func (a *fixAttempt) loop(sess *box.Session, m measuring) {
 	placement := brain.PlacementOf(a.entry, a.boxEntry, a.o.settings.BorrowedHands)
+	tally := a.c.seededTally(a.r, a.o.settings.Brain)
 	a.ended, a.loopErr = fix.RunLoop(a.r.Ctx, fix.LoopParams{
-		Dir: a.r.Dir, Git: a.pre.Git, Session: sess, Name: a.o.settings.Brain, Brain: a.pre.Brain, Tally: &brain.Tally{}, RunDir: a.r.RunDir, Report: a.r, Reporter: a.r,
+		Dir: a.r.Dir, Git: a.pre.Git, Session: sess, Name: a.o.settings.Brain, Brain: a.pre.Brain, Tally: tally, RunDir: a.r.RunDir, Report: a.r, Reporter: a.r,
 		State: &a.state, Prefix: a.start.prefix.Text, Attempts: int(a.o.attempts), Budget: a.o.settings.Budget, MaxTurns: a.o.settings.MaxTurns,
 		Gate: m.gate, Conform: m.conform, Earlier: a.c.suppliedEarlier(a.state.Context),
 		DriverInBox: placement == brain.PlacementBox && !a.entry.OwnHands, CommandOnly: a.entry.CommandRoute,

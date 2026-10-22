@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/internal/worker/recovery"
 )
 
 const (
@@ -33,21 +34,16 @@ const (
 // the infrastructure and a transient error, and the attempt has no envelope.
 func (r *Runner) clone(ctx context.Context, a *attempt) *outcome {
 	a.step("clone")
-	home, err := os.MkdirTemp("", "agent-fox-git-home-")
-	if err != nil {
-		return transientFailure(toolio.CategoryIO, fmt.Sprintf("a directory for git cannot be made: %v", err))
+	if a.resume != nil { // the clone of the attempt is the one that was kept
+		return r.resetClone(ctx, a)
 	}
-	a.scratch = append(a.scratch, home)
-	a.git = gitRunner(home, a.record.CloneURL, a.pat, r.gitWrap)
-
-	dir := filepath.Join(a.req.Dir, cloneDirName)
+	dir := a.cloneDir
 	if err := os.RemoveAll(dir); err != nil {
 		return transientFailure(toolio.CategoryIO, fmt.Sprintf("the clone of an earlier delivery cannot be removed: %v", err))
 	}
 	if err := os.Mkdir(dir, dirMode); err != nil {
 		return transientFailure(toolio.CategoryIO, fmt.Sprintf("the directory of the clone cannot be made: %v", err))
 	}
-	a.cloneDir = dir
 
 	timeout := r.cloneTimeout
 	if timeout <= 0 {
@@ -71,6 +67,20 @@ func (r *Runner) clone(ctx context.Context, a *attempt) *outcome {
 			return transientFailure(toolio.CategoryGit, fmt.Sprintf("the identity of the commits cannot be set in the clone: %s", gitDetail(a, out, err)))
 		}
 	}
+	a.note(stepClone, func(j *recovery.Journal) { j.CloneDir = cloneDirName })
+	return nil
+}
+
+// prepareGit makes the runner of every git command of the attempt, which holds the PAT in the environment
+// of the commands that reach hub, and names the clone.
+func (r *Runner) prepareGit(a *attempt) *outcome {
+	home, err := os.MkdirTemp("", "agent-fox-git-home-")
+	if err != nil {
+		return transientFailure(toolio.CategoryIO, fmt.Sprintf("a directory for git cannot be made: %v", err))
+	}
+	a.scratch = append(a.scratch, home)
+	a.git = gitRunner(home, a.record.CloneURL, a.pat, r.gitWrap)
+	a.cloneDir = filepath.Join(a.req.Dir, cloneDirName)
 	return nil
 }
 

@@ -773,13 +773,18 @@ func triageLoop(c *Config, r *toolio.Run, s *brain.Settings, land string, labelF
 	r.Emit("step", triageStep{stepBrief})
 	// A brain that submits with the command alone is told the command; every other brain
 	// submits through the tool, in this process or in the box that runs its driver.
-	rendered, err := renderBrief(c, r, report, facts, !entry.CommandRoute, triage.Bounds{MaxTurns: s.MaxTurns, MaxCostUSD: s.Budget, Timeout: timeLeft(r)})
+	var rendered renderedBrief
+	if c.Resume != nil {
+		rendered, err = pinnedBrief(r, report)
+	} else {
+		rendered, err = renderBrief(c, r, report, facts, !entry.CommandRoute, triage.Bounds{MaxTurns: s.MaxTurns, MaxCostUSD: s.Budget, Timeout: timeLeft(r)})
+	}
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
 
 	r.Emit("step", triageStep{stepBrain})
-	res, err := runInBox(c, r, s, entry, boxEntry, b, opts, rendered.brief)
+	res, err := runInBox(c, r, s, entry, boxEntry, b, opts, rendered.brief, c.seededTally(r, s.Brain))
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
@@ -801,6 +806,20 @@ func triageLoop(c *Config, r *toolio.Run, s *brain.Settings, land string, labelF
 		retry = triage.LandAgain(r.RunDir.ID, r.Dir, rendered.facts.Target.Repo)
 	}
 	return landRun(r, landing{run: r.RunDir, facts: rendered.facts, tree: tree, forge: r.Forge, mode: land, labels: labels, artifact: r.Artifact, retry: retry})
+}
+
+// pinnedBrief is the brief of a run that is carried on: the one that was rendered, as triage.json says
+// where its prefix ends, with the facts the run pinned.
+func pinnedBrief(r *toolio.Run, report triage.Report) (renderedBrief, error) {
+	facts, err := readFacts(r.RunDir)
+	if err != nil {
+		return renderedBrief{}, err
+	}
+	document, err := os.ReadFile(filepath.Join(r.RunDir.Path, "brief.md"))
+	if err != nil || facts.Prefix.Bytes <= 0 || facts.Prefix.Bytes > len(document) {
+		return renderedBrief{}, &toolio.Failure{Category: toolio.CategoryInternal, Message: fmt.Sprintf("the run %s cannot be carried on: its brief does not go with triage.json", r.RunDir.ID)}
+	}
+	return renderedBrief{brief: triage.Brief{Document: string(document), PrefixBytes: facts.Prefix.Bytes}, report: report, facts: facts}, nil
 }
 
 // loopPreflight is every refusal that needs no model, in the order flags, input,
@@ -855,7 +874,7 @@ func (l loopReport) Artifact(a toolio.Artifact) {
 // provider, borrowed hands and those tools come to (brain.BoxRequest). The
 // submission and the refused calls of the box are in the run directory when it
 // returns, whether the run came to a submission or not.
-func runInBox(c *Config, r *toolio.Run, s *brain.Settings, entry brain.Entry, boxEntry box.Entry, b brain.Brain, opts brain.Options, brief triage.Brief) (brain.Result, error) {
+func runInBox(c *Config, r *toolio.Run, s *brain.Settings, entry brain.Entry, boxEntry box.Entry, b brain.Brain, opts brain.Options, brief triage.Brief, tally *brain.Tally) (brain.Result, error) {
 	var res brain.Result
 	deadline, _ := r.Ctx.Deadline()
 	err := box.With(r.Ctx, brain.BoxRequest(brain.BoxParams{
@@ -870,7 +889,7 @@ func runInBox(c *Config, r *toolio.Run, s *brain.Settings, entry brain.Entry, bo
 		prefix, task := brief.Document[:brief.PrefixBytes], brief.Document[brief.PrefixBytes:]
 		var err error
 		res, err = brain.Execute(r.Ctx, brain.Request{
-			Session: sess, Name: s.Brain, Brain: b, RunDir: r.RunDir, Report: loopReport{r}, Tally: &brain.Tally{},
+			Session: sess, Name: s.Brain, Brain: b, RunDir: r.RunDir, Report: loopReport{r}, Tally: tally,
 			Brief: brain.Brief{
 				RunID: r.RunDir.ID, Attempt: 1, Kind: triage.Kind(r.Dir, sess.Spec().Workdir), Prefix: prefix, Task: task,
 				Tools: triage.BoxTools(offered), Hook: brain.HookConfig{RunID: r.RunDir.ID},

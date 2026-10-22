@@ -21,6 +21,7 @@ import (
 const (
 	stepBegin        = "begin"
 	stepSession      = "session"
+	stepClone        = "clone"
 	stepRun          = "run"
 	stepLease        = "lease"
 	stepRelease      = "release"
@@ -49,31 +50,6 @@ type journalHandle struct {
 	mu     sync.Mutex
 	j      recovery.Journal
 	warned bool
-}
-
-// begin makes the journal of the delivery, once the settings are known and before anything is spent. A
-// later delivery carries on the journal that is there when it is the one of this attempt; any other
-// journal is replaced.
-func (r *Runner) begin(_ context.Context, a *attempt) *outcome {
-	h := &journalHandle{store: recovery.NewStore(a.req.Dir), fault: r.journalFault}
-	a.journal = h
-	j := recovery.Journal{
-		Version: recovery.FormatVersion, Job: a.req.JobID, Attempt: a.req.Attempt, Kind: string(a.req.Kind),
-		CloneDir: cloneDirName, HubURL: stripUserinfo(a.record.CloneURL), Forge: a.repo.String(),
-		Settings: recovery.Settings{
-			Brain: a.settings.Brain, Model: a.settings.Model, Profile: a.settings.Profile, Land: a.settings.Land,
-			Budget: a.settings.Budget, MaxTurns: a.settings.MaxTurns,
-		},
-	}
-	if a.req.Delivery > 1 {
-		if old, err := h.store.Load(); err == nil && old.Job == j.Job && old.Attempt == j.Attempt && old.Kind == j.Kind {
-			j = old
-		}
-	}
-	j.Deliveries = append(j.Deliveries, recovery.Delivery{Count: max(a.req.Delivery, 1), Started: a.clock()})
-	h.j = j
-	a.note(stepBegin, func(*recovery.Journal) {})
-	return nil
 }
 
 // update changes the journal in memory and then writes it. The change is kept when the write fails.

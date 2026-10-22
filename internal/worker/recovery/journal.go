@@ -45,8 +45,10 @@ type Journal struct {
 	Leases []Lease `json:"leases"`
 	// Deliveries are the times the attempt was handed to the worker, in order.
 	Deliveries []Delivery `json:"deliveries"`
-	// Spend is what the brain runs of the attempt cost so far.
-	Spend Spend `json:"spend"`
+	// Spend is what the brain runs of the attempt cost so far, and Carried the part of it that was spent
+	// in run directories that a discarded resume removed.
+	Spend   Spend `json:"spend"`
+	Carried Spend `json:"carried_spend"`
 	// Landing is the plan of the landing and the steps of it that are done; Mirror and Report are the
 	// steps of the bookkeeping that are done.
 	Landing Landing `json:"landing"`

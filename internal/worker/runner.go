@@ -140,7 +140,7 @@ func (r *Runner) stages() []stage {
 	if r.loop != nil {
 		run = r.loop
 	}
-	return []stage{{"resolve", r.resolve}, {"journal", r.begin}, {"session", r.openSession}, {"mark", r.mark}, {"clone", r.clone}, {"lease", r.lease}, {"run", run}}
+	return []stage{{"resolve", r.resolve}, {"start", r.start}, {"session", r.openSession}, {"mark", r.mark}, {"clone", r.clone}, {"lease", r.lease}, {"run", run}}
 }
 
 // Run carries out the attempt: resolve, the session, the mark, the clone, the lease and the loop,

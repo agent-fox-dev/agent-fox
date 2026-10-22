@@ -73,6 +73,30 @@ type Config struct {
 	BoxLabels map[string]string
 	// Landing, when it is set, is told how the landing of a fix comes on.
 	Landing *Landing
+	// Resume, when it is set, makes fix and triage carry on a run whose directory exists, instead of
+	// beginning one: nothing of the preflight or of the brief is made again, the pinned file of the run
+	// says what they found, and the brain runs again from the base. The shell is told the directory by its
+	// RunID and ReuseRunDir.
+	Resume *Resume
+	// Spent is what the brain runs of the attempt cost before this invocation, for a caller that carries an
+	// attempt on: the tally of the invocation starts from it, so that the usage the envelope reports is
+	// the attempt's.
+	Spent brain.Outcome
+}
+
+// Resume says that the run of the command is carried on.
+type Resume struct{}
+
+// seededTally is the tally of an invocation: it starts from what the attempt had spent, which the run
+// then reports as its usage, whether a brain runs again or not.
+func (c *Config) seededTally(r *toolio.Run, brainName string) *brain.Tally {
+	t := &brain.Tally{}
+	if c.Spent == (brain.Outcome{}) {
+		return t
+	}
+	t.Add(c.Spent)
+	r.SetUsage(t.Usage(brainName))
+	return t
 }
 
 // Landing is told how the landing of a fix comes on, so that a caller can keep which steps are done.

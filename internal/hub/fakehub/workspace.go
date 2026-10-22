@@ -311,3 +311,13 @@ func number(seg string) int {
 
 // stamp is a time as hub writes it.
 func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339) }
+
+// UpdateWorkspace changes the workspace as hub holds it: its variables, its mode, its base branch or its
+// forge repository, as a person would between two deliveries of an attempt.
+func (h *Hub) UpdateWorkspace(slug string, change func(*Workspace)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if ws := h.workspaces[slug]; ws != nil {
+		change(&ws.Workspace)
+	}
+}

@@ -19,6 +19,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/internal/worker/recovery"
 )
 
 // attempt is one attempt as its steps share it: what resolve found out, and what the steps that
@@ -90,6 +91,12 @@ type attempt struct {
 	// the delivery at, see stageAbort.
 	journal *journalHandle
 	aborted string
+	// resume is what the delivery carries on from, nil for one that begins the attempt afresh. pinned
+	// are the settings the run was started with, and spent what the brain runs of the attempt cost
+	// before this delivery.
+	resume *resumeState
+	pinned recovery.Settings
+	spent  recovery.Spend
 }
 
 // onClose registers what the attempt gives back when it ends.
@@ -271,9 +278,17 @@ func (r *Runner) forgeOutcome(ctx context.Context, a *attempt, input loopInput, 
 // run at once. A session that hub does not open has cost nothing, and nothing has been written.
 func (r *Runner) openSession(ctx context.Context, a *attempt) *outcome {
 	a.step("session")
-	runID, err := toolio.NewRunID(r.cfg.Now, r.cfg.Rand)
-	if err != nil {
-		return &outcome{err: err}
+	if a.sessionID != "" { // the session of an earlier delivery is the session of the attempt
+		a.report.Hub(a.sessionID, a.runID, "")
+		a.noteSession()
+		return nil
+	}
+	runID := a.runID // the run id of a session that was completed, which the run goes on under
+	if runID == "" {
+		var err error
+		if runID, err = toolio.NewRunID(r.cfg.Now, r.cfg.Rand); err != nil {
+			return &outcome{err: err}
+		}
 	}
 	id, err := r.cfg.Hub.OpenSession(ctx, a.pat, hub.SessionRequest{
 		WorkspaceSlug: a.req.Workspace, Archetype: string(a.req.Kind), Model: a.settings.Model, RunID: runID,

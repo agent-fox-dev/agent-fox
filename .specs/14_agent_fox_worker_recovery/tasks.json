@@ -167,7 +167,7 @@
       "done_when": [
         "a changed base branch, landing mode, model or budget on hub does not change a resumed run"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 4,

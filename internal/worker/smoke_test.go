@@ -313,8 +313,9 @@ func TestALeaseRefusedWith503ComesBackAsATransientErrorAndIsRetried_TS_13_87(t *
 	if err != nil || envelope(t, res)["status"] != "done" {
 		t.Fatalf("the second delivery: %s, %v, want a done envelope", res.Envelope, err)
 	}
-	if got := len(e.hub.Sessions()); got != 2 {
-		t.Errorf("%d sessions, want one for each delivery", got)
+	// The second delivery reports to the session of the first, which was left open (14-REQ-2.5).
+	if sessions := e.hub.Sessions(); len(sessions) != 1 || sessions[0].Status != "completed" || len(sessions[0].Usage) != 1 {
+		t.Errorf("sessions = %+v, want the one session of the attempt, completed, with its one usage record", sessions)
 	}
 	if issue := e.issueNow(); !slices.Equal(issue.Labels, []string{"af:landed"}) {
 		t.Errorf("after the second delivery issue 42 has the labels %v, want landed", issue.Labels)

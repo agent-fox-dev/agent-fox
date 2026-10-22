@@ -42,7 +42,7 @@ transient error.
 of spec 13 that asserted the report of a transient error now assert the new rule instead:
 `TestAfterTheReleaseOneUsageRecordTheEventsInBatchesAndTheCompletionAreReported_TS_13_76` (a transient error),
 `TestAFailingUsageEventsOrCompleteCallAddsAWarningAndNothingElseChanges_TS_13_77` (a transient error),
-`TestALeaseRefusedWith503ComesBackAsATransientErrorAndIsRetried_TS_13_87`, and the two tests that list the entries
+`TestALeaseRefusedWith503ComesBackAsATransientErrorAndIsRetried_TS_13_87` (which also expects the second delivery to report to the session of the first), and the two tests that list the entries
 of the attempt directory, which now holds `recovery/`
 (`TestTheWorkerCreatesOnlyCloneAndInputWithMode0700AndLeavesTheRestAlone_TS_13_33` and
 `TestNeitherThePATNorTheLeaseTokenIsInAnyOutputOrFileAfterAFullFixAttempt_TS_13_79`). Nothing was skipped or
@@ -79,3 +79,28 @@ after a stage inside the loop, need more than those files:
   `cleanup` stays in `runner.go` and removes `input/` and `clone/` as before.
 
 Deviation key: `task_2_seams_outside_its_touches`.
+
+## 6. A disagreement the rules do not cover is mirrored as a failed attempt (task 3)
+
+**Spec:** 14-REQ-2.7 and TS-14-16: the attempt ends with a failed envelope of category `internal`, "no push,
+pull request or comment is made", "cleanup is as for any failed attempt".
+
+**Code:** `disagrees` in `internal/worker/start.go` ends the attempt with that envelope before the clone, the
+lease or the loop, and publishes nothing: no push, no pull request, no branch push route
+(`TestADisagreementTheResumeRulesDoNotCoverEndsTheAttemptFailedWithCategoryInternal_TS_14_16`). The worker's
+cleanup of any failed attempt is the mirror of spec 13 (R8): the issue gets the label `failed` and the one
+comment that a failure has, and the lease is released and the clone removed. That comment is not a landing, and
+it is how the person learns that the attempt ended; "no comment" is read as no comment of a landing. Deviation key:
+`catch_all_is_mirrored_as_a_failure`.
+
+## 7. Until the later tasks, a resumed delivery runs the brain again (task 3)
+
+**Spec:** R2 and R3: a resumed delivery skips the brain when a submission was accepted and applied (task 4),
+finishes a landing from its plan (tasks 6 and 7), and returns a stored outcome (task 8).
+
+**Code:** task 3 makes the decision whether a delivery begins afresh, resumes or discards, and what a resume keeps
+(the settings, the session, the leases, the spend). What a resumed delivery does is, until the tasks that follow
+land, the one rule that needs none of them: it puts the clone back to the base the run began at
+(`resetClone`, `internal/worker/restore.go`) and runs the loop again in the same run directory with what is left
+of the budget (`afcmd.Config.Resume`, `fixAttempt.resume`). Tasks 4 to 8 replace that with the stages of R4 to R6,
+and the key below ends with task 8. Deviation key: `resume_runs_the_brain_until_task_8`.
