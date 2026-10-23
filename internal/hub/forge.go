@@ -23,10 +23,10 @@ func (r Record) Repo() (issuex.Repo, bool) { return issuex.ParseRemote(r.ForgeUR
 // subscription and no forge token of its own. The loops of af call it as they call a forge
 // directly, and the errors it returns are the types they already tell apart.
 //
-// It supports what triage and fix need: Authenticated, GetRepository, ReadIssue, ListComments,
-// UpdateIssue, CreateIssue, AddComment, AddLabels, RemoveLabel and CreatePullRequest. Every
-// other method sends nothing and says that the operation is not available through hub in this
-// release.
+// It supports what triage, fix and the label poll need: Authenticated, GetRepository, ReadIssue,
+// ListComments, ListIssues (the open issues of one label), UpdateIssue, CreateIssue, AddComment,
+// AddLabels, RemoveLabel and CreatePullRequest. Every other method sends nothing and says that the
+// operation is not available through hub in this release.
 type ForgeClient struct {
 	hub  *Client
 	pat  string
@@ -291,11 +291,94 @@ func (f *ForgeClient) forgeError(err error) error {
 	return err
 }
 
-// The operations that hub's forge API does not carry here.
+// listPage is the size of the pages that ListIssues asks hub for, and the most that hub's list answers with
+// whatever is asked.
+const listPage = 100
 
-func (f *ForgeClient) ListIssues(context.Context, issuex.Repo, issuex.IssueFilter) (issuex.IssueList, error) {
-	return issuex.IssueList{}, notAvailable("ListIssues")
+// maxListBody is the longest answer that a list of issues is read as. A hundred issues with bodies of the forge's longest are
+// far more than the 1 MiB of the other calls, and a list that was refused for its size would stay as long as it is, since the
+// labels on its issues are only taken off when the issues are listed.
+const maxListBody = 32 << 20
+
+// ListIssues lists the open issues that carry one label: GET …/issues?state=open&labels=<label>&limit=100, with
+// pages after the first asked for with &page=N for as long as hub's answer has a Link header that names a next
+// one. It holds at most filter.Limit issues (100 when it is 0) and leaves out what hub marks as a pull or merge
+// request, in the order hub gives them. Any other filter than the open issues of exactly one label sends nothing and
+// is not available through hub.
+//
+// The list is incomplete when the client stopped at the limit with issues left to read. Hub's own list answers a
+// bare array and says nothing of a further page, so that a last page as long as the page asked for may have been
+// cut by hub, which cannot say so; it is taken as incomplete too, because what is read from a list that is not
+// complete must not be taken for all of it.
+func (f *ForgeClient) ListIssues(ctx context.Context, repo issuex.Repo, filter issuex.IssueFilter) (issuex.IssueList, error) {
+	if err := checkRepo(f.repo, repo); err != nil {
+		return issuex.IssueList{}, err
+	}
+	if filter.State != "open" || len(filter.Labels) != 1 || filter.Labels[0] == "" ||
+		filter.Assignee != "" || filter.Sort != "" || filter.Direction != "" {
+		return issuex.IssueList{}, notAvailable("ListIssues with this filter")
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = listPage
+	}
+	issues := []issuex.Issue{}
+	for page := 1; ; page++ {
+		items, more, err := f.listPage(ctx, filter.Labels[0], page)
+		if err != nil {
+			return issuex.IssueList{}, err
+		}
+		for _, item := range items {
+			if item.IsPR {
+				continue
+			}
+			if len(issues) == limit {
+				return issuex.IssueList{Issues: issues, Incomplete: true}, nil
+			}
+			issues = append(issues, item)
+		}
+		switch {
+		case more && len(issues) >= limit:
+			return issuex.IssueList{Issues: issues, Incomplete: true}, nil
+		case !more:
+			return issuex.IssueList{Issues: issues, Incomplete: len(items) >= listPage}, nil
+		}
+	}
 }
+
+// listPage reads one page of the open issues that carry the label, and says whether hub names a next page.
+func (f *ForgeClient) listPage(ctx context.Context, label string, page int) (items []issuex.Issue, more bool, err error) {
+	query := "?state=open&labels=" + url.QueryEscape(label) + "&limit=" + strconv.Itoa(listPage)
+	if page > 1 {
+		query += "&page=" + strconv.Itoa(page)
+	}
+	var header http.Header
+	err = f.hub.send(ctx, f.pat, operation{
+		name: "list the issues", slug: f.slug, method: http.MethodGet, path: workspacePath(f.slug, "/issues") + query,
+		into: &items, header: &header, maxBody: maxListBody,
+	})
+	if err != nil {
+		return nil, false, f.forgeError(err)
+	}
+	if items == nil { // null: hub sends a bare array, empty as []
+		return nil, false, &UnavailableError{Status: http.StatusOK, Err: errors.New("the answer is not a list of issues")}
+	}
+	return items, nextPage(header), nil
+}
+
+// nextPage says whether the headers of an answer name a next page.
+func nextPage(header http.Header) bool {
+	for _, link := range header.Values("Link") {
+		for _, part := range strings.Split(link, ",") {
+			if _, params, ok := strings.Cut(part, ";"); ok && strings.Contains(strings.ReplaceAll(params, " ", ""), `rel="next"`) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// The operations that hub's forge API does not carry here.
 
 func (f *ForgeClient) CloseIssue(context.Context, issuex.IssueRef, string) error {
 	return notAvailable("CloseIssue")

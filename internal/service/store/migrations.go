@@ -102,4 +102,29 @@ var migrations = []string{
 		data    TEXT    NOT NULL,
 		PRIMARY KEY (job_id, seq)
 	) WITHOUT ROWID`,
+
+	// 5: the records of the label poll. A record is a label that the poll took or absorbed for an issue of a
+	// workspace: whether its removal from the issue is still owed, the job the poll made for it (none for a label
+	// that was absorbed), what the poll has seen of that job (open, ended, or holding the label that a cancel put
+	// back) and, for a hold, when its release clock started. There is no foreign key to af_jobs on purpose: a hold
+	// or an owed removal concerns a label on the forge, which outlives the job, so the retention purge of the job
+	// must neither fail on the record nor take it along.
+	`CREATE TABLE af_poll_requests (
+		id            INTEGER PRIMARY KEY,
+		workspace     TEXT    NOT NULL,
+		issue         INTEGER NOT NULL,
+		label         TEXT    NOT NULL,
+		job_id        TEXT,
+		owed          INTEGER NOT NULL DEFAULT 0 CHECK (owed IN (0, 1)),
+		seen          TEXT    NOT NULL DEFAULT 'open' CHECK (seen IN ('open', 'ended', 'holding')),
+		release_clock TEXT,
+		created_at    TEXT    NOT NULL
+	);
+	CREATE INDEX af_poll_requests_by_issue ON af_poll_requests (workspace, issue, label)`,
+
+	// 6: whether the runner of an attempt was called. A claim sets an attempt running a moment before its runner is called, and a
+	// job that is cancelled in that moment never reaches a runner, so nothing puts its request label back: the label poll must
+	// tell it from a job that was cancelled while its runner held the attempt. A claim clears the mark, and the call of the runner
+	// sets it.
+	`ALTER TABLE af_attempts ADD COLUMN in_runner INTEGER NOT NULL DEFAULT 0`,
 }

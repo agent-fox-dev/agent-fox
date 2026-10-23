@@ -268,7 +268,6 @@ func TestUnlistedMethodsSendNothingAndSayTheyAreNotAvailable_TS_13_25(t *testing
 	e := newForgeEnv(t)
 	ref := e.ref(42)
 	before := e.hub.Total()
-	_, errList := e.forge.ListIssues(ctx, e.repo, issuex.IssueFilter{})
 	errLabel := e.forge.CreateLabel(ctx, e.repo, issuex.Label{Name: "x"})
 	errClose := e.forge.CloseIssue(ctx, ref, "bye")
 	_, errPull := e.forge.ReadPullRequest(ctx, ref)
@@ -280,7 +279,7 @@ func TestUnlistedMethodsSendNothingAndSayTheyAreNotAvailable_TS_13_25(t *testing
 	_, errMerge := e.forge.MergePullRequest(ctx, ref, issuex.MergeOptions{})
 	errClosePR := e.forge.ClosePullRequest(ctx, ref)
 	for name, err := range map[string]error{
-		"ListIssues": errList, "CreateLabel": errLabel, "CloseIssue": errClose, "ReadPullRequest": errPull, "ReadChangedFiles": errFiles,
+		"CreateLabel": errLabel, "CloseIssue": errClose, "ReadPullRequest": errPull, "ReadChangedFiles": errFiles,
 		"GetPRState": errState, "GetCIChecks": errChecks, "GetPRReviews": errReviews, "PostReviewComment": errReview,
 		"MergePullRequest": errMerge, "ClosePullRequest": errClosePR,
 	} {

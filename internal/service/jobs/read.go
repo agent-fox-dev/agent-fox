@@ -47,3 +47,45 @@ func (s *Service) attemptFile(ctx context.Context, id string, n int, flag, name 
 	}
 	return data, nil
 }
+
+// Standing is what a trigger that makes jobs needs to know of one of them afterwards: how it stands, and whether it
+// can have put its request label back.
+type Standing struct {
+	State State
+	// Source and RequestLabel are the job's own; RequestLabel is empty for a job that consumed none.
+	Source       Source
+	RequestLabel string
+	// CancelledInRunner says that the job was cancelled while one of its attempts was in a runner (an unsubscribe
+	// included), which is when the cancel cleanup of the worker writes the request label back to the issue. It is read
+	// from the attempts, so it holds after the runner has returned and after its grace has run out.
+	CancelledInRunner bool
+	// RunnerInProgress says that a runner of the job has not returned yet, though its attempt may have been recorded
+	// cancelled when it overran its grace.
+	RunnerInProgress bool
+}
+
+// Standing is the standing of a job: its state, source and request label, whether its cancel reached an attempt in a
+// runner, and whether a runner of it is still in progress. A job that is not there, because retention purged it, is
+// ErrNotFound.
+//
+// An attempt that was in a runner when the job was cancelled is marked as one whose runner was called, and is running still, or
+// ended cancelled with an envelope; an attempt that was only queued, or that was claimed and cancelled before its runner was
+// called, is not. That is how the cancel of a running attempt is told from the cancel of a job that waited, whatever became
+// of the runner since.
+func (s *Service) Standing(ctx context.Context, id string) (Standing, error) {
+	var st Standing
+	var label sql.NullString
+	err := s.store.db.QueryRowContext(ctx,
+		`SELECT state, source_kind, source_by, request_label,
+		        state = 'cancelled' AND EXISTS (SELECT 1 FROM af_attempts a WHERE a.job_id = j.id AND a.in_runner = 1 AND (a.state = 'running' OR (a.state = 'cancelled' AND a.has_envelope = 1)))
+		 FROM af_jobs j WHERE j.id = ?`, id).Scan(&st.State, &st.Source.Kind, &st.Source.By, &label, &st.CancelledInRunner)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Standing{}, ErrNotFound
+	}
+	if err != nil {
+		return Standing{}, fmt.Errorf("job %s: %w", id, err)
+	}
+	st.RequestLabel = label.String
+	st.RunnerInProgress = s.runnerInProgress(id)
+	return st, nil
+}

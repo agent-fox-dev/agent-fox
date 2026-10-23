@@ -59,7 +59,7 @@
       "done_when": [
         "ListIssues is absent from the hub forge client's unavailable-method list and its test"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -87,7 +87,7 @@
       "done_when": [
         "the new migration is the last entry of the migration list"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -122,7 +122,7 @@
       "done_when": [
         "`go test -race ./internal/service/jobs/...` passes"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -168,7 +168,7 @@
       "done_when": [
         "the fake hub records vars, workspace, issues(triage), issues(fix) in that order for an enabled cycle"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -213,7 +213,7 @@
         "no workspace ever has more than one loop",
         "at most 4 cycles are ever in flight"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -269,7 +269,7 @@
       "done_when": [
         "`go test -race ./internal/service/poll/...` passes"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -321,7 +321,7 @@
       "done_when": [
         "a failed removal never turns into a second job after the first job ended"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -366,7 +366,7 @@
       "done_when": [
         "after a hold is released, adding the label again makes exactly one new job"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -408,7 +408,7 @@
       "done_when": [
         "three cycles of the same 403 produce exactly one ERROR record"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -449,7 +449,7 @@
       "done_when": [
         "`make check` exits 0 with no network"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -481,7 +481,7 @@
         "`make check` passes offline",
         "all four smoke tests pass under go test -race"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     }
   ]

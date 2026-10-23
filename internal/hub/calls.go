@@ -93,6 +93,10 @@ type operation struct {
 	into any
 	// missingIsDone makes a 404 a success.
 	missingIsDone bool
+	// header, when it is set, receives the headers of the answer.
+	header *http.Header
+	// maxBody, when it is set, is the longest answer that is read, in place of the usual 1 MiB.
+	maxBody int
 }
 
 // send makes the call with the PAT and classifies the answer.
@@ -126,6 +130,9 @@ func (c *Client) send(ctx context.Context, pat string, op operation) error {
 		return &UnavailableError{Err: cause(err)}
 	}
 	defer resp.Body.Close()
+	if op.header != nil {
+		*op.header = resp.Header.Clone()
+	}
 	return c.classify(resp, pat, op)
 }
 
@@ -134,12 +141,16 @@ func (c *Client) classify(resp *http.Response, pat string, op operation) error {
 	status := resp.StatusCode
 	switch {
 	case status >= 200 && status < 300:
-		data, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
+		limit := maxBody
+		if op.maxBody > 0 {
+			limit = op.maxBody
+		}
+		data, err := io.ReadAll(io.LimitReader(resp.Body, int64(limit)+1))
 		switch {
 		case err != nil:
 			return &UnavailableError{Status: status, Err: cause(err)}
-		case len(data) > maxBody:
-			return &UnavailableError{Status: status, Err: errors.New("the answer is longer than 1 MiB")}
+		case len(data) > limit:
+			return &UnavailableError{Status: status, Err: fmt.Errorf("the answer is longer than %d MiB", limit>>20)}
 		case op.into == nil:
 			return nil
 		}

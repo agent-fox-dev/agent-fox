@@ -950,7 +950,12 @@ worker, the poll, the `af` client) build on:
   writes through hub's forge API under `/api/v1/workspaces/{slug}`: `GetRepository` is the record of the
   workspace; `ReadIssue` (the issue with its comments, marked a pull or merge request when hub says it is
   one), `ListComments`, `UpdateIssue`, `CreateIssue`, `AddComment`, `AddLabels`, `RemoveLabel` and
-  `CreatePullRequest` are one request each. A repository other than the workspace's (host, owner and name,
+  `CreatePullRequest` are one request each. `ListIssues` lists the open issues of exactly one label, which is
+  all the label poll asks (`state=open&labels=<label>&limit=100`; any other filter sends nothing and is not
+  available through hub): it follows a next page that hub names in a `Link` header, holds at most the
+  filter's `Limit`, leaves out what hub marks as a pull or merge request, and is `Incomplete` when it stopped
+  at the limit with issues left, or when the last page is as long as the page asked for, because hub's own
+  list is a bare array that cannot say it cut a list short. A repository other than the workspace's (host, owner and name,
   without case; an empty host is the workspace's) is refused before a request is sent, and every other
   method of `issuex.Client` says the operation is not available through hub in this release. Hub's answers
   become the errors that the loops already tell apart: 401 and 403 an `*issuex.HTTPError` of that status
@@ -1260,6 +1265,64 @@ worker never removes, and the clone, which it keeps after a transient error and 
   `usage_posted`, `events_posted`, `session_completed`, `box_synced`; `applied#2` is the second time) without cleanup,
   as a process that died is stopped. A graceful shutdown goes through the real jobs layer, restarted on the same database
   file.
+
+### The label poll, as built
+
+The poll is the trigger that needs no client (`internal/service/poll`). It runs inside `agent-fox`, after the jobs layer
+and before it stops: `serve` starts it once the jobs layer runs and defers its stop after the jobs layer's, so that the stop
+runs first, with no cycle left in flight, before the queue is closed and before the state file is.
+
+- **Loops.** A `Supervisor` reads the store's subscriptions when it starts and every 60 seconds, and keeps
+  one loop for each subscribed workspace: a new subscription gets a loop, and a subscription that is gone loses its loop and the cycle it has in
+  flight. A loop waits a random 0 to 30 seconds, makes its first cycle, and makes each later cycle one interval after the
+  previous one ended. At most four cycles run at once across the workspaces (a due cycle waits for a slot), and a cycle that has
+  run for 5 minutes is cancelled, keeping what it has done, and followed after the interval the workspace last read. The clock,
+  the first-cycle delay, the scan period and the release delay are injectable; no setting is configurable but the interval
+  (`AF_POLL_INTERVAL`, see [configuration.md](configuration.md#the-label-poll)).
+- **A cycle.** It first brings the poll's records for the workspace up to date with their jobs, which asks nothing of hub; then it
+  reads the label prefix and the token from the store and the resolved variables from hub. If the poll is off it ends there.
+  Otherwise it reads the workspace record, for the forge repository, and lists the open issues of `<prefix>triage` and then of
+  `<prefix>fix` through the hub forge client's `ListIssues`, at most 100 of each, takes each listing's issues in ascending number
+  whatever order hub returned them in, and applies the rules to each. Pull requests, closed issues and issues without a request
+  label never reach the rules.
+- **The rules,** in order, for an issue N listed under label L of kind K: the jobs layer has an open job of kind K for N, which
+  absorbs L (removed, no job, an `INFO` record); a hold on L for N is in place (nothing is done); the removal of L from N is owed
+  (removed, no job); otherwise a new request, for which the poll makes the job through `jobs.Service.Create`, writes its record,
+  and removes L. A refusal of the jobs layer for a duplicate is handled as an absorbed label (two creators that race yield one
+  job, because the unique index of the open jobs makes the check atomic with the insert), one for a workspace that is not
+  subscribed ends the cycle with no label written, and any other ends it with a `WARN` and the label left.
+- **Owed removals.** The poll writes a record for each job it makes before it removes the label, and for each absorbed label
+  whose removal fails. A removal that fails leaves the removal *owed*: it is retried whenever the issue is listed under the label,
+  confirmed by a removal that succeeds or that hub answers with not found, and settled by a complete listing of the label that does
+  not contain the issue, so a label whose removal failed is never taken a second time once the first job has ended.
+- **Holds and the release delay.** The `Standing` read of the jobs layer (`Service.Standing`) gives a job by id: its state, source and request label, whether its
+  cancel reached an attempt that was in a runner, and whether a runner of it is still in progress; it is `ErrNotFound` for a job
+  that retention purged. A job the poll made holds its label from the moment its cancel reached a runner, because the worker's
+  cancel cleanup writes the label back before the runner returns, whatever the runner reports and even if it overruns the cancel
+  grace; so does a job that was purged before the poll saw it end, from the time the poll found it gone. The release clock of a
+  hold starts when the poll first sees no runner of the job in progress. A hold is released only by a complete listing that does
+  not contain the issue and was requested, by the poll's clock, at least the **release delay** (5 minutes) after the release
+  clock started: the forge's list may not yet show a label that was just put back, and the runner may still be writing it.
+- **Records that outlive their jobs.** The poll's records are the rows of `af_poll_requests` (migration 5): the workspace, the
+  issue, the label, the job (none for an absorbed label), whether the removal is owed, what the poll has seen of the job (open,
+  ended, holding) and the release clock. There is no foreign key to `af_jobs`, so a record survives a restart and the retention
+  purge of its job, which needs no step for the poll. A record is dropped once nothing is owed and nothing holds.
+- **Incomplete listings.** A listing is complete when `ListIssues` did not stop at its limit. Hub's own list is a bare array that
+  cannot say it cut a list short, so a last page as long as the page asked for is incomplete as well (erratum 15). An incomplete
+  listing logs a `WARN` that names the workspace and the label, once until the label lists complete, releases no hold and settles
+  no owed removal; the issues past its last page wait for a later cycle. Consumed labels leave the filter, so a backlog drains over
+  successive cycles; only held labels and owed removals stay in it.
+- **Failures.** Hub being unavailable ends the cycle with a `WARN`, and the next one runs an interval later. A refused or forbidden
+  token, or a workspace that hub does not find, ends it with an `ERROR` that names the operation and, for the token, the `PUT`
+  route that replaces it; another 4xx on a read ends it with an `ERROR` that carries hub's message; one on a label removal leaves
+  it owed and goes on with the next issue. A failure is logged when it first occurs, not again while it repeats, and one `INFO`
+  record says that the poll has recovered when a cycle completes without a failure. A failure of one workspace never stops or delays
+  another's loop beyond the four slots, and no record holds a PAT.
+- **The cost of a cycle.** On hub, an enabled cycle makes four requests of hub that read (the variables, the workspace record and one list of each
+  request label, each of at most 100 issues), and one removal for each label it takes, absorbs or takes again; a cycle of a workspace
+  that is off makes one read of the variables, every 5 minutes. The two lists and the removals are the calls that reach the forge, so
+  the poll spends the workspace's forge rate limit, and `AF_POLL_INTERVAL` (at least a minute) is how to control it. The poll runs no
+  model and its jobs spend as any other job does.
 
 ## What moves where
 

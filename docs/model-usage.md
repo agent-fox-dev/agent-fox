@@ -62,6 +62,13 @@ only credentials it holds are the tokens that callers send it, which it asks hub
 tokens that callers hand over to subscribe a workspace, which it keeps sealed (see [api.md](api.md) and
 [configuration.md](configuration.md#the-agent-fox-service)). What an attempt spends is this:
 
+- **The label poll spends no model, and each labelled issue is a job.** The poll that turns a request label into a job
+  (see [api.md](api.md#jobs-that-a-request-label-makes)) calls hub and the forge, and the label poll runs no model: it lists
+  issues, makes jobs and removes labels. A job made from a label spends once and as any other does, with the same hub variables
+  and the same bounds: each labelled issue is a job that spends like a job of the API. The poll takes a label once, and does not
+  take it again while its removal is owed or it is held, so a request does not spend twice; and
+  a restored label does not spend again: when a job is cancelled while its attempt runs, the worker puts the request label back on the
+  issue, and the poll leaves it there until a person asks again, rather than taking it for a new request.
 - **The model is `AF_MODEL`.** It is a hub variable of the workspace (see
   [configuration.md](configuration.md#the-hub-variables-of-an-attempt)); when it is unset the catalog's default
   Anthropic model, `claude-sonnet-5-5` today. The session that is opened on hub, the brain and the usage record carry the same one.

@@ -112,6 +112,8 @@ func commentJSON(c Comment) map[string]any {
 // forgeRoute serves the forge API under /api/v1/workspaces/{slug}.
 func (h *Hub) forgeRoute(w http.ResponseWriter, r *http.Request, ws *workspace, rest []string) {
 	switch {
+	case slices.Equal(rest, []string{"issues"}) && r.Method == http.MethodGet:
+		h.listIssues(w, r, ws)
 	case slices.Equal(rest, []string{"issues"}) && r.Method == http.MethodPost:
 		h.createIssue(w, r, ws)
 	case slices.Equal(rest, []string{"pulls"}) && r.Method == http.MethodPost:
@@ -164,7 +166,7 @@ func (h *Hub) issueRoute(w http.ResponseWriter, r *http.Request, ws *workspace, 
 			issue.State = *req.State
 		}
 		if req.Labels != nil {
-			issue.Labels = slices.Clone(*req.Labels)
+			ws.relabel(issue, *req.Labels)
 		}
 		out := issueJSON(ws.Slug, issue.Issue)
 		h.mu.Unlock()
@@ -196,16 +198,18 @@ func (h *Hub) issueRoute(w http.ResponseWriter, r *http.Request, ws *workspace, 
 			return
 		}
 		h.mu.Lock()
+		next := slices.Clone(issue.Labels)
 		for _, name := range names {
-			if !slices.Contains(issue.Labels, name) {
-				issue.Labels = append(issue.Labels, name)
+			if !slices.Contains(next, name) {
+				next = append(next, name)
 			}
 		}
+		ws.relabel(issue, next)
 		h.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 	case len(rest) == 2 && rest[0] == "labels" && r.Method == http.MethodDelete:
 		h.mu.Lock()
-		issue.Labels = slices.DeleteFunc(issue.Labels, func(l string) bool { return l == rest[1] })
+		ws.relabel(issue, slices.DeleteFunc(slices.Clone(issue.Labels), func(l string) bool { return l == rest[1] }))
 		h.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 	default:

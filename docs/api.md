@@ -227,6 +227,44 @@ The job is stored with its first attempt, and the event `job_state` `queued`, in
 is the attempt put in the queue. If that fails the answer is still `202`, a `WARN` is logged, and the sweep
 that runs every minute puts it in the queue.
 
+### Jobs that a request label makes
+
+The routes are not the only way to make a job. For every subscribed workspace the service asks hub, every
+`AF_POLL_INTERVAL` (see [the label poll](configuration.md#the-label-poll)), for the open issues that carry the
+workspace's **request labels**, `<label_prefix>triage` and `<label_prefix>fix` (`af:triage` and `af:fix` for the
+prefix `af:`), so that a team asks for a triage or a fix by labelling an issue. Each new request becomes exactly one job,
+and the service then removes the label through hub: it **consumes** it, so that adding it again is a new request.
+
+Such a job is made as the routes make one, with these fields: `source` `{"kind": "label", "by": "label af:fix"}` (`by`
+names the label, `label af:triage` for a triage; the list of issues does not say who added it, so no person is named),
+`request_label` the full label, prefix included (`af:fix`), `issue` and `input` `{"issue": 42}`. It is queued behind the
+other jobs of its workspace in the order they were made, and an issue that carries both labels gets its triage job queued
+before its fix job. A fix label on a `carry_patch` workspace becomes a job that the worker refuses, as the same request
+through the route would. Pull requests, closed issues and issues that carry neither label are never touched.
+
+What becomes of a label on a listed issue is decided by the first of these that applies:
+
+1. **Absorbed.** The workspace has an open job (`queued`, `running` or `blocked`) of the same kind for the issue, whoever
+   made it, an API job included: the label is removed, no job is made, and the service logs the absorbed label at `INFO`
+   with the workspace, the kind, the issue and the job. An open job of the other kind does not absorb it. A label on an
+   issue whose job `failed` is a new request.
+2. **Held.** A job the poll made for the label was cancelled while one of its attempts was in a runner (an unsubscribe
+   included), and the worker's cancel cleanup put the label back on the issue ([cancel](#cancel)). The label is left in
+   place until a person asks again: the service does nothing about it until a complete listing of the label that does not
+   contain the issue was requested at least 5 minutes after the poll first saw that no runner of the job was in progress,
+   which releases the hold, so removing the label and adding it back is a new request. The API is the immediate way to ask again. A job cancelled
+   while it was queued, while it waited out a backoff or while it was blocked holds nothing.
+3. **Already taken.** The removal of the label from the issue failed after the job was made (or after a label that the poll absorbed
+   was not removed), so the removal is still owed: the label is removed again, and no second job is made. A removal that hub
+   answers with not found is done.
+4. **A new request.** The job is made, the poll's record of it is written, and the label is removed.
+
+So the poll does not run a request twice: a label on an issue the service is already working on is absorbed, a label it has
+already taken is removed and not taken again while its removal is owed, and a label the service put back is held. The poll's
+records are kept in the state file until nothing is owed and nothing holds, and outlive the retention purge of their jobs. It
+promises no more than its records know: once a removal has been confirmed and its job has ended, the record is dropped, so a
+forge that still lists the label for a moment after it was removed can yield a second job.
+
 ### The job document
 
 Every route that shows a job shows this document, a list entry included; `GET /api/v1/jobs/{id}` adds
@@ -262,8 +300,8 @@ Every route that shows a job shows this document, a list entry included; `GET /a
 | `id`, `workspace`, `kind` | The job, its workspace and `triage` or `fix`. |
 | `input` | What the job was asked about, as it was posted and without the `context`: `{"issue": …}` (as given: the number, the URL or `owner/repo#N`), `{"text", "title"}` or `{"file": {"name", "content"}}`. |
 | `issue` | The issue number, or `null` for a text or a file. |
-| `source` | `{"kind", "by"}`: `api` for a request of this API, and who made it. The triggers of later specs add their own kinds. |
-| `request_label` | The request label that the trigger consumed when it made the job, or `null`. Always `null` for a job of this API. |
+| `source` | `{"kind", "by"}`: `api` for a request of this API, and who made it; `label` for a request label that the poll found, and `by` is `label <the request label>` (see [jobs that a request label makes](#jobs-that-a-request-label-makes)). The triggers of later specs add their own kinds. |
+| `request_label` | The request label that the trigger consumed when it made the job, or `null`. Always `null` for a job of this API; the label of the poll's, prefix included (`af:fix`). |
 | `state` | `queued`, `running`, `blocked`, `done`, `failed` or `cancelled`. |
 | `blocked` | While the job is blocked: `{"reason": "needs_human", "question", "options": [{"id", "label"}], "answer_with": "POST /api/v1/jobs/<id>/answer"}`, with the ids `A`, `B`, … in order; otherwise `null`. |
 | `attempt_count`, `current_attempt` | How many attempts the job has, and the number of the latest. |
