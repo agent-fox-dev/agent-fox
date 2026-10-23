@@ -118,6 +118,8 @@ type Hub struct {
 	bound   map[string]map[string]bool // token without a user -> slugs
 	rules   []rule
 	delays  map[string]time.Duration
+	// observe, when it is set, is called with each request as it arrives, before it is answered.
+	observe func(Request)
 
 	requests []Request
 
@@ -208,6 +210,14 @@ func (h *Hub) Revoke(token string) {
 	defer h.mu.Unlock()
 	delete(h.tokens, token)
 	delete(h.bound, token)
+}
+
+// OnRequest makes the hub call fn with each request as it arrives, before it is answered, so that a test can look at
+// the state of the service at that moment. fn runs on the goroutine of the request; nil stops it.
+func (h *Hub) OnRequest(fn func(Request)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.observe = fn
 }
 
 // Requests are all the requests received, in order, those that failed included.
@@ -328,7 +338,11 @@ func (h *Hub) serve(w http.ResponseWriter, r *http.Request) {
 	h.requests = append(h.requests, Request{Seq: h.seq, Method: r.Method, Path: r.URL.Path, URI: r.RequestURI, TokenHash: hash, Header: r.Header.Clone(), Body: body})
 	fault := h.take(r.Method, r.URL.Path, hash)
 	delay := h.delays[r.URL.Path]
+	observe, recorded := h.observe, h.requests[len(h.requests)-1]
 	h.mu.Unlock()
+	if observe != nil {
+		observe(recorded)
+	}
 
 	if fault != nil {
 		delay += fault.Delay

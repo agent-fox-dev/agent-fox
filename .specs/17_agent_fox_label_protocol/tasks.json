@@ -131,7 +131,7 @@
       "done_when": [
         "existing internal/service/api tests pass unchanged"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 4,

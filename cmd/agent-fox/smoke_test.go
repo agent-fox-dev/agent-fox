@@ -210,8 +210,13 @@ func TestACallerSubscribesAndListsWhileAnotherCannotSee_TS_11_81(t *testing.T) {
 	for _, r := range hub.RequestsFor(hashed(pat)) {
 		seen = append(seen, r.Path)
 	}
-	if want := []string{"/api/v1/workspaces/widgets", "/api/v1/user"}; !slices.Equal(seen, want) {
-		t.Errorf("hub saw %v with the PAT, want the gate and then the user call: %v", seen, want)
+	// Since agent_fox_label_protocol, the seven label creations follow the two checks.
+	want := []string{"/api/v1/workspaces/widgets", "/api/v1/user"}
+	for range 7 {
+		want = append(want, "/api/v1/workspaces/widgets/labels")
+	}
+	if !slices.Equal(seen, want) {
+		t.Errorf("hub saw %v with the PAT, want the gate, the user call and the seven labels: %v", seen, want)
 	}
 
 	// The PAT is in neither the file nor its WAL, while the service runs.

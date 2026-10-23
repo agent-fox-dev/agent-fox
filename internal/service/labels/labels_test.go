@@ -121,9 +121,9 @@ func imports(t *testing.T, dir string) (map[string]bool, []*ast.File) {
 	return out, files
 }
 
-// tableUsers are the packages that name the labels, relative to this one. The subscribe step of internal/service/api and
-// the cancel cleanup join them in the tasks that add them.
-var tableUsers = []string{"../../worker", "../poll"}
+// tableUsers are the packages that name the labels, relative to this one. The cancel cleanup joins them in the task that
+// adds it.
+var tableUsers = []string{"../../worker", "../poll", "../api"}
 
 // TestTheTableImportsOnlyTheStandardLibraryAndIsSharedByItsUsers_TS_17_3 verifies TS-17-3: the table package imports only
 // the standard library, its users import it, and none of them defines a label name of its own.
