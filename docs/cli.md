@@ -1983,7 +1983,8 @@ that runs a brain records `box_open {provider, image, network, placement}`, `box
 short HEAD, or "" for a repository with no commit, also at every later sync), `box_export {path}`, `box_close
 {provider}`, `brief_placed {attempt, bytes, sha256, prefix_sha256}`,
 `brain_start {brain, attempt}`, `brain_end {brain, stop_reason,
-submitted_claim, cost_usd, cost_source, turns, duration_ms}`, for a brain that runs
+submitted_claim, cost_usd, cost_source, turns, duration_ms, input_tokens,
+output_tokens}`, for a brain that runs
 as a process `box_probe {binary, ok, version}`, `brain_process {brain, exit_code,
 duration_ms}` and, for `claude`, `claude_result {subtype, is_error, num_turns,
 total_cost_usd, usage, session_id}` and `claude_tool_dropped {tool}`, and, for what it

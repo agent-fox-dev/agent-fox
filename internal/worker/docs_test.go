@@ -12,7 +12,7 @@ import (
 
 // TestTheDocumentationDescribesTheWorker_TS_13_81 verifies the part of TS-13-81 that can be
 // checked without running the whole gate: each document holds what 13-REQ-10.8 names for it, and
-// docs/cli.md is as it is on main. `make check` runs the docs tests of the other packages.
+// docs/cli.md is as it is on main, but for the token fields of brain_end that a later spec added. `make check` runs the docs tests of the other packages.
 // Verifies: 13-REQ-10.8
 func TestTheDocumentationDescribesTheWorker_TS_13_81(t *testing.T) {
 	root := filepath.Join("..", "..")
@@ -59,7 +59,19 @@ func TestTheDocumentationDescribesTheWorker_TS_13_81(t *testing.T) {
 	if err := exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", "main").Run(); err != nil {
 		t.Skip("there is no branch main to compare docs/cli.md with")
 	}
-	if out, err := exec.Command("git", "-C", root, "diff", "main", "--stat", "--", "docs/cli.md").CombinedOutput(); err != nil || len(out) != 0 {
-		t.Errorf("docs/cli.md differs from main: %s %v", out, err)
+	// The one change that a later spec makes to it is the two token fields of the ledger record brain_end (14-REQ-10.1), so
+	// the documents are compared without them, whichever of the two has them.
+	onMain, err := exec.Command("git", "-C", root, "show", "main:docs/cli.md").Output()
+	if err != nil {
+		t.Skipf("docs/cli.md is not on main: %v", err)
 	}
+	if got, want := withoutTokenFields(read("docs/cli.md")), withoutTokenFields(string(onMain)); got != want {
+		t.Errorf("docs/cli.md differs from main by more than the token fields of brain_end")
+	}
+}
+
+// withoutTokenFields is the document with its white space made one space, and the fields input_tokens and output_tokens
+// taken out of the record brain_end.
+func withoutTokenFields(doc string) string {
+	return strings.ReplaceAll(strings.Join(strings.Fields(doc), " "), "duration_ms, input_tokens, output_tokens}", "duration_ms}")
 }

@@ -299,3 +299,30 @@ pass posts the usage and completes the session, and records both steps.
 - The pass writes the journal of an attempt that has ended, which the worker is not carrying out. A journal that does
   not read, one of another job or attempt, and an attempt with no journal are left alone, without a line in the log.
 - Deviation key: `unclassifiable_lease_is_kept`.
+
+## 14. The offline guard passed when it was written, and it guards one scenario (task 11)
+
+**Spec:** task 11 owns TS-14-59 (the documents name the recovery terms) and TS-14-60 (the recovery tests run offline,
+"with only loopback listeners", "no hub, no key and no container engine"), and lists `docs/docs_test.go` among its
+`touches`.
+
+**Code:**
+
+- TS-14-59 was seen failing before the documents were written. TS-14-60 passed the first time it was run: tasks 1 to 10
+  used the fake hub, its in-process gateway over the local provider and the scripted brain from the start
+  (`ts_14_60_passes_before_task_11`).
+- The test of the terms is in `docs/recovery_docs_test.go`, beside `docs/docs_test.go`, as the spec says ("beside"), and
+  not in it: the other documents' tests are in files of their own as well.
+- TS-14-60 (`internal/worker/offline_test.go`) is a guard, not a wrapper of the whole suite: in one scenario of the
+  recovery (a delivery stopped after the apply by the stage-abort seam, and the one that resumes it) it unsets the keys of the
+  model vendors, puts a `podman` and a `docker` that fail the test first on the `PATH`, notes every dial of the process
+  through the default transport (the hub client's and the gateway's) and fails on one that is not on the loopback interface,
+  and checks the address of the fake hub and of the gateway, which `git` is given for the clone. The other recovery
+  tests are made of the same parts; nothing in them can reach out any more than this does. The files that the spec names
+  for the documents are updated, and so are `README.md` (the two rows that name the service's packages) and the sentences of
+  `docs/architecture.md` that said a lost box ends the loop: it is replaced once now.
+- `TestTheDocumentationDescribesTheWorker_TS_13_81` (`internal/worker/docs_test.go`) said `docs/cli.md` is as it is on
+  `main`; 14-REQ-10.1 changes it, by the two token fields of the ledger record `brain_end` and by nothing else. The
+  test compares the document with the one on `main` without those two fields, whichever of the two has them, so that it
+  holds before the merge and after it, and still fails on any other difference.
+- Deviation key: `ts_14_60_passes_before_task_11`.

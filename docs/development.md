@@ -36,6 +36,8 @@ change as the code: a document that is out of date is a regression.
 | `internal/service/jobs` | The jobs layer: the documents and the store (`af_jobs`, `af_attempts`, `af_events`), creating and validating jobs, the adapter over `aflib/jobqueue` (per-workspace order, `[workers].count` slots, transient retries, shutdown and restart, the sweep), the `Runner` seam and the placeholder runner (the binary wires the worker), ending attempts, cancel, answer, retry and unsubscribe, the event log with its broker and stream, and the retention purge. |
 | `internal/service/jobs/fakerunner`, `internal/service/jobs/fakeclock` | The fake runner that a test scripts (return, error, transient failure, panic, block) and records the inputs of, and the fake clock whose waits and tickers a test advances; exported for the tests of the specs that follow. |
 | `internal/hub` | The client of hub's API, the one place that knows hub's paths, field names and answers: who a token belongs to and whether it sees a workspace, and the calls of an attempt (the record and variables of a workspace, sessions, events, sandbox leases, the push of a branch). |
+| `internal/worker/recovery` | The files the worker keeps in `recovery/` of an attempt directory, to carry the attempt on after the process died: the journal (`journal.json`) and the outcome (`outcome.json`), written mode 0600 by an atomic synced replacement, and the status a session is completed with for an outcome. |
+| `internal/service/reconcile` | The reconciliation pass: it gives back the sandboxes and completes the sessions that attempts left held, when the service starts and every 15 minutes. |
 | `internal/hub/fakehub` | The `httptest` hub of the tests: a table of tokens, users and workspaces, the state an attempt works on (workspaces, issues, pull requests, sessions, leases), a git smart-HTTP server that takes only the Basic PAT, an in-process gateway for the leases, a record of every request, and failures, hang-ups, delays, redirects and oversize answers by route on demand. |
 | `cmd/af` | The binary. `main.go` keeps the identity of the build (the ldflags variables), makes the shell with `afcmd.New` and hands the process to it. The tests that build the binary and run it are here, with the golden file of `af --schema`. |
 | `internal/worker` | The worker: the production `Runner` of the jobs layer, which carries out one attempt of a job against a subscribed hub workspace. It resolves the attempt (the token and label prefix of the subscription, the record and the variables of the workspace from hub, the refusals that need no box and no model, the input as an issue URL on the workspace's repository), opens the hub session, and clones the workspace into `clone/` with a git that holds the PAT only as a scoped header for the commands that reach hub, publishes a pushed branch through hub, leases the sandbox (a gateway box registry of the attempt, the timeout cut to the lease, the release on every path), runs the loop in process with the seams of `internal/afcmd`, and mirrors the outcome to the issue as labels and comments, with the cleanup of a cancel and of a shutdown, and reports the usage, the events and the end of the session to hub. Infrastructure failures are transient errors; everything else is an envelope. |
@@ -109,6 +111,25 @@ so nothing in it changes a tree hash.
   `go test ./internal/toolio ./cmd/af -update`. A test also compares the
   top-level properties of each command's schema with the JSON fields of its Go
   result type, so the two cannot drift apart.
+
+### Testing recovery
+
+The recovery of an attempt is tested offline, against the fake hub, its in-process gateway over the local provider and the
+scripted brain: no hub, no key of a model vendor and no container engine
+(`TestTheRecoveryTestsRunOfflineWithLoopbackListenersTheScriptedBrainAndNoContainerEngine_TS_14_60` guards it).
+
+- **The stage-abort seam.** A process that dies is simulated by the stage-abort seam, `Runner.abortAfter`, which only the tests of
+  `internal/worker` can set: the delivery stops right after the named stage (`applied`, `pushed`, `mirrored`, `usage_posted`
+  and the others, `applied#2` for the second time), with no cleanup, no release and no report, as a process that
+  died is stopped. The test then runs the next delivery with the handover count in the request, and reads
+  `recovery/journal.json` and `recovery/outcome.json` of the attempt directory. `Runner.reachedHook` is called with every stage a
+  delivery reaches, which is how a test makes a sandbox go away at an exact point, and `Runner.journalFault` makes a write of the
+  journal fail. A graceful shutdown is tested through the real jobs layer, restarted on the same database file.
+- **The fake hub.** `GET /api/v1/workspaces/{slug}/sandboxes` lists the leases of the workspace that are held, with their
+  id, labels, purpose and end; `SeedLease` puts a labelled lease in the hub as if an attempt had taken it, `Deleted` is
+  what was released, a session keeps its status, its usage and its events, and `KillSandbox` destroys the box that a lease
+  holds and leaves the lease held, as a sandbox that is gone is. The gateway can be made to refuse boxes
+  (`RefuseBoxes`) or to go away on a command (`KillOn`, `KillAfter`).
 
 ## Opt-in tests
 
