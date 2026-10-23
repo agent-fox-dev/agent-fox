@@ -58,7 +58,7 @@
       "done_when": [
         "existing worker and poll tests pass unchanged"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,
