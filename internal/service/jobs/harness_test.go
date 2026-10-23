@@ -20,6 +20,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/service/api"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs/fakerunner"
+	"github.com/agent-fox-dev/agentfox/internal/service/labelcleanup"
 	"github.com/agent-fox-dev/agentfox/internal/service/secrets"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -131,6 +132,12 @@ func withRemover(remove func(string) error) func(*jobs.Config) {
 	return func(c *jobs.Config) { c.RemoveAll = remove }
 }
 
+// withHubCleaner is a configuration that gives the service the hub-backed cancel cleanup over the env's store and fake hub,
+// as cmd/agent-fox does.
+func withHubCleaner() func(*jobs.Config) {
+	return func(c *jobs.Config) { c.Cleaner = &labelcleanup.Cleaner{} }
+}
+
 // withoutEnqueue is a configuration under which a job that is made is not put in the
 // queue, so that a test puts the attempts there in the order it chooses.
 func withoutEnqueue() func(*jobs.Config) {
@@ -168,6 +175,9 @@ func newEnv(t *testing.T, configure ...func(*jobs.Config)) *env {
 	}
 	if r, ok := cfg.Runner.(*fakerunner.Runner); ok {
 		fake = r
+	}
+	if c, ok := cfg.Cleaner.(*labelcleanup.Cleaner); ok && c.Hub == nil {
+		c.Subscriptions, c.Hub = st, hub.New(fh.URL, "test")
 	}
 	svc, err := jobs.New(cfg)
 	if err != nil {
