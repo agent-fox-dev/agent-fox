@@ -73,7 +73,7 @@ go work init . ../aflib
 ```
 
 ```bash
-make check          # gofmt + go vet + all tests
+make check          # gofmt + go vet + golangci-lint + the short tests
 make build          # go build ./..., and bin/af and bin/agent-fox
 bin/af --version
 bin/agent-fox --version
