@@ -256,7 +256,7 @@
       "done_when": [
         "the cancel route answers before any forge write with labels.cleanup pending"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 7,

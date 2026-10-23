@@ -17,6 +17,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/service/api"
 	"github.com/agent-fox-dev/agentfox/internal/service/config"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
+	"github.com/agent-fox-dev/agentfox/internal/service/labelcleanup"
 	"github.com/agent-fox-dev/agentfox/internal/service/poll"
 	"github.com/agent-fox-dev/agentfox/internal/service/reconcile"
 	"github.com/agent-fox-dev/agentfox/internal/service/secrets"
@@ -104,9 +105,12 @@ func serve(ctx context.Context, configPath string, logger *slog.Logger, listen l
 		Hub: hubClient, Subscriptions: st, Logger: logger,
 		Version: document.Version, Commit: document.Commit, BuildTime: document.BuildTime,
 	})
+	// The cancel cleanup puts a cancelled job's issue back in line with its record when no runner does, through hub with
+	// the token of the subscription.
 	jobService, err := jobs.New(jobs.Config{
 		DB: st.DB(), Subscriptions: st, Logger: logger,
 		Workers: cfg.Workers.Count, AttemptsDir: attempts, Runner: runner, Retain: cfg.Database.Retain,
+		Cleaner: &labelcleanup.Cleaner{Subscriptions: st, Hub: hubClient},
 	})
 	if err != nil {
 		return startFailed(logger, exitInvalid, err)

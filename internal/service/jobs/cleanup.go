@@ -224,8 +224,8 @@ func (s *Store) CleanupRequest(ctx context.Context, id string) (CleanupRequest, 
 	return req, true, rows.Err()
 }
 
-// EndCleanup records what a try of a pending cleanup came to, in one transaction: what it set and removed replaces the
-// job's labels when it wrote anything, the request label is no longer to be put back when the issue carries it, and the
+// EndCleanup records what a try of a pending cleanup came to, in one transaction: what a try that ends the cleanup set and
+// removed replaces the job's labels when it wrote anything, the request label is no longer to be put back when the issue carries it, and the
 // cleanup takes the outcome. A cleanup that stays pending is noted as warned. It says whether this was the cleanup's first
 // failure; a cleanup that is no longer pending is left as it is.
 func (s *Store) EndCleanup(ctx context.Context, id string, res CleanupResult) (firstFailure bool, err error) {
@@ -242,7 +242,9 @@ func (s *Store) EndCleanup(ctx context.Context, id string, res CleanupResult) (f
 		if err := x.QueryRowContext(ctx, "SELECT cleanup_warned FROM af_jobs WHERE id = ?", id).Scan(&warned); err != nil {
 			return fmt.Errorf("cleanup of %s: %w", id, err)
 		}
-		if len(res.Set) > 0 || len(res.Removed) > 0 {
+		// What a try that leaves the cleanup pending wrote is not recorded: the next try reads the issue again, and must
+		// still find in labels.set what the job's attempts set.
+		if res.Outcome != CleanupPending && (len(res.Set) > 0 || len(res.Removed) > 0) {
 			if _, err := x.ExecContext(ctx, "UPDATE af_jobs SET labels_set = ?, labels_removed = ? WHERE id = ?",
 				mustJSON(nonNil(res.Set)), mustJSON(nonNil(res.Removed)), id); err != nil {
 				return fmt.Errorf("labels of %s: %w", id, err)
