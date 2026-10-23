@@ -52,6 +52,11 @@ func TestACycleReconcilesItsRecordsWithTheirJobsBeforeAnyHubRequestEnabledOrNot_
 	e.waitState(blocked, jobs.StateBlocked)
 	cancelledInRunner := e.startedJob(jobs.KindFix, 5, "af:fix")
 	e.waitState(cancelledInRunner, jobs.StateRunning)
+	// The job is running once it is claimed, a moment before its runner is called: the runner is waited for, so that the
+	// cancel reaches a runner that is in progress.
+	if !r.Wait(5, 10*time.Second) {
+		t.Fatal("the runner of the job was not called")
+	}
 	if _, err := e.Jobs.Cancel(ctx, cancelledInRunner); err != nil {
 		t.Fatal(err)
 	}
