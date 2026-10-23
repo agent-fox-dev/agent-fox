@@ -39,6 +39,9 @@ func (s *script) serve(clk *fakeclock.Clock) *Client {
 	s.t.Helper()
 	nEvents, nJobs := 0, 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer tok" || r.Header.Get("User-Agent") != "af/test" {
+			s.t.Errorf("%s carries Authorization %q and User-Agent %q, want the bearer and af/test", r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("User-Agent"))
+		}
 		s.mu.Lock()
 		var run step
 		switch r.URL.Path {
@@ -474,6 +477,10 @@ func TestA401A404A3xxOrAnother4xxStopsFollowingAtOnce_TS_16_67(t *testing.T) {
 			if !errors.As(err, &ae) || rest != nil || ae.Status != status {
 				t.Errorf("%d on the %s: Follow = %v, %v, want the *Error of the answer", status, where, rest, err)
 				continue
+			}
+			wantCategory := map[int]string{401: CategoryAuth, 404: CategoryUsage, 302: CategoryService, 400: CategoryUsage, 418: CategoryService}[status]
+			if ae.Category != wantCategory || ae.Retryable {
+				t.Errorf("%d on the %s: category %q, retryable %v, want %q and not retryable, as the table maps it", status, where, ae.Category, ae.Retryable, wantCategory)
 			}
 			var gu *GaveUp
 			if errors.As(err, &gu) {

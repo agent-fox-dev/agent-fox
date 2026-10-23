@@ -18,7 +18,8 @@ that `afcmd.New` returns. The loops are not the client's to change, so the hook 
 `--local` taken out, while `Run.Argv` stays as it was received, so that the resume of a local run keeps `--local`.
 `toolio` also gained `App.HelpExtra` and `App.HelpFor` (the help of both modes), `App.Command` (the schema of the loops
 becomes a `oneOf` of the local result and the job result), and `SplitFlag` and `Command.FlagLookup` (the scan reads words as the
-flag parse does). No existing test needed `--local` (step 9.2): the loop tests are in `internal/afcmd` and use
+flag parse does). The binary also rewrites the `Usage:` line of the two loops to name `--local` (`cmd/af/main.go`), so that `af fix --help` opens with the
+synopsis of the local mode that `docs/cli.md` gives. No existing test needed `--local` (step 9.2): the loop tests are in `internal/afcmd` and use
 `afcmd.New`, and no test of `cmd/af` runs a loop.
 Deviation keys: `mode_hook_on_the_app`.
 Tests: `TestTheModeHookChoosesTheCommandAndTheWordsBeforeAnythingIsBuilt_TS_16_1` (`internal/toolio/mode_test.go`),

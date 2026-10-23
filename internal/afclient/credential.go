@@ -81,13 +81,16 @@ func LoadCredential(home func() (string, error)) (Credential, error) {
 		return Credential{}, noCredential(path, "has an empty `token`")
 	}
 
-	cred := Credential{Token: token, Path: path}
-	if runtime.GOOS != "windows" {
-		if info, err := os.Stat(path); err == nil {
-			cred.Loose = info.Mode().Perm()&0o077 != 0
-		}
+	return Credential{Token: token, Path: path, Loose: isLoose(path)}, nil
+}
+
+// isLoose says whether, on Unix, the file has a group or other permission bit set.
+func isLoose(path string) bool {
+	if runtime.GOOS == "windows" {
+		return false
 	}
-	return cred, nil
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().Perm()&0o077 != 0
 }
 
 // noCredential is the error for a credential that is not there: what is wrong with the file, and how to store one.

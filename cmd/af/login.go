@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 
@@ -59,6 +60,9 @@ func login(r *toolio.Run, app *toolio.App, tokenFile string, server *serverFlag)
 	if err != nil {
 		return toolio.Outcome{}, credentialFailure(err)
 	}
+	if existing.Loose {
+		r.Warn(warnCredentialFilePermissions, fmt.Sprintf("the credential file %s has a group or other permission bit set; the new one is written with mode 0600", existing.Path))
+	}
 
 	if _, err := newClient(app, srv, credential).Do(r.Ctx, http.MethodGet, "/workspaces", nil, nil); err != nil {
 		return toolio.Outcome{}, checkFailure(err)
@@ -87,7 +91,7 @@ func checkFailure(err error) error {
 		return &toolio.Failure{
 			Category: toolio.CategoryAuth,
 			Message:  "the service refused this credential, so nothing was stored: " + ae.Message,
-			FixHint:  &toolio.FixHint{Flag: "--token-file"},
+			FixHint:  &toolio.FixHint{Suggest: loginSuggestion},
 		}
 	}
 	failure := requestFailure(err)

@@ -1347,7 +1347,7 @@ it is built in three places that do not know each other's concerns.
   and schema hooks that let the binary describe both modes. Only the binary sets the hook, because the loops are registered by
   `internal/afcmd`, which the worker runs in process: the worker needs no `--local` and cannot reach the client.
 
-The credential never leaves for a host but the server's, and neither it nor the token of a workspace is in any output.
+The credential never leaves for a host but the server's (but for the proxy that the standard variables name, which sees a plain `http` request), and neither it nor the token of a workspace is in any output, if it is 8 bytes or more.
 
 ## What moves where
 

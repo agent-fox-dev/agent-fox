@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -257,6 +258,9 @@ func TestLoginFailsAuthWhenTheServiceRefusesTheCredentialAndWritesNothing_TS_16_
 			res := afRun(t, "", "login", "--token-file", tokenFile(t, "new-token"))
 			if res.code != 1 || res.category() != "auth" || !strings.Contains(res.message(), "refused") {
 				t.Errorf("exit %d, category %q, message %q, want 1, auth, saying that the service refused the credential", res.code, res.category(), res.message())
+			}
+			if h := res.hint(); len(h) != 1 || h["suggest"] != "af login --token-file FILE" {
+				t.Errorf("fix_hint = %v, want {suggest: af login --token-file FILE}", h)
 			}
 			if after := readFile(t, config); after != before {
 				t.Errorf("the credential file holds %q, want it as it was: %q", after, before)
@@ -533,5 +537,61 @@ func TestSeveralLocalMistakesReportTheFirstInTheFixedOrderAndSendNothing_TS_16_3
 	}
 	if n := len(svc.Requests()); n != 0 {
 		t.Errorf("%d requests were sent", n)
+	}
+}
+
+// TestLoginWarnsWhenTheCredentialFileItWillReplaceCanBeReadByOthers_TS_16_26 verifies
+// 16-REQ-4.5 for af login, a service command whose existing credential file is read in step 3.
+// Verifies: 16-REQ-4.5
+func TestLoginWarnsWhenTheCredentialFileItWillReplaceCanBeReadByOthers_TS_16_26(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission bits are a Unix notion")
+	}
+	for _, c := range []struct {
+		mode os.FileMode
+		warn bool
+	}{{0o644, true}, {0o640, true}, {0o600, false}} {
+		svc := newFakeService(t, nil)
+		_, config := clientHome(t, str("# mine\ntoken = \"old\"\n"))
+		if err := os.Chmod(config, c.mode); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("AF_URL", svc.URL)
+		res := afRun(t, "", "login", "--token-file", tokenFile(t, "new-token"))
+		if res.code != 0 {
+			t.Errorf("mode %o: exit %d, %s", c.mode, res.code, res.message())
+			continue
+		}
+		if got := slices.Contains(codes(res.env), "credential_file_permissions"); got != c.warn {
+			t.Errorf("mode %o: credential_file_permissions raised = %v, want %v", c.mode, got, c.warn)
+		}
+		if c.warn && !strings.Contains(res.stdout, config) {
+			t.Errorf("mode %o: the warning does not name %s", c.mode, config)
+		}
+		if info, err := os.Stat(config); err != nil || info.Mode().Perm() != 0o600 {
+			t.Errorf("mode %o: the rewritten file has %v, %v, want mode 0600", c.mode, info, err)
+		}
+	}
+}
+
+// TestLoginRaisesServerInsecureForAPlainHTTPServerThatIsNotLoopback_TS_16_21 verifies
+// 16-REQ-3.5 for af login: the warning is raised, and the command goes on, for a plain http server
+// beyond loopback and not for a loopback one.
+// Verifies: 16-REQ-3.5
+func TestLoginRaisesServerInsecureForAPlainHTTPServerThatIsNotLoopback_TS_16_21(t *testing.T) {
+	useTransport(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"workspaces":[]}`)), Request: r}, nil
+	}))
+	t.Setenv("AF_URL", "")
+	for server, want := range map[string]bool{"http://example.com": true, "http://127.0.0.1:1": false, "https://example.com": false} {
+		clientHome(t, nil)
+		res := afRun(t, "", "login", "--token-file", tokenFile(t, "new-token"), "--server", server)
+		if res.code != 0 {
+			t.Errorf("%s: exit %d, %s", server, res.code, res.message())
+			continue
+		}
+		if got := slices.Contains(codes(res.env), "server_insecure"); got != want {
+			t.Errorf("%s: server_insecure raised = %v, want %v", server, got, want)
+		}
 	}
 }

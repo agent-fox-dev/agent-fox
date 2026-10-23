@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/agent-fox-dev/agentfox/internal/afcmd"
 )
 
 // check validates v against the JSON Schema schema, for the part of JSON Schema that the schemas of
@@ -224,8 +228,25 @@ func TestTheSchemaOfTriageAndFixAdmitsTheLocalResultAndTheJobResult_TS_16_15(t *
 			t.Fatal(err)
 		}
 		schema := doc.Defs[cmd]
-		if alts, _ := schema["oneOf"].([]any); len(alts) != 2 {
+		alts, _ := schema["oneOf"].([]any)
+		if len(alts) != 2 {
 			t.Fatalf("%s --schema: $defs.%s = %v, want a oneOf of the local result and the job result", cmd, cmd, schema)
+		}
+		// The first alternative is the schema of the loop exactly as it was, so that every local result
+		// that was valid before still is (for fix too, whose result needs a whole fix to be made here).
+		var before struct {
+			Defs map[string]any `json:"$defs"`
+		}
+		var out bytes.Buffer
+		afcmd.New(&afcmd.Config{}).Main(context.Background(), []string{"af", cmd, "--schema"}, strings.NewReader(""), &out, &bytes.Buffer{})
+		if err := json.Unmarshal(out.Bytes(), &before); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(alts[0], before.Defs[cmd]) {
+			t.Errorf("%s --schema: the first alternative differs from the schema of the loop that afcmd registers", cmd)
+		}
+		if !reflect.DeepEqual(alts[1], any(schemaOf(t, "job_result"))) {
+			t.Errorf("%s --schema: the second alternative is not the job result", cmd)
 		}
 		if cmd == "triage" {
 			if err := check(schema, local, "$"); err != nil {

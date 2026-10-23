@@ -29,6 +29,7 @@ func echoing(status int) http.HandlerFunc {
 		case strings.HasSuffix(r.URL.Path, "/events"):
 			w.Header().Set("Content-Type", "text/event-stream")
 			_, _ = io.WriteString(w, eventFrame(1))
+			_, _ = io.WriteString(w, "id: 2\nevent: step\ndata: {\"seq\":2,\"ts\":\"t\",\"job_id\":\"j\",\"attempt\":1,\"type\":\"step\",\"data\":{\"echo\":\""+quoted+"\"}}\n\n")
 		case strings.Contains(r.URL.Path, "/attempts/"):
 			answering(200, `{"status":"done","warnings":[{"code":"echo","message":"`+quoted+`"}]}`)(w, r)
 		case status >= 400:

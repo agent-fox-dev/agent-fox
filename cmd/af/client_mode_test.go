@@ -218,6 +218,9 @@ func TestHelpForTriageAndFixDescribesBothModesAndTheirFlags_TS_16_8(t *testing.T
 		if code != 0 {
 			t.Errorf("%s: exit %d", c.name, code)
 		}
+		if first, _, _ := strings.Cut(stdout, "\n"); !strings.HasPrefix(first, "Usage: af "+c.cmd+" ") || !strings.Contains(first, "--local") {
+			t.Errorf("%s: the synopsis is %q, want it to be the one of the local mode, with --local", c.name, first)
+		}
 		terms := []string{"--local", "--workspace", "--server", "--wait", "--brain", "--dir", "--context", "--timeout", "--output", "--emit-events", "af " + c.cmd}
 		if c.cmd == "triage" {
 			terms = append(terms, "--label")

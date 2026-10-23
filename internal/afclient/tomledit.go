@@ -20,6 +20,8 @@ type ExistingFile struct {
 	Exists bool
 	// Content is what the file holds.
 	Content []byte
+	// Loose is true when, on Unix, a group or other permission bit of the file is set.
+	Loose bool
 
 	// start and end bound the quoted value on the token line of Content.
 	start, end int
@@ -50,7 +52,7 @@ func ReadExisting(home func() (string, error)) (*ExistingFile, error) {
 	if _, derr := toml.Decode(string(data), &doc); derr != nil {
 		return nil, parseError(path, derr)
 	}
-	f := &ExistingFile{Path: path, Exists: true, Content: data}
+	f := &ExistingFile{Path: path, Exists: true, Content: data, Loose: isLoose(path)}
 	if start, end, ok := locateToken(data); ok {
 		// The line that was found has to be the token the parser sees.
 		var v struct {

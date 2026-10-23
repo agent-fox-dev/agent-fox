@@ -395,3 +395,36 @@ func TestServiceDocumentsReachTheResultAsReceivedUnknownFieldsIncluded_TS_16_44(
 		t.Errorf("result = %v, want the document as served: %v", got, served)
 	}
 }
+
+// TestNoClientCommandHasADefaultTimeout_TS_16_39 verifies the last bullet of 16-REQ-6.3 for every client
+// command: the help of a flag that has a default says so, and the help of --timeout says it only for the loops.
+// Verifies: 16-REQ-6.3
+func TestNoClientCommandHasADefaultTimeout_TS_16_39(t *testing.T) {
+	timeoutLine := func(text string) string {
+		for _, line := range strings.Split(text, "\n") {
+			if strings.Contains(line, "--timeout") && strings.Contains(line, "no limit") {
+				return line
+			}
+		}
+		return ""
+	}
+	for _, path := range []string{"login", "workspace list", "workspace subscribe", "workspace get", "workspace unsubscribe",
+		"jobs list", "jobs get", "jobs watch", "jobs cancel", "jobs answer", "jobs retry"} {
+		code, stdout, _ := rawRun(t, "", append([]string{"help"}, strings.Fields(path)...)...)
+		line := timeoutLine(stdout)
+		if code != 0 || line == "" || strings.Contains(line, "(default") {
+			t.Errorf("%s: exit %d, the --timeout line is %q, want one without a default", path, code, line)
+		}
+	}
+	for _, cmd := range []string{"triage", "fix"} {
+		_, stdout, _ := rawRun(t, "", "help", cmd)
+		_, service, found := strings.Cut(stdout, "Service mode:")
+		line := timeoutLine(service)
+		if !found || line == "" || strings.Contains(line, "(default") {
+			t.Errorf("%s in service mode: the --timeout line is %q, want one without a default", cmd, line)
+		}
+		if loop := timeoutLine(stdout); !strings.Contains(loop, "(default") {
+			t.Errorf("%s as a loop: the --timeout line is %q, want the default of the loop", cmd, loop)
+		}
+	}
+}

@@ -353,10 +353,11 @@ func TestALocalTriageRunsAsBeforeAndSuggestsALocalFix_TS_16_80(t *testing.T) {
 	}
 }
 
-// TestWatchingAJobResumesAfterADroppedStreamAndDeliversEveryEventOnce_TS_16_81 verifies TS-16-81
-// and 16-PATH-6.
-// Verifies: 16-PATH-6, 16-REQ-9.8, 16-REQ-9.3
-func TestWatchingAJobResumesAfterADroppedStreamAndDeliversEveryEventOnce_TS_16_81(t *testing.T) {
+// droppedStreamService is a service of the job j whose stream is cut after the events 1 to 3, repeats the
+// event 3 first when it is asked from there, and ends with the job at rest at event 5. It returns the service
+// and a function that gives the values of since that its streams were asked for.
+func droppedStreamService(t *testing.T) (*fakeService, func() []string) {
+	t.Helper()
 	frame := func(seq int) string {
 		typ := "step"
 		data := `{"n":` + strconv.Itoa(seq) + `}`
@@ -399,6 +400,18 @@ func TestWatchingAJobResumesAfterADroppedStreamAndDeliversEveryEventOnce_TS_16_8
 			answering(200, `{"id":"j","state":"`+state+`","result":`+map[bool]string{true: `{"status":"done","exit_code":0,"summary":"ok","error":null}`, false: `null`}[state == "done"]+`,"attempts":[{"n":1,"state":"`+attempt+`"}]}`)(w, r)
 		}
 	})
+	return svc, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(asked)
+	}
+}
+
+// TestWatchingAJobResumesAfterADroppedStreamAndDeliversEveryEventOnce_TS_16_81 verifies TS-16-81
+// and 16-PATH-6.
+// Verifies: 16-PATH-6, 16-REQ-9.8, 16-REQ-9.3
+func TestWatchingAJobResumesAfterADroppedStreamAndDeliversEveryEventOnce_TS_16_81(t *testing.T) {
+	svc, asked := droppedStreamService(t)
 	clk := afclock.New(time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC))
 	useClock(t, clk)
 	emitted := filepath.Join(t.TempDir(), "events.jsonl")
@@ -406,10 +419,8 @@ func TestWatchingAJobResumesAfterADroppedStreamAndDeliversEveryEventOnce_TS_16_8
 	if res.code != 0 || field(res.env, "status") != "done" {
 		t.Fatalf("exit %d, %s", res.code, res.message())
 	}
-	mu.Lock()
-	defer mu.Unlock()
-	if !slices.Equal(asked, []string{"0", "3"}) {
-		t.Errorf("the streams were asked for since=%v, want 0 and then 3", asked)
+	if got := asked(); !slices.Equal(got, []string{"0", "3"}) {
+		t.Errorf("the streams were asked for since=%v, want 0 and then 3", got)
 	}
 	if got := clk.Sleeps(); !slices.Equal(got, []time.Duration{time.Second}) {
 		t.Errorf("sleeps = %v, want one second before the second try", got)

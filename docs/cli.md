@@ -54,7 +54,7 @@ af --schema
   (`triage`, `gate run`). The shell picks the longest registered path that
   matches the words before the first flag. The path is the envelope's `tool`.
 - Flags may come before or after the positional argument (`af fix ./bug.md
-  --dir repo` and `af fix --dir repo ./bug.md` are the same), as `--flag
+  --local --dir repo` and `af fix --local --dir repo ./bug.md` are the same), as `--flag
   value` or `--flag=value`. `--` ends the flags. A flag that takes a value
   takes the next word whatever it looks like.
 - A command takes at most one positional argument unless it declares
@@ -1666,7 +1666,11 @@ event stream lasts at most two minutes, or the time `--timeout` leaves if that i
 answer is read; a redirect is not followed and no request is sent to its target, so the credential
 reaches no host but the server's. `--timeout` has no default limit on any client command. The credential
 and the token of a workspace are in no output: not on stdout or stderr, not in the `--output` file, not in
-the events or `--emit-events`, whatever the service repeats in its answers (the shell takes them out).
+the events or `--emit-events`, whatever the service repeats in its answers: the shell takes a registered secret out of the envelope, its
+copies and every event, wherever it stands. A value shorter than 8 bytes is not taken out, since it would be in ordinary
+words, and no credential is that short. The client uses the standard proxy variables of Go (`HTTP_PROXY`,
+`HTTPS_PROXY`, `NO_PROXY`), as the service does for its calls to hub: behind a proxy for a plain `http` server, the
+proxy sees the request.
 
 **Answers.** The service's documents are carried into the results as received, so fields that `af` does
 not know survive. A failure is mapped by the status of the answer:

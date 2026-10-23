@@ -164,6 +164,29 @@ func (e *localEnv) runFiles(env map[string]any) []string {
 	return names
 }
 
+// eventLines are the events of the run directory of an envelope, in order, without what changes from one run
+// to the next (times, the run id, the directory) and without the argv of run_start, which has --local in one.
+func (e *localEnv) eventLines(env map[string]any) []string {
+	e.t.Helper()
+	id, _ := env["run_id"].(string)
+	data, err := os.ReadFile(filepath.Join(e.dir, ".agent-fox", "run", id, "events.jsonl"))
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	var lines []string
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var ev map[string]any
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			e.t.Fatal(err)
+		}
+		if ev["type"] == "run_start" {
+			delete(ev["data"].(map[string]any), "argv")
+		}
+		lines = append(lines, normalized(e.t, ev, e.dir))
+	}
+	return lines
+}
+
 // eventTypes are the types of the events of the run directory of an envelope, in order.
 func (e *localEnv) eventTypes(env map[string]any) []string {
 	e.t.Helper()
@@ -249,8 +272,11 @@ func TestLocalModeBehavesAsBeforeTheSpecEvenWithAFURLNamingAServiceThatMustNotBe
 	if b, a := before.runFiles(beforeEnv), after.runFiles(afterEnv); !slices.Equal(b, a) {
 		t.Errorf("the run directory holds %v before and %v after", b, a)
 	}
-	if b, a := before.eventTypes(beforeEnv), after.eventTypes(afterEnv); !slices.Equal(b, a) {
-		t.Errorf("the events are %v before and %v after", b, a)
+	if b, a := before.eventLines(beforeEnv), after.eventLines(afterEnv); !slices.Equal(b, a) {
+		t.Errorf("the events differ:\nbefore: %q\nafter:  %q", b, a)
+	}
+	if types := after.eventTypes(afterEnv); len(types) < 3 || types[0] != "run_start" || types[len(types)-1] != "run_end" {
+		t.Errorf("the events are %v, want a run from run_start to run_end", types)
 	}
 	if n := connections.Load(); n != 0 {
 		t.Errorf("%d connections were made to the service named by AF_URL", n)
@@ -347,6 +373,42 @@ func TestAnInProcessInvocationOfTheLoopsWithoutLocalStillRunsAndNeverContactsASe
 		if res := afRun(t, "", cmd, adir, "--dir", dir); res.code != 2 || !strings.Contains(res.message(), "choose where the run goes") {
 			t.Errorf("%s through the binary: exit %d, message %q, want the no-mode usage error", cmd, res.code, res.message())
 		}
+	}
+	if n := connections.Load(); n != 0 {
+		t.Errorf("%d connections were made to the service named by AF_URL", n)
+	}
+}
+
+// TestAFixThroughTheHookIsTheLoopAsBeforeTheSpec_TS_16_12 verifies TS-16-12 for af fix: the same fix, run
+// through a shell with no hook and through the binary's shell with --local, ends the same way, with the
+// same envelope and run directory. The fix is refused by its preflight (the working tree is not clean), which
+// is the first thing the loop does after the forge has been read.
+// Verifies: 16-REQ-2.4
+func TestAFixThroughTheHookIsTheLoopAsBeforeTheSpec_TS_16_12(t *testing.T) {
+	addr, connections := countingListener(t)
+	t.Setenv("AF_URL", "http://"+addr)
+	run := func(app *toolio.App, extra ...string) (*localEnv, int, map[string]any) {
+		e := newLocalEnv(t, app)
+		if err := os.WriteFile(filepath.Join(e.dir, "dirty.txt"), []byte("not committed\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		args := append([]string{"fix", e.forge.IssueURL(7), "--dir", e.dir, "--sandbox", "local", "--brain", "scripted", "--script", scriptOf(t, diagnosis("confirmed"))}, extra...)
+		code, env := e.run("", args...)
+		return e, code, env
+	}
+	before, beforeCode, beforeEnv := run(afcmd.New(&afcmd.Config{}))
+	after, afterCode, afterEnv := run(nil, "--local")
+	if beforeCode != 1 || afterCode != beforeCode || field(beforeEnv, "error", "category") != "preflight" {
+		t.Fatalf("exit codes %d before and %d after, category %v, want both 1 and preflight", beforeCode, afterCode, field(beforeEnv, "error", "category"))
+	}
+	if b, a := normalized(t, beforeEnv, before.dir), normalized(t, afterEnv, after.dir); b != a {
+		t.Errorf("the envelope differs:\nbefore: %s\nafter:  %s", b, a)
+	}
+	if b, a := before.eventLines(beforeEnv), after.eventLines(afterEnv); !slices.Equal(b, a) {
+		t.Errorf("the events differ:\nbefore: %q\nafter:  %q", b, a)
+	}
+	if b, a := before.runFiles(beforeEnv), after.runFiles(afterEnv); !slices.Equal(b, a) {
+		t.Errorf("the run directory holds %v before and %v after", b, a)
 	}
 	if n := connections.Load(); n != 0 {
 		t.Errorf("%d connections were made to the service named by AF_URL", n)

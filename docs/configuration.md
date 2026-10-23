@@ -238,7 +238,10 @@ token = "the credential"
 of the `token` line, as a TOML basic string, leaving every other byte as it was. It refuses a file whose `token` is not a
 one-line `token = "…"` or `token = '…'` before any table. On Unix a file with a group or other permission bit set raises the
 warning `credential_file_permissions`; the command goes on. The credential is never in an envelope, an event or a message,
-nor is the token of a workspace that `af workspace subscribe` hands over. The commands are in [cli.md](cli.md#the-client-of-the-agent-fox-service).
+nor is the token of a workspace that `af workspace subscribe` hands over, as long as it is 8 bytes or more (a shorter value
+would be in ordinary words and is not taken out). The standard proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`) are
+honoured by the requests of the client, as they are by the calls of the service to hub: behind a proxy, a plain `http` server's
+requests are seen by the proxy. The commands are in [cli.md](cli.md#the-client-of-the-agent-fox-service).
 
 ## The agent-fox service
 

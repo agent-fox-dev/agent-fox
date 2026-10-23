@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/agent-fox-dev/agentfox/internal/afcmd"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -46,6 +47,8 @@ func registerClient(app *toolio.App) {
 		// The result of a loop is its own, and in service mode it is the job result.
 		if loop := app.Command(name); loop != nil {
 			loop.ResultSchema = oneOfSchemas(loop.ResultSchema, resultSchema("job_result"))
+			// The synopsis of the loop is the one of the local mode.
+			loop.Usage = strings.Replace(loop.Usage, "<issue|file|text|-> ", "<issue|file|text|-> --local ", 1)
 		}
 	}
 	registerLogin(app)
