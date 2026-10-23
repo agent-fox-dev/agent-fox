@@ -133,7 +133,9 @@ func TestTheMakefileInstallsOnlyAfSkills_TS_08_67(t *testing.T) {
 	recipes := map[string]string{}
 	var current string
 	for _, line := range strings.Split(string(data), "\n") {
-		if name, ok := strings.CutSuffix(line, ":"); ok && !strings.HasPrefix(line, "\t") && !strings.Contains(name, " ") {
+		// A target line may end in the help text that make help prints.
+		rule, _, _ := strings.Cut(line, " ##")
+		if name, ok := strings.CutSuffix(rule, ":"); ok && !strings.HasPrefix(line, "\t") && !strings.Contains(name, " ") {
 			current = name
 			continue
 		}

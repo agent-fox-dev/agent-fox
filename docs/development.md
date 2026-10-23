@@ -8,10 +8,16 @@ what a change to it has to leave true. The rules for every coding session are in
 ## Building and checking
 
 ```bash
-make check      # gofmt + go vet + all tests: the command to run before a commit
+make help       # every target, with a line on each
+make check      # gofmt + go vet + golangci-lint + the short tests: the command to run before a commit
 make build      # go build ./..., and bin/af and bin/agent-fox
 make doc        # Go package docs of the public packages, under docs/generated
 ```
+
+`make check-release` is `make check` with the full tests (`go test` without `-short`). It is
+for a person to run before a release or a merge, and is not part of an agent session.
+`make lint` runs golangci-lint with the configuration in `.golangci.yml`, and is skipped,
+with a message, when golangci-lint is not installed.
 
 `make check` needs no network, no token and no API key. The tests build their
 own git repositories in temporary directories, with an identity and a
