@@ -337,7 +337,7 @@
       "done_when": [
         "a no-mode `af fix <url>` exits 2 before any forge read"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 8,

@@ -82,6 +82,15 @@ type App struct {
 	// written, with its kind and its data, in the order they were written. It is called by the goroutine
 	// that records, with no lock held.
 	LedgerSink func(kind string, data json.RawMessage)
+	// Mode, when it is set, is asked once the words have named a command, before the flags are
+	// parsed, the input is resolved, a forge client is built, a run directory is made or anything
+	// is sent. It is given the command the words matched and the words after its path, and
+	// answers with the command to run and the words to parse for it, or with the failure to end the
+	// invocation with: the envelope of a refusal is that of any invocation that is refused before its
+	// command runs, and honours --output and --emit-events. The invocation's argv stays what
+	// was received. It is for the af binary, which chooses between a loop on this machine and a
+	// job on a service; a caller that runs the commands in its own process leaves it nil.
+	Mode func(cmd *Command, words []string) (chosen *Command, parse []string, failure *Failure)
 	// Target, when it is valid (a host included), is the repository every command that
 	// uses a forge works on, whatever the input: the forge client is built for it, in
 	// place of --repo and the origin of --dir, and an issue URL on another repository is
@@ -193,6 +202,7 @@ type Run struct {
 	sideEffects []SideEffect
 	next        []Next
 	usage       Usage
+	inputInfo   *InputInfo // set by SetInput
 }
 
 // Warn records a warning. The code matches ^[a-z][a-z0-9_]*$. A warning
@@ -221,6 +231,15 @@ func (r *Run) Emit(typ string, data any) {
 	if r.events != nil {
 		r.events.emit(typ, data)
 	}
+}
+
+// SetInput says what the input of the command was, for a command that reads its own and has
+// none declared: the kind, where it came from (the URL, or the absolute path of a file, else "")
+// and whether it was cut. The envelope reports it as its input.
+func (r *Run) SetInput(kind InputKind, origin string, truncated bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.inputInfo = &InputInfo{Kind: kind, Origin: origin, Truncated: truncated}
 }
 
 // Artifact records something the run produced.
@@ -275,6 +294,9 @@ func (r *Run) collect(env *Envelope) {
 	env.SideEffects = slices.Clone(r.sideEffects)
 	env.Next = slices.Clone(r.next)
 	env.Usage = r.usage
+	if r.inputInfo != nil {
+		env.Input = *r.inputInfo
+	}
 }
 
 // Register adds a command to the app.
@@ -315,6 +337,18 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 		inv := a.newInvocation(stdout, stderr, a.name(), started)
 		inv.env.fail(&Failure{Category: CategoryUsage, Message: a.unknownCommand(words)})
 		return inv.finish()
+	}
+	if a.Mode != nil {
+		chosen, parseWords, failure := a.Mode(cmd, rest)
+		if failure != nil {
+			// The flags the matched command knows are read so that --output and --emit-events are honoured.
+			values, _, _ := parse(cmd, rest)
+			inv := a.newInvocation(stdout, stderr, cmd.Path, started)
+			inv.setup(cmd, words, values, nil)
+			inv.env.fail(failure)
+			return inv.finish()
+		}
+		cmd, rest = chosen, parseWords
 	}
 
 	inv := a.newInvocation(stdout, stderr, cmd.Path, started)
