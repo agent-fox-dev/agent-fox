@@ -930,3 +930,73 @@ func TestALabelTakenOffAndPutBackIsNetOfTheAttempt(t *testing.T) {
 		t.Errorf("labels = %v, want bug and triaged on the issue", e.issueNow().Labels)
 	}
 }
+
+// TestAnIssueClosedCancelTakesOnlyTheWorkersInProgressOff_TS_18_61 verifies TS-18-61: a running attempt whose job is cancelled
+// because its issue was closed releases its lease and takes off the in-progress it set, and puts no label back, sets no
+// status label and posts no comment; an attempt stopped before its loop ran says that the issue was closed.
+// Verifies: 18-REQ-9.1
+func TestAnIssueClosedCancelTakesOnlyTheWorkersInProgressOff_TS_18_61(t *testing.T) {
+	t.Run("a running loop", func(t *testing.T) {
+		marker := filepath.Join(t.TempDir(), "begun")
+		e := loopEnv(t, blockFiles(marker), nil, nil, blockStep())
+		e.hub.AddIssue(slug, fakehub.Issue{Number: 43, Title: "Greeting is wrong", Body: "x", Labels: []string{"af:ready"}})
+		req := e.request(jobs.KindFix, issueInput("43"), func(r *jobs.Request) { r.RequestLabel = "af:fix" })
+		begun := func() bool { _, err := os.Stat(marker); return err == nil }
+
+		res, err, took, _ := runUntil(t, e, req, begun, jobs.ErrIssueClosed)
+
+		if err != nil {
+			t.Fatalf("error = %v, want a result", err)
+		}
+		if took > 60*time.Second {
+			t.Errorf("the attempt returned %v after the cancel, want within the grace", took)
+		}
+		issue, _ := e.hub.IssueOf(slug, 43)
+		if !slices.Equal(issue.Labels, []string{"af:ready"}) || len(issue.Comments) != 0 {
+			t.Errorf("issue 43 has the labels %v and %d comments, want in-progress off, nothing put back and no comment", issue.Labels, len(issue.Comments))
+		}
+		adds := 0
+		for _, r := range e.hub.RequestsTo("POST", issue43Path+"/labels") {
+			if !strings.Contains(string(r.Body), "af:in-progress") {
+				adds++
+			}
+		}
+		if adds != 0 {
+			t.Errorf("%d label additions other than the mark, want none", adds)
+		}
+		if len(res.LabelsSet) != 0 || !slices.Equal(res.LabelsRemoved, []string{"af:in-progress"}) {
+			t.Errorf("the result sets %v and removes %v, want nothing set and af:in-progress removed", res.LabelsSet, res.LabelsRemoved)
+		}
+		if leases := e.hub.Leases(); len(leases) != 1 || !leases[0].Released {
+			t.Errorf("leases = %+v, want the one that was held released", leases)
+		}
+	})
+	t.Run("a cancel before the loop starts", func(t *testing.T) {
+		e := loopEnv(t, fixFiles, nil, nil, fixSteps()...)
+		e.hub.AddIssue(slug, fakehub.Issue{Number: 43, Title: "Greeting is wrong", Body: "x", Labels: []string{"af:ready"}})
+		e.hub.Inject("", "/git/acme.git", fakehub.Fault{Delay: 60 * time.Second})
+		req := e.request(jobs.KindFix, issueInput("43"), func(r *jobs.Request) { r.RequestLabel = "af:fix" })
+		marked := false
+		cloning := func() bool {
+			if !marked && len(e.hub.RequestsTo("POST", issue43Path+"/labels")) > 0 {
+				time.Sleep(300 * time.Millisecond)
+				marked = true
+			}
+			return marked
+		}
+
+		res, err, _, _ := runUntil(t, e, req, cloning, jobs.ErrIssueClosed)
+
+		if err != nil {
+			t.Fatalf("error = %v, want a result", err)
+		}
+		category, message, _, _ := errorOf(envelope(t, res))
+		if category != "cancelled" || !strings.Contains(message, "issue was closed") {
+			t.Errorf("envelope %s, want category cancelled saying that the issue was closed", res.Envelope)
+		}
+		issue, _ := e.hub.IssueOf(slug, 43)
+		if !slices.Equal(issue.Labels, []string{"af:ready"}) {
+			t.Errorf("issue 43 has the labels %v, want in-progress off and nothing put back", issue.Labels)
+		}
+	})
+}

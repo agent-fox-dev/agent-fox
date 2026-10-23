@@ -197,7 +197,7 @@ func (r *Runner) finish(ctx context.Context, a *attempt, out *outcome) (jobs.Res
 	}
 	work, cancelWork := context.WithTimeout(context.WithoutCancel(ctx), bound)
 	defer cancelWork()
-	if how == stoppedByCancel {
+	if how.cancel() {
 		if len(out.result.Envelope) == 0 {
 			*out = *r.cancelled(a, context.Cause(ctx))
 		}

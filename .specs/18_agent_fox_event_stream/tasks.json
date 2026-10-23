@@ -192,7 +192,7 @@
       "done_when": [
         "spec 17's cleanup tests still pass for the person's cancel and unsubscribe causes"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

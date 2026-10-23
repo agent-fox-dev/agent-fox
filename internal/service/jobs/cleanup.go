@@ -259,9 +259,9 @@ func (s *Store) MarkCleanup(ctx context.Context, id string) (bool, error) {
 func (s *Store) CleanupRequest(ctx context.Context, id string) (CleanupRequest, bool, error) {
 	req := CleanupRequest{JobID: id}
 	var issue sql.NullInt64
-	var label, set, cleanup sql.NullString
-	err := s.db.QueryRowContext(ctx, "SELECT workspace, issue, request_label, labels_set, cleanup FROM af_jobs WHERE id = ?", id).
-		Scan(&req.Workspace, &issue, &label, &set, &cleanup)
+	var label, set, cleanup, cause sql.NullString
+	err := s.db.QueryRowContext(ctx, "SELECT workspace, issue, request_label, labels_set, cleanup, cancel_cause FROM af_jobs WHERE id = ?", id).
+		Scan(&req.Workspace, &issue, &label, &set, &cleanup, &cause)
 	if errors.Is(err, sql.ErrNoRows) {
 		return req, false, nil
 	}
@@ -272,6 +272,9 @@ func (s *Store) CleanupRequest(ctx context.Context, id string) (CleanupRequest, 
 		return req, false, nil
 	}
 	req.Issue, req.RequestLabel = issue.Int64, label.String
+	if cause.String == causeName(ErrIssueClosed) {
+		req.RequestLabel = "" // nothing is put back on a closed issue: the try only removes
+	}
 	if err := decode("labels_set", set, &req.LabelsSet); err != nil {
 		return req, false, fmt.Errorf("job %s: %w", id, err)
 	}

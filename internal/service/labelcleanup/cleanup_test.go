@@ -978,3 +978,128 @@ func TestACleanupFailureFailsNoCancelNoOtherJobAndNoLogHoldsThePAT_TS_17_49(t *t
 		}
 	}
 }
+
+// labelAdds are the label additions hub received for issue n.
+func (e *env) labelAdds(n int) int {
+	adds := 0
+	for _, w := range e.labelWrites(n) {
+		if strings.HasPrefix(w, "POST") {
+			adds++
+		}
+	}
+	return adds
+}
+
+// comments are the comments hub received for issue n.
+func (e *env) comments(n int) int {
+	return len(e.Hub.RequestsTo("POST", fmt.Sprintf("/api/v1/workspaces/widgets/issues/%d/comments", n)))
+}
+
+// TestAnIssueClosedCleanupRemovesItsJobsStatusLabelsAndLeavesTheRest_TS_18_62 verifies TS-18-62.
+// Verifies: 18-REQ-9.2, 18-REQ-9.4
+func TestAnIssueClosedCleanupRemovesItsJobsStatusLabelsAndLeavesTheRest_TS_18_62(t *testing.T) {
+	t.Run("a blocked triage job", func(t *testing.T) {
+		e := newEnv(t, needsHuman())
+		e.issue(43, "af:needs-human", "af:landed")
+		e.start()
+		triage := e.fromLabel(jobs.KindTriage, 43)
+		e.waitState(triage.ID, jobs.StateBlocked)
+		e.Hub.Delay("/api/v1/workspaces/widgets/issues/43", 200*time.Millisecond)
+		if _, err := e.Svc.CancelIssue(ctx, "widgets", 43); err != nil {
+			t.Fatal(err)
+		}
+		if c := cleanupOf(e.get(triage.ID)); c != "pending" {
+			t.Errorf("right after the cancel the cleanup is %q, want pending", c)
+		}
+		if d := e.waitCleanup(triage.ID); cleanupOf(d) != "done" || d.Labels.Restore != nil {
+			t.Errorf("labels %+v, want cleanup done and restore null", d.Labels)
+		}
+		if got := e.labelsOf(43); !slices.Equal(got, []string{"af:landed"}) {
+			t.Errorf("issue 43 carries %v, want af:needs-human removed and af:landed kept", got)
+		}
+	})
+	t.Run("an attempt left by a shutdown", func(t *testing.T) {
+		e := newEnv(t, fakerunner.Block(fakerunner.Done()))
+		e.issue(44, "af:in-progress")
+		e.start()
+		job := e.fromLabel(jobs.KindFix, 44)
+		waitFor(t, "the call", func() bool { return len(e.Runner.Calls()) == 1 })
+		if err := e.Svc.Close(); err != nil {
+			t.Fatal(err)
+		}
+		e.Svc = e.service(fakerunner.New())
+		if _, err := e.Svc.CancelIssue(ctx, "widgets", 44); err != nil {
+			t.Fatal(err)
+		}
+		if d := e.waitCleanup(job.ID); cleanupOf(d) != "done" {
+			t.Errorf("cleanup %s, want done", cleanupOf(d))
+		}
+		if got := e.labelsOf(44); len(got) != 0 || e.labelAdds(44) != 0 {
+			t.Errorf("issue 44 carries %v after %d additions, want in-progress removed and nothing added", got, e.labelAdds(44))
+		}
+	})
+	t.Run("a refusal ends it label_not_set", func(t *testing.T) {
+		e := newEnv(t, needsHuman())
+		e.issue(45, "af:needs-human")
+		e.start()
+		job := e.fromLabel(jobs.KindFix, 45)
+		e.waitState(job.ID, jobs.StateBlocked)
+		e.Hub.Inject("DELETE", "/api/v1/workspaces/widgets/issues/45/labels/af:needs-human", fakehub.Fault{Status: 403})
+		if _, err := e.Svc.CancelIssue(ctx, "widgets", 45); err != nil {
+			t.Fatal(err)
+		}
+		if d := e.waitCleanup(job.ID); cleanupOf(d) != "label_not_set" {
+			t.Errorf("cleanup %s, want label_not_set as agent_fox_label_protocol R5 says", cleanupOf(d))
+		}
+	})
+}
+
+// TestAnIssueClosedCancelAddsNothingToTheIssue_TS_18_63 verifies TS-18-63, for a running job (whose runner reported no
+// session), a blocked job and a queued one.
+// Verifies: 18-REQ-9.3
+func TestAnIssueClosedCancelAddsNothingToTheIssue_TS_18_63(t *testing.T) {
+	e := newEnv(t, fakerunner.Block(fakerunner.Step{}), needsHuman())
+	e.issue(50, "af:in-progress")
+	e.issue(51, "af:needs-human")
+	e.issue(52)
+	e.start()
+	running := e.fromLabel(jobs.KindFix, 50)
+	waitFor(t, "the running job", func() bool { return len(e.Runner.Calls()) == 1 })
+	queued := e.fromLabel(jobs.KindFix, 52) // behind the running one
+	blocked := e.fromLabel(jobs.KindTriage, 51)
+	for _, n := range []int64{51, 52, 50} {
+		if n == 51 {
+			// The triage job of 51 runs once the fix of 50 has gone; it is cancelled after it blocks.
+			continue
+		}
+		if _, err := e.Svc.CancelIssue(ctx, "widgets", n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.waitState(blocked.ID, jobs.StateBlocked)
+	if _, err := e.Svc.CancelIssue(ctx, "widgets", 51); err != nil {
+		t.Fatal(err)
+	}
+	for _, j := range []jobs.Doc{running, queued, blocked} {
+		d := e.waitCleanup(j.ID)
+		if d.Labels.Restore != nil || causeOf(d) != "issue_closed" {
+			t.Errorf("%d: labels %+v and cause %q, want restore null and issue_closed", *d.Issue, d.Labels, causeOf(d))
+		}
+	}
+	for _, n := range []int{50, 51, 52} {
+		if e.labelAdds(n) != 0 || e.comments(n) != 0 {
+			t.Errorf("issue %d got %d label additions and %d comments, want none", n, e.labelAdds(n), e.comments(n))
+		}
+	}
+	if got := e.labelsOf(50); len(got) != 0 {
+		t.Errorf("issue 50 carries %v, want in-progress removed", got)
+	}
+}
+
+// causeOf is the job's cancel_cause, "" when it is null.
+func causeOf(d jobs.Doc) string {
+	if d.CancelCause == nil {
+		return ""
+	}
+	return *d.CancelCause
+}

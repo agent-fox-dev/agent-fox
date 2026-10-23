@@ -188,3 +188,22 @@ func TestTheEnvelopeOfAnIssueClosedAttemptSaysTheIssueClosed_TS_18_60(t *testing
 		r.ReleaseAll()
 	})
 }
+
+// TestALayerWithoutAForgeWritesNothingForAnIssueClosedCancel_TS_18_64 verifies TS-18-64.
+// Verifies: 18-REQ-9.5
+func TestALayerWithoutAForgeWritesNothingForAnIssueClosedCancel_TS_18_64(t *testing.T) {
+	e := newEnv(t, withoutEnqueue())
+	job := e.createFromLabel("widgets", 42, "af:fix")
+	before := e.Hub.Total()
+	if _, err := e.Svc.CancelIssue(ctx, "widgets", 42); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	d := e.get(job.ID)
+	if d.State != jobs.StateCancelled || causeOf(d) != "issue_closed" || cleanupOf(d) != "" {
+		t.Errorf("the job is %s with cause %q and cleanup %q, want cancelled, issue_closed and no cleanup", d.State, causeOf(d), cleanupOf(d))
+	}
+	if e.Hub.Total() != before {
+		t.Errorf("%d requests reached hub, want none", e.Hub.Total()-before)
+	}
+}
