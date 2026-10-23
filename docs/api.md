@@ -251,17 +251,19 @@ What becomes of a label on a listed issue is decided by the first of these that 
 2. **Held.** A job the poll made for the label was cancelled while one of its attempts was in a runner (an unsubscribe
    included), and the worker's cancel cleanup put the label back on the issue ([cancel](#cancel)). The label is left in
    place until a person asks again: the service does nothing about it until a complete listing of the label that does not
-   contain the issue was requested at least 5 minutes after the runner of the job returned, which releases the hold, so
-   removing the label and adding it back is a new request. The API is the immediate way to ask again. A job cancelled
+   contain the issue was requested at least 5 minutes after the poll first saw that no runner of the job was in progress,
+   which releases the hold, so removing the label and adding it back is a new request. The API is the immediate way to ask again. A job cancelled
    while it was queued, while it waited out a backoff or while it was blocked holds nothing.
 3. **Already taken.** The removal of the label from the issue failed after the job was made (or after a label that the poll absorbed
    was not removed), so the removal is still owed: the label is removed again, and no second job is made. A removal that hub
    answers with not found is done.
 4. **A new request.** The job is made, the poll's record of it is written, and the label is removed.
 
-A request is therefore never run twice by the poll: a label on an issue the service is already working on is absorbed, a
-label it has already taken is removed and not taken again, and a label the service put back is held. The poll's records
-are kept in the state file until nothing is owed and nothing holds, and outlive the retention purge of their jobs.
+So the poll does not run a request twice: a label on an issue the service is already working on is absorbed, a label it has
+already taken is removed and not taken again while its removal is owed, and a label the service put back is held. The poll's
+records are kept in the state file until nothing is owed and nothing holds, and outlive the retention purge of their jobs. It
+promises no more than its records know: once a removal has been confirmed and its job has ended, the record is dropped, so a
+forge that still lists the label for a moment after it was removed can yield a second job.
 
 ### The job document
 

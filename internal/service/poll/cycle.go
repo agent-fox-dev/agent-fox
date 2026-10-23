@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/agent-fox-dev/aflib/issuex"
@@ -17,9 +18,8 @@ const listLimit = 100
 
 // listing is what a cycle found under one request label.
 type listing struct {
-	Workspace string
-	Kind      jobs.Kind
-	Label     string
+	Kind  jobs.Kind
+	Label string
 	// Issues are the numbers of the open issues that carry the label, in ascending order.
 	Issues []int
 	// Complete says that the listing holds every issue that carries the label: a listing that is not may leave out
@@ -33,7 +33,6 @@ type listing struct {
 type cycleRun struct {
 	s     *Supervisor
 	slug  string
-	pat   string
 	repo  issuex.Repo
 	forge issuex.Client
 	st    *wsState
@@ -100,7 +99,7 @@ func (s *Supervisor) Cycle(ctx context.Context, slug string) (next time.Duration
 		s.report(ctx, slug, st, failure{row: rowUnavailable, operation: "read the forge repository of the workspace", err: errors.New("the forge URL of the workspace is none of a repository")})
 		return iv.every, false
 	}
-	run := &cycleRun{s: s, slug: slug, pat: pat, repo: repo, forge: s.cfg.Hub.Forge(pat, slug, repo), st: st}
+	run := &cycleRun{s: s, slug: slug, repo: repo, forge: s.cfg.Hub.Forge(pat, slug, repo), st: st}
 
 	for _, kind := range []jobs.Kind{jobs.KindTriage, jobs.KindFix} {
 		label := sub.LabelPrefix + string(kind)
@@ -112,7 +111,9 @@ func (s *Supervisor) Cycle(ctx context.Context, slug string) (next time.Duration
 		}
 		numbers := make([]int, 0, len(list.Issues))
 		for _, issue := range list.Issues {
-			numbers = append(numbers, issue.Number)
+			if asked(issue, label) {
+				numbers = append(numbers, issue.Number)
+			}
 		}
 		slices.Sort(numbers)
 		switch {
@@ -123,12 +124,19 @@ func (s *Supervisor) Cycle(ctx context.Context, slug string) (next time.Duration
 		case !list.Incomplete:
 			delete(st.incomplete, label)
 		}
-		l := &listing{Workspace: slug, Kind: kind, Label: label, Issues: numbers, Complete: !list.Incomplete, Requested: requested}
+		l := &listing{Kind: kind, Label: label, Issues: numbers, Complete: !list.Incomplete, Requested: requested}
 		if !s.handler.handle(ctx, run, l) {
 			break
 		}
 	}
 	return iv.every, false
+}
+
+// asked says that the issue is one that the listing asked for: not closed, and carrying the label, whatever its case. Hub
+// passes the filter on to the forge and the poll takes its answer for the issues of the label, but an issue that was not asked
+// for is not a request, and a hub that dropped a parameter would otherwise turn every issue of the repository into a job.
+func asked(issue issuex.Issue, label string) bool {
+	return !strings.EqualFold(issue.State, "closed") && slices.ContainsFunc(issue.Labels, func(l string) bool { return strings.EqualFold(l, label) })
 }
 
 // storeEnded ends a cycle for which the store did not give the subscription or its token. A workspace that is not

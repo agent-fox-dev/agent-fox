@@ -121,4 +121,10 @@ var migrations = []string{
 		created_at    TEXT    NOT NULL
 	);
 	CREATE INDEX af_poll_requests_by_issue ON af_poll_requests (workspace, issue, label)`,
+
+	// 6: whether the runner of an attempt was called. A claim sets an attempt running a moment before its runner is called, and a
+	// job that is cancelled in that moment never reaches a runner, so nothing puts its request label back: the label poll must
+	// tell it from a job that was cancelled while its runner held the attempt. A claim clears the mark, and the call of the runner
+	// sets it.
+	`ALTER TABLE af_attempts ADD COLUMN in_runner INTEGER NOT NULL DEFAULT 0`,
 }

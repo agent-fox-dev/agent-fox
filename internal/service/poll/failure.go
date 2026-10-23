@@ -77,7 +77,9 @@ func classify(operation string, err error, removal bool) failure {
 	case issuex.IsNotFound(err):
 		f.row, f.status = rowDenied, http.StatusNotFound
 	}
-	if removal && f.row == rowRejected {
+	// A rejection of a removal leaves it owed and goes on with the next issue, since an issue of its own cannot make the
+	// others fail; hub's 502 for a forge that refuses its credential (a rejection with a 5xx status) would fail them all.
+	if removal && f.row == rowRejected && f.status < http.StatusInternalServerError {
 		f.row = rowRemoval
 	}
 	return f

@@ -12,12 +12,8 @@ const (
 	cycleLimit = 5 * time.Minute
 )
 
-// loop is the loop of one workspace: its context, which ends it and the cycle it has in flight, and a channel that
-// closes when it has returned.
-type loop struct {
-	cancel context.CancelFunc
-	done   chan struct{}
-}
+// loop is the loop of one workspace: the function that ends it and the cycle it has in flight.
+type loop struct{ cancel context.CancelFunc }
 
 // Start reads the subscriptions and starts one loop for each workspace that is subscribed, and then reads them every
 // scan period, so that a workspace that is subscribed later gets a loop and a workspace that is gone loses its loop and
@@ -92,6 +88,7 @@ func (s *Supervisor) scan(ctx context.Context) {
 		if !subscribed[slug] {
 			l.cancel()
 			delete(s.loops, slug)
+			delete(s.states, slug)
 			s.cfg.Logger.Info("the workspace is no longer subscribed, so its poll stopped", "workspace", slug)
 		}
 	}
@@ -100,12 +97,11 @@ func (s *Supervisor) scan(ctx context.Context) {
 // startLoop starts the loop of the workspace. The caller holds the lock.
 func (s *Supervisor) startLoop(ctx context.Context, slug string) {
 	ctx, cancel := context.WithCancel(ctx)
-	l := &loop{cancel: cancel, done: make(chan struct{})}
+	l := &loop{cancel: cancel}
 	s.loops[slug] = l
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		defer close(l.done)
 		s.run(ctx, slug, l)
 	}()
 	s.cfg.Logger.Info("the poll started for a workspace", "workspace", slug)

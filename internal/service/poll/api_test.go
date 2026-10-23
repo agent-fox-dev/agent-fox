@@ -2,10 +2,12 @@ package poll
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/agent-fox-dev/agentfox/internal/service/api"
@@ -121,4 +123,49 @@ func (e *env) call(method, path, body string) (int, string) {
 	defer resp.Body.Close()
 	out, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, string(out)
+}
+
+// blind is a jobs layer whose look-up of an open job finds none the first time, as if the job that makes the creator
+// lose came after the look-up; with bare, the refusal of Create is the duplicate error with no job to name.
+type blind struct {
+	Jobs
+	once sync.Once
+	bare bool
+}
+
+func (b *blind) OpenJob(ctx context.Context, workspace string, kind jobs.Kind, issue int64) (jobs.Doc, error) {
+	missed := false
+	b.once.Do(func() { missed = true })
+	if missed {
+		return jobs.Doc{}, jobs.ErrNotFound
+	}
+	return b.Jobs.OpenJob(ctx, workspace, kind, issue)
+}
+
+func (b *blind) Create(ctx context.Context, req jobs.CreateRequest) (jobs.Doc, error) {
+	doc, err := b.Jobs.Create(ctx, req)
+	if b.bare && errors.Is(err, jobs.ErrDuplicate) {
+		return jobs.Doc{}, jobs.ErrDuplicate
+	}
+	return doc, err
+}
+
+// failing is a jobs layer whose look-ups fail while the switches are on.
+type failing struct {
+	Jobs
+	standing, open atomic.Bool
+}
+
+func (f *failing) Standing(ctx context.Context, id string) (jobs.Standing, error) {
+	if f.standing.Load() {
+		return jobs.Standing{}, errors.New("the database is locked")
+	}
+	return f.Jobs.Standing(ctx, id)
+}
+
+func (f *failing) OpenJob(ctx context.Context, workspace string, kind jobs.Kind, issue int64) (jobs.Doc, error) {
+	if f.open.Load() {
+		return jobs.Doc{}, errors.New("the database is locked")
+	}
+	return f.Jobs.OpenJob(ctx, workspace, kind, issue)
 }

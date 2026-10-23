@@ -20,6 +20,17 @@ func msgAt(records []map[string]any, msg string) int {
 	return slices.IndexFunc(records, func(r map[string]any) bool { return r["msg"] == msg })
 }
 
+// recordsWith are the records with the message.
+func recordsWith(records []map[string]any, msg string) []map[string]any {
+	var out []map[string]any
+	for _, r := range records {
+		if r["msg"] == msg {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // runService runs the service in the background and returns the records it writes, the function that stops it and
 // the channel that gets its exit code.
 func runService(t *testing.T, s *setup) (logs *syncBuffer, stop func(), done chan int) {
@@ -64,6 +75,12 @@ func TestThePollStartsAfterTheJobsLayerWithOneLoopForEachSubscribedWorkspace_TS_
 
 	logs, stop, done := runService(t, s)
 	defer stop()
+	// The poll starts after the service says that it listens: its records are waited for.
+	for deadline := time.Now().Add(20 * time.Second); len(recordsWith(logs.records(t), "the poll started for a workspace")) < 2; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the poll started no loops")
+		}
+	}
 
 	records := logs.records(t)
 	queue, poll := msgAt(records, "queue started"), msgAt(records, "the label poll started")

@@ -52,22 +52,30 @@ func request(workspace string, l *listing, n int) jobs.CreateRequest {
 func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
 	recs, err := c.s.records.Find(ctx, c.slug, n, l.Label)
 	if err != nil {
-		c.s.cfg.Logger.Warn("the records of a request label could not be read, so the cycle ends and the label stays",
-			"workspace", c.slug, "issue", n, "label", l.Label, "error", err.Error())
+		c.s.report(ctx, c.slug, c.st, failure{
+			row: rowStore, operation: fmt.Sprintf("read the records of %s on the issue %d, so the label stays", l.Label, n), err: err,
+		})
 		return false
 	}
 	// A job may have been cancelled since the cycle began, and its cleanup may have put the label back: the records of
-	// this label are brought up to date once more before it is taken for a new request.
+	// this label are brought up to date once more before it is taken for a new request. If a job cannot be read, nothing
+	// is known of what became of it, and the label is not taken.
 	for i := range recs {
-		recs[i] = c.s.note(ctx, recs[i])
+		if recs[i], err = c.s.note(ctx, recs[i]); err != nil {
+			c.s.report(ctx, c.slug, c.st, failure{
+				row: rowStore, operation: fmt.Sprintf("read how the job of %s on the issue %d stands, so the label stays", l.Label, n), err: err,
+			})
+			return false
+		}
 	}
 	open, err := c.s.cfg.Jobs.OpenJob(ctx, c.slug, l.Kind, int64(n))
 	switch {
 	case err == nil:
 		return c.absorb(ctx, l, n, open.ID)
 	case !errors.Is(err, jobs.ErrNotFound):
-		c.s.cfg.Logger.Warn("the open job of an issue could not be looked up, so the cycle ends and the label stays",
-			"workspace", c.slug, "kind", l.Kind, "issue", n, "label", l.Label, "error", err.Error())
+		c.s.report(ctx, c.slug, c.st, failure{
+			row: rowJobs, operation: fmt.Sprintf("look up the open job for %s on the issue %d, so the label stays", l.Label, n), err: err,
+		})
 		return false
 	}
 	if slices.ContainsFunc(recs, func(r Record) bool { return r.Seen == SeenHolding }) {

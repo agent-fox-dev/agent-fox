@@ -147,10 +147,17 @@ func TestANewRequestMakesOneJobWithALabelSourceAndRequestLabelAndThenConsumesThe
 // Verifies: 15-REQ-5.6
 func TestADuplicateRefusalIsHandledAsAbsorbedAndExactlyOneJobExists_TS_15_34(t *testing.T) {
 	for name, tc := range map[string]struct {
-		failRemoval bool
-	}{"the label is removed": {false}, "the removal fails and is owed": {true}} {
+		failRemoval, bare bool
+	}{
+		"the label is removed":                      {false, false},
+		"the removal fails and is owed":             {true, false},
+		"a refusal that names no job":               {false, true},
+		"a refusal that names no job and a failure": {true, true},
+	} {
 		t.Run(name, func(t *testing.T) {
-			e := newEnv(t, withRunner(fakerunner.New().Then(fakerunner.Block(fakerunner.Step{}))))
+			// The look-up of the open job finds none, so that it is the refusal of Create that tells of the API job.
+			e := newEnv(t, withRunner(fakerunner.New().Then(fakerunner.Block(fakerunner.Step{}))),
+				withJobs(func(inner Jobs) Jobs { return &blind{Jobs: inner, bare: tc.bare} }))
 			// A job of the API for 42 appeared before the poll could make its own.
 			e.Hub.AddIssue(slug, fakehub.Issue{Number: 42, Labels: []string{"af:fix"}})
 			status, body := e.call("POST", "/api/v1/workspaces/"+slug+"/fix", `{"issue": 42}`)
@@ -168,6 +175,13 @@ func TestADuplicateRefusalIsHandledAsAbsorbedAndExactlyOneJobExists_TS_15_34(t *
 			}
 			if got := e.removals(); !slices.Equal(got, []string{"remove(42,af:fix)"}) {
 				t.Errorf("removals %v, want one", got)
+			}
+			wantJob := e.jobList()[0].ID
+			if tc.bare {
+				wantJob = ""
+			}
+			if infos := e.Logs.find("INFO", "absorbed"); len(infos) != 1 || infos[0]["job"] != wantJob {
+				t.Errorf("the INFO records are %v, want one for the absorbed label that names the job %q", infos, wantJob)
 			}
 			recs := e.recordsOf()
 			switch {
@@ -369,5 +383,135 @@ func TestACycleThatRacesTheDeleteOfItsWorkspaceMakesNoJobAfterTheDeleteBegan_TS_
 	}
 	if len(e.removals()) != 0 || !slices.Contains(e.labelsOf(42), "af:fix") {
 		t.Errorf("removals %v, labels %v: the label must stay after the refusal", e.removals(), e.labelsOf(42))
+	}
+}
+
+// TestARecordWhoseJobCannotBeReadEndsTheCycleAndTheLabelStays is the case that the rules must not turn into a second spend:
+// the job of a record was cancelled in a runner and its cleanup put the label back, and the read of how the job stands
+// fails. The label is not taken for a new request; the failure is logged, and the cycle ends.
+// Verifies: 15-REQ-7.1
+func TestARecordWhoseJobCannotBeReadEndsTheCycleAndTheLabelStays(t *testing.T) {
+	var flaky *failing
+	e := newEnv(t, withRunner(fakerunner.New(fakerunner.Block(cancelledResult())).Then(fakerunner.Block(fakerunner.Step{}))),
+		withJobs(func(inner Jobs) Jobs { flaky = &failing{Jobs: inner}; return flaky }))
+	e.takenByThePoll()
+	id := e.cancelRunning()
+	e.runnerReturned(id)
+	flaky.standing.Store(true)
+
+	e.cycle()
+
+	if e.jobsFor(42) != 1 || e.removalsOf(42) != 1 || !slices.Contains(e.labelsOf(42), "af:fix") {
+		t.Errorf("jobs %d, removals %d, labels %v: want no job made, no removal and the label left", e.jobsFor(42), e.removalsOf(42), e.labelsOf(42))
+	}
+	if len(e.Logs.level("WARN"))+len(e.Logs.level("ERROR")) == 0 {
+		t.Error("the failure was not logged")
+	}
+	flaky.standing.Store(false)
+	e.cycle()
+	if _, ok := e.held(42); !ok || e.jobsFor(42) != 1 {
+		t.Errorf("once the job can be read again the hold is in place: held %v, jobs %d", ok, e.jobsFor(42))
+	}
+}
+
+// TestACycleThatEndsOnAFailureOfTheJobsLayerIsNotRecoveryOfAnEarlierFailure verifies the part of 15-REQ-8.7 that the paths
+// of the rules must keep: a cycle that ends because the store or the jobs layer failed did not complete without failure, so
+// it logs no recovery, and the failure that was logged before it is not logged again when it comes back.
+// Verifies: 15-REQ-8.7
+func TestACycleThatEndsOnAFailureOfTheJobsLayerIsNotRecoveryOfAnEarlierFailure(t *testing.T) {
+	var flaky *failing
+	e := newEnv(t, withJobs(func(inner Jobs) Jobs { flaky = &failing{Jobs: inner}; return flaky }))
+	e.issue(42, "af:fix")
+	e.Hub.Inject("GET", workspacePath+"/vars/resolved", fakehub.Fault{Status: 403})
+	e.cycle() // an ERROR
+	e.Hub.Clear()
+	flaky.open.Store(true)
+
+	e.cycle() // the jobs layer fails
+
+	if n := len(e.failuresOf("INFO", "recovered")); n != 0 {
+		t.Errorf("%d records of recovery after a cycle that ended on a failure, want none", n)
+	}
+	e.Hub.Inject("GET", workspacePath+"/vars/resolved", fakehub.Fault{Status: 403})
+	e.cycle()
+	if n := len(e.failuresOf("ERROR", "does not accept the token")); n != 1 {
+		t.Errorf("%d ERROR records of the 403, want it logged once: nothing completed without a failure since", n)
+	}
+}
+
+// TestAForgeThatRefusesHubsCredentialEndsTheCycleWithAnErrorAndDoesNotGoOnToTheNextIssue is hub's 502 forge_unauthenticated,
+// which the hub client takes as a rejection since a retry cannot cure it: it is an ERROR that a person must act on, and
+// every removal that follows would fail the same, so the cycle ends with the removal owed.
+// Verifies: 15-REQ-8.5
+func TestAForgeThatRefusesHubsCredentialEndsTheCycleWithAnErrorAndDoesNotGoOnToTheNextIssue(t *testing.T) {
+	e := newEnv(t)
+	e.issue(42, "af:fix")
+	e.issue(43, "af:fix")
+	e.Hub.Inject("DELETE", removalPath(42, "af:fix"), fakehub.Fault{Status: 502,
+		Body: `{"error":{"code":502,"message":"the forge refused the token of hub","error_type":"forge_unauthenticated"}}`})
+
+	e.cycle()
+
+	if e.jobsFor(42) != 1 || e.jobsFor(43) != 0 {
+		t.Errorf("jobs for 42: %d, for 43: %d; want the one for 42 and the cycle ended before 43", e.jobsFor(42), e.jobsFor(43))
+	}
+	errs := e.failuresOf("ERROR", "")
+	if len(errs) != 1 || !strings.Contains(msgOf(errs[0]), "the forge refused the token of hub") {
+		t.Errorf("ERROR records %v, want one that carries hub's message", errs)
+	}
+	if recs := e.recordsOf(); len(recs) != 1 || !recs[0].Owed {
+		t.Errorf("records %+v, want the removal owed", recs)
+	}
+}
+
+// TestIssuesThatHubReturnsAgainstItsFilterAreLeftAlone: the poll asks hub for the open issues that carry a label, and
+// trusts the answer no further than it must. An issue that is closed, or that does not carry the label (whatever its case),
+// is not a request: a hub that dropped a parameter would otherwise turn every issue of the repository into a job.
+// Verifies: 15-REQ-4.5
+func TestIssuesThatHubReturnsAgainstItsFilterAreLeftAlone(t *testing.T) {
+	e := newEnv(t)
+	e.Hub.Inject("GET", listPath, fakehub.Fault{Status: 200, Body: `[
+		{"number": 4, "title": "closed", "state": "closed", "labels": ["af:fix"], "is_pr": false},
+		{"number": 5, "title": "a bug", "state": "open", "labels": ["bug"], "is_pr": false},
+		{"number": 6, "title": "no labels", "state": "open", "is_pr": false},
+		{"number": 7, "title": "a request", "state": "open", "labels": ["AF:Fix", "bug"], "is_pr": false}]`})
+
+	e.cycle()
+
+	var fixes []int64
+	for _, j := range e.jobList() {
+		if j.Kind == "fix" {
+			fixes = append(fixes, j.Issue.Int64)
+		}
+		if j.Kind == "triage" {
+			t.Errorf("a triage job %+v was made from issues that do not carry af:triage", j)
+		}
+	}
+	if !slices.Equal(fixes, []int64{7}) {
+		t.Errorf("fix jobs for %v, want only issue 7: the closed issue and the ones without the label are not requests", fixes)
+	}
+}
+
+// TestAPullRequestAClosedIssueAndAnIssueWithoutALabelMakeNoJobAndLoseNoLabel is TS-15-26 with the rules in place: the
+// assertion of the spec, that no job is made and no label removed, which the recorder of the test above cannot fail.
+// Verifies: 15-REQ-4.5
+func TestAPullRequestAClosedIssueAndAnIssueWithoutALabelMakeNoJobAndLoseNoLabel(t *testing.T) {
+	e := newEnv(t)
+	e.Hub.AddIssue(slug, fakehub.Issue{Number: 3, Title: "a pull request", Labels: []string{"af:fix"}, IsPR: true})
+	e.Hub.AddIssue(slug, fakehub.Issue{Number: 4, Title: "a closed issue", Labels: []string{"af:triage"}, State: "closed"})
+	e.Hub.AddIssue(slug, fakehub.Issue{Number: 5, Title: "a bug", Labels: []string{"bug"}})
+
+	e.cycle()
+
+	if jobs := e.jobList(); len(jobs) != 0 {
+		t.Errorf("jobs %+v were made", jobs)
+	}
+	if got := e.removals(); len(got) != 0 {
+		t.Errorf("removals %v were sent", got)
+	}
+	for n, label := range map[int]string{3: "af:fix", 4: "af:triage", 5: "bug"} {
+		if !slices.Contains(e.labelsOf(n), label) {
+			t.Errorf("issue %d lost %s: %v", n, label, e.labelsOf(n))
+		}
 	}
 }

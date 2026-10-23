@@ -297,6 +297,9 @@ func (s *Service) invoke(ctx context.Context, p attemptPayload) (req Request, ou
 		cancel(ErrShutdown)
 	}
 
+	if err := s.store.fails(OpInvoke); err != nil {
+		return req, out, nil, false, err
+	}
 	req, err = s.store.RunRequest(ctx, p.JobID, p.Attempt)
 	if err != nil {
 		return req, out, nil, false, err
@@ -318,6 +321,9 @@ func (s *Service) invoke(ctx context.Context, p attemptPayload) (req Request, ou
 	if why := context.Cause(rctx); why != nil {
 		out = called{err: why} // stopped before it began: the runner is not called
 	} else {
+		if err := s.store.MarkInRunner(ctx, p.JobID, p.Attempt); err != nil {
+			return req, out, nil, false, err
+		}
 		out = s.callRunner(rctx, req)
 	}
 	return req, out, context.Cause(rctx), run.overran.Load(), nil

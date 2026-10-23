@@ -2,6 +2,7 @@ package poll
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -15,9 +16,41 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
 )
 
+// The dials of the process through the default transport, which the hub client uses, are checked for the whole run of the
+// tests of the package: TestMain notes each dial, and fails the run if one of them is not on the loopback interface.
+var dials struct {
+	sync.Mutex
+	addresses []string
+}
+
+func TestMain(m *testing.M) {
+	transport := http.DefaultTransport.(*http.Transport)
+	was := transport.DialContext
+	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		dials.Lock()
+		dials.addresses = append(dials.addresses, address)
+		dials.Unlock()
+		if was != nil {
+			return was(ctx, network, address)
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, address)
+	}
+	code := m.Run()
+	dials.Lock()
+	for _, address := range dials.addresses {
+		if host, _, err := net.SplitHostPort(address); err != nil || !net.ParseIP(host).IsLoopback() {
+			fmt.Fprintf(os.Stderr, "a test of the poll dialed %s, which is not on the loopback interface\n", address)
+			code = 1
+		}
+	}
+	dials.Unlock()
+	os.Exit(code)
+}
+
 // TestEveryPollTestRunsOfflineAgainstLoopbackServers_TS_15_64 verifies TS-15-64, the guard under the rest of the tests of
-// the poll: no test file names the address of a host that is not on the loopback interface, and a cycle that makes a job,
-// absorbs a label and removes labels dials only the loopback interface, with every dial of the process checked.
+// the poll: no test file names the address of a host that is not on the loopback interface, and the dials that the tests of
+// the package make, a cycle that makes a job, absorbs a label and removes labels among them, are all on the loopback
+// interface (TestMain fails the run for one that is not).
 // Verifies: 15-REQ-10.3
 func TestEveryPollTestRunsOfflineAgainstLoopbackServers_TS_15_64(t *testing.T) {
 	files, err := filepath.Glob("*_test.go")
@@ -43,25 +76,6 @@ func TestEveryPollTestRunsOfflineAgainstLoopbackServers_TS_15_64(t *testing.T) {
 
 	e := newEnv(t)
 	t.Setenv("ANTHROPIC_API_KEY", "")
-	transport := http.DefaultTransport.(*http.Transport)
-	dialed := struct {
-		sync.Mutex
-		addresses []string
-	}{}
-	was := transport.DialContext
-	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
-		dialed.Lock()
-		dialed.addresses = append(dialed.addresses, address)
-		dialed.Unlock()
-		if host, _, err := net.SplitHostPort(address); err != nil || !net.ParseIP(host).IsLoopback() {
-			t.Errorf("the process dialed %s, which is not on the loopback interface", address)
-		}
-		if was != nil {
-			return was(ctx, network, address)
-		}
-		return (&net.Dialer{}).DialContext(ctx, network, address)
-	}
-	t.Cleanup(func() { transport.DialContext = was })
 	if u, err := url.Parse(e.Hub.URL); err != nil || !net.ParseIP(u.Hostname()).IsLoopback() {
 		t.Fatalf("the fake hub is at %s, which is not on the loopback interface", e.Hub.URL)
 	}
@@ -75,12 +89,12 @@ func TestEveryPollTestRunsOfflineAgainstLoopbackServers_TS_15_64(t *testing.T) {
 	if len(e.jobList()) == 0 || len(e.removals()) == 0 {
 		t.Errorf("jobs %v, removals %v: the cycle did nothing, so the guard proves nothing", e.jobList(), e.removals())
 	}
-	dialed.Lock()
-	defer dialed.Unlock()
-	if len(dialed.addresses) == 0 {
+	dials.Lock()
+	defer dials.Unlock()
+	if len(dials.addresses) == 0 {
 		t.Error("nothing was dialed through the default transport: the guard sees nothing")
 	}
-	for _, address := range dialed.addresses {
+	for _, address := range dials.addresses {
 		if host, _, _ := net.SplitHostPort(address); !slices.Contains([]string{"127.0.0.1", "::1"}, host) && !net.ParseIP(host).IsLoopback() {
 			t.Errorf("the process dialed %s", address)
 		}

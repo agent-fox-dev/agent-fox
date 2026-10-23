@@ -2,6 +2,7 @@ package jobs_test
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -136,5 +137,41 @@ func TestAJobCancelledByAnUnsubscribeWhileItsAttemptRunsIsCancelledInARunner(t *
 	waitFor(t, "the runner to return", func() bool { return !e.standing(job.ID).RunnerInProgress })
 	if s := e.standing(job.ID); s.State != jobs.StateCancelled || !s.CancelledInRunner {
 		t.Errorf("a job cancelled by the unsubscribe: %+v, want cancelled, and the cancel to have reached the runner", s)
+	}
+}
+
+// TestAJobCancelledAfterItsAttemptWasClaimedAndBeforeItsRunnerWasCalledIsNotCancelledInARunner is the window that the fact
+// of a cancel must not take for a runner: the attempt is running in the file, the layer has it in flight, and the job is
+// cancelled before the runner is called. The runner is never called, so nothing put the request label back, and the poll
+// must not hold a label that nothing restored.
+// Verifies: 15-REQ-9.2
+func TestAJobCancelledAfterItsAttemptWasClaimedAndBeforeItsRunnerWasCalledIsNotCancelledInARunner(t *testing.T) {
+	var e *env
+	var once sync.Once
+	var id string
+	r := fakerunner.New()
+	e = newEnv(t, withRunner(r), func(c *jobs.Config) {
+		c.StoreFault = func(op string) error {
+			if op == jobs.OpInvoke {
+				once.Do(func() {
+					if _, err := e.Svc.Cancel(ctx, id); err != nil {
+						t.Errorf("cancel: %v", err)
+					}
+				})
+			}
+			return nil
+		}
+	})
+	job := e.createFromLabel("widgets", 42, "af:fix")
+	id = job.ID
+
+	e.Start()
+	e.waitRest(id)
+
+	if len(r.Calls()) != 0 {
+		t.Fatalf("the runner was called %d times, want none: the job was cancelled before it", len(r.Calls()))
+	}
+	if s := e.standing(id); s.State != jobs.StateCancelled || s.CancelledInRunner || s.RunnerInProgress {
+		t.Errorf("a job cancelled before its runner was called: %+v, want cancelled, and the cancel not to have reached a runner", s)
 	}
 }

@@ -295,6 +295,11 @@ func (f *ForgeClient) forgeError(err error) error {
 // whatever is asked.
 const listPage = 100
 
+// maxListBody is the longest answer that a list of issues is read as. A hundred issues with bodies of the forge's longest are
+// far more than the 1 MiB of the other calls, and a list that was refused for its size would stay as long as it is, since the
+// labels on its issues are only taken off when the issues are listed.
+const maxListBody = 32 << 20
+
 // ListIssues lists the open issues that carry one label: GET …/issues?state=open&labels=<label>&limit=100, with
 // pages after the first asked for with &page=N for as long as hub's answer has a Link header that names a next
 // one. It holds at most filter.Limit issues (100 when it is 0) and leaves out what hub marks as a pull or merge
@@ -350,7 +355,7 @@ func (f *ForgeClient) listPage(ctx context.Context, label string, page int) (ite
 	var header http.Header
 	err = f.hub.send(ctx, f.pat, operation{
 		name: "list the issues", slug: f.slug, method: http.MethodGet, path: workspacePath(f.slug, "/issues") + query,
-		into: &items, header: &header,
+		into: &items, header: &header, maxBody: maxListBody,
 	})
 	if err != nil {
 		return nil, false, f.forgeError(err)

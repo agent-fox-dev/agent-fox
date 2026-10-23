@@ -215,7 +215,16 @@ func (h *Hub) listIssues(w http.ResponseWriter, r *http.Request, ws *workspace) 
 		if slices.ContainsFunc(labels, func(l string) bool { return !ws.lists.listed(issue, l) }) {
 			continue
 		}
-		matching = append(matching, issueJSON(ws.Slug, issue.Issue))
+		// An issue that is still listed after its label was removed is listed as the index of a lagging forge has it: with the
+		// label.
+		shown := issue.Issue
+		shown.Labels = slices.Clone(issue.Labels)
+		for _, l := range labels {
+			if !slices.Contains(shown.Labels, l) {
+				shown.Labels = append(shown.Labels, l)
+			}
+		}
+		matching = append(matching, issueJSON(ws.Slug, shown))
 	}
 	if page == 1 {
 		ws.lists.counted(labels)

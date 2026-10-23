@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs/fakerunner"
@@ -18,23 +19,30 @@ import (
 func TestRacingCreatorsForOneWorkspaceKindAndIssueYieldExactlyOneJob_TS_15_60(t *testing.T) {
 	for i := range 50 {
 		t.Run(fmt.Sprintf("race %d", i+1), func(t *testing.T) {
-			// The job that wins is held by the runner, so that the other creator meets it open.
-			e := newEnv(t, withRunner(fakerunner.New().Then(fakerunner.Block(fakerunner.Step{}))))
+			// The job that wins is held by the runner, so that the other creator meets it open. The cycle is held just
+			// before it makes its job, with its look-up of the open job behind it, and is let go as the POST is sent: the
+			// two creators meet in the jobs layer.
+			var gate *held
+			e := newEnv(t, withRunner(fakerunner.New().Then(fakerunner.Block(fakerunner.Step{}))),
+				withJobs(func(inner Jobs) Jobs { gate = newHeld(inner); return gate }))
 			e.Hub.AddIssue(slug, fakehub.Issue{Number: 42, Labels: []string{"af:fix"}})
 			e.api() // built before the race, so that it is the creators that race
 
 			var status int
 			var body string
 			var wg sync.WaitGroup
-			start := make(chan struct{})
 			wg.Add(2)
-			go func() { defer wg.Done(); <-start; e.Poll.Cycle(ctx, slug) }()
+			go func() { defer wg.Done(); e.Poll.Cycle(ctx, slug) }()
+			select {
+			case <-gate.reached:
+			case <-time.After(10 * time.Second):
+				t.Fatal("the cycle did not get to make a job")
+			}
 			go func() {
 				defer wg.Done()
-				<-start
 				status, body = e.call("POST", "/api/v1/workspaces/"+slug+"/fix", `{"issue": 42}`)
 			}()
-			close(start)
+			close(gate.release)
 			wg.Wait()
 
 			if status != http.StatusAccepted && status != http.StatusConflict {

@@ -68,15 +68,16 @@ type Standing struct {
 // runner, and whether a runner of it is still in progress. A job that is not there, because retention purged it, is
 // ErrNotFound.
 //
-// An attempt that was in a runner when the job was cancelled is running still, or it ended cancelled with an envelope;
-// an attempt that was only queued is cancelled without one. That is how the cancel of a running attempt is told from
-// the cancel of a job that waited, whatever became of the runner since.
+// An attempt that was in a runner when the job was cancelled is marked as one whose runner was called, and is running still, or
+// ended cancelled with an envelope; an attempt that was only queued, or that was claimed and cancelled before its runner was
+// called, is not. That is how the cancel of a running attempt is told from the cancel of a job that waited, whatever became
+// of the runner since.
 func (s *Service) Standing(ctx context.Context, id string) (Standing, error) {
 	var st Standing
 	var label sql.NullString
 	err := s.store.db.QueryRowContext(ctx,
 		`SELECT state, source_kind, source_by, request_label,
-		        state = 'cancelled' AND EXISTS (SELECT 1 FROM af_attempts a WHERE a.job_id = j.id AND (a.state = 'running' OR (a.state = 'cancelled' AND a.has_envelope = 1)))
+		        state = 'cancelled' AND EXISTS (SELECT 1 FROM af_attempts a WHERE a.job_id = j.id AND a.in_runner = 1 AND (a.state = 'running' OR (a.state = 'cancelled' AND a.has_envelope = 1)))
 		 FROM af_jobs j WHERE j.id = ?`, id).Scan(&st.State, &st.Source.Kind, &st.Source.By, &label, &st.CancelledInRunner)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Standing{}, ErrNotFound

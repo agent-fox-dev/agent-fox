@@ -308,3 +308,33 @@ func TestHubsNamesForTheIssuesListStayInsideInternalHubAndListIssuesIsAvailable_
 		t.Errorf("%d requests were sent by methods that are not available", e.hub.Total()-before)
 	}
 }
+
+// TestListIssuesReadsAnAnswerThatIsLongerThanAnythingElseThatHubAnswers is the answer of a list of issues with bodies: a
+// hundred issues of 12 KiB each are more than the 1 MiB that the other calls read, and a list that was refused for its size
+// would never shorten, since the labels on its issues are not taken off. Only a list is read that long, and a longer one
+// than any list can be is still refused.
+// Verifies: 15-REQ-3.2
+func TestListIssuesReadsAnAnswerThatIsLongerThanAnythingElseThatHubAnswers(t *testing.T) {
+	e := newForgeEnv(t)
+	body := strings.Repeat("x", 12<<10)
+	for n := 1000; n < 1100; n++ {
+		e.hub.AddIssue("acme", fakehub.Issue{Number: n, Title: "t", Body: body, Labels: []string{"af:fix"}})
+	}
+
+	list, err := e.forge.ListIssues(ctx, e.repo, openFix(100))
+
+	if err != nil || len(list.Issues) != 100 || list.Issues[99].Body != body {
+		t.Fatalf("%d issues, error %v; want the hundred with their bodies", len(list.Issues), err)
+	}
+	e.hub.Clear()
+	e.hub.Inject("GET", "/api/v1/workspaces/acme/issues", fakehub.Fault{Oversize: maxListBody + 1})
+	var unavailable *UnavailableError
+	if _, err := e.forge.ListIssues(ctx, e.repo, openFix(100)); !errors.As(err, &unavailable) {
+		t.Errorf("an answer past the longest a list can be: %v, want the answer refused as unavailable", err)
+	}
+	// The other calls keep their limit.
+	e.hub.Inject("GET", "/api/v1/workspaces/acme/issues/42", fakehub.Fault{Oversize: 2 << 20})
+	if _, err := e.forge.ReadIssue(ctx, e.ref(42)); !errors.As(err, &unavailable) {
+		t.Errorf("an issue read of 2 MiB: %v, want it refused", err)
+	}
+}

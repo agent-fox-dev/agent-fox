@@ -27,6 +27,16 @@ pages, no cursor and no `Link` header; it leaves pull requests out itself. The c
   list of exactly 100 is not known to be complete, and release and settlement (R5, R6) must not treat it as complete.
   The cost is a `WARN` and a hold or an owed removal left for a cycle, for a workspace with 100 labelled issues.
 
+A list of 100 issues with bodies can be longer than the 1 MiB that every other call of the hub client reads, and a list that was
+refused for its size would never shorten, since the labels on its issues are only taken off when they are listed; so a list
+answer is read up to 32 MiB (`maxListBody`, `internal/hub/forge.go`; `operation.maxBody`, `internal/hub/calls.go`, the five
+lines of the hub client outside the tasks' `touches`, which also carry the headers of an answer for the `Link`). The poll also
+takes no more than it asked for: an issue that is `closed`, or that does not carry the label (whatever its case), is not handed to
+the rules (`asked`, `internal/service/poll/cycle.go`), so that a hub that dropped a parameter cannot turn the issues of a
+repository into jobs. And hub's 502 for a forge that refuses its credential (`forge_unauthenticated`, `forge_forbidden`), which
+the hub client takes as a rejection since a retry cannot cure it, is an `ERROR` that ends the cycle on a label removal as well as on a
+read, where the spec's table puts every 5xx with the unavailable (`WARN`).
+
 The fake hub serves the same route from its issue state, with `Link` paging that a test can switch off to behave
 as the real hub does (`SetPageLinks`), the two lags, and an order a test can set (`internal/hub/fakehub/issues.go`).
 Deviation key: `issues_list_has_no_pages`.
@@ -51,10 +61,14 @@ running attempt's job is cancelled".
   `Service.Standing` (`internal/service/jobs/read.go`), which returns `Standing{State, Source, RequestLabel,
   CancelledInRunner, RunnerInProgress}` and `ErrNotFound` for a job that was purged
   (`TestTheJobsLayerReadsAJobByIdWithItsStateSourceLabelAndTheCancelAndRunnerFacts_TS_15_61`).
-- Nothing new is written when a running attempt is cancelled. The fact is in the attempts: an attempt that was in a
-  runner at the cancel is `running` still, or `cancelled` with an envelope, while one that was only queued is
-  cancelled without one. So it holds after the runner returns and after the grace runs out, and no migration was
-  needed beyond the poll's own.
+- The fact that a cancel reached a runner is read from the attempts, and so holds after the runner returns and after the
+  grace runs out. First read as "the attempt is `running` still, or `cancelled` with an envelope", it took for a runner an
+  attempt that was claimed and whose job was cancelled before the runner was called (the layer never calls it, and the
+  worker's cleanup never puts a label back), which made a hold of a label that nothing restored. So the attempt carries a
+  mark, `in_runner` (migration 6), that a claim clears and the call of the runner sets, and `CancelledInRunner` is a
+  cancelled job with an attempt that has the mark and is `running` still or `cancelled` with an envelope
+  (`TestAJobCancelledAfterItsAttemptWasClaimedAndBeforeItsRunnerWasCalledIsNotCancelledInARunner`, with the seam `OpInvoke`
+  of the store's fault hook). `queue.go` and `store.go` of the jobs layer are outside the tasks' `touches` for it.
 
 Deviation key: `jobs_read_is_standing`.
 

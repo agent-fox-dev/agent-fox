@@ -129,14 +129,7 @@ func serve(ctx context.Context, configPath string, logger *slog.Logger, listen l
 	if err != nil {
 		return startFailed(logger, exitFailed, fmt.Errorf("server.listen %s: %w", cfg.Server.Listen, err))
 	}
-	if cfg.HubInClear() {
-		host := ""
-		if u, err := url.Parse(cfg.Hub.URL); err == nil {
-			host = u.Host
-		}
-		logger.Warn("hub.url is plain http to a host that is not a loopback address: caller tokens and workspace tokens cross the link in clear",
-			"hub_host", host)
-	}
+	warnHubInClear(logger, cfg)
 	// The queue starts once the address is bound, so that a start that fails on the
 	// address writes its one record and no other.
 	if err := jobService.Start(); err != nil {
@@ -171,6 +164,19 @@ func serve(ctx context.Context, configPath string, logger *slog.Logger, listen l
 	}
 	<-serving
 	return exitStopped
+}
+
+// warnHubInClear writes the warning for a hub that is reached over plain http at a host that is not a loopback address.
+func warnHubInClear(logger *slog.Logger, cfg config.Config) {
+	if !cfg.HubInClear() {
+		return
+	}
+	host := ""
+	if u, err := url.Parse(cfg.Hub.URL); err == nil {
+		host = u.Host
+	}
+	logger.Warn("hub.url is plain http to a host that is not a loopback address: caller tokens and workspace tokens cross the link in clear",
+		"hub_host", host)
 }
 
 // startReconciling runs the passes of the reconciler in a goroutine, until ctx is done or the function it returns is called,

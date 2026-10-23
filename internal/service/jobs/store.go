@@ -74,6 +74,9 @@ const (
 	OpInsertAttempt = "insert_attempt"
 	OpInsertEvent   = "insert_event"
 	OpClaim         = "claim"
+	// OpInvoke is asked of the seam by the handler of an attempt that was claimed, once the attempt is known to the layer as
+	// in flight and before it is looked at again for the runner: a job that is cancelled now has no runner to reach.
+	OpInvoke = "invoke"
 	// OpObserved is asked of the seam by an action of a person (cancel, answer, retry) once
 	// it has seen the state of the job, and before it changes it.
 	OpObserved = "observed"
@@ -449,6 +452,16 @@ func (s *Store) OpenJobID(ctx context.Context, workspace string, kind Kind, issu
 	return id, err
 }
 
+// MarkInRunner notes that the runner of the attempt is about to be called, which is what makes the cancel of the job a cancel
+// that reaches a runner (see Service.Standing).
+func (s *Store) MarkInRunner(ctx context.Context, jobID string, attempt int) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE af_attempts SET in_runner = 1 WHERE job_id = ? AND n = ?", jobID, attempt)
+	if err != nil {
+		return fmt.Errorf("attempt %d of %s: %w", attempt, jobID, err)
+	}
+	return nil
+}
+
 // SetHub stores the references of the session of a running attempt on hub; an empty
 // reference is none.
 func (s *Store) SetHub(ctx context.Context, jobID string, attempt int, sessionID, runID, sandboxID string) error {
@@ -483,7 +496,7 @@ func (s *Store) Claim(ctx context.Context, jobID string, attempt int) (Claimed, 
 		now := formatTime(s.now())
 		res, err := x.ExecContext(ctx,
 			`UPDATE af_attempts SET state = 'running', deliveries = deliveries + 1, started_at = COALESCE(started_at, ?),
-			   hub_session = NULL, hub_run = NULL, hub_sandbox = NULL
+			   in_runner = 0, hub_session = NULL, hub_run = NULL, hub_sandbox = NULL
 			 WHERE job_id = ? AND n = ? AND state IN ('queued', 'running')`, now, jobID, attempt)
 		if err != nil {
 			return fmt.Errorf("attempt %d of %s: %w", attempt, jobID, err)

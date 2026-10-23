@@ -22,7 +22,9 @@ func (r recordReconciler) reconcile(ctx context.Context, workspace string) {
 		return
 	}
 	for _, rec := range recs {
-		r.s.note(ctx, rec)
+		if _, err := r.s.note(ctx, rec); err != nil {
+			r.s.report(ctx, workspace, r.s.stateOf(workspace), failure{row: rowStore, operation: "read how the job of a record stands", err: err})
+		}
 	}
 	r.s.drop(ctx, workspace)
 }
@@ -34,7 +36,9 @@ func (s *Supervisor) drop(ctx context.Context, workspace string) {
 	}
 }
 
-// note brings the record up to date with its job, and returns it as it is now.
+// note brings the record up to date with its job, and returns it as it is now. If the job cannot be read the record is
+// returned as it was, with the error: what has become of the job is not known, and a caller that is about to take a label
+// for a new request must not go on as if it were.
 //
 //   - A job that is done, or cancelled without its cancel having reached a runner, has ended, and holds nothing.
 //   - A job whose cancel reached a runner holds its request label, which the worker's cancel cleanup writes back to the
@@ -43,9 +47,9 @@ func (s *Supervisor) drop(ctx context.Context, workspace string) {
 //   - A job that retention purged before the poll saw it end may have been cancelled with its label put back, which the
 //     poll cannot know, so it holds from the moment it was found gone.
 //   - A job that is queued, running, blocked or failed has not ended: a failed job can be retried, and then cancelled.
-func (s *Supervisor) note(ctx context.Context, rec Record) Record {
+func (s *Supervisor) note(ctx context.Context, rec Record) (Record, error) {
 	if rec.JobID == "" || rec.Seen == SeenEnded {
-		return rec
+		return rec, nil
 	}
 	now := s.cfg.Clock.Now()
 	standing, err := s.cfg.Jobs.Standing(ctx, rec.JobID)
@@ -53,8 +57,7 @@ func (s *Supervisor) note(ctx context.Context, rec Record) Record {
 	case errors.Is(err, jobs.ErrNotFound):
 		rec = s.startClock(ctx, s.hold(ctx, rec), now)
 	case err != nil:
-		s.cfg.Logger.Warn("the job of a record of the poll could not be read, so the record is left as it is",
-			"workspace", rec.Workspace, "issue", rec.Issue, "label", rec.Label, "job", rec.JobID, "error", err.Error())
+		return rec, err
 	case rec.Seen == SeenHolding:
 		if rec.ReleaseClock.IsZero() && !standing.RunnerInProgress {
 			rec = s.startClock(ctx, rec, now)
@@ -66,7 +69,7 @@ func (s *Supervisor) note(ctx context.Context, rec Record) Record {
 			rec = s.startClock(ctx, rec, now)
 		}
 	}
-	return rec
+	return rec, nil
 }
 
 // see records what the poll has seen of the job of the record.
