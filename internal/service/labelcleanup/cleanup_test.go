@@ -688,3 +688,259 @@ func TestAFinishedTryRecordsItsLabelsOneInfoRecordAndLeavesTheEventLogAlone_TS_1
 		t.Errorf("a try that wrote nothing: labels %+v, want set and removed as the runner reported them and restore null", d.Labels)
 	}
 }
+
+// blockedSet makes a fix job of the label for issue n and waits for it to be blocked, with the labels the runner's step
+// reports set.
+func (e *env) blockedSet(n int) jobs.Doc {
+	e.t.Helper()
+	job := e.fromLabel(jobs.KindFix, n)
+	return e.waitState(job.ID, jobs.StateBlocked)
+}
+
+// setStep is a step that ends blocked with the labels set.
+func setStep(set ...string) fakerunner.Step {
+	return fakerunner.Return(jobs.Result{
+		Envelope: fakerunner.Env(toolio.StatusNeedsHuman, fakerunner.WithQuestion("Which?", "a")), LabelsSet: set,
+	})
+}
+
+// cancelDirect cancels the job as a person does, through the layer, so that hub sees no request of the caller.
+func (e *env) cancelDirect(id string) jobs.Doc {
+	e.t.Helper()
+	d, err := e.Svc.Cancel(ctx, id)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return d
+}
+
+// TestATryForAnUnsubscribedWorkspaceEndsLabelNotSetAndWritesNothing_TS_17_42 verifies TS-17-42.
+// Verifies: 17-REQ-7.1
+func TestATryForAnUnsubscribedWorkspaceEndsLabelNotSetAndWritesNothing_TS_17_42(t *testing.T) {
+	e := newEnv(t, needsHuman())
+	e.issue(42, "af:needs-human")
+	e.start()
+	job := e.blockedSet(42)
+	if _, err := e.Store.Delete(ctx, "widgets"); err != nil {
+		t.Fatal(err)
+	}
+	e.cancelDirect(job.ID)
+	if d := e.waitCleanup(job.ID); cleanupOf(d) != "label_not_set" {
+		t.Errorf("cleanup %s, want label_not_set", cleanupOf(d))
+	}
+	if w := e.labelWrites(42); len(w) != 0 {
+		t.Errorf("hub received %v, want no write", w)
+	}
+	if recs := e.Logs.records("INFO", "no longer subscribed"); len(recs) != 1 {
+		t.Errorf("%d INFO records that the workspace is no longer subscribed, want 1", len(recs))
+	}
+}
+
+// TestARefusalOfTheTokenOrTheForgeCredentialEndsTheCleanupWithOneError_TS_17_44 verifies TS-17-44: a 401, a 403 or a 502
+// forge refusal on any call of a try ends the cleanup with one ERROR that names the operation, and no try follows.
+// Verifies: 17-REQ-7.3
+func TestARefusalOfTheTokenOrTheForgeCredentialEndsTheCleanupWithOneError_TS_17_44(t *testing.T) {
+	forge := func(kind string) fakehub.Fault {
+		return fakehub.Fault{Status: 502, Body: `{"error":{"code":502,"message":"GitHub refused the app installation","error_type":"` + kind + `"}}`}
+	}
+	calls := map[string]struct{ method, path, op string }{
+		"the record":  {"GET", "/api/v1/workspaces/widgets", "read the workspace record"},
+		"the issue":   {"GET", "/api/v1/workspaces/widgets/issues/42", "read the issue"},
+		"the removal": {"DELETE", "/api/v1/workspaces/widgets/issues/42/labels/af:needs-human", "remove the label"},
+		"the add":     {"POST", "/api/v1/workspaces/widgets/issues/42/labels", "add the request label"},
+	}
+	for call, c := range calls {
+		for name, f := range map[string]fakehub.Fault{"401": {Status: 401}, "403": {Status: 403}, "502 forge_forbidden": forge("forge_forbidden"), "502 forge_unauthenticated": forge("forge_unauthenticated")} {
+			t.Run(call+" "+name, func(t *testing.T) {
+				e := newEnv(t, needsHuman())
+				e.issue(42, "af:needs-human")
+				e.start()
+				job := e.blockedSet(42)
+				e.Hub.Inject(c.method, c.path, f)
+				e.cancelDirect(job.ID)
+				if d := e.waitCleanup(job.ID); cleanupOf(d) != "label_not_set" {
+					t.Fatalf("cleanup %s, want label_not_set", cleanupOf(d))
+				}
+				recs := e.Logs.records("ERROR", "cancel cleanup")
+				if len(recs) != 1 {
+					t.Fatalf("%d ERROR records, want 1", len(recs))
+				}
+				msg := fmt.Sprint(recs[0]["msg"])
+				if !strings.Contains(msg, c.op) {
+					t.Errorf("the record %q does not name the operation %q", msg, c.op)
+				}
+				if f.Status != 502 && !strings.Contains(msg, "PUT /api/v1/workspaces/widgets") {
+					t.Errorf("the record %q does not point to PUT /api/v1/workspaces/widgets", msg)
+				}
+				if f.Status == 502 && !strings.Contains(msg, "GitHub refused the app installation") {
+					t.Errorf("the record %q does not carry hub's message", msg)
+				}
+				requests := e.Hub.Total()
+				e.Clock.Advance(2 * time.Minute)
+				time.Sleep(50 * time.Millisecond)
+				if e.Hub.Total() != requests {
+					t.Error("a try was made after the cleanup ended")
+				}
+			})
+		}
+	}
+}
+
+// TestAMissingRecordOrAForgeURLOfNoRepositoryEndsWithAnError_TS_17_45 verifies TS-17-45.
+// Verifies: 17-REQ-7.4
+func TestAMissingRecordOrAForgeURLOfNoRepositoryEndsWithAnError_TS_17_45(t *testing.T) {
+	for name, c := range map[string]struct {
+		change func(e *env)
+		says   string
+	}{
+		"404": {func(e *env) { e.Hub.Inject("GET", "/api/v1/workspaces/widgets", fakehub.Fault{Status: 404}) }, "hub does not find the workspace"},
+		"no repository": {func(e *env) {
+			e.Hub.UpdateWorkspace("widgets", func(w *fakehub.Workspace) { w.ForgeURL = "not a repository" })
+		}, "names no repository"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t, needsHuman())
+			e.issue(42, "af:needs-human")
+			e.start()
+			job := e.blockedSet(42)
+			c.change(e)
+			e.cancelDirect(job.ID)
+			if d := e.waitCleanup(job.ID); cleanupOf(d) != "label_not_set" {
+				t.Errorf("cleanup %s, want label_not_set", cleanupOf(d))
+			}
+			if recs := e.Logs.records("ERROR", c.says); len(recs) != 1 {
+				t.Errorf("%d ERROR records that say %q, want 1", len(recs), c.says)
+			}
+		})
+	}
+}
+
+// TestAnIssueReadOf404EndsWithInfoAndAnotherRefusalOfAReadWithError_TS_17_46 verifies TS-17-46.
+// Verifies: 17-REQ-7.5
+func TestAnIssueReadOf404EndsWithInfoAndAnotherRefusalOfAReadWithError_TS_17_46(t *testing.T) {
+	rejected := fakehub.Fault{Status: 400, Body: `{"error":{"code":400,"message":"the number is malformed","error_type":"bad_request"}}`}
+	for name, c := range map[string]struct {
+		path, level, says string
+		fault             fakehub.Fault
+	}{
+		"404 on the issue":  {"/api/v1/workspaces/widgets/issues/42", "INFO", "the issue is gone", fakehub.Fault{Status: 404}},
+		"400 on the issue":  {"/api/v1/workspaces/widgets/issues/42", "ERROR", "the number is malformed", rejected},
+		"400 on the record": {"/api/v1/workspaces/widgets", "ERROR", "the number is malformed", rejected},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t, needsHuman())
+			e.issue(42, "af:needs-human")
+			e.start()
+			job := e.blockedSet(42)
+			e.Hub.Inject("GET", c.path, c.fault)
+			e.cancelDirect(job.ID)
+			if d := e.waitCleanup(job.ID); cleanupOf(d) != "label_not_set" {
+				t.Errorf("cleanup %s, want label_not_set", cleanupOf(d))
+			}
+			if recs := e.Logs.records(c.level, c.says); len(recs) != 1 {
+				t.Errorf("%d %s records that say %q, want 1", len(recs), c.level, c.says)
+			}
+		})
+	}
+}
+
+// TestARemovalOf404IsDoneAndAnotherRefusalLeavesTheLabelAndEndsLabelNotSet_TS_17_47 verifies TS-17-47.
+// Verifies: 17-REQ-7.6
+func TestARemovalOf404IsDoneAndAnotherRefusalLeavesTheLabelAndEndsLabelNotSet_TS_17_47(t *testing.T) {
+	t.Run("404", func(t *testing.T) {
+		e := newEnv(t, setStep("af:needs-human", "af:failed"))
+		e.issue(42, "af:needs-human", "af:failed")
+		e.start()
+		job := e.blockedSet(42)
+		e.Hub.Inject("DELETE", "/api/v1/workspaces/widgets/issues/42/labels/af:needs-human", fakehub.Fault{Status: 404})
+		e.cancelDirect(job.ID)
+		if d := e.waitCleanup(job.ID); cleanupOf(d) != "done" {
+			t.Errorf("cleanup %s, want done", cleanupOf(d))
+		}
+	})
+	t.Run("400", func(t *testing.T) {
+		e := newEnv(t, setStep("af:needs-human", "af:failed"))
+		e.issue(42, "af:needs-human", "af:failed")
+		e.start()
+		job := e.blockedSet(42)
+		e.Hub.Inject("DELETE", "/api/v1/workspaces/widgets/issues/42/labels/af:failed", fakehub.Fault{Status: 400, Body: `{"error":{"code":400,"message":"the label is locked"}}`})
+		e.cancelDirect(job.ID)
+		if d := e.waitCleanup(job.ID); cleanupOf(d) != "label_not_set" {
+			t.Errorf("cleanup %s, want label_not_set", cleanupOf(d))
+		}
+		if got := e.labelsOf(42); !slices.Equal(got, []string{"af:failed", "af:fix"}) {
+			t.Errorf("issue 42 carries %v, want af:failed kept, needs-human removed and af:fix added", got)
+		}
+		if recs := e.Logs.records("WARN", "the label is locked"); len(recs) != 1 {
+			t.Errorf("%d WARN records with hub's message, want 1", len(recs))
+		}
+	})
+}
+
+// TestARefusedRequestLabelAdditionEndsLabelNotSetWithAnError_TS_17_48 verifies TS-17-48.
+// Verifies: 17-REQ-7.7
+func TestARefusedRequestLabelAdditionEndsLabelNotSetWithAnError_TS_17_48(t *testing.T) {
+	for name, f := range map[string]fakehub.Fault{
+		"404": {Status: 404, Body: `{"error":{"code":404,"message":"no such label in the repository","error_type":"forge_not_found"}}`},
+		"400": {Status: 400, Body: `{"error":{"code":400,"message":"no such label in the repository"}}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t, needsHuman())
+			e.issue(42, "af:needs-human")
+			e.start()
+			job := e.blockedSet(42)
+			e.Hub.Inject("POST", "/api/v1/workspaces/widgets/issues/42/labels", f)
+			e.cancelDirect(job.ID)
+			d := e.waitCleanup(job.ID)
+			if cleanupOf(d) != "label_not_set" || d.Labels.Restore == nil || *d.Labels.Restore != "af:fix" {
+				t.Errorf("labels %+v, want cleanup label_not_set with restore af:fix", d.Labels)
+			}
+			recs := e.Logs.records("ERROR", "add the request label")
+			if len(recs) != 1 {
+				t.Fatalf("%d ERROR records naming the add, want 1", len(recs))
+			}
+			if name == "400" && !strings.Contains(fmt.Sprint(recs[0]["msg"]), "no such label in the repository") {
+				t.Errorf("the record %v does not carry hub's message", recs[0]["msg"])
+			}
+		})
+	}
+}
+
+// TestACleanupFailureFailsNoCancelNoOtherJobAndNoLogHoldsThePAT_TS_17_49 verifies TS-17-49.
+// Verifies: 17-REQ-7.8
+func TestACleanupFailureFailsNoCancelNoOtherJobAndNoLogHoldsThePAT_TS_17_49(t *testing.T) {
+	e := newEnv(t, needsHuman(), needsHuman())
+	const gadgetsPAT = "pat-of-gadgets-9876543210"
+	e.Hub.Grant(callerID, "gadgets")
+	e.Hub.AddWorkspace(t, fakehub.Workspace{Slug: "gadgets", PAT: gadgetsPAT})
+	if _, _, err := e.Store.Upsert(ctx, "gadgets", "af:", gadgetsPAT, "", callerID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	e.issue(42, "af:needs-human")
+	e.Hub.AddIssue("gadgets", fakehub.Issue{Number: 7, Labels: []string{"af:needs-human"}})
+	e.start()
+	failing := e.blockedSet(42)
+	other, err := e.Svc.Create(ctx, jobs.CreateRequest{Workspace: "gadgets", Kind: jobs.KindFix, Body: jobs.Body{Issue: json.RawMessage("7")}, Source: jobs.Source{Kind: "label", By: "poll"}, RequestLabel: "af:fix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.waitState(other.ID, jobs.StateBlocked)
+	e.Hub.Inject("POST", "/api/v1/workspaces/widgets/issues/42/labels", fakehub.Fault{Status: 422, Body: `{"error":{"code":422,"message":"the token ` + pat + ` may not"}}`})
+
+	for _, id := range []string{failing.ID, other.ID} {
+		if r := e.call("POST", "/api/v1/jobs/"+id+"/cancel", nil); r.Status != http.StatusOK {
+			t.Errorf("cancel %s: %d %s", id, r.Status, r.Body)
+		}
+	}
+	if d := e.waitCleanup(failing.ID); cleanupOf(d) != "label_not_set" || d.Labels.Restore == nil || *d.Labels.Restore != "af:fix" {
+		t.Errorf("the failing cleanup: labels %+v, want label_not_set with restore kept", d.Labels)
+	}
+	if d := e.waitCleanup(other.ID); cleanupOf(d) != "done" {
+		t.Errorf("the other workspace's cleanup: %s, want done", cleanupOf(d))
+	}
+	for _, p := range []string{pat, gadgetsPAT} {
+		if strings.Contains(e.Logs.String(), p) {
+			t.Errorf("a log record holds the PAT %s", p)
+		}
+	}
+}
