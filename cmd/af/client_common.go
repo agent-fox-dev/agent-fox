@@ -44,24 +44,32 @@ func resultSchema(name string) json.RawMessage {
 	return data
 }
 
-// serverFlag is --server, which remembers that it was given: an empty value that was given is
-// a refusal, not a fall back to AF_URL.
-type serverFlag struct {
+// givenString is a string flag that remembers whether it was given: a value that was given empty
+// is not the same as a flag that was not given.
+type givenString struct {
 	value string
 	given bool
 }
 
-func (f *serverFlag) String() string { return f.value }
+func (f *givenString) String() string { return f.value }
 
-func (f *serverFlag) Set(v string) error {
+func (f *givenString) Set(v string) error {
 	f.value, f.given = v, true
 	return nil
 }
 
+// bind registers the flag on fs, and forgets the value of an earlier invocation.
+func (f *givenString) bind(fs *flag.FlagSet, name, usage string) {
+	*f = givenString{}
+	fs.Var(f, name, usage)
+}
+
+// serverFlag is --server: an empty value that was given is a refusal, not a fall back to AF_URL.
+type serverFlag struct{ givenString }
+
 // bind registers --server on fs, and forgets the value of an earlier invocation.
 func (f *serverFlag) bind(fs *flag.FlagSet) {
-	*f = serverFlag{}
-	fs.Var(f, "server", "the `URL` of the agent-fox service; AF_URL when the flag is absent")
+	f.givenString.bind(fs, "server", "the `URL` of the agent-fox service; AF_URL when the flag is absent")
 }
 
 // connect runs the local checks of a service command that come after its flags and its

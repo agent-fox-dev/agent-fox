@@ -2,11 +2,30 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"net/http"
+	"net/url"
 
+	"github.com/agent-fox-dev/agentfox/internal/afclient"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
+
+// slugResult is the result of af workspace unsubscribe.
+type slugResult struct {
+	Slug string `json:"slug"`
+}
+
+// slugArg is the slug that a workspace command works on, its first positional argument.
+func slugArg(r *toolio.Run) (string, error) {
+	if len(r.Args) == 0 {
+		return "", &toolio.Failure{Category: toolio.CategoryUsage, Message: "give the slug of the workspace"}
+	}
+	return r.Args[0], nil
+}
+
+// workspacePath is the API path of the workspace slug, which the service checks.
+func workspacePath(slug string) string { return "/workspaces/" + url.PathEscape(slug) }
 
 // registerWorkspaceList registers af workspace list.
 func registerWorkspaceList(app *toolio.App) {
@@ -48,4 +67,126 @@ func workspaceList(r *toolio.Run, app *toolio.App, server *serverFlag) (toolio.O
 		summary = "1 workspace subscribed"
 	}
 	return toolio.Outcome{Status: toolio.StatusDone, Summary: summary, Result: json.RawMessage(resp.Body)}, nil
+}
+
+// registerWorkspaceSubscribe registers af workspace subscribe.
+func registerWorkspaceSubscribe(app *toolio.App) {
+	var hubTokenFile string
+	var prefix givenString
+	var server serverFlag
+	app.Register(toolio.Command{
+		Path:    "workspace subscribe",
+		Summary: "Subscribe a hub workspace on the agent-fox service, or replace its subscription",
+		Usage:   "af workspace subscribe <slug> --hub-token-file FILE|- [--prefix P] [--server URL]",
+		Flags: func(fs *flag.FlagSet) {
+			fs.StringVar(&hubTokenFile, "hub-token-file", "", "the `file` that holds the personal access token of the workspace on hub; - reads stdin")
+			prefix.bind(fs, "prefix", "the `prefix` of the request labels of the workspace, in place of the one of hub")
+			server.bind(fs)
+		},
+		RawStdin:     true,
+		Timeout:      true,
+		ResultSchema: resultSchema("subscription"),
+		Run: func(r *toolio.Run) (toolio.Outcome, error) {
+			return workspaceSubscribe(r, app, hubTokenFile, &prefix, &server)
+		},
+	})
+}
+
+// workspaceSubscribe is PUT /api/v1/workspaces/{slug} with the token of the workspace, and the
+// prefix only when --prefix was given. The service answers 201 for a subscription and 200 for a
+// replaced one, and both are success.
+func workspaceSubscribe(r *toolio.Run, app *toolio.App, hubTokenFile string, prefix *givenString, server *serverFlag) (toolio.Outcome, error) {
+	if hubTokenFile == "" {
+		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: "--hub-token-file is required: name the file that holds the token of the workspace, or - to read it from stdin", FixHint: &toolio.FixHint{Flag: "--hub-token-file"}}
+	}
+	slug, err := slugArg(r)
+	if err != nil {
+		return toolio.Outcome{}, err
+	}
+	pat, err := afclient.ReadSecretFile("--hub-token-file", hubTokenFile, r.Stdin)
+	if err != nil {
+		return toolio.Outcome{}, secretFailure(err)
+	}
+	client, err := connect(r, app, server, false)
+	if err != nil {
+		return toolio.Outcome{}, err
+	}
+	body := map[string]string{"hub_token": pat}
+	if prefix.given {
+		body["label_prefix"] = prefix.value
+	}
+	resp, err := client.Do(r.Ctx, http.MethodPut, workspacePath(slug), nil, body)
+	if err != nil {
+		return toolio.Outcome{}, requestFailure(err)
+	}
+	if err := resp.Decode(&map[string]any{}); err != nil {
+		return toolio.Outcome{}, requestFailure(err)
+	}
+	summary := "subscribed the workspace " + slug
+	if resp.Status == http.StatusOK {
+		summary = "replaced the subscription of the workspace " + slug
+	}
+	return toolio.Outcome{Status: toolio.StatusDone, Summary: summary, Result: json.RawMessage(resp.Body)}, nil
+}
+
+// registerWorkspaceGet registers af workspace get.
+func registerWorkspaceGet(app *toolio.App) {
+	var server serverFlag
+	app.Register(toolio.Command{
+		Path:         "workspace get",
+		Summary:      "Show the subscription of a workspace on the agent-fox service",
+		Usage:        "af workspace get <slug> [--server URL]",
+		Flags:        server.bind,
+		Timeout:      true,
+		ResultSchema: resultSchema("subscription"),
+		Run: func(r *toolio.Run) (toolio.Outcome, error) {
+			slug, err := slugArg(r)
+			if err != nil {
+				return toolio.Outcome{}, err
+			}
+			client, err := connect(r, app, &server, false)
+			if err != nil {
+				return toolio.Outcome{}, err
+			}
+			resp, err := client.Do(r.Ctx, http.MethodGet, workspacePath(slug), nil, nil)
+			if err != nil {
+				return toolio.Outcome{}, requestFailure(err)
+			}
+			if err := resp.Decode(&map[string]any{}); err != nil {
+				return toolio.Outcome{}, requestFailure(err)
+			}
+			return toolio.Outcome{Status: toolio.StatusDone, Summary: "the workspace " + slug + " is subscribed", Result: json.RawMessage(resp.Body)}, nil
+		},
+	})
+}
+
+// registerWorkspaceUnsubscribe registers af workspace unsubscribe.
+func registerWorkspaceUnsubscribe(app *toolio.App) {
+	var server serverFlag
+	app.Register(toolio.Command{
+		Path:         "workspace unsubscribe",
+		Summary:      "Remove the subscription of a workspace on the agent-fox service, cancelling its open jobs",
+		Usage:        "af workspace unsubscribe <slug> [--server URL]",
+		Flags:        server.bind,
+		Timeout:      true,
+		ResultSchema: resultSchema("slug"),
+		Run: func(r *toolio.Run) (toolio.Outcome, error) {
+			slug, err := slugArg(r)
+			if err != nil {
+				return toolio.Outcome{}, err
+			}
+			client, err := connect(r, app, &server, false)
+			if err != nil {
+				return toolio.Outcome{}, err
+			}
+			if _, err := client.Do(r.Ctx, http.MethodDelete, workspacePath(slug), nil, nil); err != nil {
+				return toolio.Outcome{}, requestFailure(err)
+			}
+			return toolio.Outcome{
+				Status:  toolio.StatusDone,
+				Summary: "unsubscribed the workspace " + slug + "; its open jobs were cancelled",
+				Result:  slugResult{Slug: slug},
+			}, nil
+		},
+	})
 }

@@ -1550,6 +1550,153 @@
         }
       }
     },
+    "jobs_answer": {
+      "type": "object",
+      "required": [
+        "job",
+        "envelope"
+      ],
+      "description": "The result of the commands that read, act on or follow a job. Fields that the service adds to its documents are carried as they are.",
+      "properties": {
+        "job": {
+          "type": "object",
+          "description": "The job document of the service, as received; the single-job view includes the attempts.",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string"
+            }
+          }
+        },
+        "envelope": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "The envelope of the final attempt, as the service stored it. Null unless the command followed the job until it was at rest and an attempt had finished."
+        }
+      }
+    },
+    "jobs_cancel": {
+      "type": "object",
+      "required": [
+        "job",
+        "envelope"
+      ],
+      "description": "The result of the commands that read, act on or follow a job. Fields that the service adds to its documents are carried as they are.",
+      "properties": {
+        "job": {
+          "type": "object",
+          "description": "The job document of the service, as received; the single-job view includes the attempts.",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string"
+            }
+          }
+        },
+        "envelope": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "The envelope of the final attempt, as the service stored it. Null unless the command followed the job until it was at rest and an attempt had finished."
+        }
+      }
+    },
+    "jobs_get": {
+      "type": "object",
+      "required": [
+        "job",
+        "envelope"
+      ],
+      "description": "The result of the commands that read, act on or follow a job. Fields that the service adds to its documents are carried as they are.",
+      "properties": {
+        "job": {
+          "type": "object",
+          "description": "The job document of the service, as received; the single-job view includes the attempts.",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string"
+            }
+          }
+        },
+        "envelope": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "The envelope of the final attempt, as the service stored it. Null unless the command followed the job until it was at rest and an attempt had finished."
+        }
+      }
+    },
+    "jobs_list": {
+      "type": "object",
+      "required": [
+        "jobs",
+        "next_cursor"
+      ],
+      "description": "One page of the jobs of the service, as received. Fields that the service adds are carried as they are.",
+      "properties": {
+        "jobs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The cursor of the next page; null on the last one."
+        }
+      }
+    },
+    "jobs_retry": {
+      "type": "object",
+      "required": [
+        "job",
+        "envelope"
+      ],
+      "description": "The result of the commands that read, act on or follow a job. Fields that the service adds to its documents are carried as they are.",
+      "properties": {
+        "job": {
+          "type": "object",
+          "description": "The job document of the service, as received; the single-job view includes the attempts.",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string"
+            }
+          }
+        },
+        "envelope": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "The envelope of the final attempt, as the service stored it. Null unless the command followed the job until it was at rest and an attempt had finished."
+        }
+      }
+    },
     "jobs_watch": {
       "type": "object",
       "required": [
@@ -2372,6 +2519,40 @@
         }
       }
     },
+    "workspace_get": {
+      "type": "object",
+      "required": [
+        "slug"
+      ],
+      "description": "The subscription view of the service for a workspace, as received: the token is never in it. Fields that the service adds are carried as they are.",
+      "properties": {
+        "slug": {
+          "type": "string"
+        },
+        "label_prefix": {
+          "type": "string",
+          "description": "The prefix that was given when the workspace was subscribed."
+        },
+        "token_user": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subscribed_by": {
+          "type": "string"
+        },
+        "token_state": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      }
+    },
     "workspace_list": {
       "type": "object",
       "required": [
@@ -2386,6 +2567,53 @@
             "type": "object",
             "description": "The subscription view of the service, as received."
           }
+        }
+      }
+    },
+    "workspace_subscribe": {
+      "type": "object",
+      "required": [
+        "slug"
+      ],
+      "description": "The subscription view of the service for a workspace, as received: the token is never in it. Fields that the service adds are carried as they are.",
+      "properties": {
+        "slug": {
+          "type": "string"
+        },
+        "label_prefix": {
+          "type": "string",
+          "description": "The prefix that was given when the workspace was subscribed."
+        },
+        "token_user": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subscribed_by": {
+          "type": "string"
+        },
+        "token_state": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      }
+    },
+    "workspace_unsubscribe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slug"
+      ],
+      "description": "The workspace that was unsubscribed.",
+      "properties": {
+        "slug": {
+          "type": "string"
         }
       }
     }

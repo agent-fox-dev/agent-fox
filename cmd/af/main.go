@@ -39,5 +39,13 @@ func newApp() *toolio.App {
 func registerClient(app *toolio.App) {
 	registerLogin(app)
 	registerWorkspaceList(app)
+	registerWorkspaceSubscribe(app)
+	registerWorkspaceGet(app)
+	registerWorkspaceUnsubscribe(app)
+	registerJobsList(app)
+	registerJobsGet(app)
 	registerJobsWatch(app)
+	registerJobsCancel(app)
+	registerJobsAnswer(app)
+	registerJobsRetry(app)
 }

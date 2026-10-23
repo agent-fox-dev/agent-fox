@@ -290,7 +290,7 @@
       "done_when": [
         "the resume argv `af jobs answer <id> --wait --context B` parses and sends {option:\"B\"}"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 7,
