@@ -39,12 +39,16 @@ type Client struct {
 
 // Clock is the time the client waits by. Production uses the system's; the tests move their own.
 type Clock interface {
+	// Now is the time.
+	Now() time.Time
 	// After returns a channel that gets the time once d has passed.
 	After(d time.Duration) <-chan time.Time
 }
 
 // systemClock is the clock of the system.
 type systemClock struct{}
+
+func (systemClock) Now() time.Time { return time.Now() }
 
 func (systemClock) After(d time.Duration) <-chan time.Time { return time.After(d) }
 
@@ -90,6 +94,50 @@ func (r *Response) Decode(v any) error {
 		}
 	}
 	return nil
+}
+
+// newRequest makes a request to target with the headers every request carries: the credential,
+// the User-Agent, the Accept header and, when it has a body, the JSON content type.
+func (c *Client) newRequest(ctx context.Context, method, target string, body io.Reader, accept string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, target, body)
+	if err != nil {
+		return nil, fmt.Errorf("the request cannot be made: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Accept", accept)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return req, nil
+}
+
+// stream opens the event stream at the API path: a GET that accepts text/event-stream and has no
+// bound of time, since the stream lasts as long as the job. The caller reads and closes the body of
+// the answer, which is a 2xx; any other answer is an *Error, and a request that ctx stopped
+// returns the error of ctx.
+func (c *Client) stream(ctx context.Context, path string, query url.Values) (*http.Response, error) {
+	target := c.server.URL + apiPrefix + path
+	if len(query) > 0 {
+		target += "?" + query.Encode()
+	}
+	req, err := c.newRequest(ctx, http.MethodGet, target, nil, "text/event-stream")
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, transportError(c.server, err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, MaxBody))
+		return nil, answerError(resp.StatusCode, data, path)
+	}
+	return resp, nil
 }
 
 // Do sends method to the API path (which starts with "/", like "/workspaces"), with the query
@@ -142,15 +190,9 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 		return nil, transportError(c.server, err)
 	}
 
-	req, err := http.NewRequestWithContext(reqCtx, method, target, payload)
+	req, err := c.newRequest(reqCtx, method, target, payload, "application/json")
 	if err != nil {
-		return nil, fmt.Errorf("the request cannot be made: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("User-Agent", c.userAgent)
-	req.Header.Set("Accept", "application/json")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		return nil, err
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {

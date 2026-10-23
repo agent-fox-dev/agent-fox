@@ -210,7 +210,7 @@
       "done_when": [
         "the property test shows every event once in ascending order for arbitrary cuts and duplicates"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 5,

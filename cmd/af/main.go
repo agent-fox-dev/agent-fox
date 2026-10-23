@@ -39,4 +39,5 @@ func newApp() *toolio.App {
 func registerClient(app *toolio.App) {
 	registerLogin(app)
 	registerWorkspaceList(app)
+	registerJobsWatch(app)
 }

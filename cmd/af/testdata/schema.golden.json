@@ -1550,6 +1550,35 @@
         }
       }
     },
+    "jobs_watch": {
+      "type": "object",
+      "required": [
+        "job",
+        "envelope"
+      ],
+      "description": "The result of the commands that read, act on or follow a job. Fields that the service adds to its documents are carried as they are.",
+      "properties": {
+        "job": {
+          "type": "object",
+          "description": "The job document of the service, as received; the single-job view includes the attempts.",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string"
+            }
+          }
+        },
+        "envelope": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "The envelope of the final attempt, as the service stored it. Null unless the command followed the job until it was at rest and an attempt had finished."
+        }
+      }
+    },
     "lang_detect": {
       "type": "object",
       "additionalProperties": false,
