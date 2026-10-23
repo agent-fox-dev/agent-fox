@@ -87,7 +87,7 @@
       "done_when": [
         "the new migration is the last entry of the migration list"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
