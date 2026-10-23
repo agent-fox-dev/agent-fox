@@ -93,6 +93,8 @@ type operation struct {
 	into any
 	// missingIsDone makes a 404 a success.
 	missingIsDone bool
+	// header, when it is set, receives the headers of the answer.
+	header *http.Header
 }
 
 // send makes the call with the PAT and classifies the answer.
@@ -126,6 +128,9 @@ func (c *Client) send(ctx context.Context, pat string, op operation) error {
 		return &UnavailableError{Err: cause(err)}
 	}
 	defer resp.Body.Close()
+	if op.header != nil {
+		*op.header = resp.Header.Clone()
+	}
 	return c.classify(resp, pat, op)
 }
 

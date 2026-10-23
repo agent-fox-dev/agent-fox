@@ -950,7 +950,12 @@ worker, the poll, the `af` client) build on:
   writes through hub's forge API under `/api/v1/workspaces/{slug}`: `GetRepository` is the record of the
   workspace; `ReadIssue` (the issue with its comments, marked a pull or merge request when hub says it is
   one), `ListComments`, `UpdateIssue`, `CreateIssue`, `AddComment`, `AddLabels`, `RemoveLabel` and
-  `CreatePullRequest` are one request each. A repository other than the workspace's (host, owner and name,
+  `CreatePullRequest` are one request each. `ListIssues` lists the open issues of exactly one label, which is
+  all the label poll asks (`state=open&labels=<label>&limit=100`; any other filter sends nothing and is not
+  available through hub): it follows a next page that hub names in a `Link` header, holds at most the
+  filter's `Limit`, leaves out what hub marks as a pull or merge request, and is `Incomplete` when it stopped
+  at the limit with issues left, or when the last page is as long as the page asked for, because hub's own
+  list is a bare array that cannot say it cut a list short. A repository other than the workspace's (host, owner and name,
   without case; an empty host is the workspace's) is refused before a request is sent, and every other
   method of `issuex.Client` says the operation is not available through hub in this release. Hub's answers
   become the errors that the loops already tell apart: 401 and 403 an `*issuex.HTTPError` of that status

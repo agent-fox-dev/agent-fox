@@ -41,6 +41,7 @@ type workspace struct {
 	issues   map[int]*issueState
 	pulls    []Pull
 	nextItem int
+	lists    listState
 }
 
 // AddWorkspace adds a workspace: the token PAT sees it, and the hub answers for it. If it has

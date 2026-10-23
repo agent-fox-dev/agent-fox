@@ -59,7 +59,7 @@
       "done_when": [
         "ListIssues is absent from the hub forge client's unavailable-method list and its test"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
