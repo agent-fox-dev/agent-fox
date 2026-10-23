@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "required": ["slug"],
+  "description": "The subscription view of the service for a workspace, as received: the token is never in it. Fields that the service adds are carried as they are.",
+  "properties": {
+    "slug": { "type": "string" },
+    "label_prefix": { "type": "string", "description": "The prefix that was given when the workspace was subscribed." },
+    "token_user": { "type": ["string", "null"] },
+    "subscribed_by": { "type": "string" },
+    "token_state": { "type": "string" },
+    "created_at": { "type": "string" },
+    "updated_at": { "type": "string" }
+  }
+}

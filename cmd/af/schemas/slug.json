@@ -1,0 +1,8 @@
+{
+  "type": "object",
+  "required": ["slug"],
+  "description": "The workspace that was unsubscribed.",
+  "properties": {
+    "slug": { "type": "string" }
+  }
+}

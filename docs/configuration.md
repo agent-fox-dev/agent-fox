@@ -16,6 +16,7 @@ pinned in [`.agent-fox/gate.json`](#gatejson); everything else is a flag (see
 | `GITLAB_TOKEN` | The token for GitLab. |
 | `GITHUB_API_URL` | The API URL of a GitHub Enterprise Server, such as `https://ghe.example.com/api/v3`. Default `https://api.github.com`. |
 | `GITLAB_API_URL` | The API URL of a self-hosted GitLab, such as `https://gitlab.example.com/api/v4`. Default `https://gitlab.com/api/v4`; `/api/v4` is added if it is missing. |
+| `AF_URL` | The URL of the agent-fox service that the [service commands](#the-client-of-the-agent-fox-service) talk to: `af login`, `af workspace …`, `af jobs …` and `af triage` or `af fix` with `--workspace`. `--server` wins over it, and an empty value is unset. |
 
 Without a token, `af` reads public issues and a 404 means the issue may be
 private (`failed`/`auth` with the token to set in `fix_hint`). Writing needs a
@@ -213,6 +214,34 @@ used replaces the files after it entirely (`guard.json` is not read when
 `--policy` is given). A file that does not parse, names another version, has an
 unknown key or an entry that cannot be used is `failed`/`config`, naming the
 file; no decision is made with a policy that was half read.
+
+## The client of the agent-fox service
+
+The commands of `af` that talk to the agent-fox service take the service from `--server <url>` or, without the
+flag, from `AF_URL`. The URL is an absolute `http` or `https` URL with a host and an optional path prefix, with no
+query, no fragment and no user info; one trailing `/` is dropped. No server is stored anywhere: `AF_URL` in a shell
+profile does the job. A plain `http` URL whose host is not loopback raises the warning `server_insecure`.
+
+**The credential** is the hub credential (an API key or a personal access token) that every request sends as
+`Authorization: Bearer`. Its one source is the file `~/.af/config.toml`, the file that `afc login` writes, and in it the
+string key `token` at the top level; every other key is ignored. There is no environment variable for it, and `AF_URL`
+is not a place for it either (a URL with user info is refused). `~` is the home directory that the operating system
+reports (`HOME` on Unix).
+
+```toml
+# ~/.af/config.toml
+token = "the credential"
+```
+
+`af login --token-file FILE` writes the file: it checks the credential with the service first, creates `~/.af` with mode
+0700, writes the file with mode 0600 through a temporary file that it renames over the old one, and changes only the value
+of the `token` line, as a TOML basic string, leaving every other byte as it was. It refuses a file whose `token` is not a
+one-line `token = "…"` or `token = '…'` before any table. On Unix a file with a group or other permission bit set raises the
+warning `credential_file_permissions`; the command goes on. The credential is never in an envelope, an event or a message,
+nor is the token of a workspace that `af workspace subscribe` hands over, as long as it is 8 bytes or more (a shorter value
+would be in ordinary words and is not taken out). The standard proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`) are
+honoured by the requests of the client, as they are by the calls of the service to hub: behind a proxy, a plain `http` server's
+requests are seen by the proxy. The commands are in [cli.md](cli.md#the-client-of-the-agent-fox-service).
 
 ## The agent-fox service
 

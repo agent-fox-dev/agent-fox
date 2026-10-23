@@ -85,7 +85,7 @@
       "done_when": [
         "`af workspace list` with no server, a bad server or a bad credential file fails before any request is sent"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,
@@ -126,7 +126,7 @@
       "done_when": [
         "a redirect target recorded zero requests in the tests"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,
@@ -169,7 +169,7 @@
       "done_when": [
         "a 401 or 502 on the check leaves ~/.af/config.toml byte-identical or absent"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 4,
@@ -210,7 +210,7 @@
       "done_when": [
         "the property test shows every event once in ascending order for arbitrary cuts and duplicates"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 5,
@@ -249,7 +249,7 @@
       "done_when": [
         "a blocked job's needs_human resume.argv is exactly [\"af\",\"jobs\",\"answer\",<id>,\"--wait\"] with flag --context"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 6,
@@ -290,7 +290,7 @@
       "done_when": [
         "the resume argv `af jobs answer <id> --wait --context B` parses and sends {option:\"B\"}"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 7,
@@ -337,7 +337,7 @@
       "done_when": [
         "a no-mode `af fix <url>` exits 2 before any forge read"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 8,
@@ -385,7 +385,7 @@
       "done_when": [
         "`af triage x --context --local` exits 2 with the no-mode message"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 9,
@@ -438,7 +438,7 @@
       "done_when": [
         "`make check` passes offline"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 10,
@@ -472,7 +472,7 @@
         "`make check` passes offline",
         "all six smoke tests pass"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }

@@ -196,7 +196,7 @@ func TestDocumentationNamesWhatTheShellDefines_TS_05_72(t *testing.T) {
 // besides the loopback interface. They are text the tests parse, or schema
 // identifiers; TestMain makes the default HTTP transport refuse to dial them.
 var hostsAllowedInTests = map[string]bool{
-	"127.0.0.1": true, "localhost": true, "[::1]": true,
+	"127.0.0.1": true, "127.0.0.2": true, "localhost": true, "[::1]": true,
 	"github.com": true, "gitlab.com": true, "example.com": true, "example.invalid": true, "json-schema.org": true,
 }
 

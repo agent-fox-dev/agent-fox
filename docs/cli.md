@@ -9,12 +9,16 @@ exit codes, coded warnings, a stop on a question that is resumed with
 `--context`, a `--dry-run` that cannot write to the forge, a fetchable
 schema, and a git-ignored run directory.
 
-**This release registers sixteen commands: [`lang detect`](#lang-detect),
+**This release registers twenty-seven commands: [`lang detect`](#lang-detect),
 [`gate run`](#gate-run), [`gate compare`](#gate-compare),
 [`revert-check`](#revert-check), [`guard check`](#guard-check) and
 [`map`](#map), the five of [triage](#triage): `triage`, `triage brief`,
-`triage run`, `triage submit` and `triage land`, and the five of [fix](#fix):
-`fix`, `fix brief`, `fix run`, `fix submit` and `fix land`.** The binary also
+`triage run`, `triage submit` and `triage land`, the five of [fix](#fix):
+`fix`, `fix brief`, `fix run`, `fix submit` and `fix land`, and the eleven of the
+[client of the agent-fox service](#the-client-of-the-agent-fox-service): [`login`](#login), the four of
+[`workspace`](#workspace-subscribe-list-get-and-unsubscribe) (`workspace subscribe`, `workspace list`,
+`workspace get` and `workspace unsubscribe`) and the six of [`jobs`](#jobs-list-get-watch-cancel-answer-and-retry)
+(`jobs list`, `jobs get`, `jobs watch`, `jobs cancel`, `jobs answer` and `jobs retry`).** The binary also
 answers `--version`, `--schema` and `help`; `af` with no arguments, or with a
 command it does not know, prints a `usage` envelope and exits 2. The other
 commands of later specs (`impl`, …) register on the shell and get everything
@@ -50,7 +54,7 @@ af --schema
   (`triage`, `gate run`). The shell picks the longest registered path that
   matches the words before the first flag. The path is the envelope's `tool`.
 - Flags may come before or after the positional argument (`af fix ./bug.md
-  --dir repo` and `af fix --dir repo ./bug.md` are the same), as `--flag
+  --local --dir repo` and `af fix --local --dir repo ./bug.md` are the same), as `--flag
   value` or `--flag=value`. `--` ends the flags. A flag that takes a value
   takes the next word whatever it looks like.
 - A command takes at most one positional argument unless it declares
@@ -858,16 +862,18 @@ a read-only brain run: the brain reads the checkout, hands over one diagnosis,
 and `af` checks it, and does every write itself.
 
 ```
-af triage <issue|file|text|-> [--dir DIR] [--context ANSWER]... [--repo owner/name]
+af triage <issue|file|text|-> --local [--dir DIR] [--context ANSWER]... [--repo owner/name]
           [--land issue|none] [--label L]... [--dry-run]
           [--brain NAME] [--sandbox NAME] [--borrowed-hands] [--budget USD] [--max-turns N] [--timeout 15m]
+af triage <input> --workspace SLUG [--server URL] [--wait] [--context ANSWER]... [--timeout D]
 af triage brief  <issue|file|text|-> [--dir DIR] [--context ANSWER]... [--repo owner/name]
 af triage run    --run-id ID [--dir DIR] [--budget USD] [--max-turns N] [--timeout 15m]
 af triage submit --run-id ID [--dir DIR]                          < diagnosis.json
 af triage land   --run-id ID [--dir DIR] [--land issue|none] [--label L]... [--repo owner/name] [--dry-run]
 ```
 
-The loop, `af triage`, is the four steps below in one process. The other four
+The loop, `af triage --local`, is the four steps below in one process. (Without `--local` the command
+needs `--workspace`: see [where a triage or a fix runs](#where-a-triage-or-a-fix-runs).) The other four
 commands are the steps one at a time, for a person at their own checkout and for
 a box that executes a brain: they share a run directory (see
 [below](#the-files-of-a-triage-run)), and `run`, `submit` and `land` take the
@@ -995,7 +1001,7 @@ exist (a run refused by the preflight has no brief).
 
 **`next`.** After a `done` with an `issue` in its result (the issue the diagnosis
 was written to, or would have been in a dry run) whose diagnosis is `confirmed`
-or `probable`: `af fix <issue url> --dir <dir>`. After a landing of the loop that
+or `probable`: `af fix <issue url> --dir <dir> --local`, so that the suggestion runs as given. After a landing of the loop that
 failed with a valid submission: `af triage land --run-id <id> --dir <dir>`, with
 `--repo <owner/name>` when the input was an issue URL.
 
@@ -1245,16 +1251,18 @@ pull request. The brain edits files in a box and hands over one report; `af`
 does every other effect, and measures the change before it lands.
 
 ```
-af fix <issue|file|text|-> [--dir DIR] [--base BRANCH] [--context ANSWER]... [--repo owner/name]
+af fix <issue|file|text|-> --local [--dir DIR] [--base BRANCH] [--context ANSWER]... [--repo owner/name]
        [--land pr|branch|none] [--attempts N] [--no-verify] [--dry-run]
        [--brain NAME] [--sandbox NAME] [--borrowed-hands] [--budget USD] [--max-turns N] [--timeout 45m]
+af fix <issue> --workspace SLUG [--server URL] [--wait] [--context ANSWER]... [--timeout D]
 af fix brief  <issue|file|text|-> [--dir DIR] [--base BRANCH] [--context ANSWER]... [--repo owner/name]
 af fix run    --run-id ID [--dir DIR] [--brain NAME] [--sandbox NAME] [--borrowed-hands] [--budget USD] [--max-turns N] [--timeout 45m]
 af fix submit --run-id ID [--dir DIR]                                   < report.json
 af fix land   --run-id ID [--dir DIR] [--land pr|branch|none] [--timeout 45m]
 ```
 
-The loop, `af fix`, is the steps below in one process. The other four commands are
+The loop, `af fix --local`, is the steps below in one process. (Without `--local` the command needs
+`--workspace`: see [where a triage or a fix runs](#where-a-triage-or-a-fix-runs).) The other four commands are
 the steps one at a time, for a person at their own checkout and for a box that
 executes a brain: they share a run directory (see
 [below](#the-files-of-a-fix-run)), and `run`, `submit` and `land` take the
@@ -1548,6 +1556,257 @@ and, for each round, `apply {written, deleted, ignored}`, `measure {verdict,
 closes, changed, reverted, after_gate_id, revert_outcome}` and `refusal {kind}`
 when the change was refused, among the entries of the box and the brain.
 
+### Where a triage or a fix runs
+
+`af triage` and `af fix` run in one of two modes, and the command line says which. The choice is made
+before anything else happens: before the flags are parsed for a mode, the input is resolved, a forge
+client is built, a run directory is made or a request is sent. An invocation that is refused for its mode
+or its flags therefore reads nothing from the forge, sends nothing to the service and leaves no
+`.agent-fox/run/` directory.
+
+| Mode | Flag | What it does |
+|---|---|---|
+| local | `--local` | Runs the loop on this machine, as `af triage` and `af fix` always did: the flags, the defaults, the input, the forge client, the run directory, the events and the envelope are those described above. The one change is that [triage's suggestion](#triage) of a fix ends with `--local`. |
+| service | `--workspace <slug>` | Queues a job on the [agent-fox service](#the-client-of-the-agent-fox-service) that `--server` or `AF_URL` names. No loop runs on this machine. |
+
+With neither flag the invocation is a `usage` error (exit 2). Its message says to choose and names
+`--workspace <slug>` (on the service that `--server` or `AF_URL` names) and `--local`; its `fix_hint` is
+`{flag: "--workspace"}` when a server is named, by the flag or by `AF_URL`, and `{flag: "--local"}`
+otherwise. With both flags it is a `usage` error that names both.
+
+**How the words are read.** Only the words before the first `--` are read, and a word after it is the
+input. A flag may be written with one dash or two. A word that is the value of a flag that takes one, in
+either mode, is that flag's value and never a mode: in `af triage x --context --local` the context is
+`--local`, and the invocation names no mode, so it exits 2. `--workspace <slug>` and
+`--workspace=<slug>` are the same, and a `--workspace` with no value or an empty one is a `usage` error
+that names `--workspace`. `--local` follows Go's boolean syntax, as every boolean flag of the shell does:
+`--local` and `--local=true` choose the local mode, `--local=false` counts as not given, and a value that
+`strconv.ParseBool` refuses is a `usage` error that names `--local`.
+
+**Flags a mode refuses** are `usage` errors that name the flag. The local mode refuses `--server` and
+`--wait`. The service mode refuses the flags only the loop reads: for both commands `--dir`, `--repo`,
+`--dry-run`, `--land`, `--brain`, `--sandbox`, `--borrowed-hands`, `--budget`, `--max-turns` and
+`--script`; for `triage`, `--label`; for `fix`, `--base`, `--attempts` and `--no-verify`. Both modes accept
+`--context`, `--timeout`, `--output` and `--emit-events`. `af triage --help`, `af help triage` and their
+`fix` counterparts describe both modes and the flags of each.
+
+**Only the binary.** The rule belongs to the command line of the `af` binary: the shell is given its
+`Mode` hook there and nowhere else. A caller that runs the loops in its own process, such as the worker of
+`agent-fox`, makes its shell with `afcmd.New`, runs them without `--local`, and never sends a request to
+an agent-fox service.
+
+**In service mode** `af triage <input> --workspace <slug>` and `af fix <input> --workspace <slug>`:
+
+- turn the input into the request by the first rule that matches. `-` reads stdin and is sent as `text`.
+  Any `http://` or `https://` URL is sent as the `issue` string, as given after trimming: the client
+  does not classify it and reads no forge variable, and the service accepts the URLs of the forges it
+  knows and refuses a pull or merge request and any other URL with a 400, which is a `usage` error that
+  carries its message. A positive integer, with or without a leading `#`, is the `issue` as a JSON
+  number. `owner/repo#N` (two or more `/`-separated segments of letters, digits, `_`, `.` and `-`) is the
+  `issue` string. The name of an existing regular file is sent as `file: {name, content}`. Anything else is
+  `text`. `af fix` takes only the three issue forms, and any other input is a `usage` error that says so;
+- trim text and file content, which must not be empty, hold a NUL byte or be invalid UTF-8 (`usage`);
+  a directory is a `usage` error and an unreadable file `io`. Content longer than 131072 bytes is cut at a
+  UTF-8 boundary so that it and the truncation marker fit in 131072 bytes, `input.truncated` is set and
+  the warning `input_truncated` is raised;
+- report the input in the envelope: `kind` is `issue`, `file`, `text` or `stdin`, `origin` is the URL or
+  the absolute path of the file (else `""`), and `truncated` says whether it was cut;
+- post the body to `POST /api/v1/workspaces/<slug>/triage` or `…/fix`, with the slug path-escaped. The
+  `--context` values go in order as `context`, which is absent when there are none;
+- on 202 record the artifact `{kind: "job", name: <id>, url: <server>/api/v1/jobs/<id>}` at once.
+  Without `--wait` the status is `done`, the result `{job, envelope: null}` and `next` is
+  `af jobs watch <id>`, with `--server <url>` when the server came from the flag. With `--wait` the
+  command [follows the job](#following-a-job);
+- fail a 409 `duplicate_job` as a `conflict` with the message of the service, which names the open job.
+
+## The client of the agent-fox service
+
+Eleven commands make `af` the client of the agent-fox service (the long-running `agent-fox`,
+[described at the end of this document](#the-agent-fox-command-line); its routes are in [api.md](api.md), and
+the client adds none): [`login`](#login), the four `workspace` commands, the six `jobs` commands, and
+`af triage` and `af fix` with [`--workspace`](#where-a-triage-or-a-fix-runs). They speak the one-envelope
+contract and the exit codes of every `af` command. None of them builds a forge client, makes a run
+directory or runs a model; the work of a job is done by the service, and its cost is in `result.job.usage`.
+
+### The server, the credential and the order of the checks
+
+**The server.** Every service command takes `--server <url>`; without it the URL is `AF_URL`, and an
+empty `AF_URL` is unset. It must be an absolute `http` or `https` URL with a host and an optional path
+prefix, with no query, no fragment and no user info; one trailing `/` is dropped, and the API is at
+`<url>/api/v1/…`. A URL that breaks a rule is a `usage` error that names `--server` or `AF_URL`, whichever
+gave it, and the rule (the password of a URL with user info is never echoed). No server is a `usage`
+error that names `--server` and `AF_URL` (and `--local` for `triage` and `fix`), with the `fix_hint`
+`{flag: "--server", env: "AF_URL"}`. A plain `http` URL whose host is not loopback (`localhost`,
+`127.0.0.0/8`, `::1`) raises the warning `server_insecure`, because the credential crosses the link in
+clear; the command goes on. No server is stored anywhere: `AF_URL` in a shell profile does the job.
+
+**The credential.** Every request carries `Authorization: Bearer <credential>`. The credential is the
+top-level string key `token` of `~/.af/config.toml` (`~` is what `os.UserHomeDir` reports), the file that
+`afc login` writes; every other key is ignored and there is no other source. Before any request:
+
+| The file | Failure |
+|---|---|
+| the home directory cannot be found; the file exists and cannot be read | `failed`/`io`, naming the path |
+| the file does not exist; `token` is missing, is not a string or is empty | `failed`/`auth`, naming the file and saying to run `af login --token-file FILE` or `afc login`; `fix_hint` `{suggest: "af login --token-file FILE"}` |
+| the file does not parse as TOML; the token holds a line break or a control character | `failed`/`config`, naming the file (never the token) |
+
+On Unix a file with any group or other permission bit set raises the warning
+`credential_file_permissions`, naming it; the command goes on.
+
+**The order of the local checks.** A service command runs its checks in this order, reports the first
+that fails, and sends a request only when all have passed: (1) the mode and the flags (a missing or
+doubled mode, a refused or unknown flag, a malformed value); (2) the positional arguments and the input,
+which includes reading stdin, the token file of `af login` and the token file of `af workspace subscribe`;
+(3) the server; (4) the credential, or for `af login` the existing credential file. A usage mistake is
+therefore always reported before an `auth` or `config` failure.
+
+**Requests.** Every request carries `User-Agent: af/<version>` and `Accept: application/json` (`text/event-stream`
+for the event stream), and any body is JSON with `Content-Type: application/json`. A request other than the
+event stream lasts at most two minutes, or the time `--timeout` leaves if that is shorter; at most 8 MiB of an
+answer is read; a redirect is not followed and no request is sent to its target, so the credential
+reaches no host but the server's. `--timeout` has no default limit on any client command. The credential
+and the token of a workspace are in no output: not on stdout or stderr, not in the `--output` file, not in
+the events or `--emit-events`, whatever the service repeats in its answers: the shell takes a registered secret out of the envelope, its
+copies and every event, wherever it stands. A value shorter than 8 bytes is not taken out, since it would be in ordinary
+words, and no credential is that short. The client uses the standard proxy variables of Go (`HTTP_PROXY`,
+`HTTPS_PROXY`, `NO_PROXY`), as the service does for its calls to hub: behind a proxy for a plain `http` server, the
+proxy sees the request.
+
+**Answers.** The service's documents are carried into the results as received, so fields that `af` does
+not know survive. A failure is mapped by the status of the answer:
+
+| The service answers | Status (exit code) | `error.category` | `retryable` |
+|---|---|---|---|
+| 2xx | the command's | | |
+| 400 | `usage` (2) | `usage` | false |
+| 401 | `failed` (1) | `auth` | false |
+| 404 | `usage` (2) | `usage` | false |
+| 409 | `failed` (1) | `conflict` | false |
+| 422 | `failed` (1) | `auth` | false |
+| 502 | `failed` (1) | `hub` | true |
+| 500 | `failed` (1) | `service` | false |
+| 503, 504 and any other 5xx | `failed` (1) | `service` | true |
+| a 3xx, or any other 4xx (405, 413 and 415 among them) | `failed` (1) | `service` | false |
+| a transport error, or the two minutes running out | `failed` (1) | `service` | true |
+| a body that is too large or is not the JSON expected | `failed` (1) | `service` | false |
+
+The message is the service's `error.message` followed by its `error.code` in parentheses, or "the service
+answered 500" when the body has neither. A transport error names the server URL and what gave it
+(`--server` or `AF_URL`); a 404 names the job id or the workspace slug that was asked for and says that it
+does not exist or that hub does not let the caller see it. The `fix_hint` is `{suggest: "af login
+--token-file FILE"}` for a 401; `{suggest: "af workspace subscribe <slug> --hub-token-file FILE"}` for a
+404 on a workspace route and a 409 `not_subscribed` or `token_unreadable` (the slug is the real one on a
+workspace route and `<slug>` on a job route, which does not name it); and `{flag: "--hub-token-file"}` for a 422.
+
+### login
+
+```
+af login --token-file FILE|- [--server URL]
+```
+
+Stores the hub credential, an API key or a personal access token, in `~/.af/config.toml`. The credential
+is read from the file, or from stdin for `-`, and never from the command line, where it would land in the
+shell history. The steps run in this order, and one that fails ends the command with nothing written:
+
+1. **Read the credential.** Trimmed, it must be non-empty, on one line, valid UTF-8, free of control
+   characters and at most 4096 bytes: a source that cannot be read is `failed`/`io` naming the file or
+   stdin, and a content rule that is broken is a `usage` error naming `--token-file`.
+2. **Find the server** as above.
+3. **Check the credential file that is there.** It must be readable (`io`) and parse as TOML (`config`), and
+   hold, before any table header, a `token = "…"` or `token = '…'` line of its own whose value is a one-line
+   string, optionally followed by a comment. Otherwise it is `failed`/`config`, naming the file and saying that
+   its layout is not the one `af` expects and that `afc login` or an edit fixes it.
+4. **Check the credential with the service** by `GET /api/v1/workspaces`. A 2xx accepts it. A 401 refuses it:
+   `failed`/`auth`, saying that the service refused this credential. Any other answer, a transport error or the
+   request running out fails as the table above maps it (a 502 is `hub`, retryable), with a message that says the
+   credential could not be checked and never that it was refused.
+5. **Write the file.** With none, `~/.af` is created with mode 0700 and the file holds the one line
+   `token = "<credential>"`. With one, only the value on the `token` line is replaced, by the credential as a
+   TOML basic string, and every other byte stays as it was: comments, other keys, tables, line endings. The
+   content goes to a temporary file in `~/.af` with mode 0600, which is renamed over the old file. A step that
+   fails is `failed`/`io` naming the file; the temporary file is removed and the old file is as it was.
+
+The result is `{credential_file, server}`, never the credential.
+
+### workspace subscribe, list, get and unsubscribe
+
+| Command | Request | Result |
+|---|---|---|
+| `af workspace subscribe <slug> --hub-token-file FILE\|- [--prefix P]` | `PUT /api/v1/workspaces/<slug>` with `{hub_token, label_prefix?}` | the subscription view |
+| `af workspace list` | `GET /api/v1/workspaces` | `{workspaces}` |
+| `af workspace get <slug>` | `GET /api/v1/workspaces/<slug>` | the subscription view |
+| `af workspace unsubscribe <slug>` | `DELETE /api/v1/workspaces/<slug>` | `{slug}` on 204 |
+
+`subscribe` reads the token of the workspace under the rules of `af login` (an unreadable file or stdin is `io`
+naming it; a content rule that is broken is a `usage` error naming `--hub-token-file`), sends `--prefix` as
+`label_prefix` only when the flag is given, and treats 201 (the summary says subscribed) and 200 (replaced) as
+success. The slug is a required, path-escaped argument whose syntax is the service's to check, so a 400 is a
+`usage` error. `unsubscribe` says that the open jobs of the workspace were cancelled; the service waits up to its
+grace period for the runners, so it can take a minute.
+
+### jobs list, get, watch, cancel, answer and retry
+
+| Command | Request | Result |
+|---|---|---|
+| `af jobs list [--workspace S] [--state S] [--cursor C]` | `GET /api/v1/workspaces/<S>/jobs` with `--workspace`, else `GET /api/v1/jobs`; `state` and `cursor` only when given | the page `{jobs, next_cursor}` |
+| `af jobs get <id>` | `GET /api/v1/jobs/<id>` | `{job, envelope: null}` |
+| `af jobs watch <id> [--since N]` | [follows the job](#following-a-job) | the job result |
+| `af jobs cancel <id>` | `POST /api/v1/jobs/<id>/cancel` | `{job, envelope: null}` |
+| `af jobs answer <id> (<text> \| --context <text> \| --option <id>) [--wait]` | `POST /api/v1/jobs/<id>/answer` | `{job, envelope: null}`, or the job result with `--wait` |
+| `af jobs retry <id> [--wait]` | `POST /api/v1/jobs/<id>/retry` with `{}` | `{job, envelope: null}`, or the job result with `--wait` |
+
+`list` gives one page, and when `next_cursor` is not null `next` repeats the command with `--cursor <next_cursor>`
+as its last two words; a 400 is a `usage` error. `answer` takes exactly one answer (none, or more than one, is a
+`usage` error and sends nothing). An `--option` value is uppercased and sent as `{option}` without reading the job.
+A text answer, positional or `--context`, must not be empty after trimming; `af` reads the job, and text that equals
+an option id of the blocked question, ignoring case, is sent as that `{option}`, so that the label of the option is
+the answer, and any other text as `{answer}`. A 409 (`invalid_state`, `not_subscribed`, `token_unreadable`) is a
+`conflict`. `--wait` on `answer` and `retry` records the job artifact and follows the job; `cancel` takes no `--wait`.
+
+### Following a job
+
+`af jobs watch`, `--wait` on `af triage`, `af fix`, `af jobs answer` and `af jobs retry` read
+`GET /api/v1/jobs/<id>/events?since=<n>`, a server-sent event stream, from the start (or from `--since`), and
+stop when the job is at rest: its state is `blocked`, `done`, `failed` or `cancelled` and none of its attempts is
+`running`. Each event of the service, `{seq, ts, job_id, attempt, type, data}`, is delivered once and in order
+(an event whose `seq` is not above the last one is dropped) and emitted as the event `job_event`; `watch` also writes
+it to stderr as one line of compact JSON, and `--wait` writes nothing to stderr. A line of the stream may be up to
+1 MiB; comments and unknown fields are ignored.
+
+**Tries.** A try asks for the stream from the last `seq` delivered and, once the stream ends, reads
+`GET /api/v1/jobs/<id>`. A stream ends at its end, on a dropped connection, on a frame that is not an event, and after 60
+seconds without a byte. If the read says the job is at rest, the following is over. Otherwise another try follows: after
+1 second when the try delivered an event, which also clears the count of failed tries, and after 1, 2, 4 and 8 seconds after
+the first four failed tries in a row. A try fails when it ends without the job at rest and delivered no new event, whatever
+ended it, a 5xx or a transport error on either request included (a request for the stream that fails reads no job). The fifth failed try
+in a row ends the following with the category of the last failure (`hub` for a 502, else `service`), retryable, naming the job and saying
+that it may still be running; `next` is `af jobs watch <id> --since <last seq>`, with `--server <url>` when the server came from the flag.
+A 401, a 404, a 3xx or any other 4xx on either request ends it at once, mapped by the table above.
+
+**What it ends with.** The job is read with its attempts, the envelope of the highest-numbered attempt whose state is not
+`queued` or `running` is fetched from `GET /api/v1/jobs/<id>/attempts/<n>/envelope` (a 404 leaves it null; another failure
+leaves it null and raises the warning `attempt_envelope_unavailable`), and the result is `{job, envelope}`. The warnings of that
+envelope are appended to the command's own; its artifacts, side effects, `next` and usage are not copied, and `usage` stays
+the zero usage of a run with no brain. The status follows the `result` of the job, which the service fills from the latest
+finished attempt:
+
+| Job state | Status (exit code) |
+|---|---|
+| `done` | `done` (0), or `unverified` (4) when `result.status` says so |
+| `blocked` | `needs_human` (3) with the question and the labels of the options in order; `resume` is `{argv: ["af", "jobs", "answer", <id>, "--wait"], flag: "--context"}`, with `--server <url>` in `argv` when the server came from the flag |
+| `failed` | the failure of `result.error` (its category, message, `retryable` and `fix_hint`; `internal` when there is none), `unverified` (4) or `usage` (2) when `result.status` says so |
+| `cancelled` | `failed`/`job_cancelled` (1), not retryable, whatever the category of the attempt's envelope |
+
+A failed or cancelled ending has no `result`, because the shell clears the result of a failed envelope; the job is in the
+`artifacts` and `af jobs get <id>` shows it. Answering with `--context B` appended to the resume `argv` sends
+`{option: "B"}` and follows attempt 2.
+
+**When `af` itself is stopped.** A SIGINT, SIGTERM or SIGHUP, or `--timeout` running out, while following ends the
+following and never cancels the job, which is durable on the service: the envelope is the shell's `failed`/`cancelled` (a
+signal sent to `af`, which the category `job_cancelled` is not) or `failed`/`timeout`, the job artifact stays, and `next`
+holds `af jobs watch <id>` and `af jobs cancel <id>` (each with `--server <url>` when the server came from the flag). A
+following that reaches rest has neither entry.
+
 ## The envelope
 
 Every invocation other than `--version`, `--schema` and help writes exactly
@@ -1683,11 +1942,11 @@ outcome, and a run that fails after the command returned prints the envelope.
 | `usage` | The invocation is wrong. Status `usage`. |
 | `auth` | An issue was not found without a token, so it may be private, or the `agentkit` brain has no credential for its model, or the `claude` brain has no `ANTHROPIC_API_KEY` for its box (not under `none`). `fix_hint.env` names the variable to set (a forge token, or `ANTHROPIC_API_KEY`). |
 | `forge` | The forge could not be reached, refused, or the client could not be built. `retryable` is true after a rate limit, a server error or a lost connection, and false after a refusal (a write of `triage` that gets a server error is not retryable). |
-| `io` | A file, stdin or the run directory could not be read or written. |
-| `cancelled` | The process was sent SIGINT, SIGTERM or SIGHUP. |
+| `io` | A file, stdin or the run directory could not be read or written; also the credential file (`~/.af/config.toml`) of a service command when the home directory cannot be found or the file cannot be read, and the writing of it by `af login`. |
+| `cancelled` | The process was sent SIGINT, SIGTERM or SIGHUP. It is a signal sent to the `af` process; a job of the service that was cancelled is `job_cancelled`. |
 | `timeout` | `--timeout` ran out, or the time a brief allows ran out with no submission (it counts from the start of the run, so placing the brief is part of it). Not retryable; `fix_hint` is `{flag: "--timeout", suggest: <twice the value>}`. |
 | `internal` | A bug: a plain error, a panic, an inconsistent outcome, a result that is not JSON. |
-| `config` | A configuration file `af` reads cannot be used, for example a `.agent-fox/gate.json` that does not parse, or the `.agent-fox/guard.json` that a brain's tool gate loads. The message names the file. The `agentkit` brain also uses it when the model provider cannot be configured from the environment. |
+| `config` | A configuration file `af` reads cannot be used, for the service client the credential file that does not parse as TOML or whose token holds a control character, or whose layout `af login` will not edit; also, for example a `.agent-fox/gate.json` that does not parse, or the `.agent-fox/guard.json` that a brain's tool gate loads. The message names the file. The `agentkit` brain also uses it when the model provider cannot be configured from the environment. |
 | `restore` | A tree that a command changed in order to measure it could not be put back, or a leftover of an earlier measurement stands in the way. The message names the directory that holds what is left. |
 | `git` | git failed in a way the command cannot work around; also, under `none`, a checkout that the brain left on another branch, detached, or with its history rewritten (see [the steps of a fix run](#the-steps-of-a-fix-run)). |
 | `sandbox` | The box could not be opened, synced or exported. The provider could not create it (not retryable: `landlock` on a host without Linux or without Landlock ABI 4, `podman` without a reachable engine, see [the providers](#the-providers)); the image of a `podman` box is missing and cannot be pulled, the checkout could not be synced in, or the tree could not be exported out (retryable); a process brain's binary or `HOME` fails the probe in the box (not retryable); or an export carried a `.git`, which stops the run. When the provider was chosen by default, `fix_hint` names `--sandbox` and `AF_SANDBOX`. |
@@ -1696,8 +1955,12 @@ outcome, and a run that fails after the command returned prints the envelope.
 | `budget` | A brain used its cost bound or its turn bound and left no submission. Not retryable; `fix_hint` is `{flag: "--budget"` or `"--max-turns", suggest: <twice the bound>}`. |
 | `submission` | A submission was refused (the `submit` command, [below](#the-submit-command-of-an-agent)); nothing was written, and the message names every problem. Retryable. Also `fix land` on a run whose submission is a question. |
 | `preflight` | A fact about the repository stops `fix` before it spends anything, and it is not an error of the invocation: the working tree is not clean (the message names up to 20 paths), no check of the gate can be run here (`fix_hint` `{flag: "--no-verify"}`), or `--land` needs an `origin` remote and there is none. Not retryable. |
+| `service` | The agent-fox service could not be reached or gave an answer that `af` cannot use: a transport error, a 5xx, a redirect (which is not followed), a 4xx that no command should provoke (405, 413, 415), a body that is too large or is not the JSON expected, or a request that ran past its two minutes. Retryable after a transport error, the bound and a 5xx other than 500. |
+| `conflict` | The service refused a request because of the state of a job or a workspace (409): `invalid_state`, `duplicate_job`, `not_subscribed`, `token_unreadable`. Not the invocation, and not retryable. |
+| `hub` | The service could not get an answer from hub (502). Retryable. The same category the worker of the service uses for hub outages. |
+| `job_cancelled` | A job that `af` followed was cancelled on the service. Not retryable. |
 
-Later specs add categories of their own to this list.
+`auth` is also the category of a credential that is missing or that the service refuses (401, with `fix_hint` `{suggest: "af login --token-file FILE"}`) and of a workspace token that hub refuses (422, `fix_hint` `{flag: "--hub-token-file"}`). Later specs add categories of their own to this list.
 
 ## Warning codes
 
@@ -1714,6 +1977,9 @@ A code matches `^[a-z][a-z0-9_]*$`; one that does not is reported under
 | `output_unwritable` | The file named by `--output` could not be written. |
 | `events_unwritable` | An event could not be written to the run directory or to `--emit-events`. Raised once. |
 | `invalid_warning_code` | A command raised a warning whose code does not match the pattern; the message begins with the code it gave. |
+| `server_insecure` | A service command: the server is a plain `http` URL whose host is not loopback (`localhost`, `127.0.0.0/8`, `::1`), so the credential crosses the link in clear. The command goes on. |
+| `credential_file_permissions` | A service command, on Unix: `~/.af/config.toml` has a group or other permission bit set. The message names the file; the command goes on. |
+| `attempt_envelope_unavailable` | `jobs watch` and `--wait`: the job is at rest and the envelope of its last finished attempt could not be fetched (any failure but a 404, or an envelope that is not JSON), so `result.envelope` is null. |
 | `no_checks` | `gate run`: no check of the gate table can be run here, or the table has none. Nothing ran and `passed` is false. |
 | `tree_changed_during_gate` | `gate run`, `fix`, `fix land`: the checks changed the tree. The result is kept under the hash of the tree they ran on. |
 | `fix_not_proven` | `revert-check`, `fix`, `fix land`: the outcome is not `proven` and not `no_changes`, so the change must not close its issue; the commit says `Refs`. |
@@ -1807,8 +2073,11 @@ and exits 3. The envelope says what it needs and how to answer:
 
 `options` are lettered `A`, `B`, … in order (at most 26); none means free
 text is expected. `resume.argv` is the invocation as it was received, with
-`argv[0]` replaced by `af`. Run it with `--context <answer>` appended to
-resume. A command that opts into `--context` takes it any number of times;
+`argv[0]` replaced by `af`, unless the command supplies its own: a job of the service that is blocked ends a
+command with `resume.argv` `["af", "jobs", "answer", <id>, "--wait"]` (and `--server <url>` when the server came
+from the flag), because resuming the original command would queue a second job, which the service refuses as a
+`duplicate_job`; `resume.flag` is `--context` all the same, and the answer is appended to it. Run it with
+`--context <answer>` appended to resume. A command that opts into `--context` takes it any number of times;
 the values reach the command verbatim and in order, and answers accumulate
 because the earlier `--context` values stay in `argv`. An empty value is a
 `usage` error. What an answer such as `B` means is up to the command.
@@ -1862,7 +2131,9 @@ field, `schema_version` a constant, `required` listing the fields in envelope
 order, `result` open. The result schema of each registered command is under
 `$defs`, keyed by the command path with spaces replaced by `_`. `af
 <command> --schema` narrows it to the command: `tool` is a constant, and
-`result` is null or a reference to the command's schema.
+`result` is null or a reference to the command's schema. The schema of `triage` and of `fix` is a `oneOf`: the
+result of the local loop, or the job result `{job, envelope}` of the service mode. The schemas of the client commands
+(`login`, `workspace …`, `jobs …`) name the fields `af` relies on and allow the others, which the service may add.
 
 The base schema is `internal/toolio/schema/envelope.schema.json`, embedded in
 the binary. A test fails if its `required` list and the fields of
@@ -1965,7 +2236,9 @@ appended), hold one JSON object per line, written as the event happens:
 emits `run_start` (`{tool, argv, input_kind}`) first, a `warning`
 (`{code, message}`) for each warning, and `run_end` (`{status, exit_code,
 duration_ms}`) last, also for an invocation that was refused before its
-command ran. A command emits its own types through `Run.Emit`. A command that
+command ran. A command emits its own types through `Run.Emit`. A command that follows a job of the service emits `job_event`
+(`{seq, ts, job_id, attempt, type, data}`, the event document of the service as it was received) for each event it
+delivers. A command that
 runs a brain emits `step` (`{name, brain?}`, for the stages `brief`, `brain` and
 `submission`; `triage` names its own, `preflight`, `brief`, `brain` and `land`), `heartbeat` (`{brain, elapsed_ms}`, every 30 seconds while the
 brain runs) and `tool_call` (`{brain, tool, decision, reason, ok, duration_ms}`,

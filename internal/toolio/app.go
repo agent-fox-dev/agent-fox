@@ -82,6 +82,18 @@ type App struct {
 	// written, with its kind and its data, in the order they were written. It is called by the goroutine
 	// that records, with no lock held.
 	LedgerSink func(kind string, data json.RawMessage)
+	// Mode, when it is set, is asked once the words have named a command, before the flags are
+	// parsed, the input is resolved, a forge client is built, a run directory is made or anything
+	// is sent. It is given the command the words matched and the words after its path, and
+	// answers with the command to run and the words to parse for it, or with the failure to end the
+	// invocation with: the envelope of a refusal is that of any invocation that is refused before its
+	// command runs, and honours --output and --emit-events. The invocation's argv stays what
+	// was received. It is for the af binary, which chooses between a loop on this machine and a
+	// job on a service; a caller that runs the commands in its own process leaves it nil.
+	Mode func(cmd *Command, words []string) (chosen *Command, parse []string, failure *Failure)
+	// HelpExtra, when it is set, is the text that the help of a command ends with, for the
+	// command it is given: a section on modes, say. It is empty for a command it has nothing to add to.
+	HelpExtra func(cmd *Command) string
 	// Target, when it is valid (a host included), is the repository every command that
 	// uses a forge works on, whatever the input: the forge client is built for it, in
 	// place of --repo and the origin of --dir, and an issue URL on another repository is
@@ -193,6 +205,8 @@ type Run struct {
 	sideEffects []SideEffect
 	next        []Next
 	usage       Usage
+	inputInfo   *InputInfo // set by SetInput
+	redacted    []string   // set by Redact
 }
 
 // Warn records a warning. The code matches ^[a-z][a-z0-9_]*$. A warning
@@ -221,6 +235,58 @@ func (r *Run) Emit(typ string, data any) {
 	if r.events != nil {
 		r.events.emit(typ, data)
 	}
+}
+
+// SetInput says what the input of the command was, for a command that reads its own and has
+// none declared: the kind, where it came from (the URL, or the absolute path of a file, else "")
+// and whether it was cut. The envelope reports it as its input.
+func (r *Run) SetInput(kind InputKind, origin string, truncated bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.inputInfo = &InputInfo{Kind: kind, Origin: origin, Truncated: truncated}
+}
+
+// minRedacted is the shortest value Redact takes out: a shorter one would be in ordinary words.
+const minRedacted = 8
+
+// Redact registers values that are to appear in no output of the invocation: the shell takes them
+// out of the envelope on stdout and its copies (--output and the run directory) and of every
+// event, wherever the command put them, and puts "***" in their place. It is for a secret the
+// command holds, which a document that it carries from elsewhere may repeat. A value shorter than
+// 8 bytes is not redacted.
+func (r *Run) Redact(secrets ...string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, s := range secrets {
+		if len(s) < minRedacted {
+			continue
+		}
+		r.redacted = append(r.redacted, s)
+		// The same value as it stands inside a JSON string, which the envelope writes without
+		// escaping <, > and & and an event writes with it.
+		for _, escapeHTML := range []bool{false, true} {
+			var buf bytes.Buffer
+			enc := json.NewEncoder(&buf)
+			enc.SetEscapeHTML(escapeHTML)
+			if err := enc.Encode(s); err != nil {
+				continue
+			}
+			if inner := strings.TrimSuffix(buf.String(), "\n"); len(inner) > 2 && inner[1:len(inner)-1] != s && !slices.Contains(r.redacted, inner[1:len(inner)-1]) {
+				r.redacted = append(r.redacted, inner[1:len(inner)-1])
+			}
+		}
+	}
+}
+
+// redactBytes is data without the values that were registered with Redact.
+func (r *Run) redactBytes(data []byte) []byte {
+	r.mu.Lock()
+	secrets := slices.Clone(r.redacted)
+	r.mu.Unlock()
+	for _, s := range secrets {
+		data = bytes.ReplaceAll(data, []byte(s), []byte("***"))
+	}
+	return data
 }
 
 // Artifact records something the run produced.
@@ -275,11 +341,25 @@ func (r *Run) collect(env *Envelope) {
 	env.SideEffects = slices.Clone(r.sideEffects)
 	env.Next = slices.Clone(r.next)
 	env.Usage = r.usage
+	if r.inputInfo != nil {
+		env.Input = *r.inputInfo
+	}
 }
 
 // Register adds a command to the app.
 func (a *App) Register(c Command) {
 	a.commands = append(a.commands, &c)
+}
+
+// Command returns the command registered under path, which a caller may adapt before it runs an
+// invocation (the schema of its result, say), or nil when there is none.
+func (a *App) Command(path string) *Command {
+	for _, c := range a.commands {
+		if c.Path == path {
+			return c
+		}
+	}
+	return nil
 }
 
 func (a *App) name() string {
@@ -315,6 +395,18 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 		inv := a.newInvocation(stdout, stderr, a.name(), started)
 		inv.env.fail(&Failure{Category: CategoryUsage, Message: a.unknownCommand(words)})
 		return inv.finish()
+	}
+	if a.Mode != nil {
+		chosen, parseWords, failure := a.Mode(cmd, rest)
+		if failure != nil {
+			// The flags the matched command knows are read so that --output and --emit-events are honoured.
+			values, _, _ := parse(cmd, rest)
+			inv := a.newInvocation(stdout, stderr, cmd.Path, started)
+			inv.setup(cmd, words, values, nil)
+			inv.env.fail(failure)
+			return inv.finish()
+		}
+		cmd, rest = chosen, parseWords
 	}
 
 	inv := a.newInvocation(stdout, stderr, cmd.Path, started)
@@ -382,6 +474,7 @@ func (inv *invocation) setup(cmd *Command, words []string, values *flagValues, p
 	}
 	if values.emitEvents != "" || cmd.UsesRunDir || inv.app.EventSink != nil {
 		inv.events = newEventStream(inv.app.now, inv.run.Warn)
+		inv.events.redact = inv.run.redactBytes
 		inv.run.events = inv.events
 		if values.emitEvents != "" {
 			inv.events.addFile(values.emitEvents)
@@ -485,6 +578,9 @@ func (inv *invocation) collect() {
 // encode renders the envelope as it is now.
 func (inv *invocation) encode() []byte {
 	data, _ := inv.env.marshal() // ensureEncodable made sure it can be
+	if inv.run != nil {
+		data = inv.run.redactBytes(data)
+	}
 	return data
 }
 
@@ -767,11 +863,15 @@ func checkOutcome(o Outcome) string {
 }
 
 // newNeedsHuman is the envelope's needs_human for q: the options lettered in
-// order, and the invocation to re-run with an answer.
+// order, and the invocation to re-run with an answer, which is the question's own
+// ResumeArgv when it has one.
 func newNeedsHuman(q *Question, argv []string) *NeedsHuman {
 	options := make([]Option, len(q.Options))
 	for i, label := range q.Options {
 		options[i] = Option{ID: string(rune('A' + i)), Label: label}
+	}
+	if len(q.ResumeArgv) > 0 {
+		argv = q.ResumeArgv
 	}
 	return &NeedsHuman{
 		Question: q.Text,
