@@ -356,8 +356,9 @@ subscription's prefix, so that the poll and the worker cannot disagree.
 A cancel puts the request label back: when a job the poll made is cancelled, by a person or by an unsubscribe, the worker
 (for a runner that opened its hub session) or the service's cancel cleanup (for every other cancel) puts the request label
 back on the issue and takes off the status labels the job set (see [Cancel](api.md#cancel)). The poll holds such a label
-rather than take it for a new request, until a complete listing without the issue, at least 5 minutes after the job came to
-rest, releases it: removing the label and adding it again is then a new request.
+rather than take it for a new request, until a complete listing without the issue releases it, requested at least 5 minutes
+after the poll first saw that no runner of the job was in progress and its cleanup had finished: removing the label and
+adding it again is then a new request.
 
 Nothing else about the timing is a setting. A loop starts its first cycle after a random delay of 0 to 30 seconds, so that
 the workspaces do not all ask hub at once when the service starts, and each later cycle one interval after the previous

@@ -26,3 +26,15 @@ func (s *Service) CancelFor(ctx context.Context, id string, cause error) error {
 	_, err = s.cancel(ctx, id, state, cause)
 	return err
 }
+
+// RegisterRun makes the attempt known as a run of this process whose runner was not yet called, as a claim does a moment
+// before it calls the runner, and returns what forgets it; for the tests.
+func (s *Service) RegisterRun(id string, attempt int) (forget func()) {
+	_, cancel := context.WithCancelCause(context.Background())
+	run := &attemptRun{key: attemptKey{id, attempt}, cancel: cancel, recorder: newRecorder(s.store, s.log, id, attempt),
+		returned: make(chan struct{}), settled: make(chan struct{}), done: make(chan struct{})}
+	s.mu.Lock()
+	s.inflight[run.key] = run
+	s.mu.Unlock()
+	return func() { s.forget(run) }
+}

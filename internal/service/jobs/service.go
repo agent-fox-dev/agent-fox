@@ -121,7 +121,7 @@ func New(cfg Config) (*Service, error) {
 		subs: cfg.Subscriptions, log: cfg.Logger, clock: cfg.Clock, enqueue: cfg.Enqueue,
 		runner: cfg.Runner, attemptsDir: dir, unsubscribing: map[string]int{},
 		inflight: map[attemptKey]*attemptRun{}, waiting: map[attemptKey]chan struct{}{}, stopping: make(chan struct{}), slots: make(chan struct{}, cfg.Workers),
-		cleaner: cfg.Cleaner, cleanups: cleanups{tries: map[string]chan struct{}{}, slots: make(chan struct{}, maxTries)},
+		cleaner: cfg.Cleaner, cleanups: cleanups{tries: map[string]chan struct{}{}, slots: make(chan struct{}, maxTries), unrecorded: map[string]bool{}},
 	}
 	if s.log == nil {
 		s.log = slog.Default()

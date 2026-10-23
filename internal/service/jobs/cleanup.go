@@ -70,6 +70,8 @@ type cleanups struct {
 	mu    sync.Mutex
 	tries map[string]chan struct{} // job id -> closed when its try ends
 	slots chan struct{}
+	// unrecorded are the jobs whose try's result the store failed to record, which is warned of once.
+	unrecorded map[string]bool
 }
 
 // errTryBound is the cause of a try that ran out of its minute.
@@ -148,11 +150,20 @@ func (s *Service) try(id string) {
 // noteCleanup records what a try came to and logs it: one INFO record for a cleanup that is done, the record the result
 // carries for one that ended otherwise, and a WARN for the first failure of a cleanup that stays pending only.
 func (s *Service) noteCleanup(ctx context.Context, id string, req CleanupRequest, res CleanupResult) {
-	firstWarning, err := s.store.EndCleanup(ctx, id, res)
+	recorded, firstWarning, err := s.store.EndCleanup(ctx, id, res)
 	if err != nil {
-		s.log.Warn("what a try of the cancel cleanup came to could not be recorded; the cleanup stays pending",
-			"workspace", req.Workspace, "job", id, "error", err.Error())
+		s.cleanups.mu.Lock()
+		first := !s.cleanups.unrecorded[id]
+		s.cleanups.unrecorded[id] = true
+		s.cleanups.mu.Unlock()
+		if first {
+			s.log.Warn("what a try of the cancel cleanup came to could not be recorded; the cleanup stays pending",
+				"workspace", req.Workspace, "job", id, "error", err.Error())
+		}
 		return
+	}
+	if !recorded {
+		return // the cleanup had ended meanwhile, and what this try came to is not its outcome
 	}
 	attrs := []any{"workspace", req.Workspace, "job", id, "issue", req.Issue}
 	switch res.Outcome {
@@ -290,8 +301,8 @@ func (s *Store) CleanupRequest(ctx context.Context, id string) (CleanupRequest, 
 // EndCleanup records what a try of a pending cleanup came to, in one transaction: what a try that ends the cleanup set and
 // removed replaces the job's labels when it wrote anything, the request label is no longer to be put back when the issue carries it, and the
 // cleanup takes the outcome. A cleanup that stays pending is noted as warned. It says whether this was the cleanup's first
-// failure; a cleanup that is no longer pending is left as it is.
-func (s *Store) EndCleanup(ctx context.Context, id string, res CleanupResult) (firstFailure bool, err error) {
+// failure, and whether the result was recorded: a cleanup that is no longer pending is left as it is.
+func (s *Store) EndCleanup(ctx context.Context, id string, res CleanupResult) (recorded, firstFailure bool, err error) {
 	err = s.run(ctx, id, func(x *txn) error {
 		// The first statement is a write, which takes the lock of the file (see Store.run).
 		touched, err := x.ExecContext(ctx, "UPDATE af_jobs SET cleanup_warned = cleanup_warned WHERE id = ? AND cleanup = 'pending'", id)
@@ -301,6 +312,7 @@ func (s *Store) EndCleanup(ctx context.Context, id string, res CleanupResult) (f
 		if n, err := touched.RowsAffected(); err != nil || n == 0 {
 			return err // not pending: another try or the abandonment ended it
 		}
+		recorded = true
 		var warned bool
 		if err := x.QueryRowContext(ctx, "SELECT cleanup_warned FROM af_jobs WHERE id = ?", id).Scan(&warned); err != nil {
 			return fmt.Errorf("cleanup of %s: %w", id, err)
@@ -326,5 +338,16 @@ func (s *Store) EndCleanup(ctx context.Context, id string, res CleanupResult) (f
 		_, err = x.ExecContext(ctx, "UPDATE af_jobs SET cleanup = ? WHERE id = ?", string(res.Outcome), id)
 		return err
 	})
-	return firstFailure, err
+	return recorded && err == nil, firstFailure, err
+}
+
+// abandonCleanup ends a cleanup whose hour has passed, unless a try of it is in flight, which keeps the lock of the tries
+// so that no try starts meanwhile. It says whether it ended it.
+func (s *Service) abandonCleanup(ctx context.Context, id string) (bool, error) {
+	s.cleanups.mu.Lock()
+	defer s.cleanups.mu.Unlock()
+	if _, inFlight := s.cleanups.tries[id]; inFlight {
+		return false, nil
+	}
+	return s.store.AbandonCleanup(ctx, id)
 }

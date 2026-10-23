@@ -159,13 +159,15 @@ func (s *Service) cancel(ctx context.Context, id string, from State, cause error
 		run = s.inflight[attemptKey{id, found.running}]
 	}
 	s.mu.Unlock()
+	reached := false
 	if run != nil {
-		run.cancel(cause)
+		reached = run.stop(cause)
 		s.startGrace(run)
 	}
-	if wantCleanup && found.running > 0 && run == nil {
+	if wantCleanup && found.running > 0 && !reached {
 		// The attempt was looked for after the cancel committed, and a claim registers its run before it reads the job:
-		// no runner of this process will be called for it.
+		// no runner of this process will be called for it, whether it has a run here that was stopped before its runner
+		// was called or none.
 		marked, err := s.store.MarkCleanup(ctx, id)
 		if err != nil {
 			s.log.Warn("the cancel cleanup of a job could not be marked; it is marked when its attempt is recorded cancelled",

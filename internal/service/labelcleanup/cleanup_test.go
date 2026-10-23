@@ -58,6 +58,14 @@ func (s *syncBuffer) String() string {
 	return s.b.String()
 }
 
+// logged waits for a record of the level whose message contains the text, and returns the records there are then: the jobs
+// layer records what a try came to before it logs it.
+func (s *syncBuffer) logged(t *testing.T, level, text string) []map[string]any {
+	t.Helper()
+	waitFor(t, "a "+level+" record that says "+text, func() bool { return len(s.records(level, text)) > 0 })
+	return s.records(level, text)
+}
+
 // records are the log records of the level whose message contains the text.
 func (s *syncBuffer) records(level, text string) []map[string]any {
 	var out []map[string]any
@@ -399,6 +407,23 @@ func TestOtherCancelsThatReachNoRunnerRemoveOnlyWhatTheJobAccountsFor_TS_17_28(t
 			t.Errorf("issue 46 carries %v, want af:failed removed and af:fix back", got)
 		}
 	})
+	t.Run("a prefix changed since the job set its labels", func(t *testing.T) {
+		e := newEnv(t, needsHuman())
+		e.issue(48, "af:needs-human")
+		e.start()
+		job := e.fromLabel(jobs.KindFix, 48)
+		e.waitState(job.ID, jobs.StateBlocked)
+		if _, _, err := e.Store.Upsert(ctx, "widgets", "bot-", pat, "", callerID, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		e.cancel(job.ID)
+		if d := e.waitCleanup(job.ID); cleanupOf(d) != "done" {
+			t.Errorf("cleanup %s, want done", cleanupOf(d))
+		}
+		if got := e.labelsOf(48); !slices.Equal(got, []string{"af:fix"}) {
+			t.Errorf("issue 48 carries %v, want the job's af:needs-human removed and its af:fix back", got)
+		}
+	})
 	t.Run("a blocked API fix job", func(t *testing.T) {
 		e := newEnv(t, needsHuman())
 		e.issue(47, "af:needs-human")
@@ -623,6 +648,15 @@ func TestATryWritesOnlyWhatIsMissingAndARepeatedTryWritesNothing_TS_17_40(t *tes
 		if !slices.Contains(start, "af:fix") {
 			wantSet = []string{"af:fix"}
 		}
+		if len(wantSet) > 0 && len(wantRemoved) > 0 && rng.IntN(2) == 0 {
+			// A partial try: the removals are made and the addition is not, so the cleanup stays pending.
+			path := fmt.Sprintf("/api/v1/workspaces/widgets/issues/%d/labels", n)
+			e.Hub.Inject("POST", path, fakehub.Fault{Status: 503, Once: true})
+			if res := c.Clean(ctx, req); res.Outcome != jobs.CleanupPending || !slices.Equal(res.Removed, wantRemoved) {
+				t.Fatalf("round %d: the partial try came to %+v", round, res)
+			}
+			wantRemoved = nil // the next try finds them gone
+		}
 		res := c.Clean(ctx, req)
 		if res.Outcome != jobs.CleanupDone || !slices.Equal(res.Removed, wantRemoved) || !slices.Equal(res.Set, wantSet) || !res.RequestLabelOn {
 			t.Fatalf("round %d from %v (own %v, others %v, running %v): %+v, want removed %v and set %v", round, start, own, others, otherRunning, res, wantRemoved, wantSet)
@@ -670,7 +704,7 @@ func TestAFinishedTryRecordsItsLabelsOneInfoRecordAndLeavesTheEventLogAlone_TS_1
 	if string(raw) != `{"set":["af:fix"],"removed":["af:needs-human"],"restore":null,"cleanup":"done"}` {
 		t.Errorf("labels = %s", raw)
 	}
-	recs := e.Logs.records("INFO", "cancel cleanup")
+	recs := e.Logs.logged(t, "INFO", "cancel cleanup")
 	if len(recs) != 1 {
 		t.Fatalf("%d INFO records of the cleanup, want 1", len(recs))
 	}
@@ -731,7 +765,7 @@ func TestATryForAnUnsubscribedWorkspaceEndsLabelNotSetAndWritesNothing_TS_17_42(
 	if w := e.labelWrites(42); len(w) != 0 {
 		t.Errorf("hub received %v, want no write", w)
 	}
-	if recs := e.Logs.records("INFO", "no longer subscribed"); len(recs) != 1 {
+	if recs := e.Logs.logged(t, "INFO", "no longer subscribed"); len(recs) != 1 {
 		t.Errorf("%d INFO records that the workspace is no longer subscribed, want 1", len(recs))
 	}
 }
@@ -761,7 +795,7 @@ func TestARefusalOfTheTokenOrTheForgeCredentialEndsTheCleanupWithOneError_TS_17_
 				if d := e.waitCleanup(job.ID); cleanupOf(d) != "label_not_set" {
 					t.Fatalf("cleanup %s, want label_not_set", cleanupOf(d))
 				}
-				recs := e.Logs.records("ERROR", "cancel cleanup")
+				recs := e.Logs.logged(t, "ERROR", "cancel cleanup")
 				if len(recs) != 1 {
 					t.Fatalf("%d ERROR records, want 1", len(recs))
 				}
@@ -769,8 +803,8 @@ func TestARefusalOfTheTokenOrTheForgeCredentialEndsTheCleanupWithOneError_TS_17_
 				if !strings.Contains(msg, c.op) {
 					t.Errorf("the record %q does not name the operation %q", msg, c.op)
 				}
-				if f.Status != 502 && !strings.Contains(msg, "PUT /api/v1/workspaces/widgets") {
-					t.Errorf("the record %q does not point to PUT /api/v1/workspaces/widgets", msg)
+				if f.Status != 502 && (!strings.Contains(msg, "PUT /api/v1/workspaces/widgets") || !strings.Contains(msg, "injected failure")) {
+					t.Errorf("the record %q does not point to PUT /api/v1/workspaces/widgets and carry hub's message", msg)
 				}
 				if f.Status == 502 && !strings.Contains(msg, "GitHub refused the app installation") {
 					t.Errorf("the record %q does not carry hub's message", msg)
@@ -808,7 +842,7 @@ func TestAMissingRecordOrAForgeURLOfNoRepositoryEndsWithAnError_TS_17_45(t *test
 			if d := e.waitCleanup(job.ID); cleanupOf(d) != "label_not_set" {
 				t.Errorf("cleanup %s, want label_not_set", cleanupOf(d))
 			}
-			if recs := e.Logs.records("ERROR", c.says); len(recs) != 1 {
+			if recs := e.Logs.logged(t, "ERROR", c.says); len(recs) != 1 {
 				t.Errorf("%d ERROR records that say %q, want 1", len(recs), c.says)
 			}
 		})
@@ -837,7 +871,7 @@ func TestAnIssueReadOf404EndsWithInfoAndAnotherRefusalOfAReadWithError_TS_17_46(
 			if d := e.waitCleanup(job.ID); cleanupOf(d) != "label_not_set" {
 				t.Errorf("cleanup %s, want label_not_set", cleanupOf(d))
 			}
-			if recs := e.Logs.records(c.level, c.says); len(recs) != 1 {
+			if recs := e.Logs.logged(t, c.level, c.says); len(recs) != 1 {
 				t.Errorf("%d %s records that say %q, want 1", len(recs), c.level, c.says)
 			}
 		})
@@ -871,7 +905,7 @@ func TestARemovalOf404IsDoneAndAnotherRefusalLeavesTheLabelAndEndsLabelNotSet_TS
 		if got := e.labelsOf(42); !slices.Equal(got, []string{"af:failed", "af:fix"}) {
 			t.Errorf("issue 42 carries %v, want af:failed kept, needs-human removed and af:fix added", got)
 		}
-		if recs := e.Logs.records("WARN", "the label is locked"); len(recs) != 1 {
+		if recs := e.Logs.logged(t, "WARN", "the label is locked"); len(recs) != 1 {
 			t.Errorf("%d WARN records with hub's message, want 1", len(recs))
 		}
 	})
@@ -895,11 +929,11 @@ func TestARefusedRequestLabelAdditionEndsLabelNotSetWithAnError_TS_17_48(t *test
 			if cleanupOf(d) != "label_not_set" || d.Labels.Restore == nil || *d.Labels.Restore != "af:fix" {
 				t.Errorf("labels %+v, want cleanup label_not_set with restore af:fix", d.Labels)
 			}
-			recs := e.Logs.records("ERROR", "add the request label")
+			recs := e.Logs.logged(t, "ERROR", "add the request label")
 			if len(recs) != 1 {
 				t.Fatalf("%d ERROR records naming the add, want 1", len(recs))
 			}
-			if name == "400" && !strings.Contains(fmt.Sprint(recs[0]["msg"]), "no such label in the repository") {
+			if !strings.Contains(fmt.Sprint(recs[0]["msg"]), "no such label in the repository") {
 				t.Errorf("the record %v does not carry hub's message", recs[0]["msg"])
 			}
 		})

@@ -123,13 +123,17 @@ func TestOnlyOneTryOfAJobsCleanupRunsAtATime_TS_17_33(t *testing.T) {
 	c := &fakeCleaner{hold: make(chan struct{}), result: func(jobs.CleanupRequest) jobs.CleanupResult {
 		return jobs.CleanupResult{Outcome: jobs.CleanupPending, Level: slog.LevelWarn, Message: "hub is unavailable"}
 	}}
-	e := newEnv(t, withCleaner(c), withoutEnqueue())
+	clk := fakeclock.New(epoch)
+	e := newEnv(t, withCleaner(c), withoutEnqueue(), withClock(clk))
+	e.Start()
 	job := e.createFromLabel("widgets", 42, "af:fix")
+	clk.Advance(30 * time.Second) // so that the try's minute holds one sweep and ends between two
 	if d := e.cancel(job.ID).Doc(t); cleanupOf(d) != "pending" {
 		t.Fatalf("labels = %+v, want cleanup pending", d.Labels)
 	}
 	waitFor(t, "the first try", func() bool { return len(c.Tries()) == 1 })
-	for range 5 {
+	clk.Advance(40 * time.Second) // a sweep, which would start a try of the pending cleanup
+	for range 3 {                 // and starts asked for directly
 		e.Svc.TryCleanup(job.ID)
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -138,9 +142,47 @@ func TestOnlyOneTryOfAJobsCleanupRunsAtATime_TS_17_33(t *testing.T) {
 	}
 	close(c.hold)
 	waitFor(t, "the first try to end", func() bool { return e.Svc.CleanupsInFlight() == 0 })
-	<-e.Svc.TryCleanup(job.ID)
-	if n := len(c.Tries()); n != 2 {
-		t.Errorf("%d tries after the first ended and another was asked for, want 2", n)
+	clk.Advance(time.Minute)
+	waitFor(t, "the next sweep's try", func() bool { return len(c.Tries()) == 2 })
+}
+
+// TestACancelOfARunWhoseRunnerWasNotYetCalledMarksTheCleanupAtOnce_TS_17_29 verifies the part of TS-17-29 that needs a run
+// of this process: an attempt that was claimed and whose run is registered, but whose runner was not yet called, gets its
+// cleanup marked with the cancel, and the answer shows it pending.
+// Verifies: 17-REQ-5.1
+func TestACancelOfARunWhoseRunnerWasNotYetCalledMarksTheCleanupAtOnce_TS_17_29(t *testing.T) {
+	c := &fakeCleaner{}
+	e := newEnv(t, withCleaner(c), withoutEnqueue())
+	job := e.createFromLabel("widgets", 42, "af:fix")
+	e.exec("UPDATE af_attempts SET state = 'running' WHERE job_id = ?", job.ID)
+	e.exec("UPDATE af_jobs SET state = 'running' WHERE id = ?", job.ID)
+	forget := e.Svc.RegisterRun(job.ID, 1) // claimed, its run known, its runner not called
+	defer forget()
+	if d := e.cancel(job.ID).Doc(t); cleanupOf(d) != "pending" {
+		t.Errorf("labels = %+v, want cleanup pending in the cancel's answer", d.Labels)
+	}
+	waitFor(t, "the try", func() bool { return len(c.Tries()) == 1 })
+}
+
+// TestAWantedCleanupWhoseAttemptIsNotRecordedReadsPending_TS_17_61 verifies the read that the poll's holds rest on: a job
+// cancelled with its cleanup wanted (its cancel found the attempt running) reads as having a cleanup pending until the
+// attempt is recorded, so that the poll neither ends its hold nor starts its release clock in that moment.
+// Verifies: 17-REQ-10.4, 17-REQ-10.1
+func TestAWantedCleanupWhoseAttemptIsNotRecordedReadsPending_TS_17_61(t *testing.T) {
+	e := newEnv(t, withCleaner(&fakeCleaner{}), withoutEnqueue())
+	job := e.createFromLabel("widgets", 42, "af:fix")
+	e.exec("UPDATE af_attempts SET state = 'running' WHERE job_id = ?", job.ID)
+	e.exec("UPDATE af_jobs SET state = 'cancelled', finished_at = '2026-10-22T08:00:00.000Z', cleanup_wanted = 1 WHERE id = ?", job.ID)
+	st, err := e.Svc.Standing(ctx, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.CleanupPending || st.CancelledInRunner || st.CleanupPutBack {
+		t.Errorf("standing %+v, want the cleanup pending while the attempt is not recorded", st)
+	}
+	e.exec("UPDATE af_attempts SET state = 'cancelled' WHERE job_id = ?", job.ID)
+	if st, _ := e.Svc.Standing(ctx, job.ID); st.CleanupPending {
+		t.Errorf("standing %+v after the attempt was recorded with no cleanup marked, want none pending", st)
 	}
 }
 
@@ -453,8 +495,13 @@ func TestATryIsBoundedToOneMinuteAndTheTriesInFlightAreCapped_TS_17_52(t *testin
 			t.Errorf("%s: cleanup %s, want pending after a try ran out of its minute", id, got)
 		}
 	}
-	if c := hub.New("http://127.0.0.1:1", "x"); c.HTTP.Timeout != 10*time.Second {
-		t.Errorf("each hub call is bounded by %v, want the client's 10 s", c.HTTP.Timeout)
+	// Each hub call of a try is bounded by the client's own bound (10 s, scaled here), well inside the try's minute.
+	short := hub.New(e.Hub.URL, "test")
+	short.HTTP.Timeout = 100 * time.Millisecond
+	start := time.Now()
+	res := (&labelcleanup.Cleaner{Subscriptions: e.Store, Hub: short}).Clean(ctx, jobs.CleanupRequest{Workspace: "widgets", JobID: ids[0], Issue: 50, RequestLabel: "af:fix"})
+	if res.Outcome != jobs.CleanupPending || time.Since(start) > 2*time.Second {
+		t.Errorf("a try against a hub that does not answer came to %+v after %v, want pending at the client's bound", res, time.Since(start))
 	}
 }
 

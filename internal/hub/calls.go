@@ -27,7 +27,8 @@ import (
 //   - the answer says nothing about the request, 429, 5xx, a redirect, a transport failure, a
 //     timeout, or a body that is not what hub sends: *UnavailableError.
 //
-// No error holds the PAT, the URL of the call or a part of the answer but hub's own message.
+// No error holds the PAT, the URL of the call or a part of the answer but hub's own message, which a refusal, a
+// forbidding and a not found carry too when hub's error object has one.
 // Only this package knows the names of the fields of hub's answers.
 
 var (
@@ -164,15 +165,15 @@ func (c *Client) classify(resp *http.Response, pat string, op operation) error {
 		}
 		return nil
 	case status == http.StatusUnauthorized:
-		return fmt.Errorf("hub refused the token to %s (%d): %w", op.name, status, ErrRefused)
+		return fmt.Errorf("hub refused the token to %s (%d)%s: %w", op.name, status, hubSaid(resp.Body, pat), ErrRefused)
 	case status == http.StatusForbidden:
-		return fmt.Errorf("hub forbids %s (%d): the PAT of the subscription lacks the scope for it; replace the token with PUT /api/v1/workspaces/%s: %w",
-			op.name, status, url.PathEscape(op.slug), ErrForbidden)
+		return fmt.Errorf("hub forbids %s (%d)%s: the PAT of the subscription lacks the scope for it; replace the token with PUT /api/v1/workspaces/%s: %w",
+			op.name, status, hubSaid(resp.Body, pat), url.PathEscape(op.slug), ErrForbidden)
 	case status == http.StatusNotFound:
 		if op.missingIsDone {
 			return nil
 		}
-		return fmt.Errorf("hub does not find what %s names (%d): %w", op.name, status, ErrNotFound)
+		return fmt.Errorf("hub does not find what %s names (%d)%s: %w", op.name, status, hubSaid(resp.Body, pat), ErrNotFound)
 	case status >= 400 && status < 500 && status != http.StatusTooManyRequests:
 		code, message := errorObject(resp.Body, pat)
 		return &RejectedError{Op: op.name, Status: status, Code: code, Message: message}
@@ -208,6 +209,14 @@ func errorObject(body io.Reader, pat string) (code, message string) {
 		code = strings.Trim(string(answer.Error.Code), `"`)
 	}
 	return scrubbed(code, pat), scrubbed(answer.Error.Message, pat)
+}
+
+// hubSaid is hub's message in its error object, as ` (hub said: …)`, or nothing when the body has none.
+func hubSaid(body io.Reader, pat string) string {
+	if _, message := errorObject(body, pat); message != "hub gave no reason" {
+		return " (hub said: " + message + ")"
+	}
+	return ""
 }
 
 // scrubbed is what hub said without the token, cut short.

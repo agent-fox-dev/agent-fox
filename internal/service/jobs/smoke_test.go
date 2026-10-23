@@ -536,7 +536,13 @@ func TestARunnerCancelledBeforeItsHubSessionLeavesAfFixAndNoNeedsHuman_TS_17_66(
 		t.Fatal(err)
 	}
 	<-started
+	before := len(e.issueRequests())
 	e.cancel(job.ID)
+	time.Sleep(50 * time.Millisecond)
+	if r := e.issueRequests()[before:]; len(r) != 0 {
+		close(release)
+		t.Fatalf("a try ran while the runner was in progress: %v", r)
+	}
 	close(release)
 	waitFor(t, "the cancelled attempt", func() bool {
 		d := e.get(job.ID)

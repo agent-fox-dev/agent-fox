@@ -97,6 +97,30 @@ type attemptRun struct {
 	// attempt is recorded, and a cancel cleanup it marked has its first try started.
 	done     chan struct{}
 	doneOnce sync.Once
+	// callMu orders the call of the runner with a cancel: called is set, under it, when the
+	// runner is about to be called, and a cancel under it tells whether it reached the runner.
+	callMu sync.Mutex
+	called bool
+}
+
+// stop cancels the run with the cause, and says whether its runner has been called: one
+// that has not is never called after this.
+func (r *attemptRun) stop(cause error) (reached bool) {
+	r.callMu.Lock()
+	defer r.callMu.Unlock()
+	r.cancel(cause)
+	return r.called
+}
+
+// call says that the runner is about to be called, unless the run was stopped first.
+func (r *attemptRun) call(ctx context.Context) bool {
+	r.callMu.Lock()
+	defer r.callMu.Unlock()
+	if context.Cause(ctx) != nil {
+		return false
+	}
+	r.called = true
+	return true
 }
 
 // handled says that the handler is through with what the runner returned.
@@ -331,8 +355,8 @@ func (s *Service) invoke(ctx context.Context, p attemptPayload) (req Request, ou
 		cancel(ErrCancelled)
 	}
 
-	if why := context.Cause(rctx); why != nil {
-		out = called{err: why} // stopped before it began: the runner is not called
+	if !run.call(rctx) {
+		out = called{err: context.Cause(rctx)} // stopped before it began: the runner is not called
 	} else {
 		if err := s.store.MarkInRunner(ctx, p.JobID, p.Attempt); err != nil {
 			return req, out, nil, false, run, err

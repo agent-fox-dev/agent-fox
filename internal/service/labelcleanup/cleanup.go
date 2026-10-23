@@ -195,9 +195,10 @@ func ended(level slog.Level, message string) jobs.CleanupResult {
 	return jobs.CleanupResult{Outcome: jobs.CleanupLabelNotSet, Level: level, Message: message}
 }
 
-// removals are the status labels of the issue that the cancelled job accounts for: in-progress, unless another job of
-// the issue runs, and each other status label that the job's own attempts set and no other open job of the issue shows
-// set. Every other label stays: a ready or landed of an earlier job, and a label a person set.
+// removals are the status labels of the issue that the cancelled job accounts for: in-progress under the subscription's
+// prefix, unless another job of the issue runs, and each other status label that the job's own attempts set (whatever
+// prefix it was written under) and no other open job of the issue shows set. Every other label stays: a ready or landed
+// of an earlier job, and a label a person set.
 func removals(prefix string, onIssue []string, req jobs.CleanupRequest) []string {
 	inProgress := labels.Name(prefix, labels.InProgress)
 	var out []string
@@ -207,17 +208,18 @@ func removals(prefix string, onIssue []string, req jobs.CleanupRequest) []string
 			if !req.OtherRunning {
 				out = append(out, label)
 			}
-		case isStatus(prefix, label) && slices.Contains(req.LabelsSet, label) && !slices.Contains(req.OthersSet, label):
+		case isStatus(label) && slices.Contains(req.LabelsSet, label) && !slices.Contains(req.OthersSet, label):
 			out = append(out, label)
 		}
 	}
 	return out
 }
 
-// isStatus says that the label is one of the status labels under the prefix.
-func isStatus(prefix, label string) bool {
+// isStatus says that the label is a status label: its name ends in a status suffix. The job's labels.set holds the full
+// names its attempts wrote, under the prefix the subscription had then, which a replace may have changed since.
+func isStatus(label string) bool {
 	for _, s := range labels.Statuses() {
-		if label == labels.Name(prefix, s) {
+		if strings.HasSuffix(label, s) {
 			return true
 		}
 	}

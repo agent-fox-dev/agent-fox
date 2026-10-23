@@ -68,7 +68,7 @@ func (s *Service) retryCleanups(ctx context.Context) {
 		switch {
 		case s.tryInFlight(p.id), s.runnerInProgress(p.id):
 		case !p.cancelled.After(cutoff):
-			ended, err := s.store.AbandonCleanup(ctx, p.id)
+			ended, err := s.abandonCleanup(ctx, p.id)
 			if err != nil {
 				s.log.Warn("a cancel cleanup past its hour could not be ended; the next sweep will try again", "job", p.id, "error", err.Error())
 			} else if ended {

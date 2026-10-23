@@ -292,28 +292,8 @@ func (s *Store) EndAttempt(ctx context.Context, a endArgs, files func() error) (
 			return err
 		}
 		if jobState == StateCancelled {
-			// The job stays cancelled. The request label belongs back on the issue, unless the
-			// runner reports that it set it itself.
-			if requestLabel.Valid && slices.Contains(a.labelsSet, requestLabel.String) {
-				if _, err := x.ExecContext(ctx, "UPDATE af_jobs SET labels_restore = NULL WHERE id = ?", a.jobID); err != nil {
-					return fmt.Errorf("labels of %s: %w", a.jobID, err)
-				}
-			}
-			res, err := x.ExecContext(ctx,
-				`UPDATE af_jobs SET cleanup = 'pending' WHERE id = ? AND cleanup_wanted = 1 AND cleanup IS NULL
-				   AND (SELECT hub_session FROM af_attempts WHERE job_id = ? AND n = ?) IS NULL`, a.jobID, a.jobID, a.attempt)
-			if err != nil {
-				return fmt.Errorf("cleanup of %s: %w", a.jobID, err)
-			}
-			n, err := res.RowsAffected()
-			if err != nil {
-				return err
-			}
-			cleanup = n > 0
-			return x.emit(ctx, a.attempt, EventJobState, jobStateData{
-				State: StateCancelled, Attempt: a.attempt, AtRest: true,
-				Result: &ResultDoc{Status: env.Status, ExitCode: toolio.ExitCode(env.Status), Summary: env.Summary, Error: env.Error},
-			})
+			cleanup, err = x.endCancelled(ctx, a, requestLabel)
+			return err
 		}
 
 		if a.verdict.auto {
@@ -339,6 +319,32 @@ func (s *Store) EndAttempt(ctx context.Context, a endArgs, files func() error) (
 		return false, 0, false, err
 	}
 	return ended, next, cleanup, nil
+}
+
+// endCancelled records the end of an attempt of a job that was cancelled while it ran: the job stays cancelled, and
+// the request label belongs back on the issue unless the runner reports that it set it itself. A cancel cleanup that is
+// wanted is marked pending when the attempt reported no hub session, and endCancelled says whether it was.
+func (x *txn) endCancelled(ctx context.Context, a endArgs, requestLabel sql.NullString) (cleanup bool, err error) {
+	if requestLabel.Valid && slices.Contains(a.labelsSet, requestLabel.String) {
+		if _, err := x.ExecContext(ctx, "UPDATE af_jobs SET labels_restore = NULL WHERE id = ?", a.jobID); err != nil {
+			return false, fmt.Errorf("labels of %s: %w", a.jobID, err)
+		}
+	}
+	res, err := x.ExecContext(ctx,
+		`UPDATE af_jobs SET cleanup = 'pending' WHERE id = ? AND cleanup_wanted = 1 AND cleanup IS NULL
+		   AND (SELECT hub_session FROM af_attempts WHERE job_id = ? AND n = ?) IS NULL`, a.jobID, a.jobID, a.attempt)
+	if err != nil {
+		return false, fmt.Errorf("cleanup of %s: %w", a.jobID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	env := a.env
+	return n > 0, x.emit(ctx, a.attempt, EventJobState, jobStateData{
+		State: StateCancelled, Attempt: a.attempt, AtRest: true,
+		Result: &ResultDoc{Status: env.Status, ExitCode: toolio.ExitCode(env.Status), Summary: env.Summary, Error: env.Error},
+	})
 }
 
 // lettered are the options of a question with the ids A, B, … in order, whatever ids
