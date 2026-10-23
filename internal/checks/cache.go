@@ -93,6 +93,17 @@ func loadResult(dir string, k Key) (res Result, ok bool) {
 	return res, true
 }
 
+// Stored says whether the result of the gate id is stored in dir, with the logs it names: the
+// baseline that a run's fix.json names is compared with the change by this result, and a
+// comparison finds no other.
+func Stored(dir, id string) bool {
+	if !idPattern.MatchString(id) {
+		return false
+	}
+	_, ok := loadResult(dir, Key{ID: id})
+	return ok
+}
+
 // storeResult writes the result of a run that completed, after its logs, so
 // that a result is never there before the logs it names.
 func storeResult(dir string, k Key, res Result) error {

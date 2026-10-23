@@ -88,18 +88,19 @@ func (a *attempt) marker(kind string) string {
 	return fmt.Sprintf("<!-- agent-fox job=%s attempt=%d kind=%s -->", a.req.JobID, a.req.Attempt, kind)
 }
 
-// comment posts the comment of the kind on the issue, unless the issue has it already.
-func (a *attempt) comment(ctx context.Context, ref issuex.IssueRef, kind string, env toolio.Envelope, res loopResult) {
+// comment posts the comment of the kind on the issue, unless the issue has it already, and says whether
+// the issue has it now.
+func (a *attempt) comment(ctx context.Context, ref issuex.IssueRef, kind string, env toolio.Envelope, res loopResult) bool {
 	marker := a.marker(kind)
 	if list, err := a.forge.ListComments(ctx, ref); err == nil {
 		for _, c := range list.Comments {
 			if strings.Contains(c.Body, marker) {
-				return
+				return true
 			}
 		}
 	}
 	body := a.compose(kind, ref, env, res) + "\n\n" + marker + "\n"
-	a.write("add_comment", ref, WarnCommentFailed, "the "+kind+" comment", func() error {
+	return a.write("add_comment", ref, WarnCommentFailed, "the "+kind+" comment", func() error {
 		_, err := a.forge.AddComment(ctx, ref, body)
 		return err
 	})

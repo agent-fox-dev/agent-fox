@@ -42,6 +42,9 @@ type RunDir struct {
 
 	now func() time.Time
 
+	// sink, when it is set, is told every record of the ledger once it is written.
+	sink func(kind string, data json.RawMessage)
+
 	mu       sync.Mutex
 	entries  int  // lines in the ledger
 	counted  bool // entries is known
@@ -139,17 +142,26 @@ func runsDirOf(dir string) (string, error) {
 // run id the caller chose, if it chose one, and otherwise one with a drawn id.
 func newRunDirFor(app *App, dir string) (*RunDir, error) {
 	if app.RunID == "" {
-		return NewRunDir(dir, app.now, app.Rand)
+		rd, err := NewRunDir(dir, app.now, app.Rand)
+		if err == nil {
+			rd.sink = app.LedgerSink
+		}
+		return rd, err
 	}
 	runs, err := runsDirOf(dir)
 	if err != nil {
 		return nil, err
 	}
 	path := filepath.Join(runs, app.RunID)
+	if app.ReuseRunDir {
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			return &RunDir{ID: app.RunID, Path: path, now: app.now, sink: app.LedgerSink}, nil
+		}
+	}
 	if err := os.Mkdir(path, 0o755); err != nil {
 		return nil, &Failure{Category: CategoryIO, Message: fmt.Sprintf("cannot create the run directory %s: %v", path, err)}
 	}
-	return &RunDir{ID: app.RunID, Path: path, now: app.now}, nil
+	return &RunDir{ID: app.RunID, Path: path, now: app.now, sink: app.LedgerSink}, nil
 }
 
 // OpenRunDir opens the existing run id under dir, for the commands that
@@ -181,7 +193,17 @@ func (r *RunDir) Record(kind string, data any) error {
 	if err != nil {
 		return fmt.Errorf("ledger entry %q: %w", kind, err)
 	}
+	if err := r.append(kind, raw); err != nil {
+		return err
+	}
+	if r.sink != nil {
+		r.sink(kind, raw)
+	}
+	return nil
+}
 
+// append writes the entry to the ledger, under the lock of the run directory.
+func (r *RunDir) append(kind string, raw json.RawMessage) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if !r.counted {

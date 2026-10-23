@@ -473,3 +473,37 @@ func (c *Client) PushBranch(ctx context.Context, pat, slug, branch string) error
 		body: map[string]any{}, long: true,
 	})
 }
+
+// LeaseInfo is a lease as hub lists it: the labels the holder gave it and when it ends. It carries
+// no token.
+type LeaseInfo struct {
+	ID, Purpose, State string
+	Labels             map[string]string
+	ExpiresAt          time.Time
+}
+
+// ListSandboxes lists the leases of the workspace that hub holds: GET
+// /api/v1/workspaces/{slug}/sandboxes, a bare array of at most 200 leases that are leased or
+// active, newest first. Hub has no pages for it.
+func (c *Client) ListSandboxes(ctx context.Context, pat, slug string) ([]LeaseInfo, error) {
+	var answer []struct {
+		ID        string            `json:"id"`
+		Purpose   string            `json:"purpose"`
+		State     string            `json:"state"`
+		Labels    map[string]string `json:"labels"`
+		ExpiresAt string            `json:"expires_at"`
+	}
+	err := c.send(ctx, pat, operation{name: "list the sandboxes", slug: slug, method: http.MethodGet, path: workspacePath(slug, "/sandboxes"), into: &answer})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]LeaseInfo, 0, len(answer))
+	for _, l := range answer {
+		expires, perr := time.Parse(time.RFC3339, l.ExpiresAt)
+		if l.ID == "" || perr != nil {
+			return nil, &UnavailableError{Status: http.StatusOK, Err: errors.New("a lease in the list has no id or no end")}
+		}
+		out = append(out, LeaseInfo{ID: l.ID, Purpose: l.Purpose, State: l.State, Labels: l.Labels, ExpiresAt: expires})
+	}
+	return out, nil
+}

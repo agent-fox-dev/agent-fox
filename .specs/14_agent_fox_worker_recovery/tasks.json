@@ -78,7 +78,7 @@
       "done_when": [
         "existing brain and box tests still pass with unchanged Failure messages"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,
@@ -120,7 +120,7 @@
       "done_when": [
         "no file under recovery/ contains the PAT or any lease token"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,
@@ -167,7 +167,7 @@
       "done_when": [
         "a changed base branch, landing mode, model or budget on hub does not change a resumed run"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 4,
@@ -205,7 +205,7 @@
       "done_when": [
         "no -2 suffix on the pushed branch name after the parked branch is deleted"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 5,
@@ -246,7 +246,7 @@
       "done_when": [
         "a done envelope after a resume reports delivery 1's brain spend plus delivery 2's"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 6,
@@ -287,7 +287,7 @@
       "done_when": [
         "journal.json holds the plan before the fake hub records the first push"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 7,
@@ -330,7 +330,7 @@
       "done_when": [
         "the re-measure verdict is never unverified for lack of a baseline"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 8,
@@ -370,7 +370,7 @@
       "done_when": [
         "at the outcome stage attempt_resumed is the only difference from the stored envelope"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 9,
@@ -415,7 +415,7 @@
       "done_when": [
         "a replacement box never produces a parked branch from the lost box's partial work"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 10,
@@ -456,7 +456,7 @@
       "done_when": [
         "the service accepts requests before the first pass completes"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 11,
@@ -496,7 +496,7 @@
       "done_when": [
         "make check passes offline"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 12,
@@ -530,7 +530,7 @@
       "done_when": [
         "`make check` passes offline"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }

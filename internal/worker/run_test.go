@@ -175,8 +175,8 @@ func TestTheWorkerCreatesOnlyCloneAndInputWithMode0700AndLeavesTheRestAlone_TS_1
 	if during.fileMode != 0o600 || !os.IsNotExist(during.staleErr) {
 		t.Errorf("input/notes.md has mode %v and the stale file of the earlier delivery is %v, want 0600 and gone", during.fileMode, during.staleErr)
 	}
-	if !slices.Equal(during.entries, []string{"clone", "envelope.json", "input", "report.md"}) {
-		t.Errorf("the attempt directory held %v during the run, want clone/, input/ and the two files that were there", during.entries)
+	if !slices.Equal(during.entries, []string{"clone", "envelope.json", "input", "recovery", "report.md"}) {
+		t.Errorf("the attempt directory held %v during the run, want clone/, input/, recovery/ and the two files that were there", during.entries)
 	}
 	if during.notes != "The greeting says helo.\n" {
 		t.Errorf("input/notes.md = %q, want the file", during.notes)
@@ -194,8 +194,8 @@ func TestTheWorkerCreatesOnlyCloneAndInputWithMode0700AndLeavesTheRestAlone_TS_1
 			}
 		}
 	}
-	if !slices.Equal(left, []string{"envelope.json", "report.md"}) {
-		t.Errorf("the attempt directory holds %v after the attempt, want the two files and no other entry", left)
+	if !slices.Equal(left, []string{"envelope.json", "recovery", "report.md"}) {
+		t.Errorf("the attempt directory holds %v after the attempt, want the two files and recovery/, and no other entry", left)
 	}
 }
 

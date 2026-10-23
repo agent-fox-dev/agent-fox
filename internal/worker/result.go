@@ -41,13 +41,14 @@ func (r *Runner) loopOutcome(ctx context.Context, a *attempt, stdout []byte) *ou
 	return &outcome{result: jobs.Result{Envelope: stdout, Report: a.reportOf(env), MaxAttempts: a.maxAttempts}}
 }
 
-// infrastructureFailure is the failure of an envelope that is the infrastructure's, or nil.
+// infrastructureFailure is the failure of an envelope that is the infrastructure's, or nil. A failure
+// to read or write that is retryable is the plan of a landing that could not be recorded.
 func infrastructureFailure(e *toolio.ErrorInfo) *toolio.Failure {
 	if e == nil || !e.Retryable {
 		return nil
 	}
 	switch e.Category {
-	case toolio.CategorySandbox, toolio.CategoryForge, CategoryHub:
+	case toolio.CategorySandbox, toolio.CategoryForge, CategoryHub, toolio.CategoryIO:
 		return &toolio.Failure{Category: e.Category, Message: e.Message, Retryable: true}
 	}
 	return nil

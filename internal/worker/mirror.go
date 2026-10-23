@@ -10,6 +10,7 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/internal/worker/recovery"
 )
 
 // The status labels of an issue, without the prefix of the subscription.
@@ -161,22 +162,50 @@ func (r *Runner) mirrorEnvelope(ctx context.Context, a *attempt, data []byte) {
 	}
 	res := readResult(env)
 	ref := a.mirrorIssue(env, res)
-	if ref == nil {
+	if ref == nil { // no issue to write to: nothing of the mirror is left to do
+		a.noteComment(true)
+		a.noteLabels(true)
 		return
 	}
 	if a.issue == nil || *a.issue != *ref { // an issue the loop created: it carries no label of ours
 		a.labels = nil
 	}
 	p := a.planOf(env, res)
-	if p.comment != "" {
-		a.comment(ctx, *ref, p.comment, env, res)
-	}
+	done := a.mirrorDone()
+	a.noteComment(done.Comment || p.comment == "" || a.comment(ctx, *ref, p.comment, env, res))
+	r.reached(a, "mirror_comment")
+	labelled := true
 	switch {
+	case done.StatusLabels:
 	case p.status != "":
-		a.setStatus(ctx, *ref, p.status)
+		labelled = a.setStatus(ctx, *ref, p.status)
 	case a.marked:
 		a.unmark(ctx)
 	}
+	a.noteLabels(labelled)
+	r.reached(a, "mirror_labels")
+}
+
+// noteComment and noteLabels record the steps of the mirror when they are done: the comment, and the status
+// label.
+func (a *attempt) noteComment(done bool) {
+	a.note(stepComment, func(j *recovery.Journal) { j.Mirror.Comment = j.Mirror.Comment || done })
+}
+
+func (a *attempt) noteLabels(done bool) {
+	a.note(stepStatusLabels, func(j *recovery.Journal) { j.Mirror.StatusLabels = j.Mirror.StatusLabels || done })
+}
+
+// mirrorDone are the steps of the mirror that the journal records as done, for a delivery that finishes the
+// mirror of an outcome that an earlier one stored: those are not made again, and the others are, since a status
+// label that is written again changes nothing and a comment is posted only when its marker is not on the issue.
+func (a *attempt) mirrorDone() recovery.Mirror {
+	if a.stored == nil || a.journal == nil {
+		return recovery.Mirror{}
+	}
+	a.journal.mu.Lock()
+	defer a.journal.mu.Unlock()
+	return a.journal.j.Mirror
 }
 
 // mirrorIssue is the issue the mirror writes to: the one the input named, or, for a triage of a

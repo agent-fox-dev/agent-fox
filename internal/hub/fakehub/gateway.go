@@ -203,6 +203,8 @@ func (h *Hub) sandboxRoute(w http.ResponseWriter, r *http.Request, ws *workspace
 	switch {
 	case len(rest) == 0 && r.Method == http.MethodPost:
 		h.grantLease(w, r, ws)
+	case len(rest) == 0 && r.Method == http.MethodGet:
+		h.listLeases(w, ws)
 	case len(rest) == 1 && r.Method == http.MethodDelete:
 		h.releaseLease(w, ws, rest[0])
 	default:
@@ -224,23 +226,112 @@ func (h *Hub) grantLease(w http.ResponseWriter, r *http.Request, ws *workspace) 
 		return
 	}
 	gw := h.Gateway()
-	var id, tok [16]byte
-	var secret [33]byte
-	_, _ = rand.Read(id[:])
-	_, _ = rand.Read(secret[:])
-	_ = tok
-	h.mu.Lock()
-	h.seq++
-	l := &Lease{
-		ID: "sbx_" + hex.EncodeToString(id[:]), Slug: ws.Slug, Token: "sbl_" + base64.RawURLEncoding.EncodeToString(secret[:]),
-		Profile: req.Profile, Purpose: req.Purpose, Labels: req.Labels, ExpiresAt: time.Now().Add(h.leaseTTL), Seq: h.seq,
-	}
-	h.leases = append(h.leases, l)
-	h.mu.Unlock()
+	l := h.newLease(ws.Slug, req.Profile, req.Purpose, req.Labels)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id": l.ID, "workspace": l.Slug, "profile": l.Profile, "purpose": l.Purpose, "state": "leased", "gateway_url": gw.URL(),
 		"expires_at": l.ExpiresAt.UTC().Format(time.RFC3339), "labels": l.Labels, "token": l.Token,
 	})
+}
+
+// newLease grants a lease of the workspace, which is held until it is released or ends.
+func (h *Hub) newLease(slug, profile, purpose string, labels map[string]string) *Lease {
+	var id [16]byte
+	var secret [33]byte
+	_, _ = rand.Read(id[:])
+	_, _ = rand.Read(secret[:])
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.seq++
+	l := &Lease{
+		ID: "sbx_" + hex.EncodeToString(id[:]), Slug: slug, Token: "sbl_" + base64.RawURLEncoding.EncodeToString(secret[:]),
+		Profile: profile, Purpose: purpose, Labels: copyMap(labels), ExpiresAt: time.Now().Add(h.leaseTTL), Seq: h.seq,
+	}
+	h.leases = append(h.leases, l)
+	return l
+}
+
+// SeedLease puts a lease of the workspace in the hub as if it had been granted, with the labels and
+// the purpose, and returns it. It is held until it is released: a test seeds the leases of attempts
+// that were carried out before the service started.
+func (h *Hub) SeedLease(slug string, labels map[string]string, purpose string) Lease {
+	l := h.newLease(slug, "", purpose, labels)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return *l
+}
+
+// Deleted are the ids of the leases that were released, in the order they were released.
+func (h *Hub) Deleted() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var released []*Lease
+	for _, l := range h.leases {
+		if l.Released {
+			released = append(released, l)
+		}
+	}
+	slices.SortFunc(released, func(a, b *Lease) int { return a.ReleasedSeq - b.ReleasedSeq })
+	ids := make([]string, len(released))
+	for i, l := range released {
+		ids[i] = l.ID
+	}
+	return ids
+}
+
+// KillSandbox destroys the boxes that the lease holds on the gateway, as a sandbox that is gone does,
+// and leaves the lease held: what is gone is the sandbox, and not the right to ask for another one.
+func (h *Hub) KillSandbox(id string) {
+	h.mu.Lock()
+	gw := h.gateway
+	h.mu.Unlock()
+	if gw != nil {
+		gw.destroyBoxesOf(id)
+	}
+}
+
+// destroyBoxesOf destroys the boxes of the lease that the gateway has not closed.
+func (g *Gateway) destroyBoxesOf(lease string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	closed := g.Closed()
+	for _, c := range g.Created() {
+		if c.Lease == lease && !slices.ContainsFunc(closed, func(x Closed) bool { return x.ID == c.ID }) {
+			_ = g.srv.Destroy(ctx, c.ID)
+		}
+	}
+}
+
+// listLeases answers GET …/sandboxes: the leases of the workspace that are held, newest first, as a
+// bare array, with the fields hub gives a lease and no token. A lease that was released or has
+// ended is not listed.
+func (h *Hub) listLeases(w http.ResponseWriter, ws *workspace) {
+	gw := h.Gateway()
+	boxed := map[string]bool{}
+	for _, c := range gw.Created() {
+		boxed[c.Lease] = true
+	}
+	h.mu.Lock()
+	out := []map[string]any{}
+	for i := len(h.leases) - 1; i >= 0; i-- {
+		l := h.leases[i]
+		if l.Slug != ws.Slug || l.Released || !time.Now().Before(l.ExpiresAt) {
+			continue
+		}
+		state := "leased"
+		if boxed[l.ID] {
+			state = "active"
+		}
+		labels := l.Labels
+		if labels == nil {
+			labels = map[string]string{}
+		}
+		out = append(out, map[string]any{
+			"id": l.ID, "workspace": l.Slug, "profile": l.Profile, "purpose": l.Purpose, "state": state, "gateway_url": gw.URL(),
+			"expires_at": l.ExpiresAt.UTC().Format(time.RFC3339), "labels": labels,
+		})
+	}
+	h.mu.Unlock()
+	writeJSON(w, http.StatusOK, out)
 }
 
 // releaseLease answers DELETE …/sandboxes/{id}: the lease ends, and the boxes it still holds
@@ -264,13 +355,7 @@ func (h *Hub) releaseLease(w http.ResponseWriter, ws *workspace, id string) {
 	h.mu.Unlock()
 
 	if gw != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		for _, c := range gw.Created() {
-			if c.Lease == id && !slices.ContainsFunc(gw.Closed(), func(x Closed) bool { return x.ID == c.ID }) {
-				_ = gw.srv.Destroy(ctx, c.ID)
-			}
-		}
+		gw.destroyBoxesOf(id)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "state": "destroyed"})
 }

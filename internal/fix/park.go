@@ -56,6 +56,8 @@ type ParkParams struct {
 	// PostPush is called with the branch once it is pushed, before the pull request; see
 	// LandParams.
 	PostPush func(ctx context.Context, branch string) error
+	// Steps is told how the parking comes on.
+	Steps LandSteps
 }
 
 // ParkResult is what parking did.
@@ -87,7 +89,7 @@ func Park(ctx context.Context, p ParkParams) (ParkResult, error) {
 	}
 
 	l := newLanding(p.Git, p.Report, p.State, p.Input, p.Mode, p.Forge, p.Target, p.Interrupted)
-	l.postPush = p.PostPush
+	l.postPush, l.steps = p.PostPush, p.Steps
 	l.subject = parkSubject(p)
 	if err := l.ensureIssue(ctx); err != nil {
 		return ParkResult{}, err
@@ -115,6 +117,13 @@ func (l *landing) afterParkCommit(ctx context.Context, verdict string, failing [
 	res.Commit = l.commit
 
 	if !l.interrupted && l.mode != LandNone {
+		if err := l.plan(ctx, Plan{
+			Branch: l.branch, Commit: l.commit, Outcome: OutcomeParked, Status: toolio.StatusUnverified, Verdict: verdict,
+			PullRequest: l.mode == LandPR && !l.skipPR && l.issueURL != "", Title: "wip: " + l.subject,
+			Body: parkedBody(l.state.RunID, verdict, failing, l.issueURL, l.hookRefused), Draft: true,
+		}); err != nil {
+			return res, l.finish(err)
+		}
 		if err := l.push(ctx); err != nil {
 			var published *publishError
 			if errors.As(err, &published) {

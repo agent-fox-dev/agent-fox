@@ -75,6 +75,14 @@ type Runner struct {
 	loopFlags func(a *attempt) []string
 	// loop, when it is set, is the step that stands for the loop in a test; nil is the loop.
 	loop func(ctx context.Context, a *attempt) *outcome
+	// abortAfter, when it is set, names the stage after which a delivery stops as a process that died
+	// there does, see stageAbort. reachedHook, when it is set, is called with every stage a delivery
+	// reaches, before it is stopped there.
+	abortAfter  string
+	reachedHook func(stage string)
+	// journalFault, when it is set, is asked before each write of the journal, with the name of the
+	// step it records, and the write fails with the error it returns.
+	journalFault func(step string) error
 }
 
 var _ jobs.Runner = (*Runner)(nil)
@@ -134,15 +142,26 @@ func (r *Runner) stages() []stage {
 	if r.loop != nil {
 		run = r.loop
 	}
-	return []stage{{"resolve", r.resolve}, {"session", r.openSession}, {"mark", r.mark}, {"clone", r.clone}, {"lease", r.lease}, {"run", run}}
+	return []stage{{"resolve", r.resolve}, {"start", r.start}, {"session", r.openSession}, {"mark", r.mark}, {"clone", r.clone}, {"lease", r.lease}, {"run", run}}
 }
 
 // Run carries out the attempt: resolve, the session, the mark, the clone, the lease and the loop,
 // and ends it with the mirror and the release of the lease. An attempt that has not ended
 // by then has no envelope, which is a failure of the worker and not of the attempt.
-func (r *Runner) Run(ctx context.Context, req jobs.Request) (jobs.Result, error) {
+func (r *Runner) Run(ctx context.Context, req jobs.Request) (res jobs.Result, err error) {
 	a := &attempt{req: req, report: r.reporterOf(req), started: r.cfg.Now(), now: r.cfg.Now}
-	defer a.close()
+	defer func() {
+		v := recover()
+		if abort, ok := v.(stageAbort); ok { // a test made a process die here: nothing is given back
+			a.abandon()
+			res, err = jobs.Result{}, abort
+			return
+		}
+		a.close()
+		if v != nil {
+			panic(v)
+		}
+	}()
 	return r.finish(ctx, a, r.pipeline(ctx, a))
 }
 
@@ -152,13 +171,16 @@ func (r *Runner) pipeline(ctx context.Context, a *attempt) *outcome {
 		if out := s.run(ctx, a); out != nil {
 			return out
 		}
+		r.reached(a, s.name)
 	}
 	return &outcome{err: errors.New("worker: the attempt ended without an envelope")}
 }
 
-// finish ends the attempt, whatever it came to: the outcome is mirrored on the issue, the lease is
-// released, the warnings, the side effects and the artifacts of the worker are added to the
-// envelope it ended with, and what it made in the attempt directory is removed. The writes and the
+// finish ends the attempt, whatever it came to: the outcome is stored, mirrored on the issue and stored
+// again, the lease is released, the warnings, the side effects and the artifacts of the worker are added to
+// the envelope it ended with, and what it made in the attempt directory is removed. An attempt that has its
+// outcome stored already, which a later delivery finds, gets the rest of this and no loop: its envelope is
+// returned as it was stored, with the warning that the delivery resumed. The writes and the
 // release are made on a context that a cancel or a shutdown does not reach, and that ends within
 // the grace the jobs layer gives. An attempt that was cancelled returns a result, with the
 // envelope of the loop or one that says it was cancelled; one that was shut down returns its
@@ -182,42 +204,57 @@ func (r *Runner) finish(ctx context.Context, a *attempt, out *outcome) (jobs.Res
 		out.err = nil
 	}
 
-	r.mirror(work, a, out, how)
+	// An outcome that is known is stored before anything is written for it to the forge or to hub, and again once
+	// the mirror is done: a delivery that is handed the attempt after the process died finds it, and carries the
+	// bookkeeping on instead of running the loop again. A shutdown and a transient error are no outcome.
+	known := how != stoppedByShutdown && !jobs.IsTransient(out.err) && len(out.result.Envelope) > 0
+	if known && a.stored == nil {
+		r.storeOutcome(a, out, false)
+		r.reached(a, "outcome_stored")
+	}
+	if a.stored == nil || !a.stored.Mirrored {
+		r.mirror(work, a, out, how)
+	}
+	settled := len(a.warnings)
+	if known {
+		r.settle(a, out)
+	} else {
+		settled = 0
+	}
 	releaseErr := r.releaseLease(work, a)
-	r.report(work, a, out)
+	r.reached(a, "released")
+	// A delivery that is handed over again, after a shutdown or a transient error, reports nothing: it
+	// is the delivery that comes to the outcome that posts the usage and the events and completes the
+	// session, or the one that finds the outcome stored.
+	if how != stoppedByShutdown && !jobs.IsTransient(out.err) {
+		r.report(work, a, out)
+	}
+	a.ending(endingOf(how, out))
 
-	warnings := slices.Clone(a.warnings)
+	late := slices.Clone(a.warnings[settled:])
 	if releaseErr != nil {
 		a.releaseNoted = true
 		r.cfg.Logger.Warn("the lease of the attempt could not be released", "workspace", a.req.Workspace, "job", a.req.JobID,
 			"attempt", a.req.Attempt, "lease", a.lease.ID, "error", releaseErr.Error())
-		warnings = append(warnings, toolio.Warning{Code: WarnLeaseReleaseFailed, Message: fmt.Sprintf(
+		late = append(late, toolio.Warning{Code: WarnLeaseReleaseFailed, Message: fmt.Sprintf(
 			"the sandbox %s could not be released: %v; hub destroys it when it expires at %s", a.lease.ID, releaseErr, a.lease.ExpiresAt.UTC().Format(time.RFC3339))})
 	}
+	if a.stored != nil { // the stored envelope is returned as it was stored: what this delivery raised is logged
+		r.logWarnings(a, a.warnings)
+		late = nil
+	}
+	if w := a.resumedWarning(); w != nil {
+		late = append(late, *w)
+	}
 	if len(out.result.Envelope) > 0 {
-		if a.labelPrefixVar != "" && a.labelPrefixVar != a.prefix {
-			warnings = append(warnings, toolio.Warning{Code: WarnLabelPrefixIgnored, Message: fmt.Sprintf(
-				"AF_LABEL_PREFIX is %q and the prefix of the subscription is %q: the labels have the prefix of the subscription", a.labelPrefixVar, a.prefix)})
-		}
-		am := toolio.Amendment{Warnings: warnings, SideEffects: a.sideEffects}
-		if a.sessionID != "" {
-			am.Artifacts = append(am.Artifacts, toolio.Artifact{Kind: "hub_session", Name: a.sessionID})
-		}
-		if a.lease != nil {
-			am.Artifacts = append(am.Artifacts, toolio.Artifact{Kind: "sandbox", Name: a.lease.ID})
-		}
-		patched, err := toolio.Amend(out.result.Envelope, am)
-		if err != nil {
-			r.cfg.Logger.Warn("the envelope of the attempt could not be amended", "job", a.req.JobID, "attempt", a.req.Attempt, "error", err.Error())
-		} else {
-			out.result.Envelope = patched
-		}
+		r.amend(a, out, toolio.Amendment{Warnings: late})
 	} else {
-		for _, w := range a.warnings { // nothing carries them: they are logged
-			r.cfg.Logger.Warn("a write of the attempt failed", "job", a.req.JobID, "attempt", a.req.Attempt, "code", w.Code, "message", w.Message)
-		}
+		r.logWarnings(a, a.warnings) // nothing carries them
 	}
 	out.result.LabelsSet, out.result.LabelsRemoved = slices.Clone(a.labelsSet), slices.Clone(a.labelsRemoved)
+	if a.stored != nil && a.stored.Mirrored {
+		out.result.LabelsSet, out.result.LabelsRemoved = slices.Clone(a.stored.LabelsSet), slices.Clone(a.stored.LabelsRemoved)
+	}
 	r.cleanup(ctx, a, out)
 
 	if how == stoppedByShutdown {
@@ -228,6 +265,13 @@ func (r *Runner) finish(ctx context.Context, a *attempt, out *outcome) (jobs.Res
 		return jobs.Result{}, err
 	}
 	return out.result, out.err
+}
+
+// logWarnings logs the warnings of the attempt that no envelope carries.
+func (r *Runner) logWarnings(a *attempt, warnings []toolio.Warning) {
+	for _, w := range warnings {
+		r.cfg.Logger.Warn("a write of the attempt failed", "job", a.req.JobID, "attempt", a.req.Attempt, "code", w.Code, "message", w.Message)
+	}
 }
 
 // cleanup removes what the attempt made in its directory, once the lease is released: input/, and

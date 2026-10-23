@@ -6,6 +6,7 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/internal/worker/recovery"
 )
 
 // refusal is why an attempt stops before its loop runs, with the category, the message and the
@@ -37,6 +38,12 @@ func authRefusal(slug, why string) *refusal {
 func (r *Runner) envelopeOf(a *attempt, f *refusal) *outcome {
 	env := toolio.NewEnvelope(string(a.req.Kind))
 	env.Fail(&toolio.Failure{Category: f.category, Message: f.message, FixHint: f.hint})
+	if a.spent != (recovery.Spend{}) { // no brain ran in this delivery, but the attempt has spent what its earlier deliveries did
+		env.Usage = toolio.Usage{
+			Brain: a.pinned.Brain, CostUSD: a.spent.CostUSD, CostSource: firstNonEmpty(a.spent.CostSource, toolio.CostNone),
+			InputTokens: a.spent.InputTokens, OutputTokens: a.spent.OutputTokens, Turns: a.spent.Turns,
+		}
+	}
 	env.Seal(a.started, r.cfg.Now())
 	data, err := env.Marshal()
 	if err != nil {

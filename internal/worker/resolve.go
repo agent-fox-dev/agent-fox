@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"slices"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/internal/worker/recovery"
 )
 
 // attempt is one attempt as its steps share it: what resolve found out, and what the steps that
@@ -81,19 +83,61 @@ type attempt struct {
 	mu     sync.Mutex
 	events []hub.Event
 	now    func() time.Time
-	// closers are what the attempt gives back when it ends, last made first.
+	// closers are what the attempt gives back when it ends, last made first. scratch are the
+	// directories it made for itself, which are removed when it ends however it ends.
 	closers []func()
+	scratch []string
+	// journal is the journal of the attempt, nil before it is made. aborted is the stage a test stopped
+	// the delivery at, see stageAbort.
+	journal       *journalHandle
+	aborted       string
+	stagesReached map[string]int
+	// resume is what the delivery carries on from, nil for one that begins the attempt afresh. pinned
+	// are the settings the run was started with, and spent what the brain runs of the attempt cost
+	// before this delivery.
+	resume *resumeState
+	pinned recovery.Settings
+	spent  recovery.Spend
+	// stored is the outcome that an earlier delivery stored, for a delivery whose attempt is ended already.
+	// discarded is why the delivery began again, and announced says the job was told that it resumed.
+	stored    *recovery.Outcome
+	discarded string
+	announced *resumeNote
+	// boxLost is the loss of the box that the loop told the delivery of, and replacing says a.resume is the state
+	// the replacement went on from, and no resume of an earlier delivery. loopStarted is when the loop began, which
+	// the timeout of the delivery counts from.
+	boxLost     error
+	replacing   bool
+	loopStarted time.Time
+	// retired are the tokens of the leases that were lost, which a text of the attempt may still hold.
+	retired []string
 }
 
 // onClose registers what the attempt gives back when it ends.
 func (a *attempt) onClose(f func()) { a.closers = append(a.closers, f) }
 
-// close gives back what the attempt took, in the reverse order.
+// close gives back what the attempt took, in the reverse order, and removes the directories it made.
 func (a *attempt) close() {
 	for i := len(a.closers) - 1; i >= 0; i-- {
 		a.closers[i]()
 	}
 	a.closers = nil
+	a.removeScratch()
+}
+
+// abandon is what a process that died leaves of an attempt: nothing is given back. Only the
+// directories it made for itself in the temporary directory of the machine, which no later delivery
+// reads, are removed.
+func (a *attempt) abandon() {
+	a.closers = nil
+	a.removeScratch()
+}
+
+func (a *attempt) removeScratch() {
+	for _, dir := range a.scratch {
+		_ = os.RemoveAll(dir)
+	}
+	a.scratch = nil
 }
 
 // clock is the time now, by the clock of the worker.
@@ -106,10 +150,14 @@ func (a *attempt) clock() time.Time {
 
 // step tells the job that a step of the pipeline began.
 func (a *attempt) step(name string) {
-	data := struct {
+	a.emitStep(struct {
 		Name   string `json:"name"`
 		Source string `json:"source"`
-	}{name, "worker"}
+	}{name, "worker"})
+}
+
+// emitStep tells the job a step of the worker, with its data.
+func (a *attempt) emitStep(data any) {
 	raw, _ := json.Marshal(data)
 	a.keep("step", stamp(a.clock()), raw)
 	a.report.Emit("step", data)
@@ -248,9 +296,17 @@ func (r *Runner) forgeOutcome(ctx context.Context, a *attempt, input loopInput, 
 // run at once. A session that hub does not open has cost nothing, and nothing has been written.
 func (r *Runner) openSession(ctx context.Context, a *attempt) *outcome {
 	a.step("session")
-	runID, err := toolio.NewRunID(r.cfg.Now, r.cfg.Rand)
-	if err != nil {
-		return &outcome{err: err}
+	if a.sessionID != "" { // the session of an earlier delivery is the session of the attempt
+		a.report.Hub(a.sessionID, a.runID, "")
+		a.noteSession()
+		return nil
+	}
+	runID := a.runID // the run id of a session that was completed, which the run goes on under
+	if runID == "" {
+		var err error
+		if runID, err = toolio.NewRunID(r.cfg.Now, r.cfg.Rand); err != nil {
+			return &outcome{err: err}
+		}
 	}
 	id, err := r.cfg.Hub.OpenSession(ctx, a.pat, hub.SessionRequest{
 		WorkspaceSlug: a.req.Workspace, Archetype: string(a.req.Kind), Model: a.settings.Model, RunID: runID,
@@ -260,5 +316,6 @@ func (r *Runner) openSession(ctx context.Context, a *attempt) *outcome {
 	}
 	a.runID, a.sessionID = runID, id
 	a.report.Hub(id, runID, "")
+	a.noteSession()
 	return nil
 }

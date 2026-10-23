@@ -75,6 +75,7 @@ type Session struct {
 	mu      sync.Mutex
 	closed  bool
 	exports []string // the export directories Close removes
+	lost    error    // set when a tool of the box found the sandbox gone, see Lost
 
 	exportCalls atomic.Int32 // how many times Export was asked for, whether or not it made one
 }
@@ -91,8 +92,55 @@ func (s *Session) Provider() string { return s.provider }
 func (s *Session) Spec() sandbox.Spec { return s.sb.Spec() }
 
 // Tools is the box's tool set, for brains: one proxy for each of the hands'
-// built-in tools, whose every call runs inside the box.
-func (s *Session) Tools() []core.Tool { return s.tools }
+// built-in tools, whose every call runs inside the box. A call whose result says
+// the sandbox is gone is noted: see Lost.
+func (s *Session) Tools() []core.Tool {
+	out := make([]core.Tool, len(s.tools))
+	for i, t := range s.tools {
+		out[i] = s.watch(t)
+	}
+	return out
+}
+
+// watch is the tool, whose results are watched for a sandbox that is gone.
+func (s *Session) watch(t core.Tool) core.Tool {
+	run := t.Execute
+	t.Execute = func(ctx context.Context, raw json.RawMessage) core.ToolResult {
+		r := run(ctx, raw)
+		if resultGone(r) {
+			s.lose(fmt.Errorf("%s: %s", r.Error, r.Detail))
+		}
+		return r
+	}
+	return t
+}
+
+// lose notes that the sandbox is gone, with what the box said, the first time.
+func (s *Session) lose(cause error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.lost == nil {
+		s.lost = gone(cause)
+	}
+}
+
+// goneIf is the error marked as ErrUnavailable when the cause says the sandbox is gone, and the loss is noted in the
+// session: a box operation that is not a tool call, a sync or an export, notes it as a tool call does.
+func (s *Session) goneIf(cause bool, err error) error {
+	if cause {
+		s.lose(err)
+	}
+	return goneIf(cause, err)
+}
+
+// Lost is the error that says the box found its sandbox gone or out of reach: a tool of the box, one of a brain's
+// or one of the host's own, was told so, or a sync or an export of the host failed for it. It is nil while none
+// was, and matches ErrUnavailable. The operation that found it returns its error to its caller all the same.
+func (s *Session) Lost() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lost
+}
 
 // ByName says the programs of the box are called by name and found on the PATH of its image.
 func (s *Session) ByName() bool { return s.byName }
@@ -198,11 +246,12 @@ func (s *Session) scrubGit(ctx context.Context) error {
 // it is for names the step in the failure.
 func (s *Session) prepare(ctx context.Context, what, command string) error {
 	r, err := s.call(ctx, toolExecute, map[string]any{"command": command})
+	lost := err == nil && resultGone(r)
 	if err == nil && !r.OK {
 		err = fmt.Errorf("%s: %s", r.Error, r.Detail)
 	}
 	if err != nil {
-		return &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the %s box could not be prepared for %s: %v", s.provider, what, err)}
+		return s.goneIf(lost, &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the %s box could not be prepared for %s: %v", s.provider, what, err)})
 	}
 	return nil
 }
@@ -215,7 +264,7 @@ func (s *Session) sync(ctx context.Context) error {
 	err := s.syncLocked(ctx)
 	s.stream.Unlock()
 	if err != nil {
-		return &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the %s box could not be synced from %s: %v", s.provider, s.hostDir, err)}
+		return s.goneIf(isGone(err), &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the %s box could not be synced from %s: %v", s.provider, s.hostDir, err)})
 	}
 	head, err := gitx.New(s.hostDir, nil).Head(ctx)
 	if err != nil {
@@ -334,7 +383,7 @@ func (s *Session) WriteFile(ctx context.Context, rel string, data []byte) error 
 		return err
 	}
 	if !r.OK {
-		return &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the %s box could not write %s: %s %s", s.provider, rel, r.Error, r.Detail)}
+		return s.goneIf(resultGone(r), &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the %s box could not write %s: %s %s", s.provider, rel, r.Error, r.Detail)})
 	}
 	return nil
 }
@@ -363,7 +412,7 @@ func (s *Session) Export(ctx context.Context) (string, error) {
 	}
 	if err := s.export(ctx, ".", dir); err != nil {
 		_ = os.RemoveAll(dir)
-		return "", &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the %s box could not be exported: %v", s.provider, err)}
+		return "", s.goneIf(isGone(err), &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the %s box could not be exported: %v", s.provider, err)})
 	}
 	if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
 		_ = os.RemoveAll(dir)
@@ -434,7 +483,7 @@ func (s *Session) call(ctx context.Context, name string, args map[string]any) (c
 	}
 	for _, t := range s.tools {
 		if t.Name == name {
-			return t.Execute(ctx, raw), nil
+			return s.watch(t).Execute(ctx, raw), nil
 		}
 	}
 	return core.ToolResult{}, fmt.Errorf("the box has no %s tool", name)

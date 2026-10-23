@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agent-fox-dev/agentkit-go/core"
 	"github.com/agent-fox-dev/agentkit-go/sandbox"
 	"github.com/agent-fox-dev/agentkit-go/sandbox/gateway"
 )
@@ -513,4 +515,131 @@ func TestAnInstrumentedGatewayRecordsTheCommandsAndCanBeKilledOnOrAfterOne(t *te
 			t.Error("a box was made on a gateway that was killed after a command")
 		}
 	}
+}
+
+// TestTheFakeHubListsLabelledLeasesTakesSeededOnesKeepsSessionStateAndCanKillASandbox_TS_14_61
+// verifies TS-14-61: GET …/sandboxes lists the leases that are held with their id, labels, purpose and
+// end, the ones a test seeded among them; a lease that was deleted is observable as deleted and is
+// absent from the next listing; the sessions keep what was opened, posted and completed; and a sandbox
+// that was killed answers as gone to the gateway while its lease is still held.
+// Verifies: 14-REQ-10.3
+func TestTheFakeHubListsLabelledLeasesTakesSeededOnesKeepsSessionStateAndCanKillASandbox_TS_14_61(t *testing.T) {
+	h := worker(t)
+	seeded := []Lease{
+		h.SeedLease("acme", map[string]string{"job": "job_1", "attempt": "1"}, "fix"),
+		h.SeedLease("acme", map[string]string{"job": "job_unknown", "attempt": "2"}, "triage"),
+		h.SeedLease("acme", nil, "fix"),
+		h.SeedLease("acme", map[string]string{"job": "job_2", "attempt": "1"}, "fix"),
+	}
+
+	t.Run("the listing carries id, labels, purpose and end of the leases that are held", func(t *testing.T) {
+		status, body := call(t, h, "GET", "/api/v1/workspaces/acme/sandboxes", pat, nil)
+		list, _ := body.([]any)
+		if status != 200 || len(list) != 4 {
+			t.Fatalf("GET sandboxes = %d with %d leases, want 200 with 4: %v", status, len(list), body)
+		}
+		byID := map[string]map[string]any{}
+		for _, item := range list {
+			m := item.(map[string]any)
+			byID[m["id"].(string)] = m
+		}
+		for _, l := range seeded {
+			m := byID[l.ID]
+			if m == nil {
+				t.Fatalf("the listing lacks %s: %v", l.ID, list)
+			}
+			labels, _ := m["labels"].(map[string]any)
+			if m["purpose"] != l.Purpose || len(labels) != len(l.Labels) || m["expires_at"] == "" || m["expires_at"] == nil {
+				t.Errorf("lease %s listed as %v, want purpose %q, labels %v and an end", l.ID, m, l.Purpose, l.Labels)
+			}
+			for k, v := range l.Labels {
+				if labels[k] != v {
+					t.Errorf("lease %s: label %s = %v, want %s", l.ID, k, labels[k], v)
+				}
+			}
+		}
+		if status, _ := call(t, h, "GET", "/api/v1/workspaces/acme/sandboxes", "no-such-token", nil); status != 401 {
+			t.Errorf("the listing for an unknown token = %d, want 401", status)
+		}
+	})
+
+	t.Run("a lease that was deleted is observable as deleted and is not listed again", func(t *testing.T) {
+		if status, _ := call(t, h, "DELETE", "/api/v1/workspaces/acme/sandboxes/"+seeded[0].ID, pat, nil); status/100 != 2 {
+			t.Fatalf("DELETE = %d", status)
+		}
+		if status, _ := call(t, h, "DELETE", "/api/v1/workspaces/acme/sandboxes/sbx_00000000000000000000000000000000", pat, nil); status != 404 {
+			t.Errorf("DELETE of a lease that is not there = %d, want 404", status)
+		}
+		if got := h.Deleted(); !slices.Equal(got, []string{seeded[0].ID}) {
+			t.Errorf("Deleted() = %v, want only %s", got, seeded[0].ID)
+		}
+		_, body := call(t, h, "GET", "/api/v1/workspaces/acme/sandboxes", pat, nil)
+		list, _ := body.([]any)
+		if len(list) != 3 {
+			t.Errorf("the listing after the delete holds %d leases, want 3", len(list))
+		}
+		for _, item := range list {
+			if item.(map[string]any)["id"] == seeded[0].ID {
+				t.Errorf("the deleted lease %s is still listed", seeded[0].ID)
+			}
+		}
+	})
+
+	t.Run("the sessions keep what was opened, posted and completed", func(t *testing.T) {
+		_, body := call(t, h, "POST", "/api/v1/sessions", pat, map[string]any{"workspace_slug": "acme", "archetype": "fix", "model": "m1", "run_id": "20261022_101010_abcdef"})
+		id := body.(map[string]any)["id"].(string)
+		if s := h.Sessions(); len(s) != 1 || s[0].ID != id || s[0].Status != "open" || s[0].RunID != "20261022_101010_abcdef" {
+			t.Errorf("sessions after the open = %+v, want one open session of the run", s)
+		}
+		call(t, h, "POST", "/api/v1/sessions/"+id+"/usage", pat, map[string]any{"model": "m1", "input_tokens": 10, "output_tokens": 5, "cost_usd": 0.5, "brain": "claude", "turns": 3})
+		call(t, h, "POST", "/api/v1/sessions/"+id+"/complete", pat, map[string]any{"status": "completed"})
+		s := h.Sessions()
+		if len(s) != 1 || len(s[0].Usage) != 1 || s[0].Usage[0].CostUSD != 0.5 || s[0].Status != "completed" || s[0].CompletedSeq == 0 {
+			t.Errorf("sessions after the report = %+v, want the usage and the completion", s)
+		}
+	})
+
+	t.Run("a killed sandbox answers as gone to the gateway, and its lease is still held", func(t *testing.T) {
+		lease := seeded[1]
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		provider, err := gateway.Dial(ctx, h.Gateway().URL(), gateway.Options{Token: lease.Token})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer provider.Close()
+		sb, err := provider.Create(ctx, sandbox.Spec{Network: sandbox.Network{Mode: sandbox.NetworkUnrestricted}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tools, err := sb.Tools(ctx, sandbox.ToolOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var execute func(string) core.ToolResult
+		for _, tool := range tools {
+			if tool.Name == "execute" {
+				execute = func(command string) core.ToolResult {
+					return tool.Execute(ctx, json.RawMessage(fmt.Sprintf(`{"command":%q}`, command)))
+				}
+			}
+		}
+		if r := execute("echo alive"); !r.OK {
+			t.Fatalf("a command in a box that was not killed: %+v", r)
+		}
+
+		h.KillSandbox(lease.ID)
+
+		if r := execute("echo alive"); r.OK || r.Error != "sandbox_unavailable" {
+			t.Errorf("a command in the killed box = %+v, want the tool error sandbox_unavailable", r)
+		}
+		if _, err := sb.Sync(ctx, sandbox.Tar{R: strings.NewReader(""), Path: "."}); !errors.Is(err, sandbox.ErrUnavailable) {
+			t.Errorf("a sync to the killed box = %v, want sandbox.ErrUnavailable", err)
+		}
+		for _, l := range h.Leases() {
+			if l.ID == lease.ID && l.Released {
+				t.Error("the killed sandbox's lease was released: only the box is gone")
+			}
+		}
+	})
 }

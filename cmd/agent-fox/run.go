@@ -15,6 +15,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/service/api"
 	"github.com/agent-fox-dev/agentfox/internal/service/config"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
+	"github.com/agent-fox-dev/agentfox/internal/service/reconcile"
 	"github.com/agent-fox-dev/agentfox/internal/service/secrets"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -31,6 +32,10 @@ const (
 // shutdownGrace is how long the requests in flight get to finish once the service
 // is told to stop.
 const shutdownGrace = 30 * time.Second
+
+// reconcileInterval is the time between two passes that give back the sandboxes and the sessions that attempts left held;
+// the tests make it short.
+var reconcileInterval = reconcile.DefaultInterval
 
 // listenFunc binds an address; net.Listen, except in the tests.
 type listenFunc func(network, address string) (net.Listener, error)
@@ -135,6 +140,10 @@ func serve(ctx context.Context, configPath string, logger *slog.Logger, listen l
 	}
 	logger.Info("listening", "addr", ln.Addr().String())
 
+	// A pass that gives back what attempts left held is made now, and every 15 minutes. It runs on its own, so that it
+	// delays neither the listener nor the queue, and it is stopped, and waited for, before the database is closed.
+	defer startReconciling(ctx, reconcile.Config{Subscriptions: st, Hub: hubClient, Jobs: jobService, Logger: logger, Interval: reconcileInterval})()
+
 	serving := make(chan error, 1)
 	go func() { serving <- srv.Serve(ln) }()
 	select {
@@ -153,6 +162,15 @@ func serve(ctx context.Context, configPath string, logger *slog.Logger, listen l
 	}
 	<-serving
 	return exitStopped
+}
+
+// startReconciling runs the passes of the reconciler in a goroutine, until ctx is done or the function it returns is called,
+// and the function waits for the pass that is running to stop.
+func startReconciling(ctx context.Context, cfg reconcile.Config) (stop func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() { defer close(done); reconcile.New(cfg).Run(ctx) }()
+	return func() { cancel(); <-done }
 }
 
 // startFailed writes the one record of a start that failed, and returns the exit code.

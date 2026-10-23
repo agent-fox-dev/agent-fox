@@ -161,6 +161,19 @@ func (g *Git) CreateBranchFrom(ctx context.Context, name, ref string) error {
 	return err
 }
 
+// SetBranchConfig sets a key of the configuration of the branch, in the configuration of the repository itself, whether the
+// branch exists yet or not. Git removes the keys of a branch when the branch is deleted.
+func (g *Git) SetBranchConfig(ctx context.Context, branch, key, value string) error {
+	_, err := g.must(ctx, "config", "--local", "branch."+branch+"."+key, value)
+	return err
+}
+
+// BranchConfig is the value of the key of the configuration of the branch, or "" when there is none.
+func (g *Git) BranchConfig(ctx context.Context, branch, key string) string {
+	out, _, _ := g.git(ctx, "config", "--local", "--get", "branch."+branch+"."+key)
+	return out
+}
+
 // Checkout switches to an existing branch.
 func (g *Git) Checkout(ctx context.Context, name string) error {
 	_, err := g.must(ctx, "checkout", name)
@@ -361,6 +374,23 @@ func (g *Git) Pull(ctx context.Context, branch ...string) error {
 // on a branch nobody else has written to is thrown away.
 func (g *Git) ResetHard(ctx context.Context, ref string) error {
 	_, err := g.must(ctx, "reset", "--hard", ref)
+	return err
+}
+
+// Stash sets the changes of the work tree aside, the untracked files with them and the ignored ones
+// not, and says whether there were any to set aside. Whatever it set aside is put back by StashPop.
+func (g *Git) Stash(ctx context.Context) (bool, error) {
+	before, _, _ := g.git(ctx, "rev-parse", "--quiet", "--verify", "refs/stash")
+	if _, err := g.must(ctx, "stash", "push", "--include-untracked", "--quiet", "--message", "agent-fox: set aside"); err != nil {
+		return false, err
+	}
+	after, _, _ := g.git(ctx, "rev-parse", "--quiet", "--verify", "refs/stash")
+	return after != before, nil
+}
+
+// StashPop puts back the changes that the last Stash set aside, and drops them.
+func (g *Git) StashPop(ctx context.Context) error {
+	_, err := g.must(ctx, "stash", "pop", "--quiet")
 	return err
 }
 
