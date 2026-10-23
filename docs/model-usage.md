@@ -89,8 +89,8 @@ tokens that callers hand over to subscribe a workspace, which it keeps sealed (s
 - **A cancel stops the spending.** A cancelled attempt is told to stop, and its runner has 60 seconds; what it
   reports after that is dropped.
 - **A resume does not pay twice.** An attempt that is handed over again after a crash or a restart is carried on, and
-  the worker never runs the brain again for a submission that the host accepted: a fix report that was applied is
-  measured and landed, a question is asked again, and a diagnosis is landed again, with no round of the brain. When the
+  the worker never runs the brain again for a submission that the host accepted and that is still good: a fix report that was
+  applied is measured and landed, a question is asked again, and a diagnosis is landed again, with no round of the brain. When the
   brain has to run again, it runs from the base with what is left of the budget, `AF_MAX_BUDGET_USD` and `AF_MAX_TURNS`
   less what the earlier runs of the attempt spent, as the ledger of the run records it; an attempt with nothing left
   ends `failed`, category `budget`, and runs nothing. The usage of the envelope and the one record that is posted to

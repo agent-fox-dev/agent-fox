@@ -142,11 +142,7 @@ func serve(ctx context.Context, configPath string, logger *slog.Logger, listen l
 
 	// A pass that gives back what attempts left held is made now, and every 15 minutes. It runs on its own, so that it
 	// delays neither the listener nor the queue, and it is stopped, and waited for, before the database is closed.
-	reconciler := reconcile.New(reconcile.Config{Subscriptions: st, Hub: hubClient, Jobs: jobService, Logger: logger, Interval: reconcileInterval})
-	reconcileCtx, stopReconciling := context.WithCancel(ctx)
-	reconciled := make(chan struct{})
-	go func() { defer close(reconciled); reconciler.Run(reconcileCtx) }()
-	defer func() { stopReconciling(); <-reconciled }()
+	defer startReconciling(ctx, reconcile.Config{Subscriptions: st, Hub: hubClient, Jobs: jobService, Logger: logger, Interval: reconcileInterval})()
 
 	serving := make(chan error, 1)
 	go func() { serving <- srv.Serve(ln) }()
@@ -166,6 +162,15 @@ func serve(ctx context.Context, configPath string, logger *slog.Logger, listen l
 	}
 	<-serving
 	return exitStopped
+}
+
+// startReconciling runs the passes of the reconciler in a goroutine, until ctx is done or the function it returns is called,
+// and the function waits for the pass that is running to stop.
+func startReconciling(ctx context.Context, cfg reconcile.Config) (stop func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() { defer close(done); reconcile.New(cfg).Run(ctx) }()
+	return func() { cancel(); <-done }
 }
 
 // startFailed writes the one record of a start that failed, and returns the exit code.

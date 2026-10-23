@@ -158,6 +158,15 @@ func TestWithNoBudgetOrNoTurnsLeftTheAttemptEndsFailedWithCategoryBudgetAndTheBr
 			if got := len(e.hub.Leases()) - leases; got != 0 {
 				t.Errorf("%d leases were taken for a delivery that does not run the brain", got)
 			}
+			// What the attempt spent is its usage, in the envelope and in the one record of the session, though no brain ran.
+			usage, _ := envelope(t, res)["usage"].(map[string]any)
+			session := e.hub.Sessions()[0]
+			if !near(usage["cost_usd"].(float64), spent.cost) || usage["turns"] != float64(spent.turns) || usage["brain"] != journalOf(t, e).Settings.Brain {
+				t.Errorf("the envelope's usage is %v, want the $%.2f and %d turns that the attempt spent", usage, spent.cost, spent.turns)
+			}
+			if len(session.Usage) != 1 || !near(session.Usage[0].CostUSD, spent.cost) || session.Usage[0].Turns != spent.turns {
+				t.Errorf("the usage records of the session are %+v, want one that holds what the attempt spent", session.Usage)
+			}
 		})
 	}
 }

@@ -613,8 +613,6 @@ func TestADirectPassWhileOneIsRunningStartsNoSecond(t *testing.T) {
 	}
 }
 
-var _ = errors.New
-
 // TestTheFirstPassIsMadeAtOnceAndNotAfterTheFirstInterval pins that Run does not wait for a tick: a service that is
 // started gives back what the process before it left held without waiting a quarter of an hour.
 // Verifies: 14-REQ-8.1
@@ -681,4 +679,47 @@ func TestAFailureOfHubDuringTheEndOfASessionLeavesItToTheNextPassWithoutPostingT
 			t.Errorf("the session is %+v after the next pass, want it completed, with its usage posted once", s)
 		}
 	})
+}
+
+// TestAJournalThatCannotBeWrittenMakesNeitherTheUsageNorTheCompletionBeMadeAgain pins that what a pass has done is not
+// done again by the next because it could not be written down: the usage of a session is posted once, and the session
+// is completed, whatever the state of the journal.
+// Verifies: 14-REQ-8.4
+func TestAJournalThatCannotBeWrittenMakesNeitherTheUsageNorTheCompletionBeMadeAgain(t *testing.T) {
+	w := newWorld(t)
+	session, _ := w.end(attempt{job: "job_a", n: 1, slug: acme, pat: patAcme})
+	unwritable := true
+	w.rec = reconcile.New(reconcile.Config{
+		Subscriptions: w.subs, Hub: w.client, Jobs: w.jobs, Logger: slog.New(slog.NewJSONHandler(w.logs, nil)),
+		JournalFault: func() error {
+			if unwritable {
+				return errors.New("the disk is full")
+			}
+			return nil
+		},
+	})
+
+	w.pass()
+	w.pass()
+	w.pass()
+
+	s := w.sessionOf(session)
+	if s.Status != "failed" || len(s.Usage) != 1 {
+		t.Errorf("the session is %q with %d usage records, want it completed, with its usage posted once", s.Status, len(s.Usage))
+	}
+	if n := len(w.hub.RequestsTo("POST", "/api/v1/sessions/"+session+"/complete")); n != 1 {
+		t.Errorf("the session was completed %d times, want once", n)
+	}
+	if warns := w.logs.level("WARN"); len(warns) == 0 {
+		t.Error("nothing was logged of a journal that cannot be written")
+	}
+
+	unwritable = false
+	w.pass()
+	if j := w.journalOf("job_a", 1); !j.Session.Completed || !j.Report.UsagePosted || !j.Report.SessionCompleted {
+		t.Errorf("the journal records %+v and %+v once it can be written, want both steps", j.Session, j.Report)
+	}
+	if s := w.sessionOf(session); len(s.Usage) != 1 {
+		t.Errorf("the session has %d usage records after the journal was written, want one", len(s.Usage))
+	}
 }

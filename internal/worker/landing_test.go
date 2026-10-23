@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -236,6 +239,7 @@ func TestATriageOfTextThatWasInterruptedAfterHubCreatedItsIssueLandsIntoThatIssu
 		t.Fatalf("the repository holds %d issues after the first delivery, want issue 42 and the one that was created", n)
 	}
 	before, _ := e.hub.IssueOf(slug, created.Number)
+	creates, edits := issueCreates(e), issueEdits(e, created.Number)
 
 	res, err := e.run(e.request(jobs.KindTriage, input, func(r *jobs.Request) { r.Delivery = 2 }))
 
@@ -244,6 +248,9 @@ func TestATriageOfTextThatWasInterruptedAfterHubCreatedItsIssueLandsIntoThatIssu
 	}
 	if n := len(e.hub.Issues(slug)); n != 2 {
 		t.Errorf("the repository holds %d issues, want only the one that was created: the diagnosis lands into it", n)
+	}
+	if issueCreates(e) != creates || issueEdits(e, created.Number) <= edits {
+		t.Errorf("the delivery made %d issues and %d edits of #%d, want no issue made and the body of that one replaced", issueCreates(e)-creates, issueEdits(e, created.Number)-edits, created.Number)
 	}
 	after, _ := e.hub.IssueOf(slug, created.Number)
 	if !strings.Contains(after.Body, "Run starts the wrong thing") || after.Body == before.Body && !strings.Contains(before.Body, "Run starts the wrong thing") {
@@ -366,5 +373,129 @@ func TestAParkedChangeThatWasPushedGetsItsDraftPullRequestFromThePlan(t *testing
 	}
 	if issue := e.issueNow(); !strings.Contains(strings.Join(issue.Labels, ","), "af:needs-human") {
 		t.Errorf("issue 42 has the labels %v, want needs-human for a parked change", issue.Labels)
+	}
+}
+
+// TestADeliveryThatCannotCarryOnAPublishedLandingEndsFailedAndMakesNoSecondBranchOrPullRequest pins what the resume rules
+// do not say: a clone that cannot be carried on is replaced by a fresh one and the brain runs again, but a landing that
+// reached hub's git server is not made again under another name. The attempt ends failed, category internal, naming the
+// branch, and the pull request stays the only one.
+// Verifies: 14-REQ-5.3
+func TestADeliveryThatCannotCarryOnAPublishedLandingEndsFailedAndMakesNoSecondBranchOrPullRequest(t *testing.T) {
+	cases := map[string]func(t *testing.T, e *env){
+		"the clone is gone": func(t *testing.T, e *env) {
+			if err := os.RemoveAll(filepath.Join(e.dir, cloneDirName)); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"the ledger cannot be read": func(t *testing.T, e *env) {
+			if err := os.WriteFile(filepath.Join(e.runDirOf(), "ledger.jsonl"), []byte("{not a record\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"the run directory is gone": func(t *testing.T, e *env) {
+			if err := os.RemoveAll(e.runDirOf()); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"the branch was deleted on hub's git server": func(t *testing.T, e *env) {
+			plan := journalOf(t, e).Landing.Plan
+			if out, err := exec.Command("git", "-C", e.hub.GitDir(slug), "branch", "-D", plan.Branch).CombinedOutput(); err != nil {
+				t.Fatalf("git branch -D: %v\n%s", err, out)
+			}
+		},
+	}
+	for name, spoil := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := loopEnv(t, fixFiles, map[string]string{"AF_MAX_BUDGET_USD": "1.00"}, nil, fixSteps()...)
+			e.usePricing(scriptFile(t, fixSteps()...), map[int]pricedRun{1: {cost: 0.25, turns: 5, costSource: "reported"}})
+			e.stopAfter("pull_request")
+			plan := journalOf(t, e).Landing.Plan
+			spoil(t, e)
+			spy := e.spyOnGit()
+			pushes, leases, runs := receivePacks(e), len(e.hub.Leases()), e.brainRuns()
+
+			res, err := e.deliver(2)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			category, message, retryable, _ := errorOf(envelope(t, res))
+			if envelope(t, res)["status"] != "failed" || category != "internal" || retryable || !strings.Contains(message, plan.Branch) {
+				t.Errorf("envelope %s, want a failed one of category internal, not retryable, that names %s", res.Envelope, plan.Branch)
+			}
+			if pulls := e.hub.Pulls(slug); len(pulls) != 1 {
+				t.Errorf("%d pull requests, want the one of the first delivery", len(pulls))
+			}
+			if receivePacks(e) != pushes || len(e.hub.Leases()) != leases || e.brainRuns() != runs || clonesOf(spy) != 0 {
+				t.Errorf("%d pushes, %d leases, %d runs of the brain and %d clones after the first delivery, want none of them", receivePacks(e)-pushes, len(e.hub.Leases())-leases, e.brainRuns()-runs, clonesOf(spy))
+			}
+			if usage, _ := envelope(t, res)["usage"].(map[string]any); !near(usage["cost_usd"].(float64), 0.25) {
+				t.Errorf("the envelope's usage is %v, want the spend of the first delivery", usage)
+			}
+		})
+	}
+}
+
+// issueCreates are the requests that made an issue on the forge, and issueEdits those that changed the issue.
+func issueCreates(e *env) int {
+	return len(e.hub.RequestsTo("POST", "/api/v1/workspaces/acme/issues"))
+}
+
+func issueEdits(e *env, number int) int {
+	return len(e.hub.RequestsTo("PATCH", fmt.Sprintf("/api/v1/workspaces/acme/issues/%d", number)))
+}
+
+// TestADeliveryWhoseWorkspaceIsAnotherRepositoryNowMakesItsLandingAnewAfterAPublishedOne pins the exception to the rule above: a
+// clone that comes from another origin, or a journal of another forge repository, is a landing in a repository that the
+// branch of the first delivery is not in, so the resume is discarded and the attempt goes on.
+// Verifies: 14-REQ-2.4
+func TestADeliveryWhoseWorkspaceIsAnotherRepositoryNowMakesItsLandingAnewAfterAPublishedOne(t *testing.T) {
+	cases := map[string]func(t *testing.T, e *env){
+		"the forge repository changed": func(t *testing.T, e *env) {
+			editJournal(t, e, func(j *recovery.Journal) { j.Forge = "Other/Repo" })
+		},
+		"the origin changed": func(t *testing.T, e *env) {
+			out, err := exec.Command("git", "-C", filepath.Join(e.dir, cloneDirName), "remote", "set-url", "origin", "https://elsewhere.invalid/git/acme.git").CombinedOutput()
+			if err != nil {
+				t.Fatalf("git remote set-url: %v\n%s", err, out)
+			}
+		},
+	}
+	for name, change := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := loopEnv(t, fixFiles, nil, nil, fixSteps()...)
+			e.stopAfter("pull_request")
+			change(t, e)
+
+			res, err := e.deliver(2)
+
+			if err != nil || envelope(t, res)["status"] != "done" || warningOf(envelope(t, res), WarnResumeDiscarded) == nil {
+				t.Fatalf("result %s, error %v, want the resume discarded and the attempt carried out", res.Envelope, err)
+			}
+		})
+	}
+}
+
+// TestALandingThatDidNotReachHubIsMadeAnewByTheDeliveryThatCannotCarryOnItsClone pins the other side of the rule: a plan that
+// was recorded and not pushed is no landing on hub's git server, and a clone that is gone is replaced and the attempt goes on.
+// Verifies: 14-REQ-2.4
+func TestALandingThatDidNotReachHubIsMadeAnewByTheDeliveryThatCannotCarryOnItsClone(t *testing.T) {
+	e := loopEnv(t, fixFiles, nil, nil, fixSteps()...)
+	e.stopAfter("plan_recorded")
+	if journalOf(t, e).Landing.Plan == nil {
+		t.Fatal("the journal holds no plan")
+	}
+	if err := os.RemoveAll(filepath.Join(e.dir, cloneDirName)); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := e.deliver(2)
+
+	if err != nil || envelope(t, res)["status"] != "done" {
+		t.Fatalf("result %s, error %v, want the attempt carried out with a fresh clone", res.Envelope, err)
+	}
+	if pulls := e.hub.Pulls(slug); len(pulls) != 1 {
+		t.Errorf("%d pull requests, want the one of the landing that was made anew", len(pulls))
 	}
 }

@@ -324,6 +324,9 @@ func TestARefusedFirstLeaseAnUnopenableFirstBoxOrAnotherSandboxFailureTakesNoRep
 			if err == nil && len(res.Envelope) == 0 {
 				t.Fatal("the delivery came to no end")
 			}
+			if len(res.Envelope) > 0 && envelope(t, res)["status"] == "done" {
+				t.Fatal("the delivery came to done: what was spoiled did not stop it")
+			}
 			if len(res.Envelope) > 0 && warningOf(envelope(t, res), WarnBoxReplaced) != nil {
 				t.Errorf("the envelope has a box_replaced warning: %s", res.Envelope)
 			}

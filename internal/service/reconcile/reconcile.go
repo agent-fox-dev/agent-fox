@@ -51,12 +51,18 @@ type Config struct {
 	Logger        *slog.Logger
 	// Interval is the time between two passes; DefaultInterval when 0. Tests make it short.
 	Interval time.Duration
+	// JournalFault, when it is set, is asked before each write of a journal, which fails with the error it returns. It
+	// is for the tests of a journal that cannot be written.
+	JournalFault func() error
 }
 
 // Reconciler makes the passes.
 type Reconciler struct {
 	cfg Config
 	mu  sync.Mutex
+	// posted and completed are the sessions whose usage this process posted and that it completed, which a journal that
+	// could not be written does not say: what a pass has done is not done again by the next.
+	posted, completed map[string]bool
 }
 
 // New makes the Reconciler.
@@ -67,7 +73,7 @@ func New(cfg Config) *Reconciler {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
-	return &Reconciler{cfg: cfg}
+	return &Reconciler{cfg: cfg, posted: map[string]bool{}, completed: map[string]bool{}}
 }
 
 // Run makes a pass now, and another every interval, until ctx is done. A pass is made when the one before it is
@@ -181,45 +187,58 @@ func (r *Reconciler) sessions(ctx context.Context, workspaces map[string]string)
 	}
 }
 
-// complete posts the usage that the journal records as spent and not posted, and completes the session with the
-// status of the outcome that was stored, or failed when there is none; each step is recorded in the journal when it
-// is done. It says whether hub could be asked.
+// complete posts the usage that the journal records as spent and not posted, and completes the session with the status of
+// the outcome that was stored, or failed when there is none; each step is recorded in the journal when it is done. A
+// step that is done and could not be recorded is not done again by a later pass of this process. It says whether hub
+// could be asked.
 func (r *Reconciler) complete(ctx context.Context, store *recovery.Store, j recovery.Journal, a jobs.AttemptRef, pat string) bool {
-	slug := a.Workspace
+	slug, id := a.Workspace, j.Session.ID
 	if !j.Report.UsagePosted {
-		if u := j.Spend; u.CostUSD > 0 || u.Turns > 0 || u.InputTokens > 0 || u.OutputTokens > 0 {
-			err := r.cfg.Hub.PostUsage(ctx, pat, slug, j.Session.ID, hub.Usage{
+		if u := j.Spend; !r.posted[id] && (u.CostUSD > 0 || u.Turns > 0 || u.InputTokens > 0 || u.OutputTokens > 0) {
+			err := r.cfg.Hub.PostUsage(ctx, pat, slug, id, hub.Usage{
 				Model: j.Settings.Model, Brain: j.Settings.Brain, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens,
 				CostUSD: u.CostUSD, CostSource: u.CostSource, Turns: u.Turns,
 			})
 			if err != nil {
-				r.failed(ctx, slug, pat, "the usage of the session "+j.Session.ID+" cannot be posted", err)
+				r.failed(ctx, slug, pat, "the usage of the session "+id+" cannot be posted", err)
 				return false
 			}
 		}
+		r.posted[id] = true
 		j.Report.UsagePosted = true
-		if !r.record(ctx, store, j, a) {
-			return true
+		r.record(store, j, a)
+	}
+	if !r.completed[id] {
+		status, message := hub.SessionFailed, "the attempt ended without a delivery that finished its report"
+		if o, err := store.LoadOutcome(); err == nil && o.Job == a.JobID && o.Attempt == a.Attempt {
+			status, message = o.SessionEnd()
 		}
-	}
-	status, message := hub.SessionFailed, "the attempt ended without a delivery that finished its report"
-	if o, err := store.LoadOutcome(); err == nil && o.Job == a.JobID && o.Attempt == a.Attempt {
-		status, message = o.SessionEnd()
-	}
-	if err := r.cfg.Hub.CompleteSession(ctx, pat, slug, j.Session.ID, status, message); err != nil {
-		r.failed(ctx, slug, pat, "the session "+j.Session.ID+" cannot be completed", err)
-		return false
+		if err := r.cfg.Hub.CompleteSession(ctx, pat, slug, id, status, message); err != nil {
+			r.failed(ctx, slug, pat, "the session "+id+" cannot be completed", err)
+			return false
+		}
+		r.completed[id] = true
+		r.cfg.Logger.Info("completed the session of an attempt that ended without finishing its report", "workspace", slug, "session_id", id,
+			"job", a.JobID, "attempt", a.Attempt, "status", status)
 	}
 	j.Session.Completed, j.Report.SessionCompleted = true, true
-	r.record(ctx, store, j, a)
-	r.cfg.Logger.Info("completed the session of an attempt that ended without finishing its report", "workspace", slug, "session_id", j.Session.ID,
-		"job", a.JobID, "attempt", a.Attempt, "status", status)
+	if r.record(store, j, a) { // the journal says it all: the memory of this process is not needed any more
+		delete(r.posted, id)
+		delete(r.completed, id)
+	}
 	return true
 }
 
 // record writes the journal, and logs a journal that cannot be written.
-func (r *Reconciler) record(ctx context.Context, store *recovery.Store, j recovery.Journal, a jobs.AttemptRef) bool {
-	if err := store.Write(j); err != nil {
+func (r *Reconciler) record(store *recovery.Store, j recovery.Journal, a jobs.AttemptRef) bool {
+	var err error
+	if r.cfg.JournalFault != nil {
+		err = r.cfg.JournalFault()
+	}
+	if err == nil {
+		err = store.Write(j)
+	}
+	if err != nil {
 		r.cfg.Logger.Warn("the journal of an attempt cannot be written", "workspace", a.Workspace, "job", a.JobID, "attempt", a.Attempt, "error", err.Error())
 		return false
 	}

@@ -161,6 +161,19 @@ func (g *Git) CreateBranchFrom(ctx context.Context, name, ref string) error {
 	return err
 }
 
+// SetBranchConfig sets a key of the configuration of the branch, in the configuration of the repository itself, whether the
+// branch exists yet or not. Git removes the keys of a branch when the branch is deleted.
+func (g *Git) SetBranchConfig(ctx context.Context, branch, key, value string) error {
+	_, err := g.must(ctx, "config", "--local", "branch."+branch+"."+key, value)
+	return err
+}
+
+// BranchConfig is the value of the key of the configuration of the branch, or "" when there is none.
+func (g *Git) BranchConfig(ctx context.Context, branch, key string) string {
+	out, _, _ := g.git(ctx, "config", "--local", "--get", "branch."+branch+"."+key)
+	return out
+}
+
 // Checkout switches to an existing branch.
 func (g *Git) Checkout(ctx context.Context, name string) error {
 	_, err := g.must(ctx, "checkout", name)

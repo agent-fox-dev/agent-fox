@@ -89,11 +89,10 @@ func (r *Runner) start(ctx context.Context, a *attempt) *outcome {
 	return nil
 }
 
-// laterDelivery is the journal of a delivery that is not the first, and what the delivery does with the
-// work of the ones before it (see start). An outcome means the attempt ends here.
-func (r *Runner) laterDelivery(ctx context.Context, a *attempt, fresh recovery.Journal) (recovery.Journal, *outcome) {
-	_, cloneErr := os.Stat(a.cloneDir)
-	cloneKept := cloneErr == nil
+// readJournal is the journal of the delivery before this one, and says whether there is one to carry on. With none, or one
+// that does not read or is of another job, attempt or kind, the delivery begins as a first one does; a clone that has no
+// journal to go with it is discarded, and so is the outcome that such a journal leaves behind.
+func (r *Runner) readJournal(a *attempt, fresh recovery.Journal, cloneKept bool) (recovery.Journal, bool) {
 	old, err := a.journal.store.Load()
 	switch {
 	case errors.Is(err, recovery.ErrNotFound):
@@ -101,14 +100,25 @@ func (r *Runner) laterDelivery(ctx context.Context, a *attempt, fresh recovery.J
 		if cloneKept {
 			a.discard(reasonJournalUnreadable, "the attempt directory has a clone and no journal")
 		}
-		return fresh, nil
 	case err != nil:
 		r.dropOutcome(a)
 		a.discard(reasonJournalUnreadable, err.Error())
-		return fresh, nil
 	case old.Job != fresh.Job || old.Attempt != fresh.Attempt || old.Kind != fresh.Kind:
 		r.dropOutcome(a)
 		a.discard(reasonJournalUnreadable, "the journal is of another job, another attempt or another kind")
+	default:
+		return old, true
+	}
+	return recovery.Journal{}, false
+}
+
+// laterDelivery is the journal of a delivery that is not the first, and what the delivery does with the
+// work of the ones before it (see start). An outcome means the attempt ends here.
+func (r *Runner) laterDelivery(ctx context.Context, a *attempt, fresh recovery.Journal) (recovery.Journal, *outcome) {
+	_, cloneErr := os.Stat(a.cloneDir)
+	cloneKept := cloneErr == nil
+	old, ok := r.readJournal(a, fresh, cloneKept)
+	if !ok {
 		return fresh, nil
 	}
 
@@ -132,7 +142,14 @@ func (r *Runner) laterDelivery(ctx context.Context, a *attempt, fresh recovery.J
 	if old.Session.Completed {
 		next.Session = recovery.Session{}
 	}
-	if old.CloneDir == "" || !cloneKept { // no clone was made: there is nothing to discard
+	if old.CloneDir == "" { // no clone was made: there is nothing to discard
+		r.leave(a, old.Spend)
+		return next, nil
+	}
+	if !cloneKept { // the clone is gone: what a landing that was begun needs of it is gone with it
+		if out := r.publishedLanding(a, old, reasonCloneInvalid, "the clone of the attempt is gone", old.Spend); out != nil {
+			return old, out
+		}
 		r.leave(a, old.Spend)
 		return next, nil
 	}
@@ -142,6 +159,11 @@ func (r *Runner) laterDelivery(ctx context.Context, a *attempt, fresh recovery.J
 		removed := r.removedSpend(a, runID)
 		next.Carried = carry(old.Spend, old.Carried, removed)
 		next.Spend = next.Carried
+		if reason != reasonOriginChanged && reason != reasonForgeChanged { // those are another repository, where the landing is to be made
+			if out := r.publishedLanding(a, old, reason, detail, next.Carried); out != nil {
+				return old, out
+			}
+		}
 		a.discard(reason, detail)
 		r.leave(a, next.Carried)
 		return next, nil
@@ -158,14 +180,20 @@ func (r *Runner) laterDelivery(ctx context.Context, a *attempt, fresh recovery.J
 		a.warnings = append(a.warnings, toolio.Warning{Code: WarnBrainSpendUnrecorded, Message: fmt.Sprintf(
 			"the brain run of round %d (ledger entry %d) has no end in the ledger: the process died while it ran, so what it cost is not known and counts as nothing", c.round, c.seq)})
 	}
+	spent := carry(old.Spend, old.Carried, &ledger)
+	a.spent = spent // an attempt that ends here has spent it all the same
 	remote, problem := r.disagrees(ctx, a, old, runID)
 	if problem != nil {
 		return old, problem
 	}
+	if remote == "" { // a branch that was pushed and is gone from hub's git server is a landing that cannot be finished
+		if out := r.publishedLanding(a, old, "branch_missing", "the branch is not on hub's git server any more", spent); out != nil {
+			return old, out
+		}
+	}
 	if old.Session.Completed { // a session that was completed is not reported to again: the run goes on under a new one
 		a.runID = old.Session.RunID
 	}
-	spent := carry(old.Spend, old.Carried, &ledger)
 	a.resume = &resumeState{journal: old, stage: a.runStage(runID)}
 	if plan := old.Landing.Plan; plan != nil && remote != "" { // disagrees refused any commit but the plan's
 		a.resume.stage = stagePublished // the change is on hub's git server: it is published, not redone
@@ -257,6 +285,25 @@ func (a *attempt) discard(reason, detail string) {
 	}
 	a.warnings = append(a.warnings, toolio.Warning{Code: WarnResumeDiscarded, Message: fmt.Sprintf(
 		"the delivery starts from a fresh clone (%s): %s", reason, a.secretFree(detail))})
+}
+
+// publishedLanding ends the attempt, failed, when a landing of an earlier delivery reached hub's git server (the branch is
+// pushed, and a pull request may be open) and the clone that the rest of it needs cannot be carried on: a fresh clone and a
+// run of the brain would make the landing again under a name with a suffix, and open a second pull request. It is nil when
+// the journal records no such landing.
+func (r *Runner) publishedLanding(a *attempt, j recovery.Journal, reason, detail string, spent recovery.Spend) *outcome {
+	l := j.Landing
+	if l.Plan == nil || !(l.Pushed || l.HubPush || l.PullRequest != nil) {
+		return nil
+	}
+	r.leave(a, spent) // the attempt has spent it all the same
+	pull := ""
+	if l.PullRequest != nil {
+		pull = fmt.Sprintf(" and the pull request %s is open", l.PullRequest.URL)
+	}
+	return r.envelopeOf(a, &refusal{category: toolio.CategoryInternal, message: fmt.Sprintf(
+		"the branch %s of the landing is on hub's git server%s, and the clone of the attempt cannot be carried on (%s: %s): a landing made again would take another branch and open another pull request, so the attempt is not carried on",
+		l.Plan.Branch, pull, reason, a.secretFree(detail))})
 }
 
 // storedOutcome is the outcome that an earlier delivery of this attempt stored, or nil when there is none, or

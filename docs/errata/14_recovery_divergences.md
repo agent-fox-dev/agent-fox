@@ -355,3 +355,56 @@ start" among the components that must not be mocked.
   not in `Config` (`abortAfter`, `reachedHook`, `journalFault`, `loop`, `loopFlags`). The files that the tasks touched hold no
   `not implemented`, `TODO`, `FIXME` or deferral.
 - Deviation key: `smoke_68_is_run_over_the_jobs_layer_not_through_serve`.
+
+## 16. What the conformance review of the finished branch changed, and what it leaves (conformance)
+
+**Spec:** the review reads the branch against every requirement and test of the spec. What it found and mended is
+listed so that the divergences above are the whole of them; what it did not mend is listed as a limit.
+
+**Mended** (`Spec: …, conformance`; each has a test that failed before):
+
+- A refusal after a resume carried no usage: the envelope of `failed`/`budget`, of the catch-all and of the clone that
+  cannot be put right reported zero, and hub got no usage record, though the attempt had spent (14-REQ-4.7, 14-REQ-6.4).
+  `envelopeOf` carries the spend of the attempt (`TS-14-23`, `TS-14-16`).
+- A local branch that holds no commit of its own, which a landing that died after it made the branch and before it
+  committed leaves, made the landing take the name with the suffix `-2` (14-REQ-3.2). The landing now marks the branch it
+  makes with the run, in the configuration of the branch (`fix.BranchRunKey`, set before the branch exists), and
+  `dropEmptyBranches` deletes the branches of the run that are still at the commit it began at; a branch that the run
+  did not mark is not touched (`ABranchThatALandingMadeAndDiedBeforeItCommitted…`, `TS-14-19`).
+- A clone that cannot be carried on (gone, or with its run directory or its ledger lost) after the branch of a landing
+  reached hub's git server, or a pushed branch gone from it, led to a second branch and a second pull request: the
+  rules discard the clone and run the brain again. The attempt now ends `failed`, category `internal`, naming the branch,
+  as the catch-all does (`ADeliveryThatCannotCarryOnAPublishedLanding…`); finishing the landing from the plan in a
+  fresh clone would be a feature of its own.
+- The reconciliation pass posted the usage of a session again at every pass when its journal could not be written, and
+  never completed it (14-REQ-8.4). It remembers what it did in the process (`AJournalThatCannotBeWritten…`,
+  `Config.JournalFault` for the test).
+- A session opened after a completed one was not completed by the delivery that reported to it, since the journal still
+  recorded a completion (14-REQ-2.5): the completion recorded is the old session's, and goes when the session changes
+  (`TS-14-14`).
+- A lost lease's token was not among the ones scrubbed from texts of the attempt (`retired`); `serve` was over a hundred
+  lines (`startReconciling`) and so was `laterDelivery` (`readJournal`).
+- Sentences of the documents that the code contradicted: a kept `clone/` is used by a delivery that carries on, the
+  plan stops a landing before a push but not before the issue that a text is made into, the budget refusal comes before
+  the lease and not before the clone, only the delivery that reports posts the events, each lease is released once, and
+  a `deliveries` above 1 means a resume only where there is something to carry on.
+- Tests that were weaker than their test: TS-14-3 (the stages after task 2, and a replaced box), TS-14-14 (the new
+  session is completed), TS-14-23 and TS-14-16 (usage), TS-14-36 (the triage question), TS-14-38 and TS-14-66 (the issue
+  is edited and not made), and TS-14-49 (every spoiled delivery stops).
+
+**Left, and why:**
+
+- 14-REQ-1.4 says no forge write is made when the plan cannot be written; a fix of a text or a file makes an issue before the
+  plan (its number is in the plan), and records it as soon as hub answers, so that the next delivery goes on with it
+  (item 2 reads "no forge write" as no write of the landing; this is the one that precedes the plan).
+- TS-14-49 asks for "sync fails for a reason in the tree": an unreadable file does not stop the sync of the local
+  provider, so no such case could be made with the fake gateway; the refused lease and the box that cannot be opened are.
+- A usage record that hub refused is a warning (`hub_usage_failed`) and the session is completed all the same, as the worker
+  spec has it; the record is not posted again (the reconciliation pass only looks at sessions that are open).
+- `ListSandboxes` fails for a workspace when one lease has no end or an end that does not parse.
+- The files outside the `touches` of the tasks are the seams the survey named (items 5, 10, 12 and 13): `afcmd/{afcmd,fix,
+  triage}.go` (`Resume`, `Landing`, `Spent`, `BoxLost`), `box/unavailable.go` and `box/session.go`, `checks/cache.go`
+  (`Stored`), `gitx/git.go` (`Stash`), `fix/{measure,park,preflight}.go` (`ErrNoChange`, `GateError`, the steps of a
+  parking), `toolio/{app,rundir}.go` (`LedgerSink`, `ReuseRunDir`), and in the worker `clone.go`, `comments.go`,
+  `journal.go`, `resolve.go` and `result.go`, where the pipeline had to tell the journal what it did.
+- Deviation key: none: these are corrections, and the divergences above stand.

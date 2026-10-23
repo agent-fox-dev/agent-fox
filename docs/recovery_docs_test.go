@@ -24,7 +24,7 @@ func TestTheDocumentsNameTheRecoveryTermsTheSpecRequires_TS_14_59(t *testing.T) 
 	api := read(t, "docs/api.md")
 	if missing := lacking(api,
 		"`attempt_resumed`", "`resume_discarded`", "`box_replaced`", "`journal_unwritable`", "`brain_spend_unrecorded`",
-		"A `deliveries` above 1 is a resume",
+		"A `deliveries` above 1 means a resume",
 	); len(missing) > 0 {
 		t.Errorf("docs/api.md does not contain %q", missing)
 	}
@@ -35,7 +35,7 @@ func TestTheDocumentsNameTheRecoveryTermsTheSpecRequires_TS_14_59(t *testing.T) 
 	}
 
 	if missing := lacking(read(t, "docs/model-usage.md"),
-		"never runs the brain again for a submission that the host accepted", "what is left of the budget", "the usage of the whole attempt",
+		"never runs the brain again for a submission that the host accepted and that is still good", "what is left of the budget", "the usage of the whole attempt",
 		"`brain_spend_unrecorded`",
 	); len(missing) > 0 {
 		t.Errorf("docs/model-usage.md does not contain %q", missing)

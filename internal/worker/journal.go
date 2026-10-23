@@ -122,7 +122,12 @@ func endingOf(how stop, out *outcome) string {
 
 // noteSession records the hub session of the attempt.
 func (a *attempt) noteSession() {
-	a.note(stepSession, func(j *recovery.Journal) { j.Session = recovery.Session{ID: a.sessionID, RunID: a.runID} })
+	a.note(stepSession, func(j *recovery.Journal) {
+		if j.Session.ID != a.sessionID {
+			j.Report.SessionCompleted = false // the completion that was recorded is the old session's
+		}
+		j.Session = recovery.Session{ID: a.sessionID, RunID: a.runID}
+	})
 }
 
 // noteLease records the lease the attempt took.
@@ -308,6 +313,9 @@ func (a *attempt) secretFree(text string) string {
 	text = redact(text, a.pat)
 	if a.lease != nil && a.lease.Token != "" {
 		text = strings.ReplaceAll(text, a.lease.Token, "***")
+	}
+	for _, token := range a.retired {
+		text = strings.ReplaceAll(text, token, "***")
 	}
 	text = userinfoInURL.ReplaceAllString(text, "$1")
 	return authorization.ReplaceAllString(text, "authorization: ***")

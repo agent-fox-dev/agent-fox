@@ -332,3 +332,57 @@ func gitOut(t *testing.T, clone string, args ...string) string {
 	}
 	return strings.TrimSpace(string(out))
 }
+
+// TestABranchThatALandingMadeAndDiedBeforeItCommittedDoesNotMakeTheLandingTakeAnotherName pins 14-REQ-3.2 for the
+// window between the branch that a landing makes and its commit: a process that died there leaves a local branch with no
+// commit of its own, which carries no trailer to be known by, and which the name of the landing would otherwise be
+// made to avoid with a suffix.
+// Verifies: 14-REQ-3.2
+func TestABranchThatALandingMadeAndDiedBeforeItCommittedDoesNotMakeTheLandingTakeAnotherName(t *testing.T) {
+	for name, onIt := range map[string]bool{"the clone is on the empty branch": true, "the clone is on the base": false} {
+		t.Run(name, func(t *testing.T) {
+			e := loopEnv(t, fixFiles, nil, nil, fixSteps()...)
+			e.stopAfter("applied")
+			clone := filepath.Join(e.dir, cloneDirName)
+			// As the landing makes it: marked as the run's, and at the commit the run began at, with the change in the tree.
+			gitOut(t, clone, "config", "branch.fix/42-greeting-wrong."+fix.BranchRunKey, e.hub.Sessions()[0].RunID)
+			if onIt {
+				gitOut(t, clone, "checkout", "-b", "fix/42-greeting-wrong")
+			} else {
+				gitOut(t, clone, "branch", "fix/42-greeting-wrong")
+			}
+
+			res, err := e.deliver(2)
+
+			if err != nil || envelope(t, res)["status"] != "done" {
+				t.Fatalf("result %s, error %v", res.Envelope, err)
+			}
+			if branch := resultMap(t, res)["branch"]; branch != "fix/42-greeting-wrong" {
+				t.Errorf("the landing is on the branch %v, want fix/42-greeting-wrong without a suffix", branch)
+			}
+			if pulls := e.hub.Pulls(slug); len(pulls) != 1 || pulls[0].Head != "fix/42-greeting-wrong" {
+				t.Errorf("pull requests %+v, want one from the branch with the name the run would have had", pulls)
+			}
+		})
+	}
+}
+
+// TestABranchThatALandingMadeAndDiedBeforeItCommittedIsDeletedBeforeTheBrainRunsAgain pins that the loop that is run again
+// from the base does not find the debris of the landing before it either.
+// Verifies: 14-REQ-3.2
+func TestABranchThatALandingMadeAndDiedBeforeItCommittedIsDeletedBeforeTheBrainRunsAgain(t *testing.T) {
+	e := loopEnv(t, fixFiles, nil, nil, fixSteps()...)
+	e.stopAfter("briefed")
+	clone := filepath.Join(e.dir, cloneDirName)
+	gitOut(t, clone, "config", "branch.fix/42-greeting-wrong."+fix.BranchRunKey, e.hub.Sessions()[0].RunID)
+	gitOut(t, clone, "branch", "fix/42-greeting-wrong")
+
+	res, err := e.deliver(2)
+
+	if err != nil || envelope(t, res)["status"] != "done" {
+		t.Fatalf("result %s, error %v", res.Envelope, err)
+	}
+	if branch := resultMap(t, res)["branch"]; branch != "fix/42-greeting-wrong" {
+		t.Errorf("the landing is on the branch %v, want fix/42-greeting-wrong without a suffix", branch)
+	}
+}

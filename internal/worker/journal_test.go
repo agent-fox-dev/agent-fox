@@ -297,7 +297,8 @@ func TestAJournalWrittenAfterAFullFixDeliveryDecodesWithEveryDocumentedField_TS_
 // endings that have no outcome.
 // Verifies: 14-REQ-1.3
 func TestNoFileUnderRecoveryEverHoldsACredential_TS_14_3(t *testing.T) {
-	stages := []string{"session", "clone", "lease", "briefed", "submission_accepted", "applied", "plan_recorded", "pushed", "pull_request"}
+	stages := []string{"session", "clone", "lease", "briefed", "submission_accepted", "applied", "plan_recorded", "pushed", "hub_push", "pull_request",
+		"outcome_stored", "mirror_comment", "mirror_labels", "mirrored", "released", "usage_posted", "events_posted", "session_completed"}
 	for _, stage := range stages {
 		t.Run("stopped at "+stage+" and run again", func(t *testing.T) {
 			e := loopEnv(t, fixFiles, nil, nil, fixSteps()...)
@@ -317,6 +318,19 @@ func TestNoFileUnderRecoveryEverHoldsACredential_TS_14_3(t *testing.T) {
 			requireNoCredential(t, e)
 		})
 	}
+	t.Run("a box that is lost and replaced, and a shutdown", func(t *testing.T) {
+		e := loopEnv(t, fixFiles, nil, nil, fixSteps()...)
+		e.loseBoxes(1, nil)
+		e.stopAfter("applied")
+		requireNoCredential(t, e)
+		if len(e.hub.Leases()) != 2 {
+			t.Fatalf("%d leases, want the lost one and its replacement", len(e.hub.Leases()))
+		}
+		if _, err := e.deliver(2); err != nil {
+			t.Fatalf("the second delivery returned %v", err)
+		}
+		requireNoCredential(t, e)
+	})
 	t.Run("a transient error and then a delivery", func(t *testing.T) {
 		e := loopEnv(t, fixFiles, nil, nil, fixSteps()...)
 		e.hub.Gateway().RefuseBoxes("no room")
@@ -526,10 +540,10 @@ func TestWhatTheJournalHoldsOfAURLAndOfATextIsFreeOfCredentials(t *testing.T) {
 			t.Errorf("stripUserinfo(%q) = %q, want %q", in, got, want)
 		}
 	}
-	a := &attempt{pat: "pat-0123456789", lease: nil}
-	text := "clone of https://agent-fox:pat-0123456789@hub.example.com/x failed with Authorization: Basic YWdlbnQ6cGF0 and the pat-0123456789 itself"
+	a := &attempt{pat: "pat-0123456789", lease: nil, retired: []string{"lease-token-of-a-lost-box"}}
+	text := "lease-token-of-a-lost-box was refused; clone of https://agent-fox:pat-0123456789@hub.example.com/x failed with Authorization: Basic YWdlbnQ6cGF0 and the pat-0123456789 itself"
 	got := a.secretFree(text)
-	for _, leak := range []string{"pat-0123456789", "agent-fox:", "YWdlbnQ6cGF0"} {
+	for _, leak := range []string{"pat-0123456789", "agent-fox:", "YWdlbnQ6cGF0", "lease-token-of-a-lost-box"} {
 		if strings.Contains(got, leak) {
 			t.Errorf("secretFree left %q in %q", leak, got)
 		}

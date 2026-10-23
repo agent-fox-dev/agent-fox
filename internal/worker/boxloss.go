@@ -97,6 +97,7 @@ func (r *Runner) releaseLost(ctx context.Context, a *attempt) {
 	} else {
 		a.noteReleaseOf(lease.ID)
 	}
+	a.retired = append(a.retired, lease.Token)
 	a.lease = nil
 	a.releaseOnce, a.releaseErr = sync.Once{}, nil
 }

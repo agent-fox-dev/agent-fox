@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -229,6 +230,49 @@ func TestAResumedQuestionTakesNoLeaseAndTheIssueHasExactlyOneQuestionComment_TS_
 				}
 			}
 			if n != 1 || !strings.Contains(strings.Join(e.issueNow().Labels, ","), "af:needs-human") {
+				t.Errorf("issue 42 has %d question comments and the labels %v, want one and needs-human", n, e.issueNow().Labels)
+			}
+		})
+	}
+}
+
+// TestAResumedTriageQuestionTakesNoLeaseAndTheIssueHasExactlyOneQuestionComment_TS_14_36 is the triage half of TS-14-36.
+// Verifies: 14-REQ-5.7
+func TestAResumedTriageQuestionTakesNoLeaseAndTheIssueHasExactlyOneQuestionComment_TS_14_36(t *testing.T) {
+	for name, comment := range map[string]bool{"the first delivery had not commented": false, "the first delivery had already commented": true} {
+		t.Run(name, func(t *testing.T) {
+			e := loopEnv(t, triageFiles, nil, nil, submitStep(questionDiagnosis))
+			req := func(n int) jobs.Request {
+				return e.request(jobs.KindTriage, issueInput("42"), func(r *jobs.Request) { r.Delivery = n })
+			}
+			e.runner.abortAfter = "submission_accepted"
+			if _, err := e.runner.Run(t.Context(), req(1)); err == nil {
+				t.Fatal("the first delivery ran to its end")
+			}
+			e.runner.abortAfter = ""
+			if comment {
+				marker := fmt.Sprintf("<!-- agent-fox job=%s attempt=%d kind=question -->", req(1).JobID, req(1).Attempt)
+				issue, _ := e.hub.IssueOf(slug, 42)
+				issue.Comments = append(issue.Comments, fakehub.Comment{Author: "agent-fox", Body: "**agent-fox needs an answer to go on.**\n\n" + marker})
+				e.hub.AddIssue(slug, issue)
+			}
+			leases, runs := len(e.hub.Leases()), e.brainRuns()
+
+			res, err := e.run(req(2))
+
+			if err != nil || envelope(t, res)["status"] != "needs_human" {
+				t.Fatalf("result %s, error %v", res.Envelope, err)
+			}
+			if len(e.hub.Leases()) != leases || e.brainRuns() != runs {
+				t.Errorf("%d new leases and %d new runs of the brain, want none", len(e.hub.Leases())-leases, e.brainRuns()-runs)
+			}
+			n := 0
+			for _, c := range e.issueNow().Comments {
+				if strings.Contains(c.Body, "kind=question") {
+					n++
+				}
+			}
+			if n != 1 || !slices.Contains(e.issueNow().Labels, "af:needs-human") {
 				t.Errorf("issue 42 has %d question comments and the labels %v, want one and needs-human", n, e.issueNow().Labels)
 			}
 		})

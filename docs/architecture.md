@@ -961,7 +961,7 @@ worker, the poll, the `af` client) build on:
 - **The clone and its git.** The worker clones the workspace's clone URL from hub's git server into `clone/` of
   the attempt directory (mode 0700), with the workspace's base branch checked out and the identity `agent-fox
   <agent-fox@noreply.invalid>` in the clone's own configuration; a `clone/` that an earlier delivery kept is
-  removed first. Every git command of the attempt, the clone, the commands of the fix pipeline and its push,
+  removed first, unless the delivery carries the attempt on, which uses it (see [Recovery, as built](#recovery-as-built)). Every git command of the attempt, the clone, the commands of the fix pipeline and its push,
   runs in a clean environment: a `HOME` of its own that is removed with the attempt, no global or system
   configuration, no `GIT_ASKPASS` and no prompt (`gitx.HermeticEnv`), so a credential helper of the operator is
   never asked. The PAT reaches git only in the commands that can reach hub (`clone`, `fetch`, `pull`, `push`,
@@ -1024,7 +1024,7 @@ worker, the poll, the `af` client) build on:
   timeout), a gateway that cannot be reached or refuses the box, and a lease with less than two minutes left are
   a transient error of category `sandbox` and the attempt has no envelope. A lease that ends before `AF_TIMEOUT`
   would cut the timeout of the loop to a whole number of seconds that ends two minutes before `expires_at`, and
-  the envelope gets the warning `lease_shortened_timeout`. The lease is released once, after the box is closed,
+  the envelope gets the warning `lease_shortened_timeout`. Each lease is released once, after the box is closed (the lease of a box that is lost is released when the box is replaced),
   on every path (success, failure, a transient error, a cancellation, a shutdown and a panic), on a context
   that the cancellation does not reach, bounded to 30 seconds. A release that fails leaves the status of the
   envelope as it is and adds the warning `lease_release_failed`; under a transient error it is logged.
@@ -1074,7 +1074,8 @@ worker, the poll, the `af` client) build on:
   nothing to the forge, keeps `clone/`, releases the lease and returns its cause.
 - **The report to hub.** Once the lease is released, an attempt that has a session posts one usage record when a
   brain ran (the model of the session, and the brain, tokens, cost, source of the cost and turns of the envelope),
-  all the events of the attempt, the loop's and the worker's steps, in batches of at most 500 in the order they
+  all the events of the delivery that reports (an attempt that was resumed reports the events of the delivery that
+  comes to its outcome or finds it stored), the loop's and the worker's steps, in batches of at most 500 in the order they
   happened, and completes the session: `completed` for `done`, `unverified` and `needs_human`, `timeout` for a
   failure of category `timeout`, and `failed` for the rest. An attempt that returns a transient error, and one
   that is stopped for a shutdown, posts none of this and leaves the session open: the delivery that comes to the
@@ -1180,7 +1181,8 @@ worker never removes, and the clone, which it keeps after a transient error and 
   no token of a lease, no `Authorization` value and no URL with user information. A write that fails is the warning
   `journal_unwritable`, once in a delivery, and the delivery goes on from what it holds in memory; only the plan of a
   landing is required, and a plan that cannot be written stops the landing with a transient error of category `io`,
-  before anything is pushed or written to the forge.
+  before anything is pushed, and before any write of the landing to the forge but the issue that a text or a file
+  is made into, which the journal records as soon as hub answers and the next delivery goes on with.
 - **The outcome.** As soon as an attempt comes to its outcome, and before anything is written for it to the forge or to
   hub, the worker writes the outcome, `outcome.json` in `recovery/`, the same way: the envelope as text, the report, the most attempts
   and the labels, `mirrored` false. When the mirror is done it writes it again, with the envelope the mirror amended
@@ -1199,7 +1201,11 @@ worker never removes, and the clone, which it keeps after a transient error and 
   `resume_discarded` names the reason and the delivery clones afresh on the same attempt, with the spend and the
   session it had carried over. What neither rule covers ends the attempt `failed`, category `internal`: a commit on the
   base branch after the commit the run began at that has no `Agent-Fox-Run` trailer for the run, or the branch of the plan
-  on hub's git server at a commit other than the plan's.
+  on hub's git server at a commit other than the plan's. So does a clone that cannot be carried on (it is gone, its
+  run directory or its ledger is lost) after the branch of a landing reached hub's git server, or a pushed branch that
+  is gone from it: a landing made again would take another branch, and open another pull request. A local branch of the run that
+  holds no commit of its own, which a landing that died before it committed leaves (the landing marks the branch it
+  makes with the run), is deleted, so that the landing keeps the name it would have had.
 - **The stage a delivery picks up from.** In the stage `outcome` an outcome is stored for this job and attempt; there is no loop and
   no lease, the leases of the journal are released, the mirror is finished where it is not (the labels that the journal
   does not record, a comment only when its marker is not on the issue), the usage, the events and the completion
@@ -1224,8 +1230,8 @@ worker never removes, and the clone, which it keeps after a transient error and 
 - **Budget and usage.** One budget and one bound of turns belong to the attempt, however many deliveries it takes. The
   spend is what the ledger of the run records (every `brain_end` has its tokens), plus what was spent in run directories
   that a discarded resume removed; a brain run that began and has no end in the ledger counts as nothing and is the
-  warning `brain_spend_unrecorded`. With nothing left the attempt ends `failed`, category `budget`, before the clone
-  and the lease. The usage the envelope reports, and the one record that is posted to hub, are the attempt's.
+  warning `brain_spend_unrecorded`. With nothing left the attempt ends `failed`, category `budget`, before the lease and the brain, and
+  its envelope reports what was spent. The usage the envelope reports, and the one record that is posted to hub, are the attempt's.
 - **A box that is lost.** A box whose sandbox is gone, or cannot be reached, is noticed by the box layer
   (`box.ErrUnavailable`, `Session.Lost`). The loop stops without landing or parking, and the worker, once in a delivery,
   releases the lost lease (a failure is logged and the journal keeps it as held), leases a replacement with the profile and

@@ -283,7 +283,7 @@ Every route that shows a job shows this document, a list entry included; `GET /a
 | `n`, `state` | The number from 1, and `queued`, `running`, `done`, `needs_human`, `failed` or `cancelled`. |
 | `trigger` | `{"kind", "by"}`: `create`, `answer` (a person answered), `retry` (a person asked again) or `auto` (the service tried again after a failure of the brain; `by` is `agent-fox`). |
 | `answer` | For an attempt that an answer started: `{"question", "option", "text"}`, where `option` is the id chosen or `null`, and `text` is what the person typed or the label of the option. Otherwise `null`. |
-| `deliveries` | How many times the attempt was handed to a runner. A handover after a restart or a crash counts. A `deliveries` above 1 is a resume: the worker carries on what the delivery before it left (see [Warnings](#what-an-attempt-comes-to)). |
+| `deliveries` | How many times the attempt was handed to a runner. A handover after a restart or a crash counts. A `deliveries` above 1 means a resume: the worker carries on what the delivery before it left, if there is anything to carry on (see [Warnings](#what-an-attempt-comes-to)). |
 | `transient_failures` | How many times the runner reported an infrastructure failure for the attempt (at most 3). |
 | `status`, `exit_code`, `summary`, `error` | Those of the attempt's envelope; `null` until it has one. |
 | `usage` | `{"brain", "cost_usd", "cost_source", "input_tokens", "output_tokens", "turns"}` of the envelope, once the attempt has ended; otherwise `null`. |
@@ -334,7 +334,7 @@ adding to three lists; every other field of the stored envelope is the loop's, b
   the prefix used), `status_label_failed`, `comment_failed` and `request_label_failed` (a write of the mirror to the
   issue failed, with a side effect of the state `failed`), and `hub_usage_failed`, `hub_events_failed` and
   `hub_session_failed` (a report to hub failed). A warning never changes the status.
-  A delivery of an attempt above the first adds `attempt_resumed`, which names the handover count, the stage it
+  A delivery that carries an attempt on, or begins again after it could not (and one that had nothing to carry on, or only went on in a replaced box, adds none), adds `attempt_resumed`, which names the handover count, the stage it
   picked up from (`outcome`, `published`, `applied`, `submitted` or `brain`) and whether the brain was skipped; at the
   stage `outcome` it is the only change to the envelope that was stored. `resume_discarded` says a delivery could not
   carry on what the one before it left, with the reason, and began again from a fresh clone; `box_replaced` says

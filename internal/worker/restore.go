@@ -46,6 +46,42 @@ func (a *attempt) runBranches(ctx context.Context, base, runID string) ([]string
 	return out, nil
 }
 
+// madeByTheRun says whether the landing of the run marked the branch as its own (see fix.BranchRunKey).
+func (a *attempt) madeByTheRun(ctx context.Context, name, runID string) bool {
+	marked, err := a.cloneGit(ctx, "config", "--local", "--get", "branch."+name+"."+fix.BranchRunKey)
+	return err == nil && strings.TrimSpace(marked) == runID
+}
+
+// dropEmptyBranches deletes the local branches that the landing of the run made and that are still at the commit the run
+// began at: a landing makes its branch before it commits, and a process that died between the two leaves a branch that
+// holds no change and carries no trailer to be known by, but the mark of the run. A branch of that name would make the
+// landing take another with a suffix. A branch the run did not make is not touched. The clone is left on the base, with a
+// change in its tree where it is, which a checkout of a branch at the same commit does not touch.
+func (a *attempt) dropEmptyBranches(ctx context.Context, base, baseHead, runID string) error {
+	listed, err := a.cloneGit(ctx, "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads")
+	if err != nil {
+		return err
+	}
+	var empty []string
+	for _, line := range strings.Split(listed, "\n") {
+		if name, sha, ok := strings.Cut(strings.TrimSpace(line), " "); ok && name != base && sha == baseHead && a.madeByTheRun(ctx, name, runID) {
+			empty = append(empty, name)
+		}
+	}
+	if len(empty) == 0 {
+		return nil
+	}
+	if _, err := a.cloneGit(ctx, "checkout", base); err != nil {
+		return err
+	}
+	for _, name := range empty {
+		if _, err := a.cloneGit(ctx, "branch", "-D", name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // failure is the outcome of a clone that cannot be put to rights: infrastructure while the context is
 // alive.
 func (r *Runner) cloneTrouble(ctx context.Context, what string, err error) *outcome {
@@ -80,6 +116,9 @@ func (r *Runner) resetClone(ctx context.Context, a *attempt) *outcome {
 			return r.cloneTrouble(ctx, fmt.Sprintf("the branch %s of the run cannot be deleted", name), err)
 		}
 	}
+	if err := a.dropEmptyBranches(ctx, state.Base, state.BaseHead, runID); err != nil {
+		return r.cloneTrouble(ctx, "a branch of the clone that holds no change cannot be deleted", err)
+	}
 	return nil
 }
 
@@ -96,6 +135,9 @@ func (r *Runner) restoreChange(ctx context.Context, a *attempt) *outcome {
 	}
 	disagree := func(format string, args ...any) *outcome {
 		return r.envelopeOf(a, &refusal{category: toolio.CategoryInternal, message: fmt.Sprintf(format, args...)})
+	}
+	if err := a.dropEmptyBranches(ctx, state.Base, state.BaseHead, runID); err != nil {
+		return r.cloneTrouble(ctx, "a branch of the clone that holds no change cannot be deleted", err)
 	}
 	branches, err := a.runBranches(ctx, state.Base, runID)
 	if err != nil {

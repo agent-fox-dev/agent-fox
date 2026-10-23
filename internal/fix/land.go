@@ -64,7 +64,22 @@ func BranchName(number int, title string) string {
 // local and the remote branches, creates it at the commit the run began at with the
 // working tree carried along, and reports it.
 func MakeBranch(ctx context.Context, g *gitx.Git, rep Reporter, number int, title, baseHead string) (string, error) {
+	return makeBranchOf(ctx, g, rep, number, title, baseHead, "")
+}
+
+// BranchRunKey is the key of the configuration of a branch that names the run that made it: a branch that no commit of
+// the run is on yet is known by it, when a process that died after the branch was made and before the commit is resumed.
+const BranchRunKey = "agent-fox-run"
+
+// makeBranchOf is MakeBranch, and marks the branch with the run when there is one. The mark is made before the branch, so that
+// a branch that is there has it.
+func makeBranchOf(ctx context.Context, g *gitx.Git, rep Reporter, number int, title, baseHead, runID string) (string, error) {
 	name := gitx.UniqueBranchName(ctx, g, BranchName(number, title))
+	if runID != "" {
+		if err := g.SetBranchConfig(ctx, name, BranchRunKey, runID); err != nil {
+			return "", &toolio.Failure{Category: toolio.CategoryGit, Message: fmt.Sprintf("cannot mark the branch %s with the run: %v", name, err)}
+		}
+	}
 	if err := g.CreateBranchFrom(ctx, name, baseHead); err != nil {
 		rep.SideEffect(toolio.SideEffect{Kind: EffectBranch, Target: name, State: toolio.StateFailed, Detail: err.Error()})
 		return "", &toolio.Failure{Category: toolio.CategoryGit, Message: fmt.Sprintf("cannot create the branch %s at %s: %v", name, baseHead, err)}
@@ -488,7 +503,7 @@ func (l *landing) ensureIssue(ctx context.Context) error {
 
 // makeBranch makes the branch of the change, and the context the way back is made by.
 func (l *landing) makeBranch(ctx context.Context) error {
-	branch, err := MakeBranch(ctx, l.g, l.rep, l.number, l.title, l.state.BaseHead)
+	branch, err := makeBranchOf(ctx, l.g, l.rep, l.number, l.title, l.state.BaseHead, l.state.RunID)
 	if err != nil {
 		return err
 	}

@@ -457,6 +457,12 @@ func TestAResumedDeliveryReportsToTheOpenSessionOfTheJournalOrOpensOneWhenItWasC
 		if len(sessions[1].Usage) != 1 || len(sessions[0].Usage) != 0 {
 			t.Errorf("usage records: %d on the new session and %d on the old one, want the usage posted to the new one alone", len(sessions[1].Usage), len(sessions[0].Usage))
 		}
+		if sessions[1].Status != "completed" || sessions[1].CompletedSeq == 0 {
+			t.Errorf("the new session is %q, want it completed by the delivery that reported to it", sessions[1].Status)
+		}
+		if j := journalOf(t, e); j.Session.ID != sessions[1].ID || !j.Session.Completed || !j.Report.SessionCompleted {
+			t.Errorf("the journal records the session %+v and the report %+v, want the new session, completed", j.Session, j.Report)
+		}
 	})
 }
 
@@ -528,7 +534,8 @@ func TestADisagreementTheResumeRulesDoNotCoverEndsTheAttemptFailedWithCategoryIn
 	}
 
 	t.Run("the base branch has a commit without the trailer of the run", func(t *testing.T) {
-		e := loopEnv(t, fixFiles, nil, nil, fixSteps()...)
+		e := loopEnv(t, fixFiles, map[string]string{"AF_MAX_BUDGET_USD": "1.00"}, nil, fixSteps()...)
+		e.usePricing(scriptFile(t, fixSteps()...), map[int]pricedRun{1: {cost: 0.25, turns: 5, costSource: "reported"}})
 		e.stopAfter("applied")
 		for _, args := range [][]string{{"add", "-A"}, {"-c", "user.name=x", "-c", "user.email=x@example.com", "commit", "-q", "-m", "a commit of somebody else"}} {
 			if out, err := exec.Command("git", append([]string{"-C", filepath.Join(e.dir, cloneDirName)}, args...)...).CombinedOutput(); err != nil {
@@ -539,6 +546,10 @@ func TestADisagreementTheResumeRulesDoNotCoverEndsTheAttemptFailedWithCategoryIn
 		res, err := e.deliver(2)
 
 		check(t, e, res, err, "Agent-Fox-Run")
+		// The attempt has spent what its first delivery did, though this one ended before it ran anything.
+		if usage, _ := envelope(t, res)["usage"].(map[string]any); !near(usage["cost_usd"].(float64), 0.25) || usage["turns"] != float64(5) {
+			t.Errorf("the envelope's usage is %v, want the spend of the first delivery", usage)
+		}
 	})
 
 	t.Run("the branch of the run is on hub's git server at another commit", func(t *testing.T) {

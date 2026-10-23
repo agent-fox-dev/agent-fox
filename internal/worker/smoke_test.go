@@ -588,12 +588,15 @@ func TestATriageOfTextThatCrashedAfterTheIssueWasCreatedLandsIntoTheSameIssue_TS
 	if created == nil || len(e.hub.Issues(slug)) != 2 {
 		t.Fatalf("the journal holds %v and the repository %d issues after delivery 1, want the issue that hub created, and issue 42", created, len(e.hub.Issues(slug)))
 	}
-	leases, runs := len(e.hub.Leases()), e.brainRuns()
+	leases, runs, creates, edits := len(e.hub.Leases()), e.brainRuns(), issueCreates(e), issueEdits(e, created.Number)
 
 	res, err := e.run(e.request(jobs.KindTriage, input, func(r *jobs.Request) { r.Delivery = 2 }))
 
 	if err != nil || envelope(t, res)["status"] != "done" {
 		t.Fatalf("result %s, error %v", res.Envelope, err)
+	}
+	if issueCreates(e) != creates || issueEdits(e, created.Number) <= edits {
+		t.Errorf("the delivery made %d issues and %d edits of #%d, want no issue made and the body of that one replaced", issueCreates(e)-creates, issueEdits(e, created.Number)-edits, created.Number)
 	}
 	if len(e.hub.Leases()) != leases || e.brainRuns() != runs {
 		t.Errorf("%d new leases and %d new runs of the brain, want none: the accepted diagnosis is validated against the tree of the clone", len(e.hub.Leases())-leases, e.brainRuns()-runs)

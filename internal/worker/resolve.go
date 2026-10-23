@@ -109,6 +109,8 @@ type attempt struct {
 	boxLost     error
 	replacing   bool
 	loopStarted time.Time
+	// retired are the tokens of the leases that were lost, which a text of the attempt may still hold.
+	retired []string
 }
 
 // onClose registers what the attempt gives back when it ends.
