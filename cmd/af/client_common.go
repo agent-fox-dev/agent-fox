@@ -84,7 +84,9 @@ func connect(r *toolio.Run, app *toolio.App, server *serverFlag, local bool) (*a
 		r.Warn(warnCredentialFilePermissions, fmt.Sprintf("the credential file %s has a group or other permission bit set; restrict it with chmod 600", cred.Path))
 	}
 	ver, _ := app.Identity()
-	return afclient.New(srv, cred.Token, "af/"+ver, httpTransport), nil
+	client := afclient.New(srv, cred.Token, "af/"+ver, httpTransport)
+	client.Clock = clientClock
+	return client, nil
 }
 
 // noServerFailure is the usage failure for a service command that names no server. local says
@@ -131,12 +133,21 @@ func credentialFailure(err error) error {
 	return f
 }
 
-// requestFailure is the failure for a request that did not end in a 2xx answer. A request that
-// the shell stopped, by a signal or by --timeout, is left to the shell.
+// requestFailure is the failure for a request that did not end in a 2xx answer: the category,
+// message, retryable flag and fix hint of the answer. A request that the shell stopped, by a
+// signal or by --timeout, is left to the shell.
 func requestFailure(err error) error {
 	var ae *afclient.Error
-	if errors.As(err, &ae) {
-		return &toolio.Failure{Category: toolio.CategoryService, Message: ae.Message}
+	if !errors.As(err, &ae) {
+		return err
 	}
-	return err
+	f := &toolio.Failure{Category: ae.Category, Message: ae.Message, Retryable: ae.Retryable}
+	if h := ae.Hint; h != nil {
+		f.FixHint = &toolio.FixHint{Flag: h.Flag, Env: h.Env, Suggest: h.Suggest}
+	}
+	return f
 }
+
+// clientClock is the clock of the requests the client commands make; nil is the system's. The
+// tests replace it.
+var clientClock afclient.Clock

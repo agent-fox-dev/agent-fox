@@ -4,22 +4,49 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 )
 
-// apiPrefix is where the API of the service is, under the server's URL.
-const apiPrefix = "/api/v1"
+const (
+	// apiPrefix is where the API of the service is, under the server's URL.
+	apiPrefix = "/api/v1"
+
+	// RequestBound is how long a request other than the event stream may last.
+	RequestBound = 2 * time.Minute
+
+	// MaxBody is how much of the body of an answer is read.
+	MaxBody = 8 << 20
+)
+
+// errBound is the cause of a request that was cut at RequestBound.
+var errBound = errors.New("the request ran past its bound")
 
 // Client sends requests to one agent-fox service with one credential.
 type Client struct {
+	// Clock is where the bound of a request takes its timer from; nil is the system's.
+	Clock Clock
+
 	server    Server
 	token     string
 	userAgent string
 	http      *http.Client
 }
+
+// Clock is the time the client waits by. Production uses the system's; the tests move their own.
+type Clock interface {
+	// After returns a channel that gets the time once d has passed.
+	After(d time.Duration) <-chan time.Time
+}
+
+// systemClock is the clock of the system.
+type systemClock struct{}
+
+func (systemClock) After(d time.Duration) <-chan time.Time { return time.After(d) }
 
 // New makes the client of server, which sends token as the bearer credential and userAgent as
 // the User-Agent. transport is the transport of the requests; nil is the default one. A
@@ -37,26 +64,43 @@ func New(server Server, token, userAgent string, transport http.RoundTripper) *C
 // Server is the service the client talks to.
 func (c *Client) Server() Server { return c.server }
 
+func (c *Client) clock() Clock {
+	if c.Clock != nil {
+		return c.Clock
+	}
+	return systemClock{}
+}
+
 // Response is the answer of the service to a request that it answered with a 2xx status.
 type Response struct {
 	Status int
 	Header http.Header
 	Body   []byte
+
+	server Server
 }
 
-// Error is a request that did not end in a 2xx answer.
-type Error struct {
-	// Status is the HTTP status of the answer, or 0 when there was none.
-	Status  int
-	Message string
+// Decode reads the JSON document of the answer into v. A body that is not the JSON that v
+// describes is an error of the service that is not retryable.
+func (r *Response) Decode(v any) error {
+	if err := json.Unmarshal(r.Body, v); err != nil {
+		return &Error{
+			Status: r.Status, Category: CategoryService,
+			Message: fmt.Sprintf("the service at %s (given by %s) answered with a document that is not the JSON expected", r.server.URL, r.server.Source),
+		}
+	}
+	return nil
 }
-
-func (e *Error) Error() string { return e.Message }
 
 // Do sends method to the API path (which starts with "/", like "/workspaces"), with the query
 // and with body encoded as JSON when it is not nil, and returns the answer when its status is
 // 2xx. The request carries the credential, the User-Agent and the Accept header, and goes to
 // the server's URL and to no other.
+//
+// The request lasts at most RequestBound, which the clock measures, and the shorter time that
+// ctx allows. At most MaxBody bytes of the answer are read. A request that ctx stopped returns
+// the error of ctx, which the command leaves to its shell; any other failure is an *Error,
+// whose category, message and hint follow the answer.
 func (c *Client) Do(ctx context.Context, method, path string, query url.Values, body any) (*Response, error) {
 	target := c.server.URL + apiPrefix + path
 	if len(query) > 0 {
@@ -70,7 +114,35 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 		}
 		payload = bytes.NewReader(data)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, target, payload)
+
+	reqCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	bound := c.clock().After(RequestBound)
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-bound:
+			cancel(errBound)
+		case <-done:
+		}
+	}()
+
+	// fail is the error of a request that went wrong on its way, whichever way that was.
+	fail := func(err error) (*Response, error) {
+		switch {
+		case ctx.Err() != nil:
+			return nil, ctx.Err()
+		case errors.Is(context.Cause(reqCtx), errBound):
+			return nil, &Error{
+				Category: CategoryService, Retryable: true,
+				Message: fmt.Sprintf("the service at %s (given by %s) did not answer within %s", c.server.URL, c.server.Source, RequestBound),
+			}
+		}
+		return nil, transportError(c.server, err)
+	}
+
+	req, err := http.NewRequestWithContext(reqCtx, method, target, payload)
 	if err != nil {
 		return nil, fmt.Errorf("the request cannot be made: %w", err)
 	}
@@ -80,24 +152,28 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-
 	resp, err := c.http.Do(req)
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		return nil, &Error{Message: fmt.Sprintf("the service at %s (%s) cannot be reached: %v", c.server.URL, c.server.Source, err)}
+		return fail(err)
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, MaxBody+1))
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		return nil, &Error{Status: resp.StatusCode, Message: fmt.Sprintf("the answer of the service at %s (%s) cannot be read: %v", c.server.URL, c.server.Source, err)}
+		return fail(err)
 	}
+	tooLarge := len(data) > MaxBody
+	if tooLarge {
+		data = data[:MaxBody]
+	}
+
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, &Error{Status: resp.StatusCode, Message: fmt.Sprintf("the service answered %d", resp.StatusCode)}
+		return nil, answerError(resp.StatusCode, data, path)
 	}
-	return &Response{Status: resp.StatusCode, Header: resp.Header, Body: data}, nil
+	if tooLarge {
+		return nil, &Error{
+			Status: resp.StatusCode, Category: CategoryService,
+			Message: fmt.Sprintf("the answer of the service at %s (given by %s) is longer than %d MiB", c.server.URL, c.server.Source, MaxBody>>20),
+		}
+	}
+	return &Response{Status: resp.StatusCode, Header: resp.Header, Body: data, server: c.server}, nil
 }

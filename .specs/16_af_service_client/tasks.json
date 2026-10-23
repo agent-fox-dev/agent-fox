@@ -126,7 +126,7 @@
       "done_when": [
         "a redirect target recorded zero requests in the tests"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,

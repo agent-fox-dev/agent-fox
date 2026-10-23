@@ -37,7 +37,10 @@ func workspaceList(r *toolio.Run, app *toolio.App, server *serverFlag) (toolio.O
 	var doc struct {
 		Workspaces []json.RawMessage `json:"workspaces"`
 	}
-	if err := json.Unmarshal(resp.Body, &doc); err != nil || doc.Workspaces == nil {
+	if err := resp.Decode(&doc); err != nil {
+		return toolio.Outcome{}, requestFailure(err)
+	}
+	if doc.Workspaces == nil {
 		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryService, Message: "the service answered with a document that is not a list of workspaces"}
 	}
 	summary := fmt.Sprintf("%d workspaces subscribed", len(doc.Workspaces))
