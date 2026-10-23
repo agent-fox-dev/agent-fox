@@ -10,11 +10,15 @@ import (
 	"github.com/agent-fox-dev/aflib/issuex"
 
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
+	"github.com/agent-fox-dev/agentfox/internal/service/labels"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
 )
 
 // listLimit is how many issues a cycle lists for a label.
 const listLimit = 100
+
+// requestSuffix is the suffix of the request label of each kind of job, from the label table.
+var requestSuffix = map[jobs.Kind]string{jobs.KindTriage: labels.Triage, jobs.KindFix: labels.Fix}
 
 // listing is what a cycle found under one request label.
 type listing struct {
@@ -102,7 +106,7 @@ func (s *Supervisor) Cycle(ctx context.Context, slug string) (next time.Duration
 	run := &cycleRun{s: s, slug: slug, repo: repo, forge: s.cfg.Hub.Forge(pat, slug, repo), st: st}
 
 	for _, kind := range []jobs.Kind{jobs.KindTriage, jobs.KindFix} {
-		label := sub.LabelPrefix + string(kind)
+		label := labels.Name(sub.LabelPrefix, requestSuffix[kind])
 		requested := s.cfg.Clock.Now()
 		list, err := run.forge.ListIssues(ctx, repo, issuex.IssueFilter{State: "open", Labels: []string{label}, Limit: listLimit})
 		if err != nil {

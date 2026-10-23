@@ -16,7 +16,10 @@ const queueGrace = 200 * time.Millisecond
 // after the restart. Close can be called again.
 func (s *Service) Close() error {
 	s.CloseStreams()
+	// Under the lock of the tries, so that a try is either started before the stop, and waited for, or not at all.
+	s.cleanups.mu.Lock()
 	s.stopOnce.Do(func() { close(s.stopping) })
+	s.cleanups.mu.Unlock()
 	s.mu.Lock()
 	runs := make([]*attemptRun, 0, len(s.inflight))
 	for _, run := range s.inflight {
@@ -28,7 +31,8 @@ func (s *Service) Close() error {
 		run.cancel(ErrShutdown)
 	}
 	if !started {
-		return nil // there are no workers to wait for
+		s.loops.Wait() // the tries of cleanups, which are cut short; there are no workers to wait for
+		return nil
 	}
 
 	if len(runs) > 0 {

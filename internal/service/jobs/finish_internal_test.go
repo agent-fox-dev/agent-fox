@@ -213,7 +213,7 @@ func TestAServiceThatIsStoppingGrantsNoSlotAndDoesNotCallARunnerForAnAttemptItMu
 			t.Fatal("a service that is stopping granted a slot that was free")
 		}
 	}
-	_, out, cause, _, err := svc.invoke(ctx, attemptPayload{JobID: id, Attempt: 1})
+	_, out, cause, _, _, err := svc.invoke(ctx, attemptPayload{JobID: id, Attempt: 1})
 	if err != nil || !errors.Is(cause, ErrShutdown) || IsCancel(cause) || !errors.Is(out.err, ErrShutdown) {
 		t.Errorf("invoke after the stop: cause %v, err %v, out %v, want the shutdown, which is not a cancel", cause, err, out.err)
 	}
@@ -270,7 +270,7 @@ func TestACancelBeforeTheRunnerIsCalledStopsTheAttemptWithoutCallingIt(t *testin
 	if _, err := svc.cancel(ctx, id, StateRunning, ErrCancelled); err != nil { // the attempt is running, and no runner has it yet
 		t.Fatal(err)
 	}
-	req, out, cause, overran, err := svc.invoke(ctx, attemptPayload{JobID: id, Attempt: 1})
+	req, out, cause, overran, _, err := svc.invoke(ctx, attemptPayload{JobID: id, Attempt: 1})
 	if err != nil || overran || calls != 0 || !IsCancel(cause) {
 		t.Fatalf("invoke: cause %v, err %v, overran %v, %d calls, want the cancel and no call of the runner", cause, err, overran, calls)
 	}

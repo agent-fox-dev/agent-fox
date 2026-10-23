@@ -102,6 +102,10 @@ It listens on `127.0.0.1:8090` unless `server.listen` says otherwise, answers `G
 record per line on stderr. See [`docs/cli.md`](docs/cli.md#the-agent-fox-command-line),
 [`docs/configuration.md`](docs/configuration.md#the-agent-fox-service) and [`docs/api.md`](docs/api.md).
 
+Subscribing a workspace, or subscribing it again, creates on its repository the seven labels a team uses with agent-fox
+(`af:triage` and `af:fix` to ask, and the five status labels the service sets), so a workspace subscribed before this release
+gets them at its next subscribe.
+
 A subscribed workspace picks up labelled issues by itself: every `AF_POLL_INTERVAL` (5 minutes by default; `0` turns it
 off), the service lists the open issues that carry the workspace's `<prefix>triage` or `<prefix>fix` label, makes one job
 for each new request and removes the label, so that a team asks for a triage or a fix just by labelling an issue. See

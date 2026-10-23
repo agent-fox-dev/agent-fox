@@ -22,16 +22,17 @@ type jobRow struct {
 	RequestLabel                            sql.NullString
 	State                                   State
 	LabelsSet, LabelsRemoved, LabelsRestore sql.NullString
+	Cleanup                                 sql.NullString
 	CreatedAt                               string
 	StartedAt, FinishedAt                   sql.NullString
 }
 
 const jobColumns = `id, workspace, kind, input, issue, source_kind, source_by, request_label, state,
-	labels_set, labels_removed, labels_restore, created_at, started_at, finished_at`
+	labels_set, labels_removed, labels_restore, cleanup, created_at, started_at, finished_at`
 
 func (j *jobRow) scan(r interface{ Scan(...any) error }) error {
 	return r.Scan(&j.ID, &j.Workspace, &j.Kind, &j.Input, &j.Issue, &j.SourceKind, &j.SourceBy, &j.RequestLabel, &j.State,
-		&j.LabelsSet, &j.LabelsRemoved, &j.LabelsRestore, &j.CreatedAt, &j.StartedAt, &j.FinishedAt)
+		&j.LabelsSet, &j.LabelsRemoved, &j.LabelsRestore, &j.Cleanup, &j.CreatedAt, &j.StartedAt, &j.FinishedAt)
 }
 
 // attemptRow is a row of af_attempts.
@@ -221,14 +222,14 @@ func buildDoc(j jobRow, attempts []attemptRow, withAttempts bool) (Doc, error) {
 		doc.Blocked = blocked
 	}
 
-	labels := LabelsDoc{Set: []string{}, Removed: []string{}, Restore: nullable(j.LabelsRestore)}
+	labels := LabelsDoc{Set: []string{}, Removed: []string{}, Restore: nullable(j.LabelsRestore), Cleanup: nullable(j.Cleanup)}
 	if err := decode("labels_set", j.LabelsSet, &labels.Set); err != nil {
 		return Doc{}, fmt.Errorf("job %s: %w", j.ID, err)
 	}
 	if err := decode("labels_removed", j.LabelsRemoved, &labels.Removed); err != nil {
 		return Doc{}, fmt.Errorf("job %s: %w", j.ID, err)
 	}
-	if len(labels.Set) > 0 || len(labels.Removed) > 0 || labels.Restore != nil {
+	if len(labels.Set) > 0 || len(labels.Removed) > 0 || labels.Restore != nil || labels.Cleanup != nil {
 		doc.Labels = &labels
 	}
 

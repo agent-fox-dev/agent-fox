@@ -31,6 +31,7 @@ const (
 	CodeInternal         Code = "internal"
 	CodeHubUnavailable   Code = "hub_unavailable"
 	CodeNotReady         Code = "not_ready"
+	CodeForgeForbidden   Code = "forge_forbidden"
 )
 
 var statuses = map[Code]int{
@@ -48,6 +49,7 @@ var statuses = map[Code]int{
 	CodeInternal:         http.StatusInternalServerError,
 	CodeHubUnavailable:   http.StatusBadGateway,
 	CodeNotReady:         http.StatusServiceUnavailable,
+	CodeForgeForbidden:   http.StatusUnprocessableEntity,
 }
 
 // Status is the HTTP status of the code; a code that is not one of the table is

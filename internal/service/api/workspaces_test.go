@@ -14,11 +14,17 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
+	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
+	"github.com/agent-fox-dev/agentfox/internal/service/jobs/fakerunner"
+	"github.com/agent-fox-dev/agentfox/internal/service/labelcleanup"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
+	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
 // seed stores a subscription directly, as a subscribe would have.
@@ -655,5 +661,80 @@ func TestAListShowsAnUnreadableTokenAsSuch(t *testing.T) {
 	}
 	if want := []string{"alpha:ok", "broken:unreadable"}; !slices.Equal(got, want) {
 		t.Errorf("list = %v, want %v", got, want)
+	}
+}
+
+// TestAnUnsubscribeCleansUpABlockedJobBeforeRemovingTheSubscription_TS_17_56 verifies TS-17-56: DELETE cancels the blocked
+// job, waits for the first try of its cleanup, and only then removes the subscription and its token.
+// Verifies: 17-REQ-9.1, 17-REQ-9.2
+func TestAnUnsubscribeCleansUpABlockedJobBeforeRemovingTheSubscription_TS_17_56(t *testing.T) {
+	fh := fakehub.New(t)
+	fh.AddUser("caller", "usr_1", []string{"widgets"})
+	fh.AddWorkspace(t, fakehub.Workspace{Slug: "widgets", PAT: "pat-of-widgets"})
+	fh.AddIssue("widgets", fakehub.Issue{Number: 42, Labels: []string{"af:needs-human"}})
+	runner := fakerunner.New(fakerunner.Return(jobs.Result{
+		Envelope:  fakerunner.Env(toolio.StatusNeedsHuman, fakerunner.WithQuestion("Which?", "a")),
+		LabelsSet: []string{"af:needs-human"},
+	}))
+	var svc *jobs.Service
+	h := newHarnessWith(t, func(d *Deps) {
+		d.Hub = hub.New(fh.URL, "1.2.3")
+		var err error
+		svc, err = jobs.New(jobs.Config{
+			DB: d.Store.DB(), Subscriptions: d.Store, Logger: d.Logger, Workers: 1, Runner: runner,
+			AttemptsDir: filepath.Join(t.TempDir(), "attempts"), PollInterval: 5 * time.Millisecond,
+			Cleaner: &labelcleanup.Cleaner{Subscriptions: d.Store, Hub: d.Hub},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		d.Jobs = svc
+	})
+	t.Cleanup(func() { svc.Close() })
+	if _, _, err := h.Store.Upsert(ctx, "widgets", "af:", "pat-of-widgets", "", "usr_1", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Start(); err != nil {
+		t.Fatal(err)
+	}
+	job, err := svc.Create(ctx, jobs.CreateRequest{
+		Workspace: "widgets", Kind: jobs.KindFix, Body: jobs.Body{Issue: json.RawMessage("42")},
+		Source: jobs.Source{Kind: "label", By: "poll"}, RequestLabel: "af:fix",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for d, _ := svc.Get(ctx, job.ID); d.State != jobs.StateBlocked; d, _ = svc.Get(ctx, job.ID) {
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	var mu sync.Mutex
+	var subscribedAtWrites []bool
+	fh.OnRequest(func(r fakehub.Request) {
+		if strings.HasPrefix(r.Path, "/api/v1/workspaces/widgets/issues/42/labels") {
+			_, err := h.Store.Get(ctx, "widgets")
+			mu.Lock()
+			subscribedAtWrites = append(subscribedAtWrites, err == nil)
+			mu.Unlock()
+		}
+	})
+	r := h.do(t, "DELETE", "/api/v1/workspaces/widgets", nil, "Authorization", "Bearer caller")
+	if r.Status != 204 {
+		t.Fatalf("DELETE = %d %s", r.Status, r.Body)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(subscribedAtWrites) != 2 || slices.Contains(subscribedAtWrites, false) {
+		t.Errorf("the subscription was there at the label writes: %v, want both writes made while it was", subscribedAtWrites)
+	}
+	i, _ := fh.IssueOf("widgets", 42)
+	if !slices.Equal(i.Labels, []string{"af:fix"}) {
+		t.Errorf("issue 42 carries %v, want af:fix and no af:needs-human", i.Labels)
+	}
+	if d, _ := svc.Get(ctx, job.ID); d.Labels == nil || d.Labels.Cleanup == nil || *d.Labels.Cleanup != "done" {
+		t.Errorf("labels %+v, want cleanup done when the DELETE answered", d.Labels)
+	}
+	if _, err := h.Store.Get(ctx, "widgets"); !errors.Is(err, store.ErrNotSubscribed) {
+		t.Errorf("the subscription is still there: %v", err)
 	}
 }

@@ -40,10 +40,13 @@ func (s *Supervisor) drop(ctx context.Context, workspace string) {
 // returned as it was, with the error: what has become of the job is not known, and a caller that is about to take a label
 // for a new request must not go on as if it were.
 //
-//   - A job that is done, or cancelled without its cancel having reached a runner, has ended, and holds nothing.
-//   - A job whose cancel reached a runner holds its request label, which the worker's cancel cleanup writes back to the
-//     issue. The hold starts at the cancel, whatever the runner reports. Its release clock starts the first time the poll
-//     sees that no runner of the job is in progress.
+//   - A job that is done has ended, and holds nothing.
+//   - A cancelled job holds its request label when its cancel reached a runner, whatever the runner reports (the worker's
+//     cancel cleanup writes the label back), and when its cancel cleanup is pending or has finished with the label on
+//     the issue. The hold starts at the cancel. Its release clock starts the first time the poll sees that no runner of
+//     the job is in progress and no cleanup of it is pending.
+//   - A cancelled job whose cancel reached no runner holds nothing when it got no cleanup, or when its cleanup ended
+//     with the label not back; a record that held while the cleanup was pending stops holding when the poll sees that.
 //   - A job that retention purged before the poll saw it end may have been cancelled with its label put back, which the
 //     poll cannot know, so it holds from the moment it was found gone.
 //   - A job that is queued, running, blocked or failed has not ended: a failed job can be retried, and then cancelled.
@@ -58,18 +61,20 @@ func (s *Supervisor) note(ctx context.Context, rec Record) (Record, error) {
 		rec = s.startClock(ctx, s.hold(ctx, rec), now)
 	case err != nil:
 		return rec, err
-	case rec.Seen == SeenHolding:
-		if rec.ReleaseClock.IsZero() && !standing.RunnerInProgress {
-			rec = s.startClock(ctx, rec, now)
-		}
-	case standing.State == jobs.StateDone, standing.State == jobs.StateCancelled && !standing.CancelledInRunner:
+	case standing.State == jobs.StateDone, standing.State == jobs.StateCancelled && !holds(standing):
 		rec = s.see(ctx, rec, SeenEnded)
 	case standing.State == jobs.StateCancelled:
-		if rec = s.hold(ctx, rec); !standing.RunnerInProgress {
+		if rec = s.hold(ctx, rec); rec.ReleaseClock.IsZero() && !standing.RunnerInProgress && !standing.CleanupPending {
 			rec = s.startClock(ctx, rec, now)
 		}
 	}
 	return rec, nil
+}
+
+// holds says that a cancelled job holds its request label: its cancel reached a runner, or its cleanup is pending or put
+// the label back.
+func holds(st jobs.Standing) bool {
+	return st.CancelledInRunner || st.CleanupPending || st.CleanupPutBack
 }
 
 // see records what the poll has seen of the job of the record.

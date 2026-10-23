@@ -62,10 +62,14 @@ type Standing struct {
 	// RunnerInProgress says that a runner of the job has not returned yet, though its attempt may have been recorded
 	// cancelled when it overran its grace.
 	RunnerInProgress bool
+	// CleanupPending says that the job's cancel cleanup has not finished, or that it is wanted and the attempt whose
+	// end decides whether it is owed is not recorded yet; CleanupPutBack that it finished with the request label on the
+	// issue (labels.restore null), whoever put it there.
+	CleanupPending, CleanupPutBack bool
 }
 
 // Standing is the standing of a job: its state, source and request label, whether its cancel reached an attempt in a
-// runner, and whether a runner of it is still in progress. A job that is not there, because retention purged it, is
+// runner, whether a runner of it is still in progress, and how its cancel cleanup stands. A job that is not there, because retention purged it, is
 // ErrNotFound.
 //
 // An attempt that was in a runner when the job was cancelled is marked as one whose runner was called, and is running still, or
@@ -77,8 +81,11 @@ func (s *Service) Standing(ctx context.Context, id string) (Standing, error) {
 	var label sql.NullString
 	err := s.store.db.QueryRowContext(ctx,
 		`SELECT state, source_kind, source_by, request_label,
-		        state = 'cancelled' AND EXISTS (SELECT 1 FROM af_attempts a WHERE a.job_id = j.id AND a.in_runner = 1 AND (a.state = 'running' OR (a.state = 'cancelled' AND a.has_envelope = 1)))
-		 FROM af_jobs j WHERE j.id = ?`, id).Scan(&st.State, &st.Source.Kind, &st.Source.By, &label, &st.CancelledInRunner)
+		        state = 'cancelled' AND EXISTS (SELECT 1 FROM af_attempts a WHERE a.job_id = j.id AND a.in_runner = 1 AND (a.state = 'running' OR (a.state = 'cancelled' AND a.has_envelope = 1))),
+		        cleanup IS 'pending' OR (state = 'cancelled' AND cleanup_wanted = 1 AND cleanup IS NULL
+		          AND EXISTS (SELECT 1 FROM af_attempts a WHERE a.job_id = j.id AND a.state = 'running')),
+		        (cleanup IS 'done' OR cleanup IS 'label_not_set') AND labels_restore IS NULL
+		 FROM af_jobs j WHERE j.id = ?`, id).Scan(&st.State, &st.Source.Kind, &st.Source.By, &label, &st.CancelledInRunner, &st.CleanupPending, &st.CleanupPutBack)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Standing{}, ErrNotFound
 	}

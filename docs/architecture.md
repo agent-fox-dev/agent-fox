@@ -1163,8 +1163,29 @@ talks to it.
   drops the numbers it has sent, and ends when the job is at rest; a client that was cut recovers from the store
   with the last id it saw.
 - **Retention.** A purge runs at start and then every hour on the layer's clock, and removes finished jobs with no
-  running attempt and no runner in progress that were finished more than `[database].retain` ago: the directory
-  first, then the rows, under the lock of the job.
+  running attempt, no runner in progress and no cancel cleanup pending that were finished more than
+  `[database].retain` ago: the directory first, then the rows, under the lock of the job.
+- **The label protocol.** The seven labels (two request labels, `triage` and `fix`, and five status labels,
+  `in-progress`, `ready`, `needs-human`, `landed` and `failed`, each under the subscription's prefix) are one table,
+  `internal/service/labels`, which imports only the standard library: the subscribe step creates its labels, the
+  worker's mirror and the cancel cleanup write them, and the poll reads its request labels from it. `PUT
+  /api/v1/workspaces/{slug}` creates the seven through hub's label route (`hub.Client.CreateLabel`) after the two
+  token checks and before the store write, one at a time and in table order, and stops at the first refusal, so a
+  forge that cannot take labels fails the subscribe and not later. Labels are never renamed or deleted.
+- **The cancel cleanup.** A cancel by a person or an unsubscribe that no runner cleans up (the job was queued or
+  blocked, its claimed attempt was in no runner of this process, or its runner was cancelled before it reported a hub
+  session) is cleaned up by the layer, behind the optional seam `jobs.Cleaner`, which `cmd/agent-fox` wires to
+  `internal/service/labelcleanup` over the hub client and the store; the layer itself never imports hub, and without a
+  cleaner it marks nothing. Migration 7 adds `cleanup` (`pending`, `done`, `label_not_set`), `cleanup_wanted` and
+  `cleanup_warned` to `af_jobs`. The mark is written with the cancel, or, when the cancel reached a runner, with the
+  cancelled attempt if that reported no hub session; the cancel time is `finished_at`. Tries run in background
+  goroutines of the layer's loops: one per job at a time, at most four at once, each bounded by a minute of the layer's
+  clock and cut short by a shutdown. A try reads the issue and writes only what is missing: it removes `in-progress`
+  unless another job of the issue runs, and each other status label the job's `labels.set` shows and no other open job
+  of the issue shows, and puts back the request label. Each operation's failure has one outcome: one that may pass
+  leaves the cleanup pending (one `WARN`), a refusal ends it `label_not_set` (an `ERROR`). The sweep retries pending
+  cleanups every minute, after its re-queue, and ends one an hour after its cancel; an unsubscribe waits, before it
+  removes the subscription, for the first try of each cleanup it marked, at most the cancel grace.
 - **Tests.** Every test runs offline against `fakehub`, the fake runner and a fake clock. `cmd/agent-fox` wires the
   worker; `jobs.PlaceholderRunner`, which fails every attempt as `unsupported`, is left for the tests of the layer.
 
@@ -1296,11 +1317,14 @@ runs first, with no cycle left in flight, before the queue is closed and before 
   confirmed by a removal that succeeds or that hub answers with not found, and settled by a complete listing of the label that does
   not contain the issue, so a label whose removal failed is never taken a second time once the first job has ended.
 - **Holds and the release delay.** The `Standing` read of the jobs layer (`Service.Standing`) gives a job by id: its state, source and request label, whether its
-  cancel reached an attempt that was in a runner, and whether a runner of it is still in progress; it is `ErrNotFound` for a job
-  that retention purged. A job the poll made holds its label from the moment its cancel reached a runner, because the worker's
-  cancel cleanup writes the label back before the runner returns, whatever the runner reports and even if it overruns the cancel
-  grace; so does a job that was purged before the poll saw it end, from the time the poll found it gone. The release clock of a
-  hold starts when the poll first sees no runner of the job in progress. A hold is released only by a complete listing that does
+  cancel reached an attempt that was in a runner, whether a runner of it is still in progress, and whether its cancel cleanup is
+  pending or put the label back (finished with `labels.restore` null); it is `ErrNotFound` for a job that retention purged. A
+  cancelled job the poll made holds its label from the cancel when its cancel reached a runner, because the worker's cancel cleanup
+  writes the label back, whatever the runner reports and even if it overruns the cancel grace, and when its cancel cleanup is
+  pending or put the label back; so does a job that was purged before the poll saw it end, from the time the poll found it gone. A
+  cancelled job that reached no runner and got no cleanup, or whose cleanup ended with the label not back, holds nothing, and a
+  hold that began while its cleanup was pending ends when the poll sees that. The release clock of a hold starts when the poll
+  first sees no runner of the job in progress and no cleanup of it pending. A hold is released only by a complete listing that does
   not contain the issue and was requested, by the poll's clock, at least the **release delay** (5 minutes) after the release
   clock started: the forge's list may not yet show a label that was just put back, and the runner may still be writing it.
 - **Records that outlive their jobs.** The poll's records are the rows of `af_poll_requests` (migration 5): the workspace, the

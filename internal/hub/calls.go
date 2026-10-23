@@ -27,7 +27,8 @@ import (
 //   - the answer says nothing about the request, 429, 5xx, a redirect, a transport failure, a
 //     timeout, or a body that is not what hub sends: *UnavailableError.
 //
-// No error holds the PAT, the URL of the call or a part of the answer but hub's own message.
+// No error holds the PAT, the URL of the call or a part of the answer but hub's own message, which a refusal, a
+// forbidding and a not found carry too when hub's error object has one.
 // Only this package knows the names of the fields of hub's answers.
 
 var (
@@ -97,6 +98,8 @@ type operation struct {
 	header *http.Header
 	// maxBody, when it is set, is the longest answer that is read, in place of the usual 1 MiB.
 	maxBody int
+	// status, when it is set, receives the status of the answer.
+	status *int
 }
 
 // send makes the call with the PAT and classifies the answer.
@@ -133,6 +136,9 @@ func (c *Client) send(ctx context.Context, pat string, op operation) error {
 	if op.header != nil {
 		*op.header = resp.Header.Clone()
 	}
+	if op.status != nil {
+		*op.status = resp.StatusCode
+	}
 	return c.classify(resp, pat, op)
 }
 
@@ -159,15 +165,15 @@ func (c *Client) classify(resp *http.Response, pat string, op operation) error {
 		}
 		return nil
 	case status == http.StatusUnauthorized:
-		return fmt.Errorf("hub refused the token to %s (%d): %w", op.name, status, ErrRefused)
+		return fmt.Errorf("hub refused the token to %s (%d)%s: %w", op.name, status, hubSaid(resp.Body, pat), ErrRefused)
 	case status == http.StatusForbidden:
-		return fmt.Errorf("hub forbids %s (%d): the PAT of the subscription lacks the scope for it; replace the token with PUT /api/v1/workspaces/%s: %w",
-			op.name, status, url.PathEscape(op.slug), ErrForbidden)
+		return fmt.Errorf("hub forbids %s (%d)%s: the PAT of the subscription lacks the scope for it; replace the token with PUT /api/v1/workspaces/%s: %w",
+			op.name, status, hubSaid(resp.Body, pat), url.PathEscape(op.slug), ErrForbidden)
 	case status == http.StatusNotFound:
 		if op.missingIsDone {
 			return nil
 		}
-		return fmt.Errorf("hub does not find what %s names (%d): %w", op.name, status, ErrNotFound)
+		return fmt.Errorf("hub does not find what %s names (%d)%s: %w", op.name, status, hubSaid(resp.Body, pat), ErrNotFound)
 	case status >= 400 && status < 500 && status != http.StatusTooManyRequests:
 		code, message := errorObject(resp.Body, pat)
 		return &RejectedError{Op: op.name, Status: status, Code: code, Message: message}
@@ -203,6 +209,14 @@ func errorObject(body io.Reader, pat string) (code, message string) {
 		code = strings.Trim(string(answer.Error.Code), `"`)
 	}
 	return scrubbed(code, pat), scrubbed(answer.Error.Message, pat)
+}
+
+// hubSaid is hub's message in its error object, as ` (hub said: …)`, or nothing when the body has none.
+func hubSaid(body io.Reader, pat string) string {
+	if _, message := errorObject(body, pat); message != "hub gave no reason" {
+		return " (hub said: " + message + ")"
+	}
+	return ""
 }
 
 // scrubbed is what hub said without the token, cut short.
@@ -517,4 +531,35 @@ func (c *Client) ListSandboxes(ctx context.Context, pat, slug string) ([]LeaseIn
 		out = append(out, LeaseInfo{ID: l.ID, Purpose: l.Purpose, State: l.State, Labels: l.Labels, ExpiresAt: expires})
 	}
 	return out, nil
+}
+
+// CreateLabel makes sure the workspace's repository has the label: POST /api/v1/workspaces/{slug}/labels with
+// {name, color, description}, the color six hex digits without '#'. It reports whether hub created the label (201) or found
+// it there (200), and an existing label's colour and description are left as they are. Hub, or the forge behind it, may
+// also refuse a label that exists: a 409, or any other 4xx whose error_type is already_exists or whose message says
+// "already exists" in any case, is the label being there as well. Every other answer is classed as the other calls class
+// it.
+func (c *Client) CreateLabel(ctx context.Context, pat, slug, name, color, description string) (created bool, err error) {
+	var answer map[string]json.RawMessage
+	var status int
+	err = c.send(ctx, pat, operation{
+		name: "create a label", slug: slug, method: http.MethodPost, path: workspacePath(slug, "/labels"),
+		body: map[string]string{"name": name, "color": color, "description": description}, into: &answer, status: &status,
+	})
+	if rejected, ok := errors.AsType[*RejectedError](err); ok && alreadyThere(rejected) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if answer == nil {
+		return false, &UnavailableError{Status: status, Err: errors.New("the label is not what hub sends")}
+	}
+	return status == http.StatusCreated, nil
+}
+
+// alreadyThere says that a refusal of a label creation reports the label as existing.
+func alreadyThere(r *RejectedError) bool {
+	return r.Status >= 400 && r.Status < 500 &&
+		(r.Status == http.StatusConflict || r.Code == "already_exists" || strings.Contains(strings.ToLower(r.Message), "already exists"))
 }

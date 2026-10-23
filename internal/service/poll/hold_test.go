@@ -1,6 +1,7 @@
 package poll
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"testing"
@@ -445,6 +446,291 @@ func TestAHoldSurvivesRetentionPurgingTheCancelledJob_TS_15_51(t *testing.T) {
 			if _, ok := e.held(42); !ok {
 				t.Errorf("the hold is gone: %+v", e.recordsOf())
 			}
+		})
+	}
+}
+
+// blockedByThePoll runs a cycle that makes the fix job for issue 42 from af:fix, waits for it to be blocked with
+// needs-human set on the issue as the worker sets it, and returns its id.
+func (e *env) blockedByThePoll() string {
+	e.t.Helper()
+	e.issue(42, "af:fix")
+	e.cycle()
+	id := e.jobList()[0].ID
+	e.waitState(id, jobs.StateBlocked)
+	e.Hub.AddLabel(slug, 42, "af:needs-human")
+	return id
+}
+
+// blockedStep ends an attempt blocked with needs-human set, as the worker reports it.
+func blockedStep() fakerunner.Step {
+	return fakerunner.Return(jobs.Result{
+		Envelope:  fakerunner.Env(toolio.StatusNeedsHuman, fakerunner.WithQuestion("Which?", "a")),
+		LabelsSet: []string{"af:needs-human"},
+	})
+}
+
+// cleanupOf is the job's labels.cleanup, "" when it is null.
+func (e *env) cleanupOf(id string) string {
+	e.t.Helper()
+	d, err := e.Jobs.Get(ctx, id)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	if d.Labels == nil || d.Labels.Cleanup == nil {
+		return ""
+	}
+	return *d.Labels.Cleanup
+}
+
+// sweepUntil advances the clock a minute at a time, so that the jobs layer's sweep tries the pending cleanup again, until
+// the job's cleanup is the state: a sweep starts no try for a job whose try is still in flight.
+func (e *env) sweepUntil(id, state string) {
+	e.t.Helper()
+	for range 30 {
+		e.Clock.Advance(time.Minute)
+		deadline := time.Now().Add(time.Second)
+		for time.Now().Before(deadline) {
+			if e.cleanupOf(id) == state {
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	e.t.Fatalf("the cleanup of %s is %q, want %q", id, e.cleanupOf(id), state)
+}
+
+// TestThePollHoldsALabelThatTheCleanupPutBack_TS_17_58 verifies TS-17-58.
+// Verifies: 17-REQ-10.1
+func TestThePollHoldsALabelThatTheCleanupPutBack_TS_17_58(t *testing.T) {
+	e := newEnv(t, withCleanup(), withRunner(fakerunner.New(blockedStep())))
+	id := e.blockedByThePoll()
+	if _, err := e.Jobs.Cancel(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the cleanup", func() bool { return e.cleanupOf(id) == "done" })
+	if got := e.labelsOf(42); !slices.Equal(got, []string{"af:fix"}) {
+		t.Fatalf("issue 42 carries %v, want af:fix put back", got)
+	}
+	removals := e.removalsOf(42)
+	for i := range 3 {
+		e.cycle()
+		if e.jobsFor(42) != 1 || e.removalsOf(42) != removals {
+			t.Fatalf("cycle %d: %d jobs for 42 and %d removals, want no new job and no removal", i+1, e.jobsFor(42), e.removalsOf(42)-removals)
+		}
+		e.Clock.Advance(time.Minute)
+	}
+	if _, ok := e.held(42); !ok {
+		t.Errorf("the record does not hold: %+v", e.recordsOf())
+	}
+}
+
+// TestACancelThatReachedARunnerHoldsWhateverTheRunnerReports_TS_17_59 verifies TS-17-59: with the cleanup in the layer, a
+// runner that reported a hub session and one that did not both leave a hold.
+// Verifies: 17-REQ-10.2
+func TestACancelThatReachedARunnerHoldsWhateverTheRunnerReports_TS_17_59(t *testing.T) {
+	for _, session := range []bool{true, false} {
+		t.Run(fmt.Sprintf("hub session reported: %v", session), func(t *testing.T) {
+			step := fakerunner.Do(func(ctx context.Context, req jobs.Request) (jobs.Result, error) {
+				if session {
+					req.Recorder.Hub("ses_1", "run_1", "")
+				}
+				<-ctx.Done()
+				return jobs.Result{}, ctx.Err()
+			})
+			e := newEnv(t, withCleanup(), withRunner(fakerunner.New(step)))
+			e.takenByThePoll()
+			id := e.jobList()[0].ID
+			if _, err := e.Jobs.Cancel(ctx, id); err != nil {
+				t.Fatal(err)
+			}
+			if session {
+				e.Hub.AddLabel(slug, 42, "af:fix") // the worker's own cleanup
+			} else {
+				waitFor(t, "the cleanup", func() bool { return e.cleanupOf(id) == "done" })
+			}
+			e.runnerReturned(id)
+			for range 2 {
+				e.cycle()
+			}
+			if _, ok := e.held(42); !ok {
+				t.Errorf("the record does not hold: %+v", e.recordsOf())
+			}
+			if e.jobsFor(42) != 1 {
+				t.Errorf("%d jobs for 42, want no new job", e.jobsFor(42))
+			}
+		})
+	}
+}
+
+// TestACancelThatReachedNoRunnerHoldsNothingWithoutACleanupOrWithTheLabelNotBack_TS_17_60 verifies TS-17-60.
+// Verifies: 17-REQ-10.3
+func TestACancelThatReachedNoRunnerHoldsNothingWithoutACleanupOrWithTheLabelNotBack_TS_17_60(t *testing.T) {
+	t.Run("no cleanup seam", func(t *testing.T) {
+		e := newEnv(t, withRunner(fakerunner.New(blockedStep())))
+		id := e.blockedByThePoll()
+		if _, err := e.Jobs.Cancel(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+		e.cycle()
+		if seen := e.seenOf()[42]; seen.Seen != SeenEnded && len(e.recordsOf()) != 0 {
+			t.Errorf("the record is %+v, want it ended, not holding", seen)
+		}
+		if _, ok := e.held(42); ok {
+			t.Error("the record holds")
+		}
+	})
+	t.Run("the cleanup ended with the label not back", func(t *testing.T) {
+		e := newEnv(t, withCleanup(), withRunner(fakerunner.New(blockedStep())))
+		id := e.blockedByThePoll()
+		e.Hub.Inject("POST", "/api/v1/workspaces/widgets/issues/42/labels", fakehub.Fault{Status: 400})
+		if _, err := e.Jobs.Cancel(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, "the cleanup to end", func() bool { return e.cleanupOf(id) == "label_not_set" })
+		e.cycle()
+		if _, ok := e.held(42); ok {
+			t.Errorf("the record holds: %+v", e.recordsOf())
+		}
+	})
+	for name, end := range map[string]func(e *env){
+		"a hold while pending stops when the cleanup ends with the label not back": func(e *env) {
+			e.Hub.Clear()
+			e.Hub.Inject("POST", "/api/v1/workspaces/widgets/issues/42/labels", fakehub.Fault{Status: 400})
+		},
+		"a cleanup abandoned before the label is back": func(e *env) {
+			e.Clock.Advance(61 * time.Minute)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t, withCleanup(), withRunner(fakerunner.New(blockedStep())))
+			id := e.blockedByThePoll()
+			e.Hub.Fail("/api/v1/workspaces/widgets/issues/42/labels", 503)
+			if _, err := e.Jobs.Cancel(ctx, id); err != nil {
+				t.Fatal(err)
+			}
+			waitFor(t, "the first try", func() bool { return len(e.Hub.RequestsTo("POST", "/api/v1/workspaces/widgets/issues/42/labels")) == 1 })
+			e.cycle()
+			if _, ok := e.held(42); !ok {
+				t.Fatalf("while the cleanup is pending the record is %+v, want a hold", e.recordsOf())
+			}
+			end(e)
+			e.sweepUntil(id, "label_not_set")
+			e.cycle()
+			if _, ok := e.held(42); ok {
+				t.Errorf("the record still holds: %+v", e.recordsOf())
+			}
+		})
+	}
+}
+
+// TestTheReleaseClockStartsOnlyWhenNoRunnerRunsAndNoCleanupIsPending_TS_17_61 verifies TS-17-61.
+// Verifies: 17-REQ-10.4
+func TestTheReleaseClockStartsOnlyWhenNoRunnerRunsAndNoCleanupIsPending_TS_17_61(t *testing.T) {
+	e := newEnv(t, withCleanup(), withRunner(fakerunner.New(blockedStep())))
+	id := e.blockedByThePoll()
+	e.Hub.Fail("/api/v1/workspaces/widgets/issues/42/labels", 503)
+	if _, err := e.Jobs.Cancel(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		e.cycle()
+		if rec, ok := e.held(42); !ok || !rec.ReleaseClock.IsZero() {
+			t.Fatalf("while the cleanup is pending the record is %+v, want a hold with no release clock", rec)
+		}
+		e.Clock.Advance(30 * time.Second)
+	}
+	e.Hub.Clear()
+	e.sweepUntil(id, "done")
+	first := e.Clock.Now()
+	e.cycle()
+	e.Clock.Advance(time.Minute)
+	e.cycle()
+	if rec, _ := e.held(42); !rec.ReleaseClock.Equal(first) {
+		t.Errorf("the release clock is %v, want %v: the first cycle that saw no cleanup pending", rec.ReleaseClock, first)
+	}
+}
+
+// cleanedUpAndHeld cancels the blocked job of issue 42 through the cause, waits for its cleanup to put af:fix back and runs
+// the cycle that starts the release clock, and returns when that was.
+func (e *env) cleanedUpAndHeld(cancel func(id string)) time.Time {
+	e.t.Helper()
+	id := e.blockedByThePoll()
+	cancel(id)
+	waitFor(e.t, "the cleanup", func() bool { return e.cleanupOf(id) == "done" })
+	started := e.Clock.Now()
+	e.cycle()
+	if rec, ok := e.held(42); !ok || !rec.ReleaseClock.Equal(started) {
+		e.t.Fatalf("the record is %+v, want a hold whose clock started at %v", rec, started)
+	}
+	return started
+}
+
+// releasedAfterTheDelay checks that a complete listing without the issue releases the hold only once it was requested the
+// release delay after the clock started, and that the label added again then makes exactly one new job.
+func (e *env) releasedAfterTheDelay(started time.Time) {
+	e.t.Helper()
+	e.Hub.RemoveLabel(slug, 42, "af:fix") // a person takes the label off
+	e.Clock.Advance(started.Add(4 * time.Minute).Sub(e.Clock.Now()))
+	e.cycle()
+	if _, ok := e.held(42); !ok {
+		e.t.Fatalf("a listing 4 minutes after the clock released the hold")
+	}
+	e.Clock.Advance(started.Add(5 * time.Minute).Sub(e.Clock.Now()))
+	e.cycle()
+	if _, ok := e.held(42); ok {
+		e.t.Fatalf("a listing 5 minutes after the clock kept the hold: %+v", e.recordsOf())
+	}
+	jobsBefore := e.jobsFor(42)
+	e.Hub.AddLabel(slug, 42, "af:fix") // and asks again
+	e.cycle()
+	e.cycle()
+	if e.jobsFor(42) != jobsBefore+1 {
+		e.t.Errorf("%d new jobs for 42, want exactly one", e.jobsFor(42)-jobsBefore)
+	}
+}
+
+// TestACompleteListingWithoutTheIssueReleasesTheHoldAfterTheReleaseDelay_TS_17_62 verifies TS-17-62.
+// Verifies: 17-REQ-10.5
+func TestACompleteListingWithoutTheIssueReleasesTheHoldAfterTheReleaseDelay_TS_17_62(t *testing.T) {
+	e := newEnv(t, withCleanup(), withRunner(fakerunner.New(blockedStep()).Then(fakerunner.Block(fakerunner.Step{}))))
+	started := e.cleanedUpAndHeld(func(id string) {
+		if _, err := e.Jobs.Cancel(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+	})
+	e.releasedAfterTheDelay(started)
+}
+
+// TestTheHoldAndReleaseRulesAreTheSameForAPersonsCancelAndAnUnsubscribe_TS_17_63 verifies TS-17-63.
+// Verifies: 17-REQ-10.6
+func TestTheHoldAndReleaseRulesAreTheSameForAPersonsCancelAndAnUnsubscribe_TS_17_63(t *testing.T) {
+	for _, how := range []string{"a person", "an unsubscribe"} {
+		t.Run(how, func(t *testing.T) {
+			e := newEnv(t, withCleanup(), withRunner(fakerunner.New(blockedStep()).Then(fakerunner.Block(fakerunner.Step{}))))
+			started := e.cleanedUpAndHeld(func(id string) {
+				if how == "a person" {
+					if _, err := e.Jobs.Cancel(ctx, id); err != nil {
+						t.Fatal(err)
+					}
+					return
+				}
+				err := e.Jobs.Unsubscribe(ctx, slug, func() error { _, err := e.Store.Delete(ctx, slug); return err })
+				if err != nil {
+					t.Fatal(err)
+				}
+				// The workspace is subscribed again, and its poll goes on with the records it kept.
+				if _, _, err := e.Store.Upsert(ctx, slug, "af:", pat, "usr_1", "usr_1", e.Clock.Now()); err != nil {
+					t.Fatal(err)
+				}
+			})
+			for range 2 {
+				e.cycle()
+				if e.jobsFor(42) != 1 {
+					t.Fatalf("%d jobs for 42 while it is held", e.jobsFor(42))
+				}
+			}
+			e.releasedAfterTheDelay(started)
 		})
 	}
 }

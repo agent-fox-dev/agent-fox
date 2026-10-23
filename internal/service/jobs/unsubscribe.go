@@ -15,6 +15,11 @@ import (
 // removal of the subscription and its token. The mark is cleared when remove has
 // returned, whether it failed or not: the workspace is no longer subscribed, or it still
 // is. The jobs and their history stay until retention removes them.
+//
+// Before remove, it waits for the first try of each cancel cleanup its cancels marked, so that
+// the issues are put back while the token is still there; it stops waiting the cancel grace
+// after the cancels and the wait for the running attempts have ended. A cleanup still pending
+// then ends at its next try, which finds the workspace no longer subscribed.
 func (s *Service) Unsubscribe(ctx context.Context, slug string, remove func() error) error {
 	clear := s.MarkUnsubscribing(slug)
 	defer clear()
@@ -24,6 +29,7 @@ func (s *Service) Unsubscribe(ctx context.Context, slug string, remove func() er
 		return err
 	}
 	var runs []*attemptRun
+	var tries []<-chan struct{}
 	for _, id := range ids {
 		run, err := s.cancelWhatIsOpen(ctx, id)
 		if err != nil {
@@ -31,6 +37,8 @@ func (s *Service) Unsubscribe(ctx context.Context, slug string, remove func() er
 		}
 		if run != nil {
 			runs = append(runs, run)
+		} else if try := s.tryOf(id); try != nil {
+			tries = append(tries, try)
 		}
 	}
 	for _, run := range runs {
@@ -40,7 +48,45 @@ func (s *Service) Unsubscribe(ctx context.Context, slug string, remove func() er
 			return ctx.Err()
 		}
 	}
+	if err := s.awaitTries(ctx, runs, tries); err != nil {
+		return err
+	}
 	return remove()
+}
+
+// awaitTries waits for the first try of each cleanup the unsubscribe marked, while the token is still there: the tries
+// of the jobs whose cancel reached no runner, and those of the jobs whose runner returned without a hub session, which
+// start once the handler is through with what the runner returned. It stops waiting the cancel grace after it began,
+// which is once the cancels and the wait for the running attempts have both ended.
+func (s *Service) awaitTries(ctx context.Context, runs []*attemptRun, tries []<-chan struct{}) error {
+	if s.cleaner == nil {
+		return nil
+	}
+	over := s.clock.After(cancelGrace)
+	wait := func(ch <-chan struct{}) (bool, error) {
+		select {
+		case <-ch:
+			return true, nil
+		case <-over:
+			return false, nil
+		case <-ctx.Done():
+			return false, ctx.Err()
+		}
+	}
+	for _, run := range runs {
+		if ok, err := wait(run.done); !ok {
+			return err
+		}
+		if try := s.tryOf(run.key.job); try != nil {
+			tries = append(tries, try)
+		}
+	}
+	for _, try := range tries {
+		if ok, err := wait(try); !ok {
+			return err
+		}
+	}
+	return nil
 }
 
 // WorkspaceOf is the workspace of a job, or ErrNotFound.

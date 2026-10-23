@@ -12,6 +12,9 @@ type cancelled struct {
 	running int
 	// queued are the numbers of the attempts that were queued, which are cancelled.
 	queued []int
+	// cleanup says that the job's cancel cleanup was marked pending: the job has an issue, a cleanup was asked for, and no
+	// attempt of it is running.
+	cleanup bool
 }
 
 // CancelJob moves a job that is in state from, which is queued, running or blocked, to
@@ -21,7 +24,12 @@ type cancelled struct {
 // runner has returned. A job that is in another state than from, even another that could
 // be cancelled, is a *StateError, and nothing is changed: of two actions that were each
 // taken on the state the job was seen in, the second finds the state gone.
-func (s *Store) CancelJob(ctx context.Context, id string, from State) (cancelled, error) {
+//
+// When cleanup is set and the job has an issue, the cancel cleanup is owed: it is marked
+// pending in the same transaction when no attempt of the job is running, and otherwise marked
+// wanted, for the layer to settle once it knows whether a runner of this process holds the
+// attempt (see Service.cancel).
+func (s *Store) CancelJob(ctx context.Context, id string, from State, cleanup bool) (cancelled, error) {
 	var found cancelled
 	err := s.run(ctx, id, func(x *txn) error {
 		now := formatTime(s.now())
@@ -59,6 +67,19 @@ func (s *Store) CancelJob(ctx context.Context, id string, from State) (cancelled
 		}
 		if _, err := x.ExecContext(ctx, "UPDATE af_attempts SET state = 'cancelled', finished_at = ? WHERE job_id = ? AND state = 'queued'", now, id); err != nil {
 			return fmt.Errorf("attempts of %s: %w", id, err)
+		}
+		if cleanup {
+			res, err := x.ExecContext(ctx,
+				`UPDATE af_jobs SET cleanup_wanted = 1, cleanup = CASE WHEN ? THEN 'pending' ELSE cleanup END
+				 WHERE id = ? AND issue IS NOT NULL`, found.running == 0, id)
+			if err != nil {
+				return fmt.Errorf("cleanup of %s: %w", id, err)
+			}
+			if n, err := res.RowsAffected(); err != nil {
+				return err
+			} else if n > 0 && found.running == 0 {
+				found.cleanup = true
+			}
 		}
 		var current int
 		if err := x.QueryRowContext(ctx, "SELECT MAX(n) FROM af_attempts WHERE job_id = ?", id).Scan(&current); err != nil {
@@ -113,8 +134,16 @@ func (s *Service) Cancel(ctx context.Context, id string) (Doc, error) {
 // the workspace; the running attempt's context is cancelled with the cause, and a
 // timer of the grace starts: a runner that has not returned when it ends has its
 // attempt recorded cancelled without it.
+//
+// A cancel by a person or by an unsubscribe owes the job's cancel cleanup when the layer has a
+// cleaner and no runner of this process writes the labels: the cleanup is marked pending, and
+// its first try starts at once, when no attempt was running or when the running one is held
+// by no runner here (it was claimed and its runner not yet called, or its process ended). A
+// running attempt that a runner holds is settled when it is recorded cancelled (see
+// Store.EndAttempt).
 func (s *Service) cancel(ctx context.Context, id string, from State, cause error) (*attemptRun, error) {
-	found, err := s.store.CancelJob(ctx, id, from)
+	wantCleanup := s.cleaner != nil && (errors.Is(cause, ErrCancelled) || errors.Is(cause, ErrUnsubscribed))
+	found, err := s.store.CancelJob(ctx, id, from, wantCleanup)
 	if err != nil {
 		return nil, err
 	}
@@ -130,9 +159,24 @@ func (s *Service) cancel(ctx context.Context, id string, from State, cause error
 		run = s.inflight[attemptKey{id, found.running}]
 	}
 	s.mu.Unlock()
+	reached := false
 	if run != nil {
-		run.cancel(cause)
+		reached = run.stop(cause)
 		s.startGrace(run)
+	}
+	if wantCleanup && found.running > 0 && !reached {
+		// The attempt was looked for after the cancel committed, and a claim registers its run before it reads the job:
+		// no runner of this process will be called for it, whether it has a run here that was stopped before its runner
+		// was called or none.
+		marked, err := s.store.MarkCleanup(ctx, id)
+		if err != nil {
+			s.log.Warn("the cancel cleanup of a job could not be marked; it is marked when its attempt is recorded cancelled",
+				"job", id, "error", err.Error())
+		}
+		found.cleanup = marked
+	}
+	if found.cleanup {
+		s.startTry(id)
 	}
 	return run, nil
 }

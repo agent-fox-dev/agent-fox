@@ -106,7 +106,7 @@ view, and **the view never contains the token or its ciphertext**:
 | Field | Meaning |
 |---|---|
 | `slug` | The workspace. |
-| `label_prefix` | The label prefix **given at subscribe**, or `af:`. It is what was stored, not necessarily the prefix in effect: whether it or hub's variable `AF_LABEL_PREFIX` governs the labels is decided by the specs that apply labels. |
+| `label_prefix` | The label prefix **given at subscribe**, or `af:`. It names the seven labels of the workspace (see [Subscribing](#subscribing)); hub's variable `AF_LABEL_PREFIX` names none. |
 | `token_user` | The hub user the token belongs to, when hub said so; `null` when hub did not (a credential that is bound to a workspace can see it and still be refused by `/user`). |
 | `subscribed_by` | The hub user who subscribed the workspace last. |
 | `token_state` | `ok` when the stored token opens with this deployment's key, `unreadable` when it does not (the file was written under another key). An unreadable subscription is still listed, read, replaced and removed. |
@@ -149,9 +149,48 @@ The service checks the token with two calls to hub, made with the token and not 
 2. **The user**: `GET /api/v1/user`, best effort. Its answer is `token_user`; if hub refuses the token
    there, `token_user` is `null` and the subscription is stored all the same; if hub is unavailable, `502`.
 
-Nothing is written before every check has passed. A refused token is `422` and never `401`, even when it
-is the very token that the caller authenticated with, and a call with the token never touches the
-caches of the caller's answers.
+A refused token is `422` and never `401`, even when it is the very token that the caller authenticated
+with, and a call with the token never touches the caches of the caller's answers.
+
+3. **The labels.** The service creates the seven labels of the agent-fox label protocol on the workspace's
+   repository through hub (`POST /api/v1/workspaces/{slug}/labels`), with the token of the request and the
+   prefix it stores, one at a time and in this order:
+
+   | Label | Kind | Colour | Description |
+   |---|---|---|---|
+   | `<prefix>triage` | request | `0e8a16` | Ask agent-fox to triage this issue |
+   | `<prefix>fix` | request | `0e8a16` | Ask agent-fox to fix this issue |
+   | `<prefix>in-progress` | status | `fbca04` | agent-fox is working on this issue |
+   | `<prefix>ready` | status | `1d76db` | Triaged: the diagnosis is in the body |
+   | `<prefix>needs-human` | status | `d93f0b` | agent-fox stopped with a question; see the last comment |
+   | `<prefix>landed` | status | `0e8a16` | A branch and a pull request (or a carry patch) exist |
+   | `<prefix>failed` | status | `b60205` | agent-fox could not finish; see the last comment |
+
+   A label is in place when hub creates it (`201`) or reports it as already there: `200`, `409`, or any other
+   `4xx` whose `error_type` is `already_exists` or whose message says "already exists", in any case. An
+   existing label's colour and description are left as they are. Once all seven are in place, one `INFO`
+   record, `the labels of the workspace are in place`, names the workspace and how many were `created` and
+   how many were already there (`existing`). The first creation that hub does not take stops the step, and
+   the `PUT` is refused:
+
+   | Hub's answer to a creation | `PUT` answers |
+   |---|---|
+   | `401` | `422` `invalid_hub_token`, `hub refused the token` |
+   | `403` | `422` `forge_forbidden`: `hub forbids the token to create labels on the workspace "<slug>": it lacks the scope for hub's forge API (forge:write)`. A token with that scope cures it. |
+   | `502` with `error_type` `forge_forbidden` or `forge_unauthenticated` | `422` `forge_forbidden`: `the forge refused hub's credential for the repository of the workspace "<slug>": ` and hub's message. Another token does not cure it: the credential that hub holds for the forge must be mended. |
+   | `404` or `405` | `502` `hub_unavailable`: `hub does not serve label creation for the workspace "<slug>"` |
+   | another `4xx` (not `429`) | `422` `forge_forbidden`: `hub refused to create a label on the workspace "<slug>": ` and hub's message |
+   | `429`, another `5xx`, a redirect, a transport failure, a timeout, a body that is not hub's | `502` `hub_unavailable` |
+
+   `af workspace subscribe` shows `forge_forbidden` as every `422`: the message and the code, with its hint
+   `--hub-token-file`.
+
+Nothing is written to the store before every check has passed: a refused `PUT` stores nothing, and a
+refused replace leaves the subscription exactly as it was. Labels created before a refusal stay on the
+forge, where the next `PUT` finds them. A replace with another `label_prefix` creates the seven labels of
+the new prefix; no label is ever renamed or deleted, by a `PUT` or by an unsubscribe. A workspace
+subscribed before this release has no labels until its next `PUT`: subscribing it again with the same
+body creates them, and nothing else does.
 
 Then the token is sealed and stored in one statement. `PUT` replaces the subscription in full:
 
@@ -160,8 +199,9 @@ Then the token is sealed and stored in one statement. `PUT` replaces the subscri
   `token_user` is this request's answer (and stays `null` if hub did not say), `subscribed_by` is the
   caller, `created_at` is kept and `updated_at` is now.
 
-The body of both is the view. A client treats `200` and `201` alike as success. Scopes of the token are
-not checked at subscribe: a token that lacks one fails at the first call that needs it.
+The body of both is the view. A client treats `200` and `201` alike as success. The label step checks
+the token's scope for hub's forge API; another scope that the token lacks fails at the first call that
+needs it.
 
 ## Removing
 
@@ -173,9 +213,14 @@ Before the row goes, the workspace is marked as being unsubscribed, which refuse
 to make a job is `404`, as for any workspace that is not subscribed; one to answer or retry a job is `409`
 `not_subscribed`), and every job of the workspace that is
 queued, running or blocked is cancelled with the cause *unsubscribed*, which a runner reads as a cancel. The
-request waits for the runners of those jobs to return, for at most 60 seconds each (see [Cancel](#cancel)). A
-removal that then fails is `500`; the subscription stays and the workspace takes jobs again. The jobs of the
-workspace are not removed: they are listed and read until the retention purge removes them.
+request waits for the runners of those jobs to return, for at most 60 seconds each (see [Cancel](#cancel)). It
+also waits, while the token is still there, for the first try of the cancel cleanup of each job that gets one (see
+[Cancel](#cancel)), so that a blocked job's issue gets its request label back and loses `needs-human` before the
+workspace goes; it stops waiting 60 seconds after the cancels and the wait for the runners have ended, so a hub
+outage delays the `DELETE` by at most that. A cleanup still pending when the subscription is gone ends
+`label_not_set` at its next try. A removal that then fails is `500`; the subscription stays and the workspace
+takes jobs again. The jobs of the workspace are not removed: they are listed and read until the retention purge
+removes them.
 
 ## Jobs
 
@@ -248,12 +293,16 @@ What becomes of a label on a listed issue is decided by the first of these that 
    made it, an API job included: the label is removed, no job is made, and the service logs the absorbed label at `INFO`
    with the workspace, the kind, the issue and the job. An open job of the other kind does not absorb it. A label on an
    issue whose job `failed` is a new request.
-2. **Held.** A job the poll made for the label was cancelled while one of its attempts was in a runner (an unsubscribe
-   included), and the worker's cancel cleanup put the label back on the issue ([cancel](#cancel)). The label is left in
-   place until a person asks again: the service does nothing about it until a complete listing of the label that does not
-   contain the issue was requested at least 5 minutes after the poll first saw that no runner of the job was in progress,
-   which releases the hold, so removing the label and adding it back is a new request. The API is the immediate way to ask again. A job cancelled
-   while it was queued, while it waited out a backoff or while it was blocked holds nothing.
+2. **Held.** A job the poll made for the label was cancelled (by a person or an unsubscribe), and the label is back on
+   the issue, or about to be: the cancel reached one of its attempts in a runner, whatever the runner reports (the worker's
+   cancel cleanup puts the label back), or the job's cancel cleanup is pending or finished with the label on the issue
+   (`labels.restore` `null`, whoever put it there; see [cancel](#cancel)). The label is left in place until a person asks
+   again: the service does nothing about it until a complete listing of the label that does not contain the issue was
+   requested at least 5 minutes after the poll first saw that no runner of the job was in progress and no cleanup of it
+   was pending, which releases the hold, so removing the label and adding it back is a new request. The API is the
+   immediate way to ask again. A cancelled job whose cancel reached no runner holds nothing when it got no cleanup, or
+   when its cleanup ended with `labels.restore` still set; a hold that began while the cleanup was pending ends when the
+   poll sees that.
 3. **Already taken.** The removal of the label from the issue failed after the job was made (or after a label that the poll absorbed
    was not removed), so the removal is still owed: the label is removed again, and no second job is made. A removal that hub
    answers with not found is done.
@@ -286,7 +335,7 @@ Every route that shows a job shows this document, a list entry included; `GET /a
   "result": {"status": "done", "exit_code": 0, "summary": "Fixed the off-by-one in the pager.", "error": null},
   "artifacts": [{"kind": "pull_request", "url": "https://github.example.com/acme/widgets/pull/9", "number": 9}],
   "side_effects": [],
-  "labels": {"set": ["af:fixed"], "removed": ["af:fix"], "restore": null},
+  "labels": {"set": ["af:fixed"], "removed": ["af:fix"], "restore": null, "cleanup": null},
   "usage": {"cost_usd": 1.25, "input_tokens": 1000, "output_tokens": 200, "turns": 7},
   "hub": null,
   "created_at": "2026-10-22T08:00:00.000Z",
@@ -307,7 +356,7 @@ Every route that shows a job shows this document, a list entry included; `GET /a
 | `attempt_count`, `current_attempt` | How many attempts the job has, and the number of the latest. |
 | `result` | `{"status", "exit_code", "summary", "error"}` of the latest attempt that came to something, from its envelope; `null` before any. `exit_code` is that of the status (`done` 0, `failed` 1, `usage` 2, `needs_human` 3, `unverified` 4). |
 | `artifacts`, `side_effects` | Those of the same envelope; `[]` when there are none. |
-| `labels` | `{"set", "removed", "restore"}`, or `null` when none has a value. `set` and `removed` are the labels as the runner last reported them. `restore` is the request label that a cancel says belongs back on the issue and that no runner has reported writing; the service writes no label itself. |
+| `labels` | `{"set", "removed", "restore", "cleanup"}`, or `null` when none has a value. `set` and `removed` are the labels as the runner, or the cancel cleanup, last reported them. `restore` is the request label that a cancel says belongs back on the issue while it is not back. `cleanup` is the state of the job's [cancel cleanup](#cancel), the service's own label writes for a cancel that no runner cleans up: `"pending"` while tries go on, `"done"` when the request label is on the issue and the status labels the job accounts for are gone, `"label_not_set"` when it ended without that, and `null` for a job that had none. |
 | `usage` | The sum of `cost_usd`, `input_tokens`, `output_tokens` and `turns` over the attempts that have finished. |
 | `hub` | `{"session_id", "run_id", "sandbox_id"}` of the attempt that is running, as its runner reported them; `null` otherwise. |
 | `created_at` | When the job was made. |
@@ -395,7 +444,39 @@ with the cause *cancelled*, and its runner has **60 seconds** to release what it
 and return. The attempt is recorded `cancelled` when the runner returns, or after the 60 seconds if it has not,
 with an `ERROR` in the log; either way the runner keeps its workspace's place and its worker slot until it
 actually returns. When the job is cancelled, `labels.restore` names the request label that belongs back on the
-issue, if the job consumed one and no runner has reported writing it.
+issue, if the job consumed one and no runner has reported writing it; it stays set while the label is not back.
+
+**The cancel cleanup.** A runner that has opened its hub session writes the labels of a cancelled attempt itself.
+For a cancel by a person or an unsubscribe of a job with an issue that no runner cleans up, the service does it: a
+job cancelled while it was queued (waiting out a backoff included) or blocked, or whose attempt was claimed and its
+runner not yet called, and a job whose runner was cancelled before it reported its hub session. The cleanup is
+marked `pending` with the cancel (the answer of this route shows `labels.cleanup` `"pending"`), or with the
+cancelled attempt in the second case, and is then tried in the background, one try of a job at a time, once no
+runner of the job is in progress; the route never waits for it. A try reads the token of the subscription, the
+workspace record and the issue's labels through hub, and then:
+
+- removes `<prefix>in-progress`, unless another job of the issue is running;
+- removes each other status label that the job's `labels.set` shows, unless another open job of the issue shows
+  it in its `labels.set` too;
+- adds the request label the job consumed, if the issue does not carry it.
+
+Every other label stays: a `ready` or `landed` of an earlier job, and a label a person set. A try writes only what
+is missing, so it may be repeated. When it finishes, `labels.restore` becomes `null` if the request label is on the
+issue, `set` and `removed` are replaced by what it wrote (if it wrote anything), `labels.cleanup` becomes `"done"`,
+and one `INFO` record names the workspace, the job, the issue and the labels set and removed. The job's event log
+is not touched.
+
+A try that hub is unavailable for (or whose token cannot be read, or whose store fails) leaves the cleanup
+`pending`, with one `WARN` for the cleanup's first failure, and the sweep tries it again every minute, until an hour
+after the cancel; a cleanup still pending then ends `"label_not_set"` with one `ERROR`. A refusal ends it at once,
+`"label_not_set"`, with an `ERROR` that names the operation and carries hub's message: hub refusing or forbidding the
+token (which points to `PUT /api/v1/workspaces/{slug}`), the forge refusing hub's credential, a workspace record hub
+does not find or whose forge URL names no repository, another refusal of a read, and a refused addition of the
+request label. An issue that is gone ends it with an `INFO`, and so does a workspace that is no longer subscribed,
+with nothing written. A removal that hub answers `404` is done; one it refuses otherwise leaves the label, the try
+goes on, and the cleanup ends `"label_not_set"` with a `WARN`. A cleanup that ends `"label_not_set"` keeps
+`labels.restore` set unless the label is on the issue. A cleanup pending at a stop is tried again at the first sweep
+after the start.
 
 ### Answer and retry
 
@@ -498,7 +579,7 @@ A purge runs when the service starts and then every hour. It removes the jobs th
 `attempts/<job id>/` beside the database, which holds the `envelope.json` and `report.md` of each attempt, then
 the rows of the job. A job whose directory cannot be removed keeps its rows, a `WARN` names it, and the next purge
 tries again. A blocked job is never removed, and neither is a job cancelled less than `retain` ago, though
-its question is older. After the purge, the routes answer `404` for the job.
+its question is older, nor a job whose cancel cleanup is pending. After the purge, the routes answer `404` for the job.
 
 ## Request bodies
 
@@ -532,7 +613,8 @@ text of an internal error.
 | `duplicate_job` | 409 | A job of the same kind is open (queued, running or blocked) for the same issue on the workspace; the message names it. |
 | `not_subscribed` | 409 | The workspace of an existing job is not subscribed, or is being unsubscribed, and the action needs it: answer and retry. Making a job on such a workspace is `404`. |
 | `token_unreadable` | 409 | The subscription's token does not open with this deployment's key (`token_state` `unreadable`), and the request would make an attempt run with it: making a job, answer and retry. Subscribe the workspace again. |
-| `invalid_hub_token` | 422 | At subscribe, hub refused the token, or does not show the workspace to it. |
+| `invalid_hub_token` | 422 | At subscribe, hub refused the token (at the gate or at a label creation), or does not show the workspace to it. |
+| `forge_forbidden` | 422 | At subscribe, a label creation was refused: hub forbids the token to create labels (it lacks the scope for hub's forge API), the forge refused hub's credential for the repository, or hub refused the label otherwise. The message says which party refused, and carries hub's message. |
 | `internal` | 500 | A bug or a failure of the database. The panic or the error is in the log, not in the answer. |
 | `hub_unavailable` | 502 | Hub could not say. Nothing was kept or written. |
 | `not_ready` | 503 | `GET /readyz`: the database does not answer. |

@@ -84,9 +84,13 @@ func (s *Service) finish(ctx context.Context, req Request, out called, spent boo
 		}
 		return nil
 	}
-	ended, next, err := s.store.EndAttempt(ctx, end, files)
+	ended, next, cleanup, err := s.store.EndAttempt(ctx, end, files)
 	if err != nil {
 		return err
+	}
+	if cleanup {
+		// The runner has returned: its run was forgotten before the attempt was finished.
+		s.startTry(req.JobID)
 	}
 	if ended && v.auto {
 		if err := s.enqueue(context.WithoutCancel(ctx), req.JobID, next); err != nil {
@@ -223,7 +227,11 @@ type endArgs struct {
 // the attempt is known to be running, so that nothing is written for an attempt that
 // ended another way; a failure of it undoes the rest. It says whether the attempt was
 // ended by this call, and the number of the automatic attempt made.
-func (s *Store) EndAttempt(ctx context.Context, a endArgs, files func() error) (ended bool, next int, err error) {
+//
+// An attempt of a cancelled job whose cancel cleanup is wanted, and whose runner reported no
+// hub session, marks the cleanup pending: the worker writes nothing to an issue without its
+// session. cleanup says that it did.
+func (s *Store) EndAttempt(ctx context.Context, a endArgs, files func() error) (ended bool, next int, cleanup bool, err error) {
 	err = s.run(ctx, a.jobID, func(x *txn) error {
 		now := formatTime(s.now())
 		env := a.env
@@ -284,17 +292,8 @@ func (s *Store) EndAttempt(ctx context.Context, a endArgs, files func() error) (
 			return err
 		}
 		if jobState == StateCancelled {
-			// The job stays cancelled. The request label belongs back on the issue, unless the
-			// runner reports that it set it itself.
-			if requestLabel.Valid && slices.Contains(a.labelsSet, requestLabel.String) {
-				if _, err := x.ExecContext(ctx, "UPDATE af_jobs SET labels_restore = NULL WHERE id = ?", a.jobID); err != nil {
-					return fmt.Errorf("labels of %s: %w", a.jobID, err)
-				}
-			}
-			return x.emit(ctx, a.attempt, EventJobState, jobStateData{
-				State: StateCancelled, Attempt: a.attempt, AtRest: true,
-				Result: &ResultDoc{Status: env.Status, ExitCode: toolio.ExitCode(env.Status), Summary: env.Summary, Error: env.Error},
-			})
+			cleanup, err = x.endCancelled(ctx, a, requestLabel)
+			return err
 		}
 
 		if a.verdict.auto {
@@ -317,9 +316,35 @@ func (s *Store) EndAttempt(ctx context.Context, a endArgs, files func() error) (
 		return x.emit(ctx, a.attempt, EventJobState, state)
 	})
 	if err != nil {
-		return false, 0, err
+		return false, 0, false, err
 	}
-	return ended, next, nil
+	return ended, next, cleanup, nil
+}
+
+// endCancelled records the end of an attempt of a job that was cancelled while it ran: the job stays cancelled, and
+// the request label belongs back on the issue unless the runner reports that it set it itself. A cancel cleanup that is
+// wanted is marked pending when the attempt reported no hub session, and endCancelled says whether it was.
+func (x *txn) endCancelled(ctx context.Context, a endArgs, requestLabel sql.NullString) (cleanup bool, err error) {
+	if requestLabel.Valid && slices.Contains(a.labelsSet, requestLabel.String) {
+		if _, err := x.ExecContext(ctx, "UPDATE af_jobs SET labels_restore = NULL WHERE id = ?", a.jobID); err != nil {
+			return false, fmt.Errorf("labels of %s: %w", a.jobID, err)
+		}
+	}
+	res, err := x.ExecContext(ctx,
+		`UPDATE af_jobs SET cleanup = 'pending' WHERE id = ? AND cleanup_wanted = 1 AND cleanup IS NULL
+		   AND (SELECT hub_session FROM af_attempts WHERE job_id = ? AND n = ?) IS NULL`, a.jobID, a.jobID, a.attempt)
+	if err != nil {
+		return false, fmt.Errorf("cleanup of %s: %w", a.jobID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	env := a.env
+	return n > 0, x.emit(ctx, a.attempt, EventJobState, jobStateData{
+		State: StateCancelled, Attempt: a.attempt, AtRest: true,
+		Result: &ResultDoc{Status: env.Status, ExitCode: toolio.ExitCode(env.Status), Summary: env.Summary, Error: env.Error},
+	})
 }
 
 // lettered are the options of a question with the ids A, B, … in order, whatever ids

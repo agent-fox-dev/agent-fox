@@ -5,15 +5,22 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
+	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
+	"github.com/agent-fox-dev/agentfox/internal/service/jobs/fakerunner"
+	"github.com/agent-fox-dev/agentfox/internal/service/poll"
 )
 
 // put makes the PUT that subscribes slug, as the caller, with the body.
@@ -213,9 +220,14 @@ func TestSubscribingMakesTwoFreshCallsWithTheTokenBypassingTheCaches_TS_11_58(t 
 	for _, req := range a.Hub.RequestsFor(fakehub.TokenHash("pat")) {
 		paths = append(paths, req.Path)
 	}
-	want := []string{workspacePath + "widgets", userPath, workspacePath + "widgets", userPath}
+	// Since agent_fox_label_protocol, the seven label creations follow the two checks (TS-17-5).
+	once := []string{workspacePath + "widgets", userPath}
+	for range 7 {
+		once = append(once, labelsPath("widgets"))
+	}
+	want := append(slices.Clone(once), once...)
 	if !slices.Equal(paths, want) {
-		t.Errorf("hub saw %v with the token, want %v: the gate before the user call, both repeated", paths, want)
+		t.Errorf("hub saw %v with the token, want %v: the gate before the user call and the labels, all repeated", paths, want)
 	}
 	if n := a.userCalls("caller"); n != 1 {
 		t.Errorf("the caller was put to hub %d times, want once: the caches serve the caller", n)
@@ -576,4 +588,412 @@ func column(t *testing.T, db interface {
 		out = append(out, v)
 	}
 	return out
+}
+
+// labelTable are the seven labels of the protocol as the subscribe step creates them, without the prefix: suffix, colour and
+// description.
+var labelTable = [][3]string{
+	{"triage", "0e8a16", "Ask agent-fox to triage this issue"},
+	{"fix", "0e8a16", "Ask agent-fox to fix this issue"},
+	{"in-progress", "fbca04", "agent-fox is working on this issue"},
+	{"ready", "1d76db", "Triaged: the diagnosis is in the body"},
+	{"needs-human", "d93f0b", "agent-fox stopped with a question; see the last comment"},
+	{"landed", "0e8a16", "A branch and a pull request (or a carry patch) exist"},
+	{"failed", "b60205", "agent-fox could not finish; see the last comment"},
+}
+
+// labelsPath is the decoded path of the label route of the slug.
+func labelsPath(slug string) string { return workspacePath + slug + "/labels" }
+
+// labelBodies are the bodies of the label creations that hub received for the slug, in order.
+func (a *authHarness) labelBodies(t *testing.T, slug string) []map[string]string {
+	t.Helper()
+	var out []map[string]string
+	for _, r := range a.Hub.RequestsTo("POST", labelsPath(slug)) {
+		var body map[string]string
+		if err := json.Unmarshal(r.Body, &body); err != nil {
+			t.Fatalf("a label creation is not a JSON object: %s", r.Body)
+		}
+		out = append(out, body)
+	}
+	return out
+}
+
+// wantLabels are the seven labels under the prefix, as the fake hub keeps them.
+func wantLabels(prefix string) []fakehub.Label {
+	var out []fakehub.Label
+	for _, row := range labelTable {
+		out = append(out, fakehub.Label{Name: prefix + row[0], Color: row[1], Description: row[2]})
+	}
+	return out
+}
+
+// TestASubscribeSendsSevenLabelCreationsInTableOrderBeforeTheStoreWrite_TS_17_5 verifies TS-17-5.
+// Verifies: 17-REQ-2.1
+func TestASubscribeSendsSevenLabelCreationsInTableOrderBeforeTheStoreWrite_TS_17_5(t *testing.T) {
+	a := newAuthHarness(t)
+	a.Hub.AddUser("caller", "usr_1", []string{"widgets"})
+	a.Hub.AddUser("pat-17", "usr_9", []string{"widgets"})
+	var rowsAtLabels []int
+	a.Hub.OnRequest(func(r fakehub.Request) {
+		if r.Method == "POST" && r.Path == labelsPath("widgets") {
+			rowsAtLabels = append(rowsAtLabels, a.rows(t))
+		}
+	})
+
+	if r := a.put(t, "widgets", "caller", tokenBody(t, "pat-17", "af:")); r.Status != 201 {
+		t.Fatalf("PUT = %d %s, want 201", r.Status, r.Body)
+	}
+	a.Hub.OnRequest(nil)
+	reqs := a.Hub.RequestsTo("POST", labelsPath("widgets"))
+	bodies := a.labelBodies(t, "widgets")
+	if len(bodies) != 7 {
+		t.Fatalf("%d label creations, want 7", len(bodies))
+	}
+	for i, row := range labelTable {
+		want := map[string]string{"name": "af:" + row[0], "color": row[1], "description": row[2]}
+		if fmt.Sprint(bodies[i]) != fmt.Sprint(want) {
+			t.Errorf("creation %d is %v, want %v", i+1, bodies[i], want)
+		}
+		if reqs[i].TokenHash != fakehub.TokenHash("pat-17") {
+			t.Errorf("creation %d was not made with the hub_token of the request", i+1)
+		}
+	}
+	if len(rowsAtLabels) != 7 || slices.Max(rowsAtLabels) != 0 {
+		t.Errorf("the store held %v rows as the creations arrived, want none at each of the seven", rowsAtLabels)
+	}
+	if a.rows(t) != 1 {
+		t.Error("the subscription was not stored after the labels")
+	}
+}
+
+// TestANewSubscriptionAnswers201AndAReplacement200AndAnOmittedPrefixMakesAfLabels_TS_17_6 verifies TS-17-6.
+// Verifies: 17-REQ-2.2, 17-REQ-2.1
+func TestANewSubscriptionAnswers201AndAReplacement200AndAnOmittedPrefixMakesAfLabels_TS_17_6(t *testing.T) {
+	a := newAuthHarness(t)
+	a.Hub.AddUser("caller", "usr_1", []string{"widgets"})
+	a.Hub.AddUser("pat-a", "usr_9", []string{"widgets"})
+	a.Hub.AddUser("pat-b", "usr_9", []string{"widgets"})
+
+	first := a.put(t, "widgets", "caller", tokenBody(t, "pat-a"))
+	second := a.put(t, "widgets", "caller", tokenBody(t, "pat-b"))
+	if first.Status != 201 || second.Status != 200 {
+		t.Fatalf("PUT, PUT = %d, %d; want 201, 200", first.Status, second.Status)
+	}
+	for _, r := range []response{first, second} {
+		if got := keysOf(r.JSON(t)); !slices.Equal(got, viewKeys) {
+			t.Errorf("the view has %v, want exactly %v", got, viewKeys)
+		}
+	}
+	if got := a.Hub.Labels("widgets"); !slices.Equal(got, wantLabels("af:")) {
+		t.Errorf("hub holds %v, want the seven af: labels", got)
+	}
+	if a.rows(t) != 1 || second.JSON(t)["label_prefix"] != "af:" {
+		t.Errorf("rows %d, label_prefix %v; want the subscription stored with af:", a.rows(t), second.JSON(t)["label_prefix"])
+	}
+}
+
+// TestSubscribingAgainWithTheSamePrefixLeavesHubsLabelsUnchanged_TS_17_7 verifies TS-17-7.
+// Verifies: 17-REQ-2.3
+func TestSubscribingAgainWithTheSamePrefixLeavesHubsLabelsUnchanged_TS_17_7(t *testing.T) {
+	a := newAuthHarness(t)
+	a.Hub.AddUser("caller", "usr_1", []string{"widgets"})
+	a.Hub.AddUser("pat", "usr_9", []string{"widgets"})
+	if r := a.put(t, "widgets", "caller", tokenBody(t, "pat", "af:")); r.Status != 201 {
+		t.Fatalf("PUT = %d %s", r.Status, r.Body)
+	}
+	a.Hub.PutLabel("widgets", fakehub.Label{Name: "af:ready", Color: "000000", Description: "a person changed it"})
+	before := a.Hub.Labels("widgets")
+
+	if r := a.put(t, "widgets", "caller", tokenBody(t, "pat", "af:")); r.Status != 200 {
+		t.Fatalf("PUT again = %d %s, want 200", r.Status, r.Body)
+	}
+	if n := len(a.Hub.RequestsTo("POST", labelsPath("widgets"))); n != 14 {
+		t.Errorf("%d creations in all, want 7 more", n)
+	}
+	if got := a.Hub.Labels("widgets"); !slices.Equal(got, before) {
+		t.Errorf("hub's labels changed: %v, want %v", got, before)
+	}
+}
+
+// TestAChangedPrefixCreatesTheNewSetAndNeitherRenamesNorDeletesTheOld_TS_17_8 verifies TS-17-8.
+// Verifies: 17-REQ-2.4
+func TestAChangedPrefixCreatesTheNewSetAndNeitherRenamesNorDeletesTheOld_TS_17_8(t *testing.T) {
+	a := newAuthHarness(t)
+	a.Hub.AddUser("caller", "usr_1", []string{"widgets"})
+	a.Hub.AddUser("pat", "usr_9", []string{"widgets"})
+	if r := a.put(t, "widgets", "caller", tokenBody(t, "pat", "af:")); r.Status != 201 {
+		t.Fatalf("PUT af: = %d %s", r.Status, r.Body)
+	}
+	if r := a.put(t, "widgets", "caller", tokenBody(t, "pat", "bot-")); r.Status != 200 {
+		t.Fatalf("PUT bot- = %d %s", r.Status, r.Body)
+	}
+	if r := a.do(t, "DELETE", "/api/v1/workspaces/widgets", nil, bearer("caller")...); r.Status != 204 {
+		t.Fatalf("DELETE = %d %s", r.Status, r.Body)
+	}
+	if got := a.Hub.Labels("widgets"); !slices.Equal(got, append(wantLabels("af:"), wantLabels("bot-")...)) {
+		t.Errorf("hub holds %v, want the seven af: and the seven bot- labels", got)
+	}
+	for _, r := range a.Hub.Requests() {
+		if strings.Contains(r.Path, "/labels") && r.Method != "POST" {
+			t.Errorf("a %s %s was sent: no label is renamed or deleted", r.Method, r.Path)
+		}
+	}
+}
+
+// TestTheLabelStepLogsOneInfoRecordWithTheCountsAndNoToken_TS_17_9 verifies TS-17-9.
+// Verifies: 17-REQ-2.5
+func TestTheLabelStepLogsOneInfoRecordWithTheCountsAndNoToken_TS_17_9(t *testing.T) {
+	a := newAuthHarness(t)
+	a.Hub.AddUser("caller", "usr_1", []string{"widgets"})
+	const token = "pat-recognisable-0123456789"
+	a.Hub.AddUser(token, "usr_9", []string{"widgets"})
+	for _, l := range wantLabels("af:")[:3] {
+		a.Hub.PutLabel("widgets", l)
+	}
+	if r := a.put(t, "widgets", "caller", tokenBody(t, token)); r.Status != 201 {
+		t.Fatalf("PUT = %d %s", r.Status, r.Body)
+	}
+	var found []map[string]any
+	for _, rec := range a.Logs.records(t) {
+		if rec["level"] == "INFO" && rec["created"] != nil {
+			found = append(found, rec)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("%d INFO records of the label step, want 1: %v", len(found), found)
+	}
+	if rec := found[0]; rec["workspace"] != "widgets" || rec["created"] != float64(4) || rec["existing"] != float64(3) {
+		t.Errorf("the record is %v, want workspace widgets, 4 created and 3 already there", rec)
+	}
+	if strings.Contains(a.Logs.String(), token) {
+		t.Error("a log record holds the hub_token")
+	}
+}
+
+// TestAServiceStartedWithOlderSubscriptionsCreatesNoLabelUntilAPut_TS_17_10 verifies TS-17-10: neither the start of the
+// jobs layer, its first sweep, nor a cycle of the label poll creates a label; a PUT creates the seven of its slug only.
+// Verifies: 17-REQ-2.6
+func TestAServiceStartedWithOlderSubscriptionsCreatesNoLabelUntilAPut_TS_17_10(t *testing.T) {
+	a := newAuthHarness(t)
+	a.Hub.AddUser("caller", "usr_1", []string{"widgets", "gadgets"})
+	for _, slug := range []string{"widgets", "gadgets"} {
+		pat := "pat-of-" + slug
+		a.Hub.AddWorkspace(t, fakehub.Workspace{Slug: slug, PAT: pat})
+		if _, _, err := a.Store.Upsert(ctx, slug, "af:", pat, "", "usr_1", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc, err := jobs.New(jobs.Config{
+		DB: a.Store.DB(), Subscriptions: a.Store, Logger: slog.New(slog.NewJSONHandler(a.Logs, nil)),
+		Workers: 1, AttemptsDir: filepath.Join(t.TempDir(), "attempts"), Runner: fakerunner.New(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { svc.Close() })
+	if err := svc.Start(); err != nil {
+		t.Fatal(err)
+	}
+	sup := poll.New(poll.Config{Subscriptions: a.Store, Hub: hub.New(a.Hub.URL, "1.2.3"), Jobs: svc, DB: a.Store.DB(), Logger: slog.New(slog.NewJSONHandler(a.Logs, nil))})
+	for _, slug := range []string{"widgets", "gadgets"} {
+		sup.Cycle(ctx, slug)
+	}
+	for _, r := range a.Hub.Requests() {
+		if strings.HasSuffix(r.Path, "/labels") {
+			t.Fatalf("a label request was sent after the start: %s %s", r.Method, r.Path)
+		}
+	}
+
+	if r := a.put(t, "widgets", "caller", tokenBody(t, "pat-of-widgets")); r.Status != 200 {
+		t.Fatalf("PUT = %d %s", r.Status, r.Body)
+	}
+	if n, m := len(a.Hub.RequestsTo("POST", labelsPath("widgets"))), len(a.Hub.RequestsTo("", labelsPath("gadgets"))); n != 7 || m != 0 {
+		t.Errorf("%d creations for widgets and %d for gadgets, want 7 and none", n, m)
+	}
+}
+
+// labelHarness is a harness on which the caller and the token see widgets, and whose hub answers the third label creation
+// with the fault.
+func labelHarness(t *testing.T, third fakehub.Fault) *authHarness {
+	t.Helper()
+	a := newAuthHarness(t)
+	a.Hub.AddUser("caller", "usr_1", []string{"widgets"})
+	a.Hub.AddUser("pat", "usr_9", []string{"widgets"})
+	third.Skip = 2
+	a.Hub.Inject("POST", labelsPath("widgets"), third)
+	return a
+}
+
+// subscriptionRow is every column of the subscription of the slug, as the store holds it, or "" when there is none.
+func (a *authHarness) subscriptionRow(t *testing.T, slug string) string {
+	t.Helper()
+	var label, user, by, created, updated string
+	var sealed []byte
+	var tokenUser sql.NullString
+	var revision int
+	err := a.Store.DB().QueryRowContext(ctx, "SELECT label_prefix, sealed_token, token_user, subscribed_by, created_at, updated_at, revision FROM af_subscriptions WHERE slug = ?", slug).
+		Scan(&label, &sealed, &tokenUser, &by, &created, &updated, &revision)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ""
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	user = tokenUser.String
+	return fmt.Sprintf("%s|%x|%s|%s|%s|%s|%d", label, sealed, user, by, created, updated, revision)
+}
+
+// refusedAs checks that the PUT was answered with the status, the code and a message that contains each of the parts, that
+// no fourth creation was sent and that nothing was stored.
+func (a *authHarness) refusedAs(t *testing.T, r response, status int, code string, parts ...string) {
+	t.Helper()
+	if r.Status != status || r.errorCode(t) != code {
+		t.Fatalf("PUT = %d %s, want %d %s", r.Status, r.Body, status, code)
+	}
+	msg := r.JSON(t)["error"].(map[string]any)["message"].(string)
+	for _, p := range parts {
+		if !strings.Contains(msg, p) {
+			t.Errorf("the message %q does not say %q", msg, p)
+		}
+	}
+	if n := len(a.Hub.RequestsTo("POST", labelsPath("widgets"))); n != 3 {
+		t.Errorf("%d creations, want the third to be the last", n)
+	}
+	if a.rows(t) != 0 {
+		t.Error("the subscription was stored")
+	}
+}
+
+// TestALabelReportedAlreadyThereDoesNotFailTheSubscribe_TS_17_11 verifies TS-17-11.
+// Verifies: 17-REQ-2.2, 17-REQ-4.3
+func TestALabelReportedAlreadyThereDoesNotFailTheSubscribe_TS_17_11(t *testing.T) {
+	for name, f := range map[string]fakehub.Fault{
+		"409":                        {Status: 409, Once: true},
+		"422 already_exists":         {Status: 422, Body: `{"error":{"code":422,"message":"Validation Failed","error_type":"already_exists"}}`, Once: true},
+		"400 'Label Already Exists'": {Status: 400, Body: `{"error":{"code":400,"message":"Label Already Exists"}}`, Once: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := labelHarness(t, f)
+			if r := a.put(t, "widgets", "caller", tokenBody(t, "pat")); r.Status != 201 {
+				t.Fatalf("PUT = %d %s, want 201", r.Status, r.Body)
+			}
+			if n := len(a.Hub.RequestsTo("POST", labelsPath("widgets"))); n != 7 {
+				t.Errorf("%d creations, want the step to go on to all seven", n)
+			}
+			if a.rows(t) != 1 {
+				t.Error("the subscription was not stored")
+			}
+		})
+	}
+}
+
+// TestAFailingThirdCreationStopsTheStepAndStoresNothing_TS_17_12 verifies TS-17-12, for a create and for a replace.
+// Verifies: 17-REQ-3.1
+func TestAFailingThirdCreationStopsTheStepAndStoresNothing_TS_17_12(t *testing.T) {
+	t.Run("create", func(t *testing.T) {
+		a := labelHarness(t, fakehub.Fault{Status: 403})
+		a.refusedAs(t, a.put(t, "widgets", "caller", tokenBody(t, "pat")), 422, "forge_forbidden")
+		if got := a.Hub.Labels("widgets"); !slices.Equal(got, wantLabels("af:")[:2]) {
+			t.Errorf("hub holds %v, want the two labels created before the failure left in place", got)
+		}
+	})
+	t.Run("replace", func(t *testing.T) {
+		a := newAuthHarness(t)
+		a.Hub.AddUser("caller", "usr_1", []string{"widgets"})
+		a.Hub.AddUser("old", "usr_8", []string{"widgets"})
+		a.Hub.AddUser("pat", "usr_9", []string{"widgets"})
+		if r := a.put(t, "widgets", "caller", tokenBody(t, "old", "old:")); r.Status != 201 {
+			t.Fatalf("the first PUT = %d %s", r.Status, r.Body)
+		}
+		before := a.subscriptionRow(t, "widgets")
+		a.Clock.Advance(time.Hour)
+		a.Hub.Inject("POST", labelsPath("widgets"), fakehub.Fault{Status: 403, Skip: 2})
+		r := a.put(t, "widgets", "caller", tokenBody(t, "pat", "af:"))
+		if r.Status != 422 || r.errorCode(t) != "forge_forbidden" {
+			t.Fatalf("PUT = %d %s, want 422 forge_forbidden", r.Status, r.Body)
+		}
+		if n := len(a.Hub.RequestsTo("POST", labelsPath("widgets"))); n != 10 {
+			t.Errorf("%d creations in all, want 7 and then 3", n)
+		}
+		if after := a.subscriptionRow(t, "widgets"); after != before {
+			t.Errorf("the stored row changed:\n%s\nwant\n%s", after, before)
+		}
+	})
+}
+
+// TestA401OnLabelCreationAnswers422InvalidHubToken_TS_17_13 verifies TS-17-13.
+// Verifies: 17-REQ-3.2
+func TestA401OnLabelCreationAnswers422InvalidHubToken_TS_17_13(t *testing.T) {
+	a := labelHarness(t, fakehub.Fault{Status: 401})
+	r := a.put(t, "widgets", "caller", tokenBody(t, "pat"))
+	a.refusedAs(t, r, 422, "invalid_hub_token")
+	if msg := r.JSON(t)["error"].(map[string]any)["message"]; msg != "hub refused the token" {
+		t.Errorf("message = %q, want %q", msg, "hub refused the token")
+	}
+}
+
+// TestA403OnLabelCreationAnswers422ForgeForbiddenNamingTheScope_TS_17_14 verifies TS-17-14.
+// Verifies: 17-REQ-3.3
+func TestA403OnLabelCreationAnswers422ForgeForbiddenNamingTheScope_TS_17_14(t *testing.T) {
+	a := labelHarness(t, fakehub.Fault{Status: 403})
+	a.refusedAs(t, a.put(t, "widgets", "caller", tokenBody(t, "pat")), 422, "forge_forbidden",
+		"hub forbids the token to create labels", "scope", "forge API")
+}
+
+// TestA502ForgeRefusalAnswers422ForgeForbiddenWithHubsMessage_TS_17_15 verifies TS-17-15.
+// Verifies: 17-REQ-3.4
+func TestA502ForgeRefusalAnswers422ForgeForbiddenWithHubsMessage_TS_17_15(t *testing.T) {
+	for _, kind := range []string{"forge_forbidden", "forge_unauthenticated"} {
+		t.Run(kind, func(t *testing.T) {
+			body := `{"error":{"code":502,"message":"GitHub said: Resource not accessible by integration","error_type":"` + kind + `"}}`
+			a := labelHarness(t, fakehub.Fault{Status: 502, Body: body})
+			a.refusedAs(t, a.put(t, "widgets", "caller", tokenBody(t, "pat")), 422, "forge_forbidden",
+				"the forge refused hub's credential for the repository", "GitHub said: Resource not accessible by integration")
+		})
+	}
+}
+
+// TestA404Or405OnLabelCreationAnswers502SayingHubDoesNotServeIt_TS_17_16 verifies TS-17-16.
+// Verifies: 17-REQ-3.5
+func TestA404Or405OnLabelCreationAnswers502SayingHubDoesNotServeIt_TS_17_16(t *testing.T) {
+	for _, status := range []int{404, 405} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			a := labelHarness(t, fakehub.Fault{Status: status})
+			a.refusedAs(t, a.put(t, "widgets", "caller", tokenBody(t, "pat")), 502, "hub_unavailable",
+				"hub does not serve label creation for the workspace", "widgets")
+		})
+	}
+}
+
+// TestAnotherRefusalOfLabelCreationAnswers422ForgeForbiddenWithHubsMessage_TS_17_17 verifies TS-17-17.
+// Verifies: 17-REQ-3.6
+func TestAnotherRefusalOfLabelCreationAnswers422ForgeForbiddenWithHubsMessage_TS_17_17(t *testing.T) {
+	for name, c := range map[string]struct {
+		fault   fakehub.Fault
+		message string
+	}{
+		"400":                   {fakehub.Fault{Status: 400, Body: `{"error":{"code":400,"message":"invalid label name"}}`}, "invalid label name"},
+		"422 validation_failed": {fakehub.Fault{Status: 422, Body: `{"error":{"code":422,"message":"name is too long","error_type":"validation_failed"}}`}, "name is too long"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := labelHarness(t, c.fault)
+			a.refusedAs(t, a.put(t, "widgets", "caller", tokenBody(t, "pat")), 422, "forge_forbidden", c.message)
+		})
+	}
+}
+
+// TestAnUnavailableHubOnLabelCreationAnswers502HubUnavailable_TS_17_18 verifies TS-17-18.
+// Verifies: 17-REQ-3.7
+func TestAnUnavailableHubOnLabelCreationAnswers502HubUnavailable_TS_17_18(t *testing.T) {
+	for name, f := range map[string]fakehub.Fault{
+		"429": {Status: 429}, "500": {Status: 500}, "503": {Status: 503}, "a redirect": {Redirect: "/elsewhere"},
+		"a hang-up": {Hangup: true}, "a delay past the bound": {Delay: 2 * time.Second}, "not hub's body": {Status: 201, Body: "<html>"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := labelHarness(t, f)
+			a.srv.deps.Hub.HTTP.Timeout = 200 * time.Millisecond // the 10 s of the client, scaled
+			a.refusedAs(t, a.put(t, "widgets", "caller", tokenBody(t, "pat")), 502, "hub_unavailable")
+		})
+	}
 }

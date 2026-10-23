@@ -1,19 +1,25 @@
 package jobs_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs/fakeclock"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs/fakerunner"
+	"github.com/agent-fox-dev/agentfox/internal/service/poll"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -430,5 +436,183 @@ func TestTheHourlyPurgeOnAnInjectedClockRemovesExpiredJobsAndKeepsBlockedOnes_TS
 	}
 	if list := e.call("GET", "/api/v1/jobs", nil).page(t); len(list.Jobs) != 2 {
 		t.Errorf("the list holds %v, want the blocked job and the recent one", list.ids())
+	}
+}
+
+// labelEnv is the service with the hub-backed cancel cleanup, the fake clock and the runner, whose fake hub serves widgets
+// with the issue 42 carrying the labels, and the label poll of widgets over the same layer.
+func labelEnv(t *testing.T, r *fakerunner.Runner, labels ...string) (*env, *fakeclock.Clock, *poll.Supervisor) {
+	t.Helper()
+	clk := fakeclock.New(epoch)
+	e := newEnv(t, withHubCleaner(), withRunner(r), withClock(clk))
+	e.Hub.AddWorkspace(t, fakehub.Workspace{Slug: "widgets", PAT: "pat-of-widgets"})
+	e.Hub.AddIssue("widgets", fakehub.Issue{Number: 42, Labels: labels})
+	e.Start()
+	sup := poll.New(poll.Config{
+		Subscriptions: e.Store, Hub: hub.New(e.Hub.URL, "test"), Jobs: e.Svc, DB: e.DB, Clock: clk,
+		Logger: slog.New(slog.NewJSONHandler(e.Logs, nil)), FirstDelay: func() time.Duration { return 0 },
+	})
+	return e, clk, sup
+}
+
+// blockedFromThePoll runs a cycle of the poll that makes the fix job of issue 42 from af:fix, and waits for the job to be
+// blocked, with needs-human on the issue as the worker sets it.
+func (e *env) blockedFromThePoll(sup *poll.Supervisor) jobs.Doc {
+	e.t.Helper()
+	sup.Cycle(ctx, "widgets")
+	var id string
+	waitFor(e.t, "the poll's job", func() bool {
+		page, err := e.Svc.List(ctx, []string{"widgets"}, jobs.ListFilter{})
+		if err != nil || len(page.Jobs) == 0 {
+			return false
+		}
+		id = page.Jobs[0].ID
+		return true
+	})
+	doc := e.waitState(id, jobs.StateBlocked)
+	e.Hub.AddLabel("widgets", 42, "af:needs-human")
+	return doc
+}
+
+// labelsJSON is the labels member of the job as the API serves it.
+func (e *env) labelsJSON(id string) string {
+	e.t.Helper()
+	r := e.call("GET", "/api/v1/jobs/"+id, nil)
+	var doc struct {
+		Labels json.RawMessage `json:"labels"`
+	}
+	if err := json.Unmarshal(r.Body, &doc); err != nil {
+		e.t.Fatal(err)
+	}
+	return string(doc.Labels)
+}
+
+const cleanedUp = `{"set":["af:fix"],"removed":["af:needs-human"],"restore":null,"cleanup":"done"}`
+
+// TestAPersonCancelsABlockedPollFixJobAndAfFixIsPutBackAndHeld_TS_17_65 verifies TS-17-65 and 17-PATH-2.
+// Verifies: 17-PATH-2, 17-REQ-6.6, 17-REQ-10.1
+func TestAPersonCancelsABlockedPollFixJobAndAfFixIsPutBackAndHeld_TS_17_65(t *testing.T) {
+	e, clk, sup := labelEnv(t, fakerunner.New(needsHumanStep()), "af:fix")
+	job := e.blockedFromThePoll(sup)
+
+	answer := e.cancel(job.ID)
+	if d := answer.Doc(t); cleanupOf(d) != "pending" {
+		t.Fatalf("the cancel answered labels %+v, want cleanup pending", d.Labels)
+	}
+	waitFor(t, "the cleanup", func() bool { return e.cleanupIn(job.ID) == "done" })
+	if got := e.issueLabels(); !slices.Equal(got, []string{"af:fix"}) {
+		t.Errorf("issue 42 carries %v, want af:fix and no status label", got)
+	}
+	if got := e.labelsJSON(job.ID); got != cleanedUp {
+		t.Errorf("labels = %s, want %s", got, cleanedUp)
+	}
+	removals := len(e.Hub.RequestsTo("DELETE", "/api/v1/workspaces/widgets/issues/42/labels/af:fix"))
+	for range 3 {
+		sup.Cycle(ctx, "widgets")
+		clk.Advance(time.Minute)
+	}
+	if page, _ := e.Svc.List(ctx, []string{"widgets"}, jobs.ListFilter{}); len(page.Jobs) != 1 {
+		t.Errorf("%d jobs after three cycles, want no new one", len(page.Jobs))
+	}
+	if n := len(e.Hub.RequestsTo("DELETE", "/api/v1/workspaces/widgets/issues/42/labels/af:fix")); n != removals {
+		t.Errorf("the cycles removed af:fix %d times, want none", n-removals)
+	}
+}
+
+// TestARunnerCancelledBeforeItsHubSessionLeavesAfFixAndNoNeedsHuman_TS_17_66 verifies TS-17-66 and 17-PATH-3.
+// Verifies: 17-PATH-3, 17-REQ-5.2
+func TestARunnerCancelledBeforeItsHubSessionLeavesAfFixAndNoNeedsHuman_TS_17_66(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	second := fakerunner.Do(func(ctx context.Context, req jobs.Request) (jobs.Result, error) {
+		close(started)
+		<-ctx.Done()
+		<-release
+		return jobs.Result{}, ctx.Err()
+	})
+	e, _, sup := labelEnv(t, fakerunner.New(needsHumanStep(), second), "af:fix")
+	job := e.blockedFromThePoll(sup)
+	option := "A"
+	if _, err := e.Svc.Answer(ctx, job.ID, callerID, jobs.AnswerRequest{Option: &option}); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	before := len(e.issueRequests())
+	e.cancel(job.ID)
+	time.Sleep(50 * time.Millisecond)
+	if r := e.issueRequests()[before:]; len(r) != 0 {
+		close(release)
+		t.Fatalf("a try ran while the runner was in progress: %v", r)
+	}
+	close(release)
+	waitFor(t, "the cancelled attempt", func() bool {
+		d := e.get(job.ID)
+		return len(d.Attempts) == 2 && d.Attempts[1].State == jobs.AttemptCancelled
+	})
+	if c := e.cleanupIn(job.ID); c != "pending" && c != "done" {
+		t.Fatalf("cleanup %q once the attempt is recorded, want it marked", c)
+	}
+	waitFor(t, "the cleanup", func() bool { return e.cleanupIn(job.ID) == "done" })
+	if got := e.issueLabels(); !slices.Equal(got, []string{"af:fix"}) {
+		t.Errorf("issue 42 carries %v, want af:fix and no af:needs-human", got)
+	}
+}
+
+// TestACleanupThatMeetsAnUnavailableHubIsRetriedByTheSweepAndCompletes_TS_17_67 verifies TS-17-67 and 17-PATH-4.
+// Verifies: 17-PATH-4, 17-REQ-7.2, 17-REQ-8.1
+func TestACleanupThatMeetsAnUnavailableHubIsRetriedByTheSweepAndCompletes_TS_17_67(t *testing.T) {
+	e, clk, sup := labelEnv(t, fakerunner.New(needsHumanStep()), "af:fix")
+	job := e.blockedFromThePoll(sup)
+	e.Hub.Fail("/api/v1/workspaces/widgets/issues/42/labels", 503)
+	e.cancel(job.ID)
+	waitFor(t, "the warning", func() bool { return len(e.warnsFor(job.ID)) == 1 })
+	waitFor(t, "the try to end", func() bool { return e.Svc.CleanupsInFlight() == 0 })
+	if d := e.get(job.ID); cleanupOf(d) != "pending" || d.Labels.Restore == nil || *d.Labels.Restore != "af:fix" {
+		t.Fatalf("labels %+v, want cleanup pending with restore af:fix", d.Labels)
+	}
+	e.Hub.Clear()
+	clk.Advance(time.Minute)
+	waitFor(t, "the sweep to complete the cleanup", func() bool { return e.cleanupIn(job.ID) == "done" })
+	if got := e.issueLabels(); !slices.Equal(got, []string{"af:fix"}) {
+		t.Errorf("issue 42 carries %v", got)
+	}
+	if n := len(e.warnsFor(job.ID)); n != 1 {
+		t.Errorf("%d WARN records, want 1", n)
+	}
+}
+
+// TestAnUnsubscribeCleansUpItsBlockedJobBeforeRemovingTheSubscription_TS_17_68 verifies TS-17-68 and 17-PATH-5.
+// Verifies: 17-PATH-5, 17-REQ-9.2
+func TestAnUnsubscribeCleansUpItsBlockedJobBeforeRemovingTheSubscription_TS_17_68(t *testing.T) {
+	e, _, sup := labelEnv(t, fakerunner.New(needsHumanStep()), "af:fix")
+	job := e.blockedFromThePoll(sup)
+	var mu sync.Mutex
+	var labelsWhenRemoved []string
+	var subscribedAtWrites []bool
+	e.Hub.OnRequest(func(r fakehub.Request) {
+		if strings.HasPrefix(r.Path, "/api/v1/workspaces/widgets/issues/42/labels") {
+			_, err := e.Store.Get(ctx, "widgets")
+			mu.Lock()
+			subscribedAtWrites = append(subscribedAtWrites, err == nil)
+			mu.Unlock()
+		}
+	})
+	r := e.call("DELETE", "/api/v1/workspaces/widgets", nil)
+	if r.Status != http.StatusNoContent {
+		t.Fatalf("DELETE = %d %s", r.Status, r.Body)
+	}
+	labelsWhenRemoved = e.issueLabels()
+	mu.Lock()
+	defer mu.Unlock()
+	if len(subscribedAtWrites) != 2 || slices.Contains(subscribedAtWrites, false) {
+		t.Errorf("the subscription at the label writes: %v, want it there at both", subscribedAtWrites)
+	}
+	if !slices.Equal(labelsWhenRemoved, []string{"af:fix"}) {
+		t.Errorf("issue 42 carries %v, want af:fix and no af:needs-human", labelsWhenRemoved)
+	}
+	if e.cleanupIn(job.ID) != "done" {
+		t.Errorf("cleanup %s when the DELETE answered, want done", e.cleanupIn(job.ID))
+	}
+	if n := e.count("SELECT count(*) FROM af_subscriptions WHERE slug = 'widgets'"); n != 0 {
+		t.Error("the subscription and its token are still there")
 	}
 }

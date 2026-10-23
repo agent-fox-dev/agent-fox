@@ -19,10 +19,11 @@ const (
 )
 
 // expiredCondition says that a job is one the purge may remove: it is finished, no attempt of it
-// is running, and it was finished before the cutoff. finished_at is when the job last entered
+// is running, its cancel cleanup is not pending, and it was finished before the cutoff. finished_at is when the job last entered
 // done, failed or cancelled, so the time a question was asked, or a job was made, counts for
 // nothing. The arguments are the job and the cutoff.
 const expiredCondition = `j.id = ? AND j.state IN ('done', 'failed', 'cancelled') AND j.finished_at < ?
+	AND j.cleanup IS NOT 'pending'
 	AND NOT EXISTS (SELECT 1 FROM af_attempts a WHERE a.job_id = j.id AND a.state = 'running')`
 
 // expiredKey is where in the order of the expired jobs a read of them is.
@@ -33,7 +34,7 @@ type expiredKey struct{ finishedAt, id string }
 func (s *Store) Expired(ctx context.Context, cutoff string, after expiredKey, limit int) ([]expiredKey, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT finished_at, id FROM af_jobs
-		 WHERE state IN ('done', 'failed', 'cancelled') AND finished_at < ?
+		 WHERE state IN ('done', 'failed', 'cancelled') AND finished_at < ? AND cleanup IS NOT 'pending'
 		   AND (finished_at > ? OR (finished_at = ? AND id > ?))
 		 ORDER BY finished_at, id LIMIT ?`, cutoff, after.finishedAt, after.finishedAt, after.id, limit)
 	if err != nil {

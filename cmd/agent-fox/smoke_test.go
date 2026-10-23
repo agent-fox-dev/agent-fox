@@ -210,8 +210,13 @@ func TestACallerSubscribesAndListsWhileAnotherCannotSee_TS_11_81(t *testing.T) {
 	for _, r := range hub.RequestsFor(hashed(pat)) {
 		seen = append(seen, r.Path)
 	}
-	if want := []string{"/api/v1/workspaces/widgets", "/api/v1/user"}; !slices.Equal(seen, want) {
-		t.Errorf("hub saw %v with the PAT, want the gate and then the user call: %v", seen, want)
+	// Since agent_fox_label_protocol, the seven label creations follow the two checks.
+	want := []string{"/api/v1/workspaces/widgets", "/api/v1/user"}
+	for range 7 {
+		want = append(want, "/api/v1/workspaces/widgets/labels")
+	}
+	if !slices.Equal(seen, want) {
+		t.Errorf("hub saw %v with the PAT, want the gate, the user call and the seven labels: %v", seen, want)
 	}
 
 	// The PAT is in neither the file nor its WAL, while the service runs.
@@ -429,4 +434,99 @@ func TestEveryLineOfStderrIsARecordAndEachRequestIsOne_TS_11_53(t *testing.T) {
 			t.Errorf("stderr holds %q", needle)
 		}
 	}
+}
+
+// TestACallerSubscribesAWorkspaceAndTheSevenLabelsAreCreated_TS_17_64 verifies TS-17-64 and 17-PATH-1 through the binary: a
+// PUT creates the seven labels of the table on the workspace with their colours and descriptions, logs their counts and
+// stores the subscription; a second PUT answers 200 and changes nothing on hub.
+// Verifies: 17-PATH-1, 17-REQ-2.1, 17-REQ-2.2
+func TestACallerSubscribesAWorkspaceAndTheSevenLabelsAreCreated_TS_17_64(t *testing.T) {
+	const pat = "pat-DISTINCT-64-0123456789"
+	hub := fakehub.New(t)
+	hub.AddUser("tok-A", "usr_A", []string{"widgets"})
+	hub.AddUser(pat, "usr_P", []string{"widgets"})
+	s := newSetup(t, hub.URL)
+	p := s.start(t, bareEnv(t))
+	addr := p.addr()
+
+	if status, body := call(t, "PUT", addr, "/api/v1/workspaces/widgets", "tok-A", `{"hub_token":"`+pat+`","label_prefix":"af:"}`); status != 201 {
+		t.Fatalf("PUT = %d %s, want 201", status, body)
+	}
+	want := []fakehub.Label{
+		{Name: "af:triage", Color: "0e8a16", Description: "Ask agent-fox to triage this issue"},
+		{Name: "af:fix", Color: "0e8a16", Description: "Ask agent-fox to fix this issue"},
+		{Name: "af:in-progress", Color: "fbca04", Description: "agent-fox is working on this issue"},
+		{Name: "af:ready", Color: "1d76db", Description: "Triaged: the diagnosis is in the body"},
+		{Name: "af:needs-human", Color: "d93f0b", Description: "agent-fox stopped with a question; see the last comment"},
+		{Name: "af:landed", Color: "0e8a16", Description: "A branch and a pull request (or a carry patch) exist"},
+		{Name: "af:failed", Color: "b60205", Description: "agent-fox could not finish; see the last comment"},
+	}
+	if got := hub.Labels("widgets"); !slices.Equal(got, want) {
+		t.Errorf("hub holds %v, want the seven af: labels of the table", got)
+	}
+	rec := p.waitFor("the labels of the workspace are in place")
+	if rec["workspace"] != "widgets" || rec["created"] != float64(7) || rec["existing"] != float64(0) {
+		t.Errorf("the record is %v, want widgets with 7 created and none already there", rec)
+	}
+	if status, body := call(t, "PUT", addr, "/api/v1/workspaces/widgets", "tok-A", `{"hub_token":"`+pat+`","label_prefix":"af:"}`); status != 200 {
+		t.Fatalf("the second PUT = %d %s, want 200", status, body)
+	}
+	if got := hub.Labels("widgets"); !slices.Equal(got, want) {
+		t.Errorf("after the second PUT hub holds %v", got)
+	}
+	if status, body := call(t, "GET", addr, "/api/v1/workspaces/widgets", "tok-A", ""); status != 200 || object(t, body)["label_prefix"] != "af:" {
+		t.Errorf("GET = %d %s, want the stored subscription", status, body)
+	}
+	stop(t, p)
+}
+
+// TestTheBinaryWiresTheCancelCleanup is the part of the label protocol that only the binary can show: the jobs layer that
+// cmd/agent-fox builds has the hub-backed cancel cleanup, so that a job cancelled while it waits behind another of its
+// workspace gets its cleanup tried and done, and the job document shows it.
+// Verifies: 17-REQ-5.1, 17-REQ-5.7
+func TestTheBinaryWiresTheCancelCleanup(t *testing.T) {
+	const pat = "pat-DISTINCT-CLEAN-0123456789"
+	hub := fakehub.New(t)
+	hub.AddUser("tok-A", "usr_A", []string{"widgets"})
+	hub.AddUser(pat, "usr_P", []string{"widgets"})
+	hub.AddWorkspace(t, fakehub.Workspace{Slug: "widgets", PAT: pat, Mode: "carry_patch"})
+	hub.AddIssue("widgets", fakehub.Issue{Number: 43, Labels: []string{"af:in-progress"}})
+	s := newSetup(t, hub.URL)
+	p := s.start(t, bareEnv(t))
+	addr := p.addr()
+	if status, body := call(t, "PUT", addr, "/api/v1/workspaces/widgets", "tok-A", `{"hub_token":"`+pat+`"}`); status != 201 {
+		t.Fatalf("PUT = %d %s", status, body)
+	}
+	// The worker reads the workspace record first: held, the first job keeps the workspace while the second waits.
+	hub.Inject("GET", "/api/v1/workspaces/widgets", fakehub.Fault{Delay: 2 * time.Second})
+	_, first := call(t, "POST", addr, "/api/v1/workspaces/widgets/fix", "tok-A", `{"issue": 42}`)
+	awaitJob(t, addr, "tok-A", object(t, first)["id"].(string), "running")
+	status, second := call(t, "POST", addr, "/api/v1/workspaces/widgets/fix", "tok-A", `{"issue": 43}`)
+	if status != 202 {
+		t.Fatalf("POST fix = %d %s", status, second)
+	}
+	id := object(t, second)["id"].(string)
+	status, cancelled := call(t, "POST", addr, "/api/v1/jobs/"+id+"/cancel", "tok-A", "")
+	if status != 200 {
+		t.Fatalf("cancel = %d %s", status, cancelled)
+	}
+	if labels, _ := object(t, cancelled)["labels"].(map[string]any); labels["cleanup"] != "pending" {
+		t.Errorf("the cancel answered labels %v, want cleanup pending", labels)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		labels, _ := jobIn(t, addr, "tok-A", id)["labels"].(map[string]any)
+		if labels["cleanup"] == "done" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the cleanup did not end: labels %v", labels)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	// Another job of the issue's workspace ran, but none of issue 43: in-progress was left by an attempt that is gone.
+	if i, _ := hub.IssueOf("widgets", 43); len(i.Labels) != 0 {
+		t.Errorf("issue 43 carries %v, want in-progress removed", i.Labels)
+	}
+	stop(t, p)
 }
