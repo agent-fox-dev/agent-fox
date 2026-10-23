@@ -1,8 +1,11 @@
 package api
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
 )
 
 // TestEveryErrorIsAnEnvelopeWithItsMappedStatus_TS_11_49 verifies TS-11-49:
@@ -62,5 +65,33 @@ func TestEveryErrorIsAnEnvelopeWithItsMappedStatus_TS_11_49(t *testing.T) {
 		if e, _ := r.JSON(t)["error"].(map[string]any); len(e) != 2 {
 			t.Errorf("%s: the error has the keys %v, want code and message only", tc.name, e)
 		}
+	}
+}
+
+// TestForgeForbiddenIsA422CodeAndNoSubscribeAnswerOrLogHoldsTheToken_TS_17_19 verifies TS-17-19.
+// Verifies: 17-REQ-3.8
+func TestForgeForbiddenIsA422CodeAndNoSubscribeAnswerOrLogHoldsTheToken_TS_17_19(t *testing.T) {
+	if CodeForgeForbidden != "forge_forbidden" || CodeForgeForbidden.Status() != 422 {
+		t.Fatalf("%s has status %d, want forge_forbidden with 422", CodeForgeForbidden, CodeForgeForbidden.Status())
+	}
+	const token = "pat-recognisable-9876543210"
+	for name, f := range map[string]fakehub.Fault{
+		"403":                 {Status: 403},
+		"502 forge_forbidden": {Status: 502, Body: `{"error":{"code":502,"message":"the forge refused ` + token + `","error_type":"forge_forbidden"}}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := newAuthHarness(t)
+			a.Hub.AddUser("caller", "usr_1", []string{"widgets"})
+			a.Hub.AddUser(token, "usr_9", []string{"widgets"})
+			a.Hub.Inject("POST", "/api/v1/workspaces/widgets/labels", f)
+			r := a.put(t, "widgets", "caller", tokenBody(t, token))
+			var body map[string]map[string]any
+			if err := json.Unmarshal([]byte(r.Body), &body); err != nil || r.Status != 422 || body["error"]["code"] != "forge_forbidden" || body["error"]["message"] == "" || len(body) != 1 || len(body["error"]) != 2 {
+				t.Errorf("PUT = %d %s, want 422 {error: {code: forge_forbidden, message}}", r.Status, r.Body)
+			}
+			if strings.Contains(string(r.Body), token) || strings.Contains(a.Logs.String(), token) {
+				t.Error("an answer or a log record holds the hub_token")
+			}
+		})
 	}
 }
