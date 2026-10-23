@@ -94,7 +94,7 @@
       "done_when": [
         "internal/hub forge_test.go and listissues_test.go still pass unchanged"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,

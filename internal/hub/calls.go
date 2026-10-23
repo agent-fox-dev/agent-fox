@@ -97,6 +97,8 @@ type operation struct {
 	header *http.Header
 	// maxBody, when it is set, is the longest answer that is read, in place of the usual 1 MiB.
 	maxBody int
+	// status, when it is set, receives the status of the answer.
+	status *int
 }
 
 // send makes the call with the PAT and classifies the answer.
@@ -132,6 +134,9 @@ func (c *Client) send(ctx context.Context, pat string, op operation) error {
 	defer resp.Body.Close()
 	if op.header != nil {
 		*op.header = resp.Header.Clone()
+	}
+	if op.status != nil {
+		*op.status = resp.StatusCode
 	}
 	return c.classify(resp, pat, op)
 }
@@ -517,4 +522,35 @@ func (c *Client) ListSandboxes(ctx context.Context, pat, slug string) ([]LeaseIn
 		out = append(out, LeaseInfo{ID: l.ID, Purpose: l.Purpose, State: l.State, Labels: l.Labels, ExpiresAt: expires})
 	}
 	return out, nil
+}
+
+// CreateLabel makes sure the workspace's repository has the label: POST /api/v1/workspaces/{slug}/labels with
+// {name, color, description}, the color six hex digits without '#'. It reports whether hub created the label (201) or found
+// it there (200), and an existing label's colour and description are left as they are. Hub, or the forge behind it, may
+// also refuse a label that exists: a 409, or any other 4xx whose error_type is already_exists or whose message says
+// "already exists" in any case, is the label being there as well. Every other answer is classed as the other calls class
+// it.
+func (c *Client) CreateLabel(ctx context.Context, pat, slug, name, color, description string) (created bool, err error) {
+	var answer map[string]json.RawMessage
+	var status int
+	err = c.send(ctx, pat, operation{
+		name: "create a label", slug: slug, method: http.MethodPost, path: workspacePath(slug, "/labels"),
+		body: map[string]string{"name": name, "color": color, "description": description}, into: &answer, status: &status,
+	})
+	if rejected, ok := errors.AsType[*RejectedError](err); ok && alreadyThere(rejected) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if answer == nil {
+		return false, &UnavailableError{Status: status, Err: errors.New("the label is not what hub sends")}
+	}
+	return status == http.StatusCreated, nil
+}
+
+// alreadyThere says that a refusal of a label creation reports the label as existing.
+func alreadyThere(r *RejectedError) bool {
+	return r.Status >= 400 && r.Status < 500 &&
+		(r.Status == http.StatusConflict || r.Code == "already_exists" || strings.Contains(strings.ToLower(r.Message), "already exists"))
 }

@@ -12,6 +12,7 @@
 //     mode and the URL of the forge repository, the resolved variables, a git smart-HTTP
 //     server for the clone URL that accepts only the Basic credential agent-fox:<PAT>, the
 //     branch push route, and the forge API (issues, comments, labels, pull requests);
+//   - the label route of any workspace a token is granted, whose labels a test reads with Labels;
 //   - sessions with their usage, events and completion;
 //   - sandbox leases, which point at an in-process gateway (see Gateway) over the local
 //     provider, and their release.
@@ -121,6 +122,7 @@ type Hub struct {
 	requests []Request
 
 	workspaces map[string]*workspace
+	labels     map[string][]Label // slug -> the labels of its repository
 	sessions   []*session
 	events     map[string][][]EventRecord // slug/run id -> batches
 	leases     []*Lease
@@ -142,6 +144,7 @@ func New(t testing.TB) *Hub {
 		bound:        map[string]map[string]bool{},
 		delays:       map[string]time.Duration{},
 		workspaces:   map[string]*workspace{},
+		labels:       map[string][]Label{},
 		events:       map[string][][]EventRecord{},
 		leaseTTL:     30 * time.Minute,
 	}

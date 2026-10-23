@@ -152,6 +152,11 @@ func (h *Hub) workspaceRoute(w http.ResponseWriter, r *http.Request, token, slug
 	if h.refuse(w, token, slug) {
 		return
 	}
+	// The label route serves any slug the token is granted, added or not, so that a subscribe can create its labels.
+	if slices.Equal(rest, []string{"labels"}) && r.Method == http.MethodPost {
+		h.createLabel(w, r, slug)
+		return
+	}
 	h.mu.Lock()
 	ws := h.workspaces[slug]
 	h.mu.Unlock()
@@ -321,4 +326,60 @@ func (h *Hub) UpdateWorkspace(slug string, change func(*Workspace)) {
 	if ws := h.workspaces[slug]; ws != nil {
 		change(&ws.Workspace)
 	}
+}
+
+// Label is a label of the repository of a workspace, as the label route keeps it.
+type Label struct{ Name, Color, Description string }
+
+// createLabel answers POST …/labels, hub's ensureForgeLabel: a label with a name the slug holds is answered 200 as it is
+// held, and left unchanged; a new one is kept and answered 201.
+func (h *Hub) createLabel(w http.ResponseWriter, r *http.Request, slug string) {
+	var req struct {
+		Name        string `json:"name"`
+		Color       string `json:"color"`
+		Description string `json:"description"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "name must not be blank")
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, l := range h.labels[slug] {
+		if l.Name == req.Name {
+			writeJSON(w, http.StatusOK, labelJSON(l))
+			return
+		}
+	}
+	l := Label{Name: req.Name, Color: strings.TrimPrefix(req.Color, "#"), Description: req.Description}
+	h.labels[slug] = append(h.labels[slug], l)
+	writeJSON(w, http.StatusCreated, labelJSON(l))
+}
+
+// labelJSON is a label as hub's forge API writes it.
+func labelJSON(l Label) map[string]any {
+	return map[string]any{"name": l.Name, "color": l.Color, "description": l.Description}
+}
+
+// Labels are the labels the slug holds, in the order they were created.
+func (h *Hub) Labels(slug string) []Label {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.labels[slug])
+}
+
+// PutLabel sets a label of the slug, as a person would change it on the forge.
+func (h *Hub) PutLabel(slug string, l Label) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for i := range h.labels[slug] {
+		if h.labels[slug][i].Name == l.Name {
+			h.labels[slug][i] = l
+			return
+		}
+	}
+	h.labels[slug] = append(h.labels[slug], l)
 }
