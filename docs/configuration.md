@@ -304,7 +304,33 @@ attempt before a session is opened, as a `failed` envelope of category `config` 
 | `AF_MAX_ATTEMPTS` | `2` | `2` | a whole number from 1 to 10: the most attempts a round may make. The loop of a fix runs `--attempts 1`; the rounds are the jobs layer's. |
 | `AF_SANDBOX_PROFILE` | none | none | non-empty: the profile that hub leases the sandbox from; unset is hub's default. Its image must provide `af`. |
 | `AF_FIX_LAND` | | `pr` | `pr`, `branch` or `none`. `patch` is refused: a fix on a `carry_patch` workspace, or landing as a patch, fails as `unsupported`, because carry-patch landing comes in a later release. A triage on a `carry_patch` workspace runs as on any other. |
-| `AF_LABEL_PREFIX` | | | **not read.** The prefix of every label the worker writes is the `label_prefix` of the subscription; when the variable is set and differs, the envelope carries the warning `label_prefix_ignored`. |
+| `AF_LABEL_PREFIX` | | | **not read.** The prefix of every label the worker writes is the `label_prefix` of the subscription; when the variable is set and differs, the envelope carries the warning `label_prefix_ignored`. The label poll ignores it as well, see [the label poll](#the-label-poll). |
+
+### The label poll
+
+The service asks hub for the issues that carry a workspace's request labels and makes a job of each new request (see
+[api.md](api.md#jobs-that-a-request-label-makes)). It has **no key in `config.toml`**: its one setting is a hub variable of
+the workspace, read at the start of every cycle from the resolved variables, and a cycle uses the value it reads then.
+
+| `AF_POLL_INTERVAL` | The poll does |
+|---|---|
+| unset or empty | A cycle every `5m`. |
+| a zero duration (`0`, `0s`, `0m`) | The poll is off for the workspace. The cycle ends right after the variables are read: it reads no workspace record, lists nothing and writes no label. The variable is read again 5 minutes later, so that a workspace that turns polling on is picked up within the default interval. |
+| a Go duration from `1m` to `24h` | A cycle that long after the previous one ended. |
+| anything else: not a duration, negative, below `1m`, above `24h` | It falls back to 5 minutes and does not turn the poll off, and the service logs a `WARN` that names the workspace, the variable and the value once for each distinct value. |
+
+The request labels are `<prefix>triage` and `<prefix>fix`, where the prefix is the **`label_prefix` of the subscription**,
+read from the store at the start of each cycle. `AF_LABEL_PREFIX` is never used to name them; when it is set and differs
+from the subscription's prefix, the service logs a `WARN` once for each distinct value, and goes on with the
+subscription's prefix, so that the poll and the worker cannot disagree.
+
+Nothing else about the timing is a setting. A loop starts its first cycle after a random delay of 0 to 30 seconds, so that
+the workspaces do not all ask hub at once when the service starts, and each later cycle one interval after the previous
+one ended, so that the cycles of one workspace never overlap. At most four cycles run at once across all workspaces. A
+cycle that has run for 5 minutes is cancelled, and what it has done stands. The service looks for new and gone
+subscriptions every 60 seconds: a workspace that is subscribed is first polled within 90 seconds, and one that is
+unsubscribed loses its loop and the cycle it has in flight. The poll spends the workspace's forge rate limit, and the
+interval is how to control it: see [the cost of a cycle](architecture.md#the-label-poll-as-built).
 
 The worker holds no vendor key and no forge token. Its credentials are the workspace token of the subscription, which
 it sends to hub and to hub's git server, and the token of the lease, which it sends to the gateway of the box; the

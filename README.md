@@ -26,7 +26,7 @@ repository.
 |---|---|
 | `cmd/af/` | The `af` binary: it makes the shell from `internal/afcmd` and hands the process to it. [`internal/afcmd`](internal/afcmd) holds the commands, so that `agent-fox` can run them in its own process. Sixteen commands: `lang detect`, `gate run`, `gate compare`, `revert-check`, `guard check` and `map`, the five of `af triage` (`triage`, `triage brief`, `triage run`, `triage submit` and `triage land`) and the five of `af fix` (`fix`, `fix brief`, `fix run`, `fix submit` and `fix land`). [`docs/cli.md`](docs/cli.md) describes them. |
 | `cmd/agent-fox/` | The `agent-fox` binary, the long-running service: it starts from one `config.toml`, keeps its state in one SQLite file, asks hub who is calling, and lets a caller subscribe a hub workspace by handing over a workspace token, which it keeps sealed and never returns. It runs triage and fix attempts for the jobs it queues: the worker (`internal/worker`) runs the `af` commands in its own process against a hub workspace, with a sandbox that hub leases, and mirrors the outcome to the issue. [`docs/cli.md`](docs/cli.md#the-agent-fox-command-line) describes the command line, [`docs/api.md`](docs/api.md) the routes and [`docs/configuration.md`](docs/configuration.md#the-agent-fox-service) the file. |
-| `internal/service/` | The packages of the service: `config` (the file), `secrets` (the key and the sealing of tokens), `store` (the SQLite file and its migrations), `ttl` (the cache of hub's answers) and `api` (the HTTP surface) and `jobs` (the jobs of triage and fix: the store, the queue, the runner seam, the event log and the retention) and `reconcile` (the pass that gives back the sandboxes and the sessions that attempts left held). |
+| `internal/service/` | The packages of the service: `config` (the file), `secrets` (the key and the sealing of tokens), `store` (the SQLite file and its migrations), `ttl` (the cache of hub's answers) and `api` (the HTTP surface) and `jobs` (the jobs of triage and fix: the store, the queue, the runner seam, the event log and the retention) and `reconcile` (the pass that gives back the sandboxes and the sessions that attempts left held) and `poll` (the label poll: a subscribed workspace picks up the issues that carry its request labels). |
 | `internal/hub/` | The client of hub's API (identity, and the calls of an attempt), the forge through hub, and `fakehub`, the `httptest` hub of the tests with its git server and gateway. |
 | `internal/worker/` | The worker: the production `Runner` of the jobs layer. It resolves an attempt (the variables of the workspace, the refusals), opens a hub session, marks the issue, clones through hub's git server, leases a gateway box, runs the triage or the fix loop in process, mirrors the outcome as labels and comments, and reports to hub. Infrastructure failures are transient errors; every other ending is an envelope. An attempt that is handed over again after a crash or a restart is carried on from a journal it keeps in `recovery/` (`internal/worker/recovery`). |
 | `internal/afcmd/` | The commands of `af`, importable: the loops and the ring-1 commands with the seams (forge, boxes, brains, git runner, earlier questions, measuring in the box) that `agent-fox` fills in. |
@@ -100,6 +100,12 @@ It listens on `127.0.0.1:8090` unless `server.listen` says otherwise, answers `G
 `GET /readyz` and `GET /version` without a token, and stops on SIGINT or SIGTERM. Its log is one JSON
 record per line on stderr. See [`docs/cli.md`](docs/cli.md#the-agent-fox-command-line),
 [`docs/configuration.md`](docs/configuration.md#the-agent-fox-service) and [`docs/api.md`](docs/api.md).
+
+A subscribed workspace picks up labelled issues by itself: every `AF_POLL_INTERVAL` (5 minutes by default; `0` turns it
+off), the service lists the open issues that carry the workspace's `<prefix>triage` or `<prefix>fix` label, makes one job
+for each new request and removes the label, so that a team asks for a triage or a fix just by labelling an issue. See
+[`docs/api.md`](docs/api.md#jobs-that-a-request-label-makes) and
+[`docs/configuration.md`](docs/configuration.md#the-label-poll).
 
 The test suite needs no API key, no token, no container engine and no network. It does start
 `httptest` servers on the loopback interface, so a sandbox that forbids

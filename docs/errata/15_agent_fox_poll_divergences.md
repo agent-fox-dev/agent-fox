@@ -57,3 +57,24 @@ running attempt's job is cancelled".
   needed beyond the poll's own.
 
 Deviation key: `jobs_read_is_standing`.
+
+## 3. The order of the start and the stop is read from the log, and a restart of the poll is a new supervisor (tasks 5 and 8)
+
+**Spec:** TS-15-1 and TS-15-7: "a recording start hook on the jobs layer and on the poll supervisor", "recording stop hooks on the
+poll and on the jobs layer"; TS-15-46: "the service restarts on the same database file".
+
+**Code:**
+
+- `serve` has no hooks to record. The tests that only the binary can show (`cmd/agent-fox/poll_test.go`) run `serve` and read the
+  order of its own log records instead: the jobs layer's `queue started` before the poll's `the label poll started`, one
+  `the poll started for a workspace` for each subscribed workspace, and the poll's `the label poll stopped` before the jobs layer's
+  `queue stopped`, with a cycle held on hub when the service is told to stop
+  (`TestThePollStartsAfterTheJobsLayerWithOneLoopForEachSubscribedWorkspace_TS_15_1`,
+  `TestShutdownStopsThePollAndCancelsItsCycleBeforeTheJobsLayerStops_TS_15_7`). The only seam `serve` gained is `pollFirstDelay`
+  (`cmd/agent-fox/run.go`), which lets a test choose the first-cycle delay of the service.
+- The restart of TS-15-46 is a new `Supervisor` over the same database file with the same jobs layer, which loses all that the poll
+  keeps in memory (what it last read, what it has warned of) and keeps all that it keeps in the file (the records and so the holds)
+  (`TestAHoldKeepsTheLabelAloneBeforeAndAfterTheRunnerReturnsAndAfterARestart_TS_15_46`). The jobs layer does not restart in the
+  test: a restart of it is shown by spec 12's tests, and what the poll reads from it is a row of the file.
+
+Deviation key: `start_order_from_the_log`.

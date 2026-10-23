@@ -37,6 +37,7 @@ change as the code: a document that is out of date is a regression.
 | `internal/service/jobs/fakerunner`, `internal/service/jobs/fakeclock` | The fake runner that a test scripts (return, error, transient failure, panic, block) and records the inputs of, and the fake clock whose waits and tickers a test advances; exported for the tests of the specs that follow. |
 | `internal/hub` | The client of hub's API, the one place that knows hub's paths, field names and answers: who a token belongs to and whether it sees a workspace, and the calls of an attempt (the record and variables of a workspace, sessions, events, sandbox leases, the push of a branch). |
 | `internal/worker/recovery` | The files the worker keeps in `recovery/` of an attempt directory, to carry the attempt on after the process died: the journal (`journal.json`) and the outcome (`outcome.json`), written mode 0600 by an atomic synced replacement, and the status a session is completed with for an outcome. |
+| `internal/service/poll` | The label poll: the `Supervisor` that keeps one loop for each subscribed workspace (`supervisor.go`, `loop.go`), the cycle (`cycle.go`, `interval.go`), the rules for a listed issue (`handler.go`), the reconciliation of the poll's records with their jobs (`reconcile.go`), the classes of failure and the log-once rule (`failure.go`), and the store of the records, the table `af_poll_requests` (`store.go`). |
 | `internal/service/reconcile` | The reconciliation pass: it gives back the sandboxes and completes the sessions that attempts left held, when the service starts and every 15 minutes. |
 | `internal/hub/fakehub` | The `httptest` hub of the tests: a table of tokens, users and workspaces, the state an attempt works on (workspaces, issues, pull requests, sessions, leases), a git smart-HTTP server that takes only the Basic PAT, an in-process gateway for the leases, a record of every request, and failures, hang-ups, delays, redirects and oversize answers by route on demand. |
 | `cmd/af` | The binary. `main.go` keeps the identity of the build (the ldflags variables), makes the shell with `afcmd.New` and hands the process to it. The tests that build the binary and run it are here, with the golden file of `af --schema`. |
@@ -129,7 +130,15 @@ scripted brain: no hub, no key of a model vendor and no container engine
   id, labels, purpose and end; `SeedLease` puts a labelled lease in the hub as if an attempt had taken it, `Deleted` is
   what was released, a session keeps its status, its usage and its events, and `KillSandbox` destroys the box that a lease
   holds and leaves the lease held, as a sandbox that is gone is. The gateway can be made to refuse boxes
-  (`RefuseBoxes`) or to go away on a command (`KillOn`, `KillAfter`).
+  (`RefuseBoxes`) or to go away on a command (`KillOn`, `KillAfter`). `GET /api/v1/workspaces/{slug}/issues` lists the issues
+  of the workspace with the `state`, `labels`, `limit` and `page` of a query, pull requests with their marker, and a `Link`
+  header when a further page remains (`SetPageLinks` with false makes it say nothing, as the real hub does);
+  `SetRemovalLag` and `SetAdditionLag` make an issue stay listed under a label for the next lists after the label was removed,
+  or be left out of the lists of a label after it was added, as a forge whose index lags does; `SetListOrder` sets the
+  order of a list, `AddLabel` and `RemoveLabel` change the labels as a person would, and `ListRequests` are the requests for
+  the list. The tests of `internal/service/poll` drive `Supervisor.Cycle` with the real jobs layer, the fake runner and a fake
+  clock, and put a recording handler or reconciler in the unexported seams of the supervisor where the listing, and not the
+  rules, is what they test.
 
 ## Opt-in tests
 
