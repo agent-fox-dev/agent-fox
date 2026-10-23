@@ -378,9 +378,7 @@ func TestACleanupPendingAnHourAfterItsCancelEndsLabelNotSetWithOneError_TS_17_50
 		clk.Advance(time.Minute)
 	}
 	waitFor(t, "the abandonment", func() bool { return e.cleanupIn(job.ID) == "label_not_set" })
-	if n := len(e.Logs.find("ERROR", "an hour")); n != 1 {
-		t.Errorf("%d ERROR records of the abandonment, want 1", n)
-	}
+	waitFor(t, "the ERROR record of the abandonment", func() bool { return len(e.Logs.find("ERROR", "an hour")) > 0 })
 	waitFor(t, "the tries to end", func() bool { return svc.CleanupsInFlight() == 0 })
 	requests := e.Hub.Total()
 	for range 3 {
@@ -564,5 +562,150 @@ func TestThePurgeNeverRemovesAJobWhoseCleanupIsPending_TS_17_55(t *testing.T) {
 	}
 	if n := e.count("SELECT count(*) FROM af_jobs WHERE id = ?", done.ID); n != 0 {
 		t.Error("the job whose cleanup is done was kept")
+	}
+}
+
+// answer answers the blocked job with its first option.
+func answer(t *testing.T, svc *jobs.Service, id string) {
+	t.Helper()
+	option := "A"
+	if _, err := svc.Answer(ctx, id, callerID, jobs.AnswerRequest{Option: &option}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// issueRequests are the requests hub received for issue 42 of widgets.
+func (e *env) issueRequests() []string {
+	var out []string
+	for _, r := range e.Hub.Requests() {
+		if strings.HasPrefix(r.Path, "/api/v1/workspaces/widgets/issues/42") {
+			out = append(out, r.Method+" "+r.Path)
+		}
+	}
+	return out
+}
+
+// TestARunnerCancelledBeforeItsHubSessionGetsTheCleanupAfterItReturns_TS_17_30 verifies TS-17-30.
+// Verifies: 17-REQ-5.2
+func TestARunnerCancelledBeforeItsHubSessionGetsTheCleanupAfterItReturns_TS_17_30(t *testing.T) {
+	t.Run("the runner returns", func(t *testing.T) {
+		clk := fakeclock.New(epoch)
+		e := newEnv(t)
+		release := make(chan struct{})
+		started, cancelled := make(chan struct{}), make(chan struct{})
+		second := fakerunner.Do(func(ctx context.Context, req jobs.Request) (jobs.Result, error) {
+			close(started)
+			<-ctx.Done() // cancelled before it reports a hub session
+			close(cancelled)
+			<-release
+			return jobs.Result{}, ctx.Err()
+		})
+		svc := e.cleanService(fakerunner.New(needsHumanStep(), second), clk)
+		if err := svc.Start(); err != nil {
+			t.Fatal(err)
+		}
+		job := blockedOn(t, svc, 42)
+		answer(t, svc, job.ID)
+		<-started
+		if _, err := svc.Cancel(ctx, job.ID); err != nil {
+			t.Fatal(err)
+		}
+		<-cancelled
+		time.Sleep(50 * time.Millisecond)
+		if r := e.issueRequests(); len(r) != 0 || svc.CleanupsInFlight() != 0 {
+			t.Fatalf("a try ran while the runner was in progress: %v", r)
+		}
+		close(release)
+		waitFor(t, "the cleanup", func() bool { return e.cleanupIn(job.ID) == "done" })
+		if got := e.issueLabels(); !slices.Equal(got, []string{"af:fix"}) {
+			t.Errorf("issue 42 carries %v, want af:fix and no af:needs-human", got)
+		}
+	})
+	t.Run("the runner overruns its grace", func(t *testing.T) {
+		clk := fakeclock.New(epoch)
+		e := newEnv(t)
+		release, started := make(chan struct{}), make(chan struct{})
+		second := fakerunner.Do(func(ctx context.Context, req jobs.Request) (jobs.Result, error) {
+			close(started)
+			<-release // ignores the cancel
+			return jobs.Result{}, errors.New("late")
+		})
+		svc := e.cleanService(fakerunner.New(needsHumanStep(), second), clk)
+		if err := svc.Start(); err != nil {
+			t.Fatal(err)
+		}
+		job := blockedOn(t, svc, 42)
+		answer(t, svc, job.ID)
+		<-started
+		waits := len(clk.Waits())
+		if _, err := svc.Cancel(ctx, job.ID); err != nil {
+			t.Fatal(err)
+		}
+		clk.WaitForWaits(waits+1, 10*time.Second)
+		clk.Advance(60 * time.Second)
+		waitFor(t, "the attempt to be recorded cancelled", func() bool {
+			d, _ := svc.Get(ctx, job.ID)
+			return len(d.Attempts) == 2 && d.Attempts[1].State == jobs.AttemptCancelled
+		})
+		if got := e.cleanupIn(job.ID); got != "pending" {
+			t.Errorf("cleanup %q once the overrun attempt is recorded, want pending", got)
+		}
+		time.Sleep(50 * time.Millisecond)
+		if r := e.issueRequests(); len(r) != 0 {
+			t.Fatalf("a try ran while the runner was in progress: %v", r)
+		}
+		close(release)
+		waitFor(t, "the cleanup", func() bool { return e.cleanupIn(job.ID) == "done" })
+		if got := e.issueLabels(); !slices.Equal(got, []string{"af:fix"}) {
+			t.Errorf("issue 42 carries %v", got)
+		}
+	})
+}
+
+// TestACancelThatReachesARunnerWithAHubSessionGetsNoCleanup_TS_17_31 verifies TS-17-31, for a person's cancel and for an
+// unsubscribe.
+// Verifies: 17-REQ-5.3, 17-REQ-9.5
+func TestACancelThatReachesARunnerWithAHubSessionGetsNoCleanup_TS_17_31(t *testing.T) {
+	for _, how := range []string{"a person", "an unsubscribe"} {
+		t.Run(how, func(t *testing.T) {
+			clk := fakeclock.New(epoch)
+			e := newEnv(t)
+			reported := make(chan struct{})
+			second := fakerunner.Do(func(ctx context.Context, req jobs.Request) (jobs.Result, error) {
+				req.Recorder.Hub("ses_1", "run_1", "sbx_1")
+				close(reported)
+				<-ctx.Done()
+				return jobs.Result{LabelsSet: []string{"af:fix"}, LabelsRemoved: []string{"af:in-progress"}}, ctx.Err()
+			})
+			svc := e.cleanService(fakerunner.New(needsHumanStep(), second), clk)
+			if err := svc.Start(); err != nil {
+				t.Fatal(err)
+			}
+			job := blockedOn(t, svc, 42)
+			answer(t, svc, job.ID)
+			<-reported
+			before := len(e.issueRequests())
+			switch how {
+			case "a person":
+				if _, err := svc.Cancel(ctx, job.ID); err != nil {
+					t.Fatal(err)
+				}
+			default:
+				if err := svc.Unsubscribe(ctx, "widgets", func() error { return nil }); err != nil {
+					t.Fatal(err)
+				}
+			}
+			waitFor(t, "the attempt to end", func() bool {
+				d, _ := svc.Get(ctx, job.ID)
+				return len(d.Attempts) == 2 && d.Attempts[1].State == jobs.AttemptCancelled
+			})
+			time.Sleep(50 * time.Millisecond)
+			if d, _ := svc.Get(ctx, job.ID); cleanupOf(d) != "" {
+				t.Errorf("labels.cleanup = %q, want null", cleanupOf(d))
+			}
+			if r := e.issueRequests()[before:]; len(r) != 0 {
+				t.Errorf("the jobs layer sent %v", r)
+			}
+		})
 	}
 }

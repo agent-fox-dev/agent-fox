@@ -4,7 +4,7 @@ spec_name: "agent_fox_label_protocol"
 title: "agent-fox label protocol: create the seven labels on subscribe, and make a cancelled job's issue match its record"
 status: "active"
 created_at: "2026-10-23T16:51:11.759013Z"
-updated_at: "2026-10-23T19:50:03Z"
+updated_at: "2026-10-23T20:08:44Z"
 intent_hash: "bf1cf6ba4cda3884d0993f8c08bdf7a103551ebb24f78db7babe8ab87cb3ad86"
 schema_version: 2
 source: "docs/prd/04-drive-the-service-from-the-forge.md"

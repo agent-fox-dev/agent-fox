@@ -84,9 +84,13 @@ func (s *Service) finish(ctx context.Context, req Request, out called, spent boo
 		}
 		return nil
 	}
-	ended, next, err := s.store.EndAttempt(ctx, end, files)
+	ended, next, cleanup, err := s.store.EndAttempt(ctx, end, files)
 	if err != nil {
 		return err
+	}
+	if cleanup {
+		// The runner has returned: its run was forgotten before the attempt was finished.
+		s.startTry(req.JobID)
 	}
 	if ended && v.auto {
 		if err := s.enqueue(context.WithoutCancel(ctx), req.JobID, next); err != nil {
@@ -223,7 +227,11 @@ type endArgs struct {
 // the attempt is known to be running, so that nothing is written for an attempt that
 // ended another way; a failure of it undoes the rest. It says whether the attempt was
 // ended by this call, and the number of the automatic attempt made.
-func (s *Store) EndAttempt(ctx context.Context, a endArgs, files func() error) (ended bool, next int, err error) {
+//
+// An attempt of a cancelled job whose cancel cleanup is wanted, and whose runner reported no
+// hub session, marks the cleanup pending: the worker writes nothing to an issue without its
+// session. cleanup says that it did.
+func (s *Store) EndAttempt(ctx context.Context, a endArgs, files func() error) (ended bool, next int, cleanup bool, err error) {
 	err = s.run(ctx, a.jobID, func(x *txn) error {
 		now := formatTime(s.now())
 		env := a.env
@@ -291,6 +299,17 @@ func (s *Store) EndAttempt(ctx context.Context, a endArgs, files func() error) (
 					return fmt.Errorf("labels of %s: %w", a.jobID, err)
 				}
 			}
+			res, err := x.ExecContext(ctx,
+				`UPDATE af_jobs SET cleanup = 'pending' WHERE id = ? AND cleanup_wanted = 1 AND cleanup IS NULL
+				   AND (SELECT hub_session FROM af_attempts WHERE job_id = ? AND n = ?) IS NULL`, a.jobID, a.jobID, a.attempt)
+			if err != nil {
+				return fmt.Errorf("cleanup of %s: %w", a.jobID, err)
+			}
+			n, err := res.RowsAffected()
+			if err != nil {
+				return err
+			}
+			cleanup = n > 0
 			return x.emit(ctx, a.attempt, EventJobState, jobStateData{
 				State: StateCancelled, Attempt: a.attempt, AtRest: true,
 				Result: &ResultDoc{Status: env.Status, ExitCode: toolio.ExitCode(env.Status), Summary: env.Summary, Error: env.Error},
@@ -317,9 +336,9 @@ func (s *Store) EndAttempt(ctx context.Context, a endArgs, files func() error) (
 		return x.emit(ctx, a.attempt, EventJobState, state)
 	})
 	if err != nil {
-		return false, 0, err
+		return false, 0, false, err
 	}
-	return ended, next, nil
+	return ended, next, cleanup, nil
 }
 
 // lettered are the options of a question with the ids A, B, … in order, whatever ids

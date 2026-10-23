@@ -127,7 +127,9 @@ func (s *Service) handle(qctx context.Context, payload json.RawMessage) (any, bo
 	case dispReap:
 		// A runner was running when the job was cancelled, and the process ended before it
 		// returned: no runner has it now.
-		s.settleCancelled(ctx, attemptKey{p.JobID, p.Attempt}, "the service stopped while the attempt was running, after the job was cancelled")
+		if _, cleanup := s.settleCancelled(ctx, attemptKey{p.JobID, p.Attempt}, "the service stopped while the attempt was running, after the job was cancelled"); cleanup {
+			s.startTry(p.JobID)
+		}
 		return nil, false, nil
 	case dispYield:
 		return nil, true, errYield
@@ -339,4 +341,11 @@ func (s *Service) forget(run *attemptRun) {
 	close(run.returned)
 	run.settle()
 	run.cancel(nil)
+	if run.overran.Load() {
+		// The attempt was recorded cancelled when the grace ran out, which may have marked a cleanup that waited for the
+		// runner to return.
+		if pending, err := s.store.CleanupPending(context.Background(), run.key.job); err == nil && pending {
+			s.startTry(run.key.job)
+		}
+	}
 }

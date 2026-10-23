@@ -215,6 +215,13 @@ func (s *Store) AbandonCleanup(ctx context.Context, id string) (bool, error) {
 	return n > 0, err
 }
 
+// CleanupPending says whether the job's cleanup is pending.
+func (s *Store) CleanupPending(ctx context.Context, id string) (bool, error) {
+	var pending bool
+	err := s.db.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM af_jobs WHERE id = ? AND cleanup = 'pending')", id).Scan(&pending)
+	return pending, err
+}
+
 // MarkCleanup marks the cancel cleanup of a cancelled job pending, if it is wanted and not marked already, and says
 // whether it did.
 func (s *Store) MarkCleanup(ctx context.Context, id string) (bool, error) {
