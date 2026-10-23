@@ -60,17 +60,17 @@ func (s *Supervisor) Cycle(ctx context.Context, slug string) (next time.Duration
 
 	sub, err := s.cfg.Subscriptions.Get(ctx, slug)
 	if err != nil {
-		s.endedBy(slug, "read the subscription", err)
+		s.endedBy(ctx, slug, "read the subscription", err)
 		return st.wait(), false
 	}
 	pat, err := s.cfg.Subscriptions.Token(ctx, slug)
 	if err != nil {
-		s.endedBy(slug, "read the token", err)
+		s.endedBy(ctx, slug, "read the token", err)
 		return st.wait(), false
 	}
 	vars, err := s.cfg.Hub.ResolvedVars(ctx, pat, slug)
 	if err != nil {
-		s.endedBy(slug, "read the resolved variables", err)
+		s.endedBy(ctx, slug, "read the resolved variables", err)
 		return st.wait(), false
 	}
 
@@ -93,7 +93,7 @@ func (s *Supervisor) Cycle(ctx context.Context, slug string) (next time.Duration
 
 	rec, err := s.cfg.Hub.WorkspaceRecord(ctx, pat, slug)
 	if err != nil {
-		s.endedBy(slug, "read the workspace record", err)
+		s.endedBy(ctx, slug, "read the workspace record", err)
 		return iv.every, false
 	}
 	repo, ok := rec.Repo()
@@ -108,7 +108,7 @@ func (s *Supervisor) Cycle(ctx context.Context, slug string) (next time.Duration
 		requested := s.cfg.Clock.Now()
 		list, err := run.forge.ListIssues(ctx, repo, issuex.IssueFilter{State: "open", Labels: []string{label}, Limit: listLimit})
 		if err != nil {
-			s.endedBy(slug, "list the issues of "+label, err)
+			s.endedBy(ctx, slug, "list the issues of "+label, err)
 			return iv.every, false
 		}
 		numbers := make([]int, 0, len(list.Issues))
@@ -132,7 +132,10 @@ func (s *Supervisor) Cycle(ctx context.Context, slug string) (next time.Duration
 	return iv.every, false
 }
 
-// endedBy logs that a call of hub or of the store ended the cycle.
-func (s *Supervisor) endedBy(slug, operation string, err error) {
+// endedBy logs that a call of hub or of the store ended the cycle, unless the cycle was cancelled, which says why.
+func (s *Supervisor) endedBy(ctx context.Context, slug, operation string, err error) {
+	if ctx.Err() != nil {
+		return
+	}
 	s.cfg.Logger.Warn("the cycle ended: a call failed", "workspace", slug, "operation", operation, "error", err.Error())
 }

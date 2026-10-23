@@ -213,7 +213,7 @@
         "no workspace ever has more than one loop",
         "at most 4 cycles are ever in flight"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

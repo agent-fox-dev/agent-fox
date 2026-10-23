@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/hub"
@@ -68,8 +69,15 @@ type Supervisor struct {
 	reconciler reconciler
 	handler    handler
 
-	mu     sync.Mutex
-	states map[string]*wsState
+	mu       sync.Mutex
+	states   map[string]*wsState
+	loops    map[string]*loop
+	slots    chan struct{}
+	started  bool
+	stopped  bool
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
+	inflight atomic.Int32
 }
 
 // reconciler brings the records of the poll for a workspace up to date with their jobs, without a request of hub.
@@ -99,7 +107,10 @@ func New(cfg Config) *Supervisor {
 	if cfg.ReleaseDelay <= 0 {
 		cfg.ReleaseDelay = defaultReleaseDelay
 	}
-	s := &Supervisor{cfg: cfg, states: map[string]*wsState{}, reconciler: noReconciler{}, handler: noHandler{}}
+	s := &Supervisor{
+		cfg: cfg, states: map[string]*wsState{}, loops: map[string]*loop{}, slots: make(chan struct{}, maxCycles),
+		reconciler: noReconciler{}, handler: noHandler{},
+	}
 	if cfg.DB != nil {
 		s.records = NewRecords(cfg.DB)
 	}

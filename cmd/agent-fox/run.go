@@ -15,6 +15,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/service/api"
 	"github.com/agent-fox-dev/agentfox/internal/service/config"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
+	"github.com/agent-fox-dev/agentfox/internal/service/poll"
 	"github.com/agent-fox-dev/agentfox/internal/service/reconcile"
 	"github.com/agent-fox-dev/agentfox/internal/service/secrets"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
@@ -36,6 +37,10 @@ const shutdownGrace = 30 * time.Second
 // reconcileInterval is the time between two passes that give back the sandboxes and the sessions that attempts left held;
 // the tests make it short.
 var reconcileInterval = reconcile.DefaultInterval
+
+// pollFirstDelay, when it is set, gives the wait before the first cycle of the label poll of a workspace; the poll's own
+// random wait of 0 to 30 seconds when it is nil. The tests set it.
+var pollFirstDelay func() time.Duration
 
 // listenFunc binds an address; net.Listen, except in the tests.
 type listenFunc func(network, address string) (net.Listener, error)
@@ -144,6 +149,10 @@ func serve(ctx context.Context, configPath string, logger *slog.Logger, listen l
 	// delays neither the listener nor the queue, and it is stopped, and waited for, before the database is closed.
 	defer startReconciling(ctx, reconcile.Config{Subscriptions: st, Hub: hubClient, Jobs: jobService, Logger: logger, Interval: reconcileInterval})()
 
+	// The label poll starts once the jobs layer runs, and is stopped, and waited for, before the jobs layer is closed and
+	// before the database is.
+	defer startPolling(ctx, poll.Config{Subscriptions: st, Hub: hubClient, Jobs: jobService, DB: st.DB(), Logger: logger, FirstDelay: pollFirstDelay})()
+
 	serving := make(chan error, 1)
 	go func() { serving <- srv.Serve(ln) }()
 	select {
@@ -171,6 +180,14 @@ func startReconciling(ctx context.Context, cfg reconcile.Config) (stop func()) {
 	done := make(chan struct{})
 	go func() { defer close(done); reconcile.New(cfg).Run(ctx) }()
 	return func() { cancel(); <-done }
+}
+
+// startPolling starts the label poll and returns the function that stops it: no new cycle starts, the cycles in flight
+// are cancelled, and the function returns once they have.
+func startPolling(ctx context.Context, cfg poll.Config) (stop func()) {
+	p := poll.New(cfg)
+	p.Start(ctx)
+	return p.Stop
 }
 
 // startFailed writes the one record of a start that failed, and returns the exit code.
