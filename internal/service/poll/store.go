@@ -181,3 +181,12 @@ func (r *Records) EventTaken(ctx context.Context, workspace, id string) (bool, e
 func (r *Records) ExpireEvents(ctx context.Context, before time.Time) (int, error) {
 	return r.exec(ctx, "DELETE FROM af_hub_events WHERE taken_at < ?", formatTime(before))
 }
+
+// Last is the id of the last record, 0 when there is none.
+func (r *Records) Last(ctx context.Context) (int64, error) {
+	var id int64
+	if err := r.db.QueryRowContext(ctx, "SELECT COALESCE(MAX(id), 0) FROM af_poll_requests").Scan(&id); err != nil {
+		return 0, fmt.Errorf("poll records: %w", err)
+	}
+	return id, nil
+}

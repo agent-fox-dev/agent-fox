@@ -31,12 +31,23 @@ func (issueHandler) handle(ctx context.Context, c *cycleRun, l *listing) bool {
 	return true
 }
 
+// newer says that the record was made at or after the listing was asked for: after the last record there was then, or at
+// a later time. The stream's issue of an event is no listing, and has no newer record.
+func (l *listing) newer(r Record) bool {
+	return !l.Requested.IsZero() && (r.ID > l.Before || r.CreatedAt.After(l.Requested))
+}
+
 // request is the request to make a job of kind K for issue N from label L: the issue as its input, a source that names the
 // label, and the label, which the poll consumes.
+// A listing that names a source of its own (an event of hub's stream) makes the job with it.
 func request(workspace string, l *listing, n int) jobs.CreateRequest {
+	src := l.Source
+	if src.Kind == "" {
+		src = jobs.Source{Kind: "label", By: "label " + l.Label}
+	}
 	return jobs.CreateRequest{
 		Workspace: workspace, Kind: l.Kind, Body: jobs.Body{Issue: json.RawMessage(strconv.Itoa(n))},
-		Source: jobs.Source{Kind: "label", By: "label " + l.Label}, RequestLabel: l.Label,
+		Source: src, RequestLabel: l.Label,
 	}
 }
 
@@ -50,6 +61,8 @@ func request(workspace string, l *listing, n int) jobs.CreateRequest {
 //     removed and no job is made;
 //  4. otherwise it is a new request, and a job is made.
 func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
+	unlock := c.s.lockWorkspace(c.slug)
+	defer unlock()
 	recs, err := c.s.records.Find(ctx, c.slug, n, l.Label)
 	if err != nil {
 		c.s.report(ctx, c.slug, c.st, failure{
@@ -83,6 +96,11 @@ func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
 	}
 	if slices.ContainsFunc(recs, func(r Record) bool { return r.Owed }) {
 		return c.retake(ctx, l, n)
+	}
+	// A record of the label on the issue made at or after the listing was asked for is newer than what the listing
+	// shows: the other trigger took the label since. The label is left to the next cycle.
+	if slices.ContainsFunc(recs, l.newer) {
+		return true
 	}
 	return c.request(ctx, l, n)
 }
@@ -123,6 +141,8 @@ func (c *cycleRun) retake(ctx context.Context, l *listing, n int) bool {
 // released, provided the listing was requested at least the release delay after the release clock of the hold started:
 // until then the runner may still be writing the label, and the forge's list may not show a label just put back yet.
 func (c *cycleRun) settle(ctx context.Context, l *listing) {
+	unlock := c.s.lockWorkspace(c.slug)
+	defer unlock()
 	recs, err := c.s.records.ForWorkspace(ctx, c.slug)
 	if err != nil {
 		c.s.cfg.Logger.Warn("the records of the poll could not be read, so the owed removals are not settled",
@@ -131,7 +151,8 @@ func (c *cycleRun) settle(ctx context.Context, l *listing) {
 	}
 	settled := map[int]bool{}
 	for _, r := range recs {
-		if r.Label != l.Label || slices.Contains(l.Issues, r.Issue) {
+		// A record made at or after the listing was asked for is newer than what the listing says of its issue.
+		if r.Label != l.Label || slices.Contains(l.Issues, r.Issue) || l.newer(r) {
 			continue
 		}
 		if r.Seen == SeenHolding && !r.ReleaseClock.IsZero() && !l.Requested.Before(r.ReleaseClock.Add(c.s.cfg.ReleaseDelay)) {

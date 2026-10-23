@@ -26,12 +26,14 @@ type Subscriptions interface {
 	Token(ctx context.Context, slug string) (string, error)
 }
 
-// Jobs is what the poll asks of the jobs layer: to make a job, to name the open job of a kind for an issue, and to say
-// how a job stands.
+// Jobs is what the poll asks of the jobs layer: to make a job, to name the open job of a kind for an issue, to say how a
+// job stands, and, for an issue that was closed, to name its open jobs and to cancel them.
 type Jobs interface {
 	Create(ctx context.Context, req jobs.CreateRequest) (jobs.Doc, error)
 	OpenJob(ctx context.Context, workspace string, kind jobs.Kind, issue int64) (jobs.Doc, error)
 	Standing(ctx context.Context, id string) (jobs.Standing, error)
+	OpenIssueJobs(ctx context.Context, workspace string, issue int64) ([]string, error)
+	CancelIssue(ctx context.Context, workspace string, issue int64) ([]string, error)
 }
 
 // The defaults of the settings that a test may change.
@@ -72,6 +74,7 @@ type Supervisor struct {
 	mu       sync.Mutex
 	states   map[string]*wsState
 	loops    map[string]*loop
+	locks    map[string]chan struct{}
 	slots    chan struct{}
 	started  bool
 	stopped  bool
@@ -108,7 +111,7 @@ func New(cfg Config) *Supervisor {
 		cfg.ReleaseDelay = defaultReleaseDelay
 	}
 	s := &Supervisor{
-		cfg: cfg, states: map[string]*wsState{}, loops: map[string]*loop{}, slots: make(chan struct{}, maxCycles),
+		cfg: cfg, states: map[string]*wsState{}, loops: map[string]*loop{}, locks: map[string]chan struct{}{}, slots: make(chan struct{}, maxCycles),
 		handler: issueHandler{},
 	}
 	s.reconciler = recordReconciler{s}
@@ -152,4 +155,21 @@ func (st *wsState) wait() time.Duration {
 		return st.last
 	}
 	return defaultInterval
+}
+
+// lockWorkspace takes the lock of the workspace's rules, which a cycle holds for one issue at a time and the event stream
+// for one event, so that the rules of the two never run at once for a workspace, and returns what gives it back. The
+// locks outlive the loops, which come and go with the subscriptions.
+func (s *Supervisor) lockWorkspace(slug string) (unlock func()) {
+	s.mu.Lock()
+	l := s.locks[slug]
+	if l == nil {
+		l = make(chan struct{}, 1)
+		s.locks[slug] = l
+	}
+	s.mu.Unlock()
+	// A channel hands the lock to the one that has waited longest, so that a cycle that gives it back between two issues
+	// does not take it again ahead of an event that waits for it.
+	l <- struct{}{}
+	return func() { <-l }
 }

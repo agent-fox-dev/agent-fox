@@ -234,7 +234,7 @@
       "done_when": [
         "existing poll tests still pass unchanged in behaviour"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
