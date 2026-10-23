@@ -5,7 +5,7 @@
   "schema_version": 2,
   "introduction": "This spec makes the `af` binary a client of the agent-fox service. A person stores a hub credential with `af login`, then subscribes hub workspaces, queues triage and fix jobs (`--workspace`), follows a job until it is at rest, and lists, answers, retries and cancels jobs. Every command speaks the existing one-envelope contract. Running the loops on the person's own machine is still available, and now needs an explicit `--local`.",
   "glossary": {
-    "at rest": "A job whose state is `blocked`, `done`, `failed` or `cancelled` and none of whose attempts is `running`.",
+    "at rest": "A job that is blocked, done, failed or cancelled and has no running attempt.",
     "credential file": "`~/.af/config.toml`, the file `afc login` writes. Its top-level string key `token` is the only source of the hub credential.",
     "failed try": "A try that ends without the job at rest and delivers no new event.",
     "from the flag": "Said of a server that `--server` named rather than `AF_URL`. Such a server's suggested argv entries (`next`, `resume.argv`) then carry `--server <url>`.",
@@ -666,7 +666,7 @@
           "action": "sends `PUT /api/v1/workspaces/widgets` with `Authorization: Bearer <token>` and `{hub_token}`"
         },
         {
-          "actor": "agent-fox service",
+          "actor": "agent-fox",
           "action": "validates the PAT against fakehub, stores the subscription, and answers 201 with the subscription view"
         },
         {
@@ -688,7 +688,7 @@
           "action": "runs the local checks in order, then posts `{issue: 42}` to `POST /api/v1/workspaces/widgets/fix`"
         },
         {
-          "actor": "agent-fox service",
+          "actor": "agent-fox",
           "action": "creates the job and answers 202 with the job document"
         },
         {
@@ -696,7 +696,7 @@
           "action": "records the job artifact and reads `GET /api/v1/jobs/{id}/events?since=0`, emitting each event as `job_event`"
         },
         {
-          "actor": "jobs fake runner",
+          "actor": "fake runner",
           "action": "returns a `done` envelope for attempt 1, and the stream ends with `job_state` `at_rest: true`"
         },
         {
@@ -718,7 +718,7 @@
           "action": "runs `af triage 42 --workspace widgets --wait`"
         },
         {
-          "actor": "agent-fox service",
+          "actor": "agent-fox",
           "action": "queues the job, and the fake runner ends attempt 1 `needs_human` with options A and B, so the job becomes blocked"
         },
         {
@@ -734,7 +734,7 @@
           "action": "reads the job, matches `B` to an option id, and posts `{option: \"B\"}` to `POST /api/v1/jobs/{id}/answer`"
         },
         {
-          "actor": "agent-fox service",
+          "actor": "agent-fox",
           "action": "answers 202 and starts attempt 2, whose runner receives option B's label as the answer"
         },
         {
@@ -752,11 +752,15 @@
           "action": "runs `af fix https://github.com/o/r/issues/1` with neither `--local` nor `--workspace`"
         },
         {
-          "actor": "af mode scan",
+          "actor": "cmd/af main",
+          "action": "passes the process's arguments and streams to the shell"
+        },
+        {
+          "actor": "toolio shell",
           "action": "reads the words before parsing flags, and finds no mode"
         },
         {
-          "actor": "af client",
+          "actor": "toolio shell",
           "action": "writes a usage envelope naming `--workspace`, `--server`/`AF_URL` and `--local`, sends no request to the forge or the service, creates no `.agent-fox/run/` directory, and exits 2"
         }
       ]
@@ -770,7 +774,7 @@
           "action": "runs `af triage <issue url> --local --dir <dir>` with `AF_URL` pointing at a closed port"
         },
         {
-          "actor": "af mode scan",
+          "actor": "toolio shell",
           "action": "chooses local mode and hands the invocation to the local triage command"
         },
         {
