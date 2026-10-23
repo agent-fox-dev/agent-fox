@@ -49,7 +49,7 @@ func newSubmittedRun(t *testing.T, kind jobs.Kind, files map[string]string, kind
 		t.Fatal(err)
 	}
 	s := &submittedRun{t: t, clone: dir, run: run, kind: kind}
-	compact := json.RawMessage(payload)
+	var compact json.RawMessage
 	if got, problems := submission.Check(context.Background(), kindOf(kind, dir), os.DirFS(dir), []byte(payload)); len(problems) == 0 {
 		compact = got
 	} else {

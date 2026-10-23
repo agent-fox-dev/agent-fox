@@ -389,9 +389,15 @@ func TestAHandoverMovesTheAttemptAndTheJobToRunningAndSaysSoBeforeTheRunnerIsCal
 		if req.Delivery != 1 || req.Attempt != 1 || req.Workspace != "widgets" || req.Kind != jobs.KindFix || req.Recorder == nil {
 			t.Errorf("request = %+v, want attempt 1, delivery 1, widgets, fix and a recorder", req)
 		}
-		e.DB.QueryRow("SELECT state, deliveries FROM af_attempts WHERE job_id = ? AND n = 1", req.JobID).Scan(&atCall.attempt, &atCall.deliveries)
-		e.DB.QueryRow("SELECT state FROM af_jobs WHERE id = ?", req.JobID).Scan(&atCall.job)
-		e.DB.QueryRow("SELECT type, data FROM af_events WHERE job_id = ? ORDER BY seq DESC LIMIT 1", req.JobID).Scan(&atCall.lastType, &atCall.lastData)
+		if err := e.DB.QueryRow("SELECT state, deliveries FROM af_attempts WHERE job_id = ? AND n = 1", req.JobID).Scan(&atCall.attempt, &atCall.deliveries); err != nil {
+			t.Errorf("the attempt at the call: %v", err)
+		}
+		if err := e.DB.QueryRow("SELECT state FROM af_jobs WHERE id = ?", req.JobID).Scan(&atCall.job); err != nil {
+			t.Errorf("the job at the call: %v", err)
+		}
+		if err := e.DB.QueryRow("SELECT type, data FROM af_events WHERE job_id = ? ORDER BY seq DESC LIMIT 1", req.JobID).Scan(&atCall.lastType, &atCall.lastData); err != nil {
+			t.Errorf("the last event at the call: %v", err)
+		}
 		return jobs.Result{Envelope: fakerunner.Env(toolio.StatusDone)}, nil
 	}))
 	e = newEnv(t, withRunner(r), func(c *jobs.Config) {
@@ -571,7 +577,7 @@ func TestConcurrentRecorderCallsGiveGapFreeSeqsAndTheHubReferencesShowDuringTheR
 			case <-stop:
 				return
 			default:
-				e.Svc.Get(ctx, job.ID)
+				_, _ = e.Svc.Get(ctx, job.ID)
 			}
 		}
 	}()

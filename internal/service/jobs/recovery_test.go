@@ -192,13 +192,16 @@ func TestShutdownStopsClaimingCancelsRunnersWithTheShutdownCauseAndWaitsUpTo30s_
 			t.Fatalf("waits = %v, want a wait of 30 s for the runners", clk.Waits())
 		}
 		select {
-		case <-done:
-			t.Fatal("Close returned before the 30 s were up and the runner had returned")
+		case err := <-done:
+			t.Fatalf("Close returned (%v) before the 30 s were up and the runner had returned", err)
 		case <-time.After(150 * time.Millisecond):
 		}
 		clk.Advance(30 * time.Second)
 		select {
-		case <-done:
+		case err := <-done:
+			if err != nil {
+				t.Errorf("Close: %v", err)
+			}
 		case <-time.After(10 * time.Second):
 			t.Fatal("Close did not return after the wait of 30 s")
 		}
@@ -239,7 +242,7 @@ func TestWhatARunnerReturnsAfterAShutdownIsDiscardedAndTheAttemptStaysRunning_TS
 			var state struct {
 				AtRest bool `json:"at_rest"`
 			}
-			json.Unmarshal(ev.Data, &state)
+			_ = json.Unmarshal(ev.Data, &state) // only a job_state event has at_rest
 			if ev.Type == "attempt_end" || (ev.Type == "job_state" && state.AtRest) {
 				t.Errorf("%s: the log holds %s %s after a shutdown", id, ev.Type, ev.Data)
 			}

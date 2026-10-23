@@ -169,11 +169,6 @@ func TestLoadPolicyRefusesWhatCannotBeUsed(t *testing.T) {
 	}
 }
 
-// write is a call of a write tool for the path.
-func write(tool, field, path string) (string, map[string]any) {
-	return tool, map[string]any{field: path, "content": "x"}
-}
-
 // TestWriteTools_TS_06_56 verifies TS-06-56:
 // write tools are denied under protected paths and outside --dir except under
 // the temp directory.

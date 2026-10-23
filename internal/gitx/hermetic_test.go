@@ -26,7 +26,9 @@ func TestHermeticRunnerIgnoresTheUsersGitConfig(t *testing.T) {
 	t.Setenv("HOME", userHome)
 	for _, k := range []string{"XDG_CONFIG_HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM"} {
 		t.Setenv(k, "") // restored after the test
-		os.Unsetenv(k)
+		if err := os.Unsetenv(k); err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Setenv("GIT_AUTHOR_NAME", "Leaky Author")
 	ctx := context.Background()

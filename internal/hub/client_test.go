@@ -54,7 +54,7 @@ func status(code int, body string) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(code)
-		io.WriteString(w, body)
+		_, _ = io.WriteString(w, body)
 	}
 }
 
@@ -415,12 +415,12 @@ func TestNoErrorMessageEverHoldsTheToken_TS_11_36(t *testing.T) {
 		case "hang":
 			<-r.Context().Done()
 		case "bad body":
-			io.WriteString(w, "{not json "+r.Header.Get("Authorization"))
+			_, _ = io.WriteString(w, "{not json "+r.Header.Get("Authorization"))
 		case "echo":
 			status(200, `{"id":"`+r.Header.Get("Authorization")+`"}`)(w, r)
 		default:
 			var code int
-			fmt.Sscan(m, &code)
+			_, _ = fmt.Sscan(m, &code)
 			status(code, `{"error":{"message":"`+strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")+`"}}`)(w, r)
 		}
 	})

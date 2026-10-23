@@ -37,7 +37,9 @@ func TestEachHandoverAddsOneDeliveryAndTheClaimIsAllOrNothing_TS_12_27(t *testin
 		defer rows.Close()
 		for rows.Next() {
 			var typ string
-			rows.Scan(&typ)
+			if err := rows.Scan(&typ); err != nil {
+				t.Fatal(err)
+			}
 			events = append(events, typ)
 		}
 		return
@@ -101,13 +103,19 @@ func TestEachHandoverAddsOneDeliveryAndTheClaimIsAllOrNothing_TS_12_27(t *testin
 			t.Fatal(err)
 		}
 		var before, after int
-		db.QueryRow("SELECT count(*) FROM af_events WHERE job_id = ?", other).Scan(&before)
+		if err := db.QueryRow("SELECT count(*) FROM af_events WHERE job_id = ?", other).Scan(&before); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := st.Claim(ctx, other, 1); !errors.Is(err, ErrNotClaimable) {
 			t.Errorf("%s: Claim err = %v, want ErrNotClaimable", name, err)
 		}
 		var deliveriesOther int
-		db.QueryRow("SELECT deliveries FROM af_attempts WHERE job_id = ?", other).Scan(&deliveriesOther)
-		db.QueryRow("SELECT count(*) FROM af_events WHERE job_id = ?", other).Scan(&after)
+		if err := db.QueryRow("SELECT deliveries FROM af_attempts WHERE job_id = ?", other).Scan(&deliveriesOther); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.QueryRow("SELECT count(*) FROM af_events WHERE job_id = ?", other).Scan(&after); err != nil {
+			t.Fatal(err)
+		}
 		if deliveriesOther != 0 || after != before {
 			t.Errorf("%s: a refused claim left %d deliveries and %d new events", name, deliveriesOther, after-before)
 		}

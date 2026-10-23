@@ -269,11 +269,11 @@ func TestTimeoutIsOptIn_TS_05_26(t *testing.T) {
 	}
 
 	deadline, has = time.Time{}, false
-	code, stdout, _ := invoke(t, app, "plain")
+	code, _, _ := invoke(t, app, "plain")
 	if code != 0 || has {
 		t.Errorf("a command that did not opt in: exit code %d, deadline set: %v; want 0, none", code, has)
 	}
-	code, stdout, _ = invoke(t, app, "plain", "--timeout", "30s")
+	code, stdout, _ := invoke(t, app, "plain", "--timeout", "30s")
 	if code != 2 || decode(t, stdout)["status"] != "usage" {
 		t.Errorf("--timeout for a command that did not opt in: exit code %d, status %v; want 2, usage", code, decode(t, stdout)["status"])
 	}

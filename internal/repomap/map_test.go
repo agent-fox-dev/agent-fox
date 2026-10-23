@@ -275,7 +275,9 @@ func TestLadder_TS_06_66(t *testing.T) {
 			t.Fatalf("budget %d, level 3, but no … +N more:\n%.400s", int(budget), got.Map)
 		}
 		var n int
-		fmt.Sscan(m[1], &n)
+		if _, err := fmt.Sscan(m[1], &n); err != nil {
+			t.Fatal(err)
+		}
 		if len(cuts) == 0 || cuts[len(cuts)-1] != n {
 			cuts = append(cuts, n)
 		}

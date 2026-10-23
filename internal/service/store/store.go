@@ -74,7 +74,7 @@ func Open(ctx context.Context, path string, key secrets.Key) (*Store, error) {
 		return nil, fmt.Errorf("database %s: %s", path, reason(err))
 	}
 	if err := prepare(ctx, db); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("database %s: %s", path, reason(err))
 	}
 	return &Store{db: db, key: key}, nil

@@ -348,7 +348,7 @@ echo "staged=$(git --no-optional-locks diff --cached --name-only | tr '\n' ' ')"
 // link are the ref's during the run and the tree's after it, and a directory
 // the revert had to make is not left behind.
 func TestRevertsDeletionsModesAndLinks(t *testing.T) {
-	dir, base := newRepo(t, map[string]fileSpec{
+	dir, _ := newRepo(t, map[string]fileSpec{
 		"bin/tool":         {"#!/bin/sh\n", 0o755},
 		"docs/readme.txt":  plain("read me\n"),
 		"gone/inner/f.txt": plain("f\n"),
@@ -358,7 +358,7 @@ func TestRevertsDeletionsModesAndLinks(t *testing.T) {
 	}
 	gitIn(t, dir, "add", "link")
 	gitIn(t, dir, "commit", "-q", "-m", "chore: a link")
-	base = strings.TrimSpace(gitIn(t, dir, "rev-parse", "HEAD"))
+	base := strings.TrimSpace(gitIn(t, dir, "rev-parse", "HEAD"))
 
 	writeFile(t, dir, "bin/tool", "#!/bin/sh\necho changed\n", 0o644) // content and mode
 	if err := os.RemoveAll(filepath.Join(dir, "gone")); err != nil {  // a whole directory
@@ -987,7 +987,9 @@ func TestGitNoiseOnStderrIsNotParsed(t *testing.T) {
 
 	res, err := Check(context.Background(), dir, base, Options{Table: tableOf(check)})
 
-	os.Unsetenv("GIT_TRACE")
+	if err := os.Unsetenv("GIT_TRACE"); err != nil {
+		t.Fatal(err)
+	}
 
 	if err != nil || res.Outcome != OutcomeProven {
 		t.Errorf("Check = %+v, %v; want proven although git traces to stderr", res, err)

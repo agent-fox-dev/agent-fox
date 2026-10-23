@@ -21,7 +21,7 @@ import (
 // unset, so a test that wants one sets it itself.
 func TestMain(m *testing.M) {
 	for _, name := range []string{"GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN", "GITHUB_API_URL", "GITLAB_API_URL"} {
-		os.Unsetenv(name)
+		_ = os.Unsetenv(name)
 	}
 	http.DefaultTransport = &http.Transport{DialContext: loopbackOnly}
 	os.Exit(m.Run())

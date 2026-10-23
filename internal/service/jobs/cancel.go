@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -44,7 +45,7 @@ func (s *Store) CancelJob(ctx context.Context, id string, from State) (cancelled
 			var n int
 			var state AttemptState
 			if err := rows.Scan(&n, &state); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return err
 			}
 			if state == AttemptRunning {
@@ -53,11 +54,9 @@ func (s *Store) CancelJob(ctx context.Context, id string, from State) (cancelled
 				found.queued = append(found.queued, n)
 			}
 		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
+		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 			return err
 		}
-		rows.Close()
 		if _, err := x.ExecContext(ctx, "UPDATE af_attempts SET state = 'cancelled', finished_at = ? WHERE job_id = ? AND state = 'queued'", now, id); err != nil {
 			return fmt.Errorf("attempts of %s: %w", id, err)
 		}

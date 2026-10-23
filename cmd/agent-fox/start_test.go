@@ -165,7 +165,7 @@ func (s *setup) start(t *testing.T, env []string) *process {
 		select {
 		case <-p.done:
 		default:
-			p.cmd.Process.Kill()
+			_ = p.cmd.Process.Kill()
 			<-p.done
 		}
 	})
@@ -362,16 +362,22 @@ func TestUnknownKeysAndWrongTypesExit2NamingTheKey_TS_11_14(t *testing.T) {
 // Verifies: 11-REQ-3.1, 11-REQ-3.2
 func TestAKeyFileThatCannotBeUsedExits2NamingIt_TS_11_18(t *testing.T) {
 	env := bareEnv(t)
+	must := func(t *testing.T, err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	for name, tc := range map[string]struct {
 		prepare func(t *testing.T, s *setup)
 		needle  string
 	}{
 		"a key of 31 bytes": {func(t *testing.T, s *setup) {
-			os.WriteFile(s.Key, []byte(base64.StdEncoding.EncodeToString(make([]byte, 31))), 0o600)
+			must(t, os.WriteFile(s.Key, []byte(base64.StdEncoding.EncodeToString(make([]byte, 31))), 0o600))
 		}, "32"},
-		"a key that is not base64":    {func(t *testing.T, s *setup) { os.WriteFile(s.Key, []byte("not base64 !!!"), 0o600) }, "base64"},
-		"a key readable by others":    {func(t *testing.T, s *setup) { os.Chmod(s.Key, 0o644) }, "0644"},
-		"a key readable by the group": {func(t *testing.T, s *setup) { os.Chmod(s.Key, 0o640) }, "0640"},
+		"a key that is not base64":    {func(t *testing.T, s *setup) { must(t, os.WriteFile(s.Key, []byte("not base64 !!!"), 0o600)) }, "base64"},
+		"a key readable by others":    {func(t *testing.T, s *setup) { must(t, os.Chmod(s.Key, 0o644)) }, "0644"},
+		"a key readable by the group": {func(t *testing.T, s *setup) { must(t, os.Chmod(s.Key, 0o640)) }, "0640"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := newSetup(t, "http://127.0.0.1:1")
@@ -387,7 +393,7 @@ func TestAKeyFileThatCannotBeUsedExits2NamingIt_TS_11_18(t *testing.T) {
 	}
 	for _, mode := range []os.FileMode{0o400, 0o700} {
 		s := newSetup(t, fakehub.New(t).URL)
-		os.Chmod(s.Key, mode)
+		must(t, os.Chmod(s.Key, mode))
 		p := s.start(t, env)
 		p.addr()
 		p.signal(syscall.SIGTERM)

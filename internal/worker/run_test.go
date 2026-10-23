@@ -355,7 +355,7 @@ func TestInfrastructureFailuresReturnTransientErrorsThatTheJobsLayerHandsOverAga
 
 				res, err := e.run(e.request(jobs.KindFix, issueInput("42")))
 
-				assertTransient(t, res, err, "hub")
+				_ = assertTransient(t, res, err, "hub")
 			})
 		}
 	})
@@ -384,7 +384,7 @@ func TestInfrastructureFailuresReturnTransientErrorsThatTheJobsLayerHandsOverAga
 
 		res, err := e.run(e.request(jobs.KindFix, issueInput("42")))
 
-		assertTransient(t, res, err, "forge")
+		_ = assertTransient(t, res, err, "forge")
 	})
 
 	t.Run("an envelope is classified by its category and its retryable flag", func(t *testing.T) {
@@ -760,7 +760,7 @@ func TestEventsHubReferencesAndArtifactsReachTheRecorderAndTheEnvelope_TS_13_64(
 			steps = append(steps, step.Name)
 			continue
 		}
-		got = append(got, line{ev.Type, ev.Data})
+		got = append(got, line(ev))
 	}
 	if len(written) < 2 || len(got) != len(written) {
 		t.Fatalf("the recorder got %d events of the loop, the loop wrote %d", len(got), len(written))
