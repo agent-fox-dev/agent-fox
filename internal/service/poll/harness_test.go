@@ -16,6 +16,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs/fakeclock"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs/fakerunner"
+	"github.com/agent-fox-dev/agentfox/internal/service/labelcleanup"
 	"github.com/agent-fox-dev/agentfox/internal/service/secrets"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
 )
@@ -96,6 +97,7 @@ type envConfig struct {
 	workers int
 	jobs    func(*jobs.Config)
 	poll    func(*Config)
+	cleanup bool
 }
 
 // withRunner makes the runner of the jobs layer r.
@@ -103,6 +105,9 @@ func withRunner(r *fakerunner.Runner) option { return func(c *envConfig) { c.run
 
 // withVars gives the workspace the variables.
 func withVars(vars map[string]string) option { return func(c *envConfig) { c.vars = vars } }
+
+// withCleanup gives the jobs layer the hub-backed cancel cleanup, as cmd/agent-fox does.
+func withCleanup() option { return func(c *envConfig) { c.cleanup = true } }
 
 // withPoll changes the configuration of the poll.
 func withPoll(f func(*Config)) option { return func(c *envConfig) { c.poll = f } }
@@ -137,6 +142,9 @@ func newEnv(t *testing.T, opts ...option) *env {
 		DB: st.DB(), Subscriptions: st, Logger: logger, Clock: clk, Workers: cfg.workers,
 		AttemptsDir: filepath.Join(dir, "attempts"), Runner: cfg.runner,
 		PollInterval: 5 * time.Millisecond, RetryDelay: time.Millisecond, Retain: 100 * 365 * 24 * time.Hour,
+	}
+	if cfg.cleanup {
+		jc.Cleaner = &labelcleanup.Cleaner{Subscriptions: st, Hub: hub.New(fh.URL, "test")}
 	}
 	if cfg.jobs != nil {
 		cfg.jobs(&jc)
