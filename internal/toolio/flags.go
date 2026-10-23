@@ -199,3 +199,22 @@ func isBoolFlag(f *flag.Flag) bool {
 	b, ok := f.Value.(interface{ IsBoolFlag() bool })
 	return ok && b.IsBoolFlag()
 }
+
+// SplitFlag reads w as a flag the way the shell's flag parse does: one dash or two, an optional
+// =value, and a lone "-" is no flag. It gives the name, whether the word carries its value, and
+// whether it is a flag.
+func SplitFlag(w string) (name string, hasValue, isFlag bool) { return splitFlag(w) }
+
+// FlagLookup returns a function that says, for the name of a flag, whether cmd has a flag of that
+// name and whether it takes the word after it as its value, which a boolean flag does not. It
+// covers the flags the shell registers for every command, the ones the command opted into and its own.
+func (c *Command) FlagLookup() func(name string) (known, takesValue bool) {
+	fs := flagSet(c, &flagValues{})
+	return func(name string) (bool, bool) {
+		f := fs.Lookup(name)
+		if f == nil {
+			return false, false
+		}
+		return true, !isBoolFlag(f)
+	}
+}

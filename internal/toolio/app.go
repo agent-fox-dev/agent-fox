@@ -91,6 +91,9 @@ type App struct {
 	// was received. It is for the af binary, which chooses between a loop on this machine and a
 	// job on a service; a caller that runs the commands in its own process leaves it nil.
 	Mode func(cmd *Command, words []string) (chosen *Command, parse []string, failure *Failure)
+	// HelpExtra, when it is set, is the text that the help of a command ends with, for the
+	// command it is given: a section on modes, say. It is empty for a command it has nothing to add to.
+	HelpExtra func(cmd *Command) string
 	// Target, when it is valid (a host included), is the repository every command that
 	// uses a forge works on, whatever the input: the forge client is built for it, in
 	// place of --repo and the origin of --dir, and an issue URL on another repository is

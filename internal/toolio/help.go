@@ -72,8 +72,15 @@ func (a *App) commandHelp(cmd *Command) string {
 	for _, r := range rows {
 		fmt.Fprintf(&b, "  %-*s  %s\n", width, r.left, r.right)
 	}
+	if a.HelpExtra != nil {
+		b.WriteString(a.HelpExtra(cmd))
+	}
 	return b.String()
 }
+
+// HelpFor is the plain-text help of cmd as the shell prints it: its synopsis, what it does and its
+// flags, and what HelpExtra adds. A command that the app does not register can be described with it.
+func (a *App) HelpFor(cmd *Command) string { return a.commandHelp(cmd) }
 
 // isZeroDefault reports whether a flag's default is not worth printing.
 func isZeroDefault(def string) bool {

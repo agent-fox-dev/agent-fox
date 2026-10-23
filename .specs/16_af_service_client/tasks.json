@@ -385,7 +385,7 @@
       "done_when": [
         "`af triage x --context --local` exits 2 with the no-mode message"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 9,

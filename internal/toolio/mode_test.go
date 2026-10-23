@@ -106,3 +106,62 @@ func TestARunMaySetTheInputItReportsInTheEnvelope_TS_16_49(t *testing.T) {
 		t.Errorf("a command that sets no input reports %v, want none", at(decode(t, stdout), "input"))
 	}
 }
+
+// TestTheShellTellsWhichFlagsTakeAValueAndLetsAppHelpAddToTheHelp_TS_16_5 verifies, for the
+// shell, what TS-16-5 and TS-16-8 rely on: a scan of the words can ask whether a word is a flag and
+// whether the flag of a command takes the word after it, and the help of a command may end with text
+// of the app's.
+// Verifies: 16-REQ-1.5, 16-REQ-1.8
+func TestTheShellTellsWhichFlagsTakeAValueAndLetsAppHelpAddToTheHelp_TS_16_5(t *testing.T) {
+	for w, want := range map[string]struct {
+		name             string
+		hasValue, isFlag bool
+	}{
+		"--dir":    {"dir", false, true},
+		"-dir":     {"dir", false, true},
+		"--dir=x":  {"dir", true, true},
+		"-local=1": {"local", true, true},
+		"--":       {"", false, false},
+		"-":        {"", false, false},
+		"word":     {"", false, false},
+		"--empty=": {"empty", true, true},
+	} {
+		name, hasValue, isFlag := SplitFlag(w)
+		if isFlag != want.isFlag || (isFlag && (name != want.name || hasValue != want.hasValue)) {
+			t.Errorf("SplitFlag(%q) = %q, %v, %v, want %q, %v, %v", w, name, hasValue, isFlag, want.name, want.hasValue, want.isFlag)
+		}
+	}
+
+	cmd := &Command{Path: "work", Summary: "does work", Dir: true, Context: true, DryRun: true, Timeout: true}
+	lookup := cmd.FlagLookup()
+	for name, want := range map[string][2]bool{
+		"dir": {true, true}, "context": {true, true}, "timeout": {true, true}, "output": {true, true}, "emit-events": {true, true},
+		"dry-run": {true, false}, "unknown": {false, false}, "repo": {false, false},
+	} {
+		if known, takes := lookup(name); known != want[0] || takes != want[1] {
+			t.Errorf("FlagLookup(%q) = %v, %v, want %v, %v", name, known, takes, want[0], want[1])
+		}
+	}
+
+	app := newTestApp()
+	app.Register(*cmd)
+	app.Register(Command{Path: "other", MaxArgs: NoArgs})
+	app.HelpExtra = func(c *Command) string {
+		if c.Path == "work" {
+			return "\nTwo modes.\n"
+		}
+		return ""
+	}
+	if _, stdout, _ := invoke(t, app, "work", "--help"); !strings.HasSuffix(stdout, "\nTwo modes.\n") {
+		t.Errorf("the help of work is %q, want it to end with the text of the app", stdout)
+	}
+	if _, stdout, _ := invoke(t, app, "help", "work"); !strings.HasSuffix(stdout, "\nTwo modes.\n") {
+		t.Errorf("help work is %q, want it to end with the text of the app", stdout)
+	}
+	if _, stdout, _ := invoke(t, app, "other", "--help"); strings.Contains(stdout, "Two modes") {
+		t.Errorf("the help of other is %q, want nothing added", stdout)
+	}
+	if got := app.HelpFor(cmd); !strings.HasPrefix(got, "Usage: ") || !strings.HasSuffix(got, "\nTwo modes.\n") {
+		t.Errorf("HelpFor = %q, want the help of the command with the text of the app", got)
+	}
+}

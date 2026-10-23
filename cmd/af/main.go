@@ -37,7 +37,9 @@ func newApp() *toolio.App {
 
 // registerClient registers the commands of the service client on app.
 func registerClient(app *toolio.App) {
-	app.Mode = modeHook(map[string]*toolio.Command{"triage": queueCommand(app, "triage"), "fix": queueCommand(app, "fix")})
+	service := map[string]*toolio.Command{"triage": queueCommand(app, "triage"), "fix": queueCommand(app, "fix")}
+	app.Mode = modeHook(service)
+	app.HelpExtra = modeHelp(app, service)
 	registerLogin(app)
 	registerWorkspaceList(app)
 	registerWorkspaceSubscribe(app)
