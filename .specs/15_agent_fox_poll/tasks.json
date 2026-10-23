@@ -168,7 +168,7 @@
       "done_when": [
         "the fake hub records vars, workspace, issues(triage), issues(fix) in that order for an enabled cycle"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
