@@ -26,6 +26,10 @@ func (e *DuplicateError) Error() string {
 // Is makes a DuplicateError an ErrDuplicate.
 func (e *DuplicateError) Is(target error) bool { return target == ErrDuplicate }
 
+// OpDuplicate is the operation that the fault seam of the store is asked for when a creator has lost an issue to an open
+// job, after its insert was refused and before it looks the job up.
+const OpDuplicate = "duplicate"
+
 // The kinds of source a job can have: the API, and the triggers of the specs that
 // follow.
 var sources = map[string]bool{"api": true, "label": true, "event": true, "rebuild": true, "triage": true}
@@ -83,27 +87,44 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (Doc, error) {
 	return doc, nil
 }
 
+// duplicateTries is how many times a creator that has lost an issue to a job that ended before it could look the job
+// up tries again to make its own.
+const duplicateTries = 3
+
 // insert checks that the workspace can take the job and stores it, holding the gate
 // so that an unsubscribe that starts meanwhile finds the job and cancels it.
+//
+// The check that no other job of the kind is open for the issue is the insert's own: the unique index of the open
+// jobs refuses a second one, however the creators race, and the one that loses is told which job won. If that job
+// ended between the refusal and the lookup, there is no job to name and the issue is free again, so the creator
+// tries once more.
 func (s *Service) insert(ctx context.Context, req CreateRequest, parsed Parsed) (string, error) {
 	s.gate.RLock()
 	defer s.gate.RUnlock()
 	if err := s.subscribed(ctx, req.Workspace); err != nil {
 		return "", err
 	}
-	id, err := s.store.CreateJob(ctx, NewJob{
-		Workspace: req.Workspace, Kind: req.Kind, Input: parsed.Input, Context: parsed.Context,
-		Issue: parsed.Issue, Source: req.Source, RequestLabel: req.RequestLabel,
-	})
-	if errors.Is(err, ErrDuplicate) && parsed.Issue != nil {
+	for range duplicateTries {
+		id, err := s.store.CreateJob(ctx, NewJob{
+			Workspace: req.Workspace, Kind: req.Kind, Input: parsed.Input, Context: parsed.Context,
+			Issue: parsed.Issue, Source: req.Source, RequestLabel: req.RequestLabel,
+		})
+		if !errors.Is(err, ErrDuplicate) || parsed.Issue == nil {
+			return id, err
+		}
+		if err := s.store.fails(OpDuplicate); err != nil {
+			return "", err
+		}
 		// The refusal names the job that holds the issue by the lookup that the label poll uses.
 		open, lookup := s.OpenJob(ctx, req.Workspace, req.Kind, *parsed.Issue)
-		if lookup != nil {
+		switch {
+		case lookup == nil:
+			return "", &DuplicateError{JobID: open.ID}
+		case !errors.Is(lookup, ErrNotFound):
 			return "", lookup
 		}
-		return "", &DuplicateError{JobID: open.ID}
 	}
-	return id, err
+	return "", ErrDuplicate
 }
 
 // OpenJob is the open job (queued, running or blocked) of a kind for an issue number

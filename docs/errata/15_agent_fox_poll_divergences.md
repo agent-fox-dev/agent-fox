@@ -30,3 +30,30 @@ pages, no cursor and no `Link` header; it leaves pull requests out itself. The c
 The fake hub serves the same route from its issue state, with `Link` paging that a test can switch off to behave
 as the real hub does (`SetPageLinks`), the two lags, and an order a test can set (`internal/hub/fakehub/issues.go`).
 Deviation key: `issues_list_has_no_pages`.
+
+## 2. The duplicate check is atomic already, and the read of a job by id is `Standing` (task 3)
+
+**Spec:** 15-REQ-9.1 and step 3.3: "make Create run the duplicate check and the insert in one transaction (or under one
+serialising lock)"; 15-REQ-9.2 and step 3.4: "add an exported `Get(ctx, id)`" giving the state, the source, the request
+label, `CancelledInRunner` and `RunnerInProgress`; step 3.5: "record the cancel-reached-a-runner fact durably when a
+running attempt's job is cancelled".
+
+**Code:**
+
+- The check was atomic with the insert before this spec: the partial unique index `af_jobs_one_open_per_issue`
+  (migration 2) refuses a second open job of a kind for an issue inside the transaction of `Store.CreateJob`, however
+  the creators race. The one gap was after the refusal: `Service.insert` looked up the job that held the issue to name it
+  in the refusal, and if that job had ended in between, the creator was answered "job not found". It now tries to make
+  its job again (up to three times) and is refused with `*DuplicateError` only when an open job is there to name
+  (`TestACreatorThatLosesToAJobThatEndsBeforeItLooksItUpIsNotToldThatTheJobIsMissing`, `internal/service/jobs/duplicate_test.go`;
+  the seam is `OpDuplicate` of the store's fault hook). The 50 races of 15-REQ-9.1 are TS-15-60, task 6.
+- `Service.Get` exists and returns the document of a job (`Doc`) for the API's routes, so the new read is
+  `Service.Standing` (`internal/service/jobs/read.go`), which returns `Standing{State, Source, RequestLabel,
+  CancelledInRunner, RunnerInProgress}` and `ErrNotFound` for a job that was purged
+  (`TestTheJobsLayerReadsAJobByIdWithItsStateSourceLabelAndTheCancelAndRunnerFacts_TS_15_61`).
+- Nothing new is written when a running attempt is cancelled. The fact is in the attempts: an attempt that was in a
+  runner at the cancel is `running` still, or `cancelled` with an envelope, while one that was only queued is
+  cancelled without one. So it holds after the runner returns and after the grace runs out, and no migration was
+  needed beyond the poll's own.
+
+Deviation key: `jobs_read_is_standing`.
