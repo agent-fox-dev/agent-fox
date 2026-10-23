@@ -1,0 +1,1313 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "18",
+  "spec_name": "agent_fox_event_stream",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-18-1",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-1.1"
+      ],
+      "title": "The events call sends the documented request and returns a reader on 200 text/event-stream",
+      "given": [
+        "an httptest server that records the request and answers 200 text/event-stream",
+        "a hub client built with hub.New"
+      ],
+      "when": "the events call is opened for slug \"wid gets&x\" with PAT pat-1",
+      "then": [
+        "the request is GET /api/v1/events with query workspace equal to the query-escaped slug",
+        "Authorization is `Bearer pat-1`, Accept is `text/event-stream` and User-Agent is the client's",
+        "a redirect answer is not followed",
+        "a non-nil reader and a nil error are returned"
+      ],
+      "pseudocode": "r, err := c.Events(ctx, pat, slug); assert err==nil && r!=nil; assert srv.last.URL.RawQuery == \"workspace=\"+url.QueryEscape(slug); assert headers"
+    },
+    {
+      "id": "TS-18-2",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-1.2"
+      ],
+      "title": "Headers are bounded by the client bound while the body has no overall timeout",
+      "given": [
+        "the client's header bound shortened for the test",
+        "one server that delays its headers past the bound",
+        "one server that answers at once and then sends a frame after the bound has elapsed"
+      ],
+      "when": "the events call is opened against each server",
+      "then": [
+        "the delayed-headers call returns *hub.UnavailableError",
+        "the open stream still delivers the frame sent after the bound",
+        "the stream ends only when the context is cancelled or the server ends it"
+      ],
+      "pseudocode": "_,err := Events(slow); assert errors.As(err,&ue); r := Events(fast); sleep(bound*2); srv.send(frame); assert r.Next()==frame; cancel(); assert r.Next() errors"
+    },
+    {
+      "id": "TS-18-3",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-1.3"
+      ],
+      "title": "401 is a refusal and 403 is forbidden naming audit:read and the PUT route",
+      "given": [
+        "a server answering hub's error object with 401, then with 403"
+      ],
+      "when": "the events call is opened twice",
+      "then": [
+        "for 401 errors.Is(err, hub.ErrRefused) holds",
+        "for 403 errors.Is(err, hub.ErrForbidden) holds",
+        "the 403 message contains `audit:read` and `PUT /api/v1/workspaces/{slug}`"
+      ],
+      "pseudocode": "assert errors.Is(e401, ErrRefused); assert errors.Is(e403, ErrForbidden); assert contains(e403.Error(), \"audit:read\")"
+    },
+    {
+      "id": "TS-18-4",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-1.4"
+      ],
+      "title": "404 is not found and other 4xx statuses are rejections carrying hub's code and message",
+      "given": [
+        "servers answering 404, 400, 409 and 422 with hub's {error:{code,message,error_type}} object"
+      ],
+      "when": "the events call is opened against each",
+      "then": [
+        "404 gives errors.Is(err, hub.ErrNotFound)",
+        "each other 4xx gives *hub.RejectedError with Status, Code and Message set and errors.Is(err, hub.ErrRejected)",
+        "429 is not among the rejections"
+      ],
+      "pseudocode": "for s in [400,409,422]: var re *RejectedError; assert errors.As(err,&re) && re.Status==s && re.Code!=\"\" && re.Message!=\"\""
+    },
+    {
+      "id": "TS-18-5",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-1.5"
+      ],
+      "title": "429, 5xx, transport failures, redirects and a wrong content type are hub unavailable",
+      "given": [
+        "servers answering 429, 500, 503, a redirect, 200 text/html, and one that hangs up"
+      ],
+      "when": "the events call is opened against each",
+      "then": [
+        "each returns *hub.UnavailableError",
+        "Status carries the HTTP status, and 0 for the transport failure",
+        "the redirect is not followed"
+      ],
+      "pseudocode": "for c in cases: var ue *UnavailableError; assert errors.As(err,&ue) && ue.Status==c.status"
+    },
+    {
+      "id": "TS-18-6",
+      "kind": "property",
+      "verifies": [
+        "18-REQ-1.6"
+      ],
+      "title": "No error or value from the events call contains the PAT",
+      "given": [
+        "a server whose answers may echo the Authorization header into the body or message"
+      ],
+      "when": "for any PAT string of 8 to 64 printable characters and any answer status among 200, 401, 403, 404, 400, 429, 503, redirect and hangup",
+      "then": [
+        "strings.Contains(err.Error(), pat) is false for every returned error"
+      ],
+      "pseudocode": "forall pat, status: _,err := Events(ctx, pat, slug); assert err==nil || !contains(err.Error(), pat)"
+    },
+    {
+      "id": "TS-18-7",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-2.1"
+      ],
+      "title": "The frame reader follows SSE rules",
+      "given": [
+        "a byte stream with id:, event:, multi-line data:, comment lines, a data-less frame and CRLF and LF line ends"
+      ],
+      "when": "the reader reads the stream to its end",
+      "then": [
+        "data lines of one frame are joined with a line break",
+        "a line starting with a colon is a comment",
+        "a frame with no data yields no event",
+        "each blank-line-terminated frame yields at most one event"
+      ],
+      "pseudocode": "r := newReader(bytes); events := drain(r); assert events == [{data:\"a\\nb\"}]"
+    },
+    {
+      "id": "TS-18-8",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-2.2"
+      ],
+      "title": "Every frame and comment is reported as activity and a non-object data frame decodes to no event",
+      "given": [
+        "a stream with two comments, a frame with JSON object data, a frame with data `hello` and a frame with data `[1,2]`"
+      ],
+      "when": "the stream is read",
+      "then": [
+        "five activities are observed",
+        "exactly one decoded event is delivered",
+        "the non-object frames yield no decoded event"
+      ],
+      "pseudocode": "assert activities==5; assert len(events)==1"
+    },
+    {
+      "id": "TS-18-9",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-2.3"
+      ],
+      "title": "Event decoding accepts every listed encoding of id, type, workspace, issue and label",
+      "given": [
+        "frames using JSON id/event_type, frame id:/event: only, payload.issue integer, payload.issue.number, payload.number, payload.label string and payload.label.name"
+      ],
+      "when": "each frame is decoded",
+      "then": [
+        "ID comes from JSON id, else the frame's id:",
+        "Type comes from JSON event_type, else the frame's event:",
+        "Workspace is set when hub names one",
+        "Issue and Label are decoded from each encoding, 0 and empty when absent"
+      ],
+      "pseudocode": "table-driven: assert decode(frame) == Event{ID,Type,Workspace,Issue,Label}"
+    },
+    {
+      "id": "TS-18-10",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-2.4"
+      ],
+      "title": "A line longer than 1 MiB ends the read with an error",
+      "given": [
+        "a stream with one frame, then a line of 1 MiB + 1 bytes, then another frame"
+      ],
+      "when": "the reader is drained",
+      "then": [
+        "the first frame is delivered",
+        "a non-nil error is returned",
+        "the later frame is never delivered"
+      ],
+      "pseudocode": "assert err != nil; assert len(events)==1"
+    },
+    {
+      "id": "TS-18-11",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-2.5"
+      ],
+      "title": "No non-test Go file outside internal/hub contains hub's field names",
+      "given": [
+        "the new stream code is in the repository"
+      ],
+      "when": "the existing field-name walk in internal/hub/calls_test.go runs",
+      "then": [
+        "it passes, so event_type, workspace_slug and the other names appear only inside internal/hub"
+      ],
+      "pseudocode": "go test ./internal/hub -run FieldNames"
+    },
+    {
+      "id": "TS-18-12",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-2.6"
+      ],
+      "title": "The fake hub serves the events route with access checks and fault seams",
+      "given": [
+        "a fake hub workspace widgets with a valid token and a token with no access"
+      ],
+      "when": "clients open GET /api/v1/events?workspace=widgets with an unknown token, a no-access token, with Fail(503), with Hangup, and with a valid token",
+      "then": [
+        "the unknown token gets 401",
+        "the no-access token gets hub's error status",
+        "injected faults are served as injected",
+        "the valid token gets 200 text/event-stream with the connection held open"
+      ],
+      "pseudocode": "assert status(unknown)==401; h.Fail(\"GET\",\"/api/v1/events\",503); assert status==503; assert ct==\"text/event-stream\""
+    },
+    {
+      "id": "TS-18-13",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-2.7"
+      ],
+      "title": "The fake hub's event seams send, heartbeat, end, count and emit on label add",
+      "given": [
+        "two open events connections for widgets and one for another workspace",
+        "emission on label add is turned on"
+      ],
+      "when": "the test sends an event, sends a heartbeat, adds a label through the forge API, and ends the connections of widgets",
+      "then": [
+        "both widgets connections receive the event and the heartbeat, the other workspace's does not",
+        "the open-connection count is 2, then 0 after ending",
+        "the label added through the forge API reaches each open connection of widgets as one hub.forge.issue.labeled event"
+      ],
+      "pseudocode": "h.SendEvent(ws, ev); h.Heartbeat(ws); assert h.EventConns(ws)==2; api.AddLabel(...); assert recv.type==labeled; h.EndEvents(ws); assert h.EventConns(ws)==0"
+    },
+    {
+      "id": "TS-18-14",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-3.1"
+      ],
+      "title": "A subscribed workspace gets one connected stream within one scan period",
+      "given": [
+        "the poll env with a fake hub, fake clock and real store and jobs",
+        "workspace widgets subscribed after the supervisor started"
+      ],
+      "when": "the fake clock advances 60 s",
+      "then": [
+        "the fake hub counts exactly one open events connection for widgets",
+        "a workspace already subscribed at the first scan also has one"
+      ],
+      "pseudocode": "env.Subscribe(); clock.Advance(60s); eventually(h.EventConns(ws)==1)"
+    },
+    {
+      "id": "TS-18-15",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-3.2"
+      ],
+      "title": "An unsubscribed workspace loses its stream at the next scan",
+      "given": [
+        "widgets has an open events connection"
+      ],
+      "when": "the workspace is unsubscribed and the clock advances one scan period",
+      "then": [
+        "the fake hub counts zero open events connections for widgets",
+        "no new events request is made"
+      ],
+      "pseudocode": "store.Unsubscribe(ws); clock.Advance(60s); eventually(h.EventConns(ws)==0)"
+    },
+    {
+      "id": "TS-18-16",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-3.3"
+      ],
+      "title": "A connection reads variables, then the record, then connects at once",
+      "given": [
+        "a subscribed widgets workspace and a recording fake hub"
+      ],
+      "when": "the stream opens a connection",
+      "then": [
+        "the fake hub records the variable read, then the workspace record read, then the events request, in that order",
+        "the events request follows with no clock advance (no random delay)",
+        "label prefix changes in the subscription are seen by the next handled event without reconnecting"
+      ],
+      "pseudocode": "assert h.Requests()[0:3] == [vars, record, events]; assert clock.Pending()==0"
+    },
+    {
+      "id": "TS-18-17",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-3.4"
+      ],
+      "title": "A replaced token makes the next scan reconnect with the new token",
+      "given": [
+        "widgets connected with pat-OLD"
+      ],
+      "when": "the subscription is replaced with pat-NEW (UpdatedAt changes) and the clock advances one scan period",
+      "then": [
+        "the old connection is closed",
+        "the next events request carries Authorization `Bearer pat-NEW`"
+      ],
+      "pseudocode": "store.Subscribe(ws, pat-NEW); clock.Advance(60s); assert lastEventsReq.Auth == \"Bearer pat-NEW\"; assert h.EventConns(ws)==1"
+    },
+    {
+      "id": "TS-18-18",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-3.5"
+      ],
+      "title": "A stream that finds the workspace not subscribed takes the poll loop with it and a resubscribe restarts both",
+      "given": [
+        "widgets with a loop and a stream",
+        "the store answers ErrNotSubscribed to the stream's token read"
+      ],
+      "when": "the stream reconnects and then the workspace is subscribed again and one scan runs",
+      "then": [
+        "no loop and no stream remain for widgets after the not-subscribed answer",
+        "after resubscribe the scan starts one loop and one stream"
+      ],
+      "pseudocode": "assert !sup.HasLoop(ws) && h.EventConns(ws)==0; resubscribe; clock.Advance(60s); assert sup.HasLoop(ws) && h.EventConns(ws)==1"
+    },
+    {
+      "id": "TS-18-19",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-3.6"
+      ],
+      "title": "An unreadable token logs one ERROR and the stream keeps retrying",
+      "given": [
+        "the subscription's token row is unreadable (store.ErrUnreadable)"
+      ],
+      "when": "the clock advances through four backoff attempts",
+      "then": [
+        "exactly one ERROR record names the token read",
+        "connection attempts continue at the backoff",
+        "the record does not contain the PAT"
+      ],
+      "pseudocode": "assert count(logs, ERROR, \"token\")==1; assert attempts>=4"
+    },
+    {
+      "id": "TS-18-20",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-3.7"
+      ],
+      "title": "Events of one workspace are handled in order and workspaces never wait on each other",
+      "given": [
+        "two subscribed workspaces",
+        "the issue read of workspace one blocks on a gate"
+      ],
+      "when": "two events are sent to workspace one and one event to workspace two",
+      "then": [
+        "workspace two's event is handled while workspace one's first handler is blocked",
+        "workspace one's second event is not handled until the first finishes, then handled in arrival order"
+      ],
+      "pseudocode": "gate.Block(ws1); send(ws1,e1); send(ws1,e2); send(ws2,e3); eventually(job(ws2)); assert !handled(e2); gate.Open(); assert order==[e1,e2]"
+    },
+    {
+      "id": "TS-18-21",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-3.8"
+      ],
+      "title": "Stopping the supervisor cancels streams and an in-flight event and returns after they return",
+      "given": [
+        "two workspaces with open streams and one event handler blocked in a hub call"
+      ],
+      "when": "Supervisor.Stop is called",
+      "then": [
+        "Stop returns only after every stream goroutine has returned",
+        "zero events connections remain open",
+        "the blocked handler was cancelled through its context"
+      ],
+      "pseudocode": "sup.Stop(); assert goroutines(stream)==0; assert h.EventConns(any)==0"
+    },
+    {
+      "id": "TS-18-22",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-4.1",
+        "18-REQ-4.2"
+      ],
+      "title": "With AF_POLL_INTERVAL=0 no connection is opened until the variable becomes 5m",
+      "given": [
+        "widgets with AF_POLL_INTERVAL set to 0 and issue 42 carrying af:fix"
+      ],
+      "when": "the supervisor starts, a label is added, the clock advances 5 minutes, then the variable is set to 5m and the clock advances 5 minutes",
+      "then": [
+        "no events request is recorded and no job exists while the variable is 0",
+        "after the variable is 5m an events connection is open within 5 minutes on the fake clock"
+      ],
+      "pseudocode": "assert h.EventsRequests()==0; assert len(jobs)==0; h.SetVar(\"AF_POLL_INTERVAL\",\"5m\"); clock.Advance(5m); assert h.EventConns(ws)==1"
+    },
+    {
+      "id": "TS-18-23",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-4.3"
+      ],
+      "title": "A stale reading of 0 stops the event unrecorded and closes the connection",
+      "given": [
+        "a connected stream whose variable reading is older than 5 minutes",
+        "the variable is now 0 and issue 42 carries af:fix"
+      ],
+      "when": "a hub.forge.issue.labeled event arrives, then the same with a closed event for an issue with an open job",
+      "then": [
+        "no job is made and no label is removed, nothing is cancelled",
+        "no af_hub_events row exists for the event",
+        "the connection is closed and the variables are read again 5 minutes later"
+      ],
+      "pseudocode": "clock.Advance(6m); h.SetVar(...,\"0\"); h.SendEvent(labeled); assert jobs==0 && removals==0 && rows==0 && h.EventConns(ws)==0"
+    },
+    {
+      "id": "TS-18-24",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-4.4"
+      ],
+      "title": "Unset, invalid and in-range intervals leave the stream on and are never logged by it",
+      "given": [
+        "AF_POLL_INTERVAL unset, then \"bogus\", then \"1m\", then \"24h\""
+      ],
+      "when": "the stream connects and handles a request event under each value",
+      "then": [
+        "a connection opens under each value",
+        "no stream log record mentions AF_POLL_INTERVAL"
+      ],
+      "pseudocode": "for v in values: assert h.EventConns(ws)==1; assert !anyLog(\"AF_POLL_INTERVAL\", fromStream)"
+    },
+    {
+      "id": "TS-18-25",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-4.5"
+      ],
+      "title": "Reconnect waits are 1 s after a server end and 1,2,4,8,16,32,60,60 s under failing connects",
+      "given": [
+        "the fake clock and a fake hub that ends the stream once, then fails every connect with 503"
+      ],
+      "when": "the clock is advanced to each deadline",
+      "then": [
+        "a server-ended stream reconnects after exactly 1 s",
+        "consecutive failing attempts are separated by 1, 2, 4, 8, 16, 32, 60 and 60 s on the fake clock",
+        "no attempt occurs one tick early and no jitter is applied",
+        "no poll cycle is brought forward"
+      ],
+      "pseudocode": "h.EndEvents(ws); advance(1s); assert attempts==2; h.Fail(...503); for w in [1,2,4,8,16,32,60,60]: advance(w-1); assert same; advance(1); assert attempts+1"
+    },
+    {
+      "id": "TS-18-26",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-4.6"
+      ],
+      "title": "After a 404 on the events route every wait is 60 s",
+      "given": [
+        "the fake hub answers 404 on the events route after serving the workspace record"
+      ],
+      "when": "the clock advances through several attempts",
+      "then": [
+        "each later attempt follows the previous one by 60 s",
+        "a 405 is treated the same way"
+      ],
+      "pseudocode": "h.Fail(GET,events,404); assert gaps==[60s,60s,60s]"
+    },
+    {
+      "id": "TS-18-27",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-4.7"
+      ],
+      "title": "A first frame or comment resets the next wait to 1 s",
+      "given": [
+        "several failed connects have raised the backoff to 8 s",
+        "then a connection succeeds"
+      ],
+      "when": "the connection receives one comment (case 1) or one frame (case 2) and then ends",
+      "then": [
+        "the next reconnect happens 1 s after the end in both cases"
+      ],
+      "pseudocode": "h.Heartbeat(ws); h.EndEvents(ws); advance(1s); assert attempts+1"
+    },
+    {
+      "id": "TS-18-28",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-4.8"
+      ],
+      "title": "A connection silent for 60 s is closed and reopened, and event handling time does not count",
+      "given": [
+        "an open connection that receives nothing",
+        "a second connection whose event handler is blocked for 120 s on the fake clock"
+      ],
+      "when": "the fake clock advances 60 s of silence, and separately 120 s inside a handler",
+      "then": [
+        "the fake hub sees the silent connection closed at 60 s and a new events request follows after the backoff",
+        "the connection with a handler running 120 s is not closed for idleness"
+      ],
+      "pseudocode": "advance(60s); assert h.EventConns==0; advance(1s); assert h.EventsRequests==2"
+    },
+    {
+      "id": "TS-18-29",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-5.1"
+      ],
+      "title": "The first activity after logged failures logs one INFO and re-arms the failure records",
+      "given": [
+        "the events route failed with 503 and a WARN was logged"
+      ],
+      "when": "the route recovers, a comment arrives, then the route fails with 503 again",
+      "then": [
+        "exactly one INFO says the stream has recovered",
+        "the later failure produces a new WARN record"
+      ],
+      "pseudocode": "assert count(INFO,\"recovered\")==1; assert count(WARN,\"unavailable\")==2"
+    },
+    {
+      "id": "TS-18-30",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-5.2"
+      ],
+      "title": "401, 403 and 503 on connect are each logged once at the right level and retried",
+      "given": [
+        "the fake hub answers the events route with 401, then 403, then 503 in separate runs"
+      ],
+      "when": "the clock advances through several attempts in each run",
+      "then": [
+        "401: exactly one ERROR naming the operation and `PUT /api/v1/workspaces/{slug}`",
+        "403: exactly one ERROR naming `audit:read`",
+        "503: exactly one WARN",
+        "retries continue in each case"
+      ],
+      "pseudocode": "assert one(ERROR, contains \"PUT /api/v1/workspaces\"); assert attempts>3"
+    },
+    {
+      "id": "TS-18-31",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-5.3"
+      ],
+      "title": "A 404 on the events route logs one WARN that labels are found by the poll alone",
+      "given": [
+        "the workspace record was read and the events route answers 404"
+      ],
+      "when": "the clock advances through several 60 s attempts",
+      "then": [
+        "exactly one WARN says hub does not serve the event stream and labels are found by the poll alone",
+        "retries continue",
+        "the record contains no ERROR"
+      ],
+      "pseudocode": "assert count(WARN,\"does not serve\")==1; assert count(ERROR)==0"
+    },
+    {
+      "id": "TS-18-32",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-5.4"
+      ],
+      "title": "An outage longer than the poll interval logs one WARN, and none after the not-served WARN",
+      "given": [
+        "AF_POLL_INTERVAL=10m read by the stream",
+        "hub answers 503 on the events route; in a second run it answers 404"
+      ],
+      "when": "the clock advances past 10 minutes in each run",
+      "then": [
+        "first run: one outage WARN saying labels are being found by the poll alone",
+        "second run: only the not-served WARN, no outage WARN",
+        "with no interval read, the limit is 5 minutes"
+      ],
+      "pseudocode": "advance(10m+1s); assert count(WARN,\"poll alone\")==1"
+    },
+    {
+      "id": "TS-18-33",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-5.5"
+      ],
+      "title": "Event-handling failures are logged once per kind and operation and re-armed by a clean event",
+      "given": [
+        "the issue read answers 503 for requests of two events in a row",
+        "connection failures are also being logged"
+      ],
+      "when": "two request events fail, then one event is handled without failure, then another read fails",
+      "then": [
+        "the two failing events give one WARN",
+        "after the clean event the next failure is logged again",
+        "connection-failure records are neither reset nor silenced by these",
+        "a failing issue read does not end the connection"
+      ],
+      "pseudocode": "assert count(WARN,\"issue read\")==1 after e1,e2; h.clear(); e3 ok; h.Fail(503); e4; assert count==2"
+    },
+    {
+      "id": "TS-18-34",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-5.6"
+      ],
+      "title": "Malformed forge events are ignored and warned once per connection",
+      "given": [
+        "a connection receiving labeled events with a request label and no id, no issue number, a 257-byte id and an id with a control character, plus a closed event with no issue",
+        "then a reconnect"
+      ],
+      "when": "the events arrive",
+      "then": [
+        "no request is sent to hub for any of them",
+        "exactly one WARN is logged for the connection",
+        "a second connection logs one WARN again for its first malformed event"
+      ],
+      "pseudocode": "assert h.ForgeRequests()==0; assert count(WARN,\"malformed\")==1; reconnect; send(bad); assert ==2"
+    },
+    {
+      "id": "TS-18-35",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-5.7"
+      ],
+      "title": "Other ignored events log at DEBUG at most",
+      "given": [
+        "a connection with DEBUG logging captured"
+      ],
+      "when": "events arrive of another type without an issue number, a labeled event for af:ready, an unlabeled event, and an event for another workspace",
+      "then": [
+        "no record above DEBUG exists for them",
+        "no request is sent to hub"
+      ],
+      "pseudocode": "assert maxLevel(logs)<=DEBUG"
+    },
+    {
+      "id": "TS-18-36",
+      "kind": "property",
+      "verifies": [
+        "18-REQ-5.8"
+      ],
+      "title": "No log line contains the subscription's PAT",
+      "given": [
+        "a subscription with a random PAT and a hub that may echo the token into error bodies"
+      ],
+      "when": "for any failure among 401, 403, 404, 429, 503, hangup, bad content type and any event among malformed, ignored, request and closed",
+      "then": [
+        "no captured log line contains the PAT"
+      ],
+      "pseudocode": "forall pat, failure, event: run(); assert !contains(logBuffer.String(), pat)"
+    },
+    {
+      "id": "TS-18-37",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-6.1"
+      ],
+      "title": "Only request events reach the rules; labels, types and workspaces that do not match send nothing to hub",
+      "given": [
+        "a connected stream for widgets with prefix af:"
+      ],
+      "when": "labeled events for af:ready and bug, an unlabeled event, a reopened event, a labeled af:fix event naming another workspace, and a closed event for an issue with no open job arrive",
+      "then": [
+        "no forge request of any kind is recorded on the fake hub",
+        "a labeled event for AF:FIX (case differs) is treated as a request"
+      ],
+      "pseudocode": "assert len(h.ForgeRequests())==0"
+    },
+    {
+      "id": "TS-18-38",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-6.2"
+      ],
+      "title": "A repeated id, a closed issue, a pull request or a missing label do nothing",
+      "given": [
+        "issues: 50 closed with af:fix, 51 a pull request with af:fix, 52 open without af:fix, 53 open with af:fix already handled by evt-9"
+      ],
+      "when": "labeled events arrive for each, and evt-9 is sent again",
+      "then": [
+        "no job is made and no label is removed for 50, 51 and 52",
+        "the repeated evt-9 sends no forge request",
+        "the label comparison ignores case"
+      ],
+      "pseudocode": "assert jobs==0; assert requestsAfterRepeat == requestsBefore"
+    },
+    {
+      "id": "TS-18-39",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-6.3"
+      ],
+      "title": "A new request label becomes one event-sourced job within a second, record before removal",
+      "given": [
+        "issue 42 open with af:fix and no job"
+      ],
+      "when": "hub sends labeled evt-1 for 42 af:fix",
+      "then": [
+        "within 1 s exactly one fix job has source {kind:event,by:evt-1}, request_label af:fix, input {issue:42}",
+        "one poll record exists for the job",
+        "exactly one DELETE of af:fix on issue 42 is received, after the record insert",
+        "the same event id again creates no job and sends no forge request",
+        "a poll cycle with removal lag still listing 42 creates no second job"
+      ],
+      "pseudocode": "h.SetRemovalLag(42); send(evt1); eventually(len(jobs)==1, 1s); assert doc.source=={\"event\",\"evt-1\"}; send(evt1); sup.Cycle(); assert len(jobs)==1"
+    },
+    {
+      "id": "TS-18-40",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-6.4"
+      ],
+      "title": "A label for an issue with an open job is absorbed, or its removal owed on failure",
+      "given": [
+        "issue 60 with an open fix job made through the API",
+        "issue 61 likewise, whose label removal fails with 422"
+      ],
+      "when": "labeled events arrive for 60 and 61",
+      "then": [
+        "no new job is made",
+        "the label is removed from 60",
+        "for 61 a poll record is owed",
+        "a jobs-layer duplicate refusal on create is also treated as absorbed"
+      ],
+      "pseudocode": "assert len(jobs(60))==1; assert removals(60)==1; assert rec(61).Owed"
+    },
+    {
+      "id": "TS-18-41",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-6.5"
+      ],
+      "title": "The event for a worker's restored label is held",
+      "given": [
+        "a stream-made job cancelled while in a runner, with the worker putting af:fix back and a hold in the poll record"
+      ],
+      "when": "the labeled event for the restore arrives",
+      "then": [
+        "no job is made and no label is removed",
+        "the label stays on the issue",
+        "the event id is recorded as decided"
+      ],
+      "pseudocode": "assert jobs==1(cancelled); assert removals==0; assert rowExists(evt)"
+    },
+    {
+      "id": "TS-18-42",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-6.6"
+      ],
+      "title": "An owed removal is retried by a second event and makes no job",
+      "given": [
+        "a stream-made job whose label removal failed with 422 so the removal is owed"
+      ],
+      "when": "a second labeled event arrives for the same issue and label and the fake hub now accepts the removal",
+      "then": [
+        "the label is removed",
+        "no second job is made"
+      ],
+      "pseudocode": "assert removals==2; assert len(jobs)==1; assert !rec.Owed or dropped"
+    },
+    {
+      "id": "TS-18-43",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-6.7"
+      ],
+      "title": "A not-subscribed refusal writes no label and another refusal logs a WARN and leaves the label",
+      "given": [
+        "a jobs layer that refuses Create with ErrNotSubscribed, and another that refuses with an internal error"
+      ],
+      "when": "a labeled event arrives under each",
+      "then": [
+        "not subscribed: no job, no label removal, no event id recorded, nothing logged as a failure",
+        "other refusal: one WARN event-handling failure, label stays, no job, no event id recorded"
+      ],
+      "pseudocode": "assert removals==0 && rows==0; assert count(WARN)==1 for other"
+    },
+    {
+      "id": "TS-18-44",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-6.8"
+      ],
+      "title": "Hub failures during a request event leave the event to the poll",
+      "given": [
+        "the variable read, the issue read or the label removal fails in separate runs (503 and 401)"
+      ],
+      "when": "a labeled event arrives and then a poll cycle runs",
+      "then": [
+        "no af_hub_events row exists for the event",
+        "the failure is logged as an event-handling failure",
+        "after a failed removal the job exists with the removal owed and the label stays",
+        "after a failed variable or issue read no job is made and the next poll cycle takes the label once"
+      ],
+      "pseudocode": "assert rows==0; sup.Cycle(); assert len(jobs)==1"
+    },
+    {
+      "id": "TS-18-45",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-7.1"
+      ],
+      "title": "A decided event leaves one af_hub_events row and a repeat does nothing",
+      "given": [
+        "a request event that makes a job and a closed event that cancels one"
+      ],
+      "when": "each is handled and then sent again with the same id",
+      "then": [
+        "one af_hub_events row per event, keyed by workspace and id, with a taken-at time",
+        "the repeat makes no job, no cancel and sends no forge request"
+      ],
+      "pseudocode": "assert count(rows)==2; assert h.ForgeRequests()==before"
+    },
+    {
+      "id": "TS-18-46",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-7.2"
+      ],
+      "title": "Ignored, no-open-job, poll-off and failed events are not recorded",
+      "given": [
+        "an ignored event, a closed event for an issue with no open job, a request event while the poll is off and a request event whose issue read fails"
+      ],
+      "when": "each is handled",
+      "then": [
+        "af_hub_events stays empty"
+      ],
+      "pseudocode": "assert count(af_hub_events)==0"
+    },
+    {
+      "id": "TS-18-47",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-7.3"
+      ],
+      "title": "A recorded id is still ignored after the state file is reopened",
+      "given": [
+        "evt-1 recorded and the service state file closed and reopened with a new supervisor"
+      ],
+      "when": "evt-1 is sent again",
+      "then": [
+        "no job is made and no forge request is sent",
+        "the row is still present"
+      ],
+      "pseudocode": "reopen(); send(evt1); assert forgeRequests==0"
+    },
+    {
+      "id": "TS-18-48",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-7.4"
+      ],
+      "title": "The scan deletes event ids older than 7 days",
+      "given": [
+        "two af_hub_events rows taken 7d1m ago and 6d23h ago by the fake clock"
+      ],
+      "when": "the supervisor's next scan runs",
+      "then": [
+        "the older id is deleted",
+        "the newer id is kept"
+      ],
+      "pseudocode": "clock.Advance(60s); assert !exists(old) && exists(new)"
+    },
+    {
+      "id": "TS-18-49",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-7.5"
+      ],
+      "title": "A stream event is handled between two issues of a running cycle",
+      "given": [
+        "a cycle listing two issues, whose handling of the first is paused"
+      ],
+      "when": "a stream event for the same workspace arrives while the cycle is between the issues",
+      "then": [
+        "the event is handled after the first issue's rules finish and before the second begins",
+        "the lock is not held across the whole cycle"
+      ],
+      "pseudocode": "pause(issue1); send(evt); release(); assert order==[issue1, evt, issue2]"
+    },
+    {
+      "id": "TS-18-50",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-7.6"
+      ],
+      "title": "A cycle makes no job for a label whose record was made after its listing was requested",
+      "given": [
+        "a listing requested at T, then a stream-made job for the same issue and label whose record was made after T and has ended"
+      ],
+      "when": "the cycle reaches the issue",
+      "then": [
+        "no create call is made",
+        "the label stays for the next cycle"
+      ],
+      "pseudocode": "assert createCalls==0; assert labelOn(issue)"
+    },
+    {
+      "id": "TS-18-51",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-7.7"
+      ],
+      "title": "A complete listing neither settles owed removals nor releases holds for newer records",
+      "given": [
+        "an owed record and a held record made at or after the listing was requested, and older ones for comparison"
+      ],
+      "when": "a complete listing is settled",
+      "then": [
+        "the newer records keep Owed and their hold",
+        "the older ones are settled and released as before"
+      ],
+      "pseudocode": "assert rec(new).Owed && rec(new).Hold; assert !rec(old).Owed"
+    },
+    {
+      "id": "TS-18-52",
+      "kind": "property",
+      "verifies": [
+        "18-REQ-7.8"
+      ],
+      "title": "A stream event and a poll cycle on one new label always end with one job and the label removed",
+      "given": [
+        "fresh issue per round, removal lag set so the listing may still show the label"
+      ],
+      "when": "for any of 50 rounds with a random interleaving of one labeled event and one poll cycle for the same new label",
+      "then": [
+        "each round ends with exactly one job for the issue",
+        "the label is off the issue"
+      ],
+      "pseudocode": "for i in 1..50: add(issue_i, af:fix); go send(evt_i); go cycle(); wait(); assert len(jobs(i))==1 && !hasLabel(i)"
+    },
+    {
+      "id": "TS-18-53",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-8.1"
+      ],
+      "title": "A closed event for an issue with no open job costs nothing",
+      "given": [
+        "issue 70 with no open job, and DEBUG-and-above logging captured"
+      ],
+      "when": "a hub.forge.issue.closed event arrives for 70",
+      "then": [
+        "no request is sent to hub",
+        "no af_hub_events row is written",
+        "no log record above DEBUG",
+        "an already recorded id is ignored before the look"
+      ],
+      "pseudocode": "assert h.Requests()==baseline; assert rows==0; assert maxLevel<=DEBUG"
+    },
+    {
+      "id": "TS-18-54",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-8.2"
+      ],
+      "title": "A closed event for an issue hub reads as open cancels nothing",
+      "given": [
+        "issue 71 with a queued fix job and a running triage job, and hub reading the issue as open"
+      ],
+      "when": "a closed event arrives",
+      "then": [
+        "both jobs keep their states",
+        "the event is recorded as decided"
+      ],
+      "pseudocode": "assert states==[queued,running]"
+    },
+    {
+      "id": "TS-18-55",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-8.3"
+      ],
+      "title": "A closed event cancels every open job of the issue with cause issue_closed and logs one INFO",
+      "given": [
+        "issue 72 with a queued fix job and a blocked triage job, and hub reading it as closed"
+      ],
+      "when": "a closed event arrives",
+      "then": [
+        "both jobs read state cancelled and cancel_cause issue_closed",
+        "exactly one INFO names widgets, issue 72 and both job ids"
+      ],
+      "pseudocode": "for j in jobs: assert j.state==\"cancelled\" && j.cancel_cause==\"issue_closed\"; assert one(INFO, ws, 72, ids)"
+    },
+    {
+      "id": "TS-18-56",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-8.4"
+      ],
+      "title": "An unreadable issue on a closed event cancels nothing and is not recorded",
+      "given": [
+        "issue 73 with an open job and the issue read answering 503"
+      ],
+      "when": "a closed event arrives twice with different ids",
+      "then": [
+        "the job keeps its state",
+        "no af_hub_events row exists",
+        "one event-handling log record per kind and operation"
+      ],
+      "pseudocode": "assert state==running; assert rows==0; assert count(WARN,\"issue read\")==1"
+    },
+    {
+      "id": "TS-18-57",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-8.5"
+      ],
+      "title": "The runner receives a cause that is both ErrCancelled and ErrIssueClosed, with grace and job_state",
+      "given": [
+        "the jobs layer with fakerunner blocking a running attempt"
+      ],
+      "when": "CancelIssue is called for the job's issue",
+      "then": [
+        "the runner's cause satisfies errors.Is for jobs.ErrCancelled and jobs.ErrIssueClosed",
+        "a job_state event is emitted",
+        "the 60 s grace applies and the lease is released as for any cancel",
+        "queued attempts are cancelled"
+      ],
+      "pseudocode": "c := runner.Call.Cause(); assert Is(c,ErrCancelled) && Is(c,ErrIssueClosed); assert events has job_state"
+    },
+    {
+      "id": "TS-18-58",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-8.6"
+      ],
+      "title": "A job that changes state between the look and the cancel is looked at again, up to 8 times",
+      "given": [
+        "a job that moves from queued to running between the look and the cancel, and one that changes state on every try"
+      ],
+      "when": "CancelIssue runs",
+      "then": [
+        "the first job ends cancelled with cancel_cause issue_closed",
+        "the second gives up after 8 tries and returns an error to the stream"
+      ],
+      "pseudocode": "assert doc.cancel_cause==\"issue_closed\"; assert tries==8 && err!=nil"
+    },
+    {
+      "id": "TS-18-59",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-8.7"
+      ],
+      "title": "cancel_cause shows cancelled, unsubscribed, issue_closed or null in the job document",
+      "given": [
+        "jobs cancelled by a person, by an unsubscribe and by an issue close, a running job and a job cancelled before the migration (null column)"
+      ],
+      "when": "the job documents are read",
+      "then": [
+        "cancel_cause is \"cancelled\", \"unsubscribed\", \"issue_closed\", null and null respectively",
+        "jobs.Standing reports the cause"
+      ],
+      "pseudocode": "assert docs.map(cancel_cause)==[\"cancelled\",\"unsubscribed\",\"issue_closed\",nil,nil]"
+    },
+    {
+      "id": "TS-18-60",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-8.8"
+      ],
+      "title": "The synthesized envelope for an issue-closed attempt keeps category cancelled and says the issue was closed",
+      "given": [
+        "a runner that returns without an envelope, and one that overruns the 60 s grace, both cancelled with the issue-closed cause"
+      ],
+      "when": "the attempt ends",
+      "then": [
+        "envelope error.category is cancelled",
+        "error.message mentions that the issue was closed"
+      ],
+      "pseudocode": "assert env.error.category==\"cancelled\"; assert contains(lower(env.error.message),\"closed\")"
+    },
+    {
+      "id": "TS-18-61",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-9.1"
+      ],
+      "title": "The real worker takes only its af:in-progress off for an issue-closed cancel",
+      "given": [
+        "a running fix job made by the stream with its hub session open and af:in-progress set on issue 42"
+      ],
+      "when": "the issue is closed and hub sends the closed event",
+      "then": [
+        "the attempt ends cancelled with a message saying the issue was closed",
+        "the lease is released",
+        "af:in-progress is removed from issue 42",
+        "no label is added and no comment is posted"
+      ],
+      "pseudocode": "assert doc.attempt.state==\"cancelled\"; assert leaseReleased; assert !has(42,\"af:in-progress\"); assert adds==0 && comments==0"
+    },
+    {
+      "id": "TS-18-62",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-9.2",
+        "18-REQ-9.4"
+      ],
+      "title": "The cleanup removes af:needs-human and a left af:in-progress, and leaves af:landed",
+      "given": [
+        "issue 43 with a blocked triage job showing af:needs-human set, carrying af:landed",
+        "issue 44 with a fix job whose attempt was shut down and left af:in-progress"
+      ],
+      "when": "closed events arrive for 43 and 44",
+      "then": [
+        "labels.cleanup reads pending then done on each job",
+        "af:needs-human is removed from 43 and af:landed stays",
+        "af:in-progress is removed from 44",
+        "label_not_set is recorded where agent_fox_label_protocol R5 says so"
+      ],
+      "pseudocode": "assert history(cleanup)==[pending,done]; assert labels(43)==[af:landed]; assert !has(44,in-progress)"
+    },
+    {
+      "id": "TS-18-63",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-9.3"
+      ],
+      "title": "No label or comment is ever added to the issue and labels.restore stays null",
+      "given": [
+        "issue-closed cancels of a running job, a blocked job and a queued job, with the fake hub recording every write"
+      ],
+      "when": "the cancels and their cleanups complete",
+      "then": [
+        "labels.restore is null on every job",
+        "the fake hub records no label addition and no comment for the issue",
+        "no request label comes back and no status label is set"
+      ],
+      "pseudocode": "assert doc.labels.restore==nil; assert h.Writes(kind in [addLabel,comment])==0"
+    },
+    {
+      "id": "TS-18-64",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-9.5"
+      ],
+      "title": "A jobs layer without a forge writes nothing for an issue-closed cancel",
+      "given": [
+        "a jobs layer built with no forge and an open job"
+      ],
+      "when": "CancelIssue is called",
+      "then": [
+        "the job is cancelled with cancel_cause issue_closed",
+        "no forge request is sent"
+      ],
+      "pseudocode": "assert h.ForgeRequests()==0"
+    },
+    {
+      "id": "TS-18-65",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-9.6"
+      ],
+      "title": "note treats an issue_closed job as ended and holding nothing",
+      "given": [
+        "poll records for jobs cancelled with issue_closed, one whose cancel reached a runner (cancelled in runner) and one whose cleanup is pending or failed"
+      ],
+      "when": "the poll reconciles the records",
+      "then": [
+        "each record reads seen ended with no hold",
+        "a person-cancelled job in a runner still holds, as before"
+      ],
+      "pseudocode": "assert rec.Seen==\"ended\" && !rec.Held"
+    },
+    {
+      "id": "TS-18-66",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-9.7"
+      ],
+      "title": "A reopened and relabelled issue makes a new job by event and by poll",
+      "given": [
+        "issue 42 whose jobs were cancelled with issue_closed, then reopened and labelled af:fix"
+      ],
+      "when": "a labeled event arrives, and in a second run no event is sent and a poll cycle runs",
+      "then": [
+        "one new fix job is made per trigger",
+        "the label is removed each time"
+      ],
+      "pseudocode": "send(evt); assert newJobs==1; (second) sup.Cycle(); assert newJobs==1"
+    },
+    {
+      "id": "TS-18-67",
+      "kind": "smoke",
+      "verifies": [
+        "18-PATH-1",
+        "18-REQ-6.3"
+      ],
+      "title": "A label added to issue 42 becomes a job within a second through the running supervisor",
+      "given": [
+        "fake hub with workspace widgets subscribed with prefix af:, open issue 42 carrying af:fix, real store and jobs layer on a temp state file, fakerunner and fakeclock"
+      ],
+      "when": "the supervisor starts and the fake hub sends labeled evt-1 for issue 42 and af:fix",
+      "then": [
+        "within 1 s one fix job exists with source {kind:event,by:evt-1}, request_label af:fix, input {issue:42}",
+        "one poll record is written and one af_hub_events row for evt-1",
+        "one DELETE of af:fix from issue 42 reaches the fake hub"
+      ],
+      "real_components": [
+        "poll Supervisor and event stream",
+        "hub client SSE reader",
+        "fake hub with event stream",
+        "real store and jobs layer",
+        "poll records store"
+      ]
+    },
+    {
+      "id": "TS-18-68",
+      "kind": "smoke",
+      "verifies": [
+        "18-PATH-2",
+        "18-REQ-9.1"
+      ],
+      "title": "Closing an issue cancels its running job and the worker takes af:in-progress off",
+      "given": [
+        "fake hub, real store and jobs layer, real worker runner with hub session, issue 42 with a running stream-made fix job that set af:in-progress"
+      ],
+      "when": "issue 42 is closed and hub sends hub.forge.issue.closed",
+      "then": [
+        "the job reads cancelled with cancel_cause issue_closed and labels.restore null",
+        "the lease is released and af:in-progress is removed",
+        "no label added, no comment posted",
+        "one INFO names widgets, 42 and the job id and the event id is recorded"
+      ],
+      "real_components": [
+        "poll Supervisor and event stream",
+        "fake hub with event stream",
+        "real store and jobs layer",
+        "real worker",
+        "hub client"
+      ]
+    },
+    {
+      "id": "TS-18-69",
+      "kind": "smoke",
+      "verifies": [
+        "18-PATH-3",
+        "18-REQ-9.2"
+      ],
+      "title": "Closing an issue with a blocked job runs the cleanup and later requests are new",
+      "given": [
+        "fake hub, real store and jobs layer with forge cleanup wired, issue 43 with a blocked triage job showing af:needs-human set and carrying af:landed"
+      ],
+      "when": "hub sends hub.forge.issue.closed for 43, then the issue is reopened and labelled af:fix and a poll cycle runs",
+      "then": [
+        "the job reads cancelled with cancel_cause issue_closed, labels.cleanup pending then done, labels.restore null",
+        "af:needs-human is removed and af:landed stays",
+        "the poll notes the job ended with no hold and the cycle makes one new fix job"
+      ],
+      "real_components": [
+        "poll Supervisor and event stream",
+        "poll cycle and records",
+        "fake hub with event stream",
+        "real store and jobs layer",
+        "hub client"
+      ]
+    },
+    {
+      "id": "TS-18-70",
+      "kind": "smoke",
+      "verifies": [
+        "18-PATH-4"
+      ],
+      "title": "A label added while the stream is down is made into one job by the poll",
+      "given": [
+        "fake hub, real store and jobs layer, fakeclock, a connected stream"
+      ],
+      "when": "the hub ends the connection and answers 503 to reconnects, af:fix is added to issue 45 with no event sent, and the clock advances through retries at 1, 2 and 4 s and then to the poll interval",
+      "then": [
+        "one WARN is logged for the outage of connects",
+        "exactly one fix job exists with a label source",
+        "af:fix is removed from issue 45"
+      ],
+      "real_components": [
+        "poll Supervisor, loop and cycle",
+        "event stream backoff",
+        "fake hub with event stream and faults",
+        "real store and jobs layer",
+        "fakeclock"
+      ]
+    },
+    {
+      "id": "TS-18-71",
+      "kind": "smoke",
+      "verifies": [
+        "18-PATH-5",
+        "18-REQ-3.8"
+      ],
+      "title": "Stopping serve closes the streams before the jobs layer stops",
+      "given": [
+        "agent-fox serve wiring with the poll supervisor, real jobs layer and a connected stream on the fake hub"
+      ],
+      "when": "serve shuts down",
+      "then": [
+        "the deferred poll stop runs before the jobs layer's stop",
+        "the fake hub counts zero open events connections",
+        "no stream goroutine remains and the state file closes cleanly"
+      ],
+      "real_components": [
+        "cmd/agent-fox serve wiring",
+        "poll Supervisor and event stream",
+        "real jobs layer and store",
+        "fake hub with event stream"
+      ]
+    }
+  ]
+}

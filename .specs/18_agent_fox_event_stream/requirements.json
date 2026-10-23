@@ -1,0 +1,787 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "18",
+  "spec_name": "agent_fox_event_stream",
+  "schema_version": 2,
+  "introduction": "The agent-fox service keeps one connection to hub's server-sent event stream for every subscribed workspace whose label poll is on, turns a `hub.forge.issue.labeled` request event into a job within seconds under the label poll's rules, and cancels an issue's open jobs when hub reports the issue closed, removing their status labels and adding none. The label poll stays as the catch-up, and `AF_POLL_INTERVAL=0` turns both off.",
+  "glossary": {
+    "absorbed / held / owed": "The label poll's rules: absorbed means an open job of that kind already exists and the label is removed; held means a restored label is left alone; owed means a removal of a label already taken is still due.",
+    "activity": "Any frame or comment line received on an open event-stream connection, whether or not it carries an event.",
+    "canonical label": "The request label spelled `<prefix><kind>` from the subscription's `label_prefix`, used as a job's `request_label`.",
+    "closed event": "A `hub.forge.issue.closed` event that is not malformed and names no other workspace.",
+    "connection failure": "A failure of the token read, the variable read, the workspace-record read or the connect of an event-stream connection, logged once per kind and operation until the next activity.",
+    "event stream": "The service's connection to hub's `GET /api/v1/events?workspace=<slug>` server-sent events route for one workspace, owned by the label poll's Supervisor.",
+    "event-handling failure": "A failure of a hub call or of the jobs layer while a request or closed event is handled, logged once per kind and operation until an event of the workspace is handled without failure.",
+    "issue-closed cancel": "A cancel whose cause is `jobs.ErrIssueClosed` (wrapping `ErrCancelled`), stored as `cancel_cause` `issue_closed`; it removes the jobs' status labels and puts no request label back.",
+    "malformed event": "A labeled event without a label, a labeled event with a request label, or a closed event, that has no id, no issue number, or an id longer than 256 bytes or containing control characters.",
+    "poll record": "A row of `af_poll_requests` that links a request label on an issue to the job it made, with its owed, seen and hold state.",
+    "request event": "A `hub.forge.issue.labeled` event whose label equals `<prefix>triage` or `<prefix>fix` (case ignored) and that names no other workspace."
+  },
+  "requirements": [
+    {
+      "id": "18-REQ-1",
+      "title": "Opening hub's event stream in the hub client",
+      "rationale": "The service needs a hub client call that opens the event stream and classifies its refusals as the other hub calls do.",
+      "criteria": [
+        {
+          "id": "18-REQ-1.1",
+          "pattern": "event_driven",
+          "condition": "a caller opens the event stream for a workspace slug with a PAT",
+          "system": "hub client",
+          "action": "send `GET /api/v1/events?workspace=<query-escaped slug>` with `Authorization: Bearer <PAT>`, `Accept: text/event-stream` and the client's `User-Agent`, without following redirects",
+          "contract": "on `200` with content type `text/event-stream`, an open stream reader is returned and nil error"
+        },
+        {
+          "id": "18-REQ-1.2",
+          "pattern": "ubiquitous",
+          "system": "hub client",
+          "action": "wait at most 10 s for the response headers, then read the body with no overall timeout until the caller's context ends",
+          "contract": "a server that sends no headers for 10 s yields an `*hub.UnavailableError`; an open stream ends only when the context is cancelled or the server ends it"
+        },
+        {
+          "id": "18-REQ-1.3",
+          "pattern": "unwanted",
+          "condition": "hub answers the events route with `401` or `403`",
+          "system": "hub client",
+          "action": "return a refusal; for `403` the message names the scope `audit:read` and the route `PUT /api/v1/workspaces/{slug}`",
+          "contract": "`401`: `errors.Is(err, hub.ErrRefused)`; `403`: `errors.Is(err, hub.ErrForbidden)`"
+        },
+        {
+          "id": "18-REQ-1.4",
+          "pattern": "unwanted",
+          "condition": "hub answers the events route with `404`, or with another 4xx status other than 429",
+          "system": "hub client",
+          "action": "return not found for `404`, and a rejection carrying hub's error code and message for the other 4xx statuses",
+          "contract": "`404`: `errors.Is(err, hub.ErrNotFound)`; other 4xx: `*hub.RejectedError` with `Status`, `Code` and `Message` set and `errors.Is(err, hub.ErrRejected)`"
+        },
+        {
+          "id": "18-REQ-1.5",
+          "pattern": "unwanted",
+          "condition": "hub answers with 429 or 5xx, the transport fails or times out, hub redirects, or a `200` carries a content type other than `text/event-stream`",
+          "system": "hub client",
+          "action": "return hub unavailable",
+          "contract": "`*hub.UnavailableError` carrying the status (0 for transport failures)"
+        },
+        {
+          "id": "18-REQ-1.6",
+          "pattern": "ubiquitous",
+          "system": "hub client",
+          "action": "for any PAT and any answer of the events route, return errors and values whose text does not contain the PAT",
+          "contract": "`strings.Contains(err.Error(), pat)` is false for every returned error"
+        }
+      ]
+    },
+    {
+      "id": "18-REQ-2",
+      "title": "Reading and decoding frames, and the fake hub's stream",
+      "rationale": "Hub's event shape is unverified, so the client reads every plausible encoding, and only internal/hub knows hub's field names.",
+      "criteria": [
+        {
+          "id": "18-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "hub stream reader",
+          "action": "read frames by SSE rules: the fields `id:`, `event:` and `data:`, data lines joined with a line break, a line starting with a colon as a comment, and a frame with no data as no event",
+          "contract": "each blank-line-terminated frame yields at most one event with the joined data"
+        },
+        {
+          "id": "18-REQ-2.2",
+          "pattern": "ubiquitous",
+          "system": "hub stream reader",
+          "action": "deliver every frame and every comment to the caller as activity, including frames whose data is not a JSON object, which are activity and nothing more",
+          "contract": "the caller observes one activity per frame or comment; a non-object data frame yields no decoded event"
+        },
+        {
+          "id": "18-REQ-2.3",
+          "pattern": "event_driven",
+          "condition": "a frame's data is a JSON object",
+          "system": "hub stream reader",
+          "action": "decode a typed event: the id from JSON `id` or else the frame's `id:`, the type from JSON `event_type` or else the frame's `event:`, the workspace slug when hub names one, the issue number from `payload.issue` (integer), `payload.issue.number` or `payload.number`, and the label from `payload.label` (string) or `payload.label.name`",
+          "contract": "a typed event value with ID, Type, Workspace, Issue (0 when absent) and Label (empty when absent)"
+        },
+        {
+          "id": "18-REQ-2.4",
+          "pattern": "unwanted",
+          "condition": "a line of the stream is longer than 1 MiB",
+          "system": "hub stream reader",
+          "action": "end the read with an error",
+          "contract": "the reader returns a non-nil error and delivers no further frames"
+        },
+        {
+          "id": "18-REQ-2.5",
+          "pattern": "ubiquitous",
+          "system": "hub client",
+          "action": "keep hub's field names (`event_type`, `workspace_slug` and the others) inside `internal/hub`, so that no non-test Go file outside it contains them",
+          "contract": "the existing field-name walk in `internal/hub/calls_test.go` passes"
+        },
+        {
+          "id": "18-REQ-2.6",
+          "pattern": "event_driven",
+          "condition": "a client opens `GET /api/v1/events?workspace=<slug>` on the fake hub",
+          "system": "fake hub",
+          "action": "check the token's access to the workspace as its other routes do, apply faults set through `Inject`, `Fail` and `Hangup` on that path, and otherwise hold the connection open as `text/event-stream`",
+          "contract": "an unknown token gets `401`, a token without access gets hub's error status, an injected fault is served as injected, and otherwise `200` `text/event-stream`"
+        },
+        {
+          "id": "18-REQ-2.7",
+          "pattern": "ubiquitous",
+          "system": "fake hub",
+          "action": "let a test send an event to a workspace's open connections, send a heartbeat, end every connection of a workspace, read how many connections are open, and turn on emitting `hub.forge.issue.labeled` whenever a label is added through its forge API",
+          "contract": "exported fakehub methods for each seam; a label added through the forge API with emission on reaches every open connection of the workspace as one labeled event"
+        }
+      ]
+    },
+    {
+      "id": "18-REQ-3",
+      "title": "One stream per poll loop",
+      "rationale": "The stream shares the poll's scan, state and records, so its lifecycle follows the poll loop's.",
+      "criteria": [
+        {
+          "id": "18-REQ-3.1",
+          "pattern": "event_driven",
+          "condition": "the poll supervisor starts a loop for a workspace, at the first scan or at a scan that finds a new subscription",
+          "system": "poll supervisor",
+          "action": "start one event stream for that workspace together with the loop",
+          "contract": "the fake hub counts one open events connection for the workspace within one scan period (60 s on the fake clock)"
+        },
+        {
+          "id": "18-REQ-3.2",
+          "pattern": "event_driven",
+          "condition": "a workspace's poll loop is taken away (unsubscribe, a scan that finds the subscription gone, a cycle that finds it not subscribed) or the poll stops",
+          "system": "poll supervisor",
+          "action": "stop that workspace's event stream",
+          "contract": "the fake hub counts zero open events connections for the workspace after the next scan"
+        },
+        {
+          "id": "18-REQ-3.3",
+          "pattern": "event_driven",
+          "condition": "the stream opens a connection",
+          "system": "event stream",
+          "action": "read the subscription's token from the store, then the workspace's resolved variables from hub, then the workspace record from hub for the forge repository, then connect at once with no random delay; the request labels are read from the subscription's `label_prefix` each time an event is handled",
+          "contract": "the fake hub records the variable read, the record read and the events request in that order"
+        },
+        {
+          "id": "18-REQ-3.4",
+          "pattern": "event_driven",
+          "condition": "a scan finds that the subscription's `UpdatedAt` has changed since the stream connected",
+          "system": "poll supervisor",
+          "action": "close the open connection and reconnect at once with the new token",
+          "contract": "the next events request carries `Authorization: Bearer <new PAT>`"
+        },
+        {
+          "id": "18-REQ-3.5",
+          "pattern": "unwanted",
+          "condition": "the store answers \"not subscribed\" to the stream",
+          "system": "event stream",
+          "action": "stop the stream and take the workspace's poll loop away with it, so that a later scan finding the workspace subscribed again starts both",
+          "contract": "no loop and no stream remain for the workspace; after resubscribe, the next scan has one of each"
+        },
+        {
+          "id": "18-REQ-3.6",
+          "pattern": "unwanted",
+          "condition": "the subscription's token cannot be read (`store.ErrUnreadable`)",
+          "system": "event stream",
+          "action": "log one `ERROR` naming the token read and keep retrying at the backoff",
+          "contract": "exactly one `ERROR` record across repeated attempts; connection attempts continue"
+        },
+        {
+          "id": "18-REQ-3.7",
+          "pattern": "ubiquitous",
+          "system": "event stream",
+          "action": "handle the events of one workspace one at a time in arrival order, and never let streams of different workspaces wait on each other",
+          "contract": "a blocked event handler on one workspace does not delay the handling of an event on another workspace"
+        },
+        {
+          "id": "18-REQ-3.8",
+          "pattern": "event_driven",
+          "condition": "the poll supervisor stops",
+          "system": "poll supervisor",
+          "action": "cancel every stream and any event being handled, and return only after they have returned, so that `serve` stops them before the jobs layer and before the state file is closed",
+          "contract": "`Supervisor.Stop` returns with zero stream goroutines running and zero open events connections"
+        }
+      ]
+    },
+    {
+      "id": "18-REQ-4",
+      "title": "The poll's switch and reconnecting",
+      "rationale": "AF_POLL_INTERVAL=0 keeps its documented meaning of turning off every label trigger, and a lost connection is recovered without hammering hub.",
+      "criteria": [
+        {
+          "id": "18-REQ-4.1",
+          "pattern": "state_driven",
+          "condition": "the workspace's `AF_POLL_INTERVAL` reads as a zero duration",
+          "system": "event stream",
+          "action": "open no connection to the events route and read the variables again 5 minutes later",
+          "contract": "the fake hub records no events request; a label added to an issue makes no job"
+        },
+        {
+          "id": "18-REQ-4.2",
+          "pattern": "event_driven",
+          "condition": "`AF_POLL_INTERVAL` changes from `0` to `5m`",
+          "system": "event stream",
+          "action": "connect at its next reading of the variables",
+          "contract": "an events connection is open within 5 minutes on the fake clock"
+        },
+        {
+          "id": "18-REQ-4.3",
+          "pattern": "complex_event",
+          "condition": "a request event or closed event arrives on an open connection",
+          "guard": "the stream's reading of the variables is older than 5 minutes",
+          "system": "event stream",
+          "action": "read the variables again before acting; if the new reading is `0`, not act on the event, not record it, close the connection, and read the variables again 5 minutes later",
+          "contract": "with the new reading `0`: no job, no label removal, no `af_hub_events` row, and zero open connections"
+        },
+        {
+          "id": "18-REQ-4.4",
+          "pattern": "ubiquitous",
+          "system": "event stream",
+          "action": "stay on when `AF_POLL_INTERVAL` is unset, invalid, or a duration from 1m to 24h, and log nothing about its value",
+          "contract": "no log record from the stream mentions `AF_POLL_INTERVAL`"
+        },
+        {
+          "id": "18-REQ-4.5",
+          "pattern": "event_driven",
+          "condition": "a connection fails or ends",
+          "system": "event stream",
+          "action": "wait on the poll's clock before retrying, starting at 1 s and doubling after each further failure up to 60 s, with no jitter, and without trying to recover missed events or bringing the poll's next cycle forward",
+          "contract": "consecutive failing attempts wait 1, 2, 4, 8, 16, 32, 60 and 60 s on the fake clock; a server-ended stream reconnects after 1 s"
+        },
+        {
+          "id": "18-REQ-4.6",
+          "pattern": "state_driven",
+          "condition": "hub has been found not to serve the event stream (`404` or `405` on the events route after the workspace record was read)",
+          "system": "event stream",
+          "action": "wait 60 s before every further attempt",
+          "contract": "each later attempt follows the previous one by 60 s on the fake clock"
+        },
+        {
+          "id": "18-REQ-4.7",
+          "pattern": "event_driven",
+          "condition": "a connection receives its first frame or comment",
+          "system": "event stream",
+          "action": "reset the next backoff wait to 1 s",
+          "contract": "the next reconnect after that connection ends happens after 1 s"
+        },
+        {
+          "id": "18-REQ-4.8",
+          "pattern": "unwanted",
+          "condition": "an open connection receives no bytes for 60 s, not counting time spent acting on an event",
+          "system": "event stream",
+          "action": "close the connection, treat it as ended, and open a new one after the backoff wait",
+          "contract": "the fake hub sees the connection closed after 60 s of silence and a new events request follows"
+        }
+      ]
+    },
+    {
+      "id": "18-REQ-5",
+      "title": "What the stream logs",
+      "rationale": "Each failure must be visible once and each recovery visible, without one kind of record silencing another.",
+      "criteria": [
+        {
+          "id": "18-REQ-5.1",
+          "pattern": "event_driven",
+          "condition": "a connection receives its first frame or comment after connection failures or an outage were logged",
+          "system": "event stream",
+          "action": "log one `INFO` that the stream has recovered and reset the connection-failure records, so that a later failure is logged again",
+          "contract": "one `INFO` record; the next connection failure produces a new record"
+        },
+        {
+          "id": "18-REQ-5.2",
+          "pattern": "unwanted",
+          "condition": "the token read, the variable read, the workspace-record read or the connect fails",
+          "system": "event stream",
+          "action": "log the failure once per kind and operation until the next activity: `ERROR` for a refused or forbidden token, a workspace hub does not find at the record read, a rejected request or an unreadable token, naming the operation and the `PUT /api/v1/workspaces/{slug}` route or the scope `audit:read`, whichever cures it; `WARN` for hub unavailable; and keep retrying",
+          "contract": "`401` on connect: one `ERROR` naming `PUT /api/v1/workspaces/{slug}`; `403`: one `ERROR` naming `audit:read`; `503`: one `WARN`; retries continue in each case"
+        },
+        {
+          "id": "18-REQ-5.3",
+          "pattern": "unwanted",
+          "condition": "the events route answers `404` or `405` after the workspace record was read",
+          "system": "event stream",
+          "action": "log one `WARN` saying that hub does not serve the event stream and that labels are found by the poll alone",
+          "contract": "exactly one such `WARN` across repeated attempts"
+        },
+        {
+          "id": "18-REQ-5.4",
+          "pattern": "state_driven",
+          "condition": "the stream has had no connection with activity for longer than the poll interval it last read (5 minutes when none was read), and the `WARN` that hub does not serve the stream does not stand",
+          "system": "event stream",
+          "action": "log one `WARN` that labels are being found by the poll alone",
+          "contract": "one outage `WARN` per outage; none after the not-served `WARN`"
+        },
+        {
+          "id": "18-REQ-5.5",
+          "pattern": "unwanted",
+          "condition": "a hub call or a jobs-layer call fails while a request or closed event is handled",
+          "system": "event stream",
+          "action": "log the failure once per kind and operation until an event of the workspace is next handled without failure, classified as connection failures are, in records kept apart from the connection-failure records and the poll's failure records",
+          "contract": "two request events in a row whose issue read answers `503` give one `WARN`; after an event handled without failure the next such failure is logged again; connection-failure logging is unaffected"
+        },
+        {
+          "id": "18-REQ-5.6",
+          "pattern": "unwanted",
+          "condition": "a malformed event arrives",
+          "system": "event stream",
+          "action": "ignore it with no request to hub and log it at `WARN` once per connection",
+          "contract": "one `WARN` per connection however many malformed events arrive on it"
+        },
+        {
+          "id": "18-REQ-5.7",
+          "pattern": "ubiquitous",
+          "system": "event stream",
+          "action": "log every other ignored event, including an event of another type without an issue number, at `DEBUG` at most",
+          "contract": "no record above `DEBUG` for ignored events that are not malformed"
+        },
+        {
+          "id": "18-REQ-5.8",
+          "pattern": "ubiquitous",
+          "system": "event stream",
+          "action": "for any failure and any event, write log records that do not contain the subscription's PAT",
+          "contract": "no captured log line contains the PAT"
+        }
+      ]
+    },
+    {
+      "id": "18-REQ-6",
+      "title": "A labeled event goes through the poll's rules",
+      "rationale": "The stream must run the same rules as a cycle, or it would take back labels the worker restored or make a second job for a label whose removal is owed.",
+      "criteria": [
+        {
+          "id": "18-REQ-6.1",
+          "pattern": "ubiquitous",
+          "system": "event stream",
+          "action": "treat as a request only a request event, hand closed events to the closed handling, and ignore every other event (another label, another type, another workspace, malformed) with no request to hub",
+          "contract": "labeled events for `af:ready` or `bug`, and events of other types, produce no recorded request on the fake hub"
+        },
+        {
+          "id": "18-REQ-6.2",
+          "pattern": "event_driven",
+          "condition": "a request event arrives",
+          "system": "event stream",
+          "action": "under the per-workspace lock, ignore the event if its id is recorded, make sure the poll is on, read the issue through hub's forge API, and do nothing more if the issue is closed, is a pull request, or no longer carries the label (case ignored)",
+          "contract": "a repeated event id sends no forge request; a closed, pull-request or unlabelled issue gets no job and no label removal"
+        },
+        {
+          "id": "18-REQ-6.3",
+          "pattern": "complex_event",
+          "condition": "a request event arrives for an issue that hub reads as open and carrying the label",
+          "guard": "no open job of that kind absorbs it, no hold holds it and no removal is owed",
+          "system": "event stream",
+          "action": "create a job with `source` `{\"kind\": \"event\", \"by\": \"<event id>\"}`, `request_label` the canonical label and the issue number as input, write the poll record, then remove the label through hub",
+          "contract": "within 1 s: one job with `input` `{\"issue\": 42}`, one poll record, one `DELETE` of the label on the fake hub, in that order of record then removal"
+        },
+        {
+          "id": "18-REQ-6.4",
+          "pattern": "complex_event",
+          "condition": "a request event arrives for an open issue carrying the label",
+          "guard": "an open job of that kind exists for the issue, or the jobs layer refuses the create as a duplicate",
+          "system": "event stream",
+          "action": "absorb the label: remove it, or record the removal as owed if the removal fails, and make no job",
+          "contract": "no new job; one label removal sent, or an owed poll record"
+        },
+        {
+          "id": "18-REQ-6.5",
+          "pattern": "complex_event",
+          "condition": "a request event arrives for an open issue carrying the label",
+          "guard": "a poll record holds that label (a restore by the worker or cleanup)",
+          "system": "event stream",
+          "action": "do nothing to the issue and record the event as decided",
+          "contract": "no job, no label removal; the label stays on the issue"
+        },
+        {
+          "id": "18-REQ-6.6",
+          "pattern": "complex_event",
+          "condition": "a request event arrives for an open issue carrying the label",
+          "guard": "the label's removal is owed by an earlier request",
+          "system": "event stream",
+          "action": "remove the label again and make no job",
+          "contract": "no new job; one label removal sent"
+        },
+        {
+          "id": "18-REQ-6.7",
+          "pattern": "unwanted",
+          "condition": "the jobs layer refuses the create with \"not subscribed\" or with any refusal other than a duplicate",
+          "system": "event stream",
+          "action": "for \"not subscribed\", end the handling with no label written; for any other refusal, log an event-handling failure at `WARN` and leave the label",
+          "contract": "no job, no label removal, no recorded event id"
+        },
+        {
+          "id": "18-REQ-6.8",
+          "pattern": "unwanted",
+          "condition": "hub cannot be asked, or refuses the variable read, the issue read or the label removal, while a request event is handled",
+          "system": "event stream",
+          "action": "leave the event to the poll: the label stays or its removal stays owed, the event id is not recorded, and the failure is logged as an event-handling failure",
+          "contract": "no `af_hub_events` row for the event; a later poll cycle can still take the label"
+        }
+      ]
+    },
+    {
+      "id": "18-REQ-7",
+      "title": "Event ids and the poll's side of sharing the rules",
+      "rationale": "A stream event and a poll cycle must never make two jobs for one request, and delivered events must not be acted on twice.",
+      "criteria": [
+        {
+          "id": "18-REQ-7.1",
+          "pattern": "event_driven",
+          "condition": "a request event or closed event is decided (job made, label absorbed or removed again, hold left alone, cancel made, or nothing to do because of hub's read of the issue)",
+          "system": "event stream",
+          "action": "record its id in `af_hub_events`, keyed by workspace and event id, with the time it was taken, through one migration appended after `agent_fox_label_protocol`'s",
+          "contract": "one `af_hub_events` row per decided event; the same id sent again makes no job and sends no forge request"
+        },
+        {
+          "id": "18-REQ-7.2",
+          "pattern": "unwanted",
+          "condition": "an event is ignored, is a closed event for an issue with no open job, is not acted on because the poll is off, or its handling failed",
+          "system": "event stream",
+          "action": "not record its id",
+          "contract": "no `af_hub_events` row for the event"
+        },
+        {
+          "id": "18-REQ-7.3",
+          "pattern": "ubiquitous",
+          "system": "event stream",
+          "action": "not act again on an event whose id is recorded for its workspace, across a restart of the service and independently of the jobs",
+          "contract": "after reopening the state file, a recorded id is still ignored"
+        },
+        {
+          "id": "18-REQ-7.4",
+          "pattern": "event_driven",
+          "condition": "the poll supervisor scans the subscriptions",
+          "system": "poll supervisor",
+          "action": "delete the event ids taken more than 7 days ago by its clock",
+          "contract": "an id taken 7 days and 1 minute ago is deleted; a newer one is kept"
+        },
+        {
+          "id": "18-REQ-7.5",
+          "pattern": "ubiquitous",
+          "system": "poll cycle",
+          "action": "take the same per-workspace lock as the stream for one issue's rules at a time, never for a whole cycle, so that the rules of the two triggers never run at once for one workspace",
+          "contract": "a stream event for a workspace is handled between two issues of a running cycle of that workspace"
+        },
+        {
+          "id": "18-REQ-7.6",
+          "pattern": "complex_event",
+          "condition": "a cycle reaches an issue whose label no open job absorbs, no hold holds and no removal is owed",
+          "guard": "a poll record of that label on that issue was made at or after the listing was requested",
+          "system": "poll cycle",
+          "action": "make no job and leave the label to its next cycle",
+          "contract": "no create call; the label stays"
+        },
+        {
+          "id": "18-REQ-7.7",
+          "pattern": "complex_event",
+          "condition": "a complete listing settles owed removals and releases holds",
+          "guard": "a poll record was made at or after the listing was requested",
+          "system": "poll cycle",
+          "action": "neither settle that record's owed removal nor release its hold",
+          "contract": "the record keeps `Owed` and its hold after the cycle"
+        },
+        {
+          "id": "18-REQ-7.8",
+          "pattern": "ubiquitous",
+          "system": "event stream",
+          "action": "for any interleaving of a stream event and a poll cycle that see the same new request label at the same moment, end with exactly one job and the label removed, including when the forge listing still shows the label after removal (removal lag)",
+          "contract": "over 50 rounds, each round has one job and the label is off the issue"
+        }
+      ]
+    },
+    {
+      "id": "18-REQ-8",
+      "title": "A closed event cancels the issue's open jobs",
+      "rationale": "An issue that is closed has no use for any job about it, and a cancel throws work away, so it acts on hub's current view.",
+      "criteria": [
+        {
+          "id": "18-REQ-8.1",
+          "pattern": "event_driven",
+          "condition": "a closed event arrives",
+          "system": "event stream",
+          "action": "under the per-workspace lock, ignore it if its id is recorded, then look in the job records for the workspace's open jobs (queued, running or blocked, triage or fix, any source) of that issue, and with none stop with nothing recorded",
+          "contract": "with no open job: no request to hub, no `af_hub_events` row, no log record above `DEBUG`"
+        },
+        {
+          "id": "18-REQ-8.2",
+          "pattern": "complex_event",
+          "condition": "a closed event arrives",
+          "guard": "the issue has at least one open job",
+          "system": "event stream",
+          "action": "make sure the poll is on, read the issue through hub, and cancel nothing when hub reads it as open",
+          "contract": "an issue read as open leaves every job in its state"
+        },
+        {
+          "id": "18-REQ-8.3",
+          "pattern": "complex_event",
+          "condition": "a closed event arrives for an issue with open jobs",
+          "guard": "hub reads the issue as closed",
+          "system": "event stream",
+          "action": "cancel every open job of the issue, as found at that moment, with the issue-closed cause, and log one `INFO` naming the workspace, the issue and the cancelled job ids",
+          "contract": "each job reads `state` `cancelled` with `cancel_cause` `\"issue_closed\"`; one `INFO` record"
+        },
+        {
+          "id": "18-REQ-8.4",
+          "pattern": "unwanted",
+          "condition": "hub cannot read the issue for a closed event",
+          "system": "event stream",
+          "action": "cancel nothing, not record the event, and log an event-handling failure",
+          "contract": "jobs keep their state; no `af_hub_events` row; one log record per kind and operation"
+        },
+        {
+          "id": "18-REQ-8.5",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "run an issue-closed cancel as the ordinary cancel except for its recorded cause and its labels: cancel queued attempts, tell a running attempt's runner with `jobs.ErrIssueClosed` (wrapping `ErrCancelled`) and give it the 60 s grace, emit `job_state`, and treat the cause as a cancel at lease release, grace and recovery",
+          "contract": "`errors.Is(cause, jobs.ErrCancelled)` and `errors.Is(cause, jobs.ErrIssueClosed)` both hold for the runner's cause; a `job_state` event is emitted"
+        },
+        {
+          "id": "18-REQ-8.6",
+          "pattern": "unwanted",
+          "condition": "a job changes state between the look and the cancel",
+          "system": "jobs layer",
+          "action": "look at the job again and retry the cancel, at most 8 times, as the unsubscribe's cancel does",
+          "contract": "the job ends `cancelled` with `cancel_cause` `\"issue_closed\"`, or the retry gives up after 8 tries with an error returned to the stream"
+        },
+        {
+          "id": "18-REQ-8.7",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "store the cause of every cancel with the job, in the same migration as `af_hub_events`, and show it in the job document as `cancel_cause`",
+          "contract": "`\"cancelled\"` for a person's cancel, `\"unsubscribed\"` for an unsubscribe, `\"issue_closed\"` for an issue-closed cancel, `null` for a job not cancelled or cancelled before this release"
+        },
+        {
+          "id": "18-REQ-8.8",
+          "pattern": "event_driven",
+          "condition": "the jobs layer writes the envelope for an issue-closed attempt whose runner returned without one or overran the grace",
+          "system": "jobs layer",
+          "action": "write the envelope with category `cancelled` and a message saying that the issue was closed",
+          "contract": "envelope `error.category` `cancelled`; `error.message` mentions that the issue was closed"
+        }
+      ]
+    },
+    {
+      "id": "18-REQ-9",
+      "title": "An issue-closed cancel removes its jobs' status labels and adds none",
+      "rationale": "Labels mirror the job record, so a closed issue keeps no status label of a cancelled job, and nothing is put back on it.",
+      "criteria": [
+        {
+          "id": "18-REQ-9.1",
+          "pattern": "event_driven",
+          "condition": "an issue-closed cancel reaches a runner that has opened its hub session",
+          "system": "worker",
+          "action": "release the lease, report to hub, return within the grace, and on the issue only take off the `af:in-progress` it set; an attempt stopped before its loop ended writes an envelope with category `cancelled` and a message saying the issue was closed",
+          "contract": "the lease is released; `af:in-progress` is removed; no label added and no comment posted on the fake hub"
+        },
+        {
+          "id": "18-REQ-9.2",
+          "pattern": "event_driven",
+          "condition": "an issue-closed cancel reaches no runner, or a runner without a hub session",
+          "system": "jobs layer",
+          "action": "run `agent_fox_label_protocol`'s cancel cleanup with its marks, tries, retries and give-up, making only its step-3 removals (`af:in-progress` unless another job of the issue is running, and the labels in the job's `labels.set` unless another open job of the issue shows them) and never its step-4 restore",
+          "contract": "`labels.cleanup` reads `\"pending\"` then `\"done\"`, or `\"label_not_set\"` where that spec's R5 says so; `af:needs-human` of a blocked job and a left `af:in-progress` are removed"
+        },
+        {
+          "id": "18-REQ-9.3",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "keep `labels.restore` `null` for every issue-closed cancel and add nothing to the issue: no request label, no status label, no comment",
+          "contract": "the fake hub records no label addition and no comment for the issue after the cancel"
+        },
+        {
+          "id": "18-REQ-9.4",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "leave on the issue every label the cancelled jobs do not account for, such as a person's label or `af:landed` of an earlier job",
+          "contract": "`af:landed` stays on issue 43 after the cleanup"
+        },
+        {
+          "id": "18-REQ-9.5",
+          "pattern": "optional",
+          "condition": "the jobs layer is built without a forge",
+          "system": "jobs layer",
+          "action": "write nothing to the issue for an issue-closed cancel",
+          "contract": "no forge request is sent for the cancel"
+        },
+        {
+          "id": "18-REQ-9.6",
+          "pattern": "ubiquitous",
+          "system": "poll cycle",
+          "action": "read the cancel cause through `jobs.Standing` and have `note` treat a job cancelled with `issue_closed` as ended and holding nothing, whether or not the cancel reached a runner and whatever its cleanup shows",
+          "contract": "the poll record of such a job reads `seen` `ended` with no hold"
+        },
+        {
+          "id": "18-REQ-9.7",
+          "pattern": "event_driven",
+          "condition": "an issue whose jobs were cancelled with `issue_closed` is reopened and labelled `af:fix`",
+          "system": "event stream",
+          "action": "make a new job for the next request event, and let the next poll cycle make one when no event is sent",
+          "contract": "one new fix job per trigger; the label is removed"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "18-PATH-1",
+      "title": "A person's request label becomes a job through the event stream",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "adds `af:fix` to open issue 42 of workspace `widgets`"
+        },
+        {
+          "actor": "hub",
+          "action": "sends a `hub.forge.issue.labeled` frame with id `evt-1`, issue 42 and label `af:fix` on the workspace's events connection"
+        },
+        {
+          "actor": "event stream",
+          "action": "decodes the event, takes the per-workspace lock, finds `evt-1` unrecorded and the poll on, and reads issue 42 through hub as open and carrying `af:fix`"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "creates a fix job with `source` `{\"kind\": \"event\", \"by\": \"evt-1\"}`, `request_label` `af:fix` and `input` `{\"issue\": 42}`"
+        },
+        {
+          "actor": "poll store",
+          "action": "inserts the owed poll record for the job and the `af_hub_events` row for `evt-1`"
+        },
+        {
+          "actor": "hub",
+          "action": "receives one `DELETE` of `af:fix` from issue 42, and the job exists within one second of the event"
+        }
+      ]
+    },
+    {
+      "id": "18-PATH-2",
+      "title": "Closing an issue stops its running job",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "closes issue 42, whose fix job is running and has set `af:in-progress`"
+        },
+        {
+          "actor": "hub",
+          "action": "sends a `hub.forge.issue.closed` event for issue 42"
+        },
+        {
+          "actor": "event stream",
+          "action": "finds the open job in the job records, confirms the poll is on, and reads issue 42 through hub as closed"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "cancels the job with the issue-closed cause, stores `cancel_cause` `issue_closed` with `labels.restore` `null`, emits `job_state` and tells the runner with the 60 s grace"
+        },
+        {
+          "actor": "worker",
+          "action": "releases its lease, reports to hub, takes `af:in-progress` off issue 42 and writes a `cancelled` envelope saying the issue was closed"
+        },
+        {
+          "actor": "event stream",
+          "action": "records the event id and logs one `INFO` naming `widgets`, issue 42 and the cancelled job"
+        }
+      ]
+    },
+    {
+      "id": "18-PATH-3",
+      "title": "Closing an issue with a blocked job cleans up its status label",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "closes issue 43, whose triage job is blocked with `af:needs-human` set and which also carries `af:landed`"
+        },
+        {
+          "actor": "hub",
+          "action": "sends a `hub.forge.issue.closed` event for issue 43"
+        },
+        {
+          "actor": "event stream",
+          "action": "finds the blocked job, reads issue 43 as closed, and asks the jobs layer to cancel the issue's open jobs"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "cancels the job with `cancel_cause` `issue_closed`, marks `labels.cleanup` `pending`, removes `af:needs-human` without adding any label, and sets `labels.cleanup` `done`"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "notes the job as ended and holding nothing, so issue 43 keeps `af:landed` and a later `af:fix` on the reopened issue makes a new job"
+        }
+      ]
+    },
+    {
+      "id": "18-PATH-4",
+      "title": "A label added while the stream is down is caught by the poll",
+      "steps": [
+        {
+          "actor": "hub",
+          "action": "ends the workspace's events connection and refuses the next connects with `503`"
+        },
+        {
+          "actor": "event stream",
+          "action": "logs one `WARN` and retries after 1, 2 and 4 s on the poll's clock"
+        },
+        {
+          "actor": "person",
+          "action": "adds `af:fix` to issue 45 while no connection is open, so no event is ever sent for it"
+        },
+        {
+          "actor": "poll loop",
+          "action": "runs the workspace's next cycle at `AF_POLL_INTERVAL`"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "lists issue 45 under `af:fix`, takes the per-workspace lock, creates exactly one fix job with a `label` source and removes the label"
+        }
+      ]
+    },
+    {
+      "id": "18-PATH-5",
+      "title": "Shutting down serve closes the streams before the jobs layer",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "stops `agent-fox serve` while a workspace's stream is connected"
+        },
+        {
+          "actor": "agent-fox",
+          "action": "runs the deferred poll stop before the jobs layer's stop"
+        },
+        {
+          "actor": "poll loop",
+          "action": "cancels the stream and any event being handled and returns once they have returned"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "stops after the streams, with the fake hub counting zero open events connections"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "github.com/agent-fox-dev/aflib/issuex",
+      "version": "v0.0.0-20261019184100-07adcb691832",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "Client.ReadIssue",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "ReadIssue(ctx context.Context, ref issuex.IssueRef) (issuex.IssueThread, error)",
+          "notes": "Called through hub.ForgeClient.ReadIssue (internal/hub/forge.go:125); read from call sites, source outside the repository."
+        },
+        {
+          "name": "Issue",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "type Issue struct { Number int; State string; Labels []string; IsPR bool; ... }",
+          "notes": "Fields used by poll/cycle.go asked()."
+        },
+        {
+          "name": "IssueRef",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "type IssueRef struct { Repo issuex.Repo; Number int }"
+        },
+        {
+          "name": "IsNotFound",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "func IsNotFound(err error) bool",
+          "notes": "A 404 on label removal counts as removed."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1210 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "19",
+  "spec_name": "agent_fox_forge_followups",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-19-1",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-1.2",
+        "19-REQ-2.1"
+      ],
+      "title": "A poll cycle turns a person's comment plus a re-added af:fix into an answer to the blocked fix job",
+      "given": [
+        "workspace widgets subscribed with prefix af:, real store and jobs layer, fakerunner, fakeclock, fake hub",
+        "fix job J for issue 42 is blocked on attempt 1; its question comment (marker kind=question) is on the issue",
+        "a person (login alice) comments 'use the greeting from the README' after the question and adds af:fix"
+      ],
+      "when": "one Supervisor.Cycle runs",
+      "then": [
+        "J has attempt 2 with trigger {kind: answer, by: 'label af:fix'}",
+        "attempt 2 answer.question is the blocked question, option is null, and text contains the comment and 'alice'",
+        "af:fix is removed from issue 42 through hub",
+        "no new job exists"
+      ],
+      "pseudocode": "env.blockFix(42); env.hub.AddPersonComment(42,'alice','use the greeting from the README'); env.hub.AddLabel(42,'af:fix'); env.cycle(); d=jobs.Get(J); assert d.attempts[1].trigger=={answer,'label af:fix'}; assert contains(d.attempts[1].answer.text,'alice'); assert !hub.HasLabel(42,'af:fix')"
+    },
+    {
+      "id": "TS-19-2",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-2.2"
+      ],
+      "title": "The runner of an attempt queued by a forge answer receives the answer among Answers",
+      "given": [
+        "the setup of an answered blocked fix job with fakerunner recording RunRequest"
+      ],
+      "when": "attempt 2 starts after the poll answer",
+      "then": [
+        "RunRequest.Answers contains the question and the text with the comment and its author"
+      ],
+      "pseudocode": "req=fakerunner.Requests()[last]; assert any(a.Question==q && contains(a.Text,'use the greeting') for a in req.Answers)"
+    },
+    {
+      "id": "TS-19-3",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-2.3"
+      ],
+      "title": "The event stream answers a blocked job with by set to the hub event id",
+      "given": [
+        "blocked fix job J for issue 42 with its question comment",
+        "a person comment after the question",
+        "stream event evt-7 hub.forge.issue.labeled af:fix for issue 42"
+      ],
+      "when": "the stream handles evt-7, reading the issue through hub",
+      "then": [
+        "attempt 2 has trigger {kind: answer, by: evt-7}",
+        "the answer text holds the comment and its author",
+        "af:fix is removed"
+      ],
+      "pseudocode": "stream.Handle(event('evt-7','af:fix',42)); assert d.attempts[1].trigger=={answer,'evt-7'}"
+    },
+    {
+      "id": "TS-19-4",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-1.1"
+      ],
+      "title": "The sighting rules apply in the fixed order and each outcome is logged at INFO",
+      "given": [
+        "a table of states on issue 42 for the poll and for the stream: pending follow-up + open blocked fix job, blocked job + owed removal, held label, owed record, newer record + failed latest job, failed latest job, no job"
+      ],
+      "when": "a fix-label sighting is handled for each row",
+      "then": [
+        "a pending follow-up decides before an open job",
+        "an open blocked job (no owed, no newer) decides before hold, owed, newer, retry and new request",
+        "hold beats owed, owed beats newer record, newer record beats retry, retry beats new request",
+        "the poll and the stream give the same decision for every row",
+        "answered, retried, no answer found and follow-up made each log one INFO line naming workspace, kind, issue, label and job"
+      ],
+      "pseudocode": "for row in table: assert decide_poll(row)==decide_stream(row)==row.expected; assert log.find('INFO', row.outcome) has fields ws,kind,issue,label,job"
+    },
+    {
+      "id": "TS-19-5",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-1.3"
+      ],
+      "title": "A record newer than the listing makes the sighting do nothing and leaves the label",
+      "given": [
+        "a poll record of af:fix on issue 42 made at or after the listing's Requested time",
+        "a blocked job, a failed job and a no-job case are each tried"
+      ],
+      "when": "the poll sees af:fix on issue 42 for each case",
+      "then": [
+        "no attempt and no job is made",
+        "no comment is posted",
+        "af:fix is still on the issue",
+        "the job's attempt count and the issue's comments are unchanged"
+      ],
+      "pseudocode": "insertRecord(42,'af:fix',at=listing.Requested+0); cycle(); assert attempts==before; assert comments==before; assert hub.HasLabel(42,'af:fix')"
+    },
+    {
+      "id": "TS-19-6",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-1.4"
+      ],
+      "title": "A label on an issue whose open job is queued, running or blocked with an owed removal is absorbed",
+      "given": [
+        "an open fix job for issue 42 in state queued, running, and blocked-with-owed-removal in turn"
+      ],
+      "when": "the poll sees af:fix on issue 42",
+      "then": [
+        "no attempt or job is made",
+        "af:fix is removed"
+      ],
+      "pseudocode": "for st in [queued,running,blockedOwed]: setup(st); cycle(); assert attempts==before && jobs==before; assert !hub.HasLabel(42,'af:fix')"
+    },
+    {
+      "id": "TS-19-7",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-1.5",
+        "19-REQ-4.1"
+      ],
+      "title": "A re-added af:fix on a failed fix job retries the same job with the comments as context",
+      "given": [
+        "the latest fix job of issue 42 failed on attempt n and its failure comment is on the issue",
+        "a person comments 'the log is in CI run 812' after it and adds af:fix"
+      ],
+      "when": "one poll cycle runs",
+      "then": [
+        "the same job has attempt n+1 with trigger {kind: retry, by: 'label af:fix'}",
+        "no new job is made",
+        "the attempt's context holds the comment text with its author",
+        "af:fix is removed"
+      ],
+      "pseudocode": "cycle(); d=Get(J); assert len(d.attempts)==n+1; assert d.attempts[n].trigger=={retry,'label af:fix'}; assert contains(d.attempts[n].context[0],'CI run 812'); assert count(jobs)==1"
+    },
+    {
+      "id": "TS-19-8",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-4.2"
+      ],
+      "title": "A forge retry with no comments since the failure runs with no added context and posts no reply",
+      "given": [
+        "a failed fix job of issue 42 and no person comment after the failure comment",
+        "af:fix is added"
+      ],
+      "when": "one poll cycle runs",
+      "then": [
+        "attempt n+1 exists with trigger retry",
+        "its context is null",
+        "no reply comment is posted"
+      ],
+      "pseudocode": "cycle(); assert d.attempts[n].context==nil; assert comments==before"
+    },
+    {
+      "id": "TS-19-9",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-1.6"
+      ],
+      "title": "A label on an issue whose latest job is done or cancelled, or that has none, makes a new job and leaves the old one untouched",
+      "given": [
+        "issue 42 whose latest triage job is done, and another case whose latest fix job is cancelled",
+        "a person edits the issue's original report and adds af:triage"
+      ],
+      "when": "one poll cycle runs",
+      "then": [
+        "a new job exists with source {kind: label, by: 'label af:triage'} (or event / label af:fix for the cancelled fix)",
+        "the earlier job's document is byte-for-byte unchanged",
+        "no retry and no answer is made"
+      ],
+      "pseudocode": "before=json(Get(T0)); cycle(); assert Get(T0)==before; assert newJob.source=={label,'label af:triage'}"
+    },
+    {
+      "id": "TS-19-10",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-1.7"
+      ],
+      "title": "Answers, retries and replies write a record before the removal and name the job only when its request_label is the label",
+      "given": [
+        "a hub that fails the first removal of af:fix",
+        "jobs with request_label af:fix and with no request_label (API-made)"
+      ],
+      "when": "an answer, a retry, a no_answer reply and a thread_cut reply are each consumed",
+      "then": [
+        "a record of af:fix on 42 exists before the removal is attempted",
+        "the removal is owed while it fails and the next cycle retries it",
+        "the record names the job when job.request_label == af:fix, otherwise no job"
+      ],
+      "pseudocode": "hub.FailRemove(1); cycle(); r=records.Find(42,'af:fix'); assert r.Owed; assert (r.JobID==J)==(job.RequestLabel=='af:fix')"
+    },
+    {
+      "id": "TS-19-11",
+      "kind": "property",
+      "verifies": [
+        "19-REQ-1.8"
+      ],
+      "title": "A repeated sighting of the same label adds no attempt and posts no comment",
+      "given": [
+        "a blocked or failed job with or without request_label, and a fakerunner that ends the new attempt blocked or failed at once"
+      ],
+      "when": "for any sequence of sightings of one label from {stream event, poll cycle, stale poll listing requested before the first outcome}, in any order, after the first outcome",
+      "then": [
+        "exactly one attempt follows the first sighting",
+        "no second reply comment is posted",
+        "the record survives drop until every listing requested before it has been handled"
+      ],
+      "pseudocode": "for seq in permutations(sightings): setup(); apply(seq); assert attempts==base+1; assert replyCount<=1"
+    },
+    {
+      "id": "TS-19-12",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-2.4"
+      ],
+      "title": "An API answer landing between the poll's read and its answer makes the poll absorb the label",
+      "given": [
+        "blocked job J, a person comment and af:fix",
+        "a hook that answers J through the API after the poll's issue read"
+      ],
+      "when": "the poll cycle reaches its answer step",
+      "then": [
+        "the jobs layer gives a state refusal",
+        "exactly one attempt n+1 exists",
+        "af:fix is removed",
+        "no comment is posted"
+      ],
+      "pseudocode": "hook.afterRead(()=>svc.Answer(J,'api',{Answer:'x'})); cycle(); assert len(attempts)==2; assert !hub.HasLabel(42,'af:fix'); assert comments==before"
+    },
+    {
+      "id": "TS-19-13",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-2.5"
+      ],
+      "title": "An answer for an unsubscribed workspace writes nothing to the issue and ends the cycle",
+      "given": [
+        "a Jobs fake whose Answer returns ErrNotSubscribed"
+      ],
+      "when": "the answer sighting is handled",
+      "then": [
+        "no comment and no label change on the issue",
+        "no attempt",
+        "the cycle ends without handling later issues"
+      ],
+      "pseudocode": "jobs.answerErr=ErrNotSubscribed; cycle(); assert hub.writes==0; assert !later.handled"
+    },
+    {
+      "id": "TS-19-14",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-2.6"
+      ],
+      "title": "An unreadable token or other jobs-layer error on answer leaves the label and logs one failure row",
+      "given": [
+        "a Jobs fake whose Answer fails with a token error, then with a generic error"
+      ],
+      "when": "the answer sighting is handled twice in two cycles",
+      "then": [
+        "af:fix stays on the issue",
+        "no attempt is made",
+        "one failure row is logged per (row, op)"
+      ],
+      "pseudocode": "for e in [tokenErr, genericErr]: jobs.answerErr=e; cycle(); assert hub.HasLabel(42,'af:fix'); assert attempts==before; assert log.count(row)==1"
+    },
+    {
+      "id": "TS-19-15",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-3.1"
+      ],
+      "title": "Comments are read through the issue read and never through the comment list",
+      "given": [
+        "a fake hub counting requests per route",
+        "a stream sighting that already made an issue read"
+      ],
+      "when": "a poll answer sighting and a stream answer sighting are handled",
+      "then": [
+        "GET …/issues/{n} is called",
+        "GET …/issues/{n}/comments is not called by the sighting rules",
+        "the stream reuses its own issue read (one read per sighting)"
+      ],
+      "pseudocode": "cycle(); stream.Handle(ev); assert hub.calls['GET issues/42']>=1; assert hub.calls['GET issues/42/comments']==0"
+    },
+    {
+      "id": "TS-19-16",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-3.2"
+      ],
+      "title": "Counted comments follow the anchor marker, or the finish time when no comment carries it",
+      "given": [
+        "comments: before-question, question marker for job J attempt 2, two later person comments",
+        "a second thread where no comment has the marker and attempts[2].finished_at is T, with comments before, at, and after T",
+        "a thread with an older attempt's marker only"
+      ],
+      "when": "the answer comments are computed",
+      "then": [
+        "only comments after the latest attempt's marker comment count, in list order",
+        "without the marker only comments with created_at at or after T count (T inclusive)",
+        "an older attempt's marker is not an anchor"
+      ],
+      "pseudocode": "assert texts(counted(thread1,J,2))==['c2','c3']; assert texts(counted(thread2,J,2,T))==['at','after']"
+    },
+    {
+      "id": "TS-19-17",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-3.3"
+      ],
+      "title": "Comments before the question, marker-carrying comments anywhere and blank comments are left out",
+      "given": [
+        "a thread with a comment before the question, a person comment containing '<!-- agent-fox' in the middle of text, a comment of only whitespace, and one valid comment after the question"
+      ],
+      "when": "the answer comments are computed",
+      "then": [
+        "only the valid comment counts",
+        "a comment carrying the marker later in its body is dropped",
+        "a whitespace-only comment is dropped"
+      ],
+      "pseudocode": "assert len(counted(thread))==1 && counted[0].body=='valid'"
+    },
+    {
+      "id": "TS-19-18",
+      "kind": "property",
+      "verifies": [
+        "19-REQ-3.4"
+      ],
+      "title": "Rendered comment text is valid UTF-8 with no NUL, in issue order",
+      "given": [
+        "any list of counted comments with arbitrary bytes in bodies and logins"
+      ],
+      "when": "for any non-empty list of comments the text is rendered",
+      "then": [
+        "the text contains no NUL byte and is valid UTF-8",
+        "each block is '--- comment by <login> ---' followed by the trimmed body",
+        "blocks are joined by a blank line in the order of the list"
+      ],
+      "pseudocode": "for cs in gen(): t=render(cs); assert !contains(t,'\\x00'); assert utf8.Valid(t); assert order(blocks(t))==order(cs)"
+    },
+    {
+      "id": "TS-19-19",
+      "kind": "property",
+      "verifies": [
+        "19-REQ-3.5"
+      ],
+      "title": "A text over 8192 bytes is cut at a UTF-8 boundary to at most 8192 bytes with the cut line last",
+      "given": [
+        "generated texts of multi-byte runes around the 8192-byte limit"
+      ],
+      "when": "for any rendered text of any length the bound is applied",
+      "then": [
+        "a text of at most 8192 bytes is unchanged",
+        "a longer text ends with the line '[… cut at 8192 bytes; the issue holds the rest …]'",
+        "the result is valid UTF-8 and at most 8192 bytes, cut line included"
+      ],
+      "pseudocode": "for t in gen(): r=bound(t); if len(t)<=8192: assert r==t else: assert endsWith(lastLine(r),CUT) && len(r)<=8192 && utf8.Valid(r)"
+    },
+    {
+      "id": "TS-19-20",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-3.6"
+      ],
+      "title": "When hub fails the issue read, the label stays, nothing happens, and the next cycle goes ahead",
+      "given": [
+        "blocked fix job J with a person comment and af:fix",
+        "hub answers 503 to the issue read; a variant answers 401 or 403"
+      ],
+      "when": "one cycle runs, hub recovers, and a second cycle runs",
+      "then": [
+        "in the first cycle no attempt, no comment, af:fix still on the issue, one WARN logged, the cycle ends",
+        "in the second cycle attempt 2 is queued"
+      ],
+      "pseudocode": "hub.Fail(issueRead,503); cycle(); assert attempts==1 && hasLabel && log.find('WARN')==1; hub.Heal(); cycle(); assert attempts==2"
+    },
+    {
+      "id": "TS-19-21",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-3.7"
+      ],
+      "title": "A 4xx on one issue's read or comments_err reports the failure and the cycle goes on to the next issue",
+      "given": [
+        "issues 42 and 43 each with a blocked fix job and af:fix",
+        "hub answers issue 42's read with 404 (variant: comments_err set)"
+      ],
+      "when": "one cycle runs",
+      "then": [
+        "issue 42 keeps af:fix, no attempt and no comment",
+        "the failure is reported",
+        "issue 43 is answered in the same cycle"
+      ],
+      "pseudocode": "hub.Fail(read42,404); cycle(); assert hasLabel(42) && attempts(J42)==1 && comments42==before; assert attempts(J43)==2"
+    },
+    {
+      "id": "TS-19-22",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-3.8"
+      ],
+      "title": "The stream takes no action on a sighting whose comments it cannot read",
+      "given": [
+        "a blocked fix job with a person comment",
+        "hub fails the stream's issue read, or answers comments_err"
+      ],
+      "when": "the stream handles the label event",
+      "then": [
+        "no attempt, no comment and no label change",
+        "the poll's later cycle then answers the job"
+      ],
+      "pseudocode": "hub.Fail(issueRead); stream.Handle(ev); assert attempts==1 && comments==before && hasLabel; hub.Heal(); cycle(); assert attempts==2"
+    },
+    {
+      "id": "TS-19-23",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-4.3"
+      ],
+      "title": "The attempt document shows context as a list of strings or null",
+      "given": [
+        "a job with a forge retry carrying context and an attempt with none"
+      ],
+      "when": "the job document is read",
+      "then": [
+        "the retry attempt shows context as a list holding the comment text",
+        "attempts without context show context null"
+      ],
+      "pseudocode": "d=Get(J); assert d.attempts[1].context==[text]; assert d.attempts[0].context==nil"
+    },
+    {
+      "id": "TS-19-24",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-4.4"
+      ],
+      "title": "The runner's Context is the job context followed by each attempt's context in order, kept by an automatic attempt",
+      "given": [
+        "a job created with context ['job ctx'], a forge retry with text 'R1', then an automatic attempt after it"
+      ],
+      "when": "RunRequest is built for the automatic attempt and the worker builds its --context values",
+      "then": [
+        "RunRequest.Context == ['job ctx','R1'] ending with the forge comment text",
+        "the worker passes each as a --context value with no question"
+      ],
+      "pseudocode": "req=store.RunRequest(J,3); assert req.Context==['job ctx','R1']; args=loopArgs(req); assert count(args,'--context=')>=2"
+    },
+    {
+      "id": "TS-19-25",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-4.5"
+      ],
+      "title": "The API retry stays body-less and queues an attempt with null context",
+      "given": [
+        "a failed job"
+      ],
+      "when": "POST /api/v1/jobs/{id}/retry is called with no body, and again with a body",
+      "then": [
+        "the body-less call returns success and the new attempt has context null",
+        "a call with a body is refused as before"
+      ],
+      "pseudocode": "r=post(retry,nil); assert ok; assert Get(J).attempts[n].context==nil; assert post(retry,{x:1}).status==400"
+    },
+    {
+      "id": "TS-19-26",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-4.6"
+      ],
+      "title": "A duplicate or state refusal on retry absorbs the label",
+      "given": [
+        "failed job J; a hook that retries J through the API after the poll's read; another case where another open job took the issue"
+      ],
+      "when": "the poll's retry step is refused",
+      "then": [
+        "no extra attempt or job exists",
+        "af:fix is removed"
+      ],
+      "pseudocode": "hook.afterRead(()=>svc.Retry(J,'api')); cycle(); assert attempts==n+1; assert !hasLabel(42)"
+    },
+    {
+      "id": "TS-19-27",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-4.7"
+      ],
+      "title": "A retry that fails with ErrNotSubscribed, a token error or another error behaves as an answer does",
+      "given": [
+        "a Jobs fake whose Retry returns ErrNotSubscribed, a token error, and a generic error in turn"
+      ],
+      "when": "the retry sighting is handled",
+      "then": [
+        "ErrNotSubscribed: nothing written to the issue and the cycle ends",
+        "other errors: failure reported, af:fix stays",
+        "no attempt and no comment in all three"
+      ],
+      "pseudocode": "for e in errs: jobs.retryErr=e; cycle(); assert noAttempt && comments==before; assert hasLabel== (e!=ErrNotSubscribed)"
+    },
+    {
+      "id": "TS-19-28",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-5.1",
+        "19-REQ-5.2"
+      ],
+      "title": "No answer found posts one reply, removes the label, and a repeat posts no second reply",
+      "given": [
+        "blocked fix job J on attempt n with its question comment and no comment after it"
+      ],
+      "when": "af:fix is added, a cycle runs, af:fix is added again with still no comment, and a second cycle runs",
+      "then": [
+        "no attempt is made",
+        "one reply comment 'No answer found since the question; comment, then add the label `af:fix` again.' ending with '<!-- agent-fox job=J attempt=n kind=no_answer -->'",
+        "af:fix is removed both times",
+        "the comment count is unchanged by the second cycle"
+      ],
+      "pseudocode": "cycle(); assert comments==c0+1 && contains(last,'kind=no_answer'); readd(); cycle(); assert comments==c0+1 && !hasLabel && attempts==n"
+    },
+    {
+      "id": "TS-19-29",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-5.3"
+      ],
+      "title": "A cut thread on an answer sighting posts the thread_cut reply, warns once and makes no attempt",
+      "given": [
+        "blocked fix job J and a person comment after the question",
+        "hub answers issue 42's read with truncated: true through Inject"
+      ],
+      "when": "af:fix is added and one cycle runs",
+      "then": [
+        "no attempt is made and af:fix is removed",
+        "one WARN naming workspace, issue 42 and J",
+        "one reply that says the whole thread could not be read, names 'af jobs answer J' and 'POST /api/v1/jobs/J/answer' and ends with '<!-- agent-fox job=J attempt=n kind=thread_cut -->'"
+      ],
+      "pseudocode": "hub.Inject(read42,{truncated:true,...}); cycle(); assert attempts==n && !hasLabel; assert log.count('WARN')==1; assert contains(last,'af jobs answer '+J)"
+    },
+    {
+      "id": "TS-19-30",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-5.4"
+      ],
+      "title": "A cut thread on a retry sighting makes no retry and names af jobs retry and the retry route",
+      "given": [
+        "failed fix job J with a failure comment",
+        "hub answers the issue read with truncated: true"
+      ],
+      "when": "af:fix is added and one cycle runs",
+      "then": [
+        "J stays failed with no new attempt",
+        "one WARN is logged",
+        "one reply names 'af jobs retry J' and 'POST /api/v1/jobs/J/retry' with the thread_cut marker",
+        "af:fix is removed"
+      ],
+      "pseudocode": "cycle(); assert d.state=='failed' && len(d.attempts)==n; assert contains(last,'POST /api/v1/jobs/'+J+'/retry'); assert !hasLabel"
+    },
+    {
+      "id": "TS-19-31",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-5.5"
+      ],
+      "title": "A reply that cannot be posted logs a WARN and the label is removed all the same",
+      "given": [
+        "hub fails comment POST with 503",
+        "a no-answer case and a cut-thread case"
+      ],
+      "when": "one cycle runs for each case",
+      "then": [
+        "one WARN is logged per case",
+        "af:fix is removed",
+        "no attempt is made"
+      ],
+      "pseudocode": "hub.Fail(postComment,503); cycle(); assert !hasLabel && attempts==n && log.find('WARN')>=1"
+    },
+    {
+      "id": "TS-19-32",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-6.1"
+      ],
+      "title": "The question comment names the forge path and keeps the old instructions",
+      "given": [
+        "a worker harness with fake hub, a blocked fix job on issue 42, prefix af:, AF_POLL_INTERVAL unset"
+      ],
+      "when": "the worker posts the question comment",
+      "then": [
+        "it contains 'Or reply on this issue, then add the label `af:fix` again: agent-fox takes the comments after this one as the answer.'",
+        "it still contains 'af jobs answer' and 'POST'…'/answer'"
+      ],
+      "pseudocode": "c=question_comment(); assert contains(c,NEW) && contains(c,'af jobs answer') && contains(c,'/answer')"
+    },
+    {
+      "id": "TS-19-33",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-6.2"
+      ],
+      "title": "The failure comment and the parked fix summary name the forge path and keep their instructions",
+      "given": [
+        "a failed attempt comment for a fix job and for a triage job, and a parked fix's fix_summary"
+      ],
+      "when": "the worker composes them with the label triggers on",
+      "then": [
+        "each contains 'Or add the label `<prefix><kind>` again; comments after this one go with the new attempt.' with the job's kind",
+        "the failure comment still names 'POST …/retry'",
+        "the parked summary still names 'af jobs retry' and 'POST …/retry'"
+      ],
+      "pseudocode": "for c in [failure(fix),failure(triage),parkedSummary]: assert contains(c,sentence(kind)); assert contains(parked,'af jobs retry')"
+    },
+    {
+      "id": "TS-19-34",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-6.3"
+      ],
+      "title": "With AF_POLL_INTERVAL=0 none of the three comments carries the forge-path sentence",
+      "given": [
+        "an attempt whose hub variable AF_POLL_INTERVAL is '0s'"
+      ],
+      "when": "the question, failure and parked fix summary comments are composed",
+      "then": [
+        "none contains the forge-path sentence",
+        "the existing instructions remain in each"
+      ],
+      "pseudocode": "vars={'AF_POLL_INTERVAL':'0s'}; for c in comments: assert !contains(c,'add the label') && contains(c,oldInstruction)"
+    },
+    {
+      "id": "TS-19-35",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-6.4"
+      ],
+      "title": "The worker reads AF_POLL_INTERVAL with the poll's values and never fails on it",
+      "given": [
+        "values: unset, empty, '0', '0s', '30s', '5m', '1h', 'banana', '-1m', '48h'"
+      ],
+      "when": "the worker's settings resolve for a triage and for a fix",
+      "then": [
+        "unset, empty and every non-zero or invalid value mean triggers on",
+        "'0' and '0s' mean off",
+        "no value produces a config failure"
+      ],
+      "pseudocode": "for v,on in table: s,err=resolveSettings(kind,vars(v)); assert err==nil; assert s.TriggersOn==on"
+    },
+    {
+      "id": "TS-19-36",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-7.1"
+      ],
+      "title": "AF_AUTO_FIX is read for triage only and accepts empty, true and false in any case",
+      "given": [
+        "values '', 'true', 'TRUE', 'True', 'false', 'FALSE'"
+      ],
+      "when": "resolveSettings runs for a triage and for a fix",
+      "then": [
+        "empty and false resolve to false; true in any case resolves to true for a triage",
+        "a fix attempt does not read it, even with 'maybe'"
+      ],
+      "pseudocode": "for v,w in table: s,_=resolveSettings(triage,{AF_AUTO_FIX:v}); assert s.AutoFix==w; _,err=resolveSettings(fix,{AF_AUTO_FIX:'maybe'}); assert err==nil"
+    },
+    {
+      "id": "TS-19-37",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-7.2"
+      ],
+      "title": "AF_AUTO_FIX=maybe fails a triage as a non-retryable config envelope naming the variable",
+      "given": [
+        "a triage attempt with AF_AUTO_FIX=maybe"
+      ],
+      "when": "the worker runs the attempt",
+      "then": [
+        "the envelope is failed with category config, not retryable",
+        "fix_hint.var is AF_AUTO_FIX"
+      ],
+      "pseudocode": "env=run(triage,{AF_AUTO_FIX:'maybe'}); assert env.status=='failed' && env.error.category=='config' && !env.error.retryable && env.error.fix_hint.var=='AF_AUTO_FIX'"
+    },
+    {
+      "id": "TS-19-38",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-7.3"
+      ],
+      "title": "A confirmed triage with AF_AUTO_FIX=true records a pending follow-up and adds af:fix",
+      "given": [
+        "worker harness, fake hub, real jobs layer",
+        "triage of issue 42 ends confirmed, AF_AUTO_FIX=true; a text triage case that created an issue"
+      ],
+      "when": "the worker runs the mirror",
+      "then": [
+        "the follow-up is recorded before the label is written",
+        "the triage job document shows follow_up {label: af:fix, issue: 42, state: pending, job_id: null}",
+        "af:fix is in labels.set and side_effects (add_labels)",
+        "a text/file triage's follow-up names the created issue"
+      ],
+      "pseudocode": "run(); d=Get(T); assert d.follow_up=={af:fix,42,pending,nil}; assert 'af:fix' in env.labels.set; assert order(recordFollowUp)<order(addLabel)"
+    },
+    {
+      "id": "TS-19-39",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-7.4"
+      ],
+      "title": "An open fix job at ask time makes the follow-up absorbed and the label is not added",
+      "given": [
+        "a queued or blocked fix job J of issue 42",
+        "a confirmed triage with AF_AUTO_FIX=true"
+      ],
+      "when": "the mirror asks for the follow-up",
+      "then": [
+        "follow_up.state is absorbed with job_id J",
+        "af:fix is not added to the issue"
+      ],
+      "pseudocode": "run(); assert Get(T).follow_up=={...,absorbed,J}; assert !hub.HasLabel(42,'af:fix')"
+    },
+    {
+      "id": "TS-19-40",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-7.5"
+      ],
+      "title": "The three skip cases record nothing, add no label and warn auto_fix_skipped with the reason",
+      "given": [
+        "a confirmed triage with AF_AUTO_FIX=true in turn: AF_POLL_INTERVAL=0, a carry_patch workspace, AF_FIX_LAND=patch",
+        "also AF_FIX_LAND=bogus on a triage"
+      ],
+      "when": "the worker runs the triage",
+      "then": [
+        "envelope warnings include auto_fix_skipped whose message names the reason for each case",
+        "follow_up is null and no af:fix side effect",
+        "AF_FIX_LAND=bogus does not fail the triage"
+      ],
+      "pseudocode": "for case in cases: env=run(case); assert warn(env,'auto_fix_skipped').message contains case.reason; assert Get(T).follow_up==nil; assert !hub.HasLabel(42,'af:fix')"
+    },
+    {
+      "id": "TS-19-41",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-7.6"
+      ],
+      "title": "A recording failure adds no label; a label write failure withdraws the follow-up; both warn auto_fix_failed",
+      "given": [
+        "a confirmed triage with AF_AUTO_FIX=true",
+        "case A: the jobs layer cannot record the follow-up",
+        "case B: hub answers 503 to the label write"
+      ],
+      "when": "the worker runs the mirror",
+      "then": [
+        "A: no label is added and the envelope carries auto_fix_failed",
+        "B: a failed side effect is recorded, follow_up.state is withdrawn and the envelope carries auto_fix_failed"
+      ],
+      "pseudocode": "runA(); assert !hasLabel && warn('auto_fix_failed'); runB(); assert Get(T).follow_up.state=='withdrawn' && failedSideEffect('add_labels')"
+    },
+    {
+      "id": "TS-19-42",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-7.7"
+      ],
+      "title": "No follow-up is asked for with AF_AUTO_FIX unset or false, a suspected triage, or a failed triage",
+      "given": [
+        "triage runs: AF_AUTO_FIX unset, AF_AUTO_FIX=false, confidence suspected with AF_AUTO_FIX=true, not_reproducible, and a failed triage"
+      ],
+      "when": "the worker runs each",
+      "then": [
+        "follow_up is null",
+        "no af:fix label is added by the worker"
+      ],
+      "pseudocode": "for c in cases: run(c); assert Get(T).follow_up==nil && !hub.HasLabel(42,'af:fix')"
+    },
+    {
+      "id": "TS-19-43",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-7.8"
+      ],
+      "title": "A resumed mirror asks again, keeps one follow-up and adds the label only while pending",
+      "given": [
+        "a triage whose mirror was interrupted after the follow-up was recorded; variants with state pending, made, absorbed, withdrawn"
+      ],
+      "when": "the delivery resumes the mirror",
+      "then": [
+        "the triage job still has exactly one follow-up",
+        "the label is added again only when the state is pending"
+      ],
+      "pseudocode": "for st in states: setState(T,st); resume(); assert countFollowUps(T)==1; assert addLabelCalled==(st=='pending')"
+    },
+    {
+      "id": "TS-19-44",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-8.1"
+      ],
+      "title": "A later triage's pending follow-up withdraws the earlier pending one and at most one stays pending",
+      "given": [
+        "triage T0 of issue 42 with a pending follow-up",
+        "a second recording by the same triage job"
+      ],
+      "when": "triage T1 of issue 42 records its follow-up",
+      "then": [
+        "T1's follow-up is pending and T0's is withdrawn",
+        "only one pending follow-up exists for the workspace and issue",
+        "a repeated record for one triage job leaves one follow-up"
+      ],
+      "pseudocode": "rec(T0); rec(T1); assert Get(T1).follow_up.state=='pending' && Get(T0).follow_up.state=='withdrawn'; rec(T1); assert countFollowUps(T1)==1"
+    },
+    {
+      "id": "TS-19-45",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-8.2"
+      ],
+      "title": "A follow-up stands as recorded whatever becomes of its triage job",
+      "given": [
+        "a pending follow-up of triage T"
+      ],
+      "when": "T is cancelled, fails, or is retried, and time passes",
+      "then": [
+        "the follow-up stays pending with the same label, issue and job_id null until a sighting or a later triage changes it"
+      ],
+      "pseudocode": "for ev in [cancel,fail,retry]: apply(T,ev); assert Get(T).follow_up.state=='pending'"
+    },
+    {
+      "id": "TS-19-46",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-8.3"
+      ],
+      "title": "A create request with an invalid parent is refused as invalid and stores nothing",
+      "given": [
+        "a triage job T1 in workspace widgets, a triage job T2 in another workspace, a fix job F"
+      ],
+      "when": "Create is called with parent_job_id for: source label; source triage with parent F (not triage); parent T2 (other workspace); source.by T1 but parent T3",
+      "then": [
+        "each returns an invalid-request error",
+        "the job count is unchanged"
+      ],
+      "pseudocode": "for req in bad: err=Create(req); assert errors.Is(err,ErrInvalid); assert count(jobs)==before"
+    },
+    {
+      "id": "TS-19-47",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-8.4"
+      ],
+      "title": "Every job document carries parent_job_id and follow_up",
+      "given": [
+        "a triage job that asked for a follow-up, a fix job made from it, and an ordinary job"
+      ],
+      "when": "the job documents are read",
+      "then": [
+        "triage doc: parent_job_id null and follow_up {label, issue, state, job_id}",
+        "fix doc: parent_job_id is the triage id, follow_up null",
+        "ordinary job: both null"
+      ],
+      "pseudocode": "assert Get(T).follow_up.keys==[label,issue,state,job_id]; assert Get(F).parent_job_id==T; assert Get(X).follow_up==nil"
+    },
+    {
+      "id": "TS-19-48",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-8.5"
+      ],
+      "title": "The retention purge removes a triage job's follow-up and keeps parent_job_id on the fix job",
+      "given": [
+        "triage T with a follow-up made into fix job F, T older than the retention limit"
+      ],
+      "when": "the purge runs",
+      "then": [
+        "T and its follow-up row are gone",
+        "F's parent_job_id is unchanged"
+      ],
+      "pseudocode": "purge(); assert count(followups where triage=T)==0; assert Get(F).parent_job_id==T"
+    },
+    {
+      "id": "TS-19-49",
+      "kind": "property",
+      "verifies": [
+        "19-REQ-8.6"
+      ],
+      "title": "A fix job from a follow-up and the follow-up's made state are never seen apart",
+      "given": [
+        "a pending follow-up and a store that can fail at any step of the transaction"
+      ],
+      "when": "for any failure injected at any point of making the linked fix job, and for any concurrent reader",
+      "then": [
+        "a reader sees either both the fix job and follow-up made, or neither",
+        "a failure partway leaves a pending follow-up and no job"
+      ],
+      "pseudocode": "for step in steps: inject(step); try Make(); s=snapshot(); assert (s.job!=nil)==(s.followUp.state=='made')"
+    },
+    {
+      "id": "TS-19-50",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-9.1"
+      ],
+      "title": "A fix label with a pending follow-up makes one linked fix job and marks the follow-up made",
+      "given": [
+        "issue 42's pending follow-up from triage T, no open fix job, af:fix on the issue"
+      ],
+      "when": "the trigger sees af:fix",
+      "then": [
+        "one fix job with source {kind: triage, by: T}, parent_job_id T, request_label af:fix, input {issue: 42}",
+        "T's follow_up is {state: made, job_id: <fix job>}",
+        "holds of af:fix on 42 end, the poll's record of the job is written, and af:fix is removed"
+      ],
+      "pseudocode": "cycle(); F=only(fixJobs); assert F.source=={triage,T} && F.parent_job_id==T; assert Get(T).follow_up=={...,made,F}; assert !hasLabel"
+    },
+    {
+      "id": "TS-19-51",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-9.2"
+      ],
+      "title": "A fix label with a pending follow-up and an open blocked fix job is absorbed, with no answer",
+      "given": [
+        "pending follow-up from T, open fix job J blocked with a person comment on the issue"
+      ],
+      "when": "the trigger sees af:fix",
+      "then": [
+        "no attempt or job is made",
+        "follow_up is {state: absorbed, job_id: J}",
+        "af:fix is removed"
+      ],
+      "pseudocode": "cycle(); assert attempts(J)==1 && jobs==before; assert Get(T).follow_up=={...,absorbed,J}"
+    },
+    {
+      "id": "TS-19-52",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-9.3"
+      ],
+      "title": "A duplicate refusal while making the linked fix job absorbs the label and the follow-up",
+      "given": [
+        "a Jobs fake whose Create returns a duplicate refusal for the linked fix job"
+      ],
+      "when": "the trigger sees af:fix with a pending follow-up",
+      "then": [
+        "no new job",
+        "follow_up.state is absorbed",
+        "af:fix is removed"
+      ],
+      "pseudocode": "jobs.createErr=Duplicate{J}; cycle(); assert noNewJob && followUp.state=='absorbed' && !hasLabel"
+    },
+    {
+      "id": "TS-19-53",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-9.4"
+      ],
+      "title": "The stream makes the linked fix job before the triage attempt ended and over an earlier hold",
+      "given": [
+        "triage T still running with a pending follow-up",
+        "a hold of af:fix from an earlier cancelled fix job on the issue"
+      ],
+      "when": "the stream handles the af:fix label event",
+      "then": [
+        "one fix job with parent_job_id T is made",
+        "the hold is ended"
+      ],
+      "pseudocode": "stream.Handle(ev); assert one(fixJobs).parent_job_id==T && !holds.Any(42,'af:fix')"
+    },
+    {
+      "id": "TS-19-54",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-9.5"
+      ],
+      "title": "A second sighting of the label after the linked fix job was made is absorbed",
+      "given": [
+        "the linked fix job was made from a stream event"
+      ],
+      "when": "a poll listing that still shows af:fix on the issue, and a second stream event, are handled",
+      "then": [
+        "still exactly one fix job",
+        "the label is removed or left to the record and no comment is posted"
+      ],
+      "pseudocode": "stream.Handle(e1); cycle(); stream.Handle(e2); assert count(fixJobs)==1"
+    },
+    {
+      "id": "TS-19-55",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-9.6"
+      ],
+      "title": "A fix label with no pending follow-up makes a job with source label or event and no parent",
+      "given": [
+        "issue 42 with no follow-up, or a withdrawn one"
+      ],
+      "when": "the poll and the stream each see af:fix",
+      "then": [
+        "source.kind is label (poll) or event (stream)",
+        "parent_job_id is null"
+      ],
+      "pseudocode": "cycle(); assert job.source.kind=='label' && job.parent_job_id==nil"
+    },
+    {
+      "id": "TS-19-56",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-10.1"
+      ],
+      "title": "A fix summary of a triage-sourced job differs only by the 'Asked for by' line",
+      "given": [
+        "the same fix result composed for a job with source triage and for a job with source label"
+      ],
+      "when": "fixSummary composes both",
+      "then": [
+        "the triage-sourced one contains the line '- Asked for by the triage job `<T>` (AF_AUTO_FIX)'",
+        "removing that line makes the two byte-identical"
+      ],
+      "pseudocode": "a=fixSummary(src=triage,T); b=fixSummary(src=label); assert remove(a,line)==b"
+    },
+    {
+      "id": "TS-19-57",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-10.2"
+      ],
+      "title": "The fake hub adds a person's comment, stamps each comment with its own time and keeps insertion order",
+      "given": [
+        "a fake hub with a fake clock"
+      ],
+      "when": "a person comment and a service comment are added at advancing times and the issue is read and listed",
+      "then": [
+        "comments carry distinct created_at values from the clock",
+        "the issue read and the comment list return the comments in the order they were added",
+        "the person comment's author is the given login"
+      ],
+      "pseudocode": "h.AddPersonComment(42,'alice','a'); clk.Advance(1m); post(42,'b'); r=read(42); assert times distinct; assert order(r.comments)==order(list)==['a','b']"
+    },
+    {
+      "id": "TS-19-58",
+      "kind": "smoke",
+      "verifies": [
+        "19-PATH-1",
+        "19-REQ-2.1"
+      ],
+      "title": "A person answers a blocked fix job from the issue and the runner gets the answer",
+      "given": [
+        "real store and jobs layer on a temporary state file, fakerunner, fakeclock, fake hub, workspace widgets with prefix af:"
+      ],
+      "when": "the person comments on issue 42 and adds af:fix, and one poll cycle runs, then attempt 2 starts",
+      "then": [
+        "attempt 2 has trigger {answer, 'label af:fix'} with the answer text",
+        "af:fix is removed through hub",
+        "the fakerunner received the answer among Answers"
+      ],
+      "real_components": [
+        "poll Supervisor.Cycle",
+        "jobs layer",
+        "store",
+        "fakehub",
+        "fakerunner",
+        "fakeclock"
+      ]
+    },
+    {
+      "id": "TS-19-59",
+      "kind": "smoke",
+      "verifies": [
+        "19-PATH-2",
+        "19-REQ-1.8"
+      ],
+      "title": "The stream answers a blocked job and a stale poll listing does nothing",
+      "given": [
+        "a blocked fix job for issue 42 and a person comment",
+        "fakerunner ends attempt 2 blocked at once; the fake forge lags the label removal"
+      ],
+      "when": "event evt-7 is handled by the stream, then a poll cycle lists 42 under af:fix",
+      "then": [
+        "attempt 2 has trigger {answer, evt-7}",
+        "the poll adds no attempt and posts no reply",
+        "a stream retry whose attempt fails at once and an API-made job answered by the stream behave the same"
+      ],
+      "real_components": [
+        "event stream handler",
+        "poll Supervisor.Cycle",
+        "jobs layer",
+        "store",
+        "fakehub",
+        "fakerunner",
+        "fakeclock"
+      ]
+    },
+    {
+      "id": "TS-19-60",
+      "kind": "smoke",
+      "verifies": [
+        "19-PATH-3",
+        "19-REQ-4.4"
+      ],
+      "title": "A person retries a failed fix job with context from the issue",
+      "given": [
+        "real jobs layer, fakerunner, fake hub, a failed fix job with a failure comment on issue 42"
+      ],
+      "when": "a person comments 'the log is in CI run 812' and adds af:fix, and one cycle runs",
+      "then": [
+        "the same job gets attempt n+1 with trigger {retry, 'label af:fix'}",
+        "the attempt document shows the comment in context",
+        "the fakerunner's Context ends with the comment",
+        "af:fix is removed and no new job exists"
+      ],
+      "real_components": [
+        "poll Supervisor.Cycle",
+        "jobs layer",
+        "store",
+        "fakehub",
+        "fakerunner",
+        "fakeclock"
+      ]
+    },
+    {
+      "id": "TS-19-61",
+      "kind": "smoke",
+      "verifies": [
+        "19-PATH-4",
+        "19-REQ-5.1",
+        "19-REQ-5.3"
+      ],
+      "title": "No answer found is replied once, then a cut thread is replied with the af and API route",
+      "given": [
+        "a blocked fix job for issue 42 in the real jobs layer and fake hub"
+      ],
+      "when": "af:fix is added with no comment and a cycle runs; then a person comments, af:fix is added and hub answers the read truncated: true, and a cycle runs",
+      "then": [
+        "the first cycle posts the no_answer reply and removes af:fix",
+        "the second cycle logs one WARN, posts the thread_cut reply naming 'af jobs answer' and 'POST /api/v1/jobs/<J>/answer', removes af:fix",
+        "no attempt is made in either cycle"
+      ],
+      "real_components": [
+        "poll Supervisor.Cycle",
+        "jobs layer",
+        "store",
+        "fakehub",
+        "fakeclock"
+      ]
+    },
+    {
+      "id": "TS-19-62",
+      "kind": "smoke",
+      "verifies": [
+        "19-PATH-5",
+        "19-REQ-9.1",
+        "19-REQ-7.3"
+      ],
+      "title": "AF_AUTO_FIX chains a triage on issue 44 into a linked fix job end to end",
+      "given": [
+        "workspace widgets, AF_AUTO_FIX=true, the real worker with the scripted brain, real jobs layer, fake hub",
+        "issue 44 carries af:triage"
+      ],
+      "when": "one cycle makes the triage job and the worker runs it, then the next cycle runs",
+      "then": [
+        "the worker runs the triage to af:ready, records T's follow_up pending and adds af:fix",
+        "the next cycle makes the fix job with source {triage, T} and parent_job_id T",
+        "T's follow_up is {made, <fix job>}"
+      ],
+      "real_components": [
+        "poll Supervisor.Cycle",
+        "real worker",
+        "scripted brain",
+        "jobs layer",
+        "store",
+        "fakehub",
+        "fakeclock"
+      ]
+    },
+    {
+      "id": "TS-19-63",
+      "kind": "smoke",
+      "verifies": [
+        "19-PATH-6",
+        "19-REQ-1.6"
+      ],
+      "title": "A re-labelled triaged issue gets a new triage that replaces the diagnosis and keeps the edited report",
+      "given": [
+        "issue 42's latest triage job is done and its body carries a diagnosis between the triage markers after the original report",
+        "a person edits the original report and adds af:triage"
+      ],
+      "when": "one cycle runs and the real worker runs the new triage with the scripted brain",
+      "then": [
+        "a new triage job exists with source {label, 'label af:triage'}",
+        "the done job is unchanged",
+        "the issue body's diagnosis is replaced and the edited original report is kept"
+      ],
+      "real_components": [
+        "poll Supervisor.Cycle",
+        "real worker",
+        "scripted brain",
+        "jobs layer",
+        "store",
+        "fakehub",
+        "fakeclock"
+      ]
+    }
+  ]
+}

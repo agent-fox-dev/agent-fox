@@ -1,0 +1,541 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "18",
+  "spec_name": "agent_fox_event_stream",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/hub/... ./internal/service/... ./internal/worker/... ./cmd/agent-fox/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "11",
+      "reason": "store subscriptions and tokens, the migrations list, the hub client core and serve's wiring"
+    },
+    {
+      "spec": "12",
+      "reason": "Create with source kind event, the cancel path, causes, grace, synthesized envelope, job document and Standing, which gain the issue-closed cause and cancel_cause"
+    },
+    {
+      "spec": "13",
+      "reason": "worker mirror and cancel handling change for the new cause; hub forge client and the fake hub are extended"
+    },
+    {
+      "spec": "15",
+      "reason": "the Supervisor, scan, loops, rules, records, note, AF_POLL_INTERVAL and failure logging that the stream reuses"
+    },
+    {
+      "spec": "17",
+      "reason": "the cancel cleanup that the issue-closed cause reuses without its restore step, its note/Standing changes, and the migration that precedes this spec's"
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Add hub client call that opens the events route and classifies its answers",
+      "criteria": [
+        "18-REQ-1"
+      ],
+      "tests": [
+        "TS-18-1",
+        "TS-18-2",
+        "TS-18-3",
+        "TS-18-4",
+        "TS-18-5",
+        "TS-18-6"
+      ],
+      "steps": [
+        "Write TS-18-1..6 in internal/hub (httptest servers) and confirm they fail",
+        "Add internal/hub/events.go with Client.Events(ctx, pat, slug) returning a stream reader type (stub the reader body for now); build GET /api/v1/events?workspace=<url.QueryEscape(slug)> with Authorization Bearer, Accept text/event-stream and the client's User-Agent",
+        "Copy the client's HTTP settings as send does: no redirects, but bound only the wait for response headers with the ordinary 10 s bound (e.g. a ResponseHeaderTimeout or a timer cancelling until headers arrive) and read the body with no overall timeout until ctx ends; make the header bound overridable in tests",
+        "Classify non-200 answers through the existing classify/errorObject helpers: 401 -> ErrRefused, 403 -> ErrForbidden with a message naming audit:read and PUT /api/v1/workspaces/{slug}, 404 -> ErrNotFound, other 4xx except 429 -> *RejectedError with Status/Code/Message",
+        "Treat 429, 5xx, transport failures, timeouts, redirects and a 200 whose content type is not text/event-stream as *UnavailableError (Status 0 for transport failures)",
+        "Pass every returned error through scrubbed so the PAT never appears in error text",
+        "Define exported event-type constants for hub.forge.issue.labeled and hub.forge.issue.closed in internal/hub"
+      ],
+      "touches": [
+        "internal/hub/events.go",
+        "internal/hub/events_test.go"
+      ],
+      "done_when": [
+        "internal/hub/calls_test.go field-name walk still passes"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Implement the SSE frame reader, event decoding and the fake hub's event stream",
+      "criteria": [
+        "18-REQ-2"
+      ],
+      "tests": [
+        "TS-18-7",
+        "TS-18-8",
+        "TS-18-9",
+        "TS-18-10",
+        "TS-18-11",
+        "TS-18-12",
+        "TS-18-13"
+      ],
+      "steps": [
+        "Write TS-18-7..13 and confirm they fail",
+        "In internal/hub/events.go implement the frame reader copying internal/afclient/sse.go's rules (do not import it): id:/event:/data: fields, data lines joined with a line break, colon lines as comments, CRLF and LF, a frame with no data is no event, a line longer than 1 MiB ends the read with an error and delivers no further frames",
+        "Expose each frame and each comment to the caller as activity (a callback or a returned item kind) and decode a JSON-object frame into a typed value StreamEvent{ID, Type, Workspace, Issue int, Label string}; use JSON id else frame id:, JSON event_type else frame event:, workspace slug when hub names one, issue from payload.issue (integer) / payload.issue.number / payload.number, label from payload.label (string) / payload.label.name; a frame whose data is not a JSON object is activity only (name the type so it does not clash with the existing hub.Event)",
+        "Keep all hub field names in internal/hub",
+        "Add internal/hub/fakehub/events.go serving /api/v1/events from route() in fakehub.go: apply the usual token access check (refuse), honour Inject/Fail/Hangup on the path, else answer 200 text/event-stream and hold the connection open, recording its workspace",
+        "Add exported fakehub seams: SendEvent(workspace, event), Heartbeat(workspace) (an SSE comment), EndEvents(workspace), EventConns(workspace) int, an EventsRequests count helper, and EmitLabeledOnAdd(bool) so that a label added through the forge API (ws.relabel) sends hub.forge.issue.labeled to every open connection of the workspace; add a helper to close an issue as a person (state closed) if none exists",
+        "Document the seams in a comment; docs/development.md is updated in the integration task"
+      ],
+      "touches": [
+        "internal/hub/events.go",
+        "internal/hub/events_test.go",
+        "internal/hub/fakehub/events.go",
+        "internal/hub/fakehub/fakehub.go",
+        "internal/hub/fakehub/forge.go",
+        "internal/hub/fakehub/issues.go",
+        "internal/hub/fakehub/fakehub_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "done_when": [
+        "internal/hub/calls_test.go field-name walk passes"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Add the issue-closed cancel, cancel_cause and the af_hub_events table to the jobs layer and store",
+      "criteria": [
+        "18-REQ-8.5",
+        "18-REQ-8.6",
+        "18-REQ-8.7",
+        "18-REQ-8.8"
+      ],
+      "tests": [
+        "TS-18-57",
+        "TS-18-58",
+        "TS-18-59",
+        "TS-18-60"
+      ],
+      "steps": [
+        "Write TS-18-57..60 (jobs package tests using fakerunner and fakeclock) and confirm they fail",
+        "Append one migration to internal/service/store/migrations.go after spec 17's: CREATE TABLE af_hub_events(workspace, event_id, taken_at, PRIMARY KEY(workspace,event_id)) with an index on taken_at, and ALTER TABLE af_jobs ADD COLUMN cancel_cause TEXT",
+        "In jobs/runner.go add ErrIssueClosed wrapping ErrCancelled and update the runner contract comment to say what the worker does for it",
+        "Thread the cause into Store.CancelJob so it stores cancel_cause ('cancelled', 'unsubscribed', 'issue_closed') and leaves labels_restore NULL for issue_closed (other causes keep COALESCE(request_label, labels_restore)); keep queued-attempt cancel and job_state emission",
+        "Generalise cancelWhatIsOpen (unsubscribe.go) to take the cause, keeping the retry-on-*StateError loop of at most 8 tries; add Service.CancelIssue(ctx, workspace, issue) returning the cancelled job ids, using a new Store query for the open job ids of one issue (both kinds, queued/running/blocked)",
+        "Add cancel_cause to jobColumns/jobRow/scan/buildDoc and Doc.CancelCause *string `json:\"cancel_cause\"` in model.go and to jobs.Standing (read.go)",
+        "In finish.go envelopeOf and grace.go settleCancelled keep category cancelled but say the issue was closed when the cause is ErrIssueClosed",
+        "Add the poll-facing store helpers for af_hub_events (insert, exists, delete older than a time) in internal/service/poll/store.go or the store package"
+      ],
+      "touches": [
+        "internal/service/store/migrations.go",
+        "internal/service/jobs/runner.go",
+        "internal/service/jobs/cancel.go",
+        "internal/service/jobs/unsubscribe.go",
+        "internal/service/jobs/store.go",
+        "internal/service/jobs/finish.go",
+        "internal/service/jobs/grace.go",
+        "internal/service/jobs/read.go",
+        "internal/service/jobs/document.go",
+        "internal/service/jobs/model.go",
+        "internal/service/poll/store.go"
+      ],
+      "done_when": [
+        "existing jobs and store tests still pass"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Make an issue-closed cancel remove its status labels and add none (worker and cleanup)",
+      "criteria": [
+        "18-REQ-9.1",
+        "18-REQ-9.2",
+        "18-REQ-9.3",
+        "18-REQ-9.4",
+        "18-REQ-9.5"
+      ],
+      "tests": [
+        "TS-18-61",
+        "TS-18-62",
+        "TS-18-63",
+        "TS-18-64"
+      ],
+      "steps": [
+        "Write TS-18-61..64 and confirm they fail",
+        "In internal/worker/cancel.go let the cancel stop carry the cause (a distinct stop value or the cause itself) so an ErrIssueClosed stop is told apart from a person's cancel and an unsubscribe; the cancelled envelope message says the issue was closed",
+        "In internal/worker/mirror.go for the issue-closed stop call a.unmark only (take off af:in-progress), never addLabel(RequestLabel) and post no comment; lease release and hub reporting stay as for any cancel",
+        "In the jobs layer extend agent_fox_label_protocol's cancel cleanup (spec 17) so an issue_closed cancel marks labels.cleanup pending, makes only the step-3 removals (in-progress unless another job of the issue runs, labels.set unless another open job shows them) and never step 4; labels.restore stays null and cleanup ends done or label_not_set per that spec's R5",
+        "Keep retry/give-up and the no-forge behaviour (nothing written, no forge request) as spec 17 has them",
+        "Make sure no label addition or comment is sent for any issue-closed cancel; labels the jobs do not account for (af:landed) stay"
+      ],
+      "touches": [
+        "internal/worker/cancel.go",
+        "internal/worker/mirror.go",
+        "internal/service/jobs/finish.go",
+        "internal/service/jobs/cancel.go",
+        "internal/service/jobs/cleanup.go",
+        "internal/worker/mirror_test.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "done_when": [
+        "spec 17's cleanup tests still pass for the person's cancel and unsubscribe causes"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Poll side of sharing the rules: per-workspace lock, newer-record rule, note for issue_closed",
+      "criteria": [
+        "18-REQ-7.5",
+        "18-REQ-7.6",
+        "18-REQ-7.7",
+        "18-REQ-9.6"
+      ],
+      "tests": [
+        "TS-18-49",
+        "TS-18-50",
+        "TS-18-51",
+        "TS-18-65"
+      ],
+      "steps": [
+        "Write TS-18-49,50,51,65 (poll package, using harness_test.go newEnv) and confirm they fail",
+        "Add a per-workspace mutex to wsState; make cycleRun.issue take it for one issue at a time (never for the whole cycle)",
+        "Refactor cycleRun.issue/request/created so the job Source and the canonical request label/kind are parameters (not read from the listing), so the stream can call the same rules with source {kind:event, by:<event id>}",
+        "Rule: when an issue's label is not absorbed, held or owed but a poll record of that label on that issue has CreatedAt >= listing.Requested, make no job and leave the label to the next cycle",
+        "In settle, skip owed-removal clearing and hold release for records with CreatedAt >= Requested",
+        "In reconcile.go note, treat Standing.CancelCause == issue_closed as ended and holding nothing, whether or not CancelledInRunner and whatever the cleanup shows (overriding spec 17's hold)",
+        "Add CancelIssue and an open-jobs-of-issue look to the poll Jobs interface (supervisor.go) with the real jobs.Service satisfying it; keep the blind/failing test fakes compiling"
+      ],
+      "touches": [
+        "internal/service/poll/handler.go",
+        "internal/service/poll/cycle.go",
+        "internal/service/poll/reconcile.go",
+        "internal/service/poll/supervisor.go",
+        "internal/service/poll/api_test.go",
+        "internal/service/poll/hold_test.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "done_when": [
+        "existing poll tests still pass unchanged in behaviour"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Start one event stream per poll loop with its connection sequence, poll switch and id expiry",
+      "criteria": [
+        "18-REQ-3.1",
+        "18-REQ-3.2",
+        "18-REQ-3.3",
+        "18-REQ-3.4",
+        "18-REQ-3.5",
+        "18-REQ-3.6",
+        "18-REQ-3.8",
+        "18-REQ-4.1",
+        "18-REQ-4.2",
+        "18-REQ-4.4",
+        "18-REQ-7.4"
+      ],
+      "tests": [
+        "TS-18-14",
+        "TS-18-15",
+        "TS-18-16",
+        "TS-18-17",
+        "TS-18-18",
+        "TS-18-19",
+        "TS-18-21",
+        "TS-18-22",
+        "TS-18-24",
+        "TS-18-48"
+      ],
+      "steps": [
+        "Write TS-18-14..19,21,22,24,48 (poll package, harness with fakehub event seams) and confirm they fail",
+        "Add internal/service/poll/stream.go: a stream goroutine per loop registered in Supervisor's s.wg with the loop's ctx; loop gains the cancel func and last-seen subscription UpdatedAt; startLoop starts the stream, forget/cancel of a loop stops it, Stop cancels streams and any handler and returns after they return",
+        "Each connection: Store token read, Hub.ResolvedVars, parseInterval (zero => open no connection, reread 5 minutes later on the poll clock), Hub.WorkspaceRecord, then Hub.Events at once with no random delay; record the reading time in stream state; log nothing about AF_POLL_INTERVAL",
+        "On a scan finding a changed UpdatedAt, close the open connection so the stream reconnects at once with the new token",
+        "On ErrNotSubscribed from the store stop the stream and call forget so the poll loop goes with it; a later scan restarts both; ErrUnreadable logs one ERROR naming the token read and keeps retrying (use a stream-owned failures set separate from the cycle's; basic reconnect-wait of 1 s is enough here, full backoff comes in the next task)",
+        "Have scan delete af_hub_events rows older than 7 days by the supervisor's clock",
+        "Read the open frames in a loop (no event handling yet beyond activity) and return when the ctx ends or the server ends the stream"
+      ],
+      "touches": [
+        "internal/service/poll/stream.go",
+        "internal/service/poll/loop.go",
+        "internal/service/poll/supervisor.go",
+        "internal/service/poll/store.go",
+        "internal/service/poll/stream_test.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        5
+      ],
+      "done_when": [
+        "Supervisor.Stop leaves zero stream goroutines"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Stream backoff, idle limit, recovery and connection-failure logging",
+      "criteria": [
+        "18-REQ-4.5",
+        "18-REQ-4.6",
+        "18-REQ-4.7",
+        "18-REQ-4.8",
+        "18-REQ-5.1",
+        "18-REQ-5.2",
+        "18-REQ-5.3",
+        "18-REQ-5.4",
+        "18-REQ-5.8"
+      ],
+      "tests": [
+        "TS-18-25",
+        "TS-18-26",
+        "TS-18-27",
+        "TS-18-28",
+        "TS-18-29",
+        "TS-18-30",
+        "TS-18-31",
+        "TS-18-32",
+        "TS-18-36"
+      ],
+      "steps": [
+        "Write TS-18-25..32,36 and confirm they fail",
+        "Implement backoff on the poll clock: waits 1 s doubling to 60 s with no jitter after a failed or ended connection; after hub is found not to serve the stream (404 or 405 on the events route after the record read) every wait is 60 s; the first frame or comment of a connection resets the wait to 1 s; do not bring the poll's next cycle forward",
+        "Implement the 60 s idle limit: any received byte (frame, comment, heartbeat) rearms it, time spent acting on an event does not count (pause the idle timer while a handler runs); an idle connection is closed and treated as ended",
+        "Add a connection-failure record set to stream state, separate from the cycle's failures and the event-handling records, reusing classify/report from failure.go: ERROR for refused/forbidden token, hub not finding the workspace at the record read, rejected request or unreadable token, naming the operation and the PUT /api/v1/workspaces/{slug} route or the scope audit:read; WARN for unavailable; logged once per kind and operation until the next activity",
+        "Log one WARN that hub does not serve the event stream and labels are found by the poll alone for 404/405 after the record read (ERROR is not used)",
+        "The first frame or comment after logged failures or an outage logs one INFO that the stream recovered and resets the connection-failure records so a later failure logs again",
+        "Log one outage WARN when no connection with activity has lasted longer than the last-read poll interval (5 minutes if none read), not while the not-served WARN stands",
+        "Make sure no log record contains the PAT (errors come scrubbed from internal/hub)"
+      ],
+      "touches": [
+        "internal/service/poll/stream.go",
+        "internal/service/poll/failure.go",
+        "internal/service/poll/stream_test.go"
+      ],
+      "depends_on": [
+        6
+      ],
+      "done_when": [
+        "no stream log record mentions AF_POLL_INTERVAL"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Handle request events: filtering, poll-on check, issue read and new jobs",
+      "criteria": [
+        "18-REQ-3.7",
+        "18-REQ-4.3",
+        "18-REQ-5.5",
+        "18-REQ-5.6",
+        "18-REQ-5.7",
+        "18-REQ-6.1",
+        "18-REQ-6.2",
+        "18-REQ-6.3"
+      ],
+      "tests": [
+        "TS-18-20",
+        "TS-18-23",
+        "TS-18-33",
+        "TS-18-34",
+        "TS-18-35",
+        "TS-18-37",
+        "TS-18-38",
+        "TS-18-39"
+      ],
+      "steps": [
+        "Write TS-18-20,23,33,34,35,37,38,39 and confirm they fail",
+        "Add internal/service/poll/handle.go: on each decoded event, decide its kind; a request event is hub.forge.issue.labeled whose label EqualFold <prefix>triage or <prefix>fix (read the subscription's label_prefix each time) naming no other workspace; closed events go to the closed handler (next tasks); everything else is ignored with no hub request and logged at DEBUG at most",
+        "Malformed events (labeled with a request label, or closed, with no id, no issue number, an id over 256 bytes or with control characters) are ignored with no hub request and logged once per connection at WARN",
+        "Handle events of one workspace one at a time in arrival order (the stream goroutine handles inline); different workspaces never wait on each other",
+        "Handling a request: under the per-workspace lock skip a recorded id, ensure the poll is on (reread AF_POLL_INTERVAL when the stream's reading is older than 5 minutes; if it reads 0, act on nothing, record nothing, close the connection and reread after 5 minutes), build the forge client (Hub.Forge with pat, slug, repo from the connection), ReadIssue and stop if the issue is closed, a pull request, or lacks the label (EqualFold)",
+        "Otherwise call the refactored cycleRun.issue rules with the canonical label and Source {kind:event, by:<event id>}: a new request writes the poll record before removing the label",
+        "Add an event-handling failure record set (separate from connection and cycle records), classified like connection failures, logged once per kind and operation until an event of the workspace is handled without failure; such failures neither end the connection nor touch the connection records"
+      ],
+      "touches": [
+        "internal/service/poll/handle.go",
+        "internal/service/poll/stream.go",
+        "internal/service/poll/handler.go",
+        "internal/service/poll/failure.go",
+        "internal/service/poll/handle_test.go"
+      ],
+      "depends_on": [
+        6,
+        5
+      ],
+      "done_when": [
+        "a stream-made job has source {kind:event,by:evt-1} and request_label af:fix"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "Apply the poll's absorb, hold, owed and refusal rules to events and record event ids",
+      "criteria": [
+        "18-REQ-6.4",
+        "18-REQ-6.5",
+        "18-REQ-6.6",
+        "18-REQ-6.7",
+        "18-REQ-6.8",
+        "18-REQ-7.1",
+        "18-REQ-7.2",
+        "18-REQ-7.3"
+      ],
+      "tests": [
+        "TS-18-40",
+        "TS-18-41",
+        "TS-18-42",
+        "TS-18-43",
+        "TS-18-44",
+        "TS-18-45",
+        "TS-18-46",
+        "TS-18-47"
+      ],
+      "steps": [
+        "Write TS-18-40..47 and confirm they fail",
+        "Make the stream's call into cycleRun.issue exercise absorbed (open job of that kind or a duplicate refusal from Create: remove the label, or owe the removal on failure), held (do nothing, record the id) and already-taken/owed (remove again, no job) exactly as a cycle does",
+        "Handle jobs-layer refusals: ErrNotSubscribed ends handling with no label written and nothing recorded or logged as a failure; any other refusal is an event-handling failure at WARN with the label left and no id recorded",
+        "Handle hub failures (variable read, issue read, removal): leave the event to the poll, record no id, log an event-handling failure; a failed removal after a job was made leaves the removal owed",
+        "Record the event id in af_hub_events with taken_at from the supervisor's clock once an event is decided (job made, label absorbed or removed again, hold left alone, nothing to do per hub's issue read); do not record ignored events, closed events without an open job, events not acted on because the poll is off, or failed handling",
+        "Check the id in af_hub_events before acting, so a repeat (also after reopening the state file) sends no forge request"
+      ],
+      "touches": [
+        "internal/service/poll/handle.go",
+        "internal/service/poll/handler.go",
+        "internal/service/poll/store.go",
+        "internal/service/poll/handle_rules_test.go"
+      ],
+      "depends_on": [
+        8
+      ],
+      "done_when": [
+        "a repeated event id sends no forge request"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 10,
+      "kind": "implement",
+      "title": "Handle closed events: cancel an issue's open jobs; stream/poll race and reopen cases",
+      "criteria": [
+        "18-REQ-7.8",
+        "18-REQ-8.1",
+        "18-REQ-8.2",
+        "18-REQ-8.3",
+        "18-REQ-8.4",
+        "18-REQ-9.7"
+      ],
+      "tests": [
+        "TS-18-52",
+        "TS-18-53",
+        "TS-18-54",
+        "TS-18-55",
+        "TS-18-56",
+        "TS-18-66"
+      ],
+      "steps": [
+        "Write TS-18-52,53,54,55,56,66 and confirm they fail",
+        "In handle.go, for a closed event that is not malformed and names no other workspace, under the per-workspace lock: skip a recorded id, then look up the workspace's open jobs (queued/running/blocked, triage or fix, any source) of that issue number through the poll Jobs interface; with none stop with nothing recorded, no hub request and no log above DEBUG",
+        "Otherwise ensure the poll is on, read the issue through hub; an issue read as open cancels nothing (record the id as decided)",
+        "When hub reads the issue closed call Jobs.CancelIssue(ctx, workspace, issue), record the id and log one INFO naming the workspace, the issue and the cancelled job ids",
+        "If the issue read fails, cancel nothing, record nothing and log an event-handling failure; a CancelIssue error after retries is an event-handling failure too and the jobs run on",
+        "Verify the reopened-and-relabelled case: a new request event makes a new job and a poll cycle with no event does too, because note treats issue_closed jobs as ended with no hold",
+        "Write the 50-round stream-vs-cycle race test (TS-18-52) with removal lag; fix any gap so every round ends with exactly one job and the label removed (run with -race)"
+      ],
+      "touches": [
+        "internal/service/poll/handle.go",
+        "internal/service/poll/handler.go",
+        "internal/service/poll/race_test.go",
+        "internal/service/poll/closed_test.go"
+      ],
+      "depends_on": [
+        9,
+        4
+      ],
+      "done_when": [
+        "TS-18-52 passes under go test -race"
+      ],
+      "state": "pending",
+      "optional": false
+    },
+    {
+      "id": 11,
+      "kind": "integration",
+      "title": "Verify the event-stream paths end to end and update documentation",
+      "tests": [
+        "TS-18-67",
+        "TS-18-68",
+        "TS-18-69",
+        "TS-18-70",
+        "TS-18-71"
+      ],
+      "steps": [
+        "Write smoke tests TS-18-67..71 against the real components (poll Supervisor, hub client, fake hub with event stream, real store and jobs layer on a temp state file, real worker for TS-18-68, cmd/agent-fox serve wiring for TS-18-71) and confirm they pass",
+        "Trace 18-PATH-1..5 through the real code: event frame -> hub reader -> stream handler -> poll rules -> jobs.Create -> poll record -> RemoveLabel; closed event -> CancelIssue -> runner/cleanup -> note; connection failure -> backoff -> poll cycle; serve shutdown order; confirm each step calls the next and no stub remains",
+        "Confirm cmd/agent-fox/run.go's deferred poll stop starts the streams (via the Supervisor) and runs before the jobs layer's stop; no extra wiring should be needed",
+        "Confirm Client.Events, Jobs.CancelIssue, jobs.Standing's CancelCause and Doc.CancelCause are consumed by production callers, not only by tests",
+        "Grep every file in the tasks' touches for panic(\"not implemented\"), TODO and bare return nil on non-trivial paths and remove any that remain",
+        "Check hub's OpenAPI document if reachable; record any divergence between hub's real event shape and the PRD in docs/errata/18_event_stream_divergences.md with a Deviation: key",
+        "Run make doc, then update docs/api.md (jobs a request label makes, cancel_cause row, Cancel and Removing), docs/architecture.md (new 'The event stream, as built' and changes to 'The label poll, as built' including cost), docs/configuration.md (The label poll: catch-up role, 0 turns the stream off, fixed timings), docs/development.md (fake hub event seams) and README.md (one paragraph); keep every phrase docs/*_docs_test.go asserts and never put the word 'poll' in docs/cli.md",
+        "Run make check (not make check-release) and fix any failures"
+      ],
+      "touches": [
+        "cmd/agent-fox/smoke_test.go",
+        "internal/service/poll/smoke_test.go",
+        "internal/worker/poll_smoke_test.go",
+        "docs/api.md",
+        "docs/architecture.md",
+        "docs/configuration.md",
+        "docs/development.md",
+        "README.md",
+        "docs/errata/18_event_stream_divergences.md",
+        "docs/generated"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "done_when": [
+        "`make check` passes",
+        "every execution path 18-PATH-1..5 is live in production code"
+      ],
+      "state": "pending",
+      "optional": false
+    }
+  ]
+}

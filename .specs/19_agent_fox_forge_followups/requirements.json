@@ -1,0 +1,721 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "19",
+  "spec_name": "agent_fox_forge_followups",
+  "schema_version": 2,
+  "introduction": "Spec 19 lets a team carry an agent-fox job forward from the issue itself. A person answers a blocked job or retries a failed one by commenting and putting the request label back. The shared sighting rules of the label poll and the event stream turn the comments posted since the service's question or failure comment into the answer or into the new attempt's context. A workspace with AF_AUTO_FIX=true also gets a fix job after a triage that ends ready, and that fix job is linked to the triage on both job records and on the issue.",
+  "glossary": {
+    "anchor": "The comment on the issue that carries the marker of the job's latest attempt (`<!-- agent-fox job=J attempt=<n> kind=`). If no such comment exists, the anchor is the time that attempt finished.",
+    "answer comments": "The comments after the anchor whose body does not contain `<!-- agent-fox` and is not blank after trimming.",
+    "cut thread": "An issue read in which hub answered `truncated: true`, so the comments read are not all of the issue's comments.",
+    "follow-up": "A durable jobs-layer record that a triage job asked for a fix on an issue. It holds the label, the issue, a state (pending, made, absorbed or withdrawn) and an optional job id.",
+    "newer record": "A poll record of label L on issue N made at or after the time the poll listing was requested (spec 18 R7). It makes the sighting do nothing, and the label is left to the next cycle.",
+    "owed removal": "A poll record that says the service still has to remove a label it consumed, because an earlier removal failed.",
+    "sighting": "A request label L of kind K (<prefix>triage or <prefix>fix) on issue N of a workspace, found by a poll cycle listing or by an event of the event stream. Its `by` is `label <L>` for the poll, or the hub event id for the stream."
+  },
+  "requirements": [
+    {
+      "id": "19-REQ-1",
+      "title": "The rules of a sighting, in order",
+      "rationale": "The poll and the stream must apply one rule set, so that one label gives at most one attempt.",
+      "criteria": [
+        {
+          "id": "19-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "sighting rules",
+          "action": "apply, for both a poll-cycle sighting and an event-stream sighting, after the records are brought up to date, the first matching rule of this order: pending follow-up (fix kind only), open job of kind K, held, already taken (owed), newer record, latest job of kind K failed, new request. Log each outcome (answered, retried, no answer found, follow-up made) at INFO with the workspace, kind, issue, label and job"
+        },
+        {
+          "id": "19-REQ-1.2",
+          "pattern": "complex_event",
+          "condition": "a sighting finds an open job of kind K for issue N in state blocked",
+          "guard": "no removal of L on N is owed and no newer record of L on N exists",
+          "system": "sighting rules",
+          "action": "treat the sighting as an answer to that job (19-REQ-2)"
+        },
+        {
+          "id": "19-REQ-1.3",
+          "pattern": "event_driven",
+          "condition": "a poll sighting would answer, retry or make a new request while a newer record of L on N exists",
+          "system": "sighting rules",
+          "action": "make no attempt and no job, post no comment, and leave L on the issue for the next cycle",
+          "contract": "the job's attempt count and the issue's comments are unchanged; L is still on the issue"
+        },
+        {
+          "id": "19-REQ-1.4",
+          "pattern": "event_driven",
+          "condition": "a sighting finds an open job of kind K for N that is queued or running, or is blocked with an owed removal of L",
+          "system": "sighting rules",
+          "action": "absorb the label as before this spec",
+          "contract": "no attempt or job is made; L is removed"
+        },
+        {
+          "id": "19-REQ-1.5",
+          "pattern": "event_driven",
+          "condition": "no earlier rule applies and the latest job of kind K for N in the workspace (by created_at) is failed",
+          "system": "sighting rules",
+          "action": "treat the sighting as a retry of that job (19-REQ-4)"
+        },
+        {
+          "id": "19-REQ-1.6",
+          "pattern": "event_driven",
+          "condition": "no earlier rule applies and the latest job of kind K for N is done or cancelled, or no job of kind K exists for N",
+          "system": "sighting rules",
+          "action": "make a new job as before, with source {kind: label, by: label <L>} or {kind: event, by: <event id>}. A re-labelled triaged issue gets a new triage job, the done job stays unchanged, and the worker's run of the new triage replaces the diagnosis and keeps the edited original report",
+          "contract": "a new job id; the earlier job's document is byte-for-byte unchanged"
+        },
+        {
+          "id": "19-REQ-1.7",
+          "pattern": "ubiquitous",
+          "system": "sighting rules",
+          "action": "for an answer, a retry, a no-answer-found reply and a cut-thread reply, write a record of L on N before the removal, keep the removal owed while it fails, and name the job in the record only when the job's request_label equals L"
+        },
+        {
+          "id": "19-REQ-1.8",
+          "pattern": "ubiquitous",
+          "system": "sighting rules",
+          "action": "for any record written for an answer, retry or reply, with or without a job, keep it until every listing requested before the record was made has been handled. A second sighting of the same label (a stream event followed by a poll listing that still shows it, or a poll listing older than an attempt that has already ended blocked or failed) therefore adds no attempt and posts no comment. This includes an answered job that has no request_label"
+        }
+      ]
+    },
+    {
+      "id": "19-REQ-2",
+      "title": "Answering a blocked job from the forge",
+      "rationale": "A person must be able to answer a stopped job without af or the API.",
+      "criteria": [
+        {
+          "id": "19-REQ-2.1",
+          "pattern": "event_driven",
+          "condition": "an answer sighting on blocked job J reads an uncut thread that yields answer comments",
+          "system": "sighting rules",
+          "action": "answer J with the free text of 19-REQ-3 and `by` set to the sighting's `by`, with the same effect as POST /api/v1/jobs/{id}/answer, then remove L",
+          "contract": "attempt n+1 has trigger {kind: answer, by: <by>} and answer {question: <the blocked question>, option: null, text: <text holding each comment and its author>}; L is removed through hub"
+        },
+        {
+          "id": "19-REQ-2.2",
+          "pattern": "event_driven",
+          "condition": "the runner of an attempt queued by a forge answer starts",
+          "system": "jobs layer",
+          "action": "give the runner the forge answer among Answers, as it does for an API answer",
+          "contract": "RunRequest.Answers contains the answer's question and text"
+        },
+        {
+          "id": "19-REQ-2.3",
+          "pattern": "event_driven",
+          "condition": "the answer sighting comes from event-stream event evt-7",
+          "system": "event stream",
+          "action": "answer J as the poll would, with `by` set to the hub event id",
+          "contract": "attempt n+1 trigger is {kind: answer, by: evt-7}"
+        },
+        {
+          "id": "19-REQ-2.4",
+          "pattern": "unwanted",
+          "condition": "the jobs layer refuses the answer with a state refusal because J moved meanwhile, for example after an API answer landed between the poll's issue read and its answer",
+          "system": "sighting rules",
+          "action": "absorb L",
+          "contract": "exactly one attempt n+1 exists; L is removed; no comment is posted"
+        },
+        {
+          "id": "19-REQ-2.5",
+          "pattern": "unwanted",
+          "condition": "the jobs layer refuses the answer with ErrNotSubscribed",
+          "system": "sighting rules",
+          "action": "write nothing to the issue and end the cycle, as for a new request",
+          "contract": "no comment and no label change on the issue; no attempt"
+        },
+        {
+          "id": "19-REQ-2.6",
+          "pattern": "unwanted",
+          "condition": "the answer fails because the token cannot be read, or with any other jobs-layer error",
+          "system": "sighting rules",
+          "action": "report the failure as the poll reports a jobs-layer failure and leave L",
+          "contract": "L stays on the issue; no attempt; one logged failure row"
+        }
+      ]
+    },
+    {
+      "id": "19-REQ-3",
+      "title": "The comments since the question or the failure",
+      "rationale": "Only a person's words posted after the service asked may count as the answer or as context.",
+      "criteria": [
+        {
+          "id": "19-REQ-3.1",
+          "pattern": "ubiquitous",
+          "system": "sighting rules",
+          "action": "read issue N's comments through hub's issue read (which reports truncated and comments_err) and never through the comment list. A stream sighting may reuse the issue read it already made"
+        },
+        {
+          "id": "19-REQ-3.2",
+          "pattern": "ubiquitous",
+          "system": "sighting rules",
+          "action": "count only the comments listed after the comment that carries the marker of J's latest attempt, in hub's list order. If no comment carries that marker, count instead the comments whose created_at is at or after attempts[current].finished_at"
+        },
+        {
+          "id": "19-REQ-3.3",
+          "pattern": "ubiquitous",
+          "system": "sighting rules",
+          "action": "leave out of the counted comments every comment whose body contains `<!-- agent-fox`, wherever it appears, and every comment whose body is empty after trimming"
+        },
+        {
+          "id": "19-REQ-3.4",
+          "pattern": "ubiquitous",
+          "system": "sighting rules",
+          "action": "render each counted comment as `--- comment by <login> ---` followed by its trimmed body, join the blocks with a blank line in issue order, drop NUL bytes and replace invalid UTF-8",
+          "contract": "the text contains no NUL byte and is valid UTF-8; blocks appear in the order hub lists the comments"
+        },
+        {
+          "id": "19-REQ-3.5",
+          "pattern": "ubiquitous",
+          "system": "sighting rules",
+          "action": "for any rendered text longer than 8192 bytes, cut it at a UTF-8 boundary and end it with the line `[… cut at 8192 bytes; the issue holds the rest …]`, so that the result, cut line included, is valid UTF-8 of at most 8192 bytes. A text of at most 8192 bytes is left unchanged"
+        },
+        {
+          "id": "19-REQ-3.6",
+          "pattern": "unwanted",
+          "condition": "the issue read fails because hub is unavailable (for example HTTP 503) or refuses or forbids the token",
+          "system": "poll cycle",
+          "action": "make no attempt, post nothing, leave L, report the failure as for a failed hub call, and end the cycle. The next cycle that can read the issue goes ahead",
+          "contract": "L stays; one WARN is logged; no attempt is made"
+        },
+        {
+          "id": "19-REQ-3.7",
+          "pattern": "unwanted",
+          "condition": "hub rejects the read of this one issue with another 4xx, or answers it with comments_err set",
+          "system": "poll cycle",
+          "action": "report the failure, leave L, make no attempt, post nothing, and go on with the next issue",
+          "contract": "L stays; no attempt; no comment; later issues of the cycle are handled"
+        },
+        {
+          "id": "19-REQ-3.8",
+          "pattern": "unwanted",
+          "condition": "the event stream cannot read the comments of a sighting's issue",
+          "system": "event stream",
+          "action": "take no action on the sighting and leave L for the poll",
+          "contract": "no attempt, no comment and no label change"
+        }
+      ]
+    },
+    {
+      "id": "19-REQ-4",
+      "title": "Retrying a failed job from the forge",
+      "rationale": "A retry keeps the job's history in one record and carries what the person wrote.",
+      "criteria": [
+        {
+          "id": "19-REQ-4.1",
+          "pattern": "event_driven",
+          "condition": "a retry sighting on failed job J reads an uncut thread",
+          "system": "sighting rules",
+          "action": "retry J with the effect of POST /api/v1/jobs/{id}/retry and `by` set to the sighting's `by`, store the 19-REQ-3 text (measured from J's latest attempt) as the new attempt's context, and remove L",
+          "contract": "the same job gets attempt n+1 with trigger {kind: retry, by: <by>}; no new job is made"
+        },
+        {
+          "id": "19-REQ-4.2",
+          "pattern": "event_driven",
+          "condition": "a retry sighting finds no counted comments since the failure in an uncut thread",
+          "system": "sighting rules",
+          "action": "retry J with no added context and post no reply",
+          "contract": "attempt n+1 has context null"
+        },
+        {
+          "id": "19-REQ-4.3",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "store each attempt's context with the attempt and show it in the attempt document as `context`: a list of strings, or null when the attempt has none"
+        },
+        {
+          "id": "19-REQ-4.4",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "give the runner the job's context strings followed by the context of each attempt up to the one it runs, in attempt order, including for an automatic attempt after a forge retry. The worker passes each of them as a --context value with no question",
+          "contract": "RunRequest.Context ends with the forge comment text"
+        },
+        {
+          "id": "19-REQ-4.5",
+          "pattern": "ubiquitous",
+          "system": "jobs API",
+          "action": "keep POST /api/v1/jobs/{id}/retry body-less, and give an attempt it queues no context",
+          "contract": "the attempt queued by the API retry has context null"
+        },
+        {
+          "id": "19-REQ-4.6",
+          "pattern": "unwanted",
+          "condition": "the jobs layer refuses the retry with a duplicate refusal (another job took the issue) or a state refusal (J was retried or moved meanwhile)",
+          "system": "sighting rules",
+          "action": "absorb L",
+          "contract": "no extra attempt or job; L is removed"
+        },
+        {
+          "id": "19-REQ-4.7",
+          "pattern": "unwanted",
+          "condition": "the retry fails with ErrNotSubscribed, an unreadable token or any other jobs-layer error",
+          "system": "sighting rules",
+          "action": "handle the failure as 19-REQ-2.5 and 19-REQ-2.6 handle an answer: on ErrNotSubscribed write nothing and end the cycle; otherwise report the failure and leave L",
+          "contract": "no attempt; no comment; L stays unless the error is ErrNotSubscribed"
+        }
+      ]
+    },
+    {
+      "id": "19-REQ-5",
+      "title": "No answer found, and a cut thread",
+      "rationale": "A person must see on the issue why their label did nothing.",
+      "criteria": [
+        {
+          "id": "19-REQ-5.1",
+          "pattern": "event_driven",
+          "condition": "an answer sighting reads an uncut thread that yields no counted comments",
+          "system": "sighting rules",
+          "action": "make no attempt, post one reply on N with the text \"No answer found since the question; comment, then add the label `<L>` again.\" followed by `<!-- agent-fox job=J attempt=<n> kind=no_answer -->`, then remove L",
+          "contract": "one reply comment; L is removed; attempt count unchanged"
+        },
+        {
+          "id": "19-REQ-5.2",
+          "pattern": "event_driven",
+          "condition": "a no-answer-found reply is due and the latest comment on N already carries its marker",
+          "system": "sighting rules",
+          "action": "post no second reply and remove L",
+          "contract": "the comment count is unchanged; L is removed"
+        },
+        {
+          "id": "19-REQ-5.3",
+          "pattern": "event_driven",
+          "condition": "an answer sighting's issue read is a cut thread, even when a person has commented after the question",
+          "system": "sighting rules",
+          "action": "make no attempt, log one WARN naming the workspace, issue and J, post one reply saying that agent-fox could not read the whole thread because hub returned only part of its comments, naming `af jobs answer <J>` and `POST /api/v1/jobs/<J>/answer` and ending with `<!-- agent-fox job=J attempt=<n> kind=thread_cut -->`, then remove L",
+          "contract": "one WARN; one reply; L is removed; no attempt"
+        },
+        {
+          "id": "19-REQ-5.4",
+          "pattern": "event_driven",
+          "condition": "a retry sighting's issue read is a cut thread",
+          "system": "sighting rules",
+          "action": "make no retry, log one WARN, post one cut-thread reply naming `af jobs retry <J>` and `POST /api/v1/jobs/<J>/retry` with the thread_cut marker, then remove L",
+          "contract": "one WARN; one reply; L is removed; the job stays failed with no new attempt"
+        },
+        {
+          "id": "19-REQ-5.5",
+          "pattern": "unwanted",
+          "condition": "the no-answer-found reply or the cut-thread reply cannot be posted",
+          "system": "sighting rules",
+          "action": "log a WARN and remove L all the same",
+          "contract": "one WARN; L is removed; no attempt"
+        }
+      ]
+    },
+    {
+      "id": "19-REQ-6",
+      "title": "The worker's comments name the forge path",
+      "rationale": "A person reading the question or the failure must learn that a reply and the label answer or retry the job.",
+      "criteria": [
+        {
+          "id": "19-REQ-6.1",
+          "pattern": "event_driven",
+          "condition": "the worker posts the question comment for a blocked job whose input is an issue, and the label triggers are on",
+          "system": "worker",
+          "action": "add the sentence \"Or reply on this issue, then add the label `<prefix><kind>` again: agent-fox takes the comments after this one as the answer.\" and keep the existing `af jobs answer` and `POST …/answer` instructions",
+          "contract": "the question comment contains both the new sentence and the old instructions"
+        },
+        {
+          "id": "19-REQ-6.2",
+          "pattern": "event_driven",
+          "condition": "the worker posts the failure comment or a parked fix's fix_summary for a job whose input is an issue, and the label triggers are on",
+          "system": "worker",
+          "action": "add the sentence \"Or add the label `<prefix><kind>` again; comments after this one go with the new attempt.\" and keep `POST …/retry` in the failure comment, and both `af jobs retry` and `POST …/retry` in the parked summary",
+          "contract": "the comment contains the new sentence and the old instructions"
+        },
+        {
+          "id": "19-REQ-6.3",
+          "pattern": "state_driven",
+          "condition": "the attempt read AF_POLL_INTERVAL as a zero duration",
+          "system": "worker",
+          "action": "leave the forge-path sentence out of the question comment, the failure comment and the parked fix's summary",
+          "contract": "none of the three comments contains the forge-path sentence"
+        },
+        {
+          "id": "19-REQ-6.4",
+          "pattern": "ubiquitous",
+          "system": "worker",
+          "action": "read AF_POLL_INTERVAL with the poll's values: unset or empty is on, a zero duration is off, and any other value, an invalid one included, is on and does not fail the attempt",
+          "contract": "an invalid AF_POLL_INTERVAL produces no config failure; the attempt proceeds with the label triggers taken as on"
+        }
+      ]
+    },
+    {
+      "id": "19-REQ-7",
+      "title": "AF_AUTO_FIX: the worker asks for the fix",
+      "rationale": "A workspace may chain a ready triage into a fix with no person involved.",
+      "criteria": [
+        {
+          "id": "19-REQ-7.1",
+          "pattern": "ubiquitous",
+          "system": "worker",
+          "action": "read AF_AUTO_FIX on a triage attempt only: unset or empty means false, and true or false are accepted in any letter case. A fix attempt does not read it"
+        },
+        {
+          "id": "19-REQ-7.2",
+          "pattern": "unwanted",
+          "condition": "a triage attempt reads AF_AUTO_FIX with a value other than empty, true or false (for example maybe)",
+          "system": "worker",
+          "action": "fail the triage attempt as a variable outside its range",
+          "contract": "a failed envelope of category config, not retryable, with fix_hint.var AF_AUTO_FIX"
+        },
+        {
+          "id": "19-REQ-7.3",
+          "pattern": "event_driven",
+          "condition": "the mirror of a triage attempt plans status ready for the input issue, or for the issue a text or file triage created, while AF_AUTO_FIX is true and no skip case applies",
+          "system": "worker",
+          "action": "after the status label and before the lease is released, have the jobs layer durably record a follow-up naming the triage job, the issue and `<prefix>fix`. If the state given is pending, add `<prefix>fix` to the issue as an add_labels side effect",
+          "contract": "the triage job document shows follow_up {label: af:fix, issue: N, state: pending, job_id: null}; af:fix is in labels.set and side_effects"
+        },
+        {
+          "id": "19-REQ-7.4",
+          "pattern": "event_driven",
+          "condition": "the worker asks for a follow-up while an open fix job of the issue exists",
+          "system": "worker",
+          "action": "record the follow-up as absorbed with that job's id and add no label",
+          "contract": "follow_up.state is absorbed with job_id of the open fix job; af:fix is not added"
+        },
+        {
+          "id": "19-REQ-7.5",
+          "pattern": "event_driven",
+          "condition": "a triage would ask for a follow-up while the attempt read AF_POLL_INTERVAL as a zero duration, the workspace mode is carry_patch, or AF_FIX_LAND is patch",
+          "system": "worker",
+          "action": "record no follow-up, add no label, and add the warning auto_fix_skipped whose message names the reason. Any other AF_FIX_LAND value, an invalid one included, does not fail the triage",
+          "contract": "envelope warnings include auto_fix_skipped; follow_up is null; no af:fix side effect"
+        },
+        {
+          "id": "19-REQ-7.6",
+          "pattern": "unwanted",
+          "condition": "the follow-up cannot be recorded, or the label write fails (for example with hub HTTP 503)",
+          "system": "worker",
+          "action": "if recording failed, add no label. If the label write failed, record a failed side effect and have the jobs layer mark the follow-up withdrawn. In both cases add the warning auto_fix_failed",
+          "contract": "envelope warnings include auto_fix_failed; on a failed label write follow_up.state is withdrawn"
+        },
+        {
+          "id": "19-REQ-7.7",
+          "pattern": "event_driven",
+          "condition": "a triage ends with AF_AUTO_FIX unset or false, ends with confidence suspected or not_reproducible, or fails",
+          "system": "worker",
+          "action": "record no follow-up and add no fix label",
+          "contract": "follow_up is null; no af:fix on the issue from the worker"
+        },
+        {
+          "id": "19-REQ-7.8",
+          "pattern": "event_driven",
+          "condition": "a delivery resumes the mirror of a triage attempt that already asked for a follow-up",
+          "system": "worker",
+          "action": "ask again, receive the recorded state, and add the label again only while the follow-up is pending",
+          "contract": "the triage job still has exactly one follow-up; the label is not added when the follow-up is made, absorbed or withdrawn"
+        }
+      ]
+    },
+    {
+      "id": "19-REQ-8",
+      "title": "Follow-up records and job parents in the jobs layer",
+      "rationale": "The chain must be durable and visible on both job records.",
+      "criteria": [
+        {
+          "id": "19-REQ-8.1",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "record at most one follow-up per triage job and keep at most one pending follow-up per workspace and issue. Recording a pending follow-up marks any pending follow-up of an earlier triage job for the same issue withdrawn in the same step",
+          "contract": "after triage T1 asks while T0's follow-up is pending, T1's follow-up is pending and T0's is withdrawn"
+        },
+        {
+          "id": "19-REQ-8.2",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "keep a follow-up as recorded whatever becomes of its triage job, and keep a pending follow-up pending until a sighting takes it or a later triage of the same issue withdraws it"
+        },
+        {
+          "id": "19-REQ-8.3",
+          "pattern": "unwanted",
+          "condition": "a create request carries a parent job id while its source is not triage, or names a parent that is not a triage job of the same workspace, or a parent other than source.by",
+          "system": "jobs layer",
+          "action": "refuse the request as invalid and store nothing",
+          "contract": "an invalid-request error; the job count is unchanged"
+        },
+        {
+          "id": "19-REQ-8.4",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "show `parent_job_id` (the parent's id or null) and `follow_up` ({label, issue, state, job_id} for a triage job that asked, otherwise null) in every job document"
+        },
+        {
+          "id": "19-REQ-8.5",
+          "pattern": "event_driven",
+          "condition": "the retention purge deletes a triage job",
+          "system": "retention purge",
+          "action": "delete the triage job's follow-up with it, and keep parent_job_id on any fix job that named it",
+          "contract": "no follow-up row of the purged job remains; the fix job's parent_job_id is unchanged"
+        },
+        {
+          "id": "19-REQ-8.6",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "for any fix job made from a follow-up, store the job and the follow-up's made state in one transaction, so that no reader sees one without the other and a failure partway leaves neither"
+        }
+      ]
+    },
+    {
+      "id": "19-REQ-9",
+      "title": "The trigger makes the linked fix job",
+      "rationale": "The service's own fix label must become the triage's fix, not an answer or a hold.",
+      "criteria": [
+        {
+          "id": "19-REQ-9.1",
+          "pattern": "event_driven",
+          "condition": "a fix-label sighting on issue N finds a pending follow-up from triage job T and no open fix job",
+          "system": "sighting rules",
+          "action": "make a fix job with source {kind: triage, by: T}, parent_job_id T, request_label L and input {issue: N}, set the follow-up to made with the job's id, end every hold of L on N, write the poll's record of the new job, then remove L",
+          "contract": "one fix job; T's follow_up is {state: made, job_id: <fix job>}; L is removed"
+        },
+        {
+          "id": "19-REQ-9.2",
+          "pattern": "event_driven",
+          "condition": "a fix-label sighting on N finds a pending follow-up and an open fix job J, J blocked included",
+          "system": "sighting rules",
+          "action": "absorb L, set the follow-up to absorbed with J, and make no answer",
+          "contract": "no attempt or job is made; follow_up {state: absorbed, job_id: J}"
+        },
+        {
+          "id": "19-REQ-9.3",
+          "pattern": "unwanted",
+          "condition": "making the linked fix job meets a duplicate refusal",
+          "system": "sighting rules",
+          "action": "absorb L and set the follow-up to absorbed",
+          "contract": "no new job; follow_up.state absorbed; L is removed"
+        },
+        {
+          "id": "19-REQ-9.4",
+          "pattern": "event_driven",
+          "condition": "the event stream sees the fix label before triage job T's attempt has ended, or a hold of af:fix from an earlier cancelled job is on the issue",
+          "system": "sighting rules",
+          "action": "make the linked fix job as in 19-REQ-9.1",
+          "contract": "one fix job with parent_job_id T"
+        },
+        {
+          "id": "19-REQ-9.5",
+          "pattern": "event_driven",
+          "condition": "a second sighting of the same fix label follows the one that made the linked fix job",
+          "system": "sighting rules",
+          "action": "absorb the label",
+          "contract": "still exactly one fix job"
+        },
+        {
+          "id": "19-REQ-9.6",
+          "pattern": "event_driven",
+          "condition": "a fix-label sighting finds no pending follow-up for N",
+          "system": "sighting rules",
+          "action": "apply the remaining rules, so that a new job gets source label or event as before",
+          "contract": "source.kind is label or event; parent_job_id null"
+        }
+      ]
+    },
+    {
+      "id": "19-REQ-10",
+      "title": "The fix summary names the triage, and the fake hub's comments",
+      "rationale": "The chain must be visible on the issue, and the forge path must be testable offline.",
+      "criteria": [
+        {
+          "id": "19-REQ-10.1",
+          "pattern": "event_driven",
+          "condition": "the worker composes the fix_summary comment of a fix job whose source is triage",
+          "system": "worker",
+          "action": "add the line \"- Asked for by the triage job `<T>` (AF_AUTO_FIX)\" and change nothing else in the comment",
+          "contract": "the summary differs from a non-triage summary only by that line"
+        },
+        {
+          "id": "19-REQ-10.2",
+          "pattern": "ubiquitous",
+          "system": "fakehub",
+          "action": "let a test add a person's comment to an issue, give every comment its own creation time from the fake's clock, and return comments in the order they were added in both the issue read and the comment list"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "19-PATH-1",
+      "title": "A person answers a blocked fix job from the issue",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "comments \"use the greeting from the README\" on issue 42 below the question comment and adds af:fix again"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "lists issue 42 under af:fix, finds the blocked fix job, and reads the issue through hub"
+        },
+        {
+          "actor": "hub",
+          "action": "returns the issue with its comments and truncated false"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "queues attempt 2 with trigger {kind: answer, by: label af:fix} and the answer text"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "writes its record and removes af:fix through hub"
+        },
+        {
+          "actor": "fake runner",
+          "action": "receives the answer among Answers for attempt 2"
+        }
+      ]
+    },
+    {
+      "id": "19-PATH-2",
+      "title": "The event stream answers a blocked job, and a stale poll listing does nothing",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "comments on issue 42 and adds af:fix again"
+        },
+        {
+          "actor": "event stream",
+          "action": "receives hub event evt-7, reads the issue through hub and applies the sighting rules"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "queues attempt 2 with trigger {kind: answer, by: evt-7}"
+        },
+        {
+          "actor": "fake runner",
+          "action": "ends attempt 2 blocked at once"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "lists 42 under af:fix again, sees the newer record, and adds no attempt and posts no reply"
+        }
+      ]
+    },
+    {
+      "id": "19-PATH-3",
+      "title": "A person retries a failed fix job with context",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "comments \"the log is in CI run 812\" below the failure comment on issue 42 and adds af:fix"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "finds that the latest fix job of issue 42 failed and reads the issue through hub"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "queues attempt n+1 with trigger {kind: retry, by: label af:fix} and stores the comment text as the attempt's context"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "removes af:fix through hub"
+        },
+        {
+          "actor": "fake runner",
+          "action": "receives a Context that ends with the comment"
+        }
+      ]
+    },
+    {
+      "id": "19-PATH-4",
+      "title": "No answer found, then a cut thread",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "adds af:fix again to issue 42, whose fix job is blocked, without a new comment"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "reads the issue through hub, finds no counted comments, posts the no_answer reply and removes af:fix"
+        },
+        {
+          "actor": "person",
+          "action": "comments and adds af:fix again while hub cuts the thread"
+        },
+        {
+          "actor": "hub",
+          "action": "answers the issue read with truncated true"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "logs one WARN, posts the thread_cut reply naming af jobs answer and POST …/answer, removes af:fix, and makes no attempt"
+        }
+      ]
+    },
+    {
+      "id": "19-PATH-5",
+      "title": "AF_AUTO_FIX chains a triage into a linked fix job",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "adds af:triage to issue 44 in workspace widgets with AF_AUTO_FIX=true"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "makes the triage job T"
+        },
+        {
+          "actor": "worker",
+          "action": "runs T with the scripted brain to af:ready, has the jobs layer record a pending follow-up, and adds af:fix through hub"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "shows T's follow_up {label: af:fix, state: pending, job_id: null}"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "sees af:fix on issue 44 and makes the fix job with source {kind: triage, by: T} and parent_job_id T"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "sets T's follow_up to made with the fix job's id in the same transaction"
+        }
+      ]
+    },
+    {
+      "id": "19-PATH-6",
+      "title": "A re-labelled triaged issue is a new triage",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "edits the original report of issue 42, whose latest triage job is done, and adds af:triage"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "makes a new triage job with source {kind: label, by: label af:triage} and leaves the done job unchanged"
+        },
+        {
+          "actor": "worker",
+          "action": "runs the new triage with the scripted brain, replaces the diagnosis in the body, and keeps the edited original report"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "github.com/agent-fox-dev/aflib/issuex",
+      "version": "v0.0.0-20261019184100-07adcb691832",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "IssueThread",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "type IssueThread struct { Issue; Comments []Comment; Truncated bool; CommentsErr ... }",
+          "notes": "Returned by (*hub.ForgeClient).ReadIssue (internal/hub/forge.go:125-147). Known from the repository's own use only."
+        },
+        {
+          "name": "Comment",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "type Comment struct { Body string; User struct{ Login string }; CreatedAt time.Time }",
+          "notes": "Fields known from use in internal/toolio/render.go:42 and internal/triage/brief.go:213."
+        },
+        {
+          "name": "IsNotFound",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "func IsNotFound(err error) bool",
+          "notes": "Used in internal/service/poll/handler.go."
+        }
+      ]
+    }
+  ]
+}

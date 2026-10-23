@@ -1,0 +1,753 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "17",
+  "spec_name": "agent_fox_label_protocol",
+  "schema_version": 2,
+  "introduction": "This spec completes the forge side of the agent-fox label protocol. Subscribing a workspace creates the seven agent-fox labels through hub. A cancel that no runner cleans up gets a durable, retried cancel cleanup that puts the issue's labels back in line with the job record. The poll holds a request label that such a cleanup puts back.",
+  "glossary": {
+    "already there": "Hub's report that a label exists: `200`, `409`, or any other 4xx whose `error_type` is `already_exists` or whose message contains \"already exists\" (in any case).",
+    "cancel cleanup": "The jobs layer's background work after a cancel that no runner cleans up. It removes the status labels the cancelled job accounts for and puts its request label back. Its state is `labels.cleanup`.",
+    "hold": "The poll's rule that a cancelled poll-made job keeps its request label absorbed, so the label does not start a new job.",
+    "hub session": "The session an attempt opens with hub, recorded in `af_attempts.hub_session`. A runner that has reported one writes its own labels on cancel.",
+    "label table": "The one table in code that defines the seven protocol labels (suffix, kind, colour, description) in a fixed order: triage, fix, in-progress, ready, needs-human, landed, failed.",
+    "release clock": "The time the poll first sees that no runner of a held job is in progress and no cleanup of it is pending. The hold is released no earlier than the release delay (5 minutes) after it.",
+    "request label": "The labels `{prefix}triage` and `{prefix}fix`. A person sets one to ask agent-fox for a job, and the job consumes it.",
+    "status label": "The labels `{prefix}in-progress`, `{prefix}ready`, `{prefix}needs-human`, `{prefix}landed` and `{prefix}failed`. They mirror the job record.",
+    "try": "One run of a job's cancel cleanup: read the token, the workspace record and the issue, then write only the label changes that are missing. It is bounded by one minute."
+  },
+  "requirements": [
+    {
+      "id": "17-REQ-1",
+      "title": "The seven labels, in one table",
+      "rationale": "One source of label names stops the subscribe step from creating names that the worker, the cleanup or the poll do not use.",
+      "criteria": [
+        {
+          "id": "17-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "label table",
+          "action": "define exactly seven labels in this order, each with a suffix, a kind, a colour of six lowercase hex digits without '#', and a description: triage (request, 0e8a16, \"Ask agent-fox to triage this issue\"), fix (request, 0e8a16, \"Ask agent-fox to fix this issue\"), in-progress (status, fbca04, \"agent-fox is working on this issue\"), ready (status, 1d76db, \"Triaged: the diagnosis is in the body\"), needs-human (status, d93f0b, \"agent-fox stopped with a question; see the last comment\"), landed (status, 0e8a16, \"A branch and a pull request (or a carry patch) exist\"), failed (status, b60205, \"agent-fox could not finish; see the last comment\")"
+        },
+        {
+          "id": "17-REQ-1.2",
+          "pattern": "ubiquitous",
+          "system": "label table",
+          "action": "for any subscription label_prefix, name each label as the label_prefix followed by its suffix, and never read AF_LABEL_PREFIX"
+        },
+        {
+          "id": "17-REQ-1.3",
+          "pattern": "ubiquitous",
+          "system": "agent-fox",
+          "action": "take the label names used by the subscribe step, the worker's mirror, the cancel cleanup and the poll from the label table, in a package that imports only the standard library so that internal/service/api, internal/service/poll and internal/worker can import it without an import cycle"
+        },
+        {
+          "id": "17-REQ-1.4",
+          "pattern": "ubiquitous",
+          "system": "worker",
+          "action": "write the same labels for every attempt transition and every running-cancel cleanup as before this change, with the same warnings (status_label_failed, comment_failed, request_label_failed, label_prefix_ignored)"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-2",
+      "title": "Creating the labels on subscribe",
+      "rationale": "PRD 01 §3 requires the labels to exist once a workspace is subscribed, and a repeated PUT is how a changed prefix or an older workspace gets them.",
+      "criteria": [
+        {
+          "id": "17-REQ-2.1",
+          "pattern": "event_driven",
+          "condition": "PUT /api/v1/workspaces/{slug} carries a valid body and its hub_token passes the gate check (Hub.Workspace) and the user check (Hub.User)",
+          "system": "agent-fox",
+          "action": "send seven label-creation requests through hub before it writes to the store. It sends them one at a time, in label table order, with the request's hub_token and the prefix the request stores (af: when the body omits it), and each request carries the name, the colour and the description",
+          "contract": "the fake hub records seven POST /api/v1/workspaces/{slug}/labels requests in table order, all before the subscription row is written"
+        },
+        {
+          "id": "17-REQ-2.2",
+          "pattern": "event_driven",
+          "condition": "all seven labels are in place, each one created or reported already there",
+          "system": "agent-fox",
+          "action": "store the subscription as before this change and answer with the subscription view",
+          "contract": "HTTP 201 for a new subscription or HTTP 200 for a replaced one, with the same view body as before this change"
+        },
+        {
+          "id": "17-REQ-2.3",
+          "pattern": "event_driven",
+          "condition": "a workspace already subscribed is subscribed again with the same prefix",
+          "system": "agent-fox",
+          "action": "send the seven creations again, count the labels hub reports already there as present, and leave the colour and description of an existing label unchanged",
+          "contract": "HTTP 200; the fake hub's label set for the slug is unchanged"
+        },
+        {
+          "id": "17-REQ-2.4",
+          "pattern": "event_driven",
+          "condition": "a PUT replaces a subscription with a different prefix (for example bot- after af:)",
+          "system": "agent-fox",
+          "action": "create the seven labels of the new prefix and neither rename nor delete any label of the old prefix. Neither the PUT nor DELETE /api/v1/workspaces/{slug} sends a label rename or delete request",
+          "contract": "the fake hub holds both the seven af: labels and the seven bot: labels"
+        },
+        {
+          "id": "17-REQ-2.5",
+          "pattern": "event_driven",
+          "condition": "the label step completes for a PUT",
+          "system": "agent-fox",
+          "action": "log exactly one INFO record that names the workspace, the number of labels created and the number already there, and does not contain the hub_token"
+        },
+        {
+          "id": "17-REQ-2.6",
+          "pattern": "event_driven",
+          "condition": "the service starts with workspaces that were subscribed before this change",
+          "system": "agent-fox",
+          "action": "send no label creation request until a PUT /api/v1/workspaces/{slug} for that workspace",
+          "contract": "the fake hub records zero POST .../labels requests after Start"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-3",
+      "title": "A refused label creation stores nothing",
+      "rationale": "PRD 01 §3 makes a forge credential that cannot create labels a subscribe failure \"with the forge's answer, not later\".",
+      "criteria": [
+        {
+          "id": "17-REQ-3.1",
+          "pattern": "unwanted",
+          "condition": "hub answers a label creation with a failure that is not already there",
+          "system": "agent-fox",
+          "action": "stop the label step at that label, send no further label creation, and write nothing to the store. A new subscription is not stored, a replaced subscription stays exactly as it was, and labels created before the failure are left on the forge",
+          "contract": "no fourth POST .../labels is recorded after a failing third one; the store's subscription row (or its absence) is byte-identical to before the PUT"
+        },
+        {
+          "id": "17-REQ-3.2",
+          "pattern": "unwanted",
+          "condition": "hub answers a label creation with 401",
+          "system": "agent-fox",
+          "action": "refuse the PUT as an invalid hub token",
+          "contract": "HTTP 422 with error code invalid_hub_token and the message \"hub refused the token\""
+        },
+        {
+          "id": "17-REQ-3.3",
+          "pattern": "unwanted",
+          "condition": "hub answers a label creation with 403",
+          "system": "agent-fox",
+          "action": "refuse the PUT with a message saying that hub forbids the token to create labels because it lacks the scope for hub's forge API",
+          "contract": "HTTP 422 with error code forge_forbidden"
+        },
+        {
+          "id": "17-REQ-3.4",
+          "pattern": "unwanted",
+          "condition": "hub answers a label creation with 502 and error_type forge_forbidden or forge_unauthenticated",
+          "system": "agent-fox",
+          "action": "refuse the PUT with a message saying that the forge refused hub's credential for the repository, carrying hub's message",
+          "contract": "HTTP 422 with error code forge_forbidden"
+        },
+        {
+          "id": "17-REQ-3.5",
+          "pattern": "unwanted",
+          "condition": "hub answers a label creation with 404 or 405",
+          "system": "agent-fox",
+          "action": "refuse the PUT with a message saying that hub does not serve label creation for the workspace",
+          "contract": "HTTP 502 with error code hub_unavailable"
+        },
+        {
+          "id": "17-REQ-3.6",
+          "pattern": "unwanted",
+          "condition": "hub answers a label creation with any other 4xx (except 429) that does not report the label already there",
+          "system": "agent-fox",
+          "action": "refuse the PUT, carrying hub's message",
+          "contract": "HTTP 422 with error code forge_forbidden"
+        },
+        {
+          "id": "17-REQ-3.7",
+          "pattern": "unwanted",
+          "condition": "a label creation is unavailable: 429, a 5xx other than the two forge_* refusals, a redirect, a transport failure, a timeout, or a body that is not hub's",
+          "system": "agent-fox",
+          "action": "refuse the PUT as hub unavailable",
+          "contract": "HTTP 502 with error code hub_unavailable"
+        },
+        {
+          "id": "17-REQ-3.8",
+          "pattern": "ubiquitous",
+          "system": "agent-fox",
+          "action": "list forge_forbidden in the error envelope's code table with status 422, and never include a hub token in any error message or log record of the subscribe route",
+          "contract": "a forge_forbidden answer is HTTP 422 with body {error: {code: \"forge_forbidden\", message}}; no response body or log record of PUT /api/v1/workspaces/{slug} contains the hub_token"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-4",
+      "title": "Hub's label route in the hub client and the fake hub",
+      "rationale": "The subscribe step needs a hub call that creates a workspace label, and the offline tests need a fake hub that serves it.",
+      "criteria": [
+        {
+          "id": "17-REQ-4.1",
+          "pattern": "event_driven",
+          "condition": "a caller asks the hub client to create a label for a workspace",
+          "system": "hub client",
+          "action": "send POST /api/v1/workspaces/{slug}/labels with the JSON body {\"name\", \"color\", \"description\"} and the PAT as the bearer token. The request has the client's 10-second bound, follows no redirect and uses the client's reading limits"
+        },
+        {
+          "id": "17-REQ-4.2",
+          "pattern": "event_driven",
+          "condition": "hub answers the label creation with 201 or 200",
+          "system": "hub client",
+          "action": "report the label as created for 201 and as already there for 200",
+          "contract": "a nil error and a created/already-there result"
+        },
+        {
+          "id": "17-REQ-4.3",
+          "pattern": "event_driven",
+          "condition": "hub answers the label creation with 409, or with any other 4xx whose error_type is already_exists or whose message contains \"already exists\" in any letter case",
+          "system": "hub client",
+          "action": "report the label as already there",
+          "contract": "a nil error and an already-there result"
+        },
+        {
+          "id": "17-REQ-4.4",
+          "pattern": "unwanted",
+          "condition": "hub answers the label creation in any other way",
+          "system": "hub client",
+          "action": "class the answer as the client's other calls class it, with no PAT in the error",
+          "contract": "401 is ErrRefused; 403 is ErrForbidden; 404 is ErrNotFound; another 4xx except 429 is *RejectedError with hub's error_type as Code; 502 with error_type forge_forbidden or forge_unauthenticated is *RejectedError; anything else is *UnavailableError"
+        },
+        {
+          "id": "17-REQ-4.5",
+          "pattern": "ubiquitous",
+          "system": "hub client",
+          "action": "keep ForgeClient.CreateLabel among the methods not available through hub",
+          "contract": "ForgeClient.CreateLabel returns the not-available error, as before this change"
+        },
+        {
+          "id": "17-REQ-4.6",
+          "pattern": "event_driven",
+          "condition": "the fake hub receives POST /api/v1/workspaces/{slug}/labels for a slug the token was granted (AddUser, AddWorkspaceToken or AddWorkspace), whether or not the workspace was added",
+          "system": "fakehub",
+          "action": "record the request, keep the slug's label (name, colour, description) and let a test read the slug's labels",
+          "contract": "HTTP 201 for a name it does not hold; HTTP 200 for a name it holds, with the stored label unchanged"
+        },
+        {
+          "id": "17-REQ-4.7",
+          "pattern": "optional",
+          "condition": "a test configures a fault on the label route through Fail, FailOnce, FailFor or Inject",
+          "system": "fakehub",
+          "action": "answer the label creation with the configured status and body, including any status and any body"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-5",
+      "title": "Which cancels get the cancel cleanup, and when",
+      "rationale": "A cancel that no runner cleans up would otherwise leave needs-human or failed on the issue and never put the request label back.",
+      "criteria": [
+        {
+          "id": "17-REQ-5.1",
+          "pattern": "event_driven",
+          "condition": "a person (POST /api/v1/jobs/{id}/cancel) or an unsubscribe cancels a job that has an issue, and the cancel reaches no attempt in a runner of this process (the job is queued, including waiting out a transient backoff, or blocked, or its claimed attempt's runner was not yet called)",
+          "system": "jobs layer",
+          "action": "mark the job's cleanup pending in the transaction that cancels the job, and start the first try after that transaction commits, without delaying the cancel's answer",
+          "contract": "the cancel route answers before any forge write, with labels.restore as before this change and labels.cleanup \"pending\""
+        },
+        {
+          "id": "17-REQ-5.2",
+          "pattern": "complex_event",
+          "condition": "a person's or an unsubscribe's cancel reaches a runner of a job that has an issue",
+          "guard": "the attempt is recorded cancelled (when the runner returns or its 60-second grace runs out) with no hub session reported",
+          "system": "jobs layer",
+          "action": "mark the job's cleanup pending in the transaction that records the cancelled attempt, and start the first try once no runner of the job is in progress",
+          "contract": "labels.cleanup is \"pending\" after the attempt is recorded, and the issue later carries the request label and none of the job's status labels"
+        },
+        {
+          "id": "17-REQ-5.3",
+          "pattern": "event_driven",
+          "condition": "a cancel reaches a runner that has reported its hub session through its recorder",
+          "system": "jobs layer",
+          "action": "run no cancel cleanup for the job, and leave the label writes to the worker's own cleanup",
+          "contract": "labels.cleanup is null; the fake hub records no label request from the jobs layer"
+        },
+        {
+          "id": "17-REQ-5.4",
+          "pattern": "event_driven",
+          "condition": "a job without an issue (a triage of a text or a file) is cancelled, or a job is cancelled for a cause other than a person's cancel or an unsubscribe",
+          "system": "jobs layer",
+          "action": "mark no cleanup",
+          "contract": "labels.cleanup is null"
+        },
+        {
+          "id": "17-REQ-5.5",
+          "pattern": "state_driven",
+          "condition": "a try of a job's cleanup is running",
+          "system": "jobs layer",
+          "action": "start no other try of that job's cleanup"
+        },
+        {
+          "id": "17-REQ-5.6",
+          "pattern": "optional",
+          "condition": "the jobs layer is built with no cleanup seam",
+          "system": "jobs layer",
+          "action": "mark no cleanup and behave as before this change",
+          "contract": "labels.cleanup is null for every job; agent_fox_jobs tests pass unchanged"
+        },
+        {
+          "id": "17-REQ-5.7",
+          "pattern": "ubiquitous",
+          "system": "jobs API",
+          "action": "show the member cleanup in the job document's labels object, with the value \"pending\", \"done\", \"label_not_set\" or null, and make labels non-null whenever cleanup is not null",
+          "contract": "labels is {\"set\", \"removed\", \"restore\", \"cleanup\"}"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-6",
+      "title": "One try of the cleanup",
+      "rationale": "The issue must mirror the cancelled job's record without removing labels that other jobs or people account for.",
+      "criteria": [
+        {
+          "id": "17-REQ-6.1",
+          "pattern": "event_driven",
+          "condition": "a try of a job's cleanup starts",
+          "system": "jobs layer",
+          "action": "read the subscription's token from the store, read the workspace record through hub to learn the forge repository, and read the issue's current labels"
+        },
+        {
+          "id": "17-REQ-6.2",
+          "pattern": "complex_event",
+          "condition": "a try finds the issue carrying the in-progress status label",
+          "guard": "no other job of the same issue is running",
+          "system": "jobs layer",
+          "action": "remove the in-progress label, including one left by an attempt that was shut down"
+        },
+        {
+          "id": "17-REQ-6.3",
+          "pattern": "event_driven",
+          "condition": "a try finds the issue carrying a status label other than in-progress",
+          "system": "jobs layer",
+          "action": "remove the label only when the job's labels.set shows it and no other open job of the same issue shows it in its labels.set. Every other label stays, including ready or landed from earlier jobs and labels a person set",
+          "contract": "a queued fix job on an issue with af:landed and af:ready keeps both; a blocked triage job keeps af:needs-human while a blocked fix job of the same issue shows it set"
+        },
+        {
+          "id": "17-REQ-6.4",
+          "pattern": "complex_event",
+          "condition": "a try runs for a job that consumed a request label",
+          "guard": "the issue does not carry that request label",
+          "system": "jobs layer",
+          "action": "add the request label to the issue"
+        },
+        {
+          "id": "17-REQ-6.5",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "for any starting label set of an issue and any number of repeated tries, write only the removals and the addition that are missing, so that a try repeated after a complete one writes nothing"
+        },
+        {
+          "id": "17-REQ-6.6",
+          "pattern": "event_driven",
+          "condition": "a try finishes the cleanup",
+          "system": "jobs layer",
+          "action": "set labels.restore to null when the issue carries the request label. When the try wrote anything, replace labels.set and labels.removed with what it set and removed. Set labels.cleanup to \"done\", or to \"label_not_set\" where 17-REQ-7 says so. Log one INFO record naming the workspace, the job, the issue and the labels set and removed. Leave the job's event log unchanged",
+          "contract": "after a blocked poll fix job of issue 42 is cancelled: labels {\"set\": [\"af:fix\"], \"removed\": [\"af:needs-human\"], \"restore\": null, \"cleanup\": \"done\"}"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-7",
+      "title": "Outcomes of a failing try",
+      "rationale": "Every operation and answer class needs one defined outcome, so that two implementations end a cleanup the same way.",
+      "criteria": [
+        {
+          "id": "17-REQ-7.1",
+          "pattern": "unwanted",
+          "condition": "a try finds the workspace no longer subscribed",
+          "system": "jobs layer",
+          "action": "end the cleanup without writing anything to the issue, and log an INFO record",
+          "contract": "labels.cleanup becomes \"label_not_set\""
+        },
+        {
+          "id": "17-REQ-7.2",
+          "pattern": "unwanted",
+          "condition": "the token is unreadable, the store fails, or hub is unavailable on any call (429, a 5xx other than the two forge_* refusals, a transport failure, a timeout, a body that is not hub's, or a workspace record without a forge URL)",
+          "system": "jobs layer",
+          "action": "keep the cleanup pending, and log a WARN record only on the first failure of that job's cleanup",
+          "contract": "labels.cleanup stays \"pending\" and labels.restore stays set; exactly one WARN record per job"
+        },
+        {
+          "id": "17-REQ-7.3",
+          "pattern": "unwanted",
+          "condition": "hub answers any call of a try with 401, with 403, or with 502 and error_type forge_forbidden or forge_unauthenticated",
+          "system": "jobs layer",
+          "action": "end the cleanup and log one ERROR record that names the operation and carries hub's message. For 401 and 403 the record points to PUT /api/v1/workspaces/{slug}. No later try runs",
+          "contract": "labels.cleanup becomes \"label_not_set\""
+        },
+        {
+          "id": "17-REQ-7.4",
+          "pattern": "unwanted",
+          "condition": "hub answers 404 to the workspace record read, or the record's forge URL names no repository",
+          "system": "jobs layer",
+          "action": "end the cleanup and log an ERROR record that says hub does not find the workspace, or that the forge URL names no repository",
+          "contract": "labels.cleanup becomes \"label_not_set\""
+        },
+        {
+          "id": "17-REQ-7.5",
+          "pattern": "unwanted",
+          "condition": "hub answers 404 to the issue read, or rejects the record read or the issue read with another 4xx",
+          "system": "jobs layer",
+          "action": "end the cleanup. For an issue read answered 404, log an INFO record that the issue is gone. Otherwise log an ERROR record carrying hub's message",
+          "contract": "labels.cleanup becomes \"label_not_set\""
+        },
+        {
+          "id": "17-REQ-7.6",
+          "pattern": "unwanted",
+          "condition": "hub answers a label removal with 404 or with another 4xx",
+          "system": "jobs layer",
+          "action": "count a 404 as the removal done. For another 4xx, leave that label, continue the try, end the cleanup as label_not_set and log a WARN record",
+          "contract": "labels.cleanup becomes \"done\" after a 404-only try, and \"label_not_set\" after a removal refused with another 4xx"
+        },
+        {
+          "id": "17-REQ-7.7",
+          "pattern": "unwanted",
+          "condition": "hub answers the request label addition with 404 or another 4xx",
+          "system": "jobs layer",
+          "action": "end the cleanup and log an ERROR record that names the operation and carries hub's message",
+          "contract": "labels.cleanup becomes \"label_not_set\""
+        },
+        {
+          "id": "17-REQ-7.8",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "never put a PAT in a log record, never let a cleanup's failure fail the cancel, another job or another workspace, and keep labels.restore set for a cleanup that ends label_not_set unless the issue carries the request label",
+          "contract": "the cancel route still answers HTTP 200; no log record contains the PAT; jobs of other workspaces keep their labels.cleanup; labels.restore keeps the request label when the cleanup ends label_not_set without it on the issue"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-8",
+      "title": "Retries, background tries and durability",
+      "rationale": "Hub outages of ordinary length must not leave issues stale, and a cleanup must neither delay the service nor block the purge for long.",
+      "criteria": [
+        {
+          "id": "17-REQ-8.1",
+          "pattern": "event_driven",
+          "condition": "the jobs layer's minute sweep ticks",
+          "system": "jobs layer",
+          "action": "after re-queueing attempts, start a try for each pending cleanup whose cancel is less than one hour old by the layer's clock and whose job has no try running",
+          "contract": "a cleanup left pending by a 503 is done after hub answers again and the fake clock advances one minute"
+        },
+        {
+          "id": "17-REQ-8.2",
+          "pattern": "unwanted",
+          "condition": "a cleanup is still pending one hour after its cancel by the layer's clock",
+          "system": "jobs layer",
+          "action": "end the cleanup without another try and log exactly one ERROR record",
+          "contract": "labels.cleanup becomes \"label_not_set\""
+        },
+        {
+          "id": "17-REQ-8.3",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "run every try in a background goroutine tracked by the layer's loops, so that neither Start, its first sweep nor any later sweep waits for a try",
+          "contract": "with hub's label routes delayed by 30 seconds, Start returns and the queued attempts are re-queued before the try ends"
+        },
+        {
+          "id": "17-REQ-8.4",
+          "pattern": "ubiquitous",
+          "system": "jobs layer",
+          "action": "bound each try to one minute and each hub call to the hub client's 10-second bound, and cap the number of tries in flight at once at a fixed limit"
+        },
+        {
+          "id": "17-REQ-8.5",
+          "pattern": "event_driven",
+          "condition": "the service starts while a cleanup is pending from before it stopped",
+          "system": "jobs layer",
+          "action": "try the cleanup at the first sweep after start, or end it as label_not_set if one hour has passed since its cancel"
+        },
+        {
+          "id": "17-REQ-8.6",
+          "pattern": "event_driven",
+          "condition": "the jobs layer shuts down while a try is in flight",
+          "system": "jobs layer",
+          "action": "cancel the try along with the layer's other loops and leave the cleanup pending",
+          "contract": "shutdown returns after the try's goroutine ends; labels.cleanup is \"pending\" in the database"
+        },
+        {
+          "id": "17-REQ-8.7",
+          "pattern": "ubiquitous",
+          "system": "retention purge",
+          "action": "never remove a job whose cleanup is pending"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-9",
+      "title": "An unsubscribe cleans up before the subscription goes",
+      "rationale": "The token is still available during DELETE, and a blocked job's issue must not keep needs-human after its workspace is unsubscribed.",
+      "criteria": [
+        {
+          "id": "17-REQ-9.1",
+          "pattern": "event_driven",
+          "condition": "DELETE /api/v1/workspaces/{slug} cancels a workspace's open jobs",
+          "system": "jobs layer",
+          "action": "mark and try a cleanup for each cancel that falls under 17-REQ-5.1 or 17-REQ-5.2, as for a person's cancel"
+        },
+        {
+          "id": "17-REQ-9.2",
+          "pattern": "event_driven",
+          "condition": "the unsubscribe has marked cleanups",
+          "system": "jobs layer",
+          "action": "before it removes the subscription and its token, wait for the first try of each marked cleanup, alongside its unchanged wait for running attempts",
+          "contract": "for a blocked poll fix job of issue 42: before the subscription is removed, the issue carries af:fix and no af:needs-human, and labels.cleanup is \"done\""
+        },
+        {
+          "id": "17-REQ-9.3",
+          "pattern": "unwanted",
+          "condition": "the first tries have not ended 60 seconds after the unsubscribe's cancels and its wait for running attempts have both ended (for example because hub is unavailable)",
+          "system": "jobs layer",
+          "action": "stop waiting, remove the subscription and its token, and let the DELETE return",
+          "contract": "DELETE returns no later than 60 seconds by the injected clock after its cancels; the subscription is removed"
+        },
+        {
+          "id": "17-REQ-9.4",
+          "pattern": "event_driven",
+          "condition": "a cleanup is still pending when its unsubscribe removes the subscription",
+          "system": "jobs layer",
+          "action": "end the cleanup at its next try because the workspace is no longer subscribed",
+          "contract": "labels.cleanup becomes \"label_not_set\""
+        },
+        {
+          "id": "17-REQ-9.5",
+          "pattern": "event_driven",
+          "condition": "an unsubscribe cancels a running attempt that has reported its hub session",
+          "system": "worker",
+          "action": "perform its own running-cancel cleanup as before this change, while the jobs layer marks no cleanup for that job",
+          "contract": "labels.cleanup is null for that job"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-10",
+      "title": "The poll holds a label that the cleanup puts back",
+      "rationale": "Without the hold, the next poll cycle would take the restored request label as a new request and turn a cancel into a restart that spends again.",
+      "criteria": [
+        {
+          "id": "17-REQ-10.1",
+          "pattern": "event_driven",
+          "condition": "a poll cycle sees a cancelled poll-made job whose cleanup is pending, or has finished with labels.restore null",
+          "system": "poll cycle",
+          "action": "hold the job's request label, create no job for it and remove no label",
+          "contract": "after the cleanup of a blocked fix job puts af:fix back on issue 42, the next three cycles create no job and send no label removal"
+        },
+        {
+          "id": "17-REQ-10.2",
+          "pattern": "event_driven",
+          "condition": "a poll cycle sees a cancelled poll-made job whose cancel reached a runner",
+          "system": "poll cycle",
+          "action": "hold the job's request label whatever the runner reports, as before this change"
+        },
+        {
+          "id": "17-REQ-10.3",
+          "pattern": "event_driven",
+          "condition": "a poll cycle sees a cancelled poll-made job whose cancel reached no runner and that got no cleanup or whose cleanup ended with labels.restore still set",
+          "system": "poll cycle",
+          "action": "hold nothing for the job, and stop holding for a record that held while its cleanup was pending",
+          "contract": "the job's poll record is ended, not holding"
+        },
+        {
+          "id": "17-REQ-10.4",
+          "pattern": "event_driven",
+          "condition": "a poll cycle first sees that no runner of a held job is in progress and no cleanup of it is pending",
+          "system": "poll cycle",
+          "action": "start the job's release clock, and start no release clock earlier"
+        },
+        {
+          "id": "17-REQ-10.5",
+          "pattern": "event_driven",
+          "condition": "a complete listing without the issue is requested at least the release delay (5 minutes) after the release clock started",
+          "system": "poll cycle",
+          "action": "release the hold, so that the request label added again afterwards makes exactly one new job",
+          "contract": "exactly one new job is created after the label is re-added"
+        },
+        {
+          "id": "17-REQ-10.6",
+          "pattern": "ubiquitous",
+          "system": "poll cycle",
+          "action": "apply the same hold and release rules whether a person or an unsubscribe cancelled the job"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "17-PATH-1",
+      "title": "A caller subscribes a workspace and the seven labels are created",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "sends PUT /api/v1/workspaces/widgets with a hub_token and label_prefix af:"
+        },
+        {
+          "actor": "agent-fox",
+          "action": "validates the body and checks the token with Hub.Workspace and Hub.User"
+        },
+        {
+          "actor": "agent-fox",
+          "action": "asks hub, through the hub client, to create the seven af: labels one at a time in label table order"
+        },
+        {
+          "actor": "hub",
+          "action": "stores each label for the slug and answers 201 (or 200 for one it already holds)"
+        },
+        {
+          "actor": "agent-fox",
+          "action": "logs one INFO record with the created and existing counts, stores the subscription and answers 201 with the view"
+        }
+      ]
+    },
+    {
+      "id": "17-PATH-2",
+      "title": "A person cancels a blocked poll-made fix job and the cleanup puts af:fix back",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "sends POST /api/v1/jobs/{id}/cancel for the blocked fix job of issue 42, whose record shows af:needs-human set"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "cancels the job and marks its cleanup pending in one transaction, then answers with labels.cleanup \"pending\""
+        },
+        {
+          "actor": "jobs layer",
+          "action": "starts a background try that reads the token, the workspace record and issue 42's labels through hub"
+        },
+        {
+          "actor": "hub",
+          "action": "removes af:needs-human from issue 42 and adds af:fix"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "records labels {set: [af:fix], removed: [af:needs-human], restore: null, cleanup: done}"
+        },
+        {
+          "actor": "poll cycle",
+          "action": "sees the cleanup finished with labels.restore null, holds af:fix and creates no job"
+        }
+      ]
+    },
+    {
+      "id": "17-PATH-3",
+      "title": "A runner is cancelled before it reports a hub session",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "cancels the job of issue 42 while its second attempt runs in the fake runner"
+        },
+        {
+          "actor": "fake runner",
+          "action": "observes the cancel before reporting a hub session and returns"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "records the cancelled attempt with no hub session and marks the cleanup pending in the same transaction"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "starts the try once no runner of the job is in progress"
+        },
+        {
+          "actor": "hub",
+          "action": "removes af:needs-human from issue 42 and adds af:fix"
+        }
+      ]
+    },
+    {
+      "id": "17-PATH-4",
+      "title": "A cleanup that meets an unavailable hub is retried by the sweep",
+      "steps": [
+        {
+          "actor": "person",
+          "action": "cancels a blocked fix job of issue 42"
+        },
+        {
+          "actor": "hub",
+          "action": "answers 503 to the label write"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "keeps labels.cleanup \"pending\" and labels.restore \"af:fix\", and logs one WARN record"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "on the sweep one minute later by the fake clock, starts another try in the background"
+        },
+        {
+          "actor": "hub",
+          "action": "accepts the label writes, and the jobs layer records labels.cleanup \"done\""
+        }
+      ]
+    },
+    {
+      "id": "17-PATH-5",
+      "title": "An unsubscribe cleans up its blocked job before removing the subscription",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "sends DELETE /api/v1/workspaces/widgets while a poll-made fix job of issue 42 is blocked"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "cancels the job, marks its cleanup pending and starts its first try"
+        },
+        {
+          "actor": "hub",
+          "action": "removes af:needs-human from issue 42 and adds af:fix"
+        },
+        {
+          "actor": "jobs layer",
+          "action": "records labels.cleanup \"done\", then removes the subscription and its token"
+        },
+        {
+          "actor": "agent-fox",
+          "action": "answers the DELETE"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "github.com/agent-fox-dev/aflib/issuex",
+      "version": "v0.0.0-20261019184100-07adcb691832",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "ReadIssue",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "ReadIssue(ctx context.Context, ref issuex.IssueRef) (issuex.IssueThread, error)",
+          "notes": "IssueThread.Issue.Labels is []string; called through hub.ForgeClient. Taken from call sites, not read at the source."
+        },
+        {
+          "name": "AddLabels",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "AddLabels(ctx context.Context, ref issuex.IssueRef, labels []string) error",
+          "notes": "Called through hub.ForgeClient."
+        },
+        {
+          "name": "RemoveLabel",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "RemoveLabel(ctx context.Context, ref issuex.IssueRef, name string) error",
+          "notes": "Called through hub.ForgeClient."
+        },
+        {
+          "name": "IsNotFound",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "func IsNotFound(err error) bool"
+        },
+        {
+          "name": "HTTPError",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "type HTTPError struct { Status int; Message string }",
+          "notes": "hub.ForgeClient maps 401/403 to *issuex.HTTPError."
+        },
+        {
+          "name": "ParseRemote",
+          "import_path": "github.com/agent-fox-dev/aflib/issuex",
+          "signature": "func ParseRemote(remote string) (issuex.Repo, bool)",
+          "notes": "Used by hub.Record.Repo."
+        }
+      ]
+    }
+  ]
+}

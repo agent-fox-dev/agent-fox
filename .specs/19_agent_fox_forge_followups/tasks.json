@@ -1,0 +1,479 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "19",
+  "spec_name": "agent_fox_forge_followups",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/service/... ./internal/worker/... ./internal/hub/... -run TS_19_ -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "11",
+      "reason": "appends one migration to the append-only list in internal/service/store/migrations.go (attempt context, job parent, follow-up)"
+    },
+    {
+      "spec": "12",
+      "reason": "adds context to retry, parent_job_id, the follow-up record, latest-job lookup and document fields in the jobs layer"
+    },
+    {
+      "spec": "13",
+      "reason": "adds AF_AUTO_FIX, the AF_POLL_INTERVAL reading, the follow-up ask in the mirror and the forge-path sentences in the worker; extends the fake hub"
+    },
+    {
+      "spec": "15",
+      "reason": "changes the shared sighting rules in internal/service/poll/handler.go and replaces the 'Until PRD 04' behaviour of its R4"
+    },
+    {
+      "spec": "17",
+      "reason": "uses the label table for <prefix>fix and <prefix>triage and its hold rules for cancelled answered or retried jobs"
+    },
+    {
+      "spec": "18",
+      "reason": "the event stream applies the same sighting rules with source event and the newer-record rule (R7) that also guards answers and retries here"
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Fake hub person comments with per-comment times, and the pure comment-thread text functions",
+      "criteria": [
+        "19-REQ-10.2",
+        "19-REQ-3.2",
+        "19-REQ-3.3",
+        "19-REQ-3.4",
+        "19-REQ-3.5"
+      ],
+      "tests": [
+        "TS-19-57",
+        "TS-19-16",
+        "TS-19-17",
+        "TS-19-18",
+        "TS-19-19"
+      ],
+      "steps": [
+        "Write TS-19-57, TS-19-16, TS-19-17, TS-19-18 and TS-19-19 and confirm they fail",
+        "In internal/hub/fakehub/forge.go give Comment a CreatedAt time stamped from the fake's clock when added, make commentJSON use it, and return comments in insertion order from both the issue read and the comment list",
+        "In internal/hub/fakehub/issues.go add an AddPersonComment(issue, login, body) helper (author = the given login) beside AddLabel/RemoveLabel",
+        "Keep the existing agent-fox POST-comment author and existing fakehub tests passing",
+        "Create internal/service/poll/thread.go with a pure function that, given []issuex.Comment, job id, current attempt number and attempt finished_at, returns the counted comments: those after the comment whose body contains `<!-- agent-fox job=<J> attempt=<n> kind=` (older attempt markers are not an anchor); with no such comment, those with CreatedAt at or after finished_at (inclusive)",
+        "Drop from the counted comments every body containing `<!-- agent-fox` (anywhere) and every body blank after trimming",
+        "Add a render function: each comment becomes `--- comment by <login> ---` + newline + trimmed body, blocks joined by a blank line in list order, NUL bytes dropped, invalid UTF-8 replaced (strings.ToValidUTF8)",
+        "Add a bound function: text of at most 8192 bytes is unchanged; longer is cut at a UTF-8 boundary and ends with the last line `[… cut at 8192 bytes; the issue holds the rest …]`, result valid UTF-8 and at most 8192 bytes including the cut line",
+        "Cover bound and render with testing/quick or rapid-style property tests using multibyte runes around the limit"
+      ],
+      "touches": [
+        "internal/hub/fakehub/forge.go",
+        "internal/hub/fakehub/issues.go",
+        "internal/hub/fakehub/fakehub_test.go",
+        "internal/service/poll/thread.go",
+        "internal/service/poll/thread_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Attempt context: migration, forge-retry context storage, RunRequest and worker --context",
+      "criteria": [
+        "19-REQ-4.3",
+        "19-REQ-4.4",
+        "19-REQ-4.5"
+      ],
+      "tests": [
+        "TS-19-23",
+        "TS-19-24",
+        "TS-19-25"
+      ],
+      "steps": [
+        "Write TS-19-23, TS-19-24 and TS-19-25 and confirm they fail",
+        "Append one migration to internal/service/store/migrations.go (after the migrations of specs 17 and 18) adding: af_attempts.context (nullable JSON list of strings), af_jobs.parent_job_id (nullable), and a follow-up table af_followups (triage_job_id primary key, workspace, issue, label, state CHECK pending/made/absorbed/withdrawn, job_id nullable, created_at) with a unique partial index for one pending follow-up per workspace and issue; update migration tests",
+        "In internal/service/jobs add an optional context ([]string) to the retry path (e.g. RetryWithContext(ctx, id, by, context) sharing requeue with Retry); Retry itself passes none and the API route POST /api/v1/jobs/{id}/retry (internal/service/api/jobs.go) stays body-less and queues context null",
+        "Store the context with insertAttempt/Requeue and show it in AttemptDoc as `context` (list of strings, or null) via document.go/model.go",
+        "In store.go RunRequest build Context as the job's context strings followed by each attempt's context for attempts up to n, in attempt order (so an automatic attempt after a forge retry keeps it)",
+        "Confirm internal/worker/run.go loopArgs passes every RunRequest.Context string as a --context= value with no question; adjust only if needed",
+        "Check that a retry through the API with a body is still refused 400"
+      ],
+      "touches": [
+        "internal/service/store/migrations.go",
+        "internal/service/jobs/actions.go",
+        "internal/service/jobs/store.go",
+        "internal/service/jobs/model.go",
+        "internal/service/jobs/document.go",
+        "internal/service/api/jobs.go",
+        "internal/worker/run.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Jobs layer: parent_job_id, follow-up records, transactional linked fix job, latest-job lookup, purge",
+      "criteria": [
+        "19-REQ-8"
+      ],
+      "tests": [
+        "TS-19-44",
+        "TS-19-45",
+        "TS-19-46",
+        "TS-19-47",
+        "TS-19-48",
+        "TS-19-49"
+      ],
+      "steps": [
+        "Write TS-19-44 to TS-19-49 and confirm they fail",
+        "Add CreateRequest.ParentJobID; in Create refuse as invalid (ErrInvalid, nothing stored) a parent when source is not triage, a parent that is not a triage job of the same workspace, or a parent different from source.by",
+        "Add Service.RecordFollowUp(ctx, triageJobID, issue, label): at most one follow-up per triage job (repeat returns the recorded state), state absorbed with the open fix job's id when an open fix job of the issue exists, otherwise pending, and in the same transaction withdraw any pending follow-up of an earlier triage job for the same workspace and issue",
+        "Add Service.WithdrawFollowUp(ctx, triageJobID) and Service.AbsorbFollowUp(ctx, triageJobID, jobID) for the worker's failed label write and the trigger's absorb",
+        "Add Service.PendingFollowUp(ctx, workspace, issue) and Service.CreateLinked(ctx, followUp, CreateRequest) that inserts the fix job (source triage, by T, parent T, request_label, input issue) and sets the follow-up made with the job id in one transaction; a duplicate refusal rolls back and leaves it pending",
+        "Add a store query LatestJob(ctx, workspace, kind, issue) returning the newest job of the kind for the issue by created_at",
+        "Add parent_job_id and follow_up ({label, issue, state, job_id} or null) to Doc, scan and buildDoc; a triage job that never asked and every other job show follow_up null",
+        "In retain.go delete a purged triage job's follow-up row with it and leave parent_job_id on fix jobs untouched",
+        "A follow-up is not touched by cancel, fail or retry of its triage job"
+      ],
+      "touches": [
+        "internal/service/jobs/api.go",
+        "internal/service/jobs/store.go",
+        "internal/service/jobs/model.go",
+        "internal/service/jobs/document.go",
+        "internal/service/jobs/retain.go",
+        "internal/service/jobs/followup.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Sighting rules: rule order, newer-record guard, issue read, and answering a blocked job from the forge",
+      "criteria": [
+        "19-REQ-1.2",
+        "19-REQ-1.3",
+        "19-REQ-1.4",
+        "19-REQ-2.1",
+        "19-REQ-2.2",
+        "19-REQ-2.4",
+        "19-REQ-2.5",
+        "19-REQ-2.6",
+        "19-REQ-3.1",
+        "19-REQ-3.6",
+        "19-REQ-3.7"
+      ],
+      "tests": [
+        "TS-19-1",
+        "TS-19-2",
+        "TS-19-5",
+        "TS-19-6",
+        "TS-19-12",
+        "TS-19-13",
+        "TS-19-14",
+        "TS-19-15",
+        "TS-19-20",
+        "TS-19-21"
+      ],
+      "steps": [
+        "Write the listed tests and confirm they fail",
+        "Extend poll.Jobs (supervisor.go) with Answer, Retry (with context), LatestJob and PendingFollowUp/CreateLinked/AbsorbFollowUp wrappers over the jobs layer; update the blind and failing fakes",
+        "Restructure cycleRun.issue in internal/service/poll/handler.go to the order of R1: pending follow-up (fix only, left as a hook for a later task), open job (blocked + no owed + no newer record = answer; blocked + owed removal, queued or running = absorb; blocked + newer record = do nothing), hold, owed, newer record (made at or after listing.Requested) = do nothing and leave L, latest job failed = retry (hook), otherwise new request",
+        "Add a cycleRun helper that reads the issue through ForgeClient.ReadIssue (never ListComments); classify hub failures: unavailable/refused/forbidden end the cycle and leave L (failure row, one WARN); another 4xx or comments_err reports, leaves L and goes on to the next issue",
+        "Compute the answer text with the thread.go functions using the blocked job's current_attempt and attempts[n].finished_at (read the job doc via Jobs.Get/OpenJob result)",
+        "Answer with jobs.Service.Answer(ctx, id, by, AnswerRequest{Answer: text}) where by is the sighting's by (`label <L>`); then write the poll record before removal and remove L via the existing removeLabel/confirm path, naming the job in the record only when job.RequestLabel == L",
+        "Refusals: *StateError absorbs L (no comment); ErrNotSubscribed writes nothing and ends the cycle; token errors and others use the existing failure rows and leave L",
+        "Log INFO `answered` with workspace, kind, issue, label, job",
+        "Make a cut-thread or empty-text outcome a hook returning to later tasks (do not post anything yet)",
+        "Change spec 15 doc comment on cycleRun.issue to the new order"
+      ],
+      "touches": [
+        "internal/service/poll/handler.go",
+        "internal/service/poll/supervisor.go",
+        "internal/service/poll/store.go",
+        "internal/service/poll/answer.go",
+        "internal/service/poll/harness_test.go",
+        "internal/service/poll/answer_test.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Retrying a failed job from the forge, and new requests for done or cancelled jobs",
+      "criteria": [
+        "19-REQ-1.5",
+        "19-REQ-1.6",
+        "19-REQ-4.1",
+        "19-REQ-4.2",
+        "19-REQ-4.6",
+        "19-REQ-4.7"
+      ],
+      "tests": [
+        "TS-19-7",
+        "TS-19-8",
+        "TS-19-9",
+        "TS-19-26",
+        "TS-19-27"
+      ],
+      "steps": [
+        "Write TS-19-7, TS-19-8, TS-19-9, TS-19-26 and TS-19-27 and confirm they fail",
+        "In cycleRun.issue, after the newer-record rule, look up Jobs.LatestJob for (workspace, kind, issue); when it is failed, run the retry path; when it is done, cancelled or absent, fall through to the new request as before (new triage job for a done triage, source label/event unchanged, earlier job untouched)",
+        "Retry path: read the issue (shared helper from task 4), compute the text from the failed job's latest attempt; call Jobs.Retry with by = the sighting's by and the text as context (none when the text is empty, and then post no reply); write the record before the removal, name the job only when its request_label is L, remove L, log INFO `retried`",
+        "Refusals: a DuplicateError/ErrDuplicate or *StateError absorbs L (no extra attempt or job); ErrNotSubscribed ends the cycle with nothing written; token and other errors are reported and L stays",
+        "If the failed job is failed but an open fix job exists, the earlier open-job rule absorbs the label (confirm this order)",
+        "Update the agent_fox_poll tests that assert a label on a failed job's issue makes a new job so that they assert the retry (grep internal/service/poll/*_test.go and internal/worker/poll_smoke_test.go)",
+        "For the re-triage case confirm the worker keeps the original report and replaces the diagnosis (PRD 01 D6) is unchanged by the new rule order"
+      ],
+      "touches": [
+        "internal/service/poll/handler.go",
+        "internal/service/poll/retry.go",
+        "internal/service/poll/retry_test.go",
+        "internal/service/poll/smoke_test.go",
+        "internal/worker/poll_smoke_test.go"
+      ],
+      "depends_on": [
+        4
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "No-answer-found and cut-thread replies, record retention, and repeat-sighting safety",
+      "criteria": [
+        "19-REQ-1.7",
+        "19-REQ-1.8",
+        "19-REQ-5"
+      ],
+      "tests": [
+        "TS-19-10",
+        "TS-19-11",
+        "TS-19-28",
+        "TS-19-29",
+        "TS-19-30",
+        "TS-19-31"
+      ],
+      "steps": [
+        "Write the listed tests and confirm they fail",
+        "Answer path with an uncut thread and no counted comments: post one reply `No answer found since the question; comment, then add the label `<L>` again.` followed by `<!-- agent-fox job=J attempt=<n> kind=no_answer -->` through hub AddComment, unless the latest comment on the issue already carries that marker; then remove L; no attempt",
+        "Cut-thread path (answer and retry, thread.Truncated): log one WARN naming workspace, issue and J, post one reply saying agent-fox could not read the whole thread because hub returned only part of its comments, naming `af jobs answer <J>` and `POST /api/v1/jobs/<J>/answer` (or `af jobs retry <J>` and `POST /api/v1/jobs/<J>/retry`) and ending with `<!-- agent-fox job=J attempt=<n> kind=thread_cut -->`; then remove L; no attempt",
+        "If a reply cannot be posted log a WARN and remove L all the same",
+        "Route all four outcomes (answer, retry, no_answer, thread_cut) through one consume helper that writes the record before the removal, keeps it owed while the removal fails, and names the job only when job.RequestLabel == L",
+        "Change Records.Drop in internal/service/poll/store.go so that a record written for an answer, retry or reply (with or without a job, even when the job's attempt has ended) is kept until every listing requested before the record was made has been handled; keep dropping other settled records",
+        "Log INFO `no answer found` with workspace, kind, issue, label, job",
+        "Property test TS-19-11: for permutations of sightings (stream event, poll cycle, poll listing requested before the first outcome) on blocked or failed jobs with and without request_label and a fakerunner that ends the new attempt blocked/failed at once, exactly one attempt follows and at most one reply is posted"
+      ],
+      "touches": [
+        "internal/service/poll/handler.go",
+        "internal/service/poll/store.go",
+        "internal/service/poll/reply.go",
+        "internal/service/poll/reply_test.go",
+        "internal/service/poll/repeat_test.go"
+      ],
+      "depends_on": [
+        5
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Event stream applies the same sighting rules, passing its own issue read",
+      "criteria": [
+        "19-REQ-1.1",
+        "19-REQ-2.3",
+        "19-REQ-3.8"
+      ],
+      "tests": [
+        "TS-19-3",
+        "TS-19-4",
+        "TS-19-22"
+      ],
+      "steps": [
+        "Write TS-19-3, TS-19-4 and TS-19-22 and confirm they fail",
+        "Locate the event stream handler added by spec 18 (find_symbol / search for hub.forge.issue.labeled in internal/service) and make it call the shared sighting rules with by = the hub event id and the issue thread it already read under the per-workspace lock, so there is no second read",
+        "A stream sighting whose issue read failed or answered comments_err takes no action and leaves L for the poll",
+        "Make the stream's source for new jobs stay {kind: event, by: <event id>}; trigger.by of answer and retry is the event id",
+        "Write the decision table test TS-19-4 over the rules (pending follow-up, open blocked job, blocked + owed, hold, owed, newer record + failed latest, failed latest, no job) asserting poll and stream give the same decision, and that answered, retried, no answer found and follow-up made each log one INFO line with workspace, kind, issue, label and job",
+        "Confirm AF_POLL_INTERVAL=0 still turns both triggers off"
+      ],
+      "touches": [
+        "internal/service/poll/handler.go",
+        "internal/service/poll/stream_rules_test.go"
+      ],
+      "depends_on": [
+        6
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "The trigger makes the linked fix job from a pending follow-up",
+      "criteria": [
+        "19-REQ-9"
+      ],
+      "tests": [
+        "TS-19-50",
+        "TS-19-51",
+        "TS-19-52",
+        "TS-19-53",
+        "TS-19-54",
+        "TS-19-55"
+      ],
+      "steps": [
+        "Write TS-19-50 to TS-19-55 and confirm they fail",
+        "In cycleRun.issue, as rule 1, for a fix-kind label look up Jobs.PendingFollowUp(workspace, issue); with none, apply the remaining rules unchanged (new job source label/event, parent null)",
+        "With a pending follow-up and an open fix job J (blocked included): absorb L and AbsorbFollowUp(T, J), make no answer",
+        "Otherwise call Jobs.CreateLinked with source {kind: triage, by: T}, parent_job_id T, request_label L, input {issue: N}; end every hold of L on N, write the poll's record of the new job (owed, seen open), then remove L and confirm as for a new request; log INFO `follow-up made`",
+        "A duplicate refusal absorbs L and sets the follow-up absorbed; ErrNotSubscribed and other errors behave as for a new request",
+        "Ensure the stream path (spec 18 handler) uses the same rule, even while the triage attempt is still running and over a hold from an earlier cancelled job",
+        "A second sighting after the linked job was made is absorbed by the open-job rule or the newer-record rule; still exactly one fix job"
+      ],
+      "touches": [
+        "internal/service/poll/handler.go",
+        "internal/service/poll/followup.go",
+        "internal/service/poll/followup_test.go"
+      ],
+      "depends_on": [
+        3,
+        7
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "Worker settings and comments: AF_POLL_INTERVAL, AF_AUTO_FIX, forge-path sentences, triage line in the fix summary",
+      "criteria": [
+        "19-REQ-6",
+        "19-REQ-7.1",
+        "19-REQ-7.2",
+        "19-REQ-10.1"
+      ],
+      "tests": [
+        "TS-19-32",
+        "TS-19-33",
+        "TS-19-34",
+        "TS-19-35",
+        "TS-19-36",
+        "TS-19-37",
+        "TS-19-56"
+      ],
+      "steps": [
+        "Write the listed tests and confirm they fail",
+        "In internal/worker/settings.go add to Settings a TriggersOn bool read from AF_POLL_INTERVAL with the poll's values (unset or empty on, zero duration like 0 or 0s off, anything else including invalid on, never an error); copy the logic rather than importing poll (poll does not import worker)",
+        "Add AutoFix bool read for a triage only: empty or false false, true in any case true, other values return a varError so the attempt fails as a non-retryable config envelope with fix_hint.var AF_AUTO_FIX; a fix attempt does not read it",
+        "Add to Settings the fact that AF_FIX_LAND is patch for a triage (only this check, any other value including invalid does not fail the triage); keep Settings comparable with !=",
+        "In internal/worker/comments.go add the question sentence `Or reply on this issue, then add the label `<prefix>fix` again: agent-fox takes the comments after this one as the answer.` and the failure/parked-summary sentence `Or add the label `<prefix><kind>` again; comments after this one go with the new attempt.` using the subscription label_prefix and the job's kind, only for jobs whose input is an issue and TriggersOn; keep every existing instruction (`af jobs answer`, `POST …/answer`, `POST …/retry`, `af jobs retry`)",
+        "Add to the fix_summary composition the line `- Asked for by the triage job `<T>` (AF_AUTO_FIX)` when the job's source kind is triage and change nothing else; find how the worker learns the job's source (RunRequest/job read) and carry it into the summary",
+        "Update the comment-text assertions in internal/worker/mirror_test.go and smoke_test.go that the new sentence changes"
+      ],
+      "touches": [
+        "internal/worker/settings.go",
+        "internal/worker/resolve.go",
+        "internal/worker/comments.go",
+        "internal/worker/mirror.go",
+        "internal/worker/resolve_test.go",
+        "internal/worker/mirror_test.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 10,
+      "kind": "implement",
+      "title": "Worker AF_AUTO_FIX: record the follow-up, then add the fix label",
+      "criteria": [
+        "19-REQ-7.3",
+        "19-REQ-7.4",
+        "19-REQ-7.5",
+        "19-REQ-7.6",
+        "19-REQ-7.7",
+        "19-REQ-7.8"
+      ],
+      "tests": [
+        "TS-19-38",
+        "TS-19-39",
+        "TS-19-40",
+        "TS-19-41",
+        "TS-19-42",
+        "TS-19-43"
+      ],
+      "steps": [
+        "Write TS-19-38 to TS-19-43 and confirm they fail",
+        "Extend the worker's reporter interface (internal/worker/runner.go, discard) and jobs.Recorder (internal/service/jobs/recorder.go) with RecordFollowUp(issue, label) returning (state, jobID, error) and WithdrawFollowUp, calling the jobs-layer methods of task 3 for the recorder's job id",
+        "In mirror.go, when planOf yields ready for a triage (input issue or the issue a text/file triage created) and Settings.AutoFix is true: first check skips (TriggersOn false, workspace mode carry_patch, AF_FIX_LAND=patch) and add warning auto_fix_skipped whose message names the reason, recording nothing and adding no label",
+        "Otherwise, after the status label and before the lease release, call RecordFollowUp; state absorbed (with the open fix job's id) adds no label; state pending adds `<prefix>fix` as an add_labels side effect counted in labels.set",
+        "Recording failure: no label and warning auto_fix_failed. Label write failure: failed side effect, WithdrawFollowUp, warning auto_fix_failed",
+        "Define the new warning constants auto_fix_failed and auto_fix_skipped and add them to the warning list",
+        "A resumed mirror asks again, gets the recorded state, and adds the label only while pending; exactly one follow-up per triage job",
+        "No follow-up for AF_AUTO_FIX unset/false, suspected or not_reproducible confidence, or a failed triage",
+        "Triage's hub resolution must already expose the workspace mode (resolve.go a.record) to the mirror; pass it through if not"
+      ],
+      "touches": [
+        "internal/worker/mirror.go",
+        "internal/worker/runner.go",
+        "internal/worker/start.go",
+        "internal/worker/resolve.go",
+        "internal/service/jobs/recorder.go",
+        "internal/worker/autofix_test.go"
+      ],
+      "depends_on": [
+        3,
+        9
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 11,
+      "kind": "integration",
+      "title": "Verify the forge answer, retry, reply and AF_AUTO_FIX paths end to end, and update documentation",
+      "tests": [
+        "TS-19-58",
+        "TS-19-59",
+        "TS-19-60",
+        "TS-19-61",
+        "TS-19-62",
+        "TS-19-63"
+      ],
+      "steps": [
+        "Write the six smoke tests (poll Supervisor.Cycle, stream handler, real worker with the scripted brain, real store and jobs layer on a temporary state file, fakerunner, fakeclock, fakehub; internal/worker/poll_smoke_test.go style for TS-19-62 and TS-19-63) and confirm they pass",
+        "Trace 19-PATH-1 to 19-PATH-6 through the real code: confirm each step calls the next and no stub remains (poll handler to Jobs.Answer/Retry/CreateLinked to the store, worker mirror to Recorder.RecordFollowUp to the jobs layer)",
+        "For each criterion with a contract confirm its producer is consumed in production code: thread text to Answer/Retry, attempt context to RunRequest.Context to loopArgs, follow-up state to the trigger, auto_fix_* warnings to the envelope",
+        "Confirm the stream entry point of spec 18 calls the shared sighting rules from production code",
+        "Search every file in the tasks' touches for panic(\"not implemented\"), TODO, and a bare return nil on a non-trivial path; remove any",
+        "Run make doc, then update docs/api.md (Jobs that a request label makes with the R1 order, answer, no answer found, cut-thread reply, retry and the follow-up rule replacing 'A label on an issue whose job `failed` is a new request'; Answer and retry; The job document with parent_job_id, follow_up, source triage and attempt context; What the worker adds with auto_fix_failed and auto_fix_skipped)",
+        "Update docs/configuration.md (AF_AUTO_FIX and its skips; AF_POLL_INTERVAL=0 also turns off answering and retrying from the forge and drops the forge path from comments), docs/architecture.md, docs/model-usage.md, docs/development.md (fake hub comment helper and times) and README.md (one paragraph); docs/cli.md unchanged; keep every phrase docs/poll_docs_test.go asserts",
+        "Add an errata note docs/errata/19_forge_followups_divergences.md only for real divergences",
+        "Run make check (not make check-release) and confirm it passes offline"
+      ],
+      "touches": [
+        "internal/service/poll/smoke_test.go",
+        "internal/worker/poll_smoke_test.go",
+        "docs/api.md",
+        "docs/configuration.md",
+        "docs/architecture.md",
+        "docs/model-usage.md",
+        "docs/development.md",
+        "README.md"
+      ],
+      "depends_on": [
+        8,
+        10
+      ],
+      "done_when": [
+        "`make check` passes offline"
+      ],
+      "state": "pending"
+    }
+  ]
+}

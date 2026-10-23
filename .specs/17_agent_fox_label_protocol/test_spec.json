@@ -1,0 +1,1277 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "17",
+  "spec_name": "agent_fox_label_protocol",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-17-1",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-1.1"
+      ],
+      "title": "The label table holds exactly seven labels in order with the specified kind, colour and description",
+      "given": [
+        "the label table package"
+      ],
+      "when": "the table is read",
+      "then": [
+        "it has seven entries in the order triage, fix, in-progress, ready, needs-human, landed, failed",
+        "triage and fix are request labels, the other five are status labels",
+        "colours are 0e8a16, 0e8a16, fbca04, 1d76db, d93f0b, 0e8a16, b60205, each six lowercase hex digits without '#'",
+        "descriptions equal the PRD table text exactly"
+      ],
+      "pseudocode": "t = labels.Table(); assert len(t)==7; for i,row in enumerate(expected): assert t[i]==row"
+    },
+    {
+      "id": "TS-17-2",
+      "kind": "property",
+      "verifies": [
+        "17-REQ-1.2"
+      ],
+      "title": "Every label name is the prefix followed by its suffix, whatever AF_LABEL_PREFIX says",
+      "given": [
+        "AF_LABEL_PREFIX set to an unrelated value in the environment"
+      ],
+      "when": "for any label_prefix string (including empty, 'af:', 'bot-', unicode) the table names are computed",
+      "then": [
+        "each name equals prefix + suffix",
+        "the environment variable never changes a name"
+      ],
+      "pseudocode": "for p in gen_prefixes(): for row in Table(): assert Name(p,row)==p+row.Suffix"
+    },
+    {
+      "id": "TS-17-3",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-1.3"
+      ],
+      "title": "The label table package imports only the standard library and is shared by all four users",
+      "given": [
+        "the repository source tree"
+      ],
+      "when": "the imports of the label table package are listed and the imports of internal/service/api, internal/service/poll, internal/worker and the cleanup implementation are inspected",
+      "then": [
+        "the table package imports only standard library packages",
+        "each of the four users imports the table package",
+        "the build has no import cycle",
+        "the worker's status constants and the poll's request label names derive from the table"
+      ],
+      "pseudocode": "for imp in importsOf('internal/service/labels'): assert isStdlib(imp)"
+    },
+    {
+      "id": "TS-17-4",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-1.4"
+      ],
+      "title": "The worker writes the same labels and warnings as before when names come from the table",
+      "given": [
+        "a worker over the fake hub with prefix af:",
+        "an issue and attempts that finish done, blocked, failed and are cancelled with a hub session open"
+      ],
+      "when": "each attempt transition and a running cancel run, including a failing label write",
+      "then": [
+        "the labels written per transition are identical to the worker's existing expectations",
+        "the warnings status_label_failed, comment_failed, request_label_failed and label_prefix_ignored appear as before",
+        "the worker's existing mirror tests pass unchanged"
+      ]
+    },
+    {
+      "id": "TS-17-5",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-2.1"
+      ],
+      "title": "A subscribe sends seven label creations in table order before the store write",
+      "given": [
+        "the real API server and fake hub with the token granted slug widgets",
+        "an empty subscription store"
+      ],
+      "when": "PUT /api/v1/workspaces/widgets is sent with a hub_token and label_prefix af:",
+      "then": [
+        "the fake hub recorded seven POST /api/v1/workspaces/widgets/labels requests in table order with names af:triage .. af:failed",
+        "each body carries name, the table colour and the table description",
+        "each request carries the request's hub_token as bearer",
+        "when the seventh request arrives the store holds no subscription row"
+      ],
+      "pseudocode": "r = put(...); reqs = hub.RequestsTo('/labels'); assert names(reqs)==expected; assert rowAtSeventh==absent"
+    },
+    {
+      "id": "TS-17-6",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-2.2",
+        "17-REQ-2.1"
+      ],
+      "title": "A new subscription answers 201 and a replacement 200 with the unchanged view; an omitted prefix stores af:",
+      "given": [
+        "fake hub granting widgets"
+      ],
+      "when": "PUT is sent without label_prefix, then sent again with a new token",
+      "then": [
+        "the first answer is 201, the second 200",
+        "the view body has the same members as before this change",
+        "the labels created are af: labels",
+        "the subscription is stored"
+      ]
+    },
+    {
+      "id": "TS-17-7",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-2.3"
+      ],
+      "title": "Subscribing again with the same prefix leaves hub's labels unchanged",
+      "given": [
+        "widgets subscribed with prefix af:",
+        "one stored label whose colour and description were changed in the fake hub"
+      ],
+      "when": "PUT with the same prefix is sent again",
+      "then": [
+        "the answer is 200",
+        "seven more creation requests were recorded",
+        "the fake hub's label set for widgets is identical to before, including the changed colour and description"
+      ],
+      "pseudocode": "before=hub.Labels('widgets'); put(); assert hub.Labels('widgets')==before"
+    },
+    {
+      "id": "TS-17-8",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-2.4"
+      ],
+      "title": "A changed prefix creates the new set and neither renames nor deletes the old",
+      "given": [
+        "widgets subscribed with prefix af:"
+      ],
+      "when": "PUT with prefix bot- is sent, then DELETE /api/v1/workspaces/widgets",
+      "then": [
+        "the fake hub holds seven af: labels and seven bot- labels",
+        "no PATCH, PUT or DELETE request to a label route was recorded by the PUT or the DELETE"
+      ]
+    },
+    {
+      "id": "TS-17-9",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-2.5"
+      ],
+      "title": "The label step logs one INFO record with created and existing counts and no token",
+      "given": [
+        "a captured slog handler",
+        "fake hub holding three of the seven labels already"
+      ],
+      "when": "PUT is sent with a recognisable hub_token",
+      "then": [
+        "exactly one INFO record from the label step names widgets, 4 created and 3 already there",
+        "no log record contains the hub_token"
+      ]
+    },
+    {
+      "id": "TS-17-10",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-2.6"
+      ],
+      "title": "A service started with older subscriptions sends no label creation until a PUT",
+      "given": [
+        "a store holding subscribed workspaces from before this change",
+        "the jobs layer and poll built over the fake hub"
+      ],
+      "when": "the service Start runs and a sweep passes",
+      "then": [
+        "the fake hub recorded zero POST .../labels requests",
+        "after PUT for one workspace the fake hub records seven requests for that slug only"
+      ]
+    },
+    {
+      "id": "TS-17-11",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-2.2",
+        "17-REQ-4.3"
+      ],
+      "title": "A label reported already there as 409, 422 already_exists or 400 'already exists' does not fail the subscribe",
+      "given": [
+        "fake hub whose third label creation answers 409, then 422 error_type already_exists, then 400 with message 'Label Already Exists' (three runs)"
+      ],
+      "when": "PUT is sent in each run",
+      "then": [
+        "the PUT goes on and a fourth creation is recorded",
+        "the answer is 201",
+        "the subscription is stored"
+      ],
+      "pseudocode": "for fault in [409, 422+already_exists, 400+msg]: hub.Inject(POST,'/labels',Fault{...Once}); assert put().status==201; assert len(reqs)>=4"
+    },
+    {
+      "id": "TS-17-12",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-3.1"
+      ],
+      "title": "A failing third creation stops the step and stores nothing, for a create and a replace",
+      "given": [
+        "fake hub whose third label creation answers 403",
+        "case A: workspace not subscribed; case B: workspace subscribed with an old token and prefix, row snapshotted"
+      ],
+      "when": "PUT is sent in each case",
+      "then": [
+        "exactly three creation requests were recorded, no fourth",
+        "case A: no subscription row exists",
+        "case B: the stored row (token, prefix, all columns) is byte-identical to the snapshot",
+        "the first two labels remain in the fake hub"
+      ],
+      "pseudocode": "assert len(hub.RequestsTo('/labels'))==3; assert dump(store)==snapshot"
+    },
+    {
+      "id": "TS-17-13",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-3.2"
+      ],
+      "title": "A 401 on label creation answers 422 invalid_hub_token",
+      "given": [
+        "fake hub answering 401 to the third creation"
+      ],
+      "when": "PUT is sent",
+      "then": [
+        "status 422",
+        "error code invalid_hub_token",
+        "message 'hub refused the token'",
+        "no fourth creation, nothing stored"
+      ]
+    },
+    {
+      "id": "TS-17-14",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-3.3"
+      ],
+      "title": "A 403 on label creation answers 422 forge_forbidden naming the missing scope",
+      "given": [
+        "fake hub answering 403 to the third creation"
+      ],
+      "when": "PUT is sent",
+      "then": [
+        "status 422",
+        "error code forge_forbidden",
+        "message says hub forbids the token to create labels because it lacks the scope for hub's forge API"
+      ]
+    },
+    {
+      "id": "TS-17-15",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-3.4"
+      ],
+      "title": "A 502 forge_forbidden or forge_unauthenticated answers 422 forge_forbidden with hub's message",
+      "given": [
+        "fake hub answering the third creation 502 with error_type forge_forbidden, then forge_unauthenticated (two runs)"
+      ],
+      "when": "PUT is sent",
+      "then": [
+        "status 422 in both runs",
+        "error code forge_forbidden",
+        "message says the forge refused hub's credential for the repository and carries hub's message",
+        "no fourth creation"
+      ]
+    },
+    {
+      "id": "TS-17-16",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-3.5"
+      ],
+      "title": "A 404 or 405 on label creation answers 502 hub_unavailable saying hub does not serve label creation",
+      "given": [
+        "fake hub answering the third creation 404, then 405 (two runs)"
+      ],
+      "when": "PUT is sent",
+      "then": [
+        "status 502",
+        "error code hub_unavailable",
+        "message says hub does not serve label creation for the workspace",
+        "nothing stored"
+      ]
+    },
+    {
+      "id": "TS-17-17",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-3.6"
+      ],
+      "title": "Another 4xx that is not 'already there' answers 422 forge_forbidden with hub's message",
+      "given": [
+        "fake hub answering the third creation 400 with message 'invalid label name', then 422 with error_type validation_failed"
+      ],
+      "when": "PUT is sent",
+      "then": [
+        "status 422",
+        "error code forge_forbidden",
+        "message carries hub's message",
+        "nothing stored"
+      ]
+    },
+    {
+      "id": "TS-17-18",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-3.7"
+      ],
+      "title": "An unavailable hub on label creation answers 502 hub_unavailable",
+      "given": [
+        "fake hub answering the third creation 429, 500, 503, a redirect, a hangup, a delay past the client bound, and a non-hub body (separate runs)"
+      ],
+      "when": "PUT is sent in each run",
+      "then": [
+        "status 502 in every run",
+        "error code hub_unavailable",
+        "nothing stored and no fourth creation"
+      ]
+    },
+    {
+      "id": "TS-17-19",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-3.8"
+      ],
+      "title": "forge_forbidden is a 422 envelope code and no subscribe response or log holds the token",
+      "given": [
+        "captured logs",
+        "fake hub failing creation with 403 and with 502 forge_forbidden carrying a hub message"
+      ],
+      "when": "PUT is sent with a recognisable hub_token",
+      "then": [
+        "the body is {error:{code:'forge_forbidden', message}} with status 422",
+        "the code table maps forge_forbidden to 422",
+        "no response body and no log record contains the hub_token"
+      ],
+      "pseudocode": "assert statuses[CodeForgeForbidden]==422; assert !contains(body+logs, token)"
+    },
+    {
+      "id": "TS-17-20",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.1"
+      ],
+      "title": "The hub client's CreateLabel sends the specified request",
+      "given": [
+        "an httptest server standing in for hub"
+      ],
+      "when": "CreateLabel(ctx, pat, 'widgets', name, color, description) is called",
+      "then": [
+        "the request is POST /api/v1/workspaces/widgets/labels",
+        "the JSON body has exactly name, color and description",
+        "Authorization is Bearer <pat>",
+        "the call is bounded at 10 seconds, follows no redirect and reads at most the client's limit"
+      ]
+    },
+    {
+      "id": "TS-17-21",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.2"
+      ],
+      "title": "201 is created and 200 is already there",
+      "given": [
+        "a stub hub answering 201 then 200"
+      ],
+      "when": "CreateLabel is called twice",
+      "then": [
+        "the first returns created with nil error",
+        "the second returns already-there with nil error"
+      ]
+    },
+    {
+      "id": "TS-17-22",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.3"
+      ],
+      "title": "A 409 or a 4xx saying already exists is reported as already there; other 4xx are not",
+      "given": [
+        "a stub hub answering 409; 422 error_type already_exists; 400 message 'ALREADY EXISTS'; 400 'bad name'"
+      ],
+      "when": "CreateLabel is called for each answer",
+      "then": [
+        "the first three return already-there with nil error",
+        "the fourth returns a *RejectedError"
+      ]
+    },
+    {
+      "id": "TS-17-23",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.4"
+      ],
+      "title": "Every other label creation answer is classed as the client's other calls class it and carries no PAT",
+      "given": [
+        "a stub hub answering 401, 403, 404, 405, 400, 429, 500, a redirect, 502 forge_forbidden, 502 forge_unauthenticated, 502 other, and a non-hub body"
+      ],
+      "when": "CreateLabel is called for each",
+      "then": [
+        "401 is ErrRefused, 403 ErrForbidden, 404 ErrNotFound",
+        "405 and 400 are *RejectedError with hub's error_type as Code",
+        "429, 500, redirect, 502 other and the non-hub body are *UnavailableError",
+        "502 forge_forbidden and forge_unauthenticated are *RejectedError",
+        "no error text contains the PAT"
+      ]
+    },
+    {
+      "id": "TS-17-24",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.5"
+      ],
+      "title": "ForgeClient.CreateLabel stays not available",
+      "given": [
+        "a hub ForgeClient"
+      ],
+      "when": "CreateLabel is called",
+      "then": [
+        "it returns the not-available error as before",
+        "the existing forge and listissues tests asserting this pass unchanged"
+      ]
+    },
+    {
+      "id": "TS-17-25",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.6"
+      ],
+      "title": "The fake hub serves label creation for any granted slug and keeps the labels",
+      "given": [
+        "a fake hub with AddUser granting slug widgets but no AddWorkspace; a second token granted nothing"
+      ],
+      "when": "the label route is posted three times: a new name, the same name with a different colour, and by the ungranted token",
+      "then": [
+        "first answers 201, second 200 with the stored label unchanged",
+        "every request is recorded",
+        "a test reads the slug's labels with name, colour and description",
+        "the ungranted token is refused as for other routes"
+      ]
+    },
+    {
+      "id": "TS-17-26",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.7"
+      ],
+      "title": "The fake hub's fault seams apply to the label route",
+      "given": [
+        "a fake hub with a granted slug"
+      ],
+      "when": "Fail, FailOnce, FailFor and Inject with arbitrary status and raw body are set on the label path",
+      "then": [
+        "each answers the configured status and body for the label creation",
+        "FailOnce affects one request only",
+        "an empty Inject body produces a hub error object"
+      ]
+    },
+    {
+      "id": "TS-17-27",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-5.1",
+        "17-REQ-5.7"
+      ],
+      "title": "Cancelling a blocked poll fix job answers at once with cleanup pending, then the issue shows af:fix and no status label",
+      "given": [
+        "fake hub with issue 42 carrying af:needs-human",
+        "real jobs layer on a temporary database with fakerunner and fakeclock, wired to a hub-backed cleanup",
+        "a blocked poll-created fix job of issue 42 whose record shows af:needs-human set",
+        "fake hub label routes held so the answer can be checked before any write"
+      ],
+      "when": "POST /api/v1/jobs/{id}/cancel is sent, then the label routes are released",
+      "then": [
+        "the answer is 200 before any forge write, with labels.cleanup 'pending' and labels.restore 'af:fix'",
+        "shortly afterwards the issue carries af:fix and no status label",
+        "the job shows labels {set:['af:fix'], removed:['af:needs-human'], restore:null, cleanup:'done'}",
+        "labels object has exactly the members set, removed, restore, cleanup"
+      ]
+    },
+    {
+      "id": "TS-17-28",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-5.1",
+        "17-REQ-6.3"
+      ],
+      "title": "Queued, transient-backoff, failed-retried and blocked-API cancels remove only what the job accounts for",
+      "given": [
+        "fake hub and the real jobs layer with fakerunner and fakeclock",
+        "case 1: queued fix job on issue with af:landed and af:ready",
+        "case 2: queued re-triage on issue with af:ready",
+        "case 3: job waiting out a transient backoff",
+        "case 4: failed job retried then cancelled while queued, issue carries af:failed",
+        "case 5: blocked API fix job with af:needs-human"
+      ],
+      "when": "each job is cancelled and its cleanup runs",
+      "then": [
+        "case 1: af:fix comes back, af:landed and af:ready stay",
+        "case 2: af:triage comes back, af:ready stays",
+        "case 3: the request label comes back",
+        "case 4: af:failed is removed and the request label comes back",
+        "case 5: af:needs-human is removed and no label is added",
+        "every cleanup ends 'done'"
+      ]
+    },
+    {
+      "id": "TS-17-29",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-5.1",
+        "17-REQ-6.2"
+      ],
+      "title": "A claimed attempt whose runner was not yet called, and a shut-down attempt's in-progress label, are cleaned up",
+      "given": [
+        "fake hub issue carrying af:in-progress left by a shut-down attempt",
+        "a job cancelled while its attempt waits to be handed over again, and a job whose claimed attempt's runner was never called"
+      ],
+      "when": "each job is cancelled",
+      "then": [
+        "the cleanup is pending after the cancel",
+        "the cleanup removes af:in-progress and puts the request label back",
+        "labels.cleanup becomes 'done'"
+      ]
+    },
+    {
+      "id": "TS-17-30",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-5.2"
+      ],
+      "title": "A runner cancelled before its hub session gets the cleanup after it returns",
+      "given": [
+        "a blocked poll fix job of issue 42 answered so its second attempt runs as a fakerunner.Do step",
+        "the issue carries af:needs-human"
+      ],
+      "when": "the job is cancelled while the Do step has reported no hub session, and the step then returns",
+      "then": [
+        "labels.cleanup is 'pending' after the cancelled attempt is recorded",
+        "no try starts while the runner is in progress",
+        "afterwards the issue carries af:fix and no af:needs-human",
+        "a runner that overruns the 60-second grace is recorded cancelled and also marked"
+      ]
+    },
+    {
+      "id": "TS-17-31",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-5.3",
+        "17-REQ-9.5"
+      ],
+      "title": "A cancel or unsubscribe that reaches a runner with a hub session gets no jobs-layer cleanup",
+      "given": [
+        "a fakerunner.Do step that calls req.Recorder.Hub(...) before the cancel",
+        "a person's cancel in one run and an unsubscribe in another"
+      ],
+      "when": "the runner returns cancelled",
+      "then": [
+        "labels.cleanup is null for the job",
+        "the fake hub records no label request from the jobs layer",
+        "the worker's own cleanup behaviour is unchanged"
+      ]
+    },
+    {
+      "id": "TS-17-32",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-5.4"
+      ],
+      "title": "A job without an issue, or one cancelled for another cause, is marked no cleanup",
+      "given": [
+        "a triage job of a text input",
+        "a job with an issue cancelled with a cause other than a person's cancel or an unsubscribe"
+      ],
+      "when": "each job is cancelled",
+      "then": [
+        "labels.cleanup is null for both",
+        "the fake hub records no label request"
+      ]
+    },
+    {
+      "id": "TS-17-33",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-5.5"
+      ],
+      "title": "Only one try of a job's cleanup runs at a time",
+      "given": [
+        "fake hub whose label routes are delayed so a try stays in flight",
+        "a pending cleanup"
+      ],
+      "when": "several sweeps and a re-trigger occur while the first try is still running",
+      "then": [
+        "the fake hub sees one try's requests only",
+        "after the first try ends a later sweep may start another"
+      ]
+    },
+    {
+      "id": "TS-17-34",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-5.6"
+      ],
+      "title": "A jobs layer built with no cleanup seam marks no cleanup",
+      "given": [
+        "the jobs layer built without a forge as agent_fox_jobs tests build it"
+      ],
+      "when": "queued and blocked jobs with issues are cancelled",
+      "then": [
+        "labels.cleanup is null for every job and labels follows today's shape",
+        "no label request is made",
+        "the agent_fox_jobs tests pass unchanged"
+      ]
+    },
+    {
+      "id": "TS-17-35",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-5.7"
+      ],
+      "title": "The job document's labels member cleanup takes four values and makes labels non-null",
+      "given": [
+        "jobs with cleanup null, pending, done and label_not_set and no other label data"
+      ],
+      "when": "the job document is built for each",
+      "then": [
+        "labels is null when cleanup is null and nothing else is set",
+        "labels is non-null with cleanup 'pending', 'done' or 'label_not_set' otherwise",
+        "the JSON keys are set, removed, restore, cleanup"
+      ]
+    },
+    {
+      "id": "TS-17-36",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-6.1"
+      ],
+      "title": "A try reads the token, the workspace record and the issue's labels",
+      "given": [
+        "fake hub with workspace widgets and issue 42",
+        "a pending cleanup"
+      ],
+      "when": "a try runs",
+      "then": [
+        "the store's token is the bearer on every hub call",
+        "the hub received the workspace record read, then the issue read, before any label write",
+        "the repository used comes from the record's forge URL"
+      ]
+    },
+    {
+      "id": "TS-17-37",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-6.2"
+      ],
+      "title": "in-progress is removed unless another job of the issue is running",
+      "given": [
+        "issue 42 carrying af:in-progress",
+        "case A: a queued triage job cancelled while a fix job of issue 42 runs",
+        "case B: a triage job cancelled with no other running job"
+      ],
+      "when": "each cleanup runs",
+      "then": [
+        "case A: af:in-progress stays and af:triage comes back",
+        "case B: af:in-progress is removed"
+      ]
+    },
+    {
+      "id": "TS-17-38",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-6.3"
+      ],
+      "title": "A status label another open job accounts for stays",
+      "given": [
+        "a blocked triage job and a blocked fix job of issue 42, both showing af:needs-human in labels.set",
+        "issue 42 carrying af:needs-human and a person-set status label"
+      ],
+      "when": "the triage job is cancelled",
+      "then": [
+        "af:needs-human stays",
+        "af:triage comes back",
+        "the person-set label stays"
+      ]
+    },
+    {
+      "id": "TS-17-39",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-6.4"
+      ],
+      "title": "The request label is added only when missing",
+      "given": [
+        "a cancelled job that consumed af:fix",
+        "case A: the issue lacks af:fix; case B: a person already put af:fix back"
+      ],
+      "when": "the try runs",
+      "then": [
+        "case A: one add of af:fix is sent",
+        "case B: no add is sent and labels.restore becomes null"
+      ]
+    },
+    {
+      "id": "TS-17-40",
+      "kind": "property",
+      "verifies": [
+        "17-REQ-6.5"
+      ],
+      "title": "A try writes only what is missing and a repeated try writes nothing",
+      "given": [
+        "a fake hub issue and a cancelled job with a generated labels.set"
+      ],
+      "when": "for any starting label set of the issue and any number of repeated tries (including a try repeated after a partial one)",
+      "then": [
+        "the first complete try's writes are exactly the missing removals and the missing addition",
+        "a try after a complete one sends no write",
+        "final labels are the same however many tries ran"
+      ],
+      "pseudocode": "for labels,n in gen(): hub.SetLabels(42,labels); try_n_times(n); assert writesAfterFirstComplete==0"
+    },
+    {
+      "id": "TS-17-41",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-6.6"
+      ],
+      "title": "A finished try records restore, set/removed, cleanup, one INFO record, and leaves the event log alone",
+      "given": [
+        "a blocked poll fix job of issue 42 with af:needs-human set",
+        "captured logs and the job's event log snapshotted"
+      ],
+      "when": "the cancel cleanup finishes",
+      "then": [
+        "labels is {set:['af:fix'], removed:['af:needs-human'], restore:null, cleanup:'done'}",
+        "one INFO record names the workspace, the job, the issue and the labels set and removed",
+        "the job's event log is unchanged",
+        "a try that wrote nothing leaves labels.set and removed as they were"
+      ]
+    },
+    {
+      "id": "TS-17-42",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-7.1"
+      ],
+      "title": "A try for an unsubscribed workspace ends label_not_set and writes nothing",
+      "given": [
+        "a pending cleanup whose workspace subscription row is gone"
+      ],
+      "when": "a try runs",
+      "then": [
+        "labels.cleanup becomes 'label_not_set'",
+        "the fake hub received no write",
+        "an INFO record is logged"
+      ]
+    },
+    {
+      "id": "TS-17-43",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-7.2",
+        "17-REQ-8.1"
+      ],
+      "title": "A 503 keeps the cleanup pending with one WARN and the next minute's sweep completes it",
+      "given": [
+        "fake hub answering 503 to the label write",
+        "a cancelled blocked fix job of issue 42",
+        "captured logs, fakeclock"
+      ],
+      "when": "the try runs, a further sweep fails again, then hub recovers and the clock advances one minute",
+      "then": [
+        "labels.cleanup stays 'pending' and labels.restore stays 'af:fix'",
+        "exactly one WARN record exists for the job across repeated failures",
+        "after recovery and one minute the sweep completes the cleanup with 'done'",
+        "an unreadable token or a store failure and a record without a forge URL also stay pending"
+      ]
+    },
+    {
+      "id": "TS-17-44",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-7.3"
+      ],
+      "title": "A 401, 403 or forge-credential refusal ends the cleanup with one ERROR and no retry",
+      "given": [
+        "fake hub answering 401, 403, and 502 forge_forbidden/forge_unauthenticated on different calls (separate runs)",
+        "captured logs"
+      ],
+      "when": "the try runs and later sweeps tick",
+      "then": [
+        "labels.cleanup becomes 'label_not_set'",
+        "one ERROR record names the operation and carries hub's message",
+        "for 401 and 403 it points to PUT /api/v1/workspaces/{slug}",
+        "no later try is made"
+      ]
+    },
+    {
+      "id": "TS-17-45",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-7.4"
+      ],
+      "title": "A missing workspace record or a forge URL naming no repository ends label_not_set with an ERROR",
+      "given": [
+        "fake hub answering 404 to the workspace record read, or returning a record whose forge URL names no repository"
+      ],
+      "when": "the try runs",
+      "then": [
+        "labels.cleanup becomes 'label_not_set'",
+        "an ERROR record says hub does not find the workspace, or that the forge URL names no repository"
+      ]
+    },
+    {
+      "id": "TS-17-46",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-7.5"
+      ],
+      "title": "A 404 on the issue read ends with INFO; another 4xx on the record or issue read ends with ERROR",
+      "given": [
+        "fake hub answering 404 to the issue read, then 400 to the issue read, then 400 to the record read"
+      ],
+      "when": "the try runs in each run",
+      "then": [
+        "labels.cleanup is 'label_not_set' in all runs",
+        "the 404 issue read logs an INFO record that the issue is gone",
+        "the other cases log an ERROR record carrying hub's message"
+      ]
+    },
+    {
+      "id": "TS-17-47",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-7.6"
+      ],
+      "title": "A label removal 404 counts as done; another 4xx leaves the label, continues and ends label_not_set with WARN",
+      "given": [
+        "a cancelled job whose labels.set holds needs-human and failed",
+        "fake hub answering 404 to one removal in run 1, and 400 to the removal of af:failed in run 2"
+      ],
+      "when": "the try runs",
+      "then": [
+        "run 1: cleanup 'done'",
+        "run 2: af:failed stays, the other removal and the request label addition still happen, labels.cleanup is 'label_not_set', a WARN is logged"
+      ]
+    },
+    {
+      "id": "TS-17-48",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-7.7"
+      ],
+      "title": "A refused request label addition ends label_not_set with an ERROR",
+      "given": [
+        "fake hub answering 404, then 400 to the add of the request label"
+      ],
+      "when": "the try runs",
+      "then": [
+        "labels.cleanup becomes 'label_not_set'",
+        "an ERROR record names the operation and carries hub's message",
+        "labels.restore stays 'af:fix'"
+      ]
+    },
+    {
+      "id": "TS-17-49",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-7.8"
+      ],
+      "title": "A cleanup failure never fails the cancel, other jobs or workspaces, and no log holds the PAT",
+      "given": [
+        "two workspaces, one with failing hub label writes",
+        "a recognisable PAT and captured logs"
+      ],
+      "when": "a job of each workspace is cancelled",
+      "then": [
+        "the cancel route answers 200 for both",
+        "the other workspace's job reaches cleanup 'done'",
+        "a cleanup ending label_not_set without the label on the issue keeps labels.restore set",
+        "no log record contains the PAT"
+      ]
+    },
+    {
+      "id": "TS-17-50",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-8.2"
+      ],
+      "title": "A cleanup still pending one hour after its cancel ends label_not_set with exactly one ERROR",
+      "given": [
+        "fake hub answering 503 to the label write",
+        "a pending cleanup and fakeclock",
+        "captured logs"
+      ],
+      "when": "the clock advances through minute sweeps past one hour",
+      "then": [
+        "labels.cleanup becomes 'label_not_set'",
+        "exactly one ERROR record is logged for the abandonment",
+        "no try is made after it ends"
+      ]
+    },
+    {
+      "id": "TS-17-51",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-8.3"
+      ],
+      "title": "Start and sweeps do not wait for a try",
+      "given": [
+        "a pending cleanup and queued attempts to re-queue",
+        "fake hub label routes delayed 30 seconds"
+      ],
+      "when": "Start runs its first sweep",
+      "then": [
+        "Start returns and the sweep has re-queued the queued attempts before the try ends",
+        "the try runs in a goroutine tracked by the loops wait group"
+      ]
+    },
+    {
+      "id": "TS-17-52",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-8.4"
+      ],
+      "title": "A try is bounded to one minute and the tries in flight are capped",
+      "given": [
+        "fake hub whose label routes never answer",
+        "more pending cleanups than the fixed cap"
+      ],
+      "when": "sweeps run and the clock advances one minute",
+      "then": [
+        "the number of tries in flight never exceeds the cap",
+        "a try stuck on hub ends at one minute and the cleanup stays pending",
+        "each hub call stays bounded by the client's 10-second bound"
+      ]
+    },
+    {
+      "id": "TS-17-53",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-8.5"
+      ],
+      "title": "A service restarted while a cleanup is pending completes it at its first sweep, or ends it past an hour",
+      "given": [
+        "a database holding a pending cleanup, one cancelled recently and one more than an hour ago by the clock",
+        "a new jobs layer and fakeclock"
+      ],
+      "when": "Start runs",
+      "then": [
+        "the recent cleanup is tried and becomes 'done'",
+        "the old cleanup ends 'label_not_set' without a try"
+      ]
+    },
+    {
+      "id": "TS-17-54",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-8.6"
+      ],
+      "title": "Shutdown cancels a try in flight and leaves the cleanup pending",
+      "given": [
+        "a try in flight against delayed label routes"
+      ],
+      "when": "the jobs layer shuts down",
+      "then": [
+        "shutdown returns after the try's goroutine ends",
+        "labels.cleanup is 'pending' in the database"
+      ]
+    },
+    {
+      "id": "TS-17-55",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-8.7"
+      ],
+      "title": "The retention purge never removes a job whose cleanup is pending",
+      "given": [
+        "a cancelled job older than database.retain with cleanup pending, and one with cleanup done"
+      ],
+      "when": "the purge runs",
+      "then": [
+        "the pending job remains",
+        "the done job is removed"
+      ]
+    },
+    {
+      "id": "TS-17-56",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-9.1",
+        "17-REQ-9.2"
+      ],
+      "title": "An unsubscribe cleans up a blocked job before removing the subscription",
+      "given": [
+        "workspace widgets subscribed with af:",
+        "a blocked poll fix job of issue 42 carrying af:needs-human",
+        "a fake hub observer that reads the store when the label writes arrive"
+      ],
+      "when": "DELETE /api/v1/workspaces/widgets is called",
+      "then": [
+        "before the subscription is removed, issue 42 carries af:fix and no af:needs-human",
+        "the job's labels.cleanup is 'done'",
+        "the subscription and token are removed afterwards"
+      ]
+    },
+    {
+      "id": "TS-17-57",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-9.3",
+        "17-REQ-9.4"
+      ],
+      "title": "With hub unavailable the DELETE returns within 60 seconds and the next try ends label_not_set",
+      "given": [
+        "the fake hub answering 503 to everything",
+        "a blocked job and fakeclock"
+      ],
+      "when": "DELETE is called and the fake clock advances 60 seconds",
+      "then": [
+        "DELETE returns no later than 60 seconds by the injected clock after its cancels",
+        "the subscription is removed",
+        "the next try finds the workspace not subscribed and labels.cleanup becomes 'label_not_set'"
+      ]
+    },
+    {
+      "id": "TS-17-58",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-10.1"
+      ],
+      "title": "The poll holds a label that the cleanup put back",
+      "given": [
+        "the cleanup of a cancelled blocked fix job has put af:fix back on issue 42",
+        "the poll Supervisor.Cycle over the fake hub"
+      ],
+      "when": "three poll cycles run",
+      "then": [
+        "no job is created",
+        "no label removal is sent"
+      ]
+    },
+    {
+      "id": "TS-17-59",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-10.2"
+      ],
+      "title": "A cancel that reached a runner still holds whatever the runner reports",
+      "given": [
+        "a poll-made job cancelled while running, the runner reporting a session in one run and none in another"
+      ],
+      "when": "poll cycles run",
+      "then": [
+        "the poll record holds in both runs",
+        "no new job is created for the request label"
+      ]
+    },
+    {
+      "id": "TS-17-60",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-10.3"
+      ],
+      "title": "A cancel that reached no runner holds nothing when no cleanup ran or it ended with restore set",
+      "given": [
+        "a queued poll job cancelled with no cleanup seam",
+        "a job whose cleanup ended label_not_set with labels.restore still set",
+        "a record that held while the cleanup was pending"
+      ],
+      "when": "the poll sees each job",
+      "then": [
+        "each poll record is ended, not holding",
+        "the holding record stops holding the next time the poll sees the cleanup ended this way",
+        "a poll-created job whose cleanup is abandoned before the label is back holds nothing"
+      ]
+    },
+    {
+      "id": "TS-17-61",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-10.4"
+      ],
+      "title": "The release clock starts only when no runner is in progress and no cleanup is pending",
+      "given": [
+        "a held job with its cleanup pending and a runner in progress, then each ended in turn",
+        "the poll's fakeclock"
+      ],
+      "when": "cycles run while the cleanup is pending, then after it ends",
+      "then": [
+        "no release clock starts while a runner is in progress or the cleanup is pending",
+        "the clock starts the first cycle that sees neither"
+      ]
+    },
+    {
+      "id": "TS-17-62",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-10.5"
+      ],
+      "title": "A complete listing without the issue releases the hold after the release delay",
+      "given": [
+        "a held cancelled job whose release clock started at time T"
+      ],
+      "when": "a complete listing without issue 42 is requested at T+5 minutes and the request label is re-added",
+      "then": [
+        "a listing earlier than T+5 minutes does not release",
+        "after release exactly one new job is created"
+      ]
+    },
+    {
+      "id": "TS-17-63",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-10.6"
+      ],
+      "title": "The same hold and release rules apply to a person's cancel and an unsubscribe",
+      "given": [
+        "a poll-made blocked job cancelled by a person in one run and by an unsubscribe in another"
+      ],
+      "when": "poll cycles and a complete listing run",
+      "then": [
+        "hold, no-hold and release outcomes are identical across both causes"
+      ]
+    },
+    {
+      "id": "TS-17-64",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-1",
+        "17-REQ-2.1",
+        "17-REQ-2.2"
+      ],
+      "title": "A caller subscribes a workspace and the seven labels are created",
+      "given": [
+        "the real API server, hub client, store and the fake hub granting widgets"
+      ],
+      "when": "PUT /api/v1/workspaces/widgets is sent with a hub_token and label_prefix af:, and sent again",
+      "then": [
+        "the first answer is 201 with the view and the second 200",
+        "the fake hub holds the seven af: labels with table colours and descriptions",
+        "one INFO record carries the created and existing counts",
+        "the subscription is stored"
+      ],
+      "real_components": [
+        "API server",
+        "hub client",
+        "subscription store",
+        "fake hub"
+      ]
+    },
+    {
+      "id": "TS-17-65",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-2",
+        "17-REQ-6.6",
+        "17-REQ-10.1"
+      ],
+      "title": "A person cancels a blocked poll-made fix job and af:fix is put back and held",
+      "given": [
+        "real jobs layer on a temporary database with fakerunner and fakeclock",
+        "real poll supervisor, API server and hub client over the fake hub",
+        "a blocked poll fix job of issue 42 with af:needs-human on the issue"
+      ],
+      "when": "POST /api/v1/jobs/{id}/cancel is sent and poll cycles run",
+      "then": [
+        "the answer shows labels.cleanup 'pending'",
+        "issue 42 ends with af:fix and no status label",
+        "the job shows {set:['af:fix'], removed:['af:needs-human'], restore:null, cleanup:'done'}",
+        "the next poll cycles create no job and remove nothing"
+      ],
+      "real_components": [
+        "jobs layer",
+        "jobs store and migration 7",
+        "hub client",
+        "fake hub",
+        "poll supervisor",
+        "API server"
+      ]
+    },
+    {
+      "id": "TS-17-66",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-3",
+        "17-REQ-5.2"
+      ],
+      "title": "A runner cancelled before its hub session leaves the issue with af:fix and no af:needs-human",
+      "given": [
+        "real jobs layer with fakerunner.Do and fakeclock",
+        "real hub client and fake hub",
+        "a blocked poll fix job of issue 42 answered so the second attempt runs"
+      ],
+      "when": "the job is cancelled, the runner returns without a hub session",
+      "then": [
+        "the cancelled attempt is recorded and labels.cleanup is 'pending'",
+        "after the runner is no longer in progress, issue 42 carries af:fix and no af:needs-human",
+        "labels.cleanup becomes 'done'"
+      ],
+      "real_components": [
+        "jobs layer",
+        "jobs store",
+        "hub client",
+        "fake hub",
+        "fake runner"
+      ]
+    },
+    {
+      "id": "TS-17-67",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-4",
+        "17-REQ-7.2",
+        "17-REQ-8.1"
+      ],
+      "title": "A cleanup meeting an unavailable hub is retried by the sweep and completes",
+      "given": [
+        "real jobs layer with fakeclock and fake hub answering 503 to the label write",
+        "captured logs",
+        "a blocked fix job of issue 42"
+      ],
+      "when": "the job is cancelled, hub recovers and the clock advances one minute",
+      "then": [
+        "labels.cleanup stays 'pending' with labels.restore 'af:fix' and one WARN logged",
+        "after the sweep the cleanup is 'done' and issue 42 carries af:fix and no af:needs-human"
+      ],
+      "real_components": [
+        "jobs layer",
+        "jobs store",
+        "sweep",
+        "hub client",
+        "fake hub"
+      ]
+    },
+    {
+      "id": "TS-17-68",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-5",
+        "17-REQ-9.2"
+      ],
+      "title": "An unsubscribe cleans up its blocked job before removing the subscription",
+      "given": [
+        "workspace widgets subscribed through the real API",
+        "a blocked poll fix job of issue 42 with af:needs-human on the issue",
+        "real jobs layer, hub client and fake hub"
+      ],
+      "when": "DELETE /api/v1/workspaces/widgets is sent",
+      "then": [
+        "before the subscription row is removed, issue 42 carries af:fix and no af:needs-human",
+        "the job's labels.cleanup is 'done'",
+        "the subscription and token are removed and the DELETE is answered"
+      ],
+      "real_components": [
+        "API server",
+        "jobs layer",
+        "jobs store",
+        "subscription store",
+        "hub client",
+        "fake hub"
+      ]
+    }
+  ]
+}

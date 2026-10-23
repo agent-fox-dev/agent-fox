@@ -1,0 +1,479 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "17",
+  "spec_name": "agent_fox_label_protocol",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/service/... ./internal/hub/... ./internal/worker/... ./cmd/agent-fox/... -run 'TS_17' -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "11",
+      "reason": "adds the label step to PUT /api/v1/workspaces/{slug}, the forge_forbidden error code, and migration 7 to the append-only list"
+    },
+    {
+      "spec": "12",
+      "reason": "adds the cancel cleanup seam, durable pending mark, background retries, unsubscribe wait, purge exclusion and labels.cleanup to the jobs layer"
+    },
+    {
+      "spec": "13",
+      "reason": "adds the hub client's label route and the fake hub's label route; the worker mirror takes its names from the shared table; the cleanup reuses ForgeClient ReadIssue/AddLabels/RemoveLabel and WorkspaceRecord"
+    },
+    {
+      "spec": "15",
+      "reason": "replaces R6's 'cancelled while queued or blocked holds nothing' with the hold of a label the cleanup put back (note in poll/reconcile.go) and changes the tests asserting the old rule"
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Create the shared label table package and make the worker and poll use it",
+      "criteria": [
+        "17-REQ-1"
+      ],
+      "tests": [
+        "TS-17-1",
+        "TS-17-2",
+        "TS-17-3",
+        "TS-17-4"
+      ],
+      "steps": [
+        "Write TS-17-1..TS-17-4 first and confirm they fail",
+        "Create internal/service/labels (standard library imports only) with an ordered Table of seven rows {Suffix, Kind (request|status), Color, Description} exactly as in the PRD R1 table, plus Name(prefix, suffix) = prefix+suffix, helpers for request labels, status labels and the in-progress/ready/needs-human/landed/failed/triage/fix suffix constants; never read AF_LABEL_PREFIX",
+        "Replace the status constants and `statuses` in internal/worker/mirror.go with names derived from the table; keep setStatus, unmark, the cancel path and every warning code (status_label_failed, comment_failed, request_label_failed, label_prefix_ignored) unchanged",
+        "Make internal/service/poll derive its request label names (triage, fix) from the table",
+        "Add an import-graph test (go list or go/parser over internal/service/labels) asserting standard-library-only imports and that internal/service/api, internal/service/poll, internal/worker import the package; a property test over generated prefixes (incl. empty, unicode) with AF_LABEL_PREFIX set to an unrelated value",
+        "Run the worker's existing mirror tests unchanged to prove TS-17-4"
+      ],
+      "touches": [
+        "internal/service/labels/labels.go",
+        "internal/service/labels/labels_test.go",
+        "internal/worker/mirror.go",
+        "internal/service/poll/handler.go",
+        "internal/service/poll/reconcile.go"
+      ],
+      "done_when": [
+        "existing worker and poll tests pass unchanged"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Add the hub client's CreateLabel call and the fake hub's label route",
+      "criteria": [
+        "17-REQ-4"
+      ],
+      "tests": [
+        "TS-17-20",
+        "TS-17-21",
+        "TS-17-22",
+        "TS-17-23",
+        "TS-17-24",
+        "TS-17-25",
+        "TS-17-26"
+      ],
+      "steps": [
+        "Write TS-17-20..TS-17-26 first and confirm they fail",
+        "In internal/hub/calls.go add (*Client).CreateLabel(ctx, pat, slug, name, color, description) (created bool, err error) built on the existing operation/send/classify machinery: POST /api/v1/workspaces/{slug}/labels with JSON body {name,color,description}, bearer PAT, same 10 s bound, no redirects, same reading limits",
+        "Map 201 to created, 200 to already-there, 409 or any other 4xx (not 429) whose error_type is already_exists or whose message contains 'already exists' case-insensitively to already-there; every other answer goes through classify unchanged (401 ErrRefused, 403 ErrForbidden, 404 ErrNotFound, other 4xx and 502 forge_forbidden/forge_unauthenticated *RejectedError, rest *UnavailableError); no error contains the PAT",
+        "Leave ForgeClient.CreateLabel as notAvailable; existing forge_test.go and listissues_test.go assertions stay",
+        "In internal/hub/fakehub add a per-slug label map on Hub (name, colour, description), handle POST rest==[\"labels\"] in workspaceRoute before the h.workspaces[slug]==nil check for any slug the token is granted (AddUser, AddWorkspaceToken, AddWorkspace), run h.refuse so ungranted tokens are refused as for other routes, answer 201 for a new name and 200 for a held name leaving the stored label unchanged, and record every request",
+        "Add an exported reader for a slug's labels (e.g. Labels(slug)) and make Fail, FailOnce, FailFor and Inject (any status, any body, empty body = hub error object) apply to the label path"
+      ],
+      "touches": [
+        "internal/hub/calls.go",
+        "internal/hub/calls_test.go",
+        "internal/hub/fakehub/workspace.go",
+        "internal/hub/fakehub/fakehub.go",
+        "internal/hub/fakehub/fakehub_test.go"
+      ],
+      "done_when": [
+        "internal/hub forge_test.go and listissues_test.go still pass unchanged"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Add the label step to PUT /api/v1/workspaces/{slug}",
+      "criteria": [
+        "17-REQ-2"
+      ],
+      "tests": [
+        "TS-17-5",
+        "TS-17-6",
+        "TS-17-7",
+        "TS-17-8",
+        "TS-17-9",
+        "TS-17-10"
+      ],
+      "steps": [
+        "Write TS-17-5..TS-17-10 first and confirm they fail",
+        "In internal/service/api/subscribe.go add a step between the Hub.User check and Store.Upsert that creates the seven labels one at a time in table order via the hub client CreateLabel, using the request's hub_token, the stored prefix (af: when omitted) and the table colour and description",
+        "Count created vs already-there; after all seven succeed log exactly one INFO record naming the workspace, created count and existing count, with no token; then Upsert and answer 201/200 with the unchanged view",
+        "Update the 'nothing is written before every check has passed' comment to say it covers the store only",
+        "Do not touch labels on DELETE or on Start; confirm a replace with prefix bot- leaves af: labels, and that no label rename/delete request is ever sent",
+        "Failure mapping is added in the next task; for now return the existing hubFailure mapping for any error so tests for the happy path pass",
+        "Existing API tests keep subscribing with only AddUser grants (fake hub serves the route without AddWorkspace)"
+      ],
+      "touches": [
+        "internal/service/api/subscribe.go",
+        "internal/service/api/subscribe_test.go"
+      ],
+      "depends_on": [
+        1,
+        2
+      ],
+      "done_when": [
+        "existing internal/service/api tests pass unchanged"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Map refused label creations to forge_forbidden, invalid_hub_token and hub_unavailable",
+      "criteria": [
+        "17-REQ-3"
+      ],
+      "tests": [
+        "TS-17-11",
+        "TS-17-12",
+        "TS-17-13",
+        "TS-17-14",
+        "TS-17-15",
+        "TS-17-16",
+        "TS-17-17",
+        "TS-17-18",
+        "TS-17-19"
+      ],
+      "steps": [
+        "Write TS-17-11..TS-17-19 first and confirm they fail",
+        "In internal/service/api/errors.go add CodeForgeForbidden = \"forge_forbidden\" with status 422 in the statuses map",
+        "In the label step stop at the first failure, send no further creation and write nothing to the store",
+        "Map errors: ErrRefused → 422 invalid_hub_token 'hub refused the token'; ErrForbidden → 422 forge_forbidden saying hub forbids the token to create labels because it lacks the scope for hub's forge API; *RejectedError with Code forge_forbidden/forge_unauthenticated and status 502 → 422 forge_forbidden saying the forge refused hub's credential for the repository, carrying hub's message; ErrNotFound or *RejectedError with status 405 → 502 hub_unavailable saying hub does not serve label creation for the workspace; any other *RejectedError → 422 forge_forbidden with hub's message; *UnavailableError → existing hubFailure 502 hub_unavailable",
+        "Ensure 409/422 already_exists/400 'already exists' arrive from CreateLabel as already-there (task 2) and the step goes on to the fourth label",
+        "Verify no response body or log record contains the hub_token; for a replace the stored row stays byte-identical"
+      ],
+      "touches": [
+        "internal/service/api/subscribe.go",
+        "internal/service/api/errors.go",
+        "internal/service/api/subscribe_test.go",
+        "internal/service/api/errors_test.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Jobs layer: migration 7, cleanup seam, durable pending mark on a no-runner cancel, background try scheduler",
+      "criteria": [
+        "17-REQ-5.1",
+        "17-REQ-5.4",
+        "17-REQ-5.5",
+        "17-REQ-5.6",
+        "17-REQ-5.7"
+      ],
+      "tests": [
+        "TS-17-32",
+        "TS-17-33",
+        "TS-17-34",
+        "TS-17-35"
+      ],
+      "steps": [
+        "Write TS-17-32..TS-17-35 first (with a fake Cleaner implementing the seam) and confirm they fail",
+        "Append migration 7 in internal/service/store/migrations.go: columns for cleanup state (NULL|pending|done|label_not_set), the cancel time of the cleanup, and a 'wanted if the runner reports no session' flag; update store tests that count migrations",
+        "Define in internal/service/jobs an optional Cleaner interface (no import of internal/hub) taking a request {workspace, job id, issue, request label, own labels.set, labels set by other open jobs of the issue, whether another job of the issue runs} and returning a result {outcome pending|done|label_not_set, labels set, labels removed, wrote, restore cleared, log level and message}; add it to jobs.Config (nil = today's behaviour: no mark, labels.cleanup null)",
+        "In Store.CancelJob mark cleanup pending (with the cancel time) in the same transaction when the job has an issue, the cause is a person's cancel or an unsubscribe (carry the cause into the layer; later causes must not mark) and no runner of this process is reached (run == nil, including a claimed attempt not yet called); also record the wanted flag when a runner is reached",
+        "Add LabelsDoc.Cleanup (*string) in model.go and make document.go build labels non-null when cleanup is non-null; JSON members set, removed, restore, cleanup",
+        "Add a background try scheduler: after the cancel transaction commits start a try in a goroutine tracked by s.loops and stopped by s.stopping, bounded to one minute, at most one try per job at a time (in-memory per-job guard), a fixed cap of tries in flight, never delaying the cancel's answer",
+        "Apply a result to the job in one transaction: replace labels_set/labels_removed when the try wrote, set labels_restore NULL when restore cleared, set cleanup state; log one WARN only on the first pending failure of a job's cleanup and the INFO/ERROR records the result carries; never log a PAT",
+        "Leave retries, the sweep, shutdown and purge to a later task"
+      ],
+      "touches": [
+        "internal/service/store/migrations.go",
+        "internal/service/store/store_test.go",
+        "internal/service/jobs/cancel.go",
+        "internal/service/jobs/service.go",
+        "internal/service/jobs/model.go",
+        "internal/service/jobs/document.go",
+        "internal/service/jobs/cleanup.go",
+        "internal/service/jobs/cleanup_test.go"
+      ],
+      "done_when": [
+        "agent_fox_jobs tests pass unchanged when built without a Cleaner"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Hub-backed cancel cleanup: one try, removals and request label, wired into cmd/agent-fox",
+      "criteria": [
+        "17-REQ-6"
+      ],
+      "tests": [
+        "TS-17-27",
+        "TS-17-28",
+        "TS-17-29",
+        "TS-17-36",
+        "TS-17-37",
+        "TS-17-38",
+        "TS-17-39",
+        "TS-17-40",
+        "TS-17-41"
+      ],
+      "steps": [
+        "Write TS-17-27..TS-17-29 and TS-17-36..TS-17-41 first and confirm they fail",
+        "Create internal/service/labelcleanup implementing jobs.Cleaner over the hub client and the store's Token (hub client and store only; jobs does not import hub)",
+        "One try: read the token (store.Token), the workspace record (hub WorkspaceRecord, repo from Record.Repo), then issue labels via hub.Forge(...).ReadIssue; the token is the bearer on every call and the record read and issue read come before any label write",
+        "Remove in-progress when present unless the request says another job of the issue runs; remove each other status label present only when it is in the job's own labels.set and not in any other open job's labels.set; leave everything else (ready, landed, person-set labels)",
+        "Add the request label via AddLabels only when the issue lacks it; send no write on a repeated complete try; report set/removed (set includes the request label added) and restore cleared when the issue carries the request label",
+        "In internal/service/jobs compute the request inputs: own labels_set, labels_set of other open jobs of the same issue, whether another job of the issue is running (any kind) and pass them to the Cleaner; a triage and a fix of one issue can be open together",
+        "Apply the finished result as in task 5: labels {set:[af:fix], removed:[af:needs-human], restore:null, cleanup:done} for the blocked-fix example, one INFO naming workspace, job, issue, set and removed, event log untouched",
+        "Wire the Cleaner into jobs.Config in cmd/agent-fox/run.go",
+        "Property test TS-17-40 over generated starting label sets and repeat counts"
+      ],
+      "touches": [
+        "internal/service/labelcleanup/cleanup.go",
+        "internal/service/labelcleanup/cleanup_test.go",
+        "internal/service/jobs/cleanup.go",
+        "internal/service/jobs/read.go",
+        "cmd/agent-fox/run.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        5
+      ],
+      "done_when": [
+        "the cancel route answers before any forge write with labels.cleanup pending"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Cleanup outcomes of failing tries",
+      "criteria": [
+        "17-REQ-7"
+      ],
+      "tests": [
+        "TS-17-42",
+        "TS-17-44",
+        "TS-17-45",
+        "TS-17-46",
+        "TS-17-47",
+        "TS-17-48",
+        "TS-17-49"
+      ],
+      "steps": [
+        "Write TS-17-42 and TS-17-44..TS-17-49 first and confirm they fail",
+        "In the labelcleanup try classify every operation per the PRD R5 table: store.ErrNotSubscribed → label_not_set with INFO and no write; store.ErrUnreadable/store failure or *hub.UnavailableError or a record without forge URL → pending, WARN on the first failure only",
+        "401 (ErrRefused), 403 (ErrForbidden), 502 forge_forbidden/forge_unauthenticated on any call → label_not_set with one ERROR naming the operation and hub's message, pointing to PUT /api/v1/workspaces/{slug} for 401/403",
+        "Workspace record 404 → ERROR 'hub does not find the workspace'; forge URL naming no repository → ERROR; issue read 404 → label_not_set with INFO 'issue is gone'; record or issue read rejected with another 4xx → ERROR carrying hub's message",
+        "Label removal: 404 counts as done; another 4xx leaves the label, the try continues and ends label_not_set with a WARN; request label add 404 or another 4xx → label_not_set with an ERROR naming the operation",
+        "A label_not_set cleanup keeps labels.restore set unless the issue carries the request label; the result records what the try wrote",
+        "Guarantee no log record holds the PAT and a failing cleanup never fails a cancel, another job or another workspace (two-workspace test)"
+      ],
+      "touches": [
+        "internal/service/labelcleanup/cleanup.go",
+        "internal/service/labelcleanup/cleanup_test.go",
+        "internal/service/jobs/cleanup.go"
+      ],
+      "depends_on": [
+        6
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Cleanup retries by the sweep, one-hour abandonment, background start, shutdown and purge exclusion",
+      "criteria": [
+        "17-REQ-8"
+      ],
+      "tests": [
+        "TS-17-43",
+        "TS-17-50",
+        "TS-17-51",
+        "TS-17-52",
+        "TS-17-53",
+        "TS-17-54",
+        "TS-17-55"
+      ],
+      "steps": [
+        "Write TS-17-43 and TS-17-50..TS-17-55 first and confirm they fail",
+        "In internal/service/jobs/sweep.go, after the sweep's re-queue of attempts, start (never wait for) a background try for every pending cleanup younger than one hour by the layer's clock whose job has no try running; Start's first sweep does the same, so a restarted service retries a pending cleanup",
+        "A cleanup pending one hour or more after its cancel ends label_not_set without a try, with exactly one ERROR record",
+        "Keep each try bounded to one minute via context.WithTimeout, hub calls bounded by the hub client's own 10 s, and the in-flight cap from task 5; a try stuck on hub ends at one minute leaving the cleanup pending",
+        "Shutdown: cancel in-flight tries with the other loops via s.stopping and the loops wait group; the cleanup stays pending in the database",
+        "In retain.go make expiredCondition and Store.Expired exclude jobs whose cleanup is pending",
+        "Verify the 503 → pending → recovery → sweep one minute later → done flow and the one-WARN-per-job rule across repeated failures"
+      ],
+      "touches": [
+        "internal/service/jobs/sweep.go",
+        "internal/service/jobs/cleanup.go",
+        "internal/service/jobs/retain.go",
+        "internal/service/jobs/service.go",
+        "internal/service/jobs/cleanup_test.go"
+      ],
+      "depends_on": [
+        7
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "Cleanup for a runner cancelled before its hub session",
+      "criteria": [
+        "17-REQ-5.2",
+        "17-REQ-5.3",
+        "17-REQ-9.5"
+      ],
+      "tests": [
+        "TS-17-30",
+        "TS-17-31"
+      ],
+      "steps": [
+        "Write TS-17-30 and TS-17-31 first (fakerunner.Do steps; one reports req.Recorder.Hub(...) before the cancel) and confirm they fail",
+        "In internal/service/jobs/finish.go EndAttempt's cancelled-job branch, and in grace.go settleCancelled for an overrun runner, when the job's wanted flag is set and af_attempts.hub_session IS NULL mark the cleanup pending (with cancel time) in the same transaction that records the cancelled attempt",
+        "Start the first try only once no runner of the job is in progress (runnerInProgress), so a try never races the worker; a runner that wrote after all is harmless because a try writes only what is missing",
+        "A runner that reported a hub session gets no mark: labels.cleanup stays null and the jobs layer sends no label request, for a person's cancel and for an unsubscribe",
+        "Cover the 60-second grace overrun case with fakeclock"
+      ],
+      "touches": [
+        "internal/service/jobs/finish.go",
+        "internal/service/jobs/grace.go",
+        "internal/service/jobs/cleanup.go",
+        "internal/service/jobs/cleanup_test.go"
+      ],
+      "depends_on": [
+        6
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 10,
+      "kind": "implement",
+      "title": "Unsubscribe cleans up its jobs before removing the subscription",
+      "criteria": [
+        "17-REQ-9.1",
+        "17-REQ-9.2",
+        "17-REQ-9.3",
+        "17-REQ-9.4"
+      ],
+      "tests": [
+        "TS-17-56",
+        "TS-17-57"
+      ],
+      "steps": [
+        "Write TS-17-56 and TS-17-57 first and confirm they fail",
+        "In internal/service/jobs/unsubscribe.go cancel with ErrUnsubscribed so cancels in the no-runner and runner-without-session cases mark and try a cleanup as for a person's cancel",
+        "Before remove(), wait for the first try of each cleanup the unsubscribe marked, alongside the unchanged wait on run.settled; stop waiting 60 s (cancelGrace, by the injected clock) after the cancels and the running-attempt wait have both ended",
+        "With hub unavailable the DELETE returns within 60 s of fakeclock time and the subscription and token are removed",
+        "The next try of a still-pending cleanup finds the workspace unsubscribed and ends label_not_set; confirm via sweep/retry from task 8",
+        "Smoke path observation: a store-reading fake hub observer shows the subscription still present while label writes arrive"
+      ],
+      "touches": [
+        "internal/service/jobs/unsubscribe.go",
+        "internal/service/jobs/cleanup.go",
+        "internal/service/jobs/cleanup_test.go",
+        "internal/service/api/workspaces_test.go"
+      ],
+      "depends_on": [
+        8,
+        9
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 11,
+      "kind": "implement",
+      "title": "The poll holds a label that the cleanup put back",
+      "criteria": [
+        "17-REQ-10"
+      ],
+      "tests": [
+        "TS-17-58",
+        "TS-17-59",
+        "TS-17-60",
+        "TS-17-61",
+        "TS-17-62",
+        "TS-17-63"
+      ],
+      "steps": [
+        "Write TS-17-58..TS-17-63 first and confirm they fail; change the existing poll tests that asserted nothing is put back for a job cancelled while queued or by an unsubscribe while queued/blocked so they assert the R7 hold",
+        "Extend jobs.Standing in internal/service/jobs/read.go (and its query) with cleanup facts: CleanupPending and CleanupPutBack (finished with labels_restore NULL), keeping CancelledInRunner and RunnerInProgress; update the poll's Jobs interface and fakes",
+        "Change note() in internal/service/poll/reconcile.go: cancelled and neither in a runner nor put back by a cleanup (pending, or done with restore NULL) → SeenEnded; cancelled in a runner → hold as before; cancelled with cleanup pending or put back → hold",
+        "The SeenHolding case switches to SeenEnded when the cleanup ended with the label not back and the cancel reached no runner",
+        "Start the release clock only the first time no runner is in progress and no cleanup is pending; release by a complete listing without the issue at least the release delay (5 min) after it, so re-adding the label makes exactly one new job",
+        "Apply the same rules whichever cause cancelled the job (person or unsubscribe)",
+        "Keep docs/poll_docs_test.go phrases passing"
+      ],
+      "touches": [
+        "internal/service/jobs/read.go",
+        "internal/service/poll/reconcile.go",
+        "internal/service/poll/supervisor.go",
+        "internal/service/poll/hold_test.go",
+        "internal/service/poll/harness_test.go",
+        "internal/service/poll/cycle_test.go"
+      ],
+      "depends_on": [
+        6
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 12,
+      "kind": "integration",
+      "title": "Verify the label protocol end to end and update the documentation",
+      "tests": [
+        "TS-17-64",
+        "TS-17-65",
+        "TS-17-66",
+        "TS-17-67",
+        "TS-17-68"
+      ],
+      "steps": [
+        "Write smoke tests TS-17-64..TS-17-68 against real components (API server, hub client, stores, jobs layer, poll supervisor, fakerunner, fakeclock, fake hub) and confirm they pass",
+        "Trace 17-PATH-1..17-PATH-5 through the real code: subscribe → CreateLabel ×7 → Upsert; cancel → CancelJob mark → try → hub writes → recorded result → poll hold; runner without session → EndAttempt mark → try; 503 → sweep retry; unsubscribe → wait → remove; confirm each step calls the next and no stub remains",
+        "Confirm every contract result is consumed in production: jobs.Cleaner wired in cmd/agent-fox/run.go, labels.cleanup in the job document, Standing cleanup facts read by poll note(), the label table used by subscribe, worker, poll and cleanup",
+        "Run `make doc`, then update docs/api.md (Subscribing, Errors forge_forbidden, job document labels.cleanup, Cancel, Removing, Jobs that a request label makes), docs/architecture.md (label protocol in 'The service, as built', holds in 'The label poll, as built'), docs/configuration.md (label poll section), docs/development.md (label table, cleanup, fake hub label route) and README.md (one sentence); leave docs/cli.md unchanged; add no docs tests; existing docs/*_docs_test.go keep passing",
+        "Create docs/errata/17_agent_fox_label_protocol_divergences.md noting any divergence of hub's label route from the assumption of R3",
+        "Grep every file in all tasks' touches for TODO, panic(\"not implemented\"), NotImplementedError and bare `return nil` on non-trivial paths and remove any that remain",
+        "Run `make check` and confirm it passes offline"
+      ],
+      "touches": [
+        "internal/service/api/smoke_test.go",
+        "internal/service/jobs/smoke_test.go",
+        "cmd/agent-fox/smoke_test.go",
+        "docs/api.md",
+        "docs/architecture.md",
+        "docs/configuration.md",
+        "docs/development.md",
+        "README.md",
+        "docs/errata/17_agent_fox_label_protocol_divergences.md"
+      ],
+      "depends_on": [
+        4,
+        8,
+        9,
+        10,
+        11
+      ],
+      "done_when": [
+        "`make check` passes offline"
+      ],
+      "state": "pending"
+    }
+  ]
+}
