@@ -85,7 +85,7 @@
       "done_when": [
         "`af workspace list` with no server, a bad server or a bad credential file fails before any request is sent"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,

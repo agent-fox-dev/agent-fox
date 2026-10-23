@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -304,7 +305,7 @@ func schemaDiff(schema map[string]any, typ reflect.Type, where string) []string 
 
 // TestSchemasMatchTheirTypes_TS_06_72 verifies TS-06-72:
 // each command's embedded schema matches its Go result type's JSON fields,
-// appears in af --schema, and the golden is current.
+// appears in af --schema, and the golden of the binary holds them.
 // Verifies: 06-REQ-10.4
 func TestSchemasMatchTheirTypes_TS_06_72(t *testing.T) {
 	results := map[string]reflect.Type{
@@ -365,9 +366,39 @@ func TestSchemasMatchTheirTypes_TS_06_72(t *testing.T) {
 		t.Errorf("the envelope schema_version is %q, want the 5.0.0 of spec 05", doc.Properties.Version.Const)
 	}
 	golden, err := os.ReadFile(filepath.Join("..", "..", "cmd", "af", "testdata", "schema.golden.json"))
-	if err != nil || string(golden) != stdout {
+	if err == nil {
+		err = goldenCovers(golden, []byte(stdout))
+	}
+	if err != nil {
 		t.Errorf("the golden file is not current (%v); rewrite it with go test ./internal/toolio ./cmd/af -update", err)
 	}
+}
+
+// goldenCovers says whether the golden schema of the af binary holds the schema of this
+// package's shell: the same envelope, and every $defs entry of the shell as it is. The binary
+// registers more commands than this package does (the client of the agent-fox service), so
+// the golden has entries that the shell has not; cmd/af checks the golden byte for byte.
+func goldenCovers(golden, current []byte) error {
+	var g, c map[string]any
+	if err := json.Unmarshal(golden, &g); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(current, &c); err != nil {
+		return err
+	}
+	goldenDefs, _ := g["$defs"].(map[string]any)
+	currentDefs, _ := c["$defs"].(map[string]any)
+	delete(g, "$defs")
+	delete(c, "$defs")
+	if !reflect.DeepEqual(g, c) {
+		return errors.New("the envelope schema differs")
+	}
+	for name, def := range currentDefs {
+		if !reflect.DeepEqual(goldenDefs[name], def) {
+			return fmt.Errorf("$defs.%s differs", name)
+		}
+	}
+	return nil
 }
 
 // offlineScope are the packages whose tests this spec added or changed.
@@ -383,7 +414,7 @@ var credentialName = regexp.MustCompile(`(?i)token|secret|api_?key|password|cred
 
 // quiet are the hosts a test may name besides the loopback interface: text it
 // parses, not a place it connects to.
-var quiet = map[string]bool{"127.0.0.1": true, "localhost": true, "[::1]": true, "::1": true, "example.com": true, "example.invalid": true, "github.com": true, "json-schema.org": true}
+var quiet = map[string]bool{"127.0.0.1": true, "127.0.0.2": true, "localhost": true, "[::1]": true, "::1": true, "example.com": true, "example.invalid": true, "github.com": true, "json-schema.org": true}
 
 // TestTestsAreOffline_TS_06_75 verifies TS-06-75:
 // the tests of the new packages are offline and skip when git is missing.

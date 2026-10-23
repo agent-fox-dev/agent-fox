@@ -33,6 +33,17 @@ const (
 	// CategoryBudget: the brain used the cost bound or the turn bound and left
 	// no submission.
 	CategoryBudget = "budget"
+	// CategoryService: the agent-fox service could not be reached or gave an answer that
+	// af cannot use: a transport error, a 5xx, an answer that is not the document expected.
+	CategoryService = "service"
+	// CategoryConflict: the service refused the request because of the state of the job or
+	// of the workspace, not because of the invocation.
+	CategoryConflict = "conflict"
+	// CategoryHub: the service could not get an answer from hub.
+	CategoryHub = "hub"
+	// CategoryJobCancelled: a job that af followed was cancelled on the service. It is not
+	// CategoryCancelled, which is a signal sent to the af process.
+	CategoryJobCancelled = "job_cancelled"
 )
 
 // Failure is the error a command returns to set the envelope's error object.
