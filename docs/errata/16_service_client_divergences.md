@@ -94,6 +94,10 @@ Several tests passed on their first run because an earlier task had already deli
 `TS_16_40`, `TS_16_44`, `TS_16_3`, `TS_16_6`, `TS_16_11`, `TS_16_14`, `TS_16_75` for `fix --wait`); the mutation that removes the refusal of
 redirects makes `TS_16_28` and `TS_16_40` fail.
 
+The end-to-end tests of the integration task (`TS_16_76` to `TS_16_78`) start the service of specs 11 and 12 in process from its own packages
+(`api.NewServer`, `jobs.New`, `store.Open`, `fakehub`, `fakerunner`) in `cmd/af/smoke_client_test.go`; step 10.1's helper in
+those packages was not needed. All six smoke tests passed on their first run, as that task expects.
+
 ## 8. No test of the content of the documents (task 9)
 
 **Spec:** 16-REQ-2.8 and `TS-16-16`: "all checked by a docs test".
