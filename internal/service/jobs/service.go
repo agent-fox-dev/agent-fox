@@ -52,6 +52,8 @@ type Config struct {
 	// RemoveAll removes a directory and what is in it, and is not an error for one that
 	// is not there. os.RemoveAll when nil; the tests replace it.
 	RemoveAll func(path string) error
+	// Cleaner carries out the tries of the cancel cleanup. With none, no cleanup is marked.
+	Cleaner Cleaner
 }
 
 // Service is the jobs layer.
@@ -88,6 +90,9 @@ type Service struct {
 	stopping chan struct{}
 	stopOnce sync.Once
 	loops    sync.WaitGroup
+
+	cleaner  Cleaner
+	cleanups cleanups
 }
 
 // parkedWorkers is how many more workers the queue has than there are slots.
@@ -116,6 +121,7 @@ func New(cfg Config) (*Service, error) {
 		subs: cfg.Subscriptions, log: cfg.Logger, clock: cfg.Clock, enqueue: cfg.Enqueue,
 		runner: cfg.Runner, attemptsDir: dir, unsubscribing: map[string]int{},
 		inflight: map[attemptKey]*attemptRun{}, waiting: map[attemptKey]chan struct{}{}, stopping: make(chan struct{}), slots: make(chan struct{}, cfg.Workers),
+		cleaner: cfg.Cleaner, cleanups: cleanups{tries: map[string]chan struct{}{}, slots: make(chan struct{}, maxTries)},
 	}
 	if s.log == nil {
 		s.log = slog.Default()

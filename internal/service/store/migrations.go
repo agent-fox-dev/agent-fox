@@ -127,4 +127,13 @@ var migrations = []string{
 	// tell it from a job that was cancelled while its runner held the attempt. A claim clears the mark, and the call of the runner
 	// sets it.
 	`ALTER TABLE af_attempts ADD COLUMN in_runner INTEGER NOT NULL DEFAULT 0`,
+
+	// 7: the cancel cleanup of a job, which puts its issue's labels back in line with its record when no runner does:
+	// pending while tries go on, then done or label_not_set, and NULL for a job that had none. cleanup_wanted says that
+	// the cancel reached a runner and the cleanup is owed if the runner turns out to have opened no hub session;
+	// cleanup_warned that the first failure of a try has been logged. The cancel time, from which a cleanup is given an
+	// hour, is the job's finished_at.
+	`ALTER TABLE af_jobs ADD COLUMN cleanup TEXT CHECK (cleanup IN ('pending', 'done', 'label_not_set'));
+	ALTER TABLE af_jobs ADD COLUMN cleanup_wanted INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE af_jobs ADD COLUMN cleanup_warned INTEGER NOT NULL DEFAULT 0`,
 }

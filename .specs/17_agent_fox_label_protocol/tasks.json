@@ -210,7 +210,7 @@
       "done_when": [
         "agent_fox_jobs tests pass unchanged when built without a Cleaner"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 6,

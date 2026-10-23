@@ -127,12 +127,15 @@ type ResultDoc struct {
 	Error    *toolio.ErrorInfo `json:"error"`
 }
 
-// LabelsDoc is what the job did to labels, as the runner last reported it, and
-// the request label that a cancel says belongs back on the issue.
+// LabelsDoc is what the job did to labels, as the runner (or the cancel cleanup) last
+// reported it, the request label that a cancel says belongs back on the issue while it is
+// not back, and the state of the cancel cleanup: pending, done, label_not_set, or null for
+// a job that had none.
 type LabelsDoc struct {
 	Set     []string `json:"set"`
 	Removed []string `json:"removed"`
 	Restore *string  `json:"restore"`
+	Cleanup *string  `json:"cleanup"`
 }
 
 // UsageDoc is what a job cost: the sum over its finished attempts.
