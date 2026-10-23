@@ -139,10 +139,9 @@ func TestNoForgeNoNetworkNoRunDirectory_TS_06_70(t *testing.T) {
 	}
 	t.Setenv("NO_PROXY", "")
 	for _, name := range []string{"GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN", "GITHUB_API_URL", "GITLAB_API_URL"} {
-		old, had := os.LookupEnv(name)
-		os.Unsetenv(name)
-		if had {
-			t.Cleanup(func() { os.Setenv(name, old) })
+		t.Setenv(name, "") // restored after the test
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatal(err)
 		}
 	}
 

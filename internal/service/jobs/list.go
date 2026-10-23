@@ -230,7 +230,7 @@ func (s *Store) List(ctx context.Context, workspaces []string, f ListFilter) (Pa
 	for rows.Next() {
 		var j jobRow
 		if err := j.scan(rows); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return page, fmt.Errorf("list of jobs: %w", err)
 		}
 		found = append(found, j)

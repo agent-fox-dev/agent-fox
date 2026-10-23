@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -133,7 +135,7 @@ func serve(ctx context.Context, configPath string, logger *slog.Logger, listen l
 	// The queue starts once the address is bound, so that a start that fails on the
 	// address writes its one record and no other.
 	if err := jobService.Start(); err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return startFailed(logger, exitInvalid, err)
 	}
 	logger.Info("listening", "addr", ln.Addr().String())
@@ -162,7 +164,9 @@ func serve(ctx context.Context, configPath string, logger *slog.Logger, listen l
 		logger.Warn("requests in flight did not finish within the grace period", "error", err.Error())
 		_ = srv.Close()
 	}
-	<-serving
+	if err := <-serving; !errors.Is(err, http.ErrServerClosed) {
+		logger.Warn("the listener ended with an error other than the shutdown", "error", err.Error())
+	}
 	return exitStopped
 }
 

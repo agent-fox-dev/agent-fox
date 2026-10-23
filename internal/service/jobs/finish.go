@@ -193,11 +193,11 @@ func writePrivate(path string, data []byte) error {
 	}
 	defer os.Remove(tmp.Name())
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {

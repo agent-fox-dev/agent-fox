@@ -454,7 +454,9 @@ func TestAJobShowsItsAttemptsInOrderWithTheirTriggersAnswersAndCounts_TS_12_14(t
 	}
 	raw, _ := json.Marshal(doc.Attempts[1])
 	var fields map[string]json.RawMessage
-	json.Unmarshal(raw, &fields)
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
 	for _, f := range []string{"n", "state", "trigger", "answer", "deliveries", "transient_failures", "status", "exit_code", "summary", "error", "usage", "started_at", "finished_at"} {
 		if _, ok := fields[f]; !ok {
 			t.Errorf("the document of an attempt has no field %s: %s", f, raw)

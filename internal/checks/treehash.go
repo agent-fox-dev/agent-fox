@@ -94,7 +94,7 @@ func field(h hash.Hash, s string) {
 	var n [8]byte
 	binary.BigEndian.PutUint64(n[:], uint64(len(s)))
 	h.Write(n[:])
-	io.WriteString(h, s)
+	_, _ = io.WriteString(h, s)
 }
 
 // executable is the executable bit of mode, as git keeps it: the owner's.

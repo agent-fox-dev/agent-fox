@@ -185,7 +185,7 @@ func (s *Store) run(ctx context.Context, jobID string, fn func(x *txn) error) er
 	}
 	x := &txn{Tx: tx, s: s, jobID: jobID}
 	if err := fn(x); err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		return err
 	}
 	if err := tx.Commit(); err != nil {

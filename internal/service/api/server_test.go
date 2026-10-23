@@ -296,7 +296,7 @@ func TestAPanicAfterTheResponseStartedIsRecoveredToo(t *testing.T) {
 	h := newHarness(t, func(mux *http.ServeMux, _ *server) {
 		mux.HandleFunc("GET /late", func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusAccepted)
-			io.WriteString(w, "partial")
+			_, _ = io.WriteString(w, "partial")
 			panic("late")
 		})
 	})
@@ -433,7 +433,7 @@ func TestTheBodyHelperRefusesWhatItShouldBeforeAnyWrite(t *testing.T) {
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{"hub_token": body.HubToken})
+			_ = json.NewEncoder(w).Encode(map[string]string{"hub_token": body.HubToken})
 		})
 	})
 	put := func(contentType, body string) response {
@@ -543,7 +543,7 @@ func TestNoCredentialOrBodyIsEverLogged(t *testing.T) {
 		mux.HandleFunc("PUT /echo", func(w http.ResponseWriter, r *http.Request) {
 			var body echoBody
 			if decodeBody(w, r, &body) {
-				io.WriteString(w, "response-body-5d2")
+				_, _ = io.WriteString(w, "response-body-5d2")
 			}
 		})
 		mux.HandleFunc("GET /boom", func(http.ResponseWriter, *http.Request) { panic("boom") })
