@@ -62,7 +62,7 @@
       "done_when": [
         "internal/hub/calls_test.go field-name walk still passes"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
