@@ -53,33 +53,21 @@ type Credential struct {
 // ~/.af/config.toml, where home gives the home directory (os.UserHomeDir for nil). Every
 // other key of the file is ignored.
 func LoadCredential(home func() (string, error)) (Credential, error) {
-	if home == nil {
-		home = os.UserHomeDir
-	}
-	dir, err := home()
+	path, err := credentialPath(home)
 	if err != nil {
-		path := "~/" + filepath.ToSlash(CredentialFile)
-		return Credential{}, &CredentialError{Kind: CredentialIO, Path: path,
-			Message: fmt.Sprintf("the home directory cannot be found, so %s cannot be read: %v", path, err)}
+		return Credential{}, err
 	}
-	path := filepath.Join(dir, CredentialFile)
-	data, err := os.ReadFile(path)
+	data, rerr := os.ReadFile(path)
 	switch {
-	case errors.Is(err, fs.ErrNotExist):
+	case errors.Is(rerr, fs.ErrNotExist):
 		return Credential{}, noCredential(path, "does not exist")
-	case err != nil:
-		return Credential{}, &CredentialError{Kind: CredentialIO, Path: path, Message: fmt.Sprintf("cannot read the credential file %s: %v", path, err)}
+	case rerr != nil:
+		return Credential{}, &CredentialError{Kind: CredentialIO, Path: path, Message: fmt.Sprintf("cannot read the credential file %s: %v", path, rerr)}
 	}
 
 	var doc map[string]any
 	if _, err := toml.Decode(string(data), &doc); err != nil {
-		// The message of the parser can quote what it read, so only the line is given.
-		where := ""
-		var perr toml.ParseError
-		if errors.As(err, &perr) && perr.Position.Line > 0 {
-			where = fmt.Sprintf(" (line %d)", perr.Position.Line)
-		}
-		return Credential{}, &CredentialError{Kind: CredentialConfig, Path: path, Message: fmt.Sprintf("the credential file %s does not parse as TOML%s", path, where)}
+		return Credential{}, parseError(path, err)
 	}
 	token, ok := doc[tokenKey].(string)
 	if !ok {
@@ -106,4 +94,30 @@ func LoadCredential(home func() (string, error)) (Credential, error) {
 func noCredential(path, what string) error {
 	return &CredentialError{Kind: CredentialAuth, Path: path,
 		Message: fmt.Sprintf("the credential file %s %s; run `af login --token-file FILE` or `afc login` to store a credential", path, what)}
+}
+
+// credentialPath is the credential file of the home directory that home gives (os.UserHomeDir
+// for nil). A home that cannot be found is a CredentialIO error that names ~/.af/config.toml.
+func credentialPath(home func() (string, error)) (string, error) {
+	if home == nil {
+		home = os.UserHomeDir
+	}
+	dir, err := home()
+	if err != nil {
+		path := "~/" + filepath.ToSlash(CredentialFile)
+		return "", &CredentialError{Kind: CredentialIO, Path: path,
+			Message: fmt.Sprintf("the home directory cannot be found, so %s cannot be read: %v", path, err)}
+	}
+	return filepath.Join(dir, CredentialFile), nil
+}
+
+// parseError is the error for a credential file that does not parse as TOML. The message of
+// the parser can quote what it read, so only the line is given.
+func parseError(path string, err error) error {
+	where := ""
+	var perr toml.ParseError
+	if errors.As(err, &perr) && perr.Position.Line > 0 {
+		where = fmt.Sprintf(" (line %d)", perr.Position.Line)
+	}
+	return &CredentialError{Kind: CredentialConfig, Path: path, Message: fmt.Sprintf("the credential file %s does not parse as TOML%s", path, where)}
 }

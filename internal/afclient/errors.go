@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
 )
 
 // The categories of an Error. They are the strings of the categories that the commands give
@@ -142,8 +143,12 @@ func transportError(server Server, err error) *Error {
 	if errors.As(err, &ue) {
 		err = ue.Err
 	}
+	cause := err.Error()
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		cause = "nothing is listening there"
+	}
 	return &Error{
 		Category: CategoryService, Retryable: true,
-		Message: fmt.Sprintf("the service at %s (given by %s) cannot be reached: %v", server.URL, server.Source, err),
+		Message: fmt.Sprintf("the service at %s (given by %s) cannot be reached: %s", server.URL, server.Source, cause),
 	}
 }

@@ -73,9 +73,7 @@ func connect(r *toolio.Run, app *toolio.App, server *serverFlag, local bool) (*a
 	if err != nil {
 		return nil, serverFailure(err, local)
 	}
-	if srv.Insecure() {
-		r.Warn(warnServerInsecure, fmt.Sprintf("the server %s is plain http and is not on this machine, so the hub credential crosses the link in clear; use an https URL", srv.URL))
-	}
+	warnInsecure(r, srv)
 	cred, err := afclient.LoadCredential(nil)
 	if err != nil {
 		return nil, credentialFailure(err)
@@ -83,10 +81,22 @@ func connect(r *toolio.Run, app *toolio.App, server *serverFlag, local bool) (*a
 	if cred.Loose {
 		r.Warn(warnCredentialFilePermissions, fmt.Sprintf("the credential file %s has a group or other permission bit set; restrict it with chmod 600", cred.Path))
 	}
+	return newClient(app, srv, cred.Token), nil
+}
+
+// warnInsecure raises the warning for a server that is plain http and not on this machine.
+func warnInsecure(r *toolio.Run, srv afclient.Server) {
+	if srv.Insecure() {
+		r.Warn(warnServerInsecure, fmt.Sprintf("the server %s is plain http and is not on this machine, so the hub credential crosses the link in clear; use an https URL", srv.URL))
+	}
+}
+
+// newClient is the client of srv that sends token. Its User-Agent is af/ and the version of the build.
+func newClient(app *toolio.App, srv afclient.Server, token string) *afclient.Client {
 	ver, _ := app.Identity()
-	client := afclient.New(srv, cred.Token, "af/"+ver, httpTransport)
+	client := afclient.New(srv, token, "af/"+ver, httpTransport)
 	client.Clock = clientClock
-	return client, nil
+	return client
 }
 
 // noServerFailure is the usage failure for a service command that names no server. local says
@@ -133,6 +143,18 @@ func credentialFailure(err error) error {
 	return f
 }
 
+// secretFailure is the failure for a secret (a credential or a token) that cannot be read or used.
+func secretFailure(err error) error {
+	var se *afclient.SecretError
+	if !errors.As(err, &se) {
+		return &toolio.Failure{Category: toolio.CategoryInternal, Message: err.Error()}
+	}
+	if se.Kind == afclient.SecretContent {
+		return &toolio.Failure{Category: toolio.CategoryUsage, Message: se.Message}
+	}
+	return &toolio.Failure{Category: toolio.CategoryIO, Message: se.Message}
+}
+
 // requestFailure is the failure for a request that did not end in a 2xx answer: the category,
 // message, retryable flag and fix hint of the answer. A request that the shell stopped, by a
 // signal or by --timeout, is left to the shell.
@@ -151,3 +173,7 @@ func requestFailure(err error) error {
 // clientClock is the clock of the requests the client commands make; nil is the system's. The
 // tests replace it.
 var clientClock afclient.Clock
+
+// credentialFS is the file system af login writes the credential file to; nil is the operating
+// system's. The tests replace it.
+var credentialFS afclient.FS

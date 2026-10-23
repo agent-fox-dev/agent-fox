@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["credential_file", "server"],
+  "description": "Where the credential was stored and the service it was checked with. The credential is never in the result.",
+  "properties": {
+    "credential_file": { "type": "string", "description": "The credential file, ~/.af/config.toml, as an absolute path." },
+    "server": { "type": "string", "description": "The URL of the agent-fox service that accepted the credential." }
+  }
+}

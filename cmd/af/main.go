@@ -37,5 +37,6 @@ func newApp() *toolio.App {
 
 // registerClient registers the commands of the service client on app.
 func registerClient(app *toolio.App) {
+	registerLogin(app)
 	registerWorkspaceList(app)
 }

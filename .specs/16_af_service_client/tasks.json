@@ -169,7 +169,7 @@
       "done_when": [
         "a 401 or 502 on the check leaves ~/.af/config.toml byte-identical or absent"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 4,
