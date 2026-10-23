@@ -139,7 +139,9 @@ func TestARequestIsCutAtTwoMinutesOrAtTheTimeoutAndABodyAtEightMiB_TS_16_39(t *t
 
 	t.Run("two minutes without --timeout", func(t *testing.T) {
 		release := make(chan struct{})
+		arrived := make(chan struct{}, 1)
 		svc := ready(t, func(w http.ResponseWriter, r *http.Request) {
+			arrived <- struct{}{}
 			select {
 			case <-release:
 			case <-r.Context().Done():
@@ -154,6 +156,11 @@ func TestARequestIsCutAtTwoMinutesOrAtTheTimeoutAndABodyAtEightMiB_TS_16_39(t *t
 		}
 		if w := clk.Waits()[0]; w != 2*time.Minute {
 			t.Errorf("the bound is %s, want 2m0s", w)
+		}
+		select { // the bound is moved once the request has reached the service
+		case <-arrived:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the request did not reach the service")
 		}
 		clk.Advance(2 * time.Minute)
 		res := wait()

@@ -390,6 +390,9 @@ func TestFailedTriesCountByCauseAndTheDelayBeforeATryIs1_2_4_8SecondsOr1AfterAnE
 			if !clk.WaitForWait(IdleCut, i, 10*time.Second) {
 				t.Fatalf("try %d: no idle watch was started", i)
 			}
+			for deadline := time.Now().Add(10 * time.Second); len(s.requests()) < 2*i-1 && time.Now().Before(deadline); { // the request reached the service
+				time.Sleep(time.Millisecond)
+			}
 			clk.Advance(IdleCut)
 		}
 		select {
