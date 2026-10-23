@@ -71,27 +71,13 @@ func jobsWatch(r *toolio.Run, app *toolio.App, since int64, server *serverFlag) 
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
-	srv := client.Server()
-	r.Artifact(jobArtifact(srv, id))
+	r.Artifact(jobArtifact(client.Server(), id))
 
-	rest, err := client.Follow(r.Ctx, id, since, func(ev afclient.Event) { echoEvent(r, ev) })
-	if err != nil {
-		return toolio.Outcome{}, followFailure(r, srv, id, err)
-	}
-	var job struct {
-		State string `json:"state"`
-	}
-	_ = json.Unmarshal(rest.Job, &job)
-	return toolio.Outcome{
-		Status:  toolio.StatusDone,
-		Summary: fmt.Sprintf("the job %s is at rest: %s", id, job.State),
-		Result:  jobResult{Job: rest.Job, Envelope: nullEnvelope},
-	}, nil
+	return followJob(r, client, id, since, true)
 }
 
-// echoEvent emits an event of the job as job_event and writes it to stderr as one line of compact JSON.
+// echoEvent writes an event of the job to stderr as one line of compact JSON.
 func echoEvent(r *toolio.Run, ev afclient.Event) {
-	r.Emit("job_event", ev.Document)
 	var line bytes.Buffer
 	if err := json.Compact(&line, ev.Document); err != nil {
 		return

@@ -41,6 +41,10 @@ func streaming(frames []string, job string) http.HandlerFunc {
 			}
 			return
 		}
+		if strings.Contains(r.URL.Path, "/attempts/") { // the attempt has no stored envelope
+			answering(404, `{"error":{"code":"not_found","message":"no such envelope"}}`)(w, r)
+			return
+		}
 		answering(200, job)(w, r)
 	}
 }

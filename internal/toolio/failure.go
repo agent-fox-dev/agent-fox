@@ -77,4 +77,7 @@ type Outcome struct {
 type Question struct {
 	Text    string
 	Options []string
+	// ResumeArgv, when it is not empty, is the argv of needs_human.resume in place of the
+	// invocation as it was received.
+	ResumeArgv []string
 }

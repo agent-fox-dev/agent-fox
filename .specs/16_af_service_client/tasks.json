@@ -249,7 +249,7 @@
       "done_when": [
         "a blocked job's needs_human resume.argv is exactly [\"af\",\"jobs\",\"answer\",<id>,\"--wait\"] with flag --context"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 6,

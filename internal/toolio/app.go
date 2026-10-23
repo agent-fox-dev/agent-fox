@@ -767,11 +767,15 @@ func checkOutcome(o Outcome) string {
 }
 
 // newNeedsHuman is the envelope's needs_human for q: the options lettered in
-// order, and the invocation to re-run with an answer.
+// order, and the invocation to re-run with an answer, which is the question's own
+// ResumeArgv when it has one.
 func newNeedsHuman(q *Question, argv []string) *NeedsHuman {
 	options := make([]Option, len(q.Options))
 	for i, label := range q.Options {
 		options[i] = Option{ID: string(rune('A' + i)), Label: label}
+	}
+	if len(q.ResumeArgv) > 0 {
+		argv = q.ResumeArgv
 	}
 	return &NeedsHuman{
 		Question: q.Text,
