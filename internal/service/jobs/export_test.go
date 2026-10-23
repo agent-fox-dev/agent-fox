@@ -38,3 +38,7 @@ func (s *Service) RegisterRun(id string, attempt int) (forget func()) {
 	s.mu.Unlock()
 	return func() { s.forget(run) }
 }
+
+// AfterLook sets what is called after the cancel of an open job has looked at its state and before it cancels it; for the
+// tests of a job that changes state in that moment.
+func (s *Service) AfterLook(fn func(id string, state State)) { s.afterLook = fn }

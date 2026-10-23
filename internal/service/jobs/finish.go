@@ -119,7 +119,7 @@ func (s *Service) envelopeOf(req Request, out called, cause error) (toolio.Envel
 		return synth(toolio.ErrorInfo{Category: toolio.CategoryInternal, Message: "the runner panicked"})
 	case out.err != nil && IsCancel(cause):
 		// It returned after a cancel without an envelope.
-		return synth(toolio.ErrorInfo{Category: toolio.CategoryCancelled, Message: "the job was cancelled"})
+		return synth(toolio.ErrorInfo{Category: toolio.CategoryCancelled, Message: cancelMessage(cause)})
 	case out.err != nil:
 		if failure, ok := errors.AsType[*toolio.Failure](out.err); ok {
 			return synth(toolio.ErrorInfo{Category: failure.Category, Message: failure.Message, Retryable: failure.Retryable, FixHint: failure.FixHint})
@@ -128,7 +128,7 @@ func (s *Service) envelopeOf(req Request, out called, cause error) (toolio.Envel
 	}
 	env, problem := parseEnvelope(out.res.Envelope)
 	if problem != "" && IsCancel(cause) {
-		return synth(toolio.ErrorInfo{Category: toolio.CategoryCancelled, Message: "the job was cancelled"})
+		return synth(toolio.ErrorInfo{Category: toolio.CategoryCancelled, Message: cancelMessage(cause)})
 	}
 	if problem != "" {
 		s.log.Warn("the runner returned an envelope that cannot be used", "job", req.JobID, "attempt", req.Attempt, "problem", problem)

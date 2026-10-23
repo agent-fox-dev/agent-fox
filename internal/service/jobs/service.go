@@ -93,6 +93,8 @@ type Service struct {
 
 	cleaner  Cleaner
 	cleanups cleanups
+
+	afterLook func(id string, state State)
 }
 
 // parkedWorkers is how many more workers the queue has than there are slots.

@@ -160,3 +160,24 @@ func (r *Records) Delete(ctx context.Context, id int64) error {
 	_, err := r.exec(ctx, "DELETE FROM af_poll_requests WHERE id = ?", id)
 	return err
 }
+
+// TakeEvent records that the event of the workspace with the id was acted on, at the time.
+func (r *Records) TakeEvent(ctx context.Context, workspace, id string, at time.Time) error {
+	_, err := r.exec(ctx, "INSERT OR IGNORE INTO af_hub_events (workspace, event_id, taken_at) VALUES (?, ?, ?)", workspace, id, formatTime(at))
+	return err
+}
+
+// EventTaken says whether the event of the workspace with the id was acted on.
+func (r *Records) EventTaken(ctx context.Context, workspace, id string) (bool, error) {
+	var taken bool
+	err := r.db.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM af_hub_events WHERE workspace = ? AND event_id = ?)", workspace, id).Scan(&taken)
+	if err != nil {
+		return false, fmt.Errorf("hub events: %w", err)
+	}
+	return taken, nil
+}
+
+// ExpireEvents deletes the ids of the events that were taken before the time, and returns how many it deleted.
+func (r *Records) ExpireEvents(ctx context.Context, before time.Time) (int, error) {
+	return r.exec(ctx, "DELETE FROM af_hub_events WHERE taken_at < ?", formatTime(before))
+}

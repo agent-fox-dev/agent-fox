@@ -136,4 +136,16 @@ var migrations = []string{
 	`ALTER TABLE af_jobs ADD COLUMN cleanup TEXT CHECK (cleanup IN ('pending', 'done', 'label_not_set'));
 	ALTER TABLE af_jobs ADD COLUMN cleanup_wanted INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE af_jobs ADD COLUMN cleanup_warned INTEGER NOT NULL DEFAULT 0`,
+
+	// 8: the ids of hub's events that the event stream acted on, by workspace, with the time each was taken, so that an
+	// event delivered again is not acted on twice; the stream's scan deletes the ids of more than 7 days. And the cause of a
+	// job's cancel: cancelled (a person), unsubscribed, or issue_closed; NULL for a job not cancelled, or cancelled before.
+	`CREATE TABLE af_hub_events (
+		workspace TEXT NOT NULL,
+		event_id  TEXT NOT NULL,
+		taken_at  TEXT NOT NULL,
+		PRIMARY KEY (workspace, event_id)
+	) WITHOUT ROWID;
+	CREATE INDEX af_hub_events_by_taken ON af_hub_events (taken_at);
+	ALTER TABLE af_jobs ADD COLUMN cancel_cause TEXT`,
 }
