@@ -709,3 +709,49 @@ func TestACancelThatReachesARunnerWithAHubSessionGetsNoCleanup_TS_17_31(t *testi
 		})
 	}
 }
+
+// TestWithHubUnavailableTheUnsubscribeStopsWaitingAfterTheGraceAndTheNextTryEndsLabelNotSet_TS_17_57 verifies TS-17-57.
+// Verifies: 17-REQ-9.3, 17-REQ-9.4
+func TestWithHubUnavailableTheUnsubscribeStopsWaitingAfterTheGraceAndTheNextTryEndsLabelNotSet_TS_17_57(t *testing.T) {
+	clk := fakeclock.New(epoch)
+	e := newEnv(t)
+	svc := e.cleanService(fakerunner.New(needsHumanStep()), clk)
+	if err := svc.Start(); err != nil {
+		t.Fatal(err)
+	}
+	job := blockedOn(t, svc, 42)
+	e.Hub.Inject("", "/api/v1/workspaces/widgets/*", fakehub.Fault{Delay: time.Hour}) // hub does not answer
+	waits := len(clk.Waits())
+	returned := make(chan error, 1)
+	go func() {
+		returned <- svc.Unsubscribe(ctx, "widgets", func() error { _, err := e.Store.Delete(ctx, "widgets"); return err })
+	}()
+	waitFor(t, "the first try", func() bool { return svc.CleanupsInFlight() == 1 })
+	clk.WaitForWaits(waits+2, 10*time.Second) // the try's bound and the unsubscribe's wait
+	select {
+	case err := <-returned:
+		t.Fatalf("the unsubscribe returned before the grace was over (%v)", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	clk.Advance(60 * time.Second)
+	select {
+	case err := <-returned:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the unsubscribe did not return once the grace was over")
+	}
+	if _, err := e.Store.Get(ctx, "widgets"); err == nil {
+		t.Error("the subscription is still there")
+	}
+	// The first try ran out of its minute with the grace; the minute's sweep, or the next, tries again.
+	waitFor(t, "the first try to end", func() bool { return svc.CleanupsInFlight() == 0 })
+	e.Hub.Clear()
+	before := len(e.issueRequests())
+	clk.Advance(time.Minute)
+	waitFor(t, "the next try", func() bool { return e.cleanupIn(job.ID) == "label_not_set" })
+	if w := e.issueRequests()[before:]; len(w) != 0 {
+		t.Errorf("the next try sent %v, want nothing for a workspace no longer subscribed", w)
+	}
+}

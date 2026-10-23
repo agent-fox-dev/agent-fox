@@ -93,7 +93,14 @@ type attemptRun struct {
 	// overran is set when the attempt was recorded cancelled without its runner, so
 	// that what the runner returns later is dropped.
 	overran atomic.Bool
+	// done is closed when the handler is through with what the runner returned: the
+	// attempt is recorded, and a cancel cleanup it marked has its first try started.
+	done     chan struct{}
+	doneOnce sync.Once
 }
+
+// handled says that the handler is through with what the runner returned.
+func (r *attemptRun) handled() { r.doneOnce.Do(func() { close(r.done) }) }
 
 // settle says that the attempt is no longer in the hands of its runner, as far as the
 // jobs are concerned.
@@ -220,17 +227,19 @@ func (s *Service) attempt(ctx context.Context, p attemptPayload) (any, bool, err
 			return nil, true, err
 		}
 
-		req, out, cause, overran, err := s.invoke(ctx, p)
+		req, out, cause, overran, run, err := s.invoke(ctx, p)
 		if err == nil {
 			switch {
 			case overran:
 				// The attempt was recorded cancelled when the grace ran out; what its runner
 				// returned now is dropped.
+				run.handled()
 				s.release()
 				return nil, false, nil
 			case errors.Is(cause, ErrShutdown):
 				// The attempt was stopped so that it can go on after the restart: what the
 				// runner returned is not what the attempt came to.
+				run.handled()
 				s.release()
 				return nil, true, errHandedBack
 			case IsTransient(out.err) && !IsCancel(cause):
@@ -238,6 +247,7 @@ func (s *Service) attempt(ctx context.Context, p attemptPayload) (any, bool, err
 				wake := s.watchWait(key)
 				var wait time.Duration
 				if wait, err = s.transient(ctx, req, out); err == nil && wait > 0 {
+					run.handled()
 					s.release()
 					ok := s.pause(wait, wake)
 					s.unwatchWait(key)
@@ -251,6 +261,7 @@ func (s *Service) attempt(ctx context.Context, p attemptPayload) (any, bool, err
 				err = s.finish(ctx, req, out, false, cause)
 			}
 		}
+		run.handled()
 		s.release()
 		if err != nil {
 			s.log.Warn("an attempt could not be ended or started; the queue will hand it over again",
@@ -285,11 +296,11 @@ func (s *Service) transient(ctx context.Context, req Request, out called) (time.
 // and whether the attempt was recorded cancelled without the runner in the meantime. The
 // attempt is known to the layer before its request is read, so that a cancel is either
 // seen by the read or finds the attempt: a runner is not called for a job that is cancelled.
-func (s *Service) invoke(ctx context.Context, p attemptPayload) (req Request, out called, cause error, overran bool, err error) {
+func (s *Service) invoke(ctx context.Context, p attemptPayload) (req Request, out called, cause error, overran bool, run *attemptRun, err error) {
 	rctx, cancel := context.WithCancelCause(context.Background())
-	run := &attemptRun{
+	run = &attemptRun{
 		key: attemptKey{p.JobID, p.Attempt}, cancel: cancel, recorder: newRecorder(s.store, s.log, p.JobID, p.Attempt),
-		returned: make(chan struct{}), settled: make(chan struct{}),
+		returned: make(chan struct{}), settled: make(chan struct{}), done: make(chan struct{}),
 	}
 	s.mu.Lock()
 	s.inflight[run.key] = run
@@ -300,21 +311,21 @@ func (s *Service) invoke(ctx context.Context, p attemptPayload) (req Request, ou
 	}
 
 	if err := s.store.fails(OpInvoke); err != nil {
-		return req, out, nil, false, err
+		return req, out, nil, false, run, err
 	}
 	req, err = s.store.RunRequest(ctx, p.JobID, p.Attempt)
 	if err != nil {
-		return req, out, nil, false, err
+		return req, out, nil, false, run, err
 	}
 	run.workspace = req.Workspace
 	req.Dir = filepath.Join(s.attemptsDir, p.JobID, strconv.Itoa(p.Attempt))
 	if err := makeDir(req.Dir); err != nil {
-		return req, out, nil, false, err
+		return req, out, nil, false, run, err
 	}
 	req.Recorder = run.recorder
 	state, err := s.store.JobState(ctx, p.JobID)
 	if err != nil {
-		return req, out, nil, false, err
+		return req, out, nil, false, run, err
 	}
 	if state == StateCancelled {
 		cancel(ErrCancelled)
@@ -324,11 +335,11 @@ func (s *Service) invoke(ctx context.Context, p attemptPayload) (req Request, ou
 		out = called{err: why} // stopped before it began: the runner is not called
 	} else {
 		if err := s.store.MarkInRunner(ctx, p.JobID, p.Attempt); err != nil {
-			return req, out, nil, false, err
+			return req, out, nil, false, run, err
 		}
 		out = s.callRunner(rctx, req)
 	}
-	return req, out, context.Cause(rctx), run.overran.Load(), nil
+	return req, out, context.Cause(rctx), run.overran.Load(), run, nil
 }
 
 // forget takes the attempt out of the runners: its recorder ends, its context is released,

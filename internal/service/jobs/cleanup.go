@@ -169,6 +169,16 @@ func (s *Service) noteCleanup(ctx context.Context, id string, req CleanupRequest
 	}
 }
 
+// tryOf is what is closed when the job's try in flight ends, or nil when none is in flight.
+func (s *Service) tryOf(id string) <-chan struct{} {
+	s.cleanups.mu.Lock()
+	defer s.cleanups.mu.Unlock()
+	if done, ok := s.cleanups.tries[id]; ok {
+		return done
+	}
+	return nil
+}
+
 // tryInFlight says that a try of the job's cleanup is in flight.
 func (s *Service) tryInFlight(id string) bool {
 	s.cleanups.mu.Lock()
