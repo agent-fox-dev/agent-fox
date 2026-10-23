@@ -43,15 +43,22 @@ func request(workspace string, l *listing, n int) jobs.CreateRequest {
 // decides:
 //
 //  1. an open job of the kind for the issue absorbs the label: it is removed and no job is made;
-//  2. the removal of the label from the issue is still owed, for a job the poll made or for a label it absorbed: it is
+//  2. a hold on the label for the issue is in place, because a job the poll made was cancelled while its attempt was in a
+//     runner and the worker put the label back: nothing is done, and the label stays until a person asks again;
+//  3. the removal of the label from the issue is still owed, for a job the poll made or for a label it absorbed: it is
 //     removed and no job is made;
-//  3. otherwise it is a new request, and a job is made.
+//  4. otherwise it is a new request, and a job is made.
 func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
 	recs, err := c.s.records.Find(ctx, c.slug, n, l.Label)
 	if err != nil {
 		c.s.cfg.Logger.Warn("the records of a request label could not be read, so the cycle ends and the label stays",
 			"workspace", c.slug, "issue", n, "label", l.Label, "error", err.Error())
 		return false
+	}
+	// A job may have been cancelled since the cycle began, and its cleanup may have put the label back: the records of
+	// this label are brought up to date once more before it is taken for a new request.
+	for i := range recs {
+		recs[i] = c.s.note(ctx, recs[i])
 	}
 	open, err := c.s.cfg.Jobs.OpenJob(ctx, c.slug, l.Kind, int64(n))
 	switch {
@@ -61,6 +68,9 @@ func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
 		c.s.cfg.Logger.Warn("the open job of an issue could not be looked up, so the cycle ends and the label stays",
 			"workspace", c.slug, "kind", l.Kind, "issue", n, "label", l.Label, "error", err.Error())
 		return false
+	}
+	if slices.ContainsFunc(recs, func(r Record) bool { return r.Seen == SeenHolding }) {
+		return true
 	}
 	if slices.ContainsFunc(recs, func(r Record) bool { return r.Owed }) {
 		return c.retake(ctx, l, n)
@@ -100,8 +110,10 @@ func (c *cycleRun) retake(ctx context.Context, l *listing, n int) bool {
 	return true
 }
 
-// settle settles the removals that are owed for the label when the listing is complete: an issue that the listing does
-// not contain does not carry the label, whoever took it off, so nothing is owed for it.
+// settle uses a listing that is complete, which holds every issue that carries the label. An issue that it does not
+// contain does not carry the label, whoever took it off, so nothing is owed for it, and a hold on the label for it is
+// released, provided the listing was requested at least the release delay after the release clock of the hold started:
+// until then the runner may still be writing the label, and the forge's list may not show a label just put back yet.
 func (c *cycleRun) settle(ctx context.Context, l *listing) {
 	recs, err := c.s.records.ForWorkspace(ctx, c.slug)
 	if err != nil {
@@ -111,7 +123,13 @@ func (c *cycleRun) settle(ctx context.Context, l *listing) {
 	}
 	settled := map[int]bool{}
 	for _, r := range recs {
-		if r.Label != l.Label || !r.Owed || settled[r.Issue] || slices.Contains(l.Issues, r.Issue) {
+		if r.Label != l.Label || slices.Contains(l.Issues, r.Issue) {
+			continue
+		}
+		if r.Seen == SeenHolding && !r.ReleaseClock.IsZero() && !l.Requested.Before(r.ReleaseClock.Add(c.s.cfg.ReleaseDelay)) {
+			c.s.see(ctx, r, SeenEnded)
+		}
+		if !r.Owed || settled[r.Issue] {
 			continue
 		}
 		settled[r.Issue] = true

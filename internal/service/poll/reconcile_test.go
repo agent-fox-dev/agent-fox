@@ -55,7 +55,7 @@ func TestACycleReconcilesItsRecordsWithTheirJobsBeforeAnyHubRequestEnabledOrNot_
 	if _, err := e.Jobs.Cancel(ctx, cancelledInRunner); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "its runner to return", func() bool { s, _ := e.Jobs.Standing(ctx, cancelledInRunner); return !s.RunnerInProgress })
+	e.runnerReturned(cancelledInRunner)
 	running := e.startedJob(jobs.KindFix, 6, "af:fix")
 	e.waitState(running, jobs.StateRunning)
 	queued := e.startedJob(jobs.KindFix, 7, "af:fix") // behind the running job

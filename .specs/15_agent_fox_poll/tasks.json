@@ -366,7 +366,7 @@
       "done_when": [
         "after a hold is released, adding the label again makes exactly one new job"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
