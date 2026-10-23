@@ -28,7 +28,8 @@ func (s *Service) Close() error {
 		run.cancel(ErrShutdown)
 	}
 	if !started {
-		return nil // there are no workers to wait for
+		s.loops.Wait() // the tries of cleanups, which are cut short; there are no workers to wait for
+		return nil
 	}
 
 	if len(runs) > 0 {

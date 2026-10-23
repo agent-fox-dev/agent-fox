@@ -169,6 +169,52 @@ func (s *Service) noteCleanup(ctx context.Context, id string, req CleanupRequest
 	}
 }
 
+// tryInFlight says that a try of the job's cleanup is in flight.
+func (s *Service) tryInFlight(id string) bool {
+	s.cleanups.mu.Lock()
+	defer s.cleanups.mu.Unlock()
+	_, ok := s.cleanups.tries[id]
+	return ok
+}
+
+// pendingCleanup is a cleanup that is pending, and when its job was cancelled.
+type pendingCleanup struct {
+	id, workspace string
+	cancelled     time.Time
+}
+
+// PendingCleanups are the cleanups that are pending, oldest cancel first.
+func (s *Store) PendingCleanups(ctx context.Context) ([]pendingCleanup, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT id, workspace, finished_at FROM af_jobs WHERE cleanup = 'pending' ORDER BY finished_at, id")
+	if err != nil {
+		return nil, fmt.Errorf("pending cleanups: %w", err)
+	}
+	defer rows.Close()
+	var out []pendingCleanup
+	for rows.Next() {
+		var p pendingCleanup
+		var finished sql.NullString
+		if err := rows.Scan(&p.id, &p.workspace, &finished); err != nil {
+			return nil, fmt.Errorf("pending cleanups: %w", err)
+		}
+		if p.cancelled, err = time.Parse(timeLayout, finished.String); err != nil {
+			return nil, fmt.Errorf("pending cleanup of %s: the cancel time %q: %w", p.id, finished.String, err)
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// AbandonCleanup ends a pending cleanup label_not_set, and says whether it did.
+func (s *Store) AbandonCleanup(ctx context.Context, id string) (bool, error) {
+	res, err := s.db.ExecContext(ctx, "UPDATE af_jobs SET cleanup = 'label_not_set' WHERE id = ? AND cleanup = 'pending'", id)
+	if err != nil {
+		return false, fmt.Errorf("cleanup of %s: %w", id, err)
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
 // MarkCleanup marks the cancel cleanup of a cancelled job pending, if it is wanted and not marked already, and says
 // whether it did.
 func (s *Store) MarkCleanup(ctx context.Context, id string) (bool, error) {

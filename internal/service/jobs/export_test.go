@@ -2,6 +2,9 @@ package jobs
 
 import "context"
 
+// MaxCleanupTries is how many tries of cleanups may be in flight at once.
+const MaxCleanupTries = maxTries
+
 // TryCleanup starts a try of the job's cancel cleanup, as the sweep does, unless one is in flight, and returns what is
 // closed when the try in flight ends; for the tests.
 func (s *Service) TryCleanup(id string) <-chan struct{} { return s.startTry(id) }
