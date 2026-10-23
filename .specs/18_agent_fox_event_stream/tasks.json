@@ -290,7 +290,7 @@
       "done_when": [
         "Supervisor.Stop leaves zero stream goroutines"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

@@ -12,8 +12,11 @@ const (
 	cycleLimit = 5 * time.Minute
 )
 
-// loop is the loop of one workspace: the function that ends it and the cycle it has in flight.
-type loop struct{ cancel context.CancelFunc }
+// loop is the loop of one workspace: the function that ends it, with the cycle it has in flight and its event stream.
+type loop struct {
+	cancel context.CancelFunc
+	stream *stream
+}
 
 // Start reads the subscriptions and starts one loop for each workspace that is subscribed, and then reads them every
 // scan period, so that a workspace that is subscribed later gets a loop and a workspace that is gone loses its loop and
@@ -63,8 +66,11 @@ func (s *Supervisor) Stop() {
 }
 
 // scan makes the loops those of the subscriptions: one for each workspace that is subscribed, none for a workspace that
-// is not, and the cycle in flight of a loop that is taken away is cancelled.
+// is not, and the cycle in flight and the event stream of a loop that is taken away are cancelled. A stream whose
+// subscription was replaced since it connected connects again with the token as it is now. The ids of hub's events that
+// were acted on more than 7 days ago are deleted.
 func (s *Supervisor) scan(ctx context.Context) {
+	s.expireEvents(ctx)
 	subs, err := s.cfg.Subscriptions.List(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -80,8 +86,10 @@ func (s *Supervisor) scan(ctx context.Context) {
 	}
 	for _, sub := range subs {
 		subscribed[sub.Slug] = true
-		if _, running := s.loops[sub.Slug]; !running {
+		if l, running := s.loops[sub.Slug]; !running {
 			s.startLoop(ctx, sub.Slug)
+		} else if l.stream != nil {
+			l.stream.replaced(sub.UpdatedAt)
 		}
 	}
 	for slug, l := range s.loops {
@@ -104,6 +112,7 @@ func (s *Supervisor) startLoop(ctx context.Context, slug string) {
 		defer s.wg.Done()
 		s.run(ctx, slug, l)
 	}()
+	s.startStream(ctx, slug, l)
 	s.cfg.Logger.Info("the poll started for a workspace", "workspace", slug)
 }
 

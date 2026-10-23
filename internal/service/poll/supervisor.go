@@ -81,6 +81,7 @@ type Supervisor struct {
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
 	inflight atomic.Int32
+	streams  atomic.Int32
 }
 
 // reconciler brings the records of the poll for a workspace up to date with their jobs, without a request of hub.
