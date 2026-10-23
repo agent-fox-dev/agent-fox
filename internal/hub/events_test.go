@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -269,4 +270,161 @@ func TestNoErrorOfTheEventsCallHoldsThePAT_TS_18_6(t *testing.T) {
 			}
 		}
 	}
+}
+
+// drain reads the stream to its end and returns its activities and the error it ended with.
+func drain(s *EventStream) ([]Activity, error) {
+	var out []Activity
+	for {
+		a, err := s.Next()
+		if err != nil {
+			return out, err
+		}
+		out = append(out, a)
+	}
+}
+
+// streamOf is a stream that reads the text.
+func streamOf(text string) *EventStream {
+	return newEventStream(io.NopCloser(strings.NewReader(text)), func() {})
+}
+
+// events are the events among the activities.
+func events(acts []Activity) []StreamEvent {
+	var out []StreamEvent
+	for _, a := range acts {
+		if a.Event != nil {
+			out = append(out, *a.Event)
+		}
+	}
+	return out
+}
+
+// TestTheFrameReaderFollowsSSERules_TS_18_7 verifies TS-18-7.
+// Verifies: 18-REQ-2.1
+func TestTheFrameReaderFollowsSSERules_TS_18_7(t *testing.T) {
+	text := "id: f1\r\nevent: audit_event\r\ndata: {\"event_type\":\"a\",\r\ndata: \"id\":\"e1\"}\r\n\r\n" + // CRLF, two data lines
+		": a comment\n\n" +
+		"event: heartbeat\n\n" + // a frame with no data
+		"id: f3\ndata: {\"event_type\":\"b\"}\n\n" +
+		"data: {\"event_type\":\"cut\"}\n" // not ended by an empty line
+	acts, err := drain(streamOf(text))
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("the read ended with %v, want io.EOF", err)
+	}
+	got := events(acts)
+	if len(got) != 2 || got[0].ID != "e1" || got[0].Type != "a" || got[1].ID != "f3" || got[1].Type != "b" {
+		t.Errorf("the events are %+v, want e1 (data joined across its lines) and f3 (the frame's id)", got)
+	}
+	comments := 0
+	for _, a := range acts {
+		if a.Comment {
+			comments++
+		}
+	}
+	if comments != 1 {
+		t.Errorf("%d comments, want 1", comments)
+	}
+	// The data lines are joined with a line break, which a JSON value may hold between its tokens.
+	if raw := frameData("data: x\ndata: y\n\n"); raw != "x\ny" {
+		t.Errorf("the data of two lines is %q, want %q", raw, "x\ny")
+	}
+}
+
+// frameData is the data of the first frame of the text.
+func frameData(text string) string {
+	s := streamOf(text)
+	f, _, err := s.frame()
+	if err != nil {
+		return "error: " + err.Error()
+	}
+	return f.data
+}
+
+// TestEveryFrameAndCommentIsActivity_TS_18_8 verifies TS-18-8.
+// Verifies: 18-REQ-2.2
+func TestEveryFrameAndCommentIsActivity_TS_18_8(t *testing.T) {
+	text := ": one\n\n:two\n\n" +
+		"data: {\"id\":\"e1\",\"event_type\":\"hub.forge.issue.labeled\"}\n\n" +
+		"data: hello\n\n" +
+		"data: [1,2]\n\n"
+	acts, err := drain(streamOf(text))
+	if !errors.Is(err, io.EOF) {
+		t.Fatal(err)
+	}
+	if len(acts) != 5 {
+		t.Errorf("%d activities, want 5", len(acts))
+	}
+	if got := events(acts); len(got) != 1 || got[0].ID != "e1" {
+		t.Errorf("the events are %+v, want the one object frame", got)
+	}
+}
+
+// TestEventDecodingAcceptsEveryEncoding_TS_18_9 verifies TS-18-9: hub's own shape (the audit event with metadata) and each
+// encoding the spec lists.
+// Verifies: 18-REQ-2.3
+func TestEventDecodingAcceptsEveryEncoding_TS_18_9(t *testing.T) {
+	cases := map[string]struct {
+		frame string
+		want  StreamEvent
+	}{
+		"hub's audit event": {
+			"event: audit_event\ndata: {\"id\":\"9f\",\"event_type\":\"hub.forge.issue.labeled\",\"resource_type\":\"issue\",\"resource_id\":\"42\",\"action\":\"labeled\",\"workspace\":\"widgets\",\"metadata\":{\"number\":42,\"label\":\"af:fix\",\"labels\":[\"af:fix\"]},\"timestamp\":\"2026-10-24T08:00:00Z\"}\n\n",
+			StreamEvent{ID: "9f", Type: "hub.forge.issue.labeled", Workspace: "widgets", Issue: 42, Label: "af:fix"},
+		},
+		"the frame's id and event": {
+			"id: f7\nevent: hub.forge.issue.closed\ndata: {\"payload\":{\"issue\":7}}\n\n",
+			StreamEvent{ID: "f7", Type: "hub.forge.issue.closed", Issue: 7},
+		},
+		"payload.issue.number and payload.label.name": {
+			"data: {\"id\":\"a\",\"event_type\":\"t\",\"workspace_slug\":\"gadgets\",\"payload\":{\"issue\":{\"number\":8},\"label\":{\"name\":\"af:triage\"}}}\n\n",
+			StreamEvent{ID: "a", Type: "t", Workspace: "gadgets", Issue: 8, Label: "af:triage"},
+		},
+		"payload.number and payload.label": {
+			"data: {\"id\":\"b\",\"event_type\":\"t\",\"payload\":{\"number\":9,\"label\":\"bug\"}}\n\n",
+			StreamEvent{ID: "b", Type: "t", Issue: 9, Label: "bug"},
+		},
+		"a resource id alone": {
+			"data: {\"id\":\"c\",\"event_type\":\"hub.forge.issue.closed\",\"resource_type\":\"issue\",\"resource_id\":\"11\"}\n\n",
+			StreamEvent{ID: "c", Type: "hub.forge.issue.closed", Issue: 11},
+		},
+		"nothing about an issue": {
+			"event: heartbeat\ndata: {\"timestamp\":\"2026-10-24T08:00:00Z\"}\n\n",
+			StreamEvent{Type: "heartbeat"},
+		},
+	}
+	for name, c := range cases {
+		acts, _ := drain(streamOf(c.frame))
+		got := events(acts)
+		if len(got) != 1 || got[0] != c.want {
+			t.Errorf("%s: %+v, want %+v", name, got, c.want)
+		}
+	}
+}
+
+// TestALineOverOneMiBEndsTheRead_TS_18_10 verifies TS-18-10.
+// Verifies: 18-REQ-2.4
+func TestALineOverOneMiBEndsTheRead_TS_18_10(t *testing.T) {
+	text := "data: {\"id\":\"first\"}\n\n" + "data: " + strings.Repeat("x", 1<<20+1) + "\n\n" + "data: {\"id\":\"later\"}\n\n"
+	acts, err := drain(streamOf(text))
+	if err == nil || errors.Is(err, io.EOF) {
+		t.Errorf("the read ended with %v, want an error", err)
+	}
+	if got := events(acts); len(got) != 1 || got[0].ID != "first" {
+		t.Errorf("the events are %+v, want the first only", got)
+	}
+}
+
+// TestHubsFieldNamesStayInTheHubPackage_TS_18_11 verifies TS-18-11: the walk of TS-13-19 finds hub's field names in no
+// non-test Go file outside internal/hub, and the decoding of the stream, which names them, is in it.
+// Verifies: 18-REQ-2.5
+func TestHubsFieldNamesStayInTheHubPackage_TS_18_11(t *testing.T) {
+	data, err := os.ReadFile("events.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"event_type"`) {
+		t.Fatal("events.go does not decode event_type, so the walk proves nothing about it")
+	}
+	t.Run("TS-13-19", TestBothEncodingsOfTheResolvedVariablesDecodeToTheSameMap_TS_13_19)
 }

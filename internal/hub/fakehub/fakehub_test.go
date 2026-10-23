@@ -1,6 +1,7 @@
 package fakehub
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -235,5 +236,174 @@ func TestFakehubNeverEchoesATokenInABody(t *testing.T) {
 				t.Errorf("GET %s with %s answered %q, which holds the token", path, token, body)
 			}
 		}
+	}
+}
+
+// eventsConn is a connection to the events route of the fake hub, read line by line.
+type eventsConn struct {
+	resp  *http.Response
+	lines chan string
+}
+
+// openEvents opens the events route of the slug with the token.
+func openEvents(t *testing.T, h *Hub, slug, token string) *eventsConn {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.URL+"/api/v1/events?workspace="+slug, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &eventsConn{resp: resp, lines: make(chan string, 64)}
+	if resp.StatusCode == http.StatusOK {
+		go func() {
+			defer close(c.lines)
+			sc := bufio.NewScanner(resp.Body)
+			for sc.Scan() {
+				c.lines <- sc.Text()
+			}
+		}()
+	} else {
+		resp.Body.Close()
+		close(c.lines)
+	}
+	return c
+}
+
+// frame reads lines up to the next empty line and returns them joined, or "" when the connection ended.
+func (c *eventsConn) frame(t *testing.T) string {
+	t.Helper()
+	var lines []string
+	for {
+		select {
+		case line, ok := <-c.lines:
+			if !ok {
+				return strings.Join(lines, "\n")
+			}
+			if line == "" {
+				return strings.Join(lines, "\n")
+			}
+			lines = append(lines, line)
+		case <-time.After(5 * time.Second):
+			t.Fatal("no frame within 5 seconds")
+		}
+	}
+}
+
+// TestTheFakeHubServesTheEventsRoute_TS_18_12 verifies TS-18-12.
+// Verifies: 18-REQ-2.6
+func TestTheFakeHubServesTheEventsRoute_TS_18_12(t *testing.T) {
+	h := New(t)
+	h.AddUser("pat", "usr_1", []string{"widgets"})
+	h.AddUser("other", "usr_2", nil)
+
+	if c := openEvents(t, h, "widgets", "unknown"); c.resp.StatusCode != 401 {
+		t.Errorf("an unknown token: %d, want 401", c.resp.StatusCode)
+	}
+	if c := openEvents(t, h, "widgets", "other"); c.resp.StatusCode != h.HiddenStatus {
+		t.Errorf("a token without access: %d, want %d", c.resp.StatusCode, h.HiddenStatus)
+	}
+	h.Fail("/api/v1/events", 503)
+	if c := openEvents(t, h, "widgets", "pat"); c.resp.StatusCode != 503 {
+		t.Errorf("Fail(503): %d", c.resp.StatusCode)
+	}
+	h.Clear()
+	h.Hangup("/api/v1/events")
+	req, _ := http.NewRequest(http.MethodGet, h.URL+"/api/v1/events?workspace=widgets", nil)
+	req.Header.Set("Authorization", "Bearer pat")
+	if resp, err := http.DefaultClient.Do(req); err == nil {
+		resp.Body.Close()
+		t.Error("Hangup: an answer, want the connection closed")
+	}
+	h.Clear()
+	c := openEvents(t, h, "widgets", "pat")
+	if c.resp.StatusCode != 200 || c.resp.Header.Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("a valid token: %d %s", c.resp.StatusCode, c.resp.Header.Get("Content-Type"))
+	}
+	waitConns(t, h, "widgets", 1)
+	// Go's client tries a GET again on a connection that was closed, so the hang-up may be recorded more than once.
+	if n := len(h.EventsRequests()); n < 5 {
+		t.Errorf("%d requests to the events route recorded, want every one of at least 5", n)
+	}
+}
+
+// waitConns waits until the slug has n open connections to the events route.
+func waitConns(t *testing.T, h *Hub, slug string, n int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for h.EventConns(slug) != n {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d connections of %s, want %d", h.EventConns(slug), slug, n)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+// TestTheFakeHubsEventSeams_TS_18_13 verifies TS-18-13.
+// Verifies: 18-REQ-2.7
+func TestTheFakeHubsEventSeams_TS_18_13(t *testing.T) {
+	h := New(t)
+	h.AddWorkspace(t, Workspace{Slug: "widgets", PAT: "pat"})
+	h.AddWorkspace(t, Workspace{Slug: "gadgets", PAT: "pat-g"})
+	h.AddIssue("widgets", Issue{Number: 42})
+	a, b := openEvents(t, h, "widgets", "pat"), openEvents(t, h, "widgets", "pat")
+	g := openEvents(t, h, "gadgets", "pat-g")
+	waitConns(t, h, "widgets", 2)
+	waitConns(t, h, "gadgets", 1)
+
+	h.SendEvent("widgets", HubEvent{ID: "evt-1", Type: EventIssueLabeled, Issue: 42, Label: "af:fix"})
+	for _, c := range []*eventsConn{a, b} {
+		f := c.frame(t)
+		if !strings.Contains(f, "event: audit_event") || !strings.Contains(f, `"id":"evt-1"`) || !strings.Contains(f, `"event_type":"hub.forge.issue.labeled"`) ||
+			!strings.Contains(f, `"number":42`) || !strings.Contains(f, `"label":"af:fix"`) || !strings.Contains(f, `"workspace":"widgets"`) {
+			t.Errorf("the event frame is %q", f)
+		}
+	}
+	h.Heartbeat("widgets")
+	h.Comment("widgets")
+	for _, c := range []*eventsConn{a, b} {
+		if f := c.frame(t); !strings.HasPrefix(f, "event: heartbeat") {
+			t.Errorf("the heartbeat frame is %q", f)
+		}
+		if f := c.frame(t); !strings.HasPrefix(f, ":") {
+			t.Errorf("the comment is %q", f)
+		}
+	}
+
+	h.EmitLabeledOnAdd(true)
+	req, _ := http.NewRequest(http.MethodPost, h.URL+"/api/v1/workspaces/widgets/issues/42/labels", strings.NewReader(`["af:fix"]`))
+	req.Header.Set("Authorization", "Bearer pat")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	for _, c := range []*eventsConn{a, b} {
+		if f := c.frame(t); !strings.Contains(f, `"event_type":"hub.forge.issue.labeled"`) || !strings.Contains(f, `"label":"af:fix"`) || !strings.Contains(f, `"number":42`) {
+			t.Errorf("the event of the label added through the forge API is %q", f)
+		}
+	}
+	select {
+	case line := <-g.lines:
+		t.Errorf("the other workspace's connection received %q", line)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	h.EndEvents("widgets")
+	waitConns(t, h, "widgets", 0)
+	if f := a.frame(t); f != "" {
+		t.Errorf("after the end the connection read %q", f)
+	}
+	if h.EventConns("gadgets") != 1 {
+		t.Error("ending widgets ended gadgets")
+	}
+	h.SetIssueState("widgets", 42, "closed")
+	if i, _ := h.IssueOf("widgets", 42); i.State != "closed" {
+		t.Errorf("the issue is %s, want closed", i.State)
 	}
 }
