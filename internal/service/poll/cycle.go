@@ -37,11 +37,6 @@ type cycleRun struct {
 	st    *wsState
 }
 
-// noReconciler is what a cycle does with the records of the poll until the reconciler is in.
-type noReconciler struct{}
-
-func (noReconciler) reconcile(context.Context, string) {}
-
 // Cycle makes one cycle of the workspace, and says how long to wait before the next and whether the loop of the workspace
 // is to stop.
 //

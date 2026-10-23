@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strconv"
 
 	"github.com/agent-fox-dev/aflib/issuex"
@@ -14,13 +15,18 @@ import (
 // issueHandler applies the rules of the poll to the issues of a listing, one at a time.
 type issueHandler struct{}
 
-// handle takes the issues of the listing in order, and says whether the cycle goes on.
+// handle takes the issues of the listing in order, and says whether the cycle goes on. When it has taken them all, a
+// complete listing settles the removals that are owed for issues it does not contain.
 func (issueHandler) handle(ctx context.Context, c *cycleRun, l *listing) bool {
 	for _, n := range l.Issues {
 		if ctx.Err() != nil || !c.issue(ctx, l, n) {
 			return false
 		}
 	}
+	if l.Complete {
+		c.settle(ctx, l)
+	}
+	c.s.drop(ctx, c.slug)
 	return true
 }
 
@@ -33,8 +39,38 @@ func request(workspace string, l *listing, n int) jobs.CreateRequest {
 	}
 }
 
-// issue applies the rules to issue n of the listing, and says whether the cycle goes on.
+// issue applies the rules to issue n of the listing, and says whether the cycle goes on. The first rule that applies
+// decides:
+//
+//  1. an open job of the kind for the issue absorbs the label: it is removed and no job is made;
+//  2. the removal of the label from the issue is still owed, for a job the poll made or for a label it absorbed: it is
+//     removed and no job is made;
+//  3. otherwise it is a new request, and a job is made.
 func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
+	recs, err := c.s.records.Find(ctx, c.slug, n, l.Label)
+	if err != nil {
+		c.s.cfg.Logger.Warn("the records of a request label could not be read, so the cycle ends and the label stays",
+			"workspace", c.slug, "issue", n, "label", l.Label, "error", err.Error())
+		return false
+	}
+	open, err := c.s.cfg.Jobs.OpenJob(ctx, c.slug, l.Kind, int64(n))
+	switch {
+	case err == nil:
+		return c.absorb(ctx, l, n, open.ID)
+	case !errors.Is(err, jobs.ErrNotFound):
+		c.s.cfg.Logger.Warn("the open job of an issue could not be looked up, so the cycle ends and the label stays",
+			"workspace", c.slug, "kind", l.Kind, "issue", n, "label", l.Label, "error", err.Error())
+		return false
+	}
+	if slices.ContainsFunc(recs, func(r Record) bool { return r.Owed }) {
+		return c.retake(ctx, l, n)
+	}
+	return c.request(ctx, l, n)
+}
+
+// request makes the job for a new request, and consumes the label. If the jobs layer refuses with a duplicate, a job of
+// the kind for the issue was made in the meantime, and the label is absorbed.
+func (c *cycleRun) request(ctx context.Context, l *listing, n int) bool {
 	doc, err := c.s.cfg.Jobs.Create(ctx, request(c.slug, l, n))
 	var dup *jobs.DuplicateError
 	switch {
@@ -51,6 +87,39 @@ func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
 	c.s.cfg.Logger.Warn("a job could not be made for a request label, so the label stays on the issue and the cycle ends",
 		"workspace", c.slug, "kind", l.Kind, "issue", n, "label", l.Label, "error", err.Error())
 	return false
+}
+
+// retake removes a label whose removal is owed: the label was taken already, so no job is made.
+func (c *cycleRun) retake(ctx context.Context, l *listing, n int) bool {
+	if err := c.removeLabel(ctx, l, n); err != nil {
+		c.s.cfg.Logger.Warn("a request label could not be removed from its issue, so the removal stays owed",
+			"workspace", c.slug, "issue", n, "label", l.Label, "error", err.Error())
+		return true
+	}
+	c.confirm(ctx, l, n)
+	return true
+}
+
+// settle settles the removals that are owed for the label when the listing is complete: an issue that the listing does
+// not contain does not carry the label, whoever took it off, so nothing is owed for it.
+func (c *cycleRun) settle(ctx context.Context, l *listing) {
+	recs, err := c.s.records.ForWorkspace(ctx, c.slug)
+	if err != nil {
+		c.s.cfg.Logger.Warn("the records of the poll could not be read, so the owed removals are not settled",
+			"workspace", c.slug, "label", l.Label, "error", err.Error())
+		return
+	}
+	settled := map[int]bool{}
+	for _, r := range recs {
+		if r.Label != l.Label || !r.Owed || settled[r.Issue] || slices.Contains(l.Issues, r.Issue) {
+			continue
+		}
+		settled[r.Issue] = true
+		if _, err := c.s.records.ClearOwed(ctx, c.slug, r.Issue, l.Label); err != nil {
+			c.s.cfg.Logger.Warn("an owed removal could not be settled",
+				"workspace", c.slug, "issue", r.Issue, "label", l.Label, "error", err.Error())
+		}
+	}
 }
 
 // created records the job that was made for the label, and consumes the label.
@@ -75,7 +144,9 @@ func (c *cycleRun) absorb(ctx context.Context, l *listing, n int, jobID string) 
 	c.s.cfg.Logger.Info("a request label was absorbed by an open job", "workspace", c.slug, "kind", l.Kind, "issue", n, "label", l.Label, "job", jobID)
 	if err := c.removeLabel(ctx, l, n); err != nil {
 		c.owe(ctx, l, n, err)
+		return true
 	}
+	c.confirm(ctx, l, n)
 	return true
 }
 

@@ -109,8 +109,9 @@ func New(cfg Config) *Supervisor {
 	}
 	s := &Supervisor{
 		cfg: cfg, states: map[string]*wsState{}, loops: map[string]*loop{}, slots: make(chan struct{}, maxCycles),
-		reconciler: noReconciler{}, handler: issueHandler{},
+		handler: issueHandler{},
 	}
+	s.reconciler = recordReconciler{s}
 	if cfg.DB != nil {
 		s.records = NewRecords(cfg.DB)
 	}

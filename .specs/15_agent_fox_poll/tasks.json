@@ -321,7 +321,7 @@
       "done_when": [
         "a failed removal never turns into a second job after the first job ended"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

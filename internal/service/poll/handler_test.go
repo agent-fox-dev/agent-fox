@@ -262,8 +262,11 @@ func TestARecordIsWrittenAfterTheJobIsMadeAndBeforeTheRemovalWithTheJobAndTheRem
 // Verifies: 15-REQ-6.3
 func TestARecordThatCannotBeWrittenLogsOneWarningAndTheRemovalGoesAhead_TS_15_39(t *testing.T) {
 	e := newEnv(t)
-	if _, err := e.DB.ExecContext(ctx, "DROP TABLE af_poll_requests"); err != nil {
-		t.Fatal(err)
+	// The table can be read and not written: every insert, update and delete of a row is refused.
+	for _, op := range []string{"INSERT", "UPDATE", "DELETE"} {
+		if _, err := e.DB.ExecContext(ctx, "CREATE TRIGGER refuse_"+op+" BEFORE "+op+" ON af_poll_requests BEGIN SELECT RAISE(ABORT, 'the table is read only'); END"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	e.Hub.AddIssue(slug, fakehub.Issue{Number: 42, Labels: []string{"af:fix"}})
 
