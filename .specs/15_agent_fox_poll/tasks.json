@@ -408,7 +408,7 @@
       "done_when": [
         "three cycles of the same 403 produce exactly one ERROR record"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

@@ -2,12 +2,14 @@ package poll
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"time"
 
 	"github.com/agent-fox-dev/aflib/issuex"
 
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
+	"github.com/agent-fox-dev/agentfox/internal/service/store"
 )
 
 // listLimit is how many issues a cycle lists for a label.
@@ -44,23 +46,30 @@ type cycleRun struct {
 // It then reads the label prefix and the token of the subscription and the resolved variables of the workspace. If
 // AF_POLL_INTERVAL turns the poll off, it ends there. Otherwise it reads the workspace record, for the forge repository,
 // and lists the open issues of the triage label and then of the fix label, and hands each listing to the rules.
+//
+// A call that fails ends the cycle, and is logged as failure.go says. The next cycle is due after the interval the cycle
+// read, or, if it ended before it could read it, after the interval the workspace last read.
 func (s *Supervisor) Cycle(ctx context.Context, slug string) (next time.Duration, stop bool) {
 	st := s.stateOf(slug)
+	st.failures.begin()
+	defer func() {
+		if !stop && ctx.Err() == nil {
+			s.completed(slug, st)
+		}
+	}()
 	s.reconciler.reconcile(ctx, slug)
 
 	sub, err := s.cfg.Subscriptions.Get(ctx, slug)
 	if err != nil {
-		s.endedBy(ctx, slug, "read the subscription", err)
-		return st.wait(), false
+		return s.storeEnded(ctx, slug, st, "read the subscription", err)
 	}
 	pat, err := s.cfg.Subscriptions.Token(ctx, slug)
 	if err != nil {
-		s.endedBy(ctx, slug, "read the token", err)
-		return st.wait(), false
+		return s.storeEnded(ctx, slug, st, "read the token of the subscription", err)
 	}
 	vars, err := s.cfg.Hub.ResolvedVars(ctx, pat, slug)
 	if err != nil {
-		s.endedBy(ctx, slug, "read the resolved variables", err)
+		s.report(ctx, slug, st, classify("read the resolved variables", err, false))
 		return st.wait(), false
 	}
 
@@ -83,12 +92,12 @@ func (s *Supervisor) Cycle(ctx context.Context, slug string) (next time.Duration
 
 	rec, err := s.cfg.Hub.WorkspaceRecord(ctx, pat, slug)
 	if err != nil {
-		s.endedBy(ctx, slug, "read the workspace record", err)
+		s.report(ctx, slug, st, classify("read the workspace record", err, false))
 		return iv.every, false
 	}
 	repo, ok := rec.Repo()
 	if !ok {
-		s.cfg.Logger.Warn("the forge URL of the workspace is none of a repository, so nothing is listed", "workspace", slug)
+		s.report(ctx, slug, st, failure{row: rowUnavailable, operation: "read the forge repository of the workspace", err: errors.New("the forge URL of the workspace is none of a repository")})
 		return iv.every, false
 	}
 	run := &cycleRun{s: s, slug: slug, pat: pat, repo: repo, forge: s.cfg.Hub.Forge(pat, slug, repo), st: st}
@@ -98,7 +107,7 @@ func (s *Supervisor) Cycle(ctx context.Context, slug string) (next time.Duration
 		requested := s.cfg.Clock.Now()
 		list, err := run.forge.ListIssues(ctx, repo, issuex.IssueFilter{State: "open", Labels: []string{label}, Limit: listLimit})
 		if err != nil {
-			s.endedBy(ctx, slug, "list the issues of "+label, err)
+			s.report(ctx, slug, st, classify("list the issues of "+label, err, false))
 			return iv.every, false
 		}
 		numbers := make([]int, 0, len(list.Issues))
@@ -122,10 +131,19 @@ func (s *Supervisor) Cycle(ctx context.Context, slug string) (next time.Duration
 	return iv.every, false
 }
 
-// endedBy logs that a call of hub or of the store ended the cycle, unless the cycle was cancelled, which says why.
-func (s *Supervisor) endedBy(ctx context.Context, slug, operation string, err error) {
-	if ctx.Err() != nil {
-		return
+// storeEnded ends a cycle for which the store did not give the subscription or its token. A workspace that is not
+// subscribed ends its loop; a token that does not open is an ERROR and no request of hub is made.
+func (s *Supervisor) storeEnded(ctx context.Context, slug string, st *wsState, operation string, err error) (time.Duration, bool) {
+	switch {
+	case errors.Is(err, store.ErrNotSubscribed):
+		if ctx.Err() == nil {
+			s.cfg.Logger.Info("the workspace is not subscribed, so its poll stops", "workspace", slug)
+		}
+		return 0, true
+	case errors.Is(err, store.ErrUnreadable):
+		s.report(ctx, slug, st, failure{row: rowToken, operation: operation, err: err})
+	default:
+		s.report(ctx, slug, st, failure{row: rowStore, operation: operation, err: err})
 	}
-	s.cfg.Logger.Warn("the cycle ended: a call failed", "workspace", slug, "operation", operation, "error", err.Error())
+	return st.wait(), false
 }

@@ -129,6 +129,8 @@ type wsState struct {
 	// incomplete listing has been warned of and that have not listed complete since.
 	warnedInterval, warnedPrefix map[string]bool
 	incomplete                   map[string]bool
+	// failures are the failures that have been logged and not yet recovered from.
+	failures failures
 }
 
 // stateOf is the state of the workspace, made when the poll first needs it.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 
@@ -94,20 +95,19 @@ func (c *cycleRun) request(ctx context.Context, l *listing, n int) bool {
 		// The workspace is being unsubscribed, or is gone: nothing is written to its issues.
 		return false
 	}
-	c.s.cfg.Logger.Warn("a job could not be made for a request label, so the label stays on the issue and the cycle ends",
-		"workspace", c.slug, "kind", l.Kind, "issue", n, "label", l.Label, "error", err.Error())
+	c.s.report(ctx, c.slug, c.st, failure{
+		row: rowJobs, operation: fmt.Sprintf("make a job for %s on the issue %d, so the label stays on the issue", l.Label, n), err: err,
+	})
 	return false
 }
 
 // retake removes a label whose removal is owed: the label was taken already, so no job is made.
 func (c *cycleRun) retake(ctx context.Context, l *listing, n int) bool {
-	if err := c.removeLabel(ctx, l, n); err != nil {
-		c.s.cfg.Logger.Warn("a request label could not be removed from its issue, so the removal stays owed",
-			"workspace", c.slug, "issue", n, "label", l.Label, "error", err.Error())
-		return true
+	removed, more := c.removeLabel(ctx, l, n)
+	if removed {
+		c.confirm(ctx, l, n)
 	}
-	c.confirm(ctx, l, n)
-	return true
+	return more
 }
 
 // settle uses a listing that is complete, which holds every issue that carries the label. An issue that it does not
@@ -152,44 +152,38 @@ func (c *cycleRun) created(ctx context.Context, l *listing, n int, jobID string)
 		c.s.cfg.Logger.Warn("the record of a request label could not be written, so a removal that fails will not be owed",
 			"workspace", c.slug, "issue", n, "label", l.Label, "job", jobID, "error", werr.Error())
 	}
-	c.consume(ctx, l, n, werr == nil)
-	return true
+	removed, more := c.removeLabel(ctx, l, n)
+	if removed && werr == nil {
+		c.confirm(ctx, l, n)
+	}
+	return more
 }
 
 // absorb removes a request label from an issue that has an open job of the kind, and makes no job. If the removal fails
 // it is owed, with no job.
 func (c *cycleRun) absorb(ctx context.Context, l *listing, n int, jobID string) bool {
 	c.s.cfg.Logger.Info("a request label was absorbed by an open job", "workspace", c.slug, "kind", l.Kind, "issue", n, "label", l.Label, "job", jobID)
-	if err := c.removeLabel(ctx, l, n); err != nil {
-		c.owe(ctx, l, n, err)
-		return true
-	}
-	c.confirm(ctx, l, n)
-	return true
-}
-
-// consume removes the label of a new request from the issue and, if that fails, leaves the removal owed on the record that
-// was written for it.
-func (c *cycleRun) consume(ctx context.Context, l *listing, n int, recorded bool) {
-	err := c.removeLabel(ctx, l, n)
-	if err != nil {
-		c.s.cfg.Logger.Warn("a request label could not be removed from its issue, so the removal stays owed",
-			"workspace", c.slug, "issue", n, "label", l.Label, "error", err.Error())
-		return
-	}
-	if recorded {
+	removed, more := c.removeLabel(ctx, l, n)
+	if removed {
 		c.confirm(ctx, l, n)
+	} else {
+		c.owe(ctx, l, n)
 	}
+	return more
 }
 
-// removeLabel removes the label from the issue through hub: it is nil when the label is gone, which is also what hub says
-// when it does not find it.
-func (c *cycleRun) removeLabel(ctx context.Context, l *listing, n int) error {
+// removeLabel removes the label from the issue through hub. It says whether the label is gone, which is also what hub says
+// when it does not find it, and whether the cycle goes on. A removal that fails is logged and stays owed; the cycle goes
+// on with the next issue only if hub rejected the request, since an issue of its own cannot make the others fail, and ends
+// if hub cannot be asked or does not accept the token.
+func (c *cycleRun) removeLabel(ctx context.Context, l *listing, n int) (removed, more bool) {
 	err := c.forge.RemoveLabel(ctx, issuex.IssueRef{Repo: c.repo, Number: n}, l.Label)
-	if err != nil && issuex.IsNotFound(err) {
-		return nil
+	if err == nil || issuex.IsNotFound(err) {
+		return true, true
 	}
-	return err
+	f := classify(fmt.Sprintf("remove the label %s from the issue %d", l.Label, n), err, true)
+	c.s.report(ctx, c.slug, c.st, f)
+	return false, f.row == rowRemoval
 }
 
 // confirm clears every owed removal of the label from the issue: it was confirmed.
@@ -201,9 +195,7 @@ func (c *cycleRun) confirm(ctx context.Context, l *listing, n int) {
 }
 
 // owe writes the record of a removal that failed for a label that was absorbed, unless the removal is owed already.
-func (c *cycleRun) owe(ctx context.Context, l *listing, n int, cause error) {
-	c.s.cfg.Logger.Warn("an absorbed request label could not be removed from its issue, so the removal is owed",
-		"workspace", c.slug, "issue", n, "label", l.Label, "error", cause.Error())
+func (c *cycleRun) owe(ctx context.Context, l *listing, n int) {
 	owed, err := c.s.records.Find(ctx, c.slug, n, l.Label)
 	if err == nil {
 		for _, r := range owed {
