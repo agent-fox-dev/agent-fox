@@ -530,7 +530,7 @@
       "done_when": [
         "`make check` passes offline"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }

@@ -326,3 +326,32 @@ pass posts the usage and completes the session, and records both steps.
   test compares the document with the one on `main` without those two fields, whichever of the two has them, so that it
   holds before the merge and after it, and still fails on any other difference.
 - Deviation key: `ts_14_60_passes_before_task_11`.
+
+## 15. The smoke tests are the paths walked once more, and the pass is not run through the binary (task 12)
+
+**Spec:** task 12 owns TS-14-62 to TS-14-69, the smoke tests of 14-PATH-1 to 14-PATH-8, and says to "write them and confirm
+they pass"; it lists `internal/worker/smoke_test.go` and `internal/service/reconcile/smoke_test.go`. TS-14-68 lists "service
+start" among the components that must not be mocked.
+
+**Code:**
+
+- The eight tests passed the first time they were run, as the step says (two needed their set-up corrected: the real
+  store holds the subscription of the jobs layer in TS-14-63, and the spend of the delivery that was stopped is the one
+  its ledger recorded in TS-14-69). They add no code. Each walks a path through the real parts of the worker, the loops,
+  the fake hub with its git server, the in-process gateway over the local provider and the scripted brain; TS-14-63 does it
+  under the real jobs layer on a database file that a second layer is started on; TS-14-65 runs the path for four places
+  the first delivery can be stopped at.
+- The pass of TS-14-68 is run over the real store and the real jobs layer, whose registry knows the attempt that a blocked
+  runner is carrying out, with `Reconciler.Pass`, and not through `serve`: the binary wires the worker for its runner,
+  so an attempt that is carried out in it cannot be had by a test. That the service starts the pass when it listens, in a
+  goroutine, at the interval it is given, and stops it, is TS-14-50 in `cmd/agent-fox`
+  (`smoke_68_is_run_over_the_jobs_layer_not_through_serve`).
+- The paths were traced by the tests, and by reading: the runner reads the journal and the outcome (`start`), the stage it
+  picks up from decides the clone, the lease and the loop (`prepareResumedClone`, `lease`, `run`), the loop reads the
+  stage through `afcmd.Config.Resume` and tells the worker of a lost box through `afcmd.Config.BoxLost`, the box layer
+  makes the loss recognisable (`Session.Lost`, `box.ErrUnavailable`), the end of the attempt stores the outcome, mirrors and
+  reports (`finish`), and the service starts the reconciler (`serve`), which asks the jobs layer four questions
+  (`Known`, `Running`, `EndedAttempts`, `AttemptDir`). The seams that only tests can set are fields of `Runner` that are
+  not in `Config` (`abortAfter`, `reachedHook`, `journalFault`, `loop`, `loopFlags`). The files that the tasks touched hold no
+  `not implemented`, `TODO`, `FIXME` or deferral.
+- Deviation key: `smoke_68_is_run_over_the_jobs_layer_not_through_serve`.
