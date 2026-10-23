@@ -1,6 +1,5 @@
 {
   "type": "object",
-  "additionalProperties": false,
   "required": ["credential_file", "server"],
   "description": "Where the credential was stored and the service it was checked with. The credential is never in the result.",
   "properties": {

@@ -1324,6 +1324,31 @@ runs first, with no cycle left in flight, before the queue is closed and before 
   the poll spends the workspace's forge rate limit, and `AF_POLL_INTERVAL` (at least a minute) is how to control it. The poll runs no
   model and its jobs spend as any other job does.
 
+### The client, as built
+
+`af` is the client of the service. It adds no route: it consumes the API of the service as [api.md](api.md) specifies it, and
+it is built in three places that do not know each other's concerns.
+
+- **`internal/afclient`** is the library: the server URL (`--server`, else `AF_URL`), the credential (the `token` of
+  `~/.af/config.toml`, and the byte-preserving rewrite that `af login` makes of it through a temporary file and a rename), the
+  `Client` that sends every request with the bearer, the bound of two minutes, the limit of 8 MiB and the refusal of
+  redirects, and the mapping of every non-2xx answer to an `*Error` with its category, its retryable flag, its message and its
+  hint. `Follow` reads a job's server-sent event stream in tries: it resumes from the last `seq`, drops duplicates, cuts a stream
+  that is silent for 60 seconds, reads the job after every stream, backs off 1, 2, 4 and 8 seconds, and gives up on the fifth
+  failed try in a row. It never imports `internal/toolio` and never exits.
+- **`cmd/af`** maps that library to the contract of the shell: one command for each route, the failures as categories
+  (`service`, `conflict`, `hub`, `job_cancelled` besides `usage`, `auth`, `io` and `config`), and `followJob`, which ends a
+  followed job by what it came to. A job that is blocked ends `needs_human` with a resume that is `af jobs answer <id> --wait`.
+  Interrupting `af`, or `--timeout`, never cancels the job, which is durable on the service.
+- **`internal/toolio`** gained what the client needed from the shell and nothing that is the client's: a `Mode` hook on the
+  `App`, asked once the words have named a command, with which the binary chooses between the loop on this machine
+  (`--local`) and a job on the service (`--workspace`) before anything is parsed, read or built; `Run.SetInput`, for a command
+  that reads its own input; the `ResumeArgv` of a question; `Run.Redact`, which takes a secret out of every output; and the help
+  and schema hooks that let the binary describe both modes. Only the binary sets the hook, because the loops are registered by
+  `internal/afcmd`, which the worker runs in process: the worker needs no `--local` and cannot reach the client.
+
+The credential never leaves for a host but the server's, and neither it nor the token of a workspace is in any output.
+
 ## What moves where
 
 | Today | In this architecture |

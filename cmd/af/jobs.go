@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -21,6 +22,12 @@ import (
 type jobResult struct {
 	Job      json.RawMessage `json:"job"`
 	Envelope json.RawMessage `json:"envelope"`
+}
+
+// jobPageDoc is one page of jobs as the service answers it, each job carried as the service sent it.
+type jobPageDoc struct {
+	Jobs       []json.RawMessage `json:"jobs"`
+	NextCursor *string           `json:"next_cursor"`
 }
 
 // nullEnvelope is the envelope of a result that has none.
@@ -79,13 +86,13 @@ func jobsWatch(r *toolio.Run, app *toolio.App, since int64, server *serverFlag) 
 }
 
 // echoEvent writes an event of the job to stderr as one line of compact JSON.
-func echoEvent(r *toolio.Run, ev afclient.Event) {
+func echoEvent(r *toolio.Run, ev afclient.Event, scrub func(string) string) {
 	var line bytes.Buffer
 	if err := json.Compact(&line, ev.Document); err != nil {
 		return
 	}
 	line.WriteByte('\n')
-	_, _ = r.Stderr.Write(line.Bytes())
+	_, _ = io.WriteString(r.Stderr, scrub(line.String()))
 }
 
 // followFailure is the failure for a following that ended without the job at rest. A following that
@@ -177,10 +184,7 @@ func jobsList(r *toolio.Run, app *toolio.App, workspace, state, cursor *givenStr
 	if err != nil {
 		return toolio.Outcome{}, requestFailure(err)
 	}
-	var page struct {
-		Jobs       []json.RawMessage `json:"jobs"`
-		NextCursor *string           `json:"next_cursor"`
-	}
+	var page jobPageDoc
 	if err := resp.Decode(&page); err != nil {
 		return toolio.Outcome{}, requestFailure(err)
 	}

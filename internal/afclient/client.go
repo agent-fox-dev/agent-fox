@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -35,6 +36,7 @@ type Client struct {
 	token     string
 	userAgent string
 	http      *http.Client
+	secrets   []string // values that no message of the client may hold
 }
 
 // Clock is the time the client waits by. Production uses the system's; the tests move their own.
@@ -56,13 +58,44 @@ func (systemClock) After(d time.Duration) <-chan time.Time { return time.After(d
 // the User-Agent. transport is the transport of the requests; nil is the default one. A
 // redirect is never followed, so a credential cannot reach a host that server does not name.
 func New(server Server, token, userAgent string, transport http.RoundTripper) *Client {
-	return &Client{
+	c := &Client{
 		server: server, token: token, userAgent: userAgent,
 		http: &http.Client{
 			Transport:     transport,
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 	}
+	c.Redact(token)
+	return c
+}
+
+// minSecret is the shortest value that is kept out of messages: a shorter one would be in
+// ordinary words, and no credential is that short.
+const minSecret = 8
+
+// Redact registers values (the token of a workspace, say) that the messages of the client must
+// not hold: a service may repeat a request in the message of its error, and the credential and
+// the token were in the request. The credential of the client is registered by New.
+func (c *Client) Redact(secrets ...string) {
+	for _, s := range secrets {
+		if len(s) >= minSecret {
+			c.secrets = append(c.secrets, s)
+		}
+	}
+}
+
+// Scrub is s without the values that were registered; each is replaced by "***".
+func (c *Client) Scrub(s string) string {
+	for _, secret := range c.secrets {
+		s = strings.ReplaceAll(s, secret, "***")
+	}
+	return s
+}
+
+// scrubbed is e with its message scrubbed.
+func (c *Client) scrubbed(e *Error) *Error {
+	e.Message = c.Scrub(e.Message)
+	return e
 }
 
 // Server is the service the client talks to.
@@ -130,12 +163,12 @@ func (c *Client) stream(ctx context.Context, path string, query url.Values) (*ht
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, transportError(c.server, err)
+		return nil, c.scrubbed(transportError(c.server, err))
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		defer resp.Body.Close()
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, MaxBody))
-		return nil, answerError(resp.StatusCode, data, path)
+		return nil, c.scrubbed(answerError(resp.StatusCode, data, path))
 	}
 	return resp, nil
 }
@@ -187,7 +220,7 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 				Message: fmt.Sprintf("the service at %s (given by %s) did not answer within %s", c.server.URL, c.server.Source, RequestBound),
 			}
 		}
-		return nil, transportError(c.server, err)
+		return nil, c.scrubbed(transportError(c.server, err))
 	}
 
 	req, err := c.newRequest(reqCtx, method, target, payload, "application/json")
@@ -209,7 +242,7 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, answerError(resp.StatusCode, data, path)
+		return nil, c.scrubbed(answerError(resp.StatusCode, data, path))
 	}
 	if tooLarge {
 		return nil, &Error{

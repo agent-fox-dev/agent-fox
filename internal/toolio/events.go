@@ -42,6 +42,9 @@ type eventStream struct {
 	started bool
 	closed  bool
 	warned  bool
+
+	// redact, when it is set, takes the values that must not be written out of every line.
+	redact func([]byte) []byte
 }
 
 func newEventStream(now func() time.Time, warn func(code, message string)) *eventStream {
@@ -113,6 +116,9 @@ func (s *eventStream) emit(typ string, data any) {
 	if err != nil {
 		line.Data = map[string]string{"error": fmt.Sprintf("the data cannot be encoded as JSON: %v", err)}
 		encoded, _ = json.Marshal(line)
+	}
+	if s.redact != nil {
+		encoded = s.redact(encoded)
 	}
 	encoded = append(encoded, '\n')
 

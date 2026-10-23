@@ -4,7 +4,7 @@ spec_name: "af_service_client"
 title: "af as the agent-fox service client: login, workspaces, jobs, --workspace and --wait, and an explicit --local"
 status: "active"
 created_at: "2026-10-21T23:05:30.086973Z"
-updated_at: "2026-10-23T14:29:39Z"
+updated_at: "2026-10-23T15:01:02Z"
 intent_hash: "b6cba4a43c2cba0315e4959dc5cadf7b39033c7fd600be66d0dbacb45da6f826"
 schema_version: 2
 source: "docs/prd/03-run-the-agent-fox-service.md"

@@ -52,7 +52,7 @@ func followJob(r *toolio.Run, client *afclient.Client, id string, since int64, e
 		return err
 	}
 
-	rest, err := client.Follow(r.Ctx, id, since, func(ev afclient.Event) { emitEvent(r, ev, echo) })
+	rest, err := client.Follow(r.Ctx, id, since, func(ev afclient.Event) { emitEvent(r, ev, echo, client.Scrub) })
 	if err != nil {
 		if stop := interrupted(err); stop != nil {
 			return toolio.Outcome{}, stop
@@ -72,25 +72,26 @@ func followJob(r *toolio.Run, client *afclient.Client, id string, since int64, e
 		}
 		if json.Unmarshal(envelope, &doc) == nil {
 			for _, w := range doc.Warnings {
-				r.Warn(w.Code, w.Message)
+				r.Warn(w.Code, client.Scrub(w.Message))
 			}
 		}
 	}
 	if envelope == nil {
 		envelope = nullEnvelope
 	}
-	return jobOutcome(srv, id, jobResult{Job: rest.Job, Envelope: envelope})
+	return jobOutcome(srv, id, jobResult{Job: rest.Job, Envelope: envelope}, client.Scrub)
 }
 
-// jobOutcome is how the command ends for the job at rest of the result.
-func jobOutcome(srv afclient.Server, id string, result jobResult) (toolio.Outcome, error) {
+// jobOutcome is how the command ends for the job at rest of the result. The words in it that come from
+// the service are passed through scrub, which takes out the secrets the service may have repeated.
+func jobOutcome(srv afclient.Server, id string, result jobResult, scrub func(string) string) (toolio.Outcome, error) {
 	var doc jobDoc
 	if err := json.Unmarshal(result.Job, &doc); err != nil {
 		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryService, Message: fmt.Sprintf("the document of the job %s is not the JSON expected", id)}
 	}
 	summary := fmt.Sprintf("the job %s is %s", id, doc.State)
 	if doc.Result != nil && doc.Result.Summary != "" {
-		summary = doc.Result.Summary
+		summary = scrub(doc.Result.Summary)
 	}
 
 	switch doc.State {
@@ -99,10 +100,10 @@ func jobOutcome(srv afclient.Server, id string, result jobResult) (toolio.Outcom
 		var labels []string
 		if b := doc.Blocked; b != nil {
 			if b.Question != "" {
-				question = b.Question
+				question = scrub(b.Question)
 			}
 			for _, o := range b.Options {
-				labels = append(labels, o.Label)
+				labels = append(labels, scrub(o.Label))
 			}
 		}
 		return toolio.Outcome{
@@ -119,7 +120,7 @@ func jobOutcome(srv afclient.Server, id string, result jobResult) (toolio.Outcom
 		if status == "unverified" {
 			return toolio.Outcome{Status: toolio.StatusUnverified, Summary: summary, Result: result}, nil
 		}
-		return toolio.Outcome{}, jobFailure(id, doc)
+		return toolio.Outcome{}, jobFailure(id, doc, scrub)
 	}
 	if doc.Result != nil && doc.Result.Status == "unverified" {
 		return toolio.Outcome{Status: toolio.StatusUnverified, Summary: summary, Result: result}, nil
@@ -130,12 +131,12 @@ func jobOutcome(srv afclient.Server, id string, result jobResult) (toolio.Outcom
 // jobFailure is the failure of a job that failed: the error of its result, with its category,
 // message, retryable flag and fix hint, or an internal failure when the result has no error. A
 // result of status usage is a usage failure.
-func jobFailure(id string, doc jobDoc) error {
+func jobFailure(id string, doc jobDoc, scrub func(string) string) error {
 	if doc.Result == nil || doc.Result.Error == nil {
 		return &toolio.Failure{Category: toolio.CategoryInternal, Message: fmt.Sprintf("the job %s failed on the service and its result has no error", id)}
 	}
 	e := doc.Result.Error
-	f := &toolio.Failure{Category: e.Category, Message: e.Message, Retryable: e.Retryable, FixHint: e.FixHint}
+	f := &toolio.Failure{Category: e.Category, Message: scrub(e.Message), Retryable: e.Retryable, FixHint: e.FixHint}
 	if doc.Result.Status == "usage" {
 		f.Category = toolio.CategoryUsage
 	}
@@ -143,9 +144,9 @@ func jobFailure(id string, doc jobDoc) error {
 }
 
 // emitEvent emits an event of the job as job_event, and writes it to stderr when echo is set.
-func emitEvent(r *toolio.Run, ev afclient.Event, echo bool) {
+func emitEvent(r *toolio.Run, ev afclient.Event, echo bool, scrub func(string) string) {
 	r.Emit("job_event", ev.Document)
 	if echo {
-		echoEvent(r, ev)
+		echoEvent(r, ev, scrub)
 	}
 }

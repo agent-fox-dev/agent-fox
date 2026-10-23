@@ -372,7 +372,7 @@ func TestAFixIsSuggestedAfterAConfirmedOrProbableDiagnosis_TS_08_61(t *testing.T
 			if code != 0 {
 				t.Fatalf("exit code %d, error %v", code, env["error"])
 			}
-			if got := hasNext(env, "af", "fix", e.forge.IssueURL(7), "--dir", e.dir); got != want {
+			if got := hasNext(env, "af", "fix", e.forge.IssueURL(7), "--dir", e.dir, "--local"); got != want {
 				t.Errorf("next = %v, want af fix: %v", nextArgvs(env), want)
 			}
 		})
@@ -380,7 +380,7 @@ func TestAFixIsSuggestedAfterAConfirmedOrProbableDiagnosis_TS_08_61(t *testing.T
 	t.Run("not_reproducible", func(t *testing.T) {
 		e := newTriageEnv(t, fakeforge.GitHub)
 		_, env := scriptedLoop(e, e.forge.IssueURL(7), notReproducible())
-		if hasNext(env, "af", "fix", e.forge.IssueURL(7), "--dir", e.dir) {
+		if hasNext(env, "af", "fix", e.forge.IssueURL(7), "--dir", e.dir, "--local") {
 			t.Errorf("next = %v: there is nothing to fix", nextArgvs(env))
 		}
 	})
@@ -388,7 +388,7 @@ func TestAFixIsSuggestedAfterAConfirmedOrProbableDiagnosis_TS_08_61(t *testing.T
 		e := newTriageEnv(t, fakeforge.GitHub)
 		_, env := scriptedLoop(e, "the app crashes on submit", withConfidence("confirmed"), "--repo", "o/r")
 		created, _ := resultOf(t, env)["issue"].(map[string]any)
-		if url, _ := created["url"].(string); url == "" || !hasNext(env, "af", "fix", url, "--dir", e.dir) {
+		if url, _ := created["url"].(string); url == "" || !hasNext(env, "af", "fix", url, "--dir", e.dir, "--local") {
 			t.Errorf("next = %v, want af fix of the issue that was created", nextArgvs(env))
 		}
 	})
@@ -417,7 +417,7 @@ func TestAFixIsSuggestedAfterAConfirmedOrProbableDiagnosis_TS_08_61(t *testing.T
 			t.Fatalf("submit: exit code %d, error %v", code, env["error"])
 		}
 		code, env := e.land(id)
-		if code != 0 || !hasNext(env, "af", "fix", e.forge.IssueURL(7), "--dir", e.dir) {
+		if code != 0 || !hasNext(env, "af", "fix", e.forge.IssueURL(7), "--dir", e.dir, "--local") {
 			t.Errorf("exit code %d, next = %v, want af fix", code, nextArgvs(env))
 		}
 	})

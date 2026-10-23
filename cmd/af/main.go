@@ -10,6 +10,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 
 	"github.com/agent-fox-dev/agentfox/internal/afcmd"
@@ -40,6 +42,12 @@ func registerClient(app *toolio.App) {
 	service := map[string]*toolio.Command{"triage": queueCommand(app, "triage"), "fix": queueCommand(app, "fix")}
 	app.Mode = modeHook(service)
 	app.HelpExtra = modeHelp(app, service)
+	for name := range service {
+		// The result of a loop is its own, and in service mode it is the job result.
+		if loop := app.Command(name); loop != nil {
+			loop.ResultSchema = oneOfSchemas(loop.ResultSchema, resultSchema("job_result"))
+		}
+	}
 	registerLogin(app)
 	registerWorkspaceList(app)
 	registerWorkspaceSubscribe(app)
@@ -51,4 +59,13 @@ func registerClient(app *toolio.App) {
 	registerJobsCancel(app)
 	registerJobsAnswer(app)
 	registerJobsRetry(app)
+}
+
+// oneOfSchemas is the schema of a result that fits exactly one of the schemas.
+func oneOfSchemas(schemas ...json.RawMessage) json.RawMessage {
+	data, err := json.Marshal(map[string][]json.RawMessage{"oneOf": schemas})
+	if err != nil {
+		panic(fmt.Sprintf("the schemas cannot be joined: %v", err)) // they are JSON already
+	}
+	return data
 }

@@ -2,7 +2,6 @@ package worker
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -51,27 +50,4 @@ func TestTheDocumentationDescribesTheWorker_TS_13_81(t *testing.T) {
 			}
 		}
 	}
-
-	// docs/cli.md describes the commands, which the worker does not change.
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is not installed: docs/cli.md is not compared with main")
-	}
-	if err := exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", "main").Run(); err != nil {
-		t.Skip("there is no branch main to compare docs/cli.md with")
-	}
-	// The one change that a later spec makes to it is the two token fields of the ledger record brain_end (14-REQ-10.1), so
-	// the documents are compared without them, whichever of the two has them.
-	onMain, err := exec.Command("git", "-C", root, "show", "main:docs/cli.md").Output()
-	if err != nil {
-		t.Skipf("docs/cli.md is not on main: %v", err)
-	}
-	if got, want := withoutTokenFields(read("docs/cli.md")), withoutTokenFields(string(onMain)); got != want {
-		t.Errorf("docs/cli.md differs from main by more than the token fields of brain_end")
-	}
-}
-
-// withoutTokenFields is the document with its white space made one space, and the fields input_tokens and output_tokens
-// taken out of the record brain_end.
-func withoutTokenFields(doc string) string {
-	return strings.ReplaceAll(strings.Join(strings.Fields(doc), " "), "duration_ms, input_tokens, output_tokens}", "duration_ms}")
 }

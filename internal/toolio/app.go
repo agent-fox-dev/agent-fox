@@ -206,6 +206,7 @@ type Run struct {
 	next        []Next
 	usage       Usage
 	inputInfo   *InputInfo // set by SetInput
+	redacted    []string   // set by Redact
 }
 
 // Warn records a warning. The code matches ^[a-z][a-z0-9_]*$. A warning
@@ -243,6 +244,49 @@ func (r *Run) SetInput(kind InputKind, origin string, truncated bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.inputInfo = &InputInfo{Kind: kind, Origin: origin, Truncated: truncated}
+}
+
+// minRedacted is the shortest value Redact takes out: a shorter one would be in ordinary words.
+const minRedacted = 8
+
+// Redact registers values that are to appear in no output of the invocation: the shell takes them
+// out of the envelope on stdout and its copies (--output and the run directory) and of every
+// event, wherever the command put them, and puts "***" in their place. It is for a secret the
+// command holds, which a document that it carries from elsewhere may repeat. A value shorter than
+// 8 bytes is not redacted.
+func (r *Run) Redact(secrets ...string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, s := range secrets {
+		if len(s) < minRedacted {
+			continue
+		}
+		r.redacted = append(r.redacted, s)
+		// The same value as it stands inside a JSON string, which the envelope writes without
+		// escaping <, > and & and an event writes with it.
+		for _, escapeHTML := range []bool{false, true} {
+			var buf bytes.Buffer
+			enc := json.NewEncoder(&buf)
+			enc.SetEscapeHTML(escapeHTML)
+			if err := enc.Encode(s); err != nil {
+				continue
+			}
+			if inner := strings.TrimSuffix(buf.String(), "\n"); len(inner) > 2 && inner[1:len(inner)-1] != s && !slices.Contains(r.redacted, inner[1:len(inner)-1]) {
+				r.redacted = append(r.redacted, inner[1:len(inner)-1])
+			}
+		}
+	}
+}
+
+// redactBytes is data without the values that were registered with Redact.
+func (r *Run) redactBytes(data []byte) []byte {
+	r.mu.Lock()
+	secrets := slices.Clone(r.redacted)
+	r.mu.Unlock()
+	for _, s := range secrets {
+		data = bytes.ReplaceAll(data, []byte(s), []byte("***"))
+	}
+	return data
 }
 
 // Artifact records something the run produced.
@@ -305,6 +349,17 @@ func (r *Run) collect(env *Envelope) {
 // Register adds a command to the app.
 func (a *App) Register(c Command) {
 	a.commands = append(a.commands, &c)
+}
+
+// Command returns the command registered under path, which a caller may adapt before it runs an
+// invocation (the schema of its result, say), or nil when there is none.
+func (a *App) Command(path string) *Command {
+	for _, c := range a.commands {
+		if c.Path == path {
+			return c
+		}
+	}
+	return nil
 }
 
 func (a *App) name() string {
@@ -419,6 +474,7 @@ func (inv *invocation) setup(cmd *Command, words []string, values *flagValues, p
 	}
 	if values.emitEvents != "" || cmd.UsesRunDir || inv.app.EventSink != nil {
 		inv.events = newEventStream(inv.app.now, inv.run.Warn)
+		inv.events.redact = inv.run.redactBytes
 		inv.run.events = inv.events
 		if values.emitEvents != "" {
 			inv.events.addFile(values.emitEvents)
@@ -522,6 +578,9 @@ func (inv *invocation) collect() {
 // encode renders the envelope as it is now.
 func (inv *invocation) encode() []byte {
 	data, _ := inv.env.marshal() // ensureEncodable made sure it can be
+	if inv.run != nil {
+		data = inv.run.redactBytes(data)
+	}
 	return data
 }
 

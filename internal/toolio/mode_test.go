@@ -165,3 +165,49 @@ func TestTheShellTellsWhichFlagsTakeAValueAndLetsAppHelpAddToTheHelp_TS_16_5(t *
 		t.Errorf("HelpFor = %q, want the help of the command with the text of the app", got)
 	}
 }
+
+// TestAValueARunRedactsIsInNoOutputOfTheInvocation_TS_16_27 verifies, for the shell, what TS-16-27
+// relies on: a secret that a command registers is in neither the envelope on stdout, nor the --output
+// file, nor the events of --emit-events and the run directory, wherever the command put it: in a
+// warning, in a result, in an event of its own or in its error. A value that is too short to be
+// a secret is left alone.
+// Verifies: 16-REQ-4.6
+func TestAValueARunRedactsIsInNoOutputOfTheInvocation_TS_16_27(t *testing.T) {
+	const secret = `sup"er\secret-value<&>`
+	for name, fail := range map[string]bool{"done": false, "failed": true} {
+		app := newTestApp()
+		app.Register(Command{Path: "leak", MaxArgs: NoArgs, UsesRunDir: true, Run: func(r *Run) (Outcome, error) {
+			r.Redact(secret, "short")
+			r.Emit("note", map[string]string{"said": "the secret is " + secret, "short": "short"})
+			r.Warn("leaked", "a warning with "+secret)
+			if fail {
+				return Outcome{}, &Failure{Category: CategoryInternal, Message: "it failed with " + secret}
+			}
+			return Outcome{Status: StatusDone, Summary: "ok " + secret, Result: map[string]string{"echo": secret, "short": "short"}}, nil
+		}})
+		dir := t.TempDir()
+		out, events := filepath.Join(dir, "out.json"), filepath.Join(dir, "events.jsonl")
+		_, stdout, stderr := invoke(t, app, "leak", "--dir", dir, "--output", out, "--emit-events", events)
+		env := decode(t, stdout)
+		if strings.Contains(stdout, "secret-value") || strings.Contains(stderr, "secret-value") {
+			t.Errorf("%s: the output holds the secret:\n%s%s", name, stdout, stderr)
+		}
+		files := []string{out, events}
+		runs, _ := filepath.Glob(filepath.Join(dir, ".agent-fox", "run", "*", "*"))
+		for _, f := range append(files, runs...) {
+			data, err := os.ReadFile(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(data), "secret-value") || strings.Contains(string(data), `sup\"er`) {
+				t.Errorf("%s: %s holds the secret:\n%s", name, f, data)
+			}
+		}
+		if name == "done" && at(env, "result", "short") != "short" {
+			t.Errorf("a value shorter than a secret is redacted: result = %v", env["result"])
+		}
+		if got, _ := os.ReadFile(out); string(got) != stdout {
+			t.Errorf("%s: --output = %q, want the envelope of stdout", name, got)
+		}
+	}
+}

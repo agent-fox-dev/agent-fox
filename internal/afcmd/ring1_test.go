@@ -375,9 +375,10 @@ func TestSchemasMatchTheirTypes_TS_06_72(t *testing.T) {
 }
 
 // goldenCovers says whether the golden schema of the af binary holds the schema of this
-// package's shell: the same envelope, and every $defs entry of the shell as it is. The binary
-// registers more commands than this package does (the client of the agent-fox service), so
-// the golden has entries that the shell has not; cmd/af checks the golden byte for byte.
+// package's shell: the same envelope, and every $defs entry of the shell as it is, or, for the
+// result of triage and fix, as the first of the two that the binary admits. The binary registers
+// more commands than this package does (the client of the agent-fox service), so the golden has
+// entries that the shell has not; cmd/af checks the golden byte for byte.
 func goldenCovers(golden, current []byte) error {
 	var g, c map[string]any
 	if err := json.Unmarshal(golden, &g); err != nil {
@@ -394,7 +395,14 @@ func goldenCovers(golden, current []byte) error {
 		return errors.New("the envelope schema differs")
 	}
 	for name, def := range currentDefs {
-		if !reflect.DeepEqual(goldenDefs[name], def) {
+		held := goldenDefs[name]
+		// The binary describes the result of triage and fix as one of two: this shell's own, and the job result.
+		if m, ok := held.(map[string]any); ok {
+			if alternatives, ok := m["oneOf"].([]any); ok && len(alternatives) > 0 {
+				held = alternatives[0]
+			}
+		}
+		if !reflect.DeepEqual(held, def) {
 			return fmt.Errorf("$defs.%s differs", name)
 		}
 	}

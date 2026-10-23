@@ -11,6 +11,24 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
+// workspaceListDoc is what af reads of the answer to GET /api/v1/workspaces: the subscriptions, each of
+// them carried as the service sent it.
+type workspaceListDoc struct {
+	Workspaces []json.RawMessage `json:"workspaces"`
+}
+
+// subscriptionDoc is the subscription view of the service, with the fields af names; the view is carried
+// as it was received, so that fields it gains reach the result.
+type subscriptionDoc struct {
+	Slug         string  `json:"slug"`
+	LabelPrefix  string  `json:"label_prefix"`
+	TokenUser    *string `json:"token_user"`
+	SubscribedBy string  `json:"subscribed_by"`
+	TokenState   string  `json:"token_state"`
+	CreatedAt    string  `json:"created_at"`
+	UpdatedAt    string  `json:"updated_at"`
+}
+
 // slugResult is the result of af workspace unsubscribe.
 type slugResult struct {
 	Slug string `json:"slug"`
@@ -53,9 +71,7 @@ func workspaceList(r *toolio.Run, app *toolio.App, server *serverFlag) (toolio.O
 	if err != nil {
 		return toolio.Outcome{}, requestFailure(err)
 	}
-	var doc struct {
-		Workspaces []json.RawMessage `json:"workspaces"`
-	}
+	var doc workspaceListDoc
 	if err := resp.Decode(&doc); err != nil {
 		return toolio.Outcome{}, requestFailure(err)
 	}
@@ -111,6 +127,8 @@ func workspaceSubscribe(r *toolio.Run, app *toolio.App, hubTokenFile string, pre
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
+	r.Redact(pat)
+	client.Redact(pat)
 	body := map[string]string{"hub_token": pat}
 	if prefix.given {
 		body["label_prefix"] = prefix.value
@@ -119,7 +137,7 @@ func workspaceSubscribe(r *toolio.Run, app *toolio.App, hubTokenFile string, pre
 	if err != nil {
 		return toolio.Outcome{}, requestFailure(err)
 	}
-	if err := resp.Decode(&map[string]any{}); err != nil {
+	if err := resp.Decode(&subscriptionDoc{}); err != nil {
 		return toolio.Outcome{}, requestFailure(err)
 	}
 	summary := "subscribed the workspace " + slug
@@ -152,7 +170,7 @@ func registerWorkspaceGet(app *toolio.App) {
 			if err != nil {
 				return toolio.Outcome{}, requestFailure(err)
 			}
-			if err := resp.Decode(&map[string]any{}); err != nil {
+			if err := resp.Decode(&subscriptionDoc{}); err != nil {
 				return toolio.Outcome{}, requestFailure(err)
 			}
 			return toolio.Outcome{Status: toolio.StatusDone, Summary: "the workspace " + slug + " is subscribed", Result: json.RawMessage(resp.Body)}, nil

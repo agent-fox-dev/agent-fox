@@ -53,6 +53,7 @@ func login(r *toolio.Run, app *toolio.App, tokenFile string, server *serverFlag)
 	if err != nil {
 		return toolio.Outcome{}, serverFailure(err, false)
 	}
+	r.Redact(credential)
 	warnInsecure(r, srv)
 	existing, err := afclient.ReadExisting(nil)
 	if err != nil {

@@ -89,6 +89,7 @@ func connect(r *toolio.Run, app *toolio.App, server *serverFlag, local bool) (*a
 	if cred.Loose {
 		r.Warn(warnCredentialFilePermissions, fmt.Sprintf("the credential file %s has a group or other permission bit set; restrict it with chmod 600", cred.Path))
 	}
+	r.Redact(cred.Token)
 	return newClient(app, srv, cred.Token), nil
 }
 
