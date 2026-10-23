@@ -269,7 +269,7 @@
       "done_when": [
         "`go test -race ./internal/service/poll/...` passes"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

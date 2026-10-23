@@ -100,6 +100,7 @@ func TestAZeroIntervalReadsTheVariableAndNothingElseEveryFiveMinutes_TS_15_10(t 
 	for _, zero := range []string{"0", "0s", "0m"} {
 		t.Run(zero, func(t *testing.T) {
 			e := newEnv(t, withVars(map[string]string{"AF_POLL_INTERVAL": zero}))
+			e.Poll.handler = &recorder{} // the test is about the interval, not about what becomes of the labelled issues
 			e.Hub.AddIssue(slug, fakehub.Issue{Number: 7, Labels: []string{"af:triage"}})
 			e.Hub.AddIssue(slug, fakehub.Issue{Number: 42, Labels: []string{"af:fix"}})
 			var total time.Duration
@@ -288,6 +289,7 @@ func TestOneEnabledCycleReadsTheVariablesTheWorkspaceRecordAndListsTriageThenFix
 // Verifies: 15-REQ-4.3
 func TestThreeIncompleteListingsInARowProduceOneWarningThatNamesTheWorkspaceAndTheLabel_TS_15_24(t *testing.T) {
 	e := newEnv(t)
+	e.Poll.handler = &recorder{} // the rules would make jobs of the issues and take their labels, and the listing would not stay
 	for n := 1; n <= 101; n++ {
 		e.Hub.AddIssue(slug, fakehub.Issue{Number: n, Labels: []string{"af:fix"}})
 	}

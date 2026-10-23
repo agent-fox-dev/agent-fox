@@ -1,0 +1,370 @@
+package poll
+
+import (
+	"errors"
+	"fmt"
+	"math/rand/v2"
+	"net/http"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
+	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
+	"github.com/agent-fox-dev/agentfox/internal/service/jobs/fakerunner"
+)
+
+// removals are the removals of labels that the poll sent, as "remove(<issue>,<label>)", in order.
+func (e *env) removals() []string {
+	var out []string
+	for _, p := range e.fromPoll() {
+		if strings.HasPrefix(p, "remove(") {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// labelsOf are the labels of the issue on hub.
+func (e *env) labelsOf(n int) []string {
+	issue, _ := e.Hub.IssueOf(slug, n)
+	return issue.Labels
+}
+
+// recordsOf are the poll records of the workspace.
+func (e *env) recordsOf() []Record {
+	e.t.Helper()
+	got, err := NewRecords(e.DB).ForWorkspace(ctx, slug)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return got
+}
+
+// removalPath is the path of the removal of a label from an issue.
+func removalPath(n int, label string) string {
+	return fmt.Sprintf("/api/v1/workspaces/%s/issues/%d/labels/%s", slug, n, label)
+}
+
+// TestTheIssuesOfTheListingsBecomeJobsInTheOrderOfTheTriageListAndThenTheFixListInAscendingNumber_TS_15_23 verifies
+// TS-15-23: for any set of open issues that carry a request label and any order that hub returns them in, the jobs are
+// made in the order of the triage list in ascending number and then of the fix list in ascending number.
+// Verifies: 15-REQ-4.2
+func TestTheIssuesOfTheListingsBecomeJobsInTheOrderOfTheTriageListAndThenTheFixListInAscendingNumber_TS_15_23(t *testing.T) {
+	e := newEnv(t)
+	rng := rand.New(rand.NewPCG(15, 23))
+	var want []string
+	for round := range 12 {
+		base := 1000 * (round + 1)
+		var triage, fix, all []int
+		for _, n := range rng.Perm(40)[:3+rng.IntN(6)] {
+			number := base + n
+			all = append(all, number)
+			if rng.IntN(2) == 0 {
+				triage = append(triage, number)
+				e.Hub.AddIssue(slug, fakehub.Issue{Number: number, Labels: []string{"af:triage"}})
+			} else {
+				fix = append(fix, number)
+				e.Hub.AddIssue(slug, fakehub.Issue{Number: number, Labels: []string{"af:fix"}})
+			}
+		}
+		rng.Shuffle(len(all), func(i, j int) { all[i], all[j] = all[j], all[i] })
+		e.Hub.SetListOrder(slug, all...)
+		slices.Sort(triage)
+		slices.Sort(fix)
+		for _, n := range triage {
+			want = append(want, fmt.Sprintf("triage %d", n))
+		}
+		for _, n := range fix {
+			want = append(want, fmt.Sprintf("fix %d", n))
+		}
+
+		e.cycle()
+	}
+	var got []string
+	for _, j := range e.jobList() {
+		got = append(got, fmt.Sprintf("%s %d", j.Kind, j.Issue.Int64))
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("the jobs were made in the order\n%v\nwant\n%v", got, want)
+	}
+}
+
+// TestANewRequestMakesOneJobWithALabelSourceAndRequestLabelAndThenConsumesTheLabel_TS_15_33 verifies TS-15-33 and goal 1:
+// open issue 7 with af:triage and open issue 42 with af:fix become a triage job and then a fix job, with the source and
+// the request label of the label, each label is removed after its job exists, the jobs are logged, and the next cycle
+// makes no job.
+// Verifies: 15-REQ-5.5
+func TestANewRequestMakesOneJobWithALabelSourceAndRequestLabelAndThenConsumesTheLabel_TS_15_33(t *testing.T) {
+	var e *env
+	jobsAtRemoval := map[string]int{}
+	e = newEnv(t, withBeforeRequest(func(r *http.Request) {
+		if r.Method == http.MethodDelete {
+			jobsAtRemoval[r.URL.Path] = len(e.jobList())
+		}
+	}))
+	e.Hub.AddIssue(slug, fakehub.Issue{Number: 7, Labels: []string{"af:triage"}})
+	e.Hub.AddIssue(slug, fakehub.Issue{Number: 42, Labels: []string{"af:fix"}})
+
+	e.cycle()
+
+	got := e.jobList()
+	if len(got) != 2 {
+		t.Fatalf("%d jobs, want 2: %+v", len(got), got)
+	}
+	if j := got[0]; j.Kind != "triage" || j.Issue.Int64 != 7 || j.SourceKind != "label" || j.SourceBy != "label af:triage" || j.RequestLabel != "af:triage" {
+		t.Errorf("the first job is %+v, want the triage of 7 from the label af:triage", j)
+	}
+	if j := got[1]; j.Kind != "fix" || j.Issue.Int64 != 42 || j.SourceKind != "label" || j.SourceBy != "label af:fix" || j.RequestLabel != "af:fix" {
+		t.Errorf("the second job is %+v, want the fix of 42 from the label af:fix", j)
+	}
+	if want := []string{"remove(7,af:triage)", "remove(42,af:fix)"}; !slices.Equal(e.removals(), want) {
+		t.Errorf("hub was sent %v, want one removal for each, in the order of the jobs: %v", e.removals(), want)
+	}
+	if jobsAtRemoval[removalPath(7, "af:triage")] != 1 || jobsAtRemoval[removalPath(42, "af:fix")] != 2 {
+		t.Errorf("jobs that existed at the removals: %v, want 1 at the first and 2 at the second: the job comes first", jobsAtRemoval)
+	}
+	if len(e.labelsOf(7))+len(e.labelsOf(42)) != 0 {
+		t.Errorf("the labels are %v and %v, want them consumed", e.labelsOf(7), e.labelsOf(42))
+	}
+	infos := e.Logs.find("INFO", "became a job")
+	if len(infos) != 2 || infos[0]["job"] != got[0].ID || infos[0]["kind"] != "triage" || infos[0]["issue"] != float64(7) || infos[0]["workspace"] != slug ||
+		infos[1]["job"] != got[1].ID || infos[1]["kind"] != "fix" || infos[1]["issue"] != float64(42) {
+		t.Errorf("the INFO records are %v, want each to name the workspace, the kind, the issue and the job", infos)
+	}
+
+	e.cycle()
+	if n := len(e.jobList()); n != 2 {
+		t.Errorf("%d jobs after the next cycle, want 2", n)
+	}
+	if n := len(e.removals()); n != 2 {
+		t.Errorf("%d removals after the next cycle, want 2", n)
+	}
+}
+
+// TestADuplicateRefusalIsHandledAsAbsorbedAndExactlyOneJobExists_TS_15_34 verifies TS-15-34.
+// Verifies: 15-REQ-5.6
+func TestADuplicateRefusalIsHandledAsAbsorbedAndExactlyOneJobExists_TS_15_34(t *testing.T) {
+	for name, tc := range map[string]struct {
+		failRemoval bool
+	}{"the label is removed": {false}, "the removal fails and is owed": {true}} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t, withRunner(fakerunner.New().Then(fakerunner.Block(fakerunner.Step{}))))
+			// A job of the API for 42 appeared before the poll could make its own.
+			e.Hub.AddIssue(slug, fakehub.Issue{Number: 42, Labels: []string{"af:fix"}})
+			status, body := e.call("POST", "/api/v1/workspaces/"+slug+"/fix", `{"issue": 42}`)
+			if status != http.StatusAccepted {
+				t.Fatalf("POST fix = %d %s", status, body)
+			}
+			if tc.failRemoval {
+				e.Hub.Inject("DELETE", removalPath(42, "af:fix"), fakehub.Fault{Status: 503})
+			}
+
+			e.cycle()
+
+			if n := len(e.jobList()); n != 1 {
+				t.Errorf("%d jobs for the issue, want exactly one", n)
+			}
+			if got := e.removals(); !slices.Equal(got, []string{"remove(42,af:fix)"}) {
+				t.Errorf("removals %v, want one", got)
+			}
+			recs := e.recordsOf()
+			switch {
+			case tc.failRemoval && (len(recs) != 1 || recs[0].JobID != "" || !recs[0].Owed || recs[0].Issue != 42 || recs[0].Label != "af:fix"):
+				t.Errorf("records %+v, want one for 42 and af:fix with the removal owed and no job", recs)
+			case !tc.failRemoval && len(recs) != 0:
+				t.Errorf("records %+v, want none for a label that was removed", recs)
+			case !tc.failRemoval && len(e.labelsOf(42)) != 0:
+				t.Errorf("the label is still on the issue: %v", e.labelsOf(42))
+			}
+		})
+	}
+}
+
+// TestANotSubscribedRefusalEndsTheCycleAtOnceWithNoLabelWritten_TS_15_35 verifies TS-15-35.
+// Verifies: 15-REQ-5.7
+func TestANotSubscribedRefusalEndsTheCycleAtOnceWithNoLabelWritten_TS_15_35(t *testing.T) {
+	var refused *refusing
+	e := newEnv(t, withJobs(func(inner Jobs) Jobs { refused = &refusing{Jobs: inner, err: jobs.ErrNotSubscribed}; return refused }))
+	e.Hub.AddIssue(slug, fakehub.Issue{Number: 7, Labels: []string{"af:triage"}})
+	e.Hub.AddIssue(slug, fakehub.Issue{Number: 42, Labels: []string{"af:fix"}})
+
+	e.cycle()
+
+	if refused.calls.Load() != 1 {
+		t.Errorf("the jobs layer was asked %d times, want once: the cycle ends at the refusal", refused.calls.Load())
+	}
+	if got := e.fromPoll(); !slices.Equal(got, []string{"vars", "workspace", "issues(af:triage)"}) {
+		t.Errorf("hub was asked %v, want nothing after the first list", got)
+	}
+	if len(e.removals()) != 0 || len(e.jobList()) != 0 || len(e.Logs.level("WARN")) != 0 {
+		t.Errorf("removals %v, jobs %v, warnings %v; want none", e.removals(), e.jobList(), e.Logs.level("WARN"))
+	}
+}
+
+// TestATokenUnreadableOrOtherErrorOfTheJobsLayerLogsOneWarningLeavesTheLabelAndEndsTheCycle_TS_15_36 verifies TS-15-36.
+// Verifies: 15-REQ-5.8
+func TestATokenUnreadableOrOtherErrorOfTheJobsLayerLogsOneWarningLeavesTheLabelAndEndsTheCycle_TS_15_36(t *testing.T) {
+	for name, cause := range map[string]error{"token unreadable": jobs.ErrTokenUnreadable, "another error": errors.New("the disk is full")} {
+		t.Run(name, func(t *testing.T) {
+			var refused *refusing
+			e := newEnv(t, withJobs(func(inner Jobs) Jobs { refused = &refusing{Jobs: inner, err: cause}; return refused }))
+			e.Hub.AddIssue(slug, fakehub.Issue{Number: 7, Labels: []string{"af:triage"}})
+			e.Hub.AddIssue(slug, fakehub.Issue{Number: 42, Labels: []string{"af:fix"}})
+
+			e.cycle()
+
+			if len(e.removals()) != 0 {
+				t.Errorf("removals %v, want none: the label stays", e.removals())
+			}
+			if warns := e.Logs.level("WARN"); len(warns) != 1 {
+				t.Errorf("%d warnings, want exactly one: %v", len(warns), warns)
+			}
+			if refused.calls.Load() != 1 || len(e.jobList()) != 0 {
+				t.Errorf("the jobs layer was asked %d times and has %d jobs; want one call: issue 42 of the fix list is not processed in this cycle", refused.calls.Load(), len(e.jobList()))
+			}
+			if !slices.Contains(e.labelsOf(7), "af:triage") || !slices.Contains(e.labelsOf(42), "af:fix") {
+				t.Error("a label was taken off")
+			}
+		})
+	}
+}
+
+// TestARecordIsWrittenAfterTheJobIsMadeAndBeforeTheRemovalWithTheJobAndTheRemovalOwed_TS_15_38 verifies TS-15-38.
+// Verifies: 15-REQ-6.2
+func TestARecordIsWrittenAfterTheJobIsMadeAndBeforeTheRemovalWithTheJobAndTheRemovalOwed_TS_15_38(t *testing.T) {
+	var e *env
+	var atRemoval []Record
+	var jobAtRemoval []jobRow
+	e = newEnv(t, withBeforeRequest(func(r *http.Request) {
+		if r.Method == http.MethodDelete {
+			atRemoval = e.recordsOf()
+			jobAtRemoval = e.jobList()
+		}
+	}))
+	e.Hub.AddIssue(slug, fakehub.Issue{Number: 42, Labels: []string{"af:fix"}})
+
+	e.cycle()
+
+	if len(jobAtRemoval) != 1 || len(atRemoval) != 1 {
+		t.Fatalf("at the removal there were jobs %v and records %v, want one of each", jobAtRemoval, atRemoval)
+	}
+	if r := atRemoval[0]; r.Workspace != slug || r.Issue != 42 || r.Label != "af:fix" || r.JobID != jobAtRemoval[0].ID || !r.Owed || r.Seen != SeenOpen {
+		t.Errorf("at the removal the record is %+v, want widgets, 42, af:fix, the job %s, the removal owed and the job not seen to end", r, jobAtRemoval[0].ID)
+	}
+	if after := e.recordsOf(); len(after) != 1 || after[0].Owed {
+		t.Errorf("after the removal the records are %+v, want the owed flag cleared", after)
+	}
+}
+
+// TestARecordThatCannotBeWrittenLogsOneWarningAndTheRemovalGoesAhead_TS_15_39 verifies TS-15-39.
+// Verifies: 15-REQ-6.3
+func TestARecordThatCannotBeWrittenLogsOneWarningAndTheRemovalGoesAhead_TS_15_39(t *testing.T) {
+	e := newEnv(t)
+	if _, err := e.DB.ExecContext(ctx, "DROP TABLE af_poll_requests"); err != nil {
+		t.Fatal(err)
+	}
+	e.Hub.AddIssue(slug, fakehub.Issue{Number: 42, Labels: []string{"af:fix"}})
+
+	e.cycle()
+
+	if warns := e.Logs.level("WARN"); len(warns) != 1 {
+		t.Errorf("%d warnings, want exactly one, about the record: %v", len(warns), warns)
+	}
+	if got := e.removals(); !slices.Equal(got, []string{"remove(42,af:fix)"}) {
+		t.Errorf("removals %v, want the one of af:fix from 42", got)
+	}
+	if n := len(e.jobList()); n != 1 {
+		t.Errorf("%d jobs, want the one", n)
+	}
+}
+
+// TestACycleSpeaksOfNoTokenInItsLogsOrItsRowsWhateverHappens_TS_15_28 verifies TS-15-28: through success, a 403, a 503, a
+// 409 whose message holds the token and a token that does not open, no log record and no row of a job or of a record of
+// the poll contains the PAT.
+// Verifies: 15-REQ-4.7
+func TestACycleSpeaksOfNoTokenInItsLogsOrItsRowsWhateverHappens_TS_15_28(t *testing.T) {
+	e := newEnv(t, withRunner(fakerunner.New().Then(fakerunner.Block(fakerunner.Step{}))))
+	e.Hub.AddIssue(slug, fakehub.Issue{Number: 7, Labels: []string{"af:triage"}})
+	e.Hub.AddIssue(slug, fakehub.Issue{Number: 42, Labels: []string{"af:fix"}})
+	e.cycle() // success
+
+	e.Hub.Inject("GET", listPath, fakehub.Fault{Status: 403})
+	e.cycle()
+	e.Hub.Clear()
+	e.Hub.Inject("GET", listPath, fakehub.Fault{Status: 503})
+	e.cycle()
+	e.Hub.Clear()
+	e.Hub.AddIssue(slug, fakehub.Issue{Number: 50, Labels: []string{"af:fix"}})
+	e.Hub.Inject("DELETE", removalPath(50, "af:fix"), fakehub.Fault{Status: 409, Body: `{"error":{"code":409,"message":"conflict for ` + pat + `","error_type":"forge_conflict"}}`})
+	e.cycle()
+	e.Hub.Clear()
+	if _, err := e.DB.ExecContext(ctx, "UPDATE af_subscriptions SET sealed_token = x'00' WHERE slug = ?", slug); err != nil {
+		t.Fatal(err)
+	}
+	e.cycle() // the token does not open
+
+	if strings.Contains(e.Logs.String(), pat) {
+		t.Errorf("a log record holds the PAT:\n%s", e.Logs.String())
+	}
+	var dump strings.Builder
+	for _, query := range []string{"SELECT * FROM af_jobs", "SELECT * FROM af_attempts", "SELECT * FROM af_events", "SELECT * FROM af_poll_requests"} {
+		rows, err := e.DB.QueryContext(ctx, query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cols, _ := rows.Columns()
+		for rows.Next() {
+			values := make([]any, len(cols))
+			ptrs := make([]any, len(cols))
+			for i := range values {
+				ptrs[i] = &values[i]
+			}
+			if err := rows.Scan(ptrs...); err != nil {
+				t.Fatal(err)
+			}
+			fmt.Fprintln(&dump, values...)
+		}
+		rows.Close()
+	}
+	if strings.Contains(dump.String(), pat) {
+		t.Error("a row of a job or of the poll holds the PAT")
+	}
+	if len(e.Logs.records()) == 0 || dump.Len() == 0 {
+		t.Error("nothing was logged or stored, so the check proves nothing")
+	}
+}
+
+// TestACycleThatRacesTheDeleteOfItsWorkspaceMakesNoJobAfterTheDeleteBegan_TS_15_27 verifies TS-15-27.
+// Verifies: 15-REQ-4.6
+func TestACycleThatRacesTheDeleteOfItsWorkspaceMakesNoJobAfterTheDeleteBegan_TS_15_27(t *testing.T) {
+	var gate *held
+	e := newEnv(t, withJobs(func(inner Jobs) Jobs { gate = newHeld(inner); return gate }))
+	e.Hub.AddIssue(slug, fakehub.Issue{Number: 42, Labels: []string{"af:fix"}})
+	cycled := make(chan struct{})
+	go func() { e.Poll.Cycle(ctx, slug); close(cycled) }()
+	select {
+	case <-gate.reached: // the cycle is just before it makes the job
+	case <-time.After(10 * time.Second):
+		t.Fatal("the cycle did not get to make a job")
+	}
+
+	status, body := e.call("DELETE", "/api/v1/workspaces/"+slug, "")
+	if status != http.StatusNoContent {
+		t.Fatalf("DELETE = %d %s", status, body)
+	}
+	close(gate.release)
+	select {
+	case <-cycled:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the cycle did not end")
+	}
+
+	if jobs := e.jobList(); len(jobs) != 0 {
+		t.Errorf("jobs %+v were made after the workspace was deleted", jobs)
+	}
+	if len(e.removals()) != 0 || !slices.Contains(e.labelsOf(42), "af:fix") {
+		t.Errorf("removals %v, labels %v: the label must stay after the refusal", e.removals(), e.labelsOf(42))
+	}
+}

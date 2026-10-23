@@ -83,6 +83,8 @@ type env struct {
 	Dir    string
 	Poll   *Supervisor
 	Client *hub.Client
+	logger *slog.Logger
+	apiURL string
 }
 
 // option changes the environment before it is built.
@@ -159,7 +161,7 @@ func newEnv(t *testing.T, opts ...option) *env {
 	if cfg.poll != nil {
 		cfg.poll(&pc)
 	}
-	return &env{t: t, Hub: fh, Store: st, DB: st.DB(), Jobs: svc, Runner: cfg.runner, Clock: clk, Logs: logs, Dir: dir, Poll: New(pc), Client: client}
+	return &env{t: t, Hub: fh, Store: st, DB: st.DB(), Jobs: svc, Runner: cfg.runner, Clock: clk, Logs: logs, Dir: dir, Poll: New(pc), Client: client, logger: logger}
 }
 
 // setVar sets a variable of the workspace on the hub.
