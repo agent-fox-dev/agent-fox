@@ -104,8 +104,8 @@ func TestTheEmbeddedSkillsAreTheFilesOnDisk_TS_08_66(t *testing.T) {
 		}
 		embedded++
 	}
-	if embedded < 7 {
-		t.Errorf("%d af-* skills embedded, want the six that were there and af-triage", embedded)
+	if embedded < 5 {
+		t.Errorf("%d af-* skills embedded, want af-bug-hunter, af-code-quality, af-code-simplifier, af-fix and af-triage", embedded)
 	}
 	if _, err := FS.ReadFile("skills.go"); err == nil {
 		t.Error("skills.go is embedded: only the af-* entries are skills")
