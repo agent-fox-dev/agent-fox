@@ -481,7 +481,7 @@
         "`make check` passes offline",
         "all four smoke tests pass under go test -race"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     }
   ]

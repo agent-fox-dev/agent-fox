@@ -78,3 +78,32 @@ poll and on the jobs layer"; TS-15-46: "the service restarts on the same databas
   test: a restart of it is shown by spec 12's tests, and what the poll reads from it is a row of the file.
 
 Deviation key: `start_order_from_the_log`.
+
+## 4. The end-to-end test with the real worker is in `internal/worker` (task 11)
+
+**Spec:** task 11 touches `internal/service/poll/smoke_test.go` and lists TS-15-65 among the tests of that file; R8 says that goal 8
+"uses `agent_fox_worker`'s test harness".
+
+**Code:** the harness that runs the worker end to end, with the fake hub, its git server, the in-process gateway over the local
+provider and the fake `af` and `claude` of the test binary, is `loopEnv` and `TestMain` of `internal/worker`, and the seam that chooses
+the scripted brain (`Runner.loopFlags`) is unexported on purpose: no variable of a workspace may name it. TS-15-65 is therefore
+`TestATriageLabelBecomesOneJobThatTheRealWorkerRunsToDoneEndToEnd_TS_15_65` in `internal/worker/poll_smoke_test.go`, which builds the
+poll (`poll.New`, `Cycle`), the state file and the real jobs layer around that harness; the package `poll` imports nothing of the
+worker, so there is no cycle. TS-15-66 to TS-15-68 are in `internal/service/poll/smoke_test.go`, as the task says.
+
+Deviation key: `worker_smoke_in_the_worker_package`.
+
+## What is left
+
+- A fix or a triage of a label on a workspace whose forge URL is none of a repository ends the cycle with a `WARN`; the spec
+  does not say what the poll does there.
+- The poll does not retry a failed record write other than by the next cycle's records read, and an unreadable table ends the cycle
+  with the label left (the choice that never makes a second job of a label that may be owed).
+- Hub's issues list cannot say that it cut a list at its limit (item 1): a workspace with 100 or more issues that carry one
+  request label at once has an incomplete listing every cycle until the backlog drains, which holds no hold and settles no owed
+  removal meanwhile.
+- The tests drive `Supervisor.Cycle` directly for the rules and use the loop with the injected clock only for the scheduling
+  (TS-15-1 to TS-15-8); the loops and the rules are shown together by the service test of TS-15-7 and by TS-15-65.
+- `TS-11-81` of `cmd/agent-fox` and `TS-12-70` of `internal/service/jobs` failed once each under the load of the full suite while this
+  spec was implemented, and passed in 20 and 15 runs of their own; neither touches the poll. The first asserts the exact requests that
+  hub saw with a token and races the reconciliation pass of spec 14 at start; the second times a subscriber that falls behind.
