@@ -11,7 +11,6 @@ import (
 
 	"github.com/agent-fox-dev/agentkit-go/schema"
 
-	"github.com/agent-fox-dev/agentfox/internal/triage"
 	"github.com/agent-fox-dev/agentfox/internal/triage/fakeforge"
 )
 
@@ -100,7 +99,7 @@ func TestADryRunRunsTheBrainAndPlansTheWrites_TS_08_56(t *testing.T) {
 }
 
 // TestAQuestionStopsTheRunAndWritesNothing_TS_08_57 verifies TS-08-57:
-// a submission with a question ends needs_human, in the loop and in land, with
+// a submission with a question ends needs_human, in the loop, with
 // the options in order, and nothing is written to the forge.
 // Verifies: 08-REQ-9.1
 func TestAQuestionStopsTheRunAndWritesNothing_TS_08_57(t *testing.T) {
@@ -128,7 +127,6 @@ func TestAQuestionStopsTheRunAndWritesNothing_TS_08_57(t *testing.T) {
 		if got := resultOf(t, env)["action"]; got != "none" {
 			t.Errorf("action = %v, want none", got)
 		}
-		// The loop has a run directory of its own; land opens the one of the run it is given.
 		id, _ := resultOf(t, env)["run_id"].(string)
 		data := ledgerData(t, filepath.Join(e.dir, ".agent-fox", "run", id), "triage.question")
 		if data["text"] != "Which session?" || !slices.Equal(anyStrings(data["options"]), []string{"old", "new"}) {
@@ -142,15 +140,6 @@ func TestAQuestionStopsTheRunAndWritesNothing_TS_08_57(t *testing.T) {
 	t.Run("the loop", func(t *testing.T) {
 		e := newTriageEnv(t, fakeforge.GitHub)
 		code, env := scriptedLoop(e, e.forge.IssueURL(7), questionPayload())
-		check(t, e, code, env)
-	})
-	t.Run("land", func(t *testing.T) {
-		e := newTriageEnv(t, fakeforge.GitHub)
-		id := e.briefRun()
-		if code, env := e.submit(id, questionPayload()); code != 0 {
-			t.Fatalf("submit: exit code %d, error %v", code, env["error"])
-		}
-		code, env := e.land(id)
 		check(t, e, code, env)
 	})
 }
@@ -246,15 +235,6 @@ func TestTheResultsValidateAgainstTheDeclaredSchemas_TS_08_59(t *testing.T) {
 		}
 		check(t, "triage", env, "planned", []string{}) // the label is planned (a side effect), not added
 	})
-	t.Run("land", func(t *testing.T) {
-		e := newTriageEnv(t, fakeforge.GitHub)
-		id := e.landedRun()
-		code, env := e.land(id, "--label", "a", "--label", "a")
-		if code != 0 {
-			t.Fatalf("exit code %d, error %v", code, env["error"])
-		}
-		check(t, "triage_land", env, "replaced_body", []string{"a"})
-	})
 	t.Run("a question", func(t *testing.T) {
 		e := newTriageEnv(t, fakeforge.GitHub)
 		code, env := scriptedLoop(e, e.forge.IssueURL(7), questionPayload())
@@ -262,27 +242,6 @@ func TestTheResultsValidateAgainstTheDeclaredSchemas_TS_08_59(t *testing.T) {
 			t.Fatalf("exit code %d, error %v", code, env["error"])
 		}
 		check(t, "triage", env, "none", []string{})
-	})
-	t.Run("the report changed while the run was on", func(t *testing.T) {
-		e := newTriageEnv(t, fakeforge.GitHub)
-		id := e.briefRun()
-		if code, env := e.submit(id, diagnosisPayload(nil)); code != 0 {
-			t.Fatalf("submit: exit code %d, error %v", code, env["error"])
-		}
-		var facts triage.Facts
-		if err := json.Unmarshal(readFile(t, filepath.Join(e.dir, ".agent-fox", "run", id, "triage.json")), &facts); err != nil {
-			t.Fatal(err)
-		}
-		e.forge.AddIssue(fakeforge.Issue{Number: 7, Title: "Login fails", Body: "Edited since the brief was made."})
-
-		code, env := e.land(id)
-
-		if code != 0 || !slices.Contains(warningCodes(env), "report_changed_during_triage") {
-			t.Fatalf("exit code %d, error %v, warnings %v", code, env["error"], warningCodes(env))
-		}
-		if got := resultOf(t, env)["original_report_sha256"]; got == facts.OriginalReportSHA256 || !sha256Hex.MatchString(got.(string)) {
-			t.Errorf("original_report_sha256 = %v, want the hash of the report the body now holds, not %s", got, facts.OriginalReportSHA256)
-		}
 	})
 }
 
@@ -330,39 +289,11 @@ func TestAFailedRunStillListsItsArtifacts_TS_08_60(t *testing.T) {
 		code, env := e.loop(e.forge.IssueURL(7), "--dir", e.dir, "--label", "a,b")
 		failedWith(t, code, env, 2, "usage")
 	})
-	t.Run("land, landed again", func(t *testing.T) {
-		e := newTriageEnv(t, fakeforge.GitHub)
-		id := e.landedRun()
-		for i := range 2 {
-			code, env := e.land(id)
-			if code != 0 {
-				t.Fatalf("landing %d: exit code %d, error %v", i+1, code, env["error"])
-			}
-			if got := kinds(env); !slices.Equal(got, []string{"brief", "diagnosis", "submission"}) {
-				t.Errorf("landing %d: artifacts = %v, want the brief, the diagnosis and the submission once each", i+1, got)
-			}
-		}
-	})
-	t.Run("land, refused after an earlier landing", func(t *testing.T) {
-		e := newTriageEnv(t, fakeforge.GitHub)
-		id := e.landedRun()
-		if code, env := e.land(id); code != 0 {
-			t.Fatalf("land: exit code %d, error %v", code, env["error"])
-		}
-		e.app.NewForge = e.forge.NewForge("")
-
-		code, env := e.land(id)
-
-		failedWith(t, code, env, 1, "auth")
-		if got := kinds(env); !slices.Equal(got, []string{"brief", "diagnosis", "submission"}) {
-			t.Errorf("artifacts = %v, want the brief, the diagnosis and the submission once each", got)
-		}
-	})
 }
 
 // TestAFixIsSuggestedAfterAConfirmedOrProbableDiagnosis_TS_08_61 verifies TS-08-61:
 // a done run that wrote to an issue suggests af fix when the diagnosis is
-// confirmed or probable, in the loop and in land.
+// confirmed or probable.
 // Verifies: 08-REQ-9.5
 func TestAFixIsSuggestedAfterAConfirmedOrProbableDiagnosis_TS_08_61(t *testing.T) {
 	for confidence, want := range map[string]bool{"confirmed": true, "probable": true, "suspected": false} {
@@ -410,24 +341,12 @@ func TestAFixIsSuggestedAfterAConfirmedOrProbableDiagnosis_TS_08_61(t *testing.T
 			}
 		}
 	})
-	t.Run("land", func(t *testing.T) {
-		e := newTriageEnv(t, fakeforge.GitHub)
-		id := e.briefRun()
-		if code, env := e.submit(id, withConfidence("probable")); code != 0 {
-			t.Fatalf("submit: exit code %d, error %v", code, env["error"])
-		}
-		code, env := e.land(id)
-		if code != 0 || !hasNext(env, "af", "fix", e.forge.IssueURL(7), "--dir", e.dir, "--local") {
-			t.Errorf("exit code %d, next = %v, want af fix", code, nextArgvs(env))
-		}
-	})
 }
 
-// TestAFailedLandingSuggestsLandingAgain_TS_08_62 verifies TS-08-62:
-// a landing that failed after a valid submission suggests af triage land, naming
-// the repository when the client was built from the URL of the input.
+// TestAFailedLandingSuggestsNothing_TS_08_62 verifies TS-08-62 as it stands: a landing
+// that failed suggests no command, since there is none that lands a run again.
 // Verifies: 08-REQ-9.6
-func TestAFailedLandingSuggestsLandingAgain_TS_08_62(t *testing.T) {
+func TestAFailedLandingSuggestsNothing_TS_08_62(t *testing.T) {
 	t.Run("an issue URL", func(t *testing.T) {
 		e := newTriageEnv(t, fakeforge.GitHub)
 		e.forge.Fail(fakeforge.OpBody, fakeforge.Failure{Status: 500, Message: "boom"})
@@ -435,8 +354,8 @@ func TestAFailedLandingSuggestsLandingAgain_TS_08_62(t *testing.T) {
 		code, env := scriptedLoop(e, e.forge.IssueURL(7), diagnosisPayload(nil))
 
 		failedWith(t, code, env, 1, "forge")
-		if want := []string{"af", "triage", "land", "--run-id", env["run_id"].(string), "--dir", e.dir, "--repo", "o/r"}; !hasNext(env, want...) {
-			t.Errorf("next = %v, want %v", nextArgvs(env), want)
+		if n := len(nextArgvs(env)); n != 0 {
+			t.Errorf("next = %v, want nothing", nextArgvs(env))
 		}
 	})
 	t.Run("a text report with --repo", func(t *testing.T) {
@@ -446,18 +365,8 @@ func TestAFailedLandingSuggestsLandingAgain_TS_08_62(t *testing.T) {
 		code, env := scriptedLoop(e, "the app crashes on submit", diagnosisPayload(nil), "--repo", "o/r")
 
 		failedWith(t, code, env, 1, "forge")
-		if want := []string{"af", "triage", "land", "--run-id", env["run_id"].(string), "--dir", e.dir}; !hasNext(env, want...) {
-			t.Errorf("next = %v, want %v", nextArgvs(env), want)
-		}
-	})
-	t.Run("land itself", func(t *testing.T) {
-		e := newTriageEnv(t, fakeforge.GitHub)
-		id := e.landedRun()
-		e.forge.Fail(fakeforge.OpBody, fakeforge.Failure{Status: 500, Message: "boom"})
-		code, env := e.land(id)
-		failedWith(t, code, env, 1, "forge")
 		if n := len(nextArgvs(env)); n != 0 {
-			t.Errorf("next = %v: the loop suggests landing again, land does not", nextArgvs(env))
+			t.Errorf("next = %v, want nothing", nextArgvs(env))
 		}
 	})
 	t.Run("no submission", func(t *testing.T) {
@@ -561,11 +470,11 @@ func TestOnlyTheAllowedWarningCodesAndCategories_TS_08_64(t *testing.T) {
 	}
 }
 
-// TestTheSchemaHoldsTheFiveTriageResultSchemas_TS_08_68 verifies TS-08-68:
+// TestTheSchemaHoldsTheTriageResultSchemas_TS_08_68 verifies TS-08-68:
 // af --schema names the result schema of each triage command. (That it equals
 // the committed golden is TS-05-70.)
 // Verifies: 08-REQ-10.4
-func TestTheSchemaHoldsTheFiveTriageResultSchemas_TS_08_68(t *testing.T) {
+func TestTheSchemaHoldsTheTriageResultSchemas_TS_08_68(t *testing.T) {
 	code, stdout, stderr := run(t, "--schema")
 	if code != 0 || stderr != "" {
 		t.Fatalf("exit code %d, stderr %q", code, stderr)
@@ -576,7 +485,7 @@ func TestTheSchemaHoldsTheFiveTriageResultSchemas_TS_08_68(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"triage", "triage_brief", "triage_run", "triage_submit", "triage_land"} {
+	for _, name := range []string{"triage", "triage_run"} {
 		def, ok := doc.Defs[name]
 		if !ok {
 			t.Errorf("af --schema has no result schema %s", name)

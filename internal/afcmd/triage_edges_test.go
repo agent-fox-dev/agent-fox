@@ -11,7 +11,6 @@ import (
 	"github.com/agent-fox-dev/agentkit-go/provider/faux"
 
 	"github.com/agent-fox-dev/agentfox/internal/brain"
-	"github.com/agent-fox-dev/agentfox/internal/triage"
 	"github.com/agent-fox-dev/agentfox/internal/triage/fakeforge"
 )
 
@@ -23,41 +22,9 @@ func pullURL(e *triageEnv) string {
 	return strings.Replace(e.forge.IssueURL(7), "/issues/", "/pull/", 1)
 }
 
-// TestAPullRequestIsRefusedByTheStepsAsByTheLoop guards 08-REQ-2.3 (and DD24):
-// brief refuses a pull or merge request as the loop does, so that submit and land
-// have no run of one to rewrite the description of.
-func TestAPullRequestIsRefusedByTheStepsAsByTheLoop(t *testing.T) {
-	e := newTriageEnv(t, fakeforge.GitHub)
-
-	code, env := e.run("", "triage", "brief", pullURL(e), "--dir", e.dir)
-
-	errObj, _ := env["error"].(map[string]any)
-	if code != 2 || errObj["category"] != "usage" || !strings.Contains(errObj["message"].(string), "pull or merge request") {
-		t.Fatalf("exit code %d, error %v, want usage that says triage takes an issue", code, errObj)
-	}
-	if matches, _ := filepath.Glob(filepath.Join(e.dir, ".agent-fox", "run", "*", "brief.md")); len(matches) != 0 {
-		t.Errorf("a brief was rendered: %v", matches)
-	}
-	if n := len(e.forge.Writes()); n != 0 {
-		t.Errorf("%d writes to the forge", n)
-	}
-}
-
-// TestAClosedIssueWarnsInTheBriefToo guards 08-REQ-2.4 for the step commands.
-func TestAClosedIssueWarnsInTheBriefToo(t *testing.T) {
-	e := newTriageEnv(t, fakeforge.GitHub)
-	e.forge.AddIssue(fakeforge.Issue{Number: 9, Title: "Old", Body: "It broke.", State: "closed"})
-
-	code, env := e.run("", "triage", "brief", e.forge.IssueURL(9), "--dir", e.dir)
-
-	if code != 0 || !slices.Contains(warningCodes(env), triage.WarnIssueClosed) {
-		t.Errorf("exit code %d, warnings %v, want done with issue_closed", code, warningCodes(env))
-	}
-}
-
 // TestAReportThatIsNotUTF8IsRefusedBeforeABriefOrAModel guards 08-REQ-2.1: text the
-// box and the model cannot take is a usage failure of the preflight, in the loop
-// and in brief, and not a failure of the box after the brief is written.
+// box and the model cannot take is a usage failure of the preflight, and not a
+// failure of the box after the brief is written.
 func TestAReportThatIsNotUTF8IsRefusedBeforeABriefOrAModel(t *testing.T) {
 	e := newTriageEnv(t, fakeforge.GitHub)
 	file := filepath.Join(t.TempDir(), "latin1.txt")
@@ -67,18 +34,11 @@ func TestAReportThatIsNotUTF8IsRefusedBeforeABriefOrAModel(t *testing.T) {
 	spy := &spyBrain{}
 	useSpy(t, spy)
 
-	for name, args := range map[string][]string{
-		"the loop": {"triage", file, "--repo", "o/r", "--dir", e.dir, "--brain", "spy"},
-		"brief":    {"triage", "brief", file, "--dir", e.dir},
-	} {
-		t.Run(name, func(t *testing.T) {
-			code, env := e.run("", args...)
+	code, env := e.run("", "triage", file, "--repo", "o/r", "--dir", e.dir, "--brain", "spy", "--sandbox", "local")
 
-			errObj, _ := env["error"].(map[string]any)
-			if code != 2 || errObj["category"] != "usage" || !strings.Contains(errObj["message"].(string), "UTF-8") {
-				t.Fatalf("exit code %d, error %v, want usage that names UTF-8", code, errObj)
-			}
-		})
+	errObj, _ := env["error"].(map[string]any)
+	if code != 2 || errObj["category"] != "usage" || !strings.Contains(errObj["message"].(string), "UTF-8") {
+		t.Fatalf("exit code %d, error %v, want usage that names UTF-8", code, errObj)
 	}
 	if matches, _ := filepath.Glob(filepath.Join(e.dir, ".agent-fox", "run", "*", "brief.md")); len(matches) != 0 || spy.runs != 0 {
 		t.Errorf("briefs %v, the brain ran %d times: nothing should have been spent", matches, spy.runs)
@@ -97,102 +57,6 @@ func TestARefusedRunStillRecordsItsInput(t *testing.T) {
 	}
 	if kinds := ledgerKinds(t, e.runDir(env)); !slices.Equal(kinds, []string{"triage.input"}) {
 		t.Errorf("ledger = %v, want triage.input alone", kinds)
-	}
-}
-
-// TestLandOfARunWithNoRepositoryAsksForOne guards 08-REQ-2.5 for land: the
-// message is the one that names --repo and --land none, and not the shell's about
-// a forge it cannot find.
-func TestLandOfARunWithNoRepositoryAsksForOne(t *testing.T) {
-	e := newTriageEnv(t, fakeforge.GitHub)
-	code, env := e.run("", "triage", "brief", "the app crashes on submit", "--dir", e.dir)
-	if code != 0 {
-		t.Fatalf("brief: exit code %d, error %v", code, env["error"])
-	}
-	id := env["run_id"].(string)
-	if code, env := e.submit(id, diagnosisPayload(nil)); code != 0 {
-		t.Fatalf("submit: exit code %d, error %v", code, env["error"])
-	}
-
-	code, env = e.land(id)
-
-	errObj := failedWith(t, code, env, 2, "usage")
-	if msg := errObj["message"].(string); !strings.Contains(msg, "--repo") || !strings.Contains(msg, "--land none") || strings.Contains(msg, "ambiguous") {
-		t.Errorf("message = %q, want the one that names --repo and --land none", msg)
-	}
-}
-
-// TestLaterLandingsOfATextRunNeedNotNameTheRepositoryAgain guards 08-REQ-8.5: the
-// issue the first landing created is in a repository, and landing again finds it.
-func TestLaterLandingsOfATextRunNeedNotNameTheRepositoryAgain(t *testing.T) {
-	e := newTriageEnv(t, fakeforge.GitHub)
-	code, env := e.run("", "triage", "brief", "the app crashes on submit", "--dir", e.dir)
-	if code != 0 {
-		t.Fatalf("brief: exit code %d, error %v", code, env["error"])
-	}
-	id := env["run_id"].(string)
-	if code, env := e.submit(id, diagnosisPayload(nil)); code != 0 {
-		t.Fatalf("submit: exit code %d, error %v", code, env["error"])
-	}
-	if code, env := e.land(id, "--repo", "o/r"); code != 0 || resultOf(t, env)["action"] != "created_issue" {
-		t.Fatalf("first landing: exit code %d, error %v", code, env["error"])
-	}
-
-	code, env = e.land(id)
-
-	if code != 0 || resultOf(t, env)["action"] != "replaced_body" {
-		t.Fatalf("second landing: exit code %d, error %v, result %v", code, env["error"], env["result"])
-	}
-	if n := e.forge.Count(fakeforge.OpCreate); n != 1 {
-		t.Errorf("%d creates, want 1", n)
-	}
-}
-
-// TestLandingAgainOnGitLabReportsTheSameIssueURL guards the result of a repeated
-// landing of a text run made with --repo, whose host is not recorded: the URL is
-// the one the forge gave, also the second time.
-func TestLandingAgainOnGitLabReportsTheSameIssueURL(t *testing.T) {
-	e := newTriageEnv(t, fakeforge.GitLab)
-	code, env := e.run("", "triage", "brief", "the app crashes on submit", "--repo", "o/r", "--dir", e.dir)
-	if code != 0 {
-		t.Fatalf("brief: exit code %d, error %v", code, env["error"])
-	}
-	id := env["run_id"].(string)
-	if code, env := e.submit(id, diagnosisPayload(nil)); code != 0 {
-		t.Fatalf("submit: exit code %d, error %v", code, env["error"])
-	}
-
-	var urls []string
-	var hosts []any
-	for i := range 2 {
-		code, env := e.land(id)
-		if code != 0 {
-			t.Fatalf("landing %d: exit code %d, error %v", i+1, code, env["error"])
-		}
-		issue, _ := resultOf(t, env)["issue"].(map[string]any)
-		urls = append(urls, issue["url"].(string))
-		hosts = append(hosts, issue["host"])
-	}
-	if urls[0] != urls[1] || strings.Contains(urls[1], "github.com") || hosts[0] == "" || hosts[0] != hosts[1] {
-		t.Errorf("urls %v, hosts %v: want the URL the forge gave, twice, and its host", urls, hosts)
-	}
-}
-
-// TestAQuestionNeedsNoCredentialToBeAsked guards 08-REQ-9.1 for land: a submission
-// with a question lands nothing, so landing it without a credential is the
-// question and not a refusal of the credential.
-func TestAQuestionNeedsNoCredentialToBeAsked(t *testing.T) {
-	e := newTriageEnv(t, fakeforge.GitHub)
-	id := e.briefRun()
-	if code, env := e.submit(id, questionPayload()); code != 0 {
-		t.Fatalf("submit: exit code %d, error %v", code, env["error"])
-	}
-	e.app.NewForge = e.forge.NewForge("")
-
-	code, env := e.land(id)
-
-	if code != 3 || env["status"] != "needs_human" {
-		t.Errorf("exit code %d, status %v, error %v, want needs_human", code, env["status"], env["error"])
 	}
 }
 
@@ -222,9 +86,9 @@ func TestAnAbsolutePathInTheBoxIsMadeRelative(t *testing.T) {
 	}
 }
 
-// TestALinkOutOfTheCheckoutCannotBeCited guards 08-REQ-5.5 and DD7 through the
-// command: a link is in the file view, and a diagnosis may not name a file that is
-// not in the checkout.
+// TestALinkOutOfTheCheckoutCannotBeCited guards 08-REQ-5.5 and DD7 at the submit
+// core over the checkout: a link is in the file view, and a diagnosis may not name a
+// file that is not in the checkout.
 func TestALinkOutOfTheCheckoutCannotBeCited(t *testing.T) {
 	e := newTriageEnv(t, fakeforge.GitHub)
 	outside := filepath.Join(t.TempDir(), "outside.txt")
@@ -244,13 +108,12 @@ func TestALinkOutOfTheCheckoutCannotBeCited(t *testing.T) {
 		})
 	}
 
-	code, env := e.submit(id, cite("linkout"))
-	errObj := failedWith(t, code, env, 1, "submission")
-	if msg := errObj["message"].(string); !strings.Contains(msg, "/affected_files/0/path") || !strings.Contains(msg, "cite a file") {
-		t.Errorf("message = %q", msg)
+	err := e.inProcess(id, cite("linkout"))
+	if err == nil || !strings.Contains(err.Error(), "/affected_files/0/path") || !strings.Contains(err.Error(), "cite a file") {
+		t.Errorf("a link out of the checkout: %v, want the refusal of the path", err)
 	}
-	if code, env := e.submit(id, cite("linkmain")); code != 0 {
-		t.Errorf("a link to a file of the checkout: exit code %d, error %v, want accepted", code, env["error"])
+	if err := e.inProcess(id, cite("linkmain")); err != nil {
+		t.Errorf("a link to a file of the checkout: %v, want accepted", err)
 	}
 }
 
@@ -356,27 +219,6 @@ func TestTheRefusalsOfTheLandingCheckAreTheEnvelopesTheySay(t *testing.T) {
 	}
 }
 
-// TestARejectionsFileThatCannotBeReadIsAWarningInEveryEnvelope guards 08-REQ-6.3 at
-// the envelope: submit and land raise rejections_unreadable and count 0.
-func TestARejectionsFileThatCannotBeReadIsAWarningInEveryEnvelope(t *testing.T) {
-	e := newTriageEnv(t, fakeforge.GitHub)
-	id := e.briefRun()
-	dir := filepath.Join(e.dir, ".agent-fox", "run", id)
-	if err := os.WriteFile(filepath.Join(dir, "rejections.jsonl"), []byte("this is not a refusal\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	code, submit := e.submit(id, diagnosisPayload(nil))
-	if code != 0 || !slices.Contains(warningCodes(submit), triage.WarnRejectionsUnreadable) || resultOf(t, submit)["rejected_path_calls"] != float64(0) {
-		t.Errorf("submit: exit code %d, warnings %v, result %v", code, warningCodes(submit), submit["result"])
-	}
-	code, land := e.land(id)
-	got := resultOf(t, land)
-	if code != 0 || !slices.Contains(warningCodes(land), triage.WarnRejectionsUnreadable) || got["rejected_path_calls"] != float64(0) || got["rejected_submissions"] != float64(0) {
-		t.Errorf("land: exit code %d, warnings %v, result %v", code, warningCodes(land), got)
-	}
-}
-
 // TestTheLoopWritesTheBodyAloneAndItsResultIsTheSchemasOwn guards 08-REQ-8.3 and
 // 9.3 end to end: the update that replaces the body sends the body and nothing
 // else, and the result of the loop validates against the schema of the command.
@@ -473,99 +315,17 @@ func TestAFailedWriteIsRetryableOnlyWhereTheForgeMayRecover(t *testing.T) {
 	}
 }
 
-// TestLandWithNoCredentialAsksNothingOfTheForge guards 08-REQ-2.6 for land: the
-// refusal is the one that names the credential, and comes before any request,
-// not the failure of the first write.
-func TestLandWithNoCredentialAsksNothingOfTheForge(t *testing.T) {
+// TestARunWithNoRepositoryNeverTriesToFindAForge guards 08-REQ-2.5 against the shell's
+// own client: with no client injected, a repository that is not there is told as such,
+// and not as a forge that cannot be detected.
+func TestARunWithNoRepositoryNeverTriesToFindAForge(t *testing.T) {
 	e := newTriageEnv(t, fakeforge.GitHub)
-	id := e.landedRun()
-	e.app.NewForge = e.forge.NewForge("")
-	before := len(e.forge.Requests())
-
-	code, env := e.land(id)
-
-	errObj := failedWith(t, code, env, 1, "auth")
-	hint, _ := errObj["fix_hint"].(map[string]any)
-	if !strings.Contains(errObj["message"].(string), "needs a credential") || hint["env"] != "GITHUB_TOKEN" {
-		t.Errorf("error = %v, want the refusal that names the credential", errObj)
-	}
-	if n := len(e.forge.Requests()) - before; n != 0 {
-		t.Errorf("%d requests to the forge before the refusal", n)
-	}
-}
-
-// TestLandOfARunWithNoRepositoryNeverTriesToFindAForge guards 08-REQ-2.5 against the
-// shell's own client: with no client injected, a repository that is not there is
-// told as such, and not as a forge that cannot be detected.
-func TestLandOfARunWithNoRepositoryNeverTriesToFindAForge(t *testing.T) {
-	e := newTriageEnv(t, fakeforge.GitHub)
-	code, env := e.run("", "triage", "brief", "the app crashes on submit", "--dir", e.dir)
-	if code != 0 {
-		t.Fatalf("brief: exit code %d, error %v", code, env["error"])
-	}
-	id := env["run_id"].(string)
-	if code, env := e.submit(id, diagnosisPayload(nil)); code != 0 {
-		t.Fatalf("submit: exit code %d, error %v", code, env["error"])
-	}
 	e.app.NewForge = nil // the shell's own: it detects the forge from the environment and the origin, and there are none
 
-	code, env = e.land(id)
+	code, env := scriptedLoop(e, "the app crashes on submit", diagnosisPayload(nil))
 
 	errObj := failedWith(t, code, env, 2, "usage")
 	if msg := errObj["message"].(string); !strings.Contains(msg, "--land none") || strings.Contains(msg, "forge") {
 		t.Errorf("message = %q, want the one that names --repo and --land none", msg)
-	}
-}
-
-// TestLandChecksAgainTheFilesOfTheCheckoutAsTheHostHasThem guards 08-REQ-4.5 for a
-// submission written by something other than af: a link out of the checkout is no
-// file to cite, and a pipe is never read.
-func TestLandChecksAgainTheFilesOfTheCheckoutAsTheHostHasThem(t *testing.T) {
-	e := newTriageEnv(t, fakeforge.GitHub)
-	outside := filepath.Join(t.TempDir(), "outside.txt")
-	if err := os.WriteFile(outside, []byte("1\n2\n3\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(outside, filepath.Join(e.dir, "linkout")); err != nil {
-		t.Skipf("no symbolic links here: %v", err)
-	}
-	id := e.briefRun()
-	submission := `{"kind":"triage","run_id":"` + id + `","attempt":1,"nonce":"n","submitted_at":"2026-10-20T08:00:00Z","payload_sha256":"x","payload":` +
-		diagnosisPayload(func(m map[string]any) {
-			m["affected_files"] = []any{map[string]any{"path": "linkout", "line": 2, "note": "n"}}
-		}) + `}`
-	if err := os.WriteFile(filepath.Join(e.dir, ".agent-fox", "run", id, "submission.json"), []byte(submission), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	code, env := e.land(id)
-
-	errObj := failedWith(t, code, env, 1, "no_result")
-	if !strings.Contains(errObj["message"].(string), "cite a file") {
-		t.Errorf("message = %q", errObj["message"])
-	}
-	if n := len(e.forge.Writes()); n != 0 {
-		t.Errorf("%d writes to the forge", n)
-	}
-}
-
-// TestALedgerThatCannotBeWrittenIsAWarningOfTheLanding guards the landing's record
-// of itself: triage.land is noted through the shell's, and a ledger it cannot write
-// is the warning ledger_unwritable and not silence.
-func TestALedgerThatCannotBeWrittenIsAWarningOfTheLanding(t *testing.T) {
-	e := newTriageEnv(t, fakeforge.GitHub)
-	id := e.landedRun()
-	ledger := filepath.Join(e.dir, ".agent-fox", "run", id, "ledger.jsonl")
-	if err := os.Remove(ledger); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(ledger, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	code, env := e.land(id)
-
-	if code != 0 || !slices.Contains(warningCodes(env), "ledger_unwritable") {
-		t.Errorf("exit code %d, warnings %v, want a landing that went on and the warning ledger_unwritable", code, warningCodes(env))
 	}
 }

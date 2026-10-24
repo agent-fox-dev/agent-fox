@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/agent-fox-dev/aflib/issuex"
 	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/brain"
 	"github.com/agent-fox-dev/agentfox/internal/fix"
@@ -245,4 +246,11 @@ func fixBoxRequest(c *Config, r *toolio.Run, run *toolio.RunDir, entry brain.Ent
 		Defaulted: s.SandboxSource != brain.SandboxFlag,
 		HostDir:   r.Dir, RunID: run.ID, Tool: "fix", Record: run.Record, Warn: r.Warn, Registry: c.boxes(), Labels: c.BoxLabels,
 	})
+}
+
+// repoOfState is the repository a run recorded, with its host.
+func repoOfState(t fix.StateTarget) issuex.Repo {
+	repo, _ := issuex.ParseRepo(t.Repo)
+	repo.Host = t.Host
+	return repo
 }

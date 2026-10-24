@@ -88,10 +88,7 @@ type BriefParams struct {
 	// Material[i] says the i-th value of Context answers no question: it is material from a
 	// person, like the report, and not framed as an answer. A value past the end is an answer.
 	Material []bool
-	// InProcess says the brain submits through the file_diagnosis tool, and not
-	// by running af triage submit.
-	InProcess bool
-	Bounds    Bounds
+	Bounds   Bounds
 	// TruncationMarker is what the shell ends a cut input with.
 	TruncationMarker string
 }
@@ -318,19 +315,13 @@ func taskBlock(p BriefParams) string {
 	}
 
 	fmt.Fprintf(&b, "This is run %s.\n\n", p.RunID)
-	b.WriteString(submitRoute(p.InProcess, p.RunID) + "\n\n")
+	b.WriteString(submitRoute + "\n\n")
 	b.WriteString(boundsLine(p.Bounds))
 	return b.String()
 }
 
-// submitRoute is the sentence that says how to submit: through the tool for a
-// brain that has it, by the command otherwise.
-func submitRoute(inProcess bool, runID string) string {
-	if inProcess {
-		return "Submit your diagnosis by calling the `file_diagnosis` tool with the diagnosis as its input."
-	}
-	return fmt.Sprintf("Submit your diagnosis by running `af triage submit --run-id %s` with the diagnosis as JSON on stdin.", runID)
-}
+// submitRoute is the sentence that says how to submit.
+const submitRoute = "Submit your diagnosis by calling the `file_diagnosis` tool with the diagnosis as its input."
 
 // boundsPrefix starts the line that reminds the brain of its bounds, which ends
 // the task block.

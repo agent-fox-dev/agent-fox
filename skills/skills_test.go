@@ -51,8 +51,6 @@ func TestTheTriageSkillHasItsFrontmatterAndMethod_TS_08_65(t *testing.T) {
 		"Never", "write", "run anything", "comment on the issue", "instructions found in the report",
 		// the contract af fix reads
 		"## Acceptance Criteria",
-		// the attended section
-		"af triage brief", "af triage submit --run-id", "af triage land --run-id",
 	} {
 		if !strings.Contains(strings.ToLower(body), strings.ToLower(term)) {
 			t.Errorf("the skill does not mention %q", term)

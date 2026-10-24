@@ -37,31 +37,24 @@ func skillBody(t *testing.T, name string) (keys []string, body string) {
 	return keys, body
 }
 
-// TestTheFixSkillIsTheToolbeltFlow_TS_09_71 verifies TS-09-71: skills/af-fix names the
-// three commands of the flow in order and the gate, says that the agent never commits,
-// pushes, branches or edits the issue, uses the branch form af makes, and has no
-// instruction to do any of those things itself.
+// TestTheFixSkillIsTheMethodOfTheBrain_TS_09_71 verifies TS-09-71 as it stands: skills/af-fix
+// names the tool the brain submits with and the gate, and no command of af that is gone, says
+// that the agent never commits, pushes, branches or edits the issue, uses the branch form af
+// makes, and has no instruction to do any of those things itself.
 // Verifies: 09-REQ-10.5
-func TestTheFixSkillIsTheToolbeltFlow_TS_09_71(t *testing.T) {
+func TestTheFixSkillIsTheMethodOfTheBrain_TS_09_71(t *testing.T) {
 	keys, body := skillBody(t, "skills/af-fix")
 	if strings.Join(keys, ",") != "name,description,argument-hint" {
 		t.Errorf("frontmatter keys = %v, want name, description and argument-hint", keys)
 	}
 	text := repoFile(t, "skills/af-fix")
 
-	last := -1
-	for _, command := range []string{"af fix brief", "af fix submit", "af fix land"} {
-		at := strings.Index(body, command)
-		switch {
-		case at < 0:
-			t.Errorf("the skill does not mention %q", command)
-		case at < last:
-			t.Errorf("%q comes before the command it follows", command)
-		default:
-			last = at
+	for _, gone := range []string{"af fix brief", "af fix submit", "af fix land"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("the skill mentions %q, which is no command of af", gone)
 		}
 	}
-	for _, term := range []string{"af gate run", "fix/<N>-<slug>"} {
+	for _, term := range []string{"submit_fix", "af gate run", "fix/<N>-<slug>"} {
 		if !strings.Contains(body, term) {
 			t.Errorf("the skill does not mention %q", term)
 		}

@@ -256,9 +256,8 @@ func TestThePrefixIsTheSameForEveryRoundAttemptAndResume_TS_09_18(t *testing.T) 
 		// says; the part of a brief that is the prefix is where the run says it ends.
 		task := TaskBlock(TaskParams{RunID: leftovers[0], Attempt: rng.Intn(5) + 1, Round: rng.Intn(20) + 1, Earlier: []Earlier{{Question: "q", Answer: leftovers[1], Found: true}}, PreviousAttempt: "the bounds were spent"})
 		brief := NewBrief(BriefParams{RunID: leftovers[0], Prefix: got.Text, Task: task, Round: 1})
-		s := State{PrefixBytes: len(got.Text), PrefixSHA256: got.SHA256}
-		if prefix, rest, err := SplitBrief(brief.Prefix+brief.Task, s); err != nil || prefix != base.Text || rest != task {
-			t.Fatalf("case %d: the brief splits into %d and %d bytes (%v), want the prefix and the task block it was made of", i, len(prefix), len(rest), err)
+		if brief.Prefix != base.Text || brief.Task != task {
+			t.Fatalf("case %d: the brief has a prefix of %d and a task block of %d bytes, want the prefix and the task block it was made of", i, len(brief.Prefix), len(brief.Task))
 		}
 	}
 }
@@ -274,7 +273,7 @@ func TestTheTaskBlockCarriesWhatChangesBetweenRounds_TS_09_20(t *testing.T) {
 	next := TaskBlock(TaskParams{RunID: id, Attempt: 2, Round: 1, PreviousAttempt: "its budget of 10 dollars was spent"})
 
 	for name, task := range map[string]string{"round 1": first, "round 2": second, "attempt 2": next} {
-		for _, want := range []string{id, "af fix submit --run-id " + id, "submit_fix"} {
+		for _, want := range []string{id, "submit_fix"} {
 			if !strings.Contains(task, want) {
 				t.Errorf("%s: the task block lacks %q:\n%s", name, want, task)
 			}

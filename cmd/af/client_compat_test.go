@@ -291,10 +291,10 @@ func anySlice(s []string) []any {
 	return out
 }
 
-// TestTriagesFixSuggestionEndsWithLocalFromTheLoopAndFromLandAndRunsAsGiven_TS_16_13 verifies
-// TS-16-13.
+// TestTriagesFixSuggestionEndsWithLocalAndRunsAsGiven_TS_16_13 verifies TS-16-13 as it
+// stands: the loop is the one command that suggests af fix.
 // Verifies: 16-REQ-2.5
-func TestTriagesFixSuggestionEndsWithLocalFromTheLoopAndFromLandAndRunsAsGiven_TS_16_13(t *testing.T) {
+func TestTriagesFixSuggestionEndsWithLocalAndRunsAsGiven_TS_16_13(t *testing.T) {
 	hasFix := func(env map[string]any, url, dir string) []string {
 		for _, argv := range nextArgvs(env) {
 			if slices.Equal(argv, []string{"af", "fix", url, "--dir", dir, "--local"}) {
@@ -315,22 +315,7 @@ func TestTriagesFixSuggestionEndsWithLocalFromTheLoopAndFromLandAndRunsAsGiven_T
 		suggestion = hasFix(env, e.forge.IssueURL(7), e.dir)
 	}
 
-	// triage land, from a prepared run: the brief, a submission and the landing.
 	e := newLocalEnv(t, nil)
-	code, brief := e.run("", "triage", "brief", e.forge.IssueURL(7), "--dir", e.dir)
-	if code != 0 {
-		t.Fatalf("triage brief: exit %d, %v", code, brief["error"])
-	}
-	id := brief["run_id"].(string)
-	if code, env := e.run(diagnosis("confirmed"), "triage", "submit", "--run-id", id, "--dir", e.dir); code != 0 {
-		t.Fatalf("triage submit: exit %d, %v", code, env["error"])
-	}
-	code, landed := e.run("", "triage", "land", "--run-id", id, "--dir", e.dir)
-	if code != 0 {
-		t.Fatalf("triage land: exit %d, %v", code, landed["error"])
-	}
-	hasFix(landed, e.forge.IssueURL(7), e.dir)
-
 	// The suggestion runs as given: the binary takes it as the loop, not as the no-mode error.
 	if suggestion != nil {
 		res := e.run2(suggestion[1:]...)

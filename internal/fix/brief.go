@@ -272,8 +272,7 @@ func TaskBlock(p TaskParams) string {
 	if p.Refusal != nil {
 		b.WriteString(refusalText(*p.Refusal) + "\n")
 	}
-	fmt.Fprintf(&b, "When the change is done, submit your report by running `af fix submit --run-id %s` with the "+
-		"report as JSON on stdin, or by calling the `submit_fix` tool with the report as its input.\n", p.RunID)
+	b.WriteString("When the change is done, submit your report by calling the `submit_fix` tool with the report as its input.\n")
 	return b.String()
 }
 

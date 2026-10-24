@@ -12,6 +12,12 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
+// The ledger records of measuring a change.
+const (
+	LedgerMeasure = "measure"
+	LedgerRefusal = "refusal"
+)
+
 // The warnings of the end of a run.
 const (
 	WarnAttemptFailed = "attempt_failed"
@@ -240,4 +246,39 @@ func (p FinishParams) plan(ctx context.Context, parked bool) {
 		title, draft = typ+": "+singleLine(report.Subject), p.State.NoVerify || len(unmetCriteria(report)) > 0
 	}
 	_, _ = p.Forge.CreatePullRequest(ctx, p.Target, issuex.CreatePullRequestRequest{Title: title, Head: branch, Base: p.State.Base, Draft: draft})
+}
+
+// costSource is the source of the cost of the run, none when no round has been paid for.
+func costSource(s State) string {
+	if s.CostSource == "" {
+		return toolio.CostNone
+	}
+	return s.CostSource
+}
+
+func summary(outcome, branch string, pr *PullRequestRef) string {
+	text := fmt.Sprintf("%s the change on the branch %s", outcome, branch)
+	if pr != nil {
+		text += ", pull request " + pr.URL
+	}
+	return text
+}
+
+// RecordMeasurement notes what was measured in the ledger, and the refusal when there is
+// one.
+func RecordMeasurement(record func(kind string, data any), m Measurement) {
+	if record == nil {
+		return
+	}
+	data := map[string]any{"verdict": m.Verdict, "closes": m.Closes, "changed": m.Changed, "reverted": m.Reverted}
+	if m.After != nil {
+		data["after_gate_id"] = m.After.GateID
+	}
+	if m.RevertCheck != nil {
+		data["revert_outcome"] = m.RevertCheck.Outcome
+	}
+	record(LedgerMeasure, data)
+	if m.Refusal != nil {
+		record(LedgerRefusal, map[string]any{"kind": m.Refusal.Kind})
+	}
 }

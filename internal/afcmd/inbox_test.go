@@ -9,14 +9,12 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	"github.com/agent-fox-dev/agentkit-go/sandbox"
 
 	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/brain"
-	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/fakeaf"
 	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
@@ -35,9 +33,8 @@ const boxPAT = "pat-for-the-in-box-tests"
 // that measures in its box must never make.
 type boxFixEnv struct {
 	*fixEnv
-	hub       *fakehub.Hub
-	cfg       Config
-	hostGates atomic.Int32
+	hub *fakehub.Hub
+	cfg Config
 }
 
 // newBoxFixEnv makes the environment over a repository of files. The fake af of the box is the
@@ -70,10 +67,6 @@ func newBoxFixEnv(t *testing.T, files map[string]string) *boxFixEnv {
 	w.cfg = Config{
 		Version: "v-test", Commit: "c-test", Boxes: reg, Brain: brain.Options{Getenv: noEnv}, SandboxProfile: "py",
 		BoxLabels: map[string]string{"af.job": "job_0123456789abcdef0123", "af.attempt": "1"},
-		Gate: func(ctx context.Context, dir string, o checks.Options) (checks.Result, error) {
-			w.hostGates.Add(1)
-			return checks.Run(ctx, dir, o)
-		},
 	}
 	w.app = New(&w.cfg)
 	w.app.NewForge = e.forge.NewForge("test-token")
@@ -130,9 +123,6 @@ func TestDetectionBaselineGateAndRevertCheckRunInTheBoxAndNeverOnTheHost_TS_13_4
 	}
 	if got, want := w.ring1(), []string{"lang detect", "gate run", "gate run", "revert-check"}; !slices.Equal(got, want) {
 		t.Errorf("the box ran %v of the repository's checks, want %v", got, want)
-	}
-	if w.hostGates.Load() != 0 {
-		t.Errorf("the host's gate was called %d times, want none", w.hostGates.Load())
 	}
 	// The results of the box are on the host, where the comparison reads them.
 	after, _ := res["after"].(map[string]any)
@@ -364,11 +354,7 @@ func TestVerdictTableGateSectionAndResultFieldsKeepTheirShapeInBothModes_TS_13_5
 	_, inBox := service.fixInBox("--script", script(t, fixSteps()...))
 
 	host := newFixEnvWith(t, fakeforge.GitHub, smokeFiles(), true)
-	var hostGates atomic.Int32
-	cfg := Config{Gate: func(ctx context.Context, dir string, o checks.Options) (checks.Result, error) {
-		hostGates.Add(1)
-		return checks.Run(ctx, dir, o)
-	}, Version: "v-test", Commit: "c-test"}
+	cfg := Config{Version: "v-test", Commit: "c-test"}
 	host.app = New(&cfg)
 	host.app.NewForge = host.forge.NewForge("test-token")
 	_, onHost := host.fix(host.forge.IssueURL(7), scripted(script(t, fixSteps()...))...)
@@ -403,9 +389,6 @@ func TestVerdictTableGateSectionAndResultFieldsKeepTheirShapeInBothModes_TS_13_5
 	}
 	if in, on := reportOf(service.fixEnv, inBox), reportOf(host, onHost); in != on {
 		t.Errorf("the report in the box\n%s\nand on the host\n%s", in, on)
-	}
-	if n := hostGates.Load(); n != 0 {
-		t.Errorf("the local box measured on the host: its gate ran %d times", n)
 	}
 	briefIn, briefOn := string(readFile(t, filepath.Join(service.dir, ".agent-fox", "run", inBox["run_id"].(string), "brief.md"))), string(readFile(t, filepath.Join(host.dir, ".agent-fox", "run", onHost["run_id"].(string), "brief.md")))
 	section := func(brief string) string {

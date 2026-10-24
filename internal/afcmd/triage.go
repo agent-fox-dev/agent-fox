@@ -1,14 +1,9 @@
 package afcmd
 
 import (
-	"context"
-	"crypto/rand"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,10 +23,7 @@ import (
 // registerTriage registers af triage and its subcommands.
 func registerTriage(app *toolio.App, c *Config) {
 	registerTriageLoop(app, c)
-	registerTriageBrief(app, c)
-	registerTriageSubmit(app)
 	registerTriageRun(app, c)
-	registerTriageLand(app)
 }
 
 // The ledger kinds of a triage run.
@@ -109,10 +101,9 @@ func resolveInput(r *toolio.Run) (triage.Report, triage.Facts) {
 
 // renderBrief renders the brief of the run for the report, writes brief.md,
 // original.md and triage.json, records triage.brief, and lists the brief as an
-// artifact. It is the part of a triage run that the loop and `af triage brief`
-// share, and it refuses what triage does not take (the loop has refused it in its
+// artifact. It refuses what triage does not take (the loop has refused it in its
 // preflight already).
-func renderBrief(c *Config, r *toolio.Run, report triage.Report, facts triage.Facts, inProcess bool, bounds triage.Bounds) (renderedBrief, error) {
+func renderBrief(c *Config, r *toolio.Run, report triage.Report, facts triage.Facts, bounds triage.Bounds) (renderedBrief, error) {
 	warnings, refusal := triage.CheckInput(report)
 	if refusal != nil {
 		return renderedBrief{}, refusalFailure(refusal)
@@ -127,7 +118,7 @@ func renderBrief(c *Config, r *toolio.Run, report triage.Report, facts triage.Fa
 	}
 	brief, err := triage.BuildBrief(r.Ctx, triage.BriefParams{
 		Dir: r.Dir, Report: report, RunID: r.RunDir.ID, Context: r.Context, Material: c.materialFlags(len(r.Context)), PreviousQuestion: previous,
-		InProcess: inProcess, Bounds: bounds, TruncationMarker: toolio.TruncationMarker,
+		Bounds: bounds, TruncationMarker: toolio.TruncationMarker,
 	})
 	if err != nil {
 		if r.Ctx.Err() != nil {
@@ -146,130 +137,6 @@ func renderBrief(c *Config, r *toolio.Run, report triage.Report, facts triage.Fa
 	record(r, ledgerBrief, map[string]any{"brief": path, "prefix_bytes": facts.Prefix.Bytes, "prefix_sha256": facts.Prefix.SHA256, "document_bytes": len(brief.Document)})
 	r.Artifact(toolio.Artifact{Kind: "brief", Path: path})
 	return renderedBrief{brief: brief, report: report, facts: facts, previous: previous != nil}, nil
-}
-
-// triageBriefResult is the result of af triage brief.
-type triageBriefResult struct {
-	Brief            string    `json:"brief"`
-	PrefixBytes      int       `json:"prefix_bytes"`
-	PrefixSHA256     string    `json:"prefix_sha256"`
-	DocumentBytes    int       `json:"document_bytes"`
-	EstimatedTokens  int       `json:"estimated_tokens"`
-	Map              triageMap `json:"map"`
-	ReportTruncated  bool      `json:"report_truncated"`
-	PreviousQuestion bool      `json:"previous_question"`
-}
-
-// triageMap says how much of the repository map a brief holds.
-type triageMap struct {
-	Level     int  `json:"level"`
-	Truncated bool `json:"truncated"`
-}
-
-// registerTriageBrief registers af triage brief.
-func registerTriageBrief(app *toolio.App, c *Config) {
-	app.Register(toolio.Command{
-		Path:           "triage brief",
-		Summary:        "Render the brief of a triage run, without running a brain",
-		Usage:          "af triage brief <issue|file|text|-> [--dir DIR] [--context ANSWER]... [--repo owner/name]",
-		Input:          toolio.InputRequired,
-		UsesForge:      true,
-		UsesRunDir:     true,
-		Context:        true,
-		Repo:           true,
-		Timeout:        true,
-		DefaultTimeout: 2 * time.Minute,
-		ResultSchema:   resultSchema("triage_brief"),
-		Run:            func(r *toolio.Run) (toolio.Outcome, error) { return triageBrief(c, r) },
-	})
-}
-
-// triageBrief renders the brief for a person to read, and for the steps that
-// follow. It calls no model and writes nothing to the forge.
-func triageBrief(c *Config, r *toolio.Run) (toolio.Outcome, error) {
-	report, facts := resolveInput(r)
-	rendered, err := renderBrief(c, r, report, facts, false, triage.DefaultBounds)
-	if err != nil {
-		return toolio.Outcome{}, err
-	}
-	b := rendered.brief
-	path := filepath.Join(r.RunDir.Path, "brief.md")
-	for _, step := range []struct{ command, reason string }{
-		{"submit", "submit the diagnosis, as JSON on stdin"},
-		{"land", "write the diagnosis to the forge"},
-	} {
-		r.Next(toolio.Next{Argv: []string{"af", "triage", step.command, "--run-id", r.RunDir.ID, "--dir", r.Dir}, Reason: step.reason})
-	}
-	return toolio.Outcome{
-		Status:  toolio.StatusDone,
-		Summary: fmt.Sprintf("rendered the brief of run %s: %d bytes, about %d tokens", r.RunDir.ID, len(b.Document), estimatedTokens(b.Document)),
-		Result: triageBriefResult{
-			Brief: path, PrefixBytes: b.PrefixBytes, PrefixSHA256: rendered.facts.Prefix.SHA256, DocumentBytes: len(b.Document),
-			EstimatedTokens: estimatedTokens(b.Document), Map: triageMap{Level: b.MapLevel, Truncated: b.MapTruncated},
-			ReportTruncated: b.ReportTruncated, PreviousQuestion: rendered.previous,
-		},
-	}, nil
-}
-
-// estimatedTokens is the size of a text in tokens, estimated as its bytes divided
-// by 4, rounded up, the way the repository map counts.
-func estimatedTokens(text string) int { return (len(text) + 3) / 4 }
-
-// triageSubmitResult is the result of af triage submit.
-type triageSubmitResult struct {
-	RunID             string `json:"run_id"`
-	Accepted          bool   `json:"accepted"`
-	Submission        string `json:"submission"`
-	RejectedPathCalls int    `json:"rejected_path_calls"`
-}
-
-// registerTriageSubmit registers af triage submit: the submit command of the
-// submission protocol, with the triage kind made for the directory it works in.
-func registerTriageSubmit(app *toolio.App) {
-	cmd := submission.CommandWith("triage submit", triage.Kind(""), submission.Options{
-		Kind:         func(dir string) submission.Kind { return triage.Kind(dir) },
-		ResultSchema: resultSchema("triage_submit"),
-		Prepare:      func(_ *toolio.Run, run *toolio.RunDir) error { return placeRunJSON(run, triage.KindName) },
-		Result:       submitResult,
-	})
-	cmd.Summary = "Submit the diagnosis of a triage run, as JSON on stdin"
-	cmd.Usage = "af triage submit --run-id ID [--dir DIR] < diagnosis.json"
-	cmd.DefaultTimeout, cmd.Timeout = 30*time.Second, true
-	app.Register(cmd)
-}
-
-// placeRunJSON places the file that the protocol reads the attempt and the nonce
-// of a submission from, when the run has none: a person who drives the steps at
-// their own checkout has no loop to place it. A box that runs a brain has it
-// placed already, and it is left as it is.
-func placeRunJSON(run *toolio.RunDir, kind string) error {
-	path := filepath.Join(run.Path, "run.json")
-	if _, err := os.Stat(path); err == nil {
-		return nil
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return &toolio.Failure{Category: toolio.CategoryIO, Message: err.Error()}
-	}
-	var nonce [8]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		return &toolio.Failure{Category: toolio.CategoryInternal, Message: err.Error()}
-	}
-	data, err := json.MarshalIndent(submission.Run{RunID: run.ID, Kind: kind, Attempt: 1, Nonce: hex.EncodeToString(nonce[:])}, "", "  ")
-	if err == nil {
-		err = agentdir.WriteFileAtomic(path, append(data, '\n'))
-	}
-	if err != nil {
-		return &toolio.Failure{Category: toolio.CategoryIO, Message: fmt.Sprintf("cannot write %s: %v", path, err)}
-	}
-	return nil
-}
-
-// submitResult is the result of an accepted `af triage submit`: it records
-// triage.submission and counts the refusals of the run.
-func submitResult(r *toolio.Run, run *toolio.RunDir, receipt submission.Receipt) (any, error) {
-	path := filepath.Join(r.Dir, filepath.FromSlash(receipt.Path))
-	pathCalls := countRejections(r, run)
-	recordIn(r, run, ledgerSubmission, map[string]any{"submission": path, "sha256": receipt.SHA256})
-	return triageSubmitResult{RunID: run.ID, Accepted: true, Submission: path, RejectedPathCalls: pathCalls}, nil
 }
 
 // countRejections is the number of refused calls of the run that cited a path
@@ -291,17 +158,20 @@ type triageRunResult struct {
 }
 
 // registerTriageRun registers af triage run, which a box executes: the agentkit
-// brain, in this process, on the brief of a run and the directory it is in.
+// brain, in this process, on the brief that brain.Execute placed in the run directory
+// of the box, over the directory it is in. It is no command for a person, and help
+// does not list it.
 func registerTriageRun(app *toolio.App, c *Config) {
 	var runID string
 	var budget float64
 	var maxTurns int
 	app.Register(toolio.Command{
 		Path:    "triage run",
-		Summary: "Run the agentkit brain in this process on the brief of a triage run",
+		Summary: "Run the agentkit brain in this process on the brief placed in a box",
+		Hidden:  true,
 		Usage:   "af triage run --run-id ID [--dir DIR] [--budget USD] [--max-turns N] [--timeout 15m]",
 		Flags: func(fs *flag.FlagSet) {
-			fs.StringVar(&runID, "run-id", "", "the `id` of the run, made by af triage brief")
+			fs.StringVar(&runID, "run-id", "", "the `id` of the run that was placed in the box")
 			fs.Float64Var(&budget, "budget", triage.DefaultBudget, "stop the brain after this many `dollars` of model cost")
 			fs.IntVar(&maxTurns, "max-turns", triage.DefaultMaxTurns, "stop the brain after this many `turns`")
 		},
@@ -322,22 +192,24 @@ func triageRun(c *Config, r *toolio.Run, runID string, budget float64, maxTurns 
 		return toolio.Outcome{}, refusalFailure(refusal)
 	}
 	if runID == "" {
-		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: "--run-id is required: the id of the run that af triage brief made"}
+		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: "--run-id is required: the id of the run that was placed in the box"}
 	}
 	run, err := toolio.OpenRunDir(r.Dir, runID)
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
-	prefix, task, placed, err := briefOf(run, budget, maxTurns, r)
+	placed, ok, err := readPlaced(run, triage.KindName)
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
-	// A run placed in a box is run under the attempt and the nonce it was placed with,
-	// since the process that placed it accepts a submission made under no other.
-	attempt, nonce := 1, ""
-	if placed != nil {
-		attempt, nonce = placed.Run.Attempt, placed.Run.Nonce
+	if !ok {
+		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("run %s has no brief placed in it: af triage run runs only in the box of af triage", runID)}
 	}
+	prefix := placed.Prefix
+	task := triage.AdaptTask(placed.Task, triage.Bounds{MaxTurns: maxTurns, MaxCostUSD: budget, Timeout: timeLeft(r)})
+	// The run is run under the attempt and the nonce it was placed with, since the process
+	// that placed it accepts a submission made under no other.
+	attempt, nonce := placed.Run.Attempt, placed.Run.Nonce
 
 	sess, err := box.Here(r.Ctx, box.Request{HostDir: r.Dir, RunID: runID, Tool: "triage", Record: run.Record, Warn: r.Warn})
 	if err != nil {
@@ -373,44 +245,6 @@ func triageRun(c *Config, r *toolio.Run, runID string, budget float64, maxTurns 
 	}, nil
 }
 
-// briefOf reads the brief of a run, and splits it into the prefix, which is kept
-// as it was rendered, and the task block, adapted for a brain that submits
-// through the tool. The prefix ends where triage.json says; a run directory that
-// has none is one that brain.Execute placed in a box, and run.json says it (placed is
-// then its content).
-func briefOf(run *toolio.RunDir, budget float64, maxTurns int, r *toolio.Run) (prefix, task string, placed *placedRun, err error) {
-	data, err := os.ReadFile(filepath.Join(run.Path, "brief.md"))
-	if err != nil {
-		return "", "", nil, &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("run %s has no brief (%v): run af triage brief first", run.ID, err)}
-	}
-	noFacts := func() error {
-		return &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("run %s has no triage.json that goes with its brief: run af triage brief first", run.ID)}
-	}
-	var facts triage.Facts
-	factsData, err := os.ReadFile(filepath.Join(run.Path, "triage.json"))
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		p, ok, perr := readPlaced(run, triage.KindName)
-		if perr != nil {
-			return "", "", nil, perr
-		}
-		if !ok {
-			return "", "", nil, noFacts()
-		}
-		placed, prefix, task = &p, p.Prefix, p.Task
-	default:
-		if err == nil {
-			err = json.Unmarshal(factsData, &facts)
-		}
-		if err != nil || facts.Prefix.Bytes <= 0 || facts.Prefix.Bytes > len(data) {
-			return "", "", nil, noFacts()
-		}
-		prefix, task = string(data[:facts.Prefix.Bytes]), string(data[facts.Prefix.Bytes:])
-	}
-	bounds := triage.Bounds{MaxTurns: maxTurns, MaxCostUSD: budget, Timeout: timeLeft(r)}
-	return prefix, triage.AdaptTask(task, run.ID, bounds), placed, nil
-}
-
 // timeLeft is the time until the deadline of the command, or 0 when it has none.
 func timeLeft(r *toolio.Run) time.Duration {
 	if deadline, ok := r.Ctx.Deadline(); ok {
@@ -441,52 +275,6 @@ func (l *labelList) Set(v string) error {
 	return nil
 }
 
-// registerTriageLand registers af triage land: the landing of a run that has a
-// submission, which can be repeated.
-func registerTriageLand(app *toolio.App) {
-	var runID, land, repo string
-	var labels labelList
-	app.Register(toolio.Command{
-		Path:    "triage land",
-		Summary: "Write the diagnosis of a triage run to the forge",
-		Usage:   "af triage land --run-id ID [--dir DIR] [--land issue|none] [--label L]... [--repo owner/name] [--dry-run]",
-		Flags: func(fs *flag.FlagSet) {
-			labels = nil
-			fs.StringVar(&runID, "run-id", "", "the `id` of the run, with a submission")
-			fs.StringVar(&land, "land", triage.LandIssue, "where the diagnosis goes: `issue` (write it to the forge) or none (write diagnosis.md only)")
-			fs.StringVar(&repo, "repo", "", "the repository, `owner/name`, which must be the one the run recorded")
-			fs.Var(&labels, "label", "add this `label` to the issue; may be repeated")
-		},
-		MaxArgs:        toolio.NoArgs,
-		Dir:            true,
-		DryRun:         true,
-		Timeout:        true,
-		DefaultTimeout: 2 * time.Minute,
-		ResultSchema:   resultSchema("triage_land"),
-		Run:            func(r *toolio.Run) (toolio.Outcome, error) { return triageLand(r, runID, land, repo, labels) },
-	})
-}
-
-// readFacts reads triage.json of a run.
-func readFacts(run *toolio.RunDir) (triage.Facts, error) {
-	var facts triage.Facts
-	data, err := os.ReadFile(filepath.Join(run.Path, "triage.json"))
-	if err == nil {
-		err = json.Unmarshal(data, &facts)
-	}
-	if err != nil {
-		return facts, &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("run %s has no triage.json (%v): run af triage brief first", run.ID, err)}
-	}
-	return facts, nil
-}
-
-// repoOfFacts is the repository of a fact, with its host.
-func repoOfFacts(f triage.RepoFact) issuex.Repo {
-	repo, _ := issuex.ParseRepo(f.Repo)
-	repo.Host = f.Host
-	return repo
-}
-
 // hostTree is what a diagnosis is checked against on the host: the file view of
 // the checkout, and the lines of its files.
 func hostTree(r *toolio.Run) (triage.Tree, error) {
@@ -501,91 +289,6 @@ func hostTree(r *toolio.Run) (triage.Tree, error) {
 	return triage.Tree{Roots: roots, Files: files, Regular: func(p string) bool { return triage.RegularFile(r.Dir, p) }, Lines: triage.HostLines(r.Dir)}, nil
 }
 
-// createdIssue is the issue an earlier landing of the run created, from its
-// ledger, as that landing reported it: the last landing that wrote to an issue of
-// a report that was no issue.
-func createdIssue(run *toolio.RunDir) func() (triage.IssueInfo, bool) {
-	return func() (triage.IssueInfo, bool) {
-		entries, err := run.Ledger()
-		if err != nil {
-			return triage.IssueInfo{}, false
-		}
-		for i := len(entries) - 1; i >= 0; i-- {
-			if entries[i].Kind != ledgerLand {
-				continue
-			}
-			var land struct {
-				Issue *triage.IssueInfo `json:"issue"`
-			}
-			if json.Unmarshal(entries[i].Data, &land) == nil && land.Issue != nil && land.Issue.Number > 0 {
-				return *land.Issue, true
-			}
-		}
-		return triage.IssueInfo{}, false
-	}
-}
-
-// triageLand lands the submission of a run.
-func triageLand(r *toolio.Run, runID, land, repoFlag string, labelFlags []string) (toolio.Outcome, error) {
-	labels, refusal := triage.CheckLandFlags(land, labelFlags)
-	if refusal != nil {
-		return toolio.Outcome{}, refusalFailure(refusal)
-	}
-	if runID == "" {
-		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: "--run-id is required: the id of a run with a submission"}
-	}
-	run, err := toolio.OpenRunDir(r.Dir, runID)
-	if err != nil {
-		return toolio.Outcome{}, err
-	}
-	listed := listRunArtifacts(r, run)
-	facts, err := readFacts(run)
-	if err != nil {
-		return toolio.Outcome{}, err
-	}
-	target := repoOfFacts(facts.Target)
-	if repoFlag != "" {
-		given, ok := issuex.ParseRepo(repoFlag)
-		switch {
-		case !ok:
-			return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("--repo %q is not of the form owner/repo", repoFlag)}
-		case facts.Target.Repo != "" && !strings.EqualFold(given.String(), target.String()):
-			return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("--repo %s is not the repository of run %s, which is %s", given, runID, target)}
-		case facts.Target.Repo == "":
-			target = given
-			facts.Target.Repo = given.String()
-		}
-	}
-	if !target.Valid() {
-		// A text or a file report whose run was given no repository: the issue an earlier landing created is in one.
-		if info, ok := createdIssue(run)(); ok {
-			if created, ok := issuex.ParseRepo(info.Repo); ok {
-				target, facts.Target.Repo = created, created.String()
-			}
-		}
-	}
-	tree, err := hostTree(r)
-	if err != nil {
-		return toolio.Outcome{}, err
-	}
-
-	var forge issuex.Client
-	var check func(context.Context) *triage.Refusal
-	if land != triage.LandNone {
-		// A run that has no repository is told so before a client is made for none.
-		if refusal := triage.CheckLandTarget(r.Ctx, triage.LandCheck{Target: target, DryRun: true}); refusal != nil {
-			return toolio.Outcome{}, refusalFailure(refusal)
-		}
-		if forge, err = r.ForgeFor(target); err != nil {
-			return toolio.Outcome{}, err
-		}
-		check = func(ctx context.Context) *triage.Refusal {
-			return triage.CheckLandTarget(ctx, triage.LandCheck{Forge: forge, Target: target, DryRun: r.DryRun})
-		}
-	}
-	return landRun(r, landing{run: run, facts: facts, tree: tree, forge: forge, mode: land, labels: labels, check: check, artifact: listed})
-}
-
 // landing is what a landing of a run is made of.
 type landing struct {
 	run    *toolio.RunDir
@@ -594,26 +297,19 @@ type landing struct {
 	forge  issuex.Client
 	mode   string
 	labels []string
-	// check is the target and the credential check of a landing whose caller has
-	// not made it; the loop made it in its preflight.
-	check func(ctx context.Context) *triage.Refusal
 	// artifact lists a file of the run; the files are listed once each.
 	artifact func(toolio.Artifact)
-	// retry is the command that lands the run again; it is suggested when the
-	// landing fails after the run had a valid submission.
-	retry []string
 }
 
 // landRun writes the submission of a run to the forge, or to diagnosis.md alone,
-// and says how that came out. It is the landing that `af triage land` and the loop
-// share: both have checked the target and the credential by now.
+// and says how that came out. The loop has checked the target and the credential by now.
 func landRun(r *toolio.Run, l landing) (toolio.Outcome, error) {
 	res, err := triage.Land(r.Ctx, triage.LandParams{
 		RunDir: l.run.Path, RunID: l.run.ID, Facts: l.facts, Forge: l.forge, Mode: l.mode, Labels: l.labels,
 		IsDryRun: func(err error) bool { return errors.Is(err, toolio.ErrDryRun) },
-		Tree:     l.tree, Created: createdIssue(l.run), Check: l.check,
-		Record: func(kind string, data any) error { recordIn(r, l.run, kind, data); return nil },
-		Warn:   r.Warn,
+		Tree:     l.tree,
+		Record:   func(kind string, data any) error { recordIn(r, l.run, kind, data); return nil },
+		Warn:     r.Warn,
 		Artifact: func(a triage.Artifact) {
 			l.artifact(toolio.Artifact{Kind: a.Kind, Path: a.Path, URL: a.URL, Number: a.Number})
 		},
@@ -622,9 +318,6 @@ func landRun(r *toolio.Run, l landing) (toolio.Outcome, error) {
 		},
 	})
 	if err != nil {
-		if res.Submitted && l.retry != nil {
-			r.Next(toolio.Next{Argv: l.retry, Reason: "write the diagnosis to the forge again"})
-		}
 		var refusal *triage.Refusal
 		if errors.As(err, &refusal) {
 			return toolio.Outcome{}, refusalFailure(refusal)
@@ -632,26 +325,6 @@ func landRun(r *toolio.Run, l landing) (toolio.Outcome, error) {
 		return toolio.Outcome{}, err
 	}
 	return landOutcome(r, l.run, l.facts, res), nil
-}
-
-// listRunArtifacts lists the files of the run that exist and a failed run still
-// has: the brief, the submission and the diagnosis. It returns the function that
-// lists an artifact of the run, which lists none a second time.
-func listRunArtifacts(r *toolio.Run, run *toolio.RunDir) func(toolio.Artifact) {
-	seen := map[toolio.Artifact]bool{}
-	list := func(a toolio.Artifact) {
-		if !seen[a] {
-			seen[a] = true
-			r.Artifact(a)
-		}
-	}
-	for _, a := range []struct{ kind, name string }{{"brief", "brief.md"}, {"submission", "submission.json"}, {"diagnosis", "diagnosis.md"}} {
-		path := filepath.Join(run.Path, a.name)
-		if _, err := os.Stat(path); err == nil {
-			list(toolio.Artifact{Kind: a.kind, Path: path})
-		}
-	}
-	return list
 }
 
 // landOutcome is the outcome of a landing: done, or needs_human when the
@@ -773,7 +446,7 @@ func triageLoop(c *Config, r *toolio.Run, s *brain.Settings, land string, labelF
 	r.Emit("step", triageStep{stepBrief})
 	// A brain that submits with the command alone is told the command; every other brain
 	// submits through the tool, in this process or in the box that runs its driver.
-	rendered, err := renderBrief(c, r, report, facts, true, triage.Bounds{MaxTurns: s.MaxTurns, MaxCostUSD: s.Budget, Timeout: timeLeft(r)})
+	rendered, err := renderBrief(c, r, report, facts, triage.Bounds{MaxTurns: s.MaxTurns, MaxCostUSD: s.Budget, Timeout: timeLeft(r)})
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
@@ -795,12 +468,7 @@ func triageLoop(c *Config, r *toolio.Run, s *brain.Settings, land string, labelF
 	recordSubmission(r, r.RunDir, res)
 
 	r.Emit("step", triageStep{stepLand})
-	retry := triage.LandAgain(r.RunDir.ID, r.Dir, "")
-	if rendered.report.Kind == triage.KindIssue {
-		// The client was built from the URL of the input, so landing again is told the repository.
-		retry = triage.LandAgain(r.RunDir.ID, r.Dir, rendered.facts.Target.Repo)
-	}
-	return landRun(r, landing{run: r.RunDir, facts: rendered.facts, tree: tree, forge: r.Forge, mode: land, labels: labels, artifact: r.Artifact, retry: retry})
+	return landRun(r, landing{run: r.RunDir, facts: rendered.facts, tree: tree, forge: r.Forge, mode: land, labels: labels, artifact: r.Artifact})
 }
 
 // loopPreflight is every refusal that needs no model, in the order flags, input,

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -64,4 +65,89 @@ func slicesContain(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// redFixFiles is the fixture gate with a script that fails its test at HEAD.
+func redFixFiles() map[string]string {
+	files := map[string]string{}
+	for k, v := range fixFiles {
+		files[k] = v
+	}
+	files["src/greet.sh"] = "echo helo\n"
+	return files
+}
+
+// runDirOf is the run directory of an envelope's run.
+func runDirOf(e *fixEnv, env map[string]any) string {
+	id, _ := env["run_id"].(string)
+	if id == "" {
+		e.t.Fatalf("no run id in the envelope %v", env)
+	}
+	return filepath.Join(e.dir, ".agent-fox", "run", id)
+}
+
+// snapshot is the names and contents of the files of a checkout other than .git and
+// .agent-fox.
+func snapshot(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(dir, path)
+		if d.IsDir() && (rel == ".git" || rel == ".agent-fox") {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() {
+			data, err := os.ReadFile(path)
+			files[rel] = string(data)
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+func equalMaps(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if w, ok := b[k]; !ok || w != v {
+			return false
+		}
+	}
+	return true
+}
+
+// readFixJSON is the fix.json of a run directory.
+func readFixJSON(t *testing.T, dir string) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "fix.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fj map[string]any
+	if err := json.Unmarshal(data, &fj); err != nil {
+		t.Fatal(err)
+	}
+	return fj
+}
+
+// fixTaskBlockOf is the part of brief.md after the prefix.
+func fixTaskBlockOf(t *testing.T, dir string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "brief.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, task, ok := strings.Cut(string(data), "\n## Task\n")
+	if !ok {
+		t.Fatalf("brief.md has no task block:\n%s", data)
+	}
+	return task
 }

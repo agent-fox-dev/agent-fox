@@ -30,7 +30,7 @@ unchanged; what changes is who owns the loop.
         |  in a box: hub's sandbox lease, or podman or local on a laptop
         v
  a brain                      the agentkit driver, or scripted for the tests
-                              hands back one submission through `af triage|fix submit`
+                              hands back one submission through its submit tool
 ```
 
 `af` (`cmd/af`) runs the same loops on a developer's machine and is the client of the service
@@ -382,9 +382,7 @@ the box is opened before the detection of the checks and serves the whole attemp
 placing the run's gate table there, and reads each result from the envelope the command wrote.
 The results of a gate run are copied to the host's `.agent-fox/gate/<id>/`, where the comparison
 with the baseline reads them. The file view, the repository map, the path validation, the apply
-of the export, the commit and the push stay on the host, and the host's gate and revert check
-are not called by the loop (`af fix brief` and `af fix land`, the steps a person runs at their
-own checkout, still measure on the host). The `af` of the box is the image's under `podman` and
+of the export, the commit and the push stay on the host, and nothing measures on the host. The `af` of the box is the image's under `podman` and
 a gateway, and the running one under `local` (`brain.DefaultAFPath` in a test binary, which is
 no `af`). The first ring-1 command of a box is preceded by `af --version`, and an `af` that is
 missing or fails is a `sandbox` failure that is not retryable and names the profile of a leased
@@ -468,13 +466,11 @@ the issue is left as it is.
 
 **Design notes.** The loop runs the brain on the host
 over a box, which is the only placement the `local` provider means anything for;
-`af triage run` is the same brain in the process that a box would execute, over
-the directory itself and with no box. The refusals of the diagnosis are written
-by a hook of the submission kind (`Kind.OnRefused`), which the submission
-protocol gained for this, and `submission.CommandWith` lets a command make its
-kind from `--dir`. The shell gained `Run.ForgeFor`, a forge client for a
-repository that the command learns at run time (`land` reads it from
-`triage.json`). The divergences from the spec, with the code of each, are in
+`af triage run` and `af fix run` are what a box executes: the brain in that
+process, on the brief placed in the box, over the directory itself. They are no
+commands for a person, and help does not list them. The refusals of the diagnosis
+are written by a hook of the submission kind (`Kind.OnRefused`), which the
+submission protocol gained for this. The divergences from the spec, with the code of each, are in
 `docs/errata/08_af_triage_divergences.md`.
 
 ### Fix, as built
@@ -492,7 +488,7 @@ other effect, from the tree the brain left and from checks that `af` ran on it.
 | Path | What it holds |
 |---|---|
 | `internal/fix/` | The feature with no shell in it: the preflight (`Preflight`, `CheckLanding`), the state of a run (`State`, `fix.json`), the brief (`BuildPrefix`, `TaskBlock`, `NewBrief`), the submission kind (`Kind`, the `fix_report` and its validator), `Apply`, `Measure`, `Land`, `Park`, the body of the pull request (`RenderBody`), the loop (`RunLoop`) and its ending (`Finish`), and the result (`Result`). It imports `gitx`, `checks`, `conform`, `policy`, `project`, `repomap`, `box`, `brain`, `submission`, `issuex` and the `skills` package. |
-| `internal/afcmd/fix.go`, `fix_brief.go`, `fix_run.go`, `fix_land.go` | The five commands on the shell: the loop, `brief` and `submit`, `run`, and `land`. They do what needs the shell: the run directory and its ledger, the forge client, `box.With`, the envelope and its schemas (`internal/afcmd/schemas/fix*.json`). |
+| `internal/afcmd/fix.go`, `fix_start.go`, `fix_run.go` | The two commands on the shell: the loop (with the start of a run in `fix_start.go`) and `run`, which a box executes. They do what needs the shell: the run directory and its ledger, the forge client, `box.With`, the envelope and its schemas (`internal/afcmd/schemas/fix*.json`). |
 | `skills/af-fix` | The skill that says how to fix, compiled into the binary and carried by the brief (`skills.Fix()`), and the file a person installs with `make install-skills`. |
 | `internal/triage/fakeforge/` | The server of the tests, which gained pull and merge requests. |
 
@@ -548,9 +544,7 @@ cut and what the brain reported is quoted. The checkout always ends on the base,
 clean. A change that cannot land is parked: a `wip:` commit made without the hooks,
 so that nothing can lose it, pushed and offered as a draft that says `Refs`. An
 interrupted run parks what it applied on a local branch, on a context the signal
-did not reach and within 10 seconds; a dry run discards it. `fix land` is the end
-of the loop for a change a person made: it measures and lands or parks, with no
-round of a brain.
+did not reach and within 10 seconds; a dry run discards it.
 
 **The run files** are `brief.md`, `original.md`, `run.json`, `fix.json`,
 `submission.json` and `report.md`, which is the body of the pull request as it was
@@ -560,10 +554,10 @@ byte-identical for every round of every attempt, and its hash is in `fix.json`, 
 that a provider that caches a prefix serves the whole run from one write.
 
 **Design notes.** The target architecture gave a fix a start, a
-separate submission of its analysis and a land; the built commands are `brief`,
-`run`, `submit` and `land`, because the analysis is not a separate submission any
-more (the report is one object, and a question is the other form of it), and
-`run` is the round of a brain that a person's own checkout does without. The divergences from the spec,
+separate submission of its analysis and a land; the analysis is not a separate
+submission (the report is one object, and a question is the other form of it), and
+the steps of the loop are no commands of their own: the loop is `af fix`, and
+`af fix run` is the round of a brain that a box executes. The divergences from the spec,
 with the code of each, are in `docs/errata/09_af_fix_divergences.md`.
 
 ## The service, as built

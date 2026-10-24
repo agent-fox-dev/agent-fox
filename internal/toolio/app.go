@@ -108,6 +108,9 @@ type Command struct {
 	Summary string
 	// Usage is the command's synopsis.
 	Usage string
+	// Hidden keeps the command out of the list of help: it is one that af runs in a box,
+	// and no command for a person.
+	Hidden bool
 	// Flags registers the command's own flags on fs.
 	Flags func(fs *flag.FlagSet)
 	// MaxArgs is how many positional arguments the command takes. Zero means

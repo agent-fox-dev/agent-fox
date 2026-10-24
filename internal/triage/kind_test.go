@@ -232,11 +232,9 @@ func TestEveryRefusedCallAppendsOneRejection(t *testing.T) {
 	}
 }
 
-// TestTheTaskBlockIsAdaptedToTheInProcessRoute guards 08-REQ-4.7: the task block
-// that af triage brief rendered names the command route and the bounds of the
-// brief; for a brain that submits through the tool it names the tool and the
-// bounds of this run, and keeps the rest.
-func TestTheTaskBlockIsAdaptedToTheInProcessRoute(t *testing.T) {
+// TestTheTaskBlockIsAdaptedToTheBoundsOfTheRun guards 08-REQ-4.7: the task block that was
+// placed in a box gets the bounds of the run that is about to start, and keeps the rest.
+func TestTheTaskBlockIsAdaptedToTheBoundsOfTheRun(t *testing.T) {
 	dir := goTree(t)
 	p := params(dir, issueReport("body"))
 	p.Context = []string{"B"}
@@ -244,16 +242,13 @@ func TestTheTaskBlockIsAdaptedToTheInProcessRoute(t *testing.T) {
 	task := build(t, p).Task
 	bounds := Bounds{MaxTurns: 7, MaxCostUSD: 0.5, Timeout: 90 * time.Second}
 
-	adapted := AdaptTask(task, testRun, bounds)
+	adapted := AdaptTask(task, bounds)
 
-	p.InProcess, p.Bounds = true, bounds
+	p.Bounds = bounds
 	if want := build(t, p).Task; adapted != want {
-		t.Errorf("adapted task block:\n%s\nwant the block rendered for an in-process brain:\n%s", adapted, want)
+		t.Errorf("adapted task block:\n%s\nwant the block rendered with the bounds:\n%s", adapted, want)
 	}
-	if strings.Contains(adapted, "af triage submit") || !strings.Contains(adapted, "file_diagnosis") {
-		t.Errorf("the adapted block names the wrong route:\n%s", adapted)
-	}
-	if again := AdaptTask(adapted, testRun, bounds); again != adapted {
+	if again := AdaptTask(adapted, bounds); again != adapted {
 		t.Error("adapting a block that is adapted already changes it")
 	}
 }

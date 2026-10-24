@@ -131,3 +131,15 @@ of the checkout. A question asked in round 2 or later finds the change of an ear
 the tree, and `Finish` puts it back (`internal/fix/finish.go`), with the warning
 `question_tree_kept` when it cannot, so that the tree is clean and the run can be resumed.
 **Test:** `TestAQuestionAfterAnAppliedRoundPutsTheCheckoutBack` (`internal/fix/finish_test.go`).
+
+## 9. The step commands are gone
+
+09-PATH-7 and 09-REQ-1.7 give a person at their own checkout the steps of the loop as commands
+of their own: `af fix brief`, `af fix submit` and `af fix land`. They are removed, with the
+round of `af fix run` that applied a box's tree to the checkout: the loop is the one way to fix,
+and its brain submits through `submit_fix`. `af fix run` stays, as what a box executes, and help
+does not list it; it runs only on a brief that `brain.Execute` placed in its run directory, and
+applies nothing.
+
+**Test:** `TestFixRunRefusesWhatItCannotRun` (`internal/afcmd/fix_run_test.go`),
+`TestFixRunRunsTheDriverOnThePlacedBrief_TS_10_58` (`internal/afcmd/placed_run_test.go`).
