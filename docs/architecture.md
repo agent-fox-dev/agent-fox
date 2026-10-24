@@ -78,17 +78,17 @@ later specs keep in the run directory join these files.
 
 ### Ring 1, as built
 
-Five commands answer a fact and change nothing: `af lang detect`, `af gate run`,
-`af gate compare`, `af revert-check` and `af map`. Each is a file in `internal/afcmd` over a package that knows nothing of the shell and returns a
+Three commands answer a fact and change nothing: `af lang detect`, `af gate run`
+and `af revert-check`. Each is a file in `internal/afcmd` over a package that knows nothing of the shell and returns a
 plain result, so that the loops of later specs call the same code in process:
 
 | Package | Commands | What it holds |
 |---|---|---|
 | `internal/project` | `lang detect` | The languages, the gate table (`.agent-fox/gate.json`, else a Makefile with a `check` or `test` target, else the manifests), the suite forms, the programs, and the classification of a path as a test. |
-| `internal/checks` | `gate run`, `gate compare` | The file view and the tree hash; the gate engine, which runs the checks under the reduced or the hermetic runner; the cache keyed by tree hash, table and mode; the labels; the per-check comparison. |
+| `internal/checks` | `gate run` | The file view and the tree hash; the gate engine, which runs the checks under the reduced runner; the cache keyed by tree hash and table; the per-check comparison that `af fix` judges a change by. |
 | `internal/conform` | `revert-check` | The revert check: a claimed backup, a revert that never writes the index, the tests on the reverted tree, and a restore that nothing cancels and that does not overwrite what someone else changed. |
 | `internal/policy` | (the tool gate) | The tokenizer, the seven rules, the policy files (`guard.json`) and the decision for a shell or a write tool. |
-| `internal/repomap` | `map` | The map at a token budget: a six-level ladder over the file view and the declarations the hands' outline gives. |
+| `internal/repomap` | (the brief) | The map at a token budget that a brief carries: a six-level ladder over the file view and the declarations the hands' outline gives. |
 
 One view of the tree is shared. `checks.FileView` is git's own view of `--dir`
 (the tracked files and the untracked files that are not ignored, read
@@ -101,14 +101,11 @@ cache hit for the landing gate outside it.
 What `af` keeps for these commands is under `.agent-fox/`, git-ignored by a
 `.gitignore` of its own, and never part of the view:
 
-- `.agent-fox/gate/<id>/` holds the logs and `result.json` of a gate run, and
-  `.agent-fox/gate/labels.json` maps the labels the loop gives (`baseline`,
-  `after`) to those ids. `<id>` is the first 12 hex characters of the SHA-256
+- `.agent-fox/gate/<id>/` holds the logs and `result.json` of a gate run. `<id>` is the first 12 hex characters of the SHA-256
   of the tree hash, the canonical JSON of the checks and the runner mode, so the
   same tree and table give the same id on every machine. A result is not
   locked: writes are atomic (a temporary file and a rename) and the last
-  writer wins. `labels.json` is written under a lock file, held for a read and
-  a write, so that two runs that start together keep both labels.
+  writer wins.
 - `.agent-fox/revert/<id>/` is the backup that `af revert-check` keeps while
   it works: a copy of every file it changes, the index as it was, and a
   manifest. The directory is made exclusively and is the claim on the

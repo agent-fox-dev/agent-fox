@@ -845,7 +845,7 @@ func suiteRule(p Policy, s segment) (Decision, bool) {
 
 // afAllowed are the commands of af that a brain may run.
 var afAllowed = [][]string{
-	{"lang", "detect"}, {"gate", "run"}, {"gate", "compare"}, {"revert-check"}, {"map"},
+	{"lang", "detect"}, {"gate", "run"}, {"revert-check"},
 }
 
 // afRule (rule 5): a brain may read the repository, measure it and report; the
@@ -876,7 +876,7 @@ func afRule(s segment) (Decision, bool) {
 		what = "af with no command it may run"
 	}
 	return deny(RuleAfCommand, s.text,
-		"%s belongs to the loop, which makes the commits, runs the stages and lands the change. A brain may run af lang detect, gate run, gate compare, revert-check, map, triage brief and submit, and fix brief and submit.", what), true
+		"%s belongs to the loop, which makes the commits, runs the stages and lands the change. A brain may run af lang detect, gate run and revert-check.", what), true
 }
 
 // programRule (rule 6): with an allowlist, only its programs, and af and git.

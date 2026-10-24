@@ -102,11 +102,11 @@ func envelope(status, result, extra string) string {
 	return `{"schema_version":"5.0.0","tool":"x","status":"` + status + `","exit_code":0,"result":` + result + extra + `}`
 }
 
-// TestTheBoxMeasurerGateMirrorsTheResultAndPassesTheFlagsAndTheTable verifies what the measurer
-// sends and keeps: the flags of the run, the table placed in the box, the result and its logs
+// TestTheBoxMeasurerGateMirrorsTheResultAndPlacesTheTable verifies what the measurer sends and
+// keeps: the command, the table placed in the box, the result and its logs
 // copied to the host, and the tree changed during the gate noted from the envelope.
-func TestTheBoxMeasurerGateMirrorsTheResultAndPassesTheFlagsAndTheTable(t *testing.T) {
-	result := `{"id":"abc123def456","tree":"t","table_source":"gate.json","hermetic":true,"label":"L","cached":false,"passed":true,"checks":[{"name":"make check","status":"pass","exit_code":0,"duration_ms":5,"log":".agent-fox/gate/abc123def456/01.log","tail":"ok"}],"skipped":[]}`
+func TestTheBoxMeasurerGateMirrorsTheResultAndPlacesTheTable(t *testing.T) {
+	result := `{"id":"abc123def456","tree":"t","table_source":"gate.json","cached":false,"passed":true,"checks":[{"name":"make check","status":"pass","exit_code":0,"duration_ms":5,"log":".agent-fox/gate/abc123def456/01.log","tail":"ok"}],"skipped":[]}`
 	s := newScriptedAF(t, versionAnswer+`
 mkdir -p .agent-fox/gate/abc123def456
 echo 'the log' > .agent-fox/gate/abc123def456/01.log
@@ -116,7 +116,7 @@ cat .agent-fox/gate.json > .agent-fox/gate/abc123def456/table.json
 echo '`+envelope("done", result, `,"warnings":[{"code":"tree_changed_during_gate","message":"m"}]`)+`'`)
 	table := project.Table{Source: "gate.json", Checks: []project.Check{{Name: "make check", Argv: []string{"make", "check"}, Kind: "check", Available: true}}}
 
-	res, err := s.m.Gate(context.Background(), s.repo.Dir, checks.Options{Table: table, Hermetic: true, NoCache: true, Label: "L"})
+	res, err := s.m.Gate(context.Background(), s.repo.Dir, checks.Options{Table: table})
 
 	if err != nil {
 		t.Fatal(err)
@@ -124,7 +124,7 @@ echo '`+envelope("done", result, `,"warnings":[{"code":"tree_changed_during_gate
 	if res.ID != "abc123def456" || !res.Passed || !res.TreeChanged || len(res.Checks) != 1 || res.Checks[0].Name != "make check" {
 		t.Errorf("result = %+v", res)
 	}
-	if got := s.runs(); !slices.Equal(got, []string{"gate run --hermetic --no-cache --label L"}) {
+	if got := s.runs(); !slices.Equal(got, []string{"gate run"}) {
 		t.Errorf("af was run with %q", got)
 	}
 	kept := filepath.Join(s.repo.Dir, ".agent-fox", "gate", "abc123def456")

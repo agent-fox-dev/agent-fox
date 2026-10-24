@@ -146,3 +146,18 @@ budget holds. `files_outlined` counts the files whose declarations were read,
 and the map shows them only at levels 1 to 3.
 
 **Test:** `TestBuildFormat_TS_06_63`, `TestHandsOutliner`, `TestNamesThatAreNotUTF8`.
+
+## 8. `gate compare`, `map` and the flags of `gate run` are gone
+
+06-REQ-3, 06-REQ-4.4, 06-REQ-4.6, 06-REQ-5 and 06-REQ-9 give a brain and a person
+`af gate compare`, `af map`, and `af gate run --label`, `--hermetic` and `--no-cache`. No loop
+used any of them: `af fix` compares its gate results by id in process, and a brief renders its
+map itself. They are removed, with `labels.json` and its lock, the hermetic runner of the gate
+and its mode in the cache key (the key keeps the word `reduced`, so that the ids of results
+stored before stay the same). The comparison stays, as `checks.Compare` over two gate ids, and
+so does the map, as `repomap`. The tool policy no longer lets a brain run the commands that
+are gone.
+
+**Test:** `TestCompareRefusals_TS_06_36_and_37` (`internal/checks/compare_test.go`),
+`TestKey_TS_06_25` (`internal/checks/gate_test.go`),
+`TestTheRing1CommandsAreRegistered_TS_06_69` (`internal/afcmd/ring1_test.go`).

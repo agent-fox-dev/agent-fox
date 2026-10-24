@@ -174,97 +174,6 @@ func TestTailIsBoundedInBytes(t *testing.T) {
 	}
 }
 
-// homeOf reads the HOME that the check named home printed.
-func homeOf(t *testing.T, dir string, c CheckResult) string {
-	t.Helper()
-	line, _, _ := strings.Cut(readLog(t, dir, c), "\n")
-	home, ok := strings.CutPrefix(line, "home=")
-	if !ok || home == "" {
-		t.Fatalf("the log of %s begins %q, want home=<path>", c.Name, line)
-	}
-	return home
-}
-
-// TestHermeticRunHasAHomeOfItsOwn_TS_06_20 verifies TS-06-20:
-// --hermetic runs under HermeticRunner with a temporary HOME that is removed
-// afterwards, including after cancellation.
-// Verifies: 06-REQ-3.2
-func TestHermeticRunHasAHomeOfItsOwn_TS_06_20(t *testing.T) {
-	requireSh(t)
-	realHome := os.Getenv("HOME")
-	home := shCheck("home", `echo "home=$HOME"`)
-
-	t.Run("completed", func(t *testing.T) {
-		dir := newRepo(t)
-
-		res := mustRun(t, dir, Options{Table: tableOf(home), Hermetic: true})
-
-		seen := homeOf(t, dir, res.Checks[0])
-		if !res.Hermetic || seen == realHome {
-			t.Errorf("hermetic = %v, HOME seen = %q (real HOME %q); want true and another", res.Hermetic, seen, realHome)
-		}
-		if _, err := os.Stat(seen); err == nil {
-			t.Errorf("the temporary HOME %s still exists", seen)
-		}
-	})
-
-	t.Run("cancelled", func(t *testing.T) {
-		dir := newRepo(t)
-		homeFile := filepath.Join(t.TempDir(), "home")
-		saw := shCheck("home", fmt.Sprintf(`echo "$HOME" > '%s'; mkdir -p "$HOME/readonly/deep"; chmod -R a-w "$HOME/readonly"; sleep 60`, homeFile))
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		go func() {
-			for ctx.Err() == nil {
-				if data, _ := os.ReadFile(homeFile); strings.Contains(string(data), "\n") {
-					cancel()
-					return
-				}
-				time.Sleep(10 * time.Millisecond)
-			}
-		}()
-
-		_, err := Run(ctx, dir, Options{Table: tableOf(saw), Hermetic: true})
-
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("Run = %v, want context.Canceled", err)
-		}
-		data, _ := os.ReadFile(homeFile)
-		seen := strings.TrimSpace(string(data))
-		if seen == "" || seen == realHome {
-			t.Fatalf("HOME seen = %q", seen)
-		}
-		if _, err := os.Stat(seen); err == nil {
-			t.Errorf("the temporary HOME %s still exists after the run was cancelled, with a read-only directory in it", seen)
-		}
-	})
-}
-
-// TestRemoveTreeRemovesWhatIsReadOnly: a directory a program made unwritable,
-// as Go does with its module cache, does not stop the tree from going.
-func TestRemoveTreeRemovesWhatIsReadOnly(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "home")
-	deep := filepath.Join(root, "pkg", "mod", "x")
-	if err := os.MkdirAll(deep, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(deep, "f.go"), []byte("x"), 0o444); err != nil {
-		t.Fatal(err)
-	}
-	for _, d := range []string{deep, filepath.Join(root, "pkg", "mod"), filepath.Join(root, "pkg")} {
-		if err := os.Chmod(d, 0o555); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	removeTree(root)
-
-	if _, err := os.Stat(root); err == nil {
-		t.Error("the tree is still there")
-		_ = os.Chmod(filepath.Join(root, "pkg"), 0o755)
-	}
-}
-
 // TestResultFieldsAndPassed_TS_06_21 verifies TS-06-21:
 // The result carries all fields and passed is true only when at least one
 // check ran and all executed checks passed.
@@ -290,7 +199,7 @@ func TestResultFieldsAndPassed_TS_06_21(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := newRepo(t)
 
-			res := mustRun(t, dir, Options{Table: tableOf(tc.checks...), Label: "x"})
+			res := mustRun(t, dir, Options{Table: tableOf(tc.checks...)})
 
 			if res.Passed != tc.passed || len(res.Checks) != tc.ran || len(res.Skipped) != tc.skipped {
 				t.Errorf("passed %v, %d ran, %d skipped; want %v, %d, %d", res.Passed, len(res.Checks), len(res.Skipped), tc.passed, tc.ran, tc.skipped)
@@ -303,7 +212,7 @@ func TestResultFieldsAndPassed_TS_06_21(t *testing.T) {
 			if err := json.Unmarshal(data, &fields); err != nil {
 				t.Fatal(err)
 			}
-			for _, key := range []string{"id", "tree", "table_source", "hermetic", "label", "cached", "passed", "checks", "skipped"} {
+			for _, key := range []string{"id", "tree", "table_source", "cached", "passed", "checks", "skipped"} {
 				if _, ok := fields[key]; !ok {
 					t.Errorf("the result has no %q: %s", key, data)
 				}
@@ -313,8 +222,8 @@ func TestResultFieldsAndPassed_TS_06_21(t *testing.T) {
 					t.Errorf("%s is %v, want an array even when empty", key, fields[key])
 				}
 			}
-			if fields["table_source"] != "file" || fields["label"] != "x" || fields["cached"] != false || fields["hermetic"] != false {
-				t.Errorf("table_source %v, label %v, cached %v, hermetic %v", fields["table_source"], fields["label"], fields["cached"], fields["hermetic"])
+			if fields["table_source"] != "file" || fields["cached"] != false {
+				t.Errorf("table_source %v, cached %v", fields["table_source"], fields["cached"])
 			}
 			for _, s := range res.Skipped {
 				if s.Reason == "" {
@@ -361,7 +270,7 @@ func TestTreeChangedDuringTheRun_TS_06_23(t *testing.T) {
 	if res.Tree != pre || !res.TreeChanged {
 		t.Errorf("tree %s, changed %v; want the hash taken before the run (%s) and the flag", res.Tree, res.TreeChanged, pre)
 	}
-	if res.ID != KeyOf(pre, table.Checks, ModeReduced).ID {
+	if res.ID != KeyOf(pre, table.Checks).ID {
 		t.Errorf("id %s is not the key of the earlier tree", res.ID)
 	}
 	if mustHash(t, dir) == pre {
@@ -406,22 +315,18 @@ func TestKey_TS_06_25(t *testing.T) {
 		return hex.EncodeToString(h[:])
 	}
 
-	reduced := KeyOf(tree, checks, ModeReduced)
-	hermetic := KeyOf(tree, checks, ModeHermetic)
+	reduced := KeyOf(tree, checks)
 
 	if reduced.Sum != sum("reduced") || reduced.ID != sum("reduced")[:12] || !regexpID.MatchString(reduced.ID) {
 		t.Errorf("reduced key = %+v, want SHA-256 %s", reduced, sum("reduced"))
 	}
-	if hermetic.Sum != sum("hermetic") || hermetic.ID == reduced.ID {
-		t.Errorf("hermetic key = %+v, want SHA-256 %s and another id than %s", hermetic, sum("hermetic"), reduced.ID)
-	}
 
 	changed := append([]project.Check(nil), checks...)
 	changed[0].Argv = []string{"make", "test"}
-	if KeyOf(tree, changed, ModeReduced).ID == reduced.ID {
+	if KeyOf(tree, changed).ID == reduced.ID {
 		t.Error("a different table gives the same id")
 	}
-	if KeyOf(strings.Repeat("cd", 32), checks, ModeReduced).ID == reduced.ID {
+	if KeyOf(strings.Repeat("cd", 32), checks).ID == reduced.ID {
 		t.Error("a different tree gives the same id")
 	}
 
@@ -433,11 +338,11 @@ func TestKey_TS_06_25(t *testing.T) {
 	if err := json.Unmarshal([]byte(doc), &reordered); err != nil {
 		t.Fatal(err)
 	}
-	if KeyOf(tree, reordered, ModeReduced).ID != reduced.ID {
+	if KeyOf(tree, reordered).ID != reduced.ID {
 		t.Error("the same table with its keys in another order, other sources and other availability gives another id")
 	}
 
-	if got := KeyOf(tree, nil, ModeReduced).Sum; got != func() string { h := sha256.Sum256([]byte(tree + "[]reduced")); return hex.EncodeToString(h[:]) }() {
+	if got := KeyOf(tree, nil).Sum; got != func() string { h := sha256.Sum256([]byte(tree + "[]reduced")); return hex.EncodeToString(h[:]) }() {
 		t.Errorf("the key of an empty table is %s", got)
 	}
 }
@@ -454,7 +359,6 @@ func TestCacheHit_TS_06_26(t *testing.T) {
 
 	first := mustRun(t, dir, opts)
 	logs := listing(t, filepath.Join(dir, ".agent-fox", "gate", first.ID))
-	opts.Label = "after"
 	second := mustRun(t, dir, opts)
 
 	if runs(t, counter) != 1 {
@@ -465,9 +369,6 @@ func TestCacheHit_TS_06_26(t *testing.T) {
 	}
 	if !reflect.DeepEqual(first.Checks, second.Checks) || first.Tree != second.Tree || first.Passed != second.Passed {
 		t.Errorf("the hit reports %+v, want the stored checks %+v", second.Checks, first.Checks)
-	}
-	if second.Label != "after" {
-		t.Errorf("label of the hit = %q, want the one asked for", second.Label)
 	}
 	if after := listing(t, filepath.Join(dir, ".agent-fox", "gate", first.ID)); !reflect.DeepEqual(after, logs) {
 		t.Errorf("the hit changed the result directory: %v, was %v", after, logs)
@@ -490,30 +391,6 @@ func listing(t *testing.T, dir string) map[string]time.Time {
 		out[e.Name()] = info.ModTime()
 	}
 	return out
-}
-
-// TestNoCacheReplacesTheResult_TS_06_28 verifies TS-06-28:
-// NoCache re-executes the checks and replaces the stored result.
-// Verifies: 06-REQ-4.4
-func TestNoCacheReplacesTheResult_TS_06_28(t *testing.T) {
-	requireSh(t)
-	dir := newRepo(t)
-	counter := filepath.Join(t.TempDir(), "counter")
-	check := shCheck("counted", fmt.Sprintf("echo run >> '%s'; echo \"this is run $(wc -l < '%s' | tr -d ' ')\"", counter, counter))
-	first := mustRun(t, dir, Options{Table: tableOf(check)})
-
-	second := mustRun(t, dir, Options{Table: tableOf(check), NoCache: true})
-
-	if runs(t, counter) != 2 || second.Cached || second.ID != first.ID {
-		t.Errorf("%d runs, cached %v, ids %s and %s; want 2, false and one id", runs(t, counter), second.Cached, first.ID, second.ID)
-	}
-	stored := readResult(t, dir, first.ID)
-	if stored.Cached || !reflect.DeepEqual(stored.Checks, second.Checks) {
-		t.Errorf("result.json = %+v, want the new run %+v", stored, second)
-	}
-	if log := readLog(t, dir, stored.Checks[0]); !strings.Contains(log, "this is run 2") {
-		t.Errorf("the log is %q, want the new run's", log)
-	}
 }
 
 // TestCachedResultWithSkippedChecks guards the cache against a result that
@@ -621,7 +498,7 @@ func TestConcurrentRuns_TS_06_29(t *testing.T) {
 		runners.Add(1)
 		go func() {
 			defer runners.Done()
-			results[i], errs[i] = Run(context.Background(), dir, Options{Table: table, NoCache: true})
+			results[i], errs[i] = Run(context.Background(), dir, Options{Table: table})
 		}()
 	}
 	runners.Wait()

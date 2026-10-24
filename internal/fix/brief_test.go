@@ -236,7 +236,7 @@ func TestThePrefixIsTheSameForEveryRoundAttemptAndResume_TS_09_18(t *testing.T) 
 		}
 		again := failingBaseline() // the same gate on the same tree, run again
 		again.ID = fmt.Sprintf("%012x", rng.Int63())
-		again.Cached, again.TreeChanged, again.Label = rng.Intn(2) == 0, rng.Intn(2) == 0, fmt.Sprintf("label-%d", rng.Intn(9))
+		again.Cached, again.TreeChanged = rng.Intn(2) == 0, rng.Intn(2) == 0
 		for j := range again.Checks {
 			again.Checks[j].DurationMS = rng.Int63n(100000)
 			again.Checks[j].Log = filepath.Join(clone, ".agent-fox", "gate", again.ID, fmt.Sprintf("check%d.log", j))

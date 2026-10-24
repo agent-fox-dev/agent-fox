@@ -2,7 +2,6 @@ package afcmd
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -14,38 +13,28 @@ import (
 
 // registerGate registers af gate run.
 func registerGate(app *toolio.App) {
-	var label string
-	var hermetic, noCache bool
 	app.Register(toolio.Command{
-		Path:    "gate run",
-		Summary: "Run the checks of the gate on the tree, or return the result stored for it",
-		Usage:   "af gate run [--dir DIR] [--label LABEL] [--hermetic] [--no-cache]",
-		Flags: func(fs *flag.FlagSet) {
-			fs.StringVar(&label, "label", "", "name the result, so that gate compare can find it")
-			fs.BoolVar(&hermetic, "hermetic", false, "run the checks with a clean HOME and no git configuration")
-			fs.BoolVar(&noCache, "no-cache", false, "run the checks even when a result is stored for this tree")
-		},
+		Path:           "gate run",
+		Summary:        "Run the checks of the gate on the tree, or return the result stored for it",
+		Usage:          "af gate run [--dir DIR]",
 		MaxArgs:        toolio.NoArgs,
 		Dir:            true,
 		Timeout:        true,
 		DefaultTimeout: 30 * time.Minute,
 		ResultSchema:   resultSchema("gate_run"),
-		Run:            func(r *toolio.Run) (toolio.Outcome, error) { return runGate(r, label, hermetic, noCache) },
+		Run:            runGate,
 	})
 }
 
 // runGate runs the gate of the repository at r.Dir. A red gate, or one with
 // nothing to run, is a measured fact and is done; a run that is stopped is an
 // error, and stores nothing.
-func runGate(r *toolio.Run, label string, hermetic, noCache bool) (toolio.Outcome, error) {
-	if err := checks.ValidateLabel(label); err != nil {
-		return toolio.Outcome{}, checksFailure(r, err)
-	}
+func runGate(r *toolio.Run) (toolio.Outcome, error) {
 	detection, err := detect(r)
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
-	res, err := checks.Run(r.Ctx, r.Dir, checks.Options{Table: detection.Gate, Hermetic: hermetic, NoCache: noCache, Label: label})
+	res, err := checks.Run(r.Ctx, r.Dir, checks.Options{Table: detection.Gate})
 	if err != nil {
 		return toolio.Outcome{}, checksFailure(r, err)
 	}

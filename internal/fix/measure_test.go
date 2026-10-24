@@ -249,8 +249,8 @@ func TestTheGateAfterIsComparedWithTheBaselineByID_TS_09_42(t *testing.T) {
 	if w.gateRuns != 1 {
 		t.Errorf("the gate ran %d times, want once", w.gateRuns)
 	}
-	if o := w.gateOptions; o.Label != "" || o.Hermetic || o.NoCache || !reflect.DeepEqual(o.Table, w.state.Table) || len(o.Table.Checks) == 0 {
-		t.Errorf("options = %+v, want the pinned table in the default mode with no label", o)
+	if o := w.gateOptions; !reflect.DeepEqual(o.Table, w.state.Table) || len(o.Table.Checks) == 0 {
+		t.Errorf("options = %+v, want the pinned table", o)
 	}
 
 	w2 := newMeasureWorld(t, measuredFiles())
@@ -293,9 +293,6 @@ func TestTheRevertCheckRunsOnLandableVerdictsAndOnlyProvenCloses_TS_09_43(t *tes
 		}
 		if count(w.warnings, "fix_not_proven") != 0 || w.conformSince != w.state.BaseHead {
 			t.Errorf("warnings = %v, the revert check went back to %q, want no warning and the base %s", w.warnings, w.conformSince, w.state.BaseHead)
-		}
-		if w.gateOptions.Label != "" {
-			t.Errorf("gate options = %+v", w.gateOptions)
 		}
 		if got, _ := w.read("src/greet.sh"); got != "echo hello\n" {
 			t.Errorf("src/greet.sh = %q: the revert check must put the tree back", got)

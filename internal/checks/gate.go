@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,13 +43,6 @@ const (
 type Options struct {
 	// Table is the gate table.
 	Table project.Table
-	// Hermetic runs the checks under gitx.HermeticRunner with a HOME of
-	// their own.
-	Hermetic bool
-	// NoCache runs the checks even when a result is stored for the key.
-	NoCache bool
-	// Label is carried into the result.
-	Label string
 	// CheckTimeout is the deadline of each check; DefaultCheckTimeout when
 	// zero.
 	CheckTimeout time.Duration
@@ -77,8 +69,6 @@ type Result struct {
 	ID          string        `json:"id"`
 	Tree        string        `json:"tree"`
 	TableSource string        `json:"table_source"`
-	Hermetic    bool          `json:"hermetic"`
-	Label       string        `json:"label"`
 	Cached      bool          `json:"cached"`
 	Passed      bool          `json:"passed"`
 	Checks      []CheckResult `json:"checks"`
@@ -91,33 +81,22 @@ type Result struct {
 
 // Run runs the checks of opts.Table that can be run, in order, in dir, and
 // stores the result under .agent-fox/gate/<id>/, unless a result is stored for
-// the tree already. The label of the options, if any, is recorded for the
-// result in labels.json, a hit included; one that is not allowed is a
-// *UsageError, and nothing runs. A run that ctx stops stores nothing and returns the
+// the tree already. A run that ctx stops stores nothing and returns the
 // context's error.
 func Run(ctx context.Context, dir string, opts Options) (Result, error) {
-	if err := ValidateLabel(opts.Label); err != nil {
-		return Result{}, err
-	}
 	tree, err := TreeHash(ctx, dir)
 	if err != nil {
 		return Result{}, err
 	}
-	mode := ModeReduced
-	if opts.Hermetic {
-		mode = ModeHermetic
-	}
-	key := KeyOf(tree, opts.Table.Checks, mode)
+	key := KeyOf(tree, opts.Table.Checks)
 
-	if !opts.NoCache {
-		if res, ok := loadResult(dir, key); ok && measuresTable(res, opts.Table) {
-			res.Cached, res.Label, res.TableSource = true, opts.Label, opts.Table.Source
-			return labelled(dir, res)
-		}
+	if res, ok := loadResult(dir, key); ok && measuresTable(res, opts.Table) {
+		res.Cached, res.TableSource = true, opts.Table.Source
+		return res, nil
 	}
 
 	res := Result{
-		ID: key.ID, Tree: tree, TableSource: opts.Table.Source, Hermetic: opts.Hermetic, Label: opts.Label,
+		ID: key.ID, Tree: tree, TableSource: opts.Table.Source,
 		Checks: []CheckResult{}, Skipped: []Skipped{},
 	}
 	logs, err := execute(ctx, dir, key, opts, &res)
@@ -146,7 +125,7 @@ func Run(ctx context.Context, dir string, opts Options) (Result, error) {
 	if err := storeResult(dir, key, res); err != nil {
 		return Result{}, err
 	}
-	return labelled(dir, res)
+	return res, nil
 }
 
 // logFile is the full output of a check, to be written when the run is done.
@@ -168,16 +147,6 @@ func writeLogs(dir string, key Key, logs []logFile) error {
 	return nil
 }
 
-// labelled records the label of a result that is stored, if it has one.
-func labelled(dir string, res Result) (Result, error) {
-	if res.Label != "" {
-		if err := recordLabel(dir, res.Label, res.ID); err != nil {
-			return Result{}, err
-		}
-	}
-	return res, nil
-}
-
 // measuresTable reports whether a stored result stands for the table here: a
 // check it skipped must still be one that cannot be run. A result made where a
 // program was missing says nothing about the checks of that program.
@@ -195,11 +164,7 @@ func measuresTable(res Result, table project.Table) bool {
 // execute runs the available checks of the table into res, and returns their
 // logs for the caller to write once the run is complete.
 func execute(ctx context.Context, dir string, key Key, opts Options, res *Result) ([]logFile, error) {
-	run, cleanup, err := newRunner(opts.Hermetic)
-	if err != nil {
-		return nil, err
-	}
-	defer cleanup()
+	run := gitx.ReducedEnvRunner
 	limit := opts.CheckTimeout
 	if limit <= 0 {
 		limit = DefaultCheckTimeout
@@ -224,36 +189,6 @@ func execute(ctx context.Context, dir string, key Key, opts Options, res *Result
 		logs = append(logs, log)
 	}
 	return logs, nil
-}
-
-// newRunner is the runner the checks run under, and what to call when they
-// are done. A hermetic run gets a HOME of its own, which is removed however
-// the run ends.
-func newRunner(hermetic bool) (gitx.Runner, func(), error) {
-	if !hermetic {
-		return gitx.ReducedEnvRunner, func() {}, nil
-	}
-	home, err := os.MkdirTemp("", "af-gate-home-")
-	if err != nil {
-		return nil, nil, err
-	}
-	return gitx.HermeticRunner(home), func() { removeTree(home) }, nil
-}
-
-// removeTree removes a directory and what is in it. A program may have left
-// directories in it that cannot be written to (Go's module cache is read-only),
-// and those are made writable first.
-func removeTree(root string) {
-	if os.RemoveAll(root) == nil {
-		return
-	}
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err == nil && d.IsDir() {
-			_ = os.Chmod(path, 0o700)
-		}
-		return nil
-	})
-	_ = os.RemoveAll(root)
 }
 
 // runCheck runs one check under the deadline limit. It returns ctx's error when

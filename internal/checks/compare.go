@@ -2,9 +2,21 @@ package checks
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 )
+
+// idPattern is what a gate id looks like.
+var idPattern = regexp.MustCompile(`^[0-9a-f]{12}$`)
+
+// UsageError is a mistake in what the caller asked for, as against a failure
+// to do it: an id that names no result, results that cannot be compared.
+type UsageError struct {
+	Message string
+}
+
+func (e *UsageError) Error() string { return e.Message }
 
 // The verdicts of comparing two gate results.
 const (
@@ -22,7 +34,6 @@ var verdictOrder = []string{VerdictRegressed, VerdictStillFailing, VerdictPassWa
 // Side is one of the two results of a comparison.
 type Side struct {
 	ID     string `json:"id"`
-	Label  string `json:"label"`
 	Passed bool   `json:"passed"`
 }
 
@@ -43,26 +54,26 @@ type Comparison struct {
 	Rows     []Row  `json:"rows"`
 }
 
-// Compare compares the stored results that before and after name, each a label
-// of labels.json or a gate id, check by check. Verdicts are of the checks: a
+// Compare compares the stored results with the gate ids before and after, check
+// by check. Verdicts are of the checks: a
 // check that passed and does not now is a regression whatever the others did,
 // and the verdict of the comparison is the first of regressed, still_failing,
 // pass_was_already_failing and pass that a row carries. If either result has
-// no checks nothing was measured, and the verdict is unverified. An argument
-// that names no result, or results that do not have the same checks, is a
+// no checks nothing was measured, and the verdict is unverified. An id that
+// names no result, or results that do not have the same checks, is a
 // *UsageError.
 func Compare(dir, before, after string) (Comparison, error) {
-	b, bLabel, err := resolve(dir, "--before", before)
+	b, err := resolve(dir, "before", before)
 	if err != nil {
 		return Comparison{}, err
 	}
-	a, aLabel, err := resolve(dir, "--after", after)
+	a, err := resolve(dir, "after", after)
 	if err != nil {
 		return Comparison{}, err
 	}
 	c := Comparison{
-		Before: Side{ID: b.ID, Label: bLabel, Passed: b.Passed},
-		After:  Side{ID: a.ID, Label: aLabel, Passed: a.Passed},
+		Before: Side{ID: b.ID, Passed: b.Passed},
+		After:  Side{ID: a.ID, Passed: a.Passed},
 		Rows:   []Row{},
 	}
 	if len(b.Checks) == 0 || len(a.Checks) == 0 {
@@ -108,44 +119,14 @@ func rowVerdict(passedBefore, passedAfter bool) string {
 	return VerdictStillFailing
 }
 
-// labelOf is a label that names the result with the id: the first, by name, if
-// several do, and "" if none does. The label a run stored its result under is
-// not it: a result is served to many runs, and the label of the first says
-// nothing of the others.
-func labelOf(dir, id string) string {
-	var names []string
-	for label, target := range readLabels(dir) {
-		if target == id {
-			names = append(names, label)
+// resolve finds the stored result with the gate id, the one before or after.
+func resolve(dir, which, id string) (Result, error) {
+	if idPattern.MatchString(id) {
+		if res, ok := loadResult(dir, Key{ID: id}); ok {
+			return res, nil
 		}
 	}
-	if len(names) == 0 {
-		return ""
-	}
-	slices.Sort(names)
-	return names[0]
-}
-
-// resolve finds the stored result that arg names, as the label it is in
-// labels.json first and as a gate id second, and returns the label to report
-// for it: arg itself when it was a label, else a label that names the result.
-func resolve(dir, flag, arg string) (Result, string, error) {
-	if arg == "" {
-		return Result{}, "", &UsageError{fmt.Sprintf("%s is required: give a label or a gate id", flag)}
-	}
-	if id, ok := readLabels(dir)[arg]; ok {
-		res, ok := loadResult(dir, Key{ID: id})
-		if !ok {
-			return Result{}, "", &UsageError{fmt.Sprintf("%s %q is the label of the result %s, which is not stored any more", flag, arg, id)}
-		}
-		return res, arg, nil
-	}
-	if idPattern.MatchString(arg) {
-		if res, ok := loadResult(dir, Key{ID: arg}); ok {
-			return res, labelOf(dir, arg), nil
-		}
-	}
-	return Result{}, "", &UsageError{fmt.Sprintf("%s %q is neither a label in .agent-fox/gate/labels.json nor the id of a stored gate result", flag, arg)}
+	return Result{}, &UsageError{fmt.Sprintf("the result %s, %q, is not the id of a stored gate result", which, id)}
 }
 
 // sameChecks refuses two results that were not measured by the same checks: a
@@ -178,5 +159,5 @@ func sameChecks(before, after Result) error {
 		}
 		return strings.Join(names, ", ")
 	}
-	return &UsageError{fmt.Sprintf("the results were not measured by the same checks; only in --before: %s; only in --after: %s", list(onlyBefore), list(onlyAfter))}
+	return &UsageError{fmt.Sprintf("the results were not measured by the same checks; only before: %s; only after: %s", list(onlyBefore), list(onlyAfter))}
 }

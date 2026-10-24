@@ -89,16 +89,6 @@ func gitRepo(t *testing.T, files map[string]string) string {
 	return dir
 }
 
-// labelsBytes is labels.json as it is, or nothing.
-func labelsBytes(t *testing.T, dir string) string {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, ".agent-fox", "gate", "labels.json"))
-	if err != nil && !os.IsNotExist(err) {
-		t.Fatal(err)
-	}
-	return string(data)
-}
-
 // lines is how many lines a counter file holds.
 func lines(t *testing.T, counter string) int {
 	t.Helper()
