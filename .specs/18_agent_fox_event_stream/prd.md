@@ -4,7 +4,7 @@ spec_name: "agent_fox_event_stream"
 title: "Hub's event stream as the immediate trigger of the label protocol"
 status: "active"
 created_at: "2026-10-23T17:20:07.656012Z"
-updated_at: "2026-10-24T02:46:39Z"
+updated_at: "2026-10-24T03:14:14Z"
 intent_hash: "d6e57c608582423ae88b71022b877290210b17b1ba7fd21b702c0b860b979ed7"
 schema_version: 2
 source: "docs/prd/04-drive-the-service-from-the-forge.md"

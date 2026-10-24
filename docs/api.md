@@ -212,7 +212,7 @@ with no body. A slug that is not subscribed, or that the caller cannot see, is t
 Before the row goes, the workspace is marked as being unsubscribed, which refuses new work for it (a request
 to make a job is `404`, as for any workspace that is not subscribed; one to answer or retry a job is `409`
 `not_subscribed`), and every job of the workspace that is
-queued, running or blocked is cancelled with the cause *unsubscribed*, which a runner reads as a cancel. The
+queued, running or blocked is cancelled with the cause *unsubscribed* (its `cancel_cause`), which a runner reads as a cancel. The
 request waits for the runners of those jobs to return, for at most 60 seconds each (see [Cancel](#cancel)). It
 also waits, while the token is still there, for the first try of the cancel cleanup of each job that gets one (see
 [Cancel](#cancel)), so that a blocked job's issue gets its request label back and loses `needs-human` before the
@@ -240,7 +240,7 @@ when it is blocked or finished and no attempt of it is running or queued.
 | `running` | `queued` | An automatic attempt was queued after a failure of the brain; a transient failure of the runner, which asks for the same attempt to be handed over again after 30 seconds and then 2 minutes, does not change the state. |
 | `blocked` | `queued` | A person answered. |
 | `failed` | `queued` | A person asked again (`retry`). |
-| `queued`, `running`, `blocked` | `cancelled` | A person cancelled the job, or its workspace was unsubscribed. |
+| `queued`, `running`, `blocked` | `cancelled` | A person cancelled the job, its workspace was unsubscribed, or its issue was closed. |
 
 A job in any open state can be cancelled. The ids are `job_` and 20 lowercase hex characters, and every time is
 RFC 3339 in UTC with milliseconds (`2026-10-22T08:00:00.000Z`).
@@ -274,26 +274,39 @@ that runs every minute puts it in the queue.
 
 ### Jobs that a request label makes
 
-The routes are not the only way to make a job. For every subscribed workspace the service asks hub, every
-`AF_POLL_INTERVAL` (see [the label poll](configuration.md#the-label-poll)), for the open issues that carry the
+The routes are not the only way to make a job. A team asks for a triage or a fix by labelling an issue with one of the
 workspace's **request labels**, `<label_prefix>triage` and `<label_prefix>fix` (`af:triage` and `af:fix` for the
-prefix `af:`), so that a team asks for a triage or a fix by labelling an issue. Each new request becomes exactly one job,
-and the service then removes the label through hub: it **consumes** it, so that adding it again is a new request.
+prefix `af:`). Each new request becomes exactly one job, and the service then removes the label through hub: it
+**consumes** it, so that adding it again is a new request. The service finds the label in two ways:
 
-Such a job is made as the routes make one, with these fields: `source` `{"kind": "label", "by": "label af:fix"}` (`by`
-names the label, `label af:triage` for a triage; the list of issues does not say who added it, so no person is named),
+- **The event stream**, first. For every subscribed workspace the service keeps a connection to hub's event stream, and
+  acts on the event of a request label put on an issue as it comes, within about a second. The event is a hint: the
+  service reads the issue through hub, and leaves it alone when it is closed, a pull request, or no longer carries the
+  label; otherwise it applies the rules below to the issue and the label. The id of an event that was decided is kept
+  for 7 days, so an event that hub sends again does nothing.
+- **The poll**, the catch-up. Every `AF_POLL_INTERVAL` (see [the label poll](configuration.md#the-label-poll)) the service
+  asks hub for the open issues that carry the request labels and applies the same rules to each. Hub's stream cannot
+  replay, so a label put on while the stream was down, or one whose event the service could not act on, is found by the
+  next cycle.
+
+The two never make two jobs of one request: they apply the rules one at a time for a workspace, and the poll leaves alone a
+label that the stream decided after the poll's listing was asked for.
+
+Such a job is made as the routes make one, with these fields: `source` `{"kind": "event", "by": "<hub event id>"}` for a
+job of the event stream, and `source` `{"kind": "label", "by": "label af:fix"}` for one of the poll (`by` names the label,
+`label af:triage` for a triage; the list of issues does not say who added it, so no person is named),
 `request_label` the full label, prefix included (`af:fix`), `issue` and `input` `{"issue": 42}`. It is queued behind the
 other jobs of its workspace in the order they were made, and an issue that carries both labels gets its triage job queued
 before its fix job. A fix label on a `carry_patch` workspace becomes a job that the worker refuses, as the same request
 through the route would. Pull requests, closed issues and issues that carry neither label are never touched.
 
-What becomes of a label on a listed issue is decided by the first of these that applies:
+What becomes of a request label on an issue, whether the stream or the poll found it, is decided by the first of these that applies:
 
 1. **Absorbed.** The workspace has an open job (`queued`, `running` or `blocked`) of the same kind for the issue, whoever
    made it, an API job included: the label is removed, no job is made, and the service logs the absorbed label at `INFO`
    with the workspace, the kind, the issue and the job. An open job of the other kind does not absorb it. A label on an
    issue whose job `failed` is a new request.
-2. **Held.** A job the poll made for the label was cancelled (by a person or an unsubscribe), and the label is back on
+2. **Held.** A job made for the label was cancelled (by a person or an unsubscribe), and the label is back on
    the issue, or about to be: the cancel reached one of its attempts in a runner, whatever the runner reports (the worker's
    cancel cleanup puts the label back), or the job's cancel cleanup is pending or finished with the label on the issue
    (`labels.restore` `null`, whoever put it there; see [cancel](#cancel)). The label is left in place until a person asks
@@ -302,7 +315,8 @@ What becomes of a label on a listed issue is decided by the first of these that 
    was pending, which releases the hold, so removing the label and adding it back is a new request. The API is the
    immediate way to ask again. A cancelled job whose cancel reached no runner holds nothing when it got no cleanup, or
    when its cleanup ended with `labels.restore` still set; a hold that began while the cleanup was pending ends when the
-   poll sees that.
+   poll sees that. A job cancelled because its issue was closed holds nothing: nothing puts its label back, so a request
+   label on the issue once it is reopened is a new request.
 3. **Already taken.** The removal of the label from the issue failed after the job was made (or after a label that the poll absorbed
    was not removed), so the removal is still owed: the label is removed again, and no second job is made. A removal that hub
    answers with not found is done.
@@ -336,6 +350,7 @@ Every route that shows a job shows this document, a list entry included; `GET /a
   "artifacts": [{"kind": "pull_request", "url": "https://github.example.com/acme/widgets/pull/9", "number": 9}],
   "side_effects": [],
   "labels": {"set": ["af:fixed"], "removed": ["af:fix"], "restore": null, "cleanup": null},
+  "cancel_cause": null,
   "usage": {"cost_usd": 1.25, "input_tokens": 1000, "output_tokens": 200, "turns": 7},
   "hub": null,
   "created_at": "2026-10-22T08:00:00.000Z",
@@ -349,14 +364,15 @@ Every route that shows a job shows this document, a list entry included; `GET /a
 | `id`, `workspace`, `kind` | The job, its workspace and `triage` or `fix`. |
 | `input` | What the job was asked about, as it was posted and without the `context`: `{"issue": …}` (as given: the number, the URL or `owner/repo#N`), `{"text", "title"}` or `{"file": {"name", "content"}}`. |
 | `issue` | The issue number, or `null` for a text or a file. |
-| `source` | `{"kind", "by"}`: `api` for a request of this API, and who made it; `label` for a request label that the poll found, and `by` is `label <the request label>` (see [jobs that a request label makes](#jobs-that-a-request-label-makes)). The triggers of later specs add their own kinds. |
-| `request_label` | The request label that the trigger consumed when it made the job, or `null`. Always `null` for a job of this API; the label of the poll's, prefix included (`af:fix`). |
+| `source` | `{"kind", "by"}`: `api` for a request of this API, and who made it; `event` for a request label that hub's event stream announced, and `by` is the id of hub's event; `label` for a request label that the poll found, and `by` is `label <the request label>` (see [jobs that a request label makes](#jobs-that-a-request-label-makes)). The triggers of later specs add their own kinds. |
+| `request_label` | The request label that the trigger consumed when it made the job, or `null`. Always `null` for a job of this API; the label, prefix included (`af:fix`), for a job of the event stream or the poll. |
 | `state` | `queued`, `running`, `blocked`, `done`, `failed` or `cancelled`. |
 | `blocked` | While the job is blocked: `{"reason": "needs_human", "question", "options": [{"id", "label"}], "answer_with": "POST /api/v1/jobs/<id>/answer"}`, with the ids `A`, `B`, … in order; otherwise `null`. |
 | `attempt_count`, `current_attempt` | How many attempts the job has, and the number of the latest. |
 | `result` | `{"status", "exit_code", "summary", "error"}` of the latest attempt that came to something, from its envelope; `null` before any. `exit_code` is that of the status (`done` 0, `failed` 1, `usage` 2, `needs_human` 3, `unverified` 4). |
 | `artifacts`, `side_effects` | Those of the same envelope; `[]` when there are none. |
 | `labels` | `{"set", "removed", "restore", "cleanup"}`, or `null` when none has a value. `set` and `removed` are the labels as the runner, or the cancel cleanup, last reported them. `restore` is the request label that a cancel says belongs back on the issue while it is not back. `cleanup` is the state of the job's [cancel cleanup](#cancel), the service's own label writes for a cancel that no runner cleans up: `"pending"` while tries go on, `"done"` when the request label is on the issue and the status labels the job accounts for are gone, `"label_not_set"` when it ended without that, and `null` for a job that had none. |
+| `cancel_cause` | Why a cancelled job was cancelled: `cancelled` (a person asked), `unsubscribed` (its workspace was unsubscribed) or `issue_closed` (its issue was closed, see [cancel](#cancel)); `null` for a job that is not cancelled. |
 | `usage` | The sum of `cost_usd`, `input_tokens`, `output_tokens` and `turns` over the attempts that have finished. |
 | `hub` | `{"session_id", "run_id", "sandbox_id"}` of the attempt that is running, as its runner reported them; `null` otherwise. |
 | `created_at` | When the job was made. |
@@ -446,8 +462,18 @@ with an `ERROR` in the log; either way the runner keeps its workspace's place an
 actually returns. When the job is cancelled, `labels.restore` names the request label that belongs back on the
 issue, if the job consumed one and no runner has reported writing it; it stays set while the label is not back.
 
+**The causes.** A job is cancelled for one of three causes, which its `cancel_cause` keeps: `cancelled`, by this route;
+`unsubscribed`, by the [removal](#removing) of its workspace; and `issue_closed`, when hub's event stream says that its
+issue was closed and hub, asked, reads the issue closed. Every cause is a cancel in every way: a queued attempt never runs,
+and a running attempt's runner is told and given the 60 seconds. An issue-closed cancel differs in the labels only. Nothing
+belongs back on a closed issue, so `labels.restore` stays `null` and nothing puts the request label back; the status
+labels the job accounts for are taken off. A runner that opened its hub session takes off the `<prefix>in-progress` it
+set and writes nothing else; every other such cancel gets the cancel cleanup below without its last step, which adds no
+label, with `labels.cleanup` as for any cleanup. The envelope of an attempt it stopped says that the issue was closed (its
+category is `cancelled` as for any cancel), and one `INFO` record names the workspace, the issue and the jobs cancelled.
+
 **The cancel cleanup.** A runner that has opened its hub session writes the labels of a cancelled attempt itself.
-For a cancel by a person or an unsubscribe of a job with an issue that no runner cleans up, the service does it: a
+For a cancel of a job with an issue that no runner cleans up, whatever its cause, the service does it: a
 job cancelled while it was queued (waiting out a backoff included) or blocked, or whose attempt was claimed and its
 runner not yet called, and a job whose runner was cancelled before it reported its hub session. The cleanup is
 marked `pending` with the cancel (the answer of this route shows `labels.cleanup` `"pending"`), or with the
@@ -458,7 +484,8 @@ workspace record and the issue's labels through hub, and then:
 - removes `<prefix>in-progress`, unless another job of the issue is running;
 - removes each other status label that the job's `labels.set` shows, unless another open job of the issue shows
   it in its `labels.set` too;
-- adds the request label the job consumed, if the issue does not carry it.
+- adds the request label the job consumed, if the issue does not carry it; not for a cancel because the issue was
+  closed.
 
 Every other label stays: a `ready` or `landed` of an earlier job, and a label a person set. A try writes only what
 is missing, so it may be repeated. When it finishes, `labels.restore` becomes `null` if the request label is on the

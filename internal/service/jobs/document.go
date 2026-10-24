@@ -144,6 +144,21 @@ func decode(column string, s sql.NullString, v any) error {
 // ended reports whether an attempt has ended, which is when what it came to counts.
 func (a attemptRow) ended() bool { return a.State != AttemptQueued && a.State != AttemptRunning }
 
+// labelsDoc is the labels of the job's document, nil when none has a value.
+func labelsDoc(j jobRow) (*LabelsDoc, error) {
+	labels := LabelsDoc{Set: []string{}, Removed: []string{}, Restore: nullable(j.LabelsRestore), Cleanup: nullable(j.Cleanup)}
+	if err := decode("labels_set", j.LabelsSet, &labels.Set); err != nil {
+		return nil, fmt.Errorf("job %s: %w", j.ID, err)
+	}
+	if err := decode("labels_removed", j.LabelsRemoved, &labels.Removed); err != nil {
+		return nil, fmt.Errorf("job %s: %w", j.ID, err)
+	}
+	if len(labels.Set) > 0 || len(labels.Removed) > 0 || labels.Restore != nil || labels.Cleanup != nil {
+		return &labels, nil
+	}
+	return nil, nil
+}
+
 // buildDoc makes the document of a job from its rows.
 func buildDoc(j jobRow, attempts []attemptRow, withAttempts bool) (Doc, error) {
 	doc := Doc{
@@ -222,16 +237,11 @@ func buildDoc(j jobRow, attempts []attemptRow, withAttempts bool) (Doc, error) {
 		doc.Blocked = blocked
 	}
 
-	labels := LabelsDoc{Set: []string{}, Removed: []string{}, Restore: nullable(j.LabelsRestore), Cleanup: nullable(j.Cleanup)}
-	if err := decode("labels_set", j.LabelsSet, &labels.Set); err != nil {
-		return Doc{}, fmt.Errorf("job %s: %w", j.ID, err)
+	labels, err := labelsDoc(j)
+	if err != nil {
+		return Doc{}, err
 	}
-	if err := decode("labels_removed", j.LabelsRemoved, &labels.Removed); err != nil {
-		return Doc{}, fmt.Errorf("job %s: %w", j.ID, err)
-	}
-	if len(labels.Set) > 0 || len(labels.Removed) > 0 || labels.Restore != nil || labels.Cleanup != nil {
-		doc.Labels = &labels
-	}
+	doc.Labels = labels
 	if j.State == StateCancelled {
 		doc.CancelCause = nullable(j.CancelCause)
 	}

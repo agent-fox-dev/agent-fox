@@ -291,8 +291,11 @@ func (st *stream) fail(ctx context.Context, f failure) time.Duration {
 // text is the message of the record of a failure of the stream: the poll's, but for a forbidden event stream, which the
 // scope audit:read cures.
 func (st *stream) text(f failure) string {
-	if f.row == rowDenied && f.status == http.StatusForbidden && f.operation == "open the event stream" {
+	switch {
+	case f.row == rowDenied && f.status == http.StatusForbidden && f.operation == "open the event stream":
 		return fmt.Sprintf("hub forbids the token of the workspace to open the event stream: it lacks the scope audit:read; replace the token with PUT /api/v1/workspaces/%s", st.slug)
+	case f.row == rowUnavailable:
+		return fmt.Sprintf("hub could not be asked to %s, so the stream tries again", f.operation)
 	}
 	return f.text(st.slug)
 }

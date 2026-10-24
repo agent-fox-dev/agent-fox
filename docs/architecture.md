@@ -1291,7 +1291,9 @@ worker never removes, and the clone, which it keeps after a transient error and 
 
 The poll is the trigger that needs no client (`internal/service/poll`). It runs inside `agent-fox`, after the jobs layer
 and before it stops: `serve` starts it once the jobs layer runs and defers its stop after the jobs layer's, so that the stop
-runs first, with no cycle left in flight, before the queue is closed and before the state file is.
+runs first, with no cycle left in flight and no event stream open, before the queue is closed and before the state file is.
+Since [the event stream](#the-event-stream-as-built) came, the poll is the catch-up: the stream acts on a label as it is
+put on, and the cycles find what the stream missed.
 
 - **Loops.** A `Supervisor` reads the store's subscriptions when it starts and every 60 seconds, and keeps
   one loop for each subscribed workspace: a new subscription gets a loop, and a subscription that is gone loses its loop and the cycle it has in
@@ -1311,11 +1313,18 @@ runs first, with no cycle left in flight, before the queue is closed and before 
   (removed, no job); otherwise a new request, for which the poll makes the job through `jobs.Service.Create`, writes its record,
   and removes L. A refusal of the jobs layer for a duplicate is handled as an absorbed label (two creators that race yield one
   job, because the unique index of the open jobs makes the check atomic with the insert), one for a workspace that is not
-  subscribed ends the cycle with no label written, and any other ends it with a `WARN` and the label left.
+  subscribed ends the cycle with no label written, and any other ends it with a `WARN` and the label left. The rules run
+  under the workspace's lock, which a cycle takes for one issue at a time and the event stream for one event, so the two
+  never apply them at once for a workspace; the lock hands itself to whoever has waited longest, so an event never waits
+  for a whole cycle.
 - **Owed removals.** The poll writes a record for each job it makes before it removes the label, and for each absorbed label
   whose removal fails. A removal that fails leaves the removal *owed*: it is retried whenever the issue is listed under the label,
   confirmed by a removal that succeeds or that hub answers with not found, and settled by a complete listing of the label that does
-  not contain the issue, so a label whose removal failed is never taken a second time once the first job has ended.
+  not contain the issue, so a label whose removal failed is never taken a second time once the first job has ended. A
+  record made after the listing was asked for (one the event stream wrote while the cycle ran) is newer than what the
+  listing says: the stream took the label since, so the cycle makes no job for it and leaves the label to the next cycle,
+  and a complete listing settles nothing of it and releases no hold of it. Records are ordered by their row id and the
+  time they were made, so a clock that stands still does not hide a newer one.
 - **Holds and the release delay.** The `Standing` read of the jobs layer (`Service.Standing`) gives a job by id: its state, source and request label, whether its
   cancel reached an attempt that was in a runner, whether a runner of it is still in progress, and whether its cancel cleanup is
   pending or put the label back (finished with `labels.restore` null); it is `ErrNotFound` for a job that retention purged. A
@@ -1329,7 +1338,8 @@ runs first, with no cycle left in flight, before the queue is closed and before 
   clock started: the forge's list may not yet show a label that was just put back, and the runner may still be writing it.
 - **Records that outlive their jobs.** The poll's records are the rows of `af_poll_requests` (migration 5): the workspace, the
   issue, the label, the job (none for an absorbed label), whether the removal is owed, what the poll has seen of the job (open,
-  ended, holding) and the release clock. There is no foreign key to `af_jobs`, so a record survives a restart and the retention
+  ended, holding) and the release clock. A job cancelled because its issue was closed (its `Standing` gives the cancel cause)
+  is seen as ended and holds nothing, whatever its runner and its cleanup did. There is no foreign key to `af_jobs`, so a record survives a restart and the retention
   purge of its job, which needs no step for the poll. A record is dropped once nothing is owed and nothing holds.
 - **Incomplete listings.** A listing is complete when `ListIssues` did not stop at its limit. Hub's own list is a bare array that
   cannot say it cut a list short, so a last page as long as the page asked for is incomplete as well (erratum 15). An incomplete
@@ -1346,7 +1356,58 @@ runs first, with no cycle left in flight, before the queue is closed and before 
   request label, each of at most 100 issues), and one removal for each label it takes, absorbs or takes again; a cycle of a workspace
   that is off makes one read of the variables, every 5 minutes. The two lists and the removals are the calls that reach the forge, so
   the poll spends the workspace's forge rate limit, and `AF_POLL_INTERVAL` (at least a minute) is how to control it. The poll runs no
-  model and its jobs spend as any other job does.
+  model and its jobs spend as any other job does. The event stream adds its own cost, on top: see
+  [the event stream, as built](#the-event-stream-as-built).
+
+### The event stream, as built
+
+The event stream is the immediate trigger of the label protocol (`internal/service/poll`, `stream.go` and `handle.go`). Hub
+relays the forge's webhooks as audit events, and serves them as a server-sent event stream for a workspace; the service
+keeps one connection to it for each workspace that has a poll loop, and acts on two kinds of event as they come.
+
+- **One stream for each loop.** The `Supervisor` starts a workspace's stream with its loop and stops it with the loop, so
+  the scan that adds and drops loops adds and drops streams, and `Stop` waits for both. A connection reads the token of the
+  subscription, the resolved variables (a poll that is off opens nothing, and reads them again 5 minutes later), and the
+  workspace record for the forge repository, then opens `GET /api/v1/events?workspace=<slug>` through
+  `hub.Client.Events`. The token needs hub's scope `audit:read`; a `403` says so in its `ERROR`. A scan that finds the
+  subscription written since the connection read it (its token replaced) closes the connection, which opens again at once
+  with the new token; a subscription that is gone takes the loop, and the stream, with it.
+- **Hub's events.** A frame of `event: audit_event` carries hub's audit event as JSON: its `id`, its `event_type`, its
+  `workspace` and `metadata` with the issue `number` and the `label` (erratum 18); `event: heartbeat` frames and comments
+  are activity only. `hub.forge.issue.labeled` with a request label of the workspace's prefix, whatever
+  its case, is a request; `hub.forge.issue.closed` is a closed issue; every other event, and one of another workspace, is
+  ignored. A request or a closed event without an id or an issue, or with an id too long or with a control character, is
+  malformed: ignored with one `WARN` for each connection.
+- **A request.** Under the workspace's lock, the stream skips an event whose id it has taken, makes sure the poll is on
+  (a reading of the variables older than 5 minutes is renewed, and one that turns the poll off closes the connection),
+  reads the issue through hub's forge API, and leaves alone an issue that is closed, a pull request or no longer carries
+  the label. Otherwise it applies the poll's own rules to the issue and the label, through the code a cycle uses, with
+  the source `{"kind": "event", "by": <the event id>}` for a new job. The event is then decided, and its id is kept in
+  `af_hub_events` (migration 8) so that hub sending it again does nothing; the scan deletes the ids of more than 7 days.
+- **A closed issue.** Under the lock, the stream skips a taken id, looks up the open jobs of the issue in the state file
+  (none costs nothing more, and is not recorded), makes sure the poll is on, and reads the issue through hub: a cancel
+  throws work away, so it acts on hub's view of the issue now, not on the event. When hub reads it closed,
+  `jobs.Service.CancelIssue` cancels each open job of the issue with the cause `ErrIssueClosed`, which wraps
+  `ErrCancelled`, so a runner reads it as a cancel, and is stored as the job's `cancel_cause` `issue_closed` (migration 8).
+  The cancel marks no request label to put back. The worker, for a runner that opened its hub session, takes off only the
+  `in-progress` it set; the cancel cleanup of every other such cancel makes its removals and adds no label. One `INFO`
+  names the workspace, the issue and the jobs.
+- **A failure while acting on an event** leaves the event to the poll: nothing is recorded, so the next cycle, or a later
+  event, finds the label again. It is logged once (a `WARN`, or an `ERROR` for a refusal) until an event is handled without
+  failure, apart from the failures of the connection and of the cycles.
+- **Reconnecting.** A connection that ends after it received anything is opened again after 1 second. One that fails, or
+  ends without activity, waits out a backoff of 1 second doubling to 1 minute, which the first activity of a connection sets
+  back. A connection that receives nothing for 1 minute is closed and opened again; the time spent acting on an event does
+  not count. A failure of a step of the connection is logged once until the stream has activity again, as the cycle logs its
+  own; an outage longer than the poll interval is logged once with a `WARN`, and the first activity after a logged failure
+  or outage with an `INFO` that the stream has recovered. A hub that answers the stream with `404` or `405` does not serve
+  it: one `WARN`, and the stream tries again every minute while the poll finds the labels alone.
+- **The cost of the stream.** One connection for each subscribed workspace that is on, which hub holds open. For each
+  request event it acts on, and for each closed event of an issue that has an open job, the stream reads the issue once
+  through hub, which reaches the forge; it removes a label for each label it takes, absorbs or takes again, as a cycle does.
+  A closed event of an issue with no open job, and every event it ignores, costs no request. A connection reads the
+  variables and the workspace record when it opens, and the variables again before an event once its reading is 5 minutes
+  old.
 
 ### The client, as built
 

@@ -337,14 +337,19 @@ attempt before a session is opened, as a `failed` envelope of category `config` 
 
 ### The label poll
 
-The service asks hub for the issues that carry a workspace's request labels and makes a job of each new request (see
-[api.md](api.md#jobs-that-a-request-label-makes)). It has **no key in `config.toml`**: its one setting is a hub variable of
-the workspace, read at the start of every cycle from the resolved variables, and a cycle uses the value it reads then.
+The service makes a job of each new request label on a workspace's issues (see
+[api.md](api.md#jobs-that-a-request-label-makes)) in two ways. Each subscribed workspace keeps one connection to hub's
+**event stream**, and a label put on an issue is acted on within about a second of hub sending its event. The **poll** asks
+hub every interval for the issues that carry the request labels, which catches up with anything the stream missed: hub's
+stream cannot replay, so a label added while the stream was down is found by the next cycle. Neither has a key in
+`config.toml`: their one setting is a hub variable of the workspace, read at the start of every cycle and of every
+connection of the stream from the resolved variables, and each uses the value it reads then. The token of the subscription
+needs hub's scope `audit:read` for the stream; without it the poll alone finds the labels.
 
 | `AF_POLL_INTERVAL` | The poll does |
 |---|---|
 | unset or empty | A cycle every `5m`. |
-| a zero duration (`0`, `0s`, `0m`) | The poll is off for the workspace. The cycle ends right after the variables are read: it reads no workspace record, lists nothing and writes no label. The variable is read again 5 minutes later, so that a workspace that turns polling on is picked up within the default interval. |
+| a zero duration (`0`, `0s`, `0m`) | The poll is off for the workspace, and the event stream with it: no job is made from a label. The cycle ends right after the variables are read: it reads no workspace record, lists nothing and writes no label. The stream opens no connection, and closes one that is open before it acts on its next event. Both read the variable again 5 minutes later, so that a workspace that turns polling on is picked up within the default interval. |
 | a Go duration from `1m` to `24h` | A cycle that long after the previous one ended. |
 | anything else: not a duration, negative, below `1m`, above `24h` | It falls back to 5 minutes and does not turn the poll off, and the service logs a `WARN` that names the workspace, the variable and the value once for each distinct value. |
 
@@ -358,7 +363,8 @@ A cancel puts the request label back: when a job the poll made is cancelled, by 
 back on the issue and takes off the status labels the job set (see [Cancel](api.md#cancel)). The poll holds such a label
 rather than take it for a new request, until a complete listing without the issue releases it, requested at least 5 minutes
 after the poll first saw that no runner of the job was in progress and its cleanup had finished: removing the label and
-adding it again is then a new request.
+adding it again is then a new request. Closing an issue cancels its open jobs and puts no label back (see
+[Cancel](api.md#cancel)), so a request label on the issue once it is reopened is a new request at once.
 
 Nothing else about the timing is a setting. A loop starts its first cycle after a random delay of 0 to 30 seconds, so that
 the workspaces do not all ask hub at once when the service starts, and each later cycle one interval after the previous
@@ -367,6 +373,14 @@ cycle that has run for 5 minutes is cancelled, and what it has done stands. The 
 subscriptions every 60 seconds: a workspace that is subscribed is first polled within 90 seconds, and one that is
 unsubscribed loses its loop and the cycle it has in flight. The poll spends the workspace's forge rate limit, and the
 interval is how to control it: see [the cost of a cycle](architecture.md#the-label-poll-as-built).
+
+The event stream's timings are fixed as well. A connection that ends is opened again after 1 second; one that fails, or
+ends without having received anything, waits 1 second, then 2, 4 and so on, doubling up to 1 minute, and the first frame a
+connection receives sets the wait back to 1 second. A connection that receives nothing for 1 minute, not even hub's
+heartbeat, is closed and opened again. A stream that has been down for longer than the poll interval logs one `WARN`, and
+one `INFO` when it recovers. A hub that does not serve the stream is asked again every minute. Before it acts on an event,
+the stream reads the variables again if it last read them more than 5 minutes ago. The ids of the events acted on are kept
+for 7 days, so that an event hub sends twice is acted on once.
 
 The worker holds no vendor key and no forge token. Its credentials are the workspace token of the subscription, which
 it sends to hub and to hub's git server, and the token of the lease, which it sends to the gateway of the box; the

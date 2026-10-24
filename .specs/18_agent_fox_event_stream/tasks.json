@@ -534,7 +534,7 @@
         "`make check` passes",
         "every execution path 18-PATH-1..5 is live in production code"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     }
   ]
