@@ -4,23 +4,15 @@ package conform
 
 import (
 	"bytes"
-	"cmp"
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"maps"
 	"os"
-	"path"
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentdir"
@@ -39,15 +31,9 @@ const (
 	OutcomeNotProven     = "not_proven"
 )
 
-// The states a path was in before the revert, as the manifest records them.
-const (
-	stateFile    = "file"
-	stateSymlink = "symlink"
-	stateAbsent  = "absent"
-)
-
-// revertDirName is the directory of .agent-fox that holds the backups.
-const revertDirName = "revert"
+// patchName is the file of .agent-fox that holds the change while a check has
+// it out of the tree.
+const patchName = "revert.patch"
 
 // Options say how a revert check runs.
 type Options struct {
@@ -82,15 +68,16 @@ type Result struct {
 	Restored      bool      `json:"restored"`
 }
 
-// RestoreError says that the tree could not be put back, or that an earlier
-// check left its backup. The backup is kept, in Dir.
+// RestoreError says that the tree could not be put back, or that another check
+// holds the tree or left its patch. The patch is kept, in Patch: git apply puts
+// the change back.
 type RestoreError struct {
-	Dir   string
+	Patch string
 	Cause error
 }
 
 func (e *RestoreError) Error() string {
-	return fmt.Sprintf("%v; the backup is kept in %s", e.Cause, e.Dir)
+	return fmt.Sprintf("%v; the change is kept in %s", e.Cause, e.Patch)
 }
 
 func (e *RestoreError) Unwrap() error { return e.Cause }
@@ -113,13 +100,14 @@ func usage(format string, args ...any) error {
 // do the tests of the change fail without the rest of it? dir is the top level
 // of a git work tree.
 //
-// It lists what differs from since, and sets the paths that are not tests back
-// to what the commit has, runs the tests, and puts the paths back as they were.
-// The index is never written, in any outcome: the paths are changed in the work
-// tree only, and the tree hash and the index are checked at the end. The paths
-// are put back when the check is cancelled, too, and when it panics. A run that
-// is killed leaves its backup in .agent-fox/revert/, and the next check refuses
-// until someone has looked at it.
+// It lists what differs from since, takes the change of the paths that are not
+// tests out of the work tree as a patch (git apply --reverse), runs the tests,
+// and applies the patch again. The index is never written by the check: a check
+// that rewrote it gets its bytes back, and the tree hash and the index are
+// checked at the end. The change is put back when the check is cancelled, too,
+// and when it panics. A run that is killed leaves its patch in
+// .agent-fox/revert.patch, and the next check refuses until someone has looked
+// at it.
 func Check(ctx context.Context, dir, since string, opts Options) (Result, error) {
 	dir, err := filepath.Abs(dir)
 	if err != nil {
@@ -228,15 +216,16 @@ func notGreen(table project.Table, after checks.Result) string {
 	return ""
 }
 
-// git runs git in dir.
+// git runs git in dir, with env added to the environment.
 type git struct {
 	dir string
+	env []string
 }
 
 // output runs git and returns what it printed, exactly, and its exit code. An
 // error is git that could not be run, or the context's.
 func (g git) output(ctx context.Context, args ...string) (string, int, error) {
-	out, code, err := gitx.ExecRunner(gitx.StdoutOnly(ctx), g.dir, append([]string{"git"}, args...))
+	out, code, err := gitx.EnvRunner(g.env...)(gitx.StdoutOnly(ctx), g.dir, append([]string{"git"}, args...))
 	if cerr := ctx.Err(); cerr != nil {
 		return "", code, cerr
 	}
@@ -361,95 +350,107 @@ func copyIndex(src, dst string) error {
 	return os.Chtimes(dst, info.ModTime(), info.ModTime())
 }
 
-// treeEntry is what a commit has at a path.
-type treeEntry struct {
-	mode, typ, object string
-}
-
-// entriesAt reads what commit has at each of paths. A path it has nothing at is
-// not in the result.
-func (g git) entriesAt(ctx context.Context, commit string, paths []string) (map[string]treeEntry, error) {
-	entries := map[string]treeEntry{}
+// change is the change of paths since commit as a binary patch that git apply
+// takes, and the paths it changes. It is made on a private index read from the
+// commit, with the paths added from the work tree, so the real index is not
+// written. Submodules and nested repositories are left out: git apply does not
+// put their content back.
+func (g git) change(ctx context.Context, commit string, paths []string) (patch string, files []string, err error) {
+	tmp, err := os.MkdirTemp("", "af-index-")
+	if err != nil {
+		return "", nil, err
+	}
+	defer os.RemoveAll(tmp)
+	private := git{dir: g.dir, env: []string{"GIT_INDEX_FILE=" + filepath.Join(tmp, "index")}}
+	if err := private.must(ctx, "read-tree", commit); err != nil {
+		return "", nil, err
+	}
 	for chunk := range slices.Chunk(paths, 200) {
-		args := append([]string{"--literal-pathspecs", "ls-tree", "-z", commit, "--"}, chunk...)
-		out, code, err := g.output(ctx, args...)
-		if err != nil {
-			return nil, err
-		}
-		if code != 0 {
-			return nil, g.fail("ls-tree", code, out)
-		}
-		for _, rec := range strings.Split(out, "\x00") {
-			meta, p, ok := strings.Cut(rec, "\t")
-			if fields := strings.Fields(meta); ok && len(fields) == 3 {
-				entries[p] = treeEntry{mode: fields[0], typ: fields[1], object: fields[2]}
-			}
+		if err := private.must(ctx, append([]string{"--literal-pathspecs", "add", "--all", "--force", "--"}, chunk...)...); err != nil {
+			return "", nil, err
 		}
 	}
-	return entries, nil
-}
-
-// blob is the content of a blob, exactly as git has it.
-func (g git) blob(ctx context.Context, object string) ([]byte, error) {
-	out, code, err := g.output(ctx, "cat-file", "blob", object)
+	diff := []string{"diff", "--cached", "--no-renames", "--ignore-submodules=all", "--no-ext-diff", "--no-textconv", "--no-color"}
+	names, code, err := private.output(ctx, append(diff, "--name-only", "-z", commit)...)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	if code != 0 {
-		return nil, g.fail("cat-file blob "+object, code, out)
+		return "", nil, g.fail("diff --name-only", code, names)
 	}
-	return []byte(out), nil
+	if files = splitNUL(names); len(files) == 0 {
+		return "", nil, nil
+	}
+	patch, code, err = private.output(ctx, append(diff, "--binary", "--full-index", "--src-prefix=a/", "--dst-prefix=b/", commit)...)
+	if err != nil {
+		return "", nil, err
+	}
+	if code != 0 {
+		return "", nil, g.fail("diff --binary", code, patch)
+	}
+	return patch, files, nil
 }
 
-// refuseLeftover refuses to start while a backup of an earlier check is there:
-// that check was killed, and the tree may not be the one its owner left.
-func refuseLeftover(dir string) error {
-	root := filepath.Join(dir, agentdir.Name, revertDirName)
-	entries, err := os.ReadDir(root)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
+// must runs git and fails unless it exits 0.
+func (g git) must(ctx context.Context, args ...string) error {
+	out, code, err := g.output(ctx, args...)
 	if err != nil {
 		return err
 	}
-	for _, e := range entries {
-		if e.IsDir() {
-			return &RestoreError{
-				Dir:   filepath.Join(root, e.Name()),
-				Cause: errors.New("a backup of an earlier revert-check is there: that check was killed, and the tree may not be the one it was started on. Look at the backup and put it back before checking again"),
-			}
-		}
+	if code != 0 {
+		return g.fail(args[0], code, out)
 	}
 	return nil
 }
 
-// entry is a path the revert changes, as it was before.
-type entry struct {
-	Path   string      `json:"path"`
-	State  string      `json:"state"`
-	Mode   os.FileMode `json:"mode,omitempty"`
-	MTime  time.Time   `json:"mtime,omitzero"`
-	Target string      `json:"target,omitempty"`
-	Copy   string      `json:"copy,omitempty"`
-
-	ref *treeEntry // what the commit has at the path; nil when it has nothing
-
-	// applied says that the revert has put the commit's content at the path,
-	// or removed the path where the commit has nothing; want is the SHA-256 of
-	// that content, or of the target of a link.
-	applied bool
-	want    [sha256.Size]byte
+// apply applies the patch to the work tree, or takes it out of it, and leaves
+// the index as it is. git apply changes every path or none.
+func (g git) apply(ctx context.Context, patch string, reverse bool) error {
+	args := []string{"apply", "--whitespace=nowarn"}
+	if reverse {
+		args = append(args, "--reverse")
+	}
+	return g.must(ctx, append(args, "--", patch)...)
 }
 
-// manifest is what a backup says about itself.
-type manifest struct {
-	Since   string   `json:"since"`
-	Tree    string   `json:"tree"`
-	Entries []entry  `json:"entries"`
-	Dirs    []string `json:"dirs,omitempty"`
+// splitNUL splits a NUL-separated listing into its entries.
+func splitNUL(out string) []string {
+	var entries []string
+	for _, e := range strings.Split(out, "\x00") {
+		if e != "" {
+			entries = append(entries, e)
+		}
+	}
+	return entries
 }
 
-// reverter sets paths back to a commit, and puts them back as they were.
+// patchPath is the file that holds the change while it is out of the tree.
+func patchPath(dir string) string {
+	return filepath.Join(dir, agentdir.Name, patchName)
+}
+
+// refuseLeftover refuses to start while the patch of another check is there.
+func refuseLeftover(dir string) error {
+	p := patchPath(dir)
+	_, err := os.Lstat(p)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil
+	case err != nil:
+		return err
+	}
+	return leftover(p)
+}
+
+// leftover is the error for a patch that another check left, or holds.
+func leftover(p string) error {
+	return &RestoreError{
+		Patch: p,
+		Cause: errors.New("another revert-check is working on this checkout, or one was killed and left the change it took out. Wait for it; or, when git apply --check of the patch passes, put the change back with git apply, and remove the patch, before checking again"),
+	}
+}
+
+// reverter takes the change out of the tree, and puts it back.
 type reverter struct {
 	g        git
 	dir      string
@@ -459,31 +460,35 @@ type reverter struct {
 	tableNow func(ctx context.Context) (project.Table, error)
 	paths    []string // the changed paths that are not tests
 
-	entries   []entry
-	made      []string // the directories the revert makes, shallowest first
-	backup    string
+	patch     string
 	preTree   string
 	indexPath string
 	preIndex  []byte
 }
 
-// abs is the path of a slash-separated path of the tree.
-func (rv *reverter) abs(p string) string {
-	return filepath.Join(rv.dir, filepath.FromSlash(p))
-}
-
-// run reverts, runs the tests and puts everything back. The paths are put back
-// whatever happens in between, and a failure to put them back replaces the
+// run takes the change out, runs the tests and puts the change back. It is put
+// back whatever happens in between, and a failure to put it back replaces the
 // result.
 func (rv *reverter) run(ctx context.Context, res Result) (out Result, err error) {
-	if err := rv.plan(ctx); err != nil {
+	diff, files, err := rv.g.change(ctx, rv.commit, rv.paths)
+	if err != nil {
 		return Result{}, err
 	}
-	if len(rv.entries) == 0 {
+	if len(files) == 0 {
 		res.Outcome, res.Reason = OutcomeInconclusive, "nothing_to_revert"
 		return res, nil
 	}
-	if err := rv.makeBackup(); err != nil {
+	if rv.preTree, err = checks.TreeHash(ctx, rv.dir); err != nil {
+		return Result{}, err
+	}
+	if rv.indexPath, err = rv.g.indexPath(ctx); err != nil {
+		return Result{}, err
+	}
+	rv.preIndex = readIfThere(rv.indexPath)
+	if err := rv.claim(diff); err != nil {
+		return Result{}, err
+	}
+	if err := rv.revert(ctx); err != nil {
 		return Result{}, err
 	}
 	defer func() {
@@ -492,12 +497,7 @@ func (rv *reverter) run(ctx context.Context, res Result) (out Result, err error)
 		}
 	}()
 
-	if err := rv.apply(ctx); err != nil {
-		return Result{}, err
-	}
-	for _, e := range rv.entries {
-		res.RevertedFiles = append(res.RevertedFiles, e.Path)
-	}
+	res.RevertedFiles = files
 	if rv.tableNow != nil && rv.tableChanged(ctx) {
 		res.Outcome, res.Reason = OutcomeInconclusive, "table_changed_by_revert"
 		return res, nil
@@ -507,6 +507,43 @@ func (rv *reverter) run(ctx context.Context, res Result) (out Result, err error)
 		return Result{}, err
 	}
 	return rv.conclude(res, reverted), nil
+}
+
+// claim writes the patch, exclusively: it is the claim on the tree that keeps
+// two checks from working on it together, and what is left to put the change
+// back by hand when a check is killed.
+func (rv *reverter) claim(diff string) error {
+	rv.patch = patchPath(rv.dir)
+	f, err := os.OpenFile(rv.patch, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		return leftover(rv.patch)
+	}
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(f, diff)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(rv.patch)
+	}
+	return err
+}
+
+// revert takes the change out of the work tree. Nothing cancels it: git apply
+// changes every path or none, and a git that is stopped half way would leave
+// neither. When it fails the tree is as it was, and the patch is taken away.
+func (rv *reverter) revert(ctx context.Context) error {
+	err := rv.g.apply(context.WithoutCancel(ctx), rv.patch, true)
+	if err == nil {
+		return nil
+	}
+	if verr := rv.verify(context.WithoutCancel(ctx)); verr != nil {
+		return &RestoreError{Patch: rv.patch, Cause: fmt.Errorf("the change could not be taken out (%w), and the tree is not as it was: %w", err, verr)}
+	}
+	_ = os.Remove(rv.patch)
+	return err
 }
 
 // tableChanged reports whether the checks that run tests, found again on the
@@ -546,269 +583,15 @@ func (rv *reverter) conclude(res Result, reverted checks.Result) Result {
 	return res
 }
 
-// plan reads the state of the tree that the revert has to give back, and what
-// the commit has at each path: nothing else is done yet.
-func (rv *reverter) plan(ctx context.Context) error {
-	var err error
-	if rv.preTree, err = checks.TreeHash(ctx, rv.dir); err != nil {
-		return err
-	}
-	if rv.indexPath, err = rv.g.indexPath(ctx); err != nil {
-		return err
-	}
-	rv.preIndex = readIfThere(rv.indexPath)
-
-	atCommit, err := rv.g.entriesAt(ctx, rv.commit, rv.paths)
-	if err != nil {
-		return err
-	}
-	for _, p := range rv.paths {
-		var ref *treeEntry
-		if te, ok := atCommit[p]; ok {
-			ref = &te
-		}
-		e, ok, err := rv.entryFor(p, ref)
-		if err != nil {
-			return err
-		}
-		if ok {
-			rv.entries = append(rv.entries, e)
-		}
-	}
-	rv.made = rv.dirsToMake()
-	return nil
-}
-
-// readIfThere reads a file, or returns nil when it cannot be read.
-func readIfThere(path string) []byte {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	return data
-}
-
-// entryFor is how p is now, if it can be set back to the commit and put back:
-// a file, a link, or nothing. A directory (a nested repository), anything else
-// that is not a file, and a path where the commit has a directory or a
-// submodule, are left as they are.
-func (rv *reverter) entryFor(p string, ref *treeEntry) (entry, bool, error) {
-	if ref != nil && ref.typ != "blob" {
-		return entry{}, false, nil
-	}
-	info, err := os.Lstat(rv.abs(p))
-	e := entry{Path: p, ref: ref}
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		if ref == nil {
-			return entry{}, false, nil
-		}
-		e.State = stateAbsent
-	case err != nil:
-		return entry{}, false, err
-	case info.Mode()&fs.ModeSymlink != 0:
-		target, err := os.Readlink(rv.abs(p))
-		if err != nil {
-			return entry{}, false, err
-		}
-		e.State, e.Target = stateSymlink, target
-	case info.Mode().IsRegular():
-		e.State, e.Mode, e.MTime = stateFile, info.Mode().Perm(), info.ModTime()
-	default:
-		return entry{}, false, nil
-	}
-	return e, true, nil
-}
-
-// dirsToMake lists the directories that putting back the paths that are
-// absent now creates, shallowest first, so that they can be removed again.
-func (rv *reverter) dirsToMake() []string {
-	missing := map[string]bool{}
-	for _, e := range rv.entries {
-		if e.State != stateAbsent || e.ref == nil {
-			continue
-		}
-		for d := path.Dir(e.Path); d != "." && d != "/" && !missing[d]; d = path.Dir(d) {
-			if _, err := os.Lstat(rv.abs(d)); err == nil {
-				break
-			}
-			missing[d] = true
-		}
-	}
-	made := slices.Collect(maps.Keys(missing))
-	slices.SortFunc(made, func(a, b string) int {
-		return cmp.Or(cmp.Compare(strings.Count(a, "/"), strings.Count(b, "/")), strings.Compare(a, b))
-	})
-	return made
-}
-
-// claim makes the directory of the backup, exclusively: it is the claim on the
-// tree that keeps two checks from working on it together, which would have the
-// second back up the state the first had made. A check that finds another
-// claim after making its own backs off and takes only its own directory away;
-// it never removes one it did not make.
-func (rv *reverter) claim() error {
-	root := filepath.Join(rv.dir, agentdir.Name, revertDirName)
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return err
-	}
-	var id [6]byte
-	if _, err := rand.Read(id[:]); err != nil {
-		return err
-	}
-	mine := filepath.Join(root, hex.EncodeToString(id[:]))
-	if err := os.Mkdir(mine, 0o755); err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		_ = os.Remove(mine)
-		return err
-	}
-	for _, e := range entries {
-		if other := filepath.Join(root, e.Name()); e.IsDir() && other != mine {
-			_ = os.Remove(mine) // empty, and made by this check
-			return &RestoreError{
-				Dir:   other,
-				Cause: errors.New("another revert-check is working on this checkout, or one was killed and left its backup. Wait for it, or look at the backup and put it back, before checking again"),
-			}
-		}
-	}
-	rv.backup = mine
-	return nil
-}
-
-// makeBackup copies every file the revert will change into the backup
-// directory, with the index and a manifest, before anything is changed. A
-// failure here has changed nothing, and takes the backup away again.
-func (rv *reverter) makeBackup() (err error) {
-	if err := rv.claim(); err != nil {
-		return err
-	}
-	defer func() {
-		if err != nil {
-			_ = os.RemoveAll(rv.backup)
-			_ = os.Remove(filepath.Dir(rv.backup))
-		}
-	}()
-	if err := os.MkdirAll(filepath.Join(rv.backup, "files"), 0o755); err != nil {
-		return err
-	}
-	for i := range rv.entries {
-		e := &rv.entries[i]
-		if e.State != stateFile {
-			continue
-		}
-		e.Copy = path.Join("files", e.Path)
-		if err := copyFile(rv.abs(e.Path), filepath.Join(rv.backup, filepath.FromSlash(e.Copy))); err != nil {
-			return err
-		}
-	}
-	if rv.preIndex != nil {
-		if err := os.WriteFile(filepath.Join(rv.backup, "index"), rv.preIndex, 0o600); err != nil {
-			return err
-		}
-	}
-	data, err := json.MarshalIndent(manifest{Since: rv.commit, Tree: rv.preTree, Entries: rv.entries, Dirs: rv.made}, "", "  ")
-	if err != nil {
-		return err
-	}
-	return agentdir.WriteFileAtomic(filepath.Join(rv.backup, "manifest.json"), append(data, '\n'))
-}
-
-// copyFile copies src to dst, making the directories of dst.
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-	_, err = io.Copy(out, in)
-	if cerr := out.Close(); err == nil {
-		err = cerr
-	}
-	return err
-}
-
-// apply sets each path to what the commit has: its content and mode, or gone
-// where the commit has nothing. The index is not touched. It notes what it
-// put at each path, so that the restore can tell a path it changed from one
-// that something else did.
-func (rv *reverter) apply(ctx context.Context) error {
-	for _, d := range rv.made {
-		if err := os.Mkdir(rv.abs(d), 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
-			return err
-		}
-	}
-	for i := range rv.entries {
-		e := &rv.entries[i]
-		if e.ref == nil {
-			if err := os.Remove(rv.abs(e.Path)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				return err
-			}
-			e.applied = true
-			continue
-		}
-		content, err := rv.g.blob(ctx, e.ref.object)
-		if err != nil {
-			return err
-		}
-		if err := rv.put(e.Path, e.ref.mode, content); err != nil {
-			return fmt.Errorf("%s: %w", e.Path, err)
-		}
-		e.applied, e.want = true, sha256.Sum256(content)
-	}
-	return nil
-}
-
-// put writes content to p with the git mode: a link, an executable file or a
-// file. A file is replaced as a whole, so that a link in its place is replaced
-// and not written through.
-func (rv *reverter) put(p, mode string, content []byte) error {
-	abs := rv.abs(p)
-	if mode == "120000" {
-		if err := os.Remove(abs); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		return os.Symlink(string(content), abs)
-	}
-	perm := os.FileMode(0o644)
-	if mode == "100755" {
-		perm = 0o755
-	}
-	return agentdir.ReplaceFile(abs, content, perm)
-}
-
-// restore puts every path back as it was, from the backup, takes away the
-// directories the revert made, and writes the index back if a check rewrote
-// it. What was changed while the check ran, by it or by someone else, is kept
-// in the backup and reported. Then it checks that the tree hash and the index
-// are what they were. Only when all is well is the backup removed: if anything
-// fails it stays, with the manifest that says what is in it.
+// restore applies the patch again, writes the index back if a check rewrote
+// it, and checks that the tree hash and the index are what they were. Only
+// when all is well is the patch removed. A path that a check changed while the
+// change was out makes git apply refuse, and the tree stays without the
+// change: what the check did is not overwritten.
 func (rv *reverter) restore(ctx context.Context) error {
 	var problems []error
-	var edited []string
-	for _, e := range rv.entries {
-		kept, err := rv.keepEdit(e)
-		if kept {
-			edited = append(edited, e.Path)
-		}
-		if err == nil {
-			err = rv.putBack(e)
-		}
-		if err != nil {
-			problems = append(problems, fmt.Errorf("%s: %w", e.Path, err))
-		}
-	}
-	for i := len(rv.made) - 1; i >= 0; i-- {
-		_ = os.Remove(rv.abs(rv.made[i])) // only while it is empty
+	if err := rv.g.apply(ctx, rv.patch, false); err != nil {
+		problems = append(problems, fmt.Errorf("the change could not be applied again: %w", err))
 	}
 	if err := rv.restoreIndex(); err != nil {
 		problems = append(problems, err)
@@ -819,105 +602,21 @@ func (rv *reverter) restore(ctx context.Context) error {
 		}
 	}
 	if len(problems) > 0 {
-		return &RestoreError{Dir: rv.backup, Cause: fmt.Errorf("the tree could not be put back: %w", errors.Join(problems...))}
+		return &RestoreError{Patch: rv.patch, Cause: fmt.Errorf("the tree could not be put back: %w", errors.Join(problems...))}
 	}
-	if len(edited) > 0 {
-		return &RestoreError{Dir: rv.backup, Cause: fmt.Errorf("the tree is put back, but %s changed while the check ran, and what they held is kept in %s", strings.Join(edited, ", "), filepath.Join(rv.backup, "changed"))}
+	if err := os.Remove(rv.patch); err != nil {
+		return &RestoreError{Patch: rv.patch, Cause: fmt.Errorf("the tree was put back, but the patch could not be removed: %w", err)}
 	}
-	if err := os.RemoveAll(rv.backup); err != nil {
-		return &RestoreError{Dir: rv.backup, Cause: fmt.Errorf("the tree was put back, but its backup could not be removed: %w", err)}
-	}
-	_ = os.Remove(filepath.Dir(rv.backup)) // only while it is empty
 	return nil
 }
 
-// keepEdit copies what is at the path of an entry that the revert changed to
-// the backup, if it is not what the revert put there: something changed it
-// since, and putting back would overwrite that.
-func (rv *reverter) keepEdit(e entry) (kept bool, err error) {
-	if !e.applied {
-		return false, nil
-	}
-	abs := rv.abs(e.Path)
-	sum, exists, err := currentSum(abs)
+// readIfThere reads a file, or returns nil when it cannot be read.
+func readIfThere(path string) []byte {
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return false, err
-	}
-	if e.ref == nil && !exists || e.ref != nil && exists && sum == e.want {
-		return false, nil
-	}
-	if !exists {
-		return true, nil // removed since; there is nothing to keep
-	}
-	dst := filepath.Join(rv.backup, "changed", filepath.FromSlash(e.Path))
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return true, err
-	}
-	if target, lerr := os.Readlink(abs); lerr == nil {
-		return true, os.WriteFile(dst, []byte(target+"\n"), 0o600)
-	}
-	return true, copyFile(abs, dst)
-}
-
-// currentSum is the SHA-256 of what is at a path: a file's content, or the
-// target of a link. A path that is not there does not exist; anything else
-// that is there has a sum that matches nothing.
-func currentSum(abs string) (sum [sha256.Size]byte, exists bool, err error) {
-	info, err := os.Lstat(abs)
-	switch {
-	case errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR):
-		return sum, false, nil
-	case err != nil:
-		return sum, false, err
-	case info.Mode()&fs.ModeSymlink != 0:
-		target, err := os.Readlink(abs)
-		return sha256.Sum256([]byte(target)), true, err
-	case !info.Mode().IsRegular():
-		return sum, true, nil
-	}
-	data, err := os.ReadFile(abs)
-	return sha256.Sum256(data), true, err
-}
-
-// putBack puts one path back as the manifest says it was. A path that is as it
-// was already is not written: the directory it is in may not be writable, and
-// there is nothing to put back.
-func (rv *reverter) putBack(e entry) error {
-	abs := rv.abs(e.Path)
-	switch e.State {
-	case stateAbsent:
-		if err := os.Remove(abs); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
 		return nil
-	case stateSymlink:
-		if target, err := os.Readlink(abs); err == nil && target == e.Target {
-			return nil
-		}
-		if err := os.Remove(abs); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		return os.Symlink(e.Target, abs)
 	}
-	data, err := os.ReadFile(filepath.Join(rv.backup, filepath.FromSlash(e.Copy)))
-	if err != nil {
-		return err
-	}
-	if info, err := os.Lstat(abs); err == nil && info.Mode().IsRegular() && info.Mode().Perm() == e.Mode {
-		if current, err := os.ReadFile(abs); err == nil && bytes.Equal(current, data) {
-			if info.ModTime().Equal(e.MTime) {
-				return nil
-			}
-			return os.Chtimes(abs, e.MTime, e.MTime)
-		}
-	}
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		return err
-	}
-	if err := agentdir.ReplaceFile(abs, data, e.Mode); err != nil {
-		return err
-	}
-	return os.Chtimes(abs, e.MTime, e.MTime)
+	return data
 }
 
 // restoreIndex writes the bytes of the index back if a check changed them. A

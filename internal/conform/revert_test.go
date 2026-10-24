@@ -136,9 +136,8 @@ func requireState(t *testing.T, dir string, before state) {
 	if after.status != before.status {
 		t.Errorf("git status is %q, was %q", after.status, before.status)
 	}
-	entries, _ := os.ReadDir(filepath.Join(dir, ".agent-fox", "revert"))
-	if len(entries) != 0 {
-		t.Errorf(".agent-fox/revert holds %d entries after the check", len(entries))
+	if _, err := os.Lstat(filepath.Join(dir, ".agent-fox", "revert.patch")); err == nil {
+		t.Error(".agent-fox/revert.patch is left after the check")
 	}
 }
 
@@ -302,7 +301,7 @@ echo "lib=$(cat lib.sh)"
 echo "mode=$(ls -l lib.sh | cut -c1-10)"
 if [ -e new.go ]; then echo new=1; else echo new=0; fi
 if [ -e fix_test.go ]; then echo test=1; else echo test=0; fi
-echo "backup=$(ls .agent-fox/revert/*/ 2>/dev/null | tr '\n' ' ')"
+if [ -s .agent-fox/revert.patch ]; then echo patch=1; else echo patch=0; fi
 echo "staged=$(git --no-optional-locks diff --cached --name-only | tr '\n' ' ')"
 } > '%s'`, obs)
 	lintRuns, lint := counterCheck(t, "lint", project.KindLint)
@@ -314,13 +313,10 @@ echo "staged=$(git --no-optional-locks diff --cached --name-only | tr '\n' ' ')"
 		t.Fatal(err)
 	}
 	seen := string(data)
-	for _, want := range []string{"lib=v1", "mode=-rwxr-xr-x", "new=0", "test=1", "staged=\n"} {
+	for _, want := range []string{"lib=v1", "mode=-rwxr-xr-x", "new=0", "test=1", "patch=1", "staged=\n"} {
 		if !strings.Contains(seen, want) {
 			t.Errorf("during the reverted run %q was not seen; observation:\n%s", want, seen)
 		}
-	}
-	if m := regexp.MustCompile(`backup=(.*)\n`).FindStringSubmatch(seen); m == nil || !strings.Contains(m[1], "manifest.json") || !strings.Contains(m[1], "files") {
-		t.Errorf("the backup held %q, want a manifest and the copies", seen)
 	}
 	if !slices.Equal(res.RevertedFiles, []string{"lib.sh", "new.go"}) || !slices.Equal(res.TestFiles, []string{"fix_test.go"}) {
 		t.Errorf("reverted %v, test files %v; want [lib.sh new.go] and [fix_test.go]", res.RevertedFiles, res.TestFiles)
@@ -648,35 +644,34 @@ func TestCancelledRunStillRestores_TS_06_45(t *testing.T) {
 	})
 }
 
-// TestLeftoverBackup_TS_06_46 verifies TS-06-46:
-// a leftover backup, or a restore that fails or ends with a different tree
-// hash, is a restore error that keeps the backup.
+// TestLeftoverPatch_TS_06_46 verifies TS-06-46:
+// a leftover patch, or a restore that fails or ends with a different tree
+// hash, is a restore error that keeps the patch.
 // Verifies: 06-REQ-6.8
-func TestLeftoverBackup_TS_06_46(t *testing.T) {
-	t.Run("A, a backup from an earlier check", func(t *testing.T) {
-		dir, base, check := provenFixture(t, false)
-		old := filepath.Join(dir, ".agent-fox", "revert", "old")
-		if err := os.MkdirAll(old, 0o755); err != nil {
+func TestLeftoverPatch_TS_06_46(t *testing.T) {
+	t.Run("A, a patch from an earlier check", func(t *testing.T) {
+		dir, base, _ := provenFixture(t, false)
+		old := filepath.Join(dir, ".agent-fox", "revert.patch")
+		if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(old, "manifest.json"), []byte("{}"), 0o644); err != nil {
+		if err := os.WriteFile(old, []byte("old patch"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		before := snapshot(t, dir)
 		counter, counted := counterCheck(t, "counted", project.KindTest)
-		_ = check
 
 		_, err := Check(context.Background(), dir, base, Options{Table: tableOf(counted)})
 
 		var restore *RestoreError
-		if !errors.As(err, &restore) || restore.Dir != old || !strings.Contains(err.Error(), old) {
+		if !errors.As(err, &restore) || restore.Patch != old || !strings.Contains(err.Error(), old) {
 			t.Fatalf("Check = %v, want a restore error naming %s", err, old)
 		}
 		if runs(t, counter) != 0 {
-			t.Error("a check ran although a backup was in the way")
+			t.Error("a check ran although a patch was in the way")
 		}
-		if data, err := os.ReadFile(filepath.Join(old, "manifest.json")); err != nil || string(data) != "{}" {
-			t.Errorf("the old backup was touched: %q, %v", data, err)
+		if data, err := os.ReadFile(old); err != nil || string(data) != "old patch" {
+			t.Errorf("the old patch was touched: %q, %v", data, err)
 		}
 		after := snapshot(t, dir)
 		if after.tree != before.tree || !bytes.Equal(after.index, before.index) || after.status != before.status {
@@ -684,25 +679,7 @@ func TestLeftoverBackup_TS_06_46(t *testing.T) {
 		}
 	})
 
-	t.Run("B, the copies are gone", func(t *testing.T) {
-		dir, base, _ := provenFixture(t, false)
-		script := `if grep -q fixed lib.txt; then exit 0; fi; rm -rf .agent-fox/revert/*/files; exit 1`
-
-		_, err := Check(context.Background(), dir, base, Options{Table: tableOf(shCheck("tests", project.KindTest, script))})
-
-		var restore *RestoreError
-		if !errors.As(err, &restore) {
-			t.Fatalf("Check = %v, want a restore error", err)
-		}
-		if _, statErr := os.Stat(filepath.Join(restore.Dir, "manifest.json")); statErr != nil {
-			t.Errorf("the backup %s was not kept: %v", restore.Dir, statErr)
-		}
-		if !strings.HasPrefix(restore.Dir, filepath.Join(dir, ".agent-fox", "revert")) || !strings.Contains(err.Error(), restore.Dir) {
-			t.Errorf("the error %q does not name the backup directory %s", err, restore.Dir)
-		}
-	})
-
-	t.Run("C, the tree is another one", func(t *testing.T) {
+	t.Run("B, the tree is another one", func(t *testing.T) {
 		dir, base, _ := provenFixture(t, false)
 		script := `if grep -q fixed lib.txt; then exit 0; fi; echo stray > stray.txt; exit 1`
 
@@ -712,11 +689,14 @@ func TestLeftoverBackup_TS_06_46(t *testing.T) {
 		if !errors.As(err, &restore) || !strings.Contains(err.Error(), "tree hash") {
 			t.Fatalf("Check = %v, want a restore error about the tree hash", err)
 		}
-		if _, statErr := os.Stat(filepath.Join(restore.Dir, "manifest.json")); statErr != nil {
-			t.Errorf("the backup was not kept: %v", statErr)
+		if restore.Patch != filepath.Join(dir, ".agent-fox", "revert.patch") || !strings.Contains(err.Error(), restore.Patch) {
+			t.Errorf("the error %q does not name the patch", err)
+		}
+		if _, statErr := os.Stat(restore.Patch); statErr != nil {
+			t.Errorf("the patch was not kept: %v", statErr)
 		}
 		if got, _ := os.ReadFile(filepath.Join(dir, "lib.txt")); string(got) != "fixed\n" {
-			t.Errorf("lib.txt holds %q: the paths that were reverted are put back even though the tree is not the same", got)
+			t.Errorf("lib.txt holds %q: the change is applied again even though the tree is not the same", got)
 		}
 	})
 }
@@ -767,12 +747,12 @@ func TestCopyIndexKeepsTheModificationTime(t *testing.T) {
 
 // TestOverlappingChecksDoNotDestroyEachOther guards 06-REQ-6.7 and 6.8: two
 // checks started together on one tree never leave it reverted, and never
-// delete the backup of the one that is working.
+// delete the patch of the one that is working.
 func TestOverlappingChecksDoNotDestroyEachOther(t *testing.T) {
 	for round := range 4 {
 		dir, base, check := provenFixture(t, false)
 		before := snapshot(t, dir)
-		// Warm the gate cache, so that both checks reach the backup together.
+		// Both checks race for the patch: one writes it, the other refuses.
 		mustRun := func() (Result, error) { return Check(context.Background(), dir, base, Options{Table: tableOf(check)}) }
 		var wg sync.WaitGroup
 		results := make([]error, 2)
@@ -789,13 +769,11 @@ func TestOverlappingChecksDoNotDestroyEachOther(t *testing.T) {
 		if got, _ := os.ReadFile(filepath.Join(dir, "lib.txt")); string(got) != "fixed\n" {
 			t.Fatalf("round %d: lib.txt holds %q: the fix was lost (%v)", round, got, results)
 		}
-		// Each one either ran, or backed off and touched nothing: when both
-		// claim at the same instant, both back off, which is safe, and a retry
-		// settles it.
+		// Each one either ran, or refused and touched nothing.
 		for _, err := range results {
 			var restore *RestoreError
 			if err != nil && !errors.As(err, &restore) {
-				t.Errorf("round %d: %v, want success or a refusal that names the other backup", round, err)
+				t.Errorf("round %d: %v, want success or a refusal that names the other patch", round, err)
 			}
 		}
 	}
@@ -826,7 +804,7 @@ func TestACheckThatStartsDuringAnotherRefuses(t *testing.T) {
 
 	var restore *RestoreError
 	if !errors.As(err, &restore) {
-		t.Errorf("the second check = %v, want a refusal that names the first one's backup", err)
+		t.Errorf("the second check = %v, want a refusal that names the first one's patch", err)
 	}
 	if got, _ := os.ReadFile(filepath.Join(dir, "lib.txt")); string(got) != "broken\n" {
 		t.Errorf("lib.txt holds %q while the first check works: the second touched it", got)
@@ -858,10 +836,10 @@ func TestAnIndexRefreshedByACheckIsPutBack(t *testing.T) {
 	requireState(t, dir, before)
 }
 
-// TestWhatNeverChangedIsNotWrittenBack guards 06-REQ-6.7: a revert that cannot
-// write (a directory that is read-only) is an error of its own, and the
-// restore does not fail for writing back what was never changed.
-func TestWhatNeverChangedIsNotWrittenBack(t *testing.T) {
+// TestARevertThatCannotWriteChangesNothing guards 06-REQ-6.7: a revert that
+// cannot write (a directory that is read-only) is an error of its own, and it
+// has changed nothing: git apply changes every path or none.
+func TestARevertThatCannotWriteChangesNothing(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("permissions do not stop root")
 	}
@@ -883,8 +861,9 @@ func TestWhatNeverChangedIsNotWrittenBack(t *testing.T) {
 	requireState(t, dir, before)
 }
 
-// TestADirectoryThatBecameAFile guards 06-REQ-6.7: a tracked file under a
-// directory that is a file now is an error before anything is changed.
+// TestADirectoryThatBecameAFile guards 06-REQ-6.5 and 6.7: a tracked file
+// under a directory that is a file now is back during the run, and the file
+// is back after it.
 func TestADirectoryThatBecameAFile(t *testing.T) {
 	dir, base := newRepo(t, map[string]fileSpec{"pkg/a.txt": plain("a\n")})
 	if err := os.RemoveAll(filepath.Join(dir, "pkg")); err != nil {
@@ -894,20 +873,22 @@ func TestADirectoryThatBecameAFile(t *testing.T) {
 	writeFile(t, dir, "tests/t.txt", "t\n", 0o644)
 	before := snapshot(t, dir)
 
-	_, err := Check(context.Background(), dir, base, Options{Table: tableOf(shCheck("tests", project.KindTest, "exit 0"))})
+	res := mustCheck(t, dir, base, Options{Table: tableOf(shCheck("tests", project.KindTest, `if grep -q '^a$' pkg/a.txt 2>/dev/null; then exit 1; fi`))})
 
-	var restore *RestoreError
-	if err == nil || errors.As(err, &restore) {
-		t.Fatalf("Check = %v, want an error and no restore error", err)
+	if res.Outcome != OutcomeProven || !slices.Equal(res.RevertedFiles, []string{"pkg", "pkg/a.txt"}) {
+		t.Errorf("result = %+v, want proven, with pkg and pkg/a.txt reverted", res)
 	}
 	requireState(t, dir, before)
+	if got, _ := os.ReadFile(filepath.Join(dir, "pkg")); string(got) != "now a file\n" {
+		t.Errorf("pkg holds %q after the check", got)
+	}
 }
 
-// TestAFileEditedDuringTheRunIsKept guards 06-REQ-6.7: an edit to a path the
-// check reverted, made while it ran, is not silently overwritten by the
-// restore: the tree gets its old content back, the edit is kept in the backup,
-// and the check fails with a restore error that names it.
-func TestAFileEditedDuringTheRunIsKept(t *testing.T) {
+// TestAFileEditedDuringTheRunIsNotOverwritten guards 06-REQ-6.7: an edit to a
+// path the check reverted, made while it ran, is not overwritten by the
+// restore: the change cannot be applied again, the edit stays, and the check
+// fails with a restore error that names the path and the patch it keeps.
+func TestAFileEditedDuringTheRunIsNotOverwritten(t *testing.T) {
 	dir, base, _ := provenFixture(t, false)
 	script := `if grep -q fixed lib.txt; then exit 0; fi; echo "my edit" > lib.txt; exit 1`
 
@@ -917,11 +898,11 @@ func TestAFileEditedDuringTheRunIsKept(t *testing.T) {
 	if !errors.As(err, &restore) || !strings.Contains(err.Error(), "lib.txt") {
 		t.Fatalf("Check = %v, want a restore error that names lib.txt", err)
 	}
-	if got, _ := os.ReadFile(filepath.Join(dir, "lib.txt")); string(got) != "fixed\n" {
-		t.Errorf("lib.txt holds %q, want the content it had", got)
+	if got, _ := os.ReadFile(filepath.Join(dir, "lib.txt")); string(got) != "my edit\n" {
+		t.Errorf("lib.txt holds %q, want the edit kept", got)
 	}
-	if kept, err := os.ReadFile(filepath.Join(restore.Dir, "changed", "lib.txt")); err != nil || string(kept) != "my edit\n" {
-		t.Errorf("the edit in the backup = %q, %v; want it kept", kept, err)
+	if patch, err := os.ReadFile(restore.Patch); err != nil || !strings.Contains(string(patch), "+fixed") {
+		t.Errorf("the patch = %q, %v; want it kept, with the change", patch, err)
 	}
 }
 
@@ -973,9 +954,6 @@ func TestAPanicWhileRevertedPutsTheTreeBack(t *testing.T) {
 	}()
 
 	requireState(t, dir, before)
-	if left, _ := filepath.Glob(filepath.Join(dir, ".agent-fox", "revert", "*")); len(left) != 0 {
-		t.Errorf("a backup is left after the panic: %v", left)
-	}
 }
 
 // TestGitNoiseOnStderrIsNotParsed guards 06-REQ-6.1: what git writes to stderr
@@ -995,4 +973,26 @@ func TestGitNoiseOnStderrIsNotParsed(t *testing.T) {
 		t.Errorf("Check = %+v, %v; want proven although git traces to stderr", res, err)
 	}
 	requireState(t, dir, before)
+}
+
+// TestANestedRepositoryIsNotReverted guards 06-REQ-6.5: a nested repository
+// is not part of the patch, and stays as it is through the run.
+func TestANestedRepositoryIsNotReverted(t *testing.T) {
+	dir, base, check := provenFixture(t, false)
+	nested := filepath.Join(dir, "vendor", "nested")
+	writeFile(t, nested, "n.txt", "n\n", 0o644)
+	gitIn(t, nested, "init", "-q", ".")
+	gitIn(t, nested, "add", "n.txt")
+	gitIn(t, nested, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "n")
+	before := snapshot(t, dir)
+
+	res := mustCheck(t, dir, base, Options{Table: tableOf(check)})
+
+	if res.Outcome != OutcomeProven || !slices.Equal(res.RevertedFiles, []string{"lib.txt"}) {
+		t.Errorf("result = %+v, want proven, with only lib.txt reverted", res)
+	}
+	requireState(t, dir, before)
+	if got, _ := os.ReadFile(filepath.Join(nested, "n.txt")); string(got) != "n\n" {
+		t.Errorf("the nested repository holds %q", got)
+	}
 }

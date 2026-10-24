@@ -88,7 +88,7 @@ interface).
 
 Everything `af` keeps for a checkout is under `<dir>/.agent-fox/`, which has a
 `.gitignore` of its own that ignores it all. `.agent-fox/gate/` and
-`.agent-fox/revert/` are where the gate and the revert check keep theirs. It is never part of the file view,
+`.agent-fox/revert.patch` are where the gate and the revert check keep theirs. It is never part of the file view,
 so nothing in it changes a tree hash.
 
 | Path | Written by | Content |
@@ -96,7 +96,7 @@ so nothing in it changes a tree hash.
 | `gate.json`, `guard.json` | `lang detect --write`, a person or a loop | The gate table and the guard policy; see [configuration.md](configuration.md). |
 | `gate/<id>/NN-<slug>.log` | `gate run` | The full output of the NNth check that ran. |
 | `gate/<id>/result.json` | `gate run` | The result for the key `<id>`: the SHA-256 of the tree hash, the checks and the runner mode, 12 hex characters. Written after the logs, through a temporary file and a rename. |
-| `revert/<id>/` | `revert-check` | The backup that exists while the check is working: `manifest.json`, `index` (the index as it was) and `files/` (a copy of every file it changes). `<id>` is 12 random hex characters, and the directory, made exclusively, is the claim on the checkout. `changed/` holds what a path held when it was changed while the checks ran. It is removed when the tree is back. One that is left was left by a check that was killed or that could not put the tree back, and the next check refuses until someone has looked at it. |
+| `revert.patch` | `revert-check` | The change of the non-test paths, as a binary patch, while the check has it out of the tree. Made exclusively, it is the claim on the checkout. It is removed when the change is applied again. One that is left was left by a check that was killed or that could not apply it again, and the next check refuses until someone has looked at it. |
 | `run/<id>/` | the shell | The run directory of a command that has one; see [cli.md](cli.md#the-run-directory). None of the ring-1 commands makes one. A command that runs a brain adds its briefs, hook, accepted submission, transcripts and a panic's stack; the box has a `run/<id>/` of its own with `brief.md`, `run.json`, `hook.json` and `submission.json`. |
 
 ## Tests
