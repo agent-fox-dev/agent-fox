@@ -31,7 +31,7 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 func (e *env) addWorkspace(workspace, token string) {
 	e.t.Helper()
 	e.Hub.AddWorkspace(e.t, fakehub.Workspace{Slug: workspace, PAT: token})
-	if _, _, err := e.Store.Upsert(ctx, workspace, "af:", token, "usr_1", "usr_1", epoch); err != nil {
+	if _, _, err := e.Store.Upsert(ctx, workspace, token, "usr_1", "usr_1", epoch); err != nil {
 		e.t.Fatal(err)
 	}
 }

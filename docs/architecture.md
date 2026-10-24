@@ -624,7 +624,7 @@ worker, the poll, the `af` client) build on:
 - **The state file.** One SQLite file (`modernc.org/sqlite`, pure Go, WAL mode) behind `database/sql`
   (`internal/service/store`). Every table it owns is named `af_…`, and its migrations are recorded in
   `af_schema_migrations`, never in `PRAGMA user_version`, so that `aflib/jobqueue`'s tables can live in the
-  same file later. Migration 1 is `af_subscriptions`: the slug, the label prefix, the sealed token, the hub
+  same file later. Migration 1 is `af_subscriptions`: the slug, the label prefix (always `af:` now), the sealed token, the hub
   user behind the token, who subscribed it, and the times. A token is sealed with AES-256-GCM under the
   deployment key, with the slug as additional data, and it is the only secret the file holds; a token that
   does not open with the key reads `unreadable` and does not stop the service.
@@ -693,7 +693,7 @@ worker, the poll, the `af` client) build on:
   retryable, with the branch kept on hub's git server and named in `next`, and no pull request. The seam is
   `fix.LandParams.PostPush`, which `FinishParams` and `ParkParams` carry and `afcmd.Config.PostPush` sets.
 - **The worker.** `internal/worker` is the production `jobs.Runner`: it carries out one attempt of a job against a
-  subscribed hub workspace. In order: *resolve* (the token and the label prefix of the subscription, the record and
+  subscribed hub workspace. In order: *resolve* (the token of the subscription, the record and
   the variables of the workspace from hub, the refusals that need no box and no model), the hub *session*, the
   *mark* of the issue, the *clone*, the *lease* of a sandbox, the *run* of the loop in process, the *mirror* of the
   outcome to the issue, the *release* of the lease and the *report* to hub. It holds nothing of an attempt between
@@ -763,8 +763,7 @@ worker, the poll, the `af` client) build on:
   shutdown; `recovery/` (the journal of the attempt, which a later delivery of it reads) is never removed by the worker;
   `envelope.json`, `report.md` and the attempt directory are the jobs layer's and are never touched.
 - **The mark, the mirror and the cancel — the label mirror.** Once the session is open and an issue is named, the worker sets
-  `<prefix>in-progress` on it; the prefix is always the subscription's `label_prefix`, `AF_LABEL_PREFIX` is read
-  for nothing but the warning `label_prefix_ignored` when it differs. Setting a status label (`in-progress`,
+  `af:in-progress` on it (every label has the prefix `af:`). Setting a status label (`in-progress`,
   `ready`, `needs-human`, `landed`, `failed`) removes the other four the issue carries, except that a fix's
   `in-progress` leaves `ready`, which only the outcome of the fix replaces. When the loop is over the outcome is
   mirrored to the issue the input named, or, for a triage of a text or a file that ended `done`, to the issue the
@@ -1011,9 +1010,9 @@ cancels nothing.
   the first-cycle delay, the scan period and the release delay are injectable; no setting is configurable but the interval
   (`AF_POLL_INTERVAL`, see [configuration.md](configuration.md#the-label-poll)).
 - **A cycle.** It first brings the poll's records for the workspace up to date with their jobs, which asks nothing of hub; then it
-  reads the label prefix and the token from the store and the resolved variables from hub. If the poll is off it ends there.
-  Otherwise it reads the workspace record, for the forge repository, and lists the open issues of `<prefix>triage` and then of
-  `<prefix>fix` through the hub forge client's `ListIssues`, at most 100 of each, takes each listing's issues in ascending number
+  reads the token from the store and the resolved variables from hub. If the poll is off it ends there.
+  Otherwise it reads the workspace record, for the forge repository, and lists the open issues of `af:triage` and then of
+  `af:fix` through the hub forge client's `ListIssues`, at most 100 of each, takes each listing's issues in ascending number
   whatever order hub returned them in, and applies the rules to each. Pull requests, closed issues and issues without a request
   label never reach the rules.
 - **The rules,** as spec 15 built them, in order, for an issue N listed under label L of kind K (the forge's follow-ups

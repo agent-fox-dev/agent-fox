@@ -107,7 +107,7 @@ Subscribing a workspace, or subscribing it again, creates on its repository the 
 gets them at its next subscribe.
 
 A subscribed workspace picks up labelled issues by itself, so that a team asks for a triage or a fix just by labelling an
-issue with the workspace's `<prefix>triage` or `<prefix>fix` label. Every `AF_POLL_INTERVAL` (5 minutes by default) the
+issue with the workspace's `af:triage` or `af:fix` label. Every `AF_POLL_INTERVAL` (5 minutes by default) the
 service lists, through hub, the open issues that carry the labels; each new request is one job, and the label is removed.
 `AF_POLL_INTERVAL=0` turns label-driven jobs off. See
 [`docs/api.md`](docs/api.md#jobs-that-a-request-label-makes) and

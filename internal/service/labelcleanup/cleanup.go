@@ -25,7 +25,6 @@ import (
 
 // Subscriptions is where a try reads the subscription of the workspace and its token.
 type Subscriptions interface {
-	Get(ctx context.Context, slug string) (store.Subscription, error)
 	Token(ctx context.Context, slug string) (string, error)
 }
 
@@ -40,12 +39,9 @@ var _ jobs.Cleaner = (*Cleaner)(nil)
 // Clean makes one try of the cleanup of the request's job. Every operation and every way it can fail has one outcome:
 // a failure that may pass leaves the cleanup pending, and a refusal that a retry cannot cure ends it label_not_set.
 func (c *Cleaner) Clean(ctx context.Context, req jobs.CleanupRequest) jobs.CleanupResult {
-	sub, err := c.Subscriptions.Get(ctx, req.Workspace)
+	token, err := c.Subscriptions.Token(ctx, req.Workspace)
 	if err == nil {
-		var token string
-		if token, err = c.Subscriptions.Token(ctx, req.Workspace); err == nil {
-			return c.clean(ctx, req, sub.LabelPrefix, token)
-		}
+		return c.clean(ctx, req, token)
 	}
 	if errors.Is(err, store.ErrNotSubscribed) {
 		return ended(slog.LevelInfo, "the workspace is no longer subscribed, so nothing is written to the issue")
@@ -53,8 +49,8 @@ func (c *Cleaner) Clean(ctx context.Context, req jobs.CleanupRequest) jobs.Clean
 	return pending("read the token of the subscription", err)
 }
 
-// clean is a try with the subscription's prefix and token.
-func (c *Cleaner) clean(ctx context.Context, req jobs.CleanupRequest, prefix, token string) jobs.CleanupResult {
+// clean is a try with the subscription's token.
+func (c *Cleaner) clean(ctx context.Context, req jobs.CleanupRequest, token string) jobs.CleanupResult {
 	const readRecord, readIssue = "read the workspace record", "read the issue"
 	rec, err := c.Hub.WorkspaceRecord(ctx, token, req.Workspace)
 	if err != nil {
@@ -79,7 +75,7 @@ func (c *Cleaner) clean(ctx context.Context, req jobs.CleanupRequest, prefix, to
 
 	var res jobs.CleanupResult
 	var kept []string // the removals hub refused
-	for _, label := range removals(prefix, thread.Issue.Labels, req) {
+	for _, label := range removals(thread.Issue.Labels, req) {
 		op := "remove the label " + label
 		err := forge.RemoveLabel(ctx, ref, label)
 		switch kind := kindOf(err); {
@@ -195,12 +191,11 @@ func ended(level slog.Level, message string) jobs.CleanupResult {
 	return jobs.CleanupResult{Outcome: jobs.CleanupLabelNotSet, Level: level, Message: message}
 }
 
-// removals are the status labels of the issue that the cancelled job accounts for: in-progress under the subscription's
-// prefix, unless another job of the issue runs, and each other status label that the job's own attempts set (whatever
-// prefix it was written under) and no other open job of the issue shows set. Every other label stays: a ready or landed
+// removals are the status labels of the issue that the cancelled job accounts for: in-progress, unless another job of the
+// issue runs, and each other status label that the job's own attempts set and no other open job of the issue shows set. Every other label stays: a ready or landed
 // of an earlier job, and a label a person set.
-func removals(prefix string, onIssue []string, req jobs.CleanupRequest) []string {
-	inProgress := labels.Name(prefix, labels.InProgress)
+func removals(onIssue []string, req jobs.CleanupRequest) []string {
+	inProgress := labels.Name(labels.InProgress)
 	var out []string
 	for _, label := range onIssue {
 		switch {
@@ -216,7 +211,7 @@ func removals(prefix string, onIssue []string, req jobs.CleanupRequest) []string
 }
 
 // isStatus says that the label is a status label: its name ends in a status suffix. The job's labels.set holds the full
-// names its attempts wrote, under the prefix the subscription had then, which a replace may have changed since.
+// names its attempts wrote.
 func isStatus(label string) bool {
 	for _, s := range labels.Statuses() {
 		if strings.HasSuffix(label, s) {

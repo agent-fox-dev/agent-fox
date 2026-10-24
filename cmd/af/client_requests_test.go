@@ -380,7 +380,7 @@ func TestAFailureCarriesTheFixHintOfItsAnswerForACommand_TS_16_43(t *testing.T) 
 // values. The job and the page are checked with their commands.
 // Verifies: 16-REQ-6.8
 func TestServiceDocumentsReachTheResultAsReceivedUnknownFieldsIncluded_TS_16_44(t *testing.T) {
-	doc := `{"workspaces":[{"slug":"widgets","label_prefix":"af:","future":{"a":[1,2,{"b":null}],"c":1.5e3},"unicode":"ä☃ <b>&"}],"cursor":null,"extra":[true]}`
+	doc := `{"workspaces":[{"slug":"widgets","future":{"a":[1,2,{"b":null}],"c":1.5e3},"unicode":"ä☃ <b>&"}],"cursor":null,"extra":[true]}`
 	ready(t, answering(200, doc))
 	res := afRun(t, "", "workspace", "list")
 	if res.code != 0 {

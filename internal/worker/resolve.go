@@ -30,9 +30,8 @@ type attempt struct {
 	started time.Time
 
 	// pat is the token of the subscription, read once at the start and kept for the life of
-	// the attempt, its cleanup included. prefix is the label prefix of the subscription.
-	pat    string
-	prefix string
+	// the attempt, its cleanup included.
+	pat string
 	// record is the workspace on hub and repo its forge repository; forge is the forge as the
 	// loops see it, through hub.
 	record hub.Record
@@ -63,9 +62,6 @@ type attempt struct {
 	releaseOnce  sync.Once
 	releaseErr   error
 	releaseNoted bool // the end of the attempt has logged a release that failed
-	// labelPrefixVar is AF_LABEL_PREFIX as it was set, which nothing uses: the prefix of the labels
-	// is the subscription's. It is kept to warn when the two differ.
-	labelPrefixVar string
 	// issue is the issue the input named, nil for a text and a file. labels are the labels it
 	// carries as the attempt knows them: those it carried at resolve, and what the attempt wrote
 	// since. marked says the attempt set in-progress on it.
@@ -164,7 +160,7 @@ func (a *attempt) emitStep(data any) {
 }
 
 // resolve reads what the attempt needs of the store and of hub, and refuses what cannot run,
-// before anything is spent or written: the token and the label prefix, the record of the
+// before anything is spent or written: the token, the record of the
 // workspace, its variables, a fix that is not served, an issue that is not on the workspace's
 // repository or is a pull request. Hub being unavailable is a transient error.
 func (r *Runner) resolve(ctx context.Context, a *attempt) *outcome {
@@ -177,11 +173,6 @@ func (r *Runner) resolve(ctx context.Context, a *attempt) *outcome {
 		return r.envelopeOf(a, authRefusal(slug, tokenFault(err)))
 	}
 	a.pat = pat
-	sub, err := r.cfg.Subscriptions.Get(ctx, slug)
-	if err != nil {
-		return r.envelopeOf(a, authRefusal(slug, tokenFault(err)))
-	}
-	a.prefix = sub.LabelPrefix
 
 	record, err := r.cfg.Hub.WorkspaceRecord(ctx, pat, slug)
 	if err != nil {
@@ -199,7 +190,6 @@ func (r *Runner) resolve(ctx context.Context, a *attempt) *outcome {
 	if err != nil {
 		return r.hubOutcome(ctx, a, "read the variables", err)
 	}
-	a.labelPrefixVar = vars["AF_LABEL_PREFIX"]
 	settings, bad := resolveSettings(kind, vars)
 	if bad != nil {
 		if bad.Name == "AF_MAX_ATTEMPTS" {

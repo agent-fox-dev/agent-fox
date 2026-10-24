@@ -195,7 +195,7 @@ func TestACallerSubscribesAndListsWhileAnotherCannotSee_TS_11_81(t *testing.T) {
 		t.Fatalf("PUT = %d %s, want 201", status, body)
 	}
 	view := object(t, body)
-	if view["slug"] != "widgets" || view["token_user"] != "usr_P" || view["subscribed_by"] != "usr_A" || view["token_state"] != "ok" || view["label_prefix"] != "af:" {
+	if view["slug"] != "widgets" || view["token_user"] != "usr_P" || view["subscribed_by"] != "usr_A" || view["token_state"] != "ok" {
 		t.Errorf("view = %s", body)
 	}
 	if strings.Contains(body, pat) {
@@ -449,7 +449,7 @@ func TestACallerSubscribesAWorkspaceAndTheSevenLabelsAreCreated_TS_17_64(t *test
 	p := s.start(t, bareEnv(t))
 	addr := p.addr()
 
-	if status, body := call(t, "PUT", addr, "/api/v1/workspaces/widgets", "tok-A", `{"hub_token":"`+pat+`","label_prefix":"af:"}`); status != 201 {
+	if status, body := call(t, "PUT", addr, "/api/v1/workspaces/widgets", "tok-A", `{"hub_token":"`+pat+`"}`); status != 201 {
 		t.Fatalf("PUT = %d %s, want 201", status, body)
 	}
 	want := []fakehub.Label{
@@ -468,13 +468,13 @@ func TestACallerSubscribesAWorkspaceAndTheSevenLabelsAreCreated_TS_17_64(t *test
 	if rec["workspace"] != "widgets" || rec["created"] != float64(7) || rec["existing"] != float64(0) {
 		t.Errorf("the record is %v, want widgets with 7 created and none already there", rec)
 	}
-	if status, body := call(t, "PUT", addr, "/api/v1/workspaces/widgets", "tok-A", `{"hub_token":"`+pat+`","label_prefix":"af:"}`); status != 200 {
+	if status, body := call(t, "PUT", addr, "/api/v1/workspaces/widgets", "tok-A", `{"hub_token":"`+pat+`"}`); status != 200 {
 		t.Fatalf("the second PUT = %d %s, want 200", status, body)
 	}
 	if got := hub.Labels("widgets"); !slices.Equal(got, want) {
 		t.Errorf("after the second PUT hub holds %v", got)
 	}
-	if status, body := call(t, "GET", addr, "/api/v1/workspaces/widgets", "tok-A", ""); status != 200 || object(t, body)["label_prefix"] != "af:" {
+	if status, body := call(t, "GET", addr, "/api/v1/workspaces/widgets", "tok-A", ""); status != 200 || object(t, body)["slug"] != "widgets" {
 		t.Errorf("GET = %d %s, want the stored subscription", status, body)
 	}
 	stop(t, p)

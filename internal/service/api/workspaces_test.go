@@ -30,7 +30,7 @@ import (
 // seed stores a subscription directly, as a subscribe would have.
 func (a *authHarness) seed(t *testing.T, slug, token string) store.Subscription {
 	t.Helper()
-	sub, _, err := a.Store.Upsert(ctx, slug, "af:", token, "usr_9", "usr_1", a.Clock.Now())
+	sub, _, err := a.Store.Upsert(ctx, slug, token, "usr_9", "usr_1", a.Clock.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,14 +118,14 @@ func TestAHiddenWorkspaceIsAsAnUnsubscribedOneWithTheVisibilityCached_TS_11_41(t
 	}
 }
 
-// TestTheViewHasExactlySevenFieldsAndNoToken_TS_11_63 verifies TS-11-63:
-// The subscription view has exactly the seven fields, null token_user and no
+// TestTheViewHasExactlySixFieldsAndNoToken_TS_11_63 verifies TS-11-63:
+// The subscription view has exactly the six fields, null token_user and no
 // token or ciphertext.
 // Verifies: 11-REQ-9.1
-func TestTheViewHasExactlySevenFieldsAndNoToken_TS_11_63(t *testing.T) {
+func TestTheViewHasExactlySixFieldsAndNoToken_TS_11_63(t *testing.T) {
 	created := time.Date(2026, 10, 22, 8, 0, 0, 0, time.UTC)
 	for name, user := range map[string]string{"no token user": "", "a token user": "usr_9"} {
-		sub := store.Subscription{Slug: "widgets", LabelPrefix: "af:", TokenUser: user, SubscribedBy: "usr_1", TokenState: store.TokenOK, CreatedAt: created, UpdatedAt: created.Add(time.Hour)}
+		sub := store.Subscription{Slug: "widgets", TokenUser: user, SubscribedBy: "usr_1", TokenState: store.TokenOK, CreatedAt: created, UpdatedAt: created.Add(time.Hour)}
 		data, err := json.Marshal(viewOf(sub))
 		if err != nil {
 			t.Fatal(err)
@@ -140,7 +140,7 @@ func TestTheViewHasExactlySevenFieldsAndNoToken_TS_11_63(t *testing.T) {
 		if user == "" && doc["token_user"] != nil || user != "" && doc["token_user"] != user {
 			t.Errorf("%s: token_user = %v, want null for none and the id otherwise", name, doc["token_user"])
 		}
-		if doc["label_prefix"] != "af:" || doc["created_at"] != "2026-10-22T08:00:00Z" || doc["updated_at"] != "2026-10-22T09:00:00Z" {
+		if doc["created_at"] != "2026-10-22T08:00:00Z" || doc["updated_at"] != "2026-10-22T09:00:00Z" {
 			t.Errorf("%s: view = %s", name, data)
 		}
 		for key := range doc {
@@ -151,9 +151,9 @@ func TestTheViewHasExactlySevenFieldsAndNoToken_TS_11_63(t *testing.T) {
 			}
 		}
 	}
-	// What the view is made of cannot hold a token: the type has these seven fields.
-	if n := reflect.TypeFor[subscriptionView]().NumField(); n != 7 {
-		t.Errorf("subscriptionView has %d fields, want 7", n)
+	// What the view is made of cannot hold a token: the type has these six fields.
+	if n := reflect.TypeFor[subscriptionView]().NumField(); n != 6 {
+		t.Errorf("subscriptionView has %d fields, want 6", n)
 	}
 }
 
@@ -434,8 +434,8 @@ func runScenario(t *testing.T) scenario {
 	a.Hub.AddUser("pat-DISTINCT-down-secret", "usr_8", []string{"gadgets"})
 	record := func(r response) { sc.bodies = append(sc.bodies, r.Body) }
 
-	record(a.put(t, "widgets", sc.caller, tokenBody(t, sc.pat, "distinct-prefix-54:")))
-	record(a.put(t, "widgets", sc.caller, tokenBody(t, sc.pat, "distinct-prefix-54:")))
+	record(a.put(t, "widgets", sc.caller, tokenBody(t, sc.pat)))
+	record(a.put(t, "widgets", sc.caller, tokenBody(t, sc.pat)))
 	record(a.put(t, "widgets", sc.caller, tokenBody(t, "pat-DISTINCT-wrong-secret")))                  // a token hub refuses
 	record(a.put(t, "widgets", sc.caller, `{"hub_token":"pat-DISTINCT-bad-body-secret","unknown":1}`)) // a bad body
 	a.Hub.FailFor(workspacePath+"gadgets", "pat-DISTINCT-down-secret", 500)
@@ -580,11 +580,10 @@ func TestTheReadsNeverReturnATokenToAnyCaller_TS_11_62(t *testing.T) {
 	for i := range 25 {
 		slug := fmt.Sprintf("w%d", i)
 		pat := random(8, 200)
-		prefix := strings.ReplaceAll(random(1, 32), ",", "x")
 		a.Hub.Grant("usr_1", slug)
 		a.Hub.AddUser(pat, fmt.Sprintf("usr_p%d", i), []string{slug})
 
-		put := a.put(t, slug, "caller", tokenBody(t, pat, prefix))
+		put := a.put(t, slug, "caller", tokenBody(t, pat))
 		if put.Status != 201 {
 			t.Fatalf("iteration %d: PUT = %d %s", i, put.Status, put.Body)
 		}
@@ -691,7 +690,7 @@ func TestAnUnsubscribeCleansUpABlockedJobBeforeRemovingTheSubscription_TS_17_56(
 		d.Jobs = svc
 	})
 	t.Cleanup(func() { svc.Close() })
-	if _, _, err := h.Store.Upsert(ctx, "widgets", "af:", "pat-of-widgets", "", "usr_1", time.Now()); err != nil {
+	if _, _, err := h.Store.Upsert(ctx, "widgets", "pat-of-widgets", "", "usr_1", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.Start(); err != nil {

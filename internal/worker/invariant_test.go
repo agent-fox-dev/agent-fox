@@ -65,7 +65,7 @@ func twoWorkspaces(t *testing.T) (*env, map[string]string) {
 	e.hub.AddWorkspace(t, fakehub.Workspace{Slug: "other", PAT: pats["other"], Branch: "main", Files: bothFiles(), ForgeURL: "https://github.example.com/Org/Other"})
 	e.hub.AddIssue("other", fakehub.Issue{Number: 42, Title: "Greeting is wrong", Body: "The greeting should say hello."})
 	e.subs.mu.Lock()
-	e.subs.tokens["other"], e.subs.prefixes["other"] = pats["other"], "af:"
+	e.subs.tokens["other"] = pats["other"]
 	e.subs.mu.Unlock()
 	flags := map[jobs.Kind][]string{
 		jobs.KindFix:    {"--brain", "scripted", "--script", scriptFile(t, fixSteps()...)},

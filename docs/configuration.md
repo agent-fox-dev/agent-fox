@@ -334,7 +334,6 @@ attempt before a session is opened, as a `failed` envelope of category `config` 
 | `AF_SANDBOX_PROFILE` | none | none | non-empty: the profile that hub leases the sandbox from; unset is hub's default. Its image must provide `af`. |
 | `AF_FIX_LAND` | | `pr` | `pr`, `branch` or `none`. `patch` is refused: a fix on a `carry_patch` workspace, or landing as a patch, fails as `unsupported`, because carry-patch landing comes in a later release. A triage on a `carry_patch` workspace runs as on any other, and does not read it. |
 | `AF_POLL_INTERVAL` | | | read by the worker as the label poll reads it, and never a failure: a zero duration turns the label triggers off, which drops the forge path from the question, failure and parked-fix comments; anything else, an invalid value included, leaves them on. See [the label poll](#the-label-poll). |
-| `AF_LABEL_PREFIX` | | | **not read.** The prefix of every label the worker writes is the `label_prefix` of the subscription; when the variable is set and differs, the envelope carries the warning `label_prefix_ignored`. The label poll ignores it as well, see [the label poll](#the-label-poll). |
 
 ### The label poll
 
@@ -350,10 +349,7 @@ start of every cycle from the resolved variables, and each cycle uses the value 
 | a Go duration from `1m` to `24h` | A cycle that long after the previous one ended. |
 | anything else: not a duration, negative, below `1m`, above `24h` | It falls back to 5 minutes and does not turn the poll off, and the service logs a `WARN` that names the workspace, the variable and the value once for each distinct value. |
 
-The request labels are `<prefix>triage` and `<prefix>fix`, where the prefix is the **`label_prefix` of the subscription**,
-read from the store at the start of each cycle. `AF_LABEL_PREFIX` is never used to name them; when it is set and differs
-from the subscription's prefix, the service logs a `WARN` once for each distinct value, and goes on with the
-subscription's prefix, so that the poll and the worker cannot disagree.
+The request labels are `af:triage` and `af:fix`; the prefix `af:` is not configurable.
 
 A cancel puts the request label back: when a job the poll made is cancelled, by a person or by an unsubscribe, the worker
 (for a runner that opened its hub session) or the service's cancel cleanup (for every other cancel) puts the request label

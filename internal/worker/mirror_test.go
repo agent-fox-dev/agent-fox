@@ -101,50 +101,6 @@ func triageResult(confidence, action string) map[string]any {
 	}
 }
 
-// TestTheSubscriptionsPrefixIsUsedAndAFLabelPrefixIsIgnoredWithAWarning_TS_13_29 verifies
-// TS-13-29.
-// Verifies: 13-REQ-4.3, 13-REQ-4.4
-func TestTheSubscriptionsPrefixIsUsedAndAFLabelPrefixIsIgnoredWithAWarning_TS_13_29(t *testing.T) {
-	for name, tc := range map[string]struct {
-		vars map[string]string
-		warn bool
-	}{
-		"a variable that differs":     {map[string]string{"AF_LABEL_PREFIX": "other:"}, true},
-		"a variable that is the same": {map[string]string{"AF_LABEL_PREFIX": "team:"}, false},
-		"no variable":                 {nil, false},
-		"an empty variable":           {map[string]string{"AF_LABEL_PREFIX": ""}, false},
-	} {
-		t.Run(name, func(t *testing.T) {
-			e := mirrorEnv(t, nil, tc.vars)
-			e.subs.prefixes[slug] = "team:"
-			e.endsWith(jobs.KindTriage, toolio.StatusDone, withResult(triageResult("probable", "replaced_body")))
-
-			res, err := e.run(e.request(jobs.KindTriage, issueInput("42")))
-
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := e.issueNow().Labels; !slices.Equal(got, []string{"team:ready"}) {
-				t.Errorf("labels = %v, want [team:ready]", got)
-			}
-			for _, r := range e.hub.RequestsTo("POST", issuePath+"/labels") {
-				if !strings.Contains(string(r.Body), `"team:`) || strings.Contains(string(r.Body), `"af:`) || strings.Contains(string(r.Body), `"other:`) {
-					t.Errorf("a label was written with a prefix that is not the subscription's: %s", r.Body)
-				}
-			}
-			if len(e.hub.RequestsTo("POST", issuePath+"/labels")) < 2 {
-				t.Error("the mark and the mirror each wrote a label")
-			}
-			if warned := slices.Contains(codes(envelope(t, res)), "label_prefix_ignored"); warned != tc.warn {
-				t.Errorf("warnings = %v, want label_prefix_ignored: %v", codes(envelope(t, res)), tc.warn)
-			}
-			if !slices.Equal(res.LabelsSet, []string{"team:ready"}) || !slices.Equal(res.LabelsRemoved, []string{"team:in-progress"}) {
-				t.Errorf("the result sets %v and removes %v, want team:ready set and team:in-progress removed", res.LabelsSet, res.LabelsRemoved)
-			}
-		})
-	}
-}
-
 // TestATextTriageThatEndsNeedsHumanWritesNothingAndADoneOneMirrorsToTheIssueItCreated_TS_13_66
 // verifies TS-13-66.
 // Verifies: 13-REQ-9.1
@@ -945,7 +901,6 @@ func composer(t *testing.T, kind jobs.Kind, triggersOn bool, src jobs.Source) (*
 	ref := issuex.IssueRef{Repo: issuex.Repo{Host: "github.example.com", Owner: "Org", Name: "Repo"}, Number: 42}
 	a := &attempt{
 		req:      jobs.Request{JobID: "job_1", Attempt: 1, Workspace: slug, Kind: kind, Source: src, Dir: t.TempDir()},
-		prefix:   "af:",
 		settings: Settings{TriggersOn: triggersOn, Land: "pr"},
 		issue:    &ref,
 	}

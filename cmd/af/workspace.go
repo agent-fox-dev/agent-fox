@@ -21,7 +21,6 @@ type workspaceListDoc struct {
 // as it was received, so that fields it gains reach the result.
 type subscriptionDoc struct {
 	Slug         string  `json:"slug"`
-	LabelPrefix  string  `json:"label_prefix"`
 	TokenUser    *string `json:"token_user"`
 	SubscribedBy string  `json:"subscribed_by"`
 	TokenState   string  `json:"token_state"`
@@ -88,30 +87,27 @@ func workspaceList(r *toolio.Run, app *toolio.App, server *serverFlag) (toolio.O
 // registerWorkspaceSubscribe registers af workspace subscribe.
 func registerWorkspaceSubscribe(app *toolio.App) {
 	var hubTokenFile string
-	var prefix givenString
 	var server serverFlag
 	app.Register(toolio.Command{
 		Path:    "workspace subscribe",
 		Summary: "Subscribe a hub workspace on the agent-fox service, or replace its subscription",
-		Usage:   "af workspace subscribe <slug> --hub-token-file FILE|- [--prefix P] [--server URL]",
+		Usage:   "af workspace subscribe <slug> --hub-token-file FILE|- [--server URL]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&hubTokenFile, "hub-token-file", "", "the `file` that holds the personal access token of the workspace on hub; - reads stdin")
-			prefix.bind(fs, "prefix", "the `prefix` of the request labels of the workspace, in place of the one of hub")
 			server.bind(fs)
 		},
 		RawStdin:     true,
 		Timeout:      true,
 		ResultSchema: resultSchema("subscription"),
 		Run: func(r *toolio.Run) (toolio.Outcome, error) {
-			return workspaceSubscribe(r, app, hubTokenFile, &prefix, &server)
+			return workspaceSubscribe(r, app, hubTokenFile, &server)
 		},
 	})
 }
 
-// workspaceSubscribe is PUT /api/v1/workspaces/{slug} with the token of the workspace, and the
-// prefix only when --prefix was given. The service answers 201 for a subscription and 200 for a
+// workspaceSubscribe is PUT /api/v1/workspaces/{slug} with the token of the workspace. The service answers 201 for a subscription and 200 for a
 // replaced one, and both are success.
-func workspaceSubscribe(r *toolio.Run, app *toolio.App, hubTokenFile string, prefix *givenString, server *serverFlag) (toolio.Outcome, error) {
+func workspaceSubscribe(r *toolio.Run, app *toolio.App, hubTokenFile string, server *serverFlag) (toolio.Outcome, error) {
 	if hubTokenFile == "" {
 		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: "--hub-token-file is required: name the file that holds the token of the workspace, or - to read it from stdin", FixHint: &toolio.FixHint{Flag: "--hub-token-file"}}
 	}
@@ -130,9 +126,6 @@ func workspaceSubscribe(r *toolio.Run, app *toolio.App, hubTokenFile string, pre
 	r.Redact(pat)
 	client.Redact(pat)
 	body := map[string]string{"hub_token": pat}
-	if prefix.given {
-		body["label_prefix"] = prefix.value
-	}
 	resp, err := client.Do(r.Ctx, http.MethodPut, workspacePath(slug), nil, body)
 	if err != nil {
 		return toolio.Outcome{}, requestFailure(err)

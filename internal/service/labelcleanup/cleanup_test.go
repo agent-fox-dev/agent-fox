@@ -110,7 +110,7 @@ func newEnv(t *testing.T, steps ...fakerunner.Step) *env {
 	fh := fakehub.New(t)
 	fh.AddUser(callerToken, callerID, []string{"widgets"})
 	fh.AddWorkspace(t, fakehub.Workspace{Slug: "widgets", PAT: pat})
-	if _, _, err := st.Upsert(ctx, "widgets", "af:", pat, "", callerID, time.Now()); err != nil {
+	if _, _, err := st.Upsert(ctx, "widgets", pat, "", callerID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	e := &env{t: t, Hub: fh, Store: st, Runner: fakerunner.New(steps...), Clock: fakeclock.New(epoch), Logs: &syncBuffer{}, dir: dir, key: key, client: hub.New(fh.URL, "test")}
@@ -405,23 +405,6 @@ func TestOtherCancelsThatReachNoRunnerRemoveOnlyWhatTheJobAccountsFor_TS_17_28(t
 		}
 		if got := e.labelsOf(46); !slices.Equal(got, []string{"af:fix"}) {
 			t.Errorf("issue 46 carries %v, want af:failed removed and af:fix back", got)
-		}
-	})
-	t.Run("a prefix changed since the job set its labels", func(t *testing.T) {
-		e := newEnv(t, needsHuman())
-		e.issue(48, "af:needs-human")
-		e.start()
-		job := e.fromLabel(jobs.KindFix, 48)
-		e.waitState(job.ID, jobs.StateBlocked)
-		if _, _, err := e.Store.Upsert(ctx, "widgets", "bot-", pat, "", callerID, time.Now()); err != nil {
-			t.Fatal(err)
-		}
-		e.cancel(job.ID)
-		if d := e.waitCleanup(job.ID); cleanupOf(d) != "done" {
-			t.Errorf("cleanup %s, want done", cleanupOf(d))
-		}
-		if got := e.labelsOf(48); !slices.Equal(got, []string{"af:fix"}) {
-			t.Errorf("issue 48 carries %v, want the job's af:needs-human removed and its af:fix back", got)
 		}
 	})
 	t.Run("a blocked API fix job", func(t *testing.T) {
@@ -947,7 +930,7 @@ func TestACleanupFailureFailsNoCancelNoOtherJobAndNoLogHoldsThePAT_TS_17_49(t *t
 	const gadgetsPAT = "pat-of-gadgets-9876543210"
 	e.Hub.Grant(callerID, "gadgets")
 	e.Hub.AddWorkspace(t, fakehub.Workspace{Slug: "gadgets", PAT: gadgetsPAT})
-	if _, _, err := e.Store.Upsert(ctx, "gadgets", "af:", gadgetsPAT, "", callerID, time.Now()); err != nil {
+	if _, _, err := e.Store.Upsert(ctx, "gadgets", gadgetsPAT, "", callerID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	e.issue(42, "af:needs-human")

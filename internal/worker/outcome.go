@@ -53,10 +53,6 @@ func (r *Runner) settle(a *attempt, out *outcome) {
 		return
 	}
 	am := toolio.Amendment{Warnings: slices.Clone(a.warnings), SideEffects: a.sideEffects}
-	if a.labelPrefixVar != "" && a.labelPrefixVar != a.prefix {
-		am.Warnings = append(am.Warnings, toolio.Warning{Code: WarnLabelPrefixIgnored, Message: fmt.Sprintf(
-			"AF_LABEL_PREFIX is %q and the prefix of the subscription is %q: the labels have the prefix of the subscription", a.labelPrefixVar, a.prefix)})
-	}
 	if a.sessionID != "" {
 		am.Artifacts = append(am.Artifacts, toolio.Artifact{Kind: "hub_session", Name: a.sessionID})
 	}

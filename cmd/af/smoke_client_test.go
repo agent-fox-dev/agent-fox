@@ -97,7 +97,7 @@ func startRealService(t *testing.T, steps ...fakerunner.Step) *realService {
 // subscribed puts the workspace widgets in the store, as a person's subscription would.
 func (s *realService) subscribed(t *testing.T) {
 	t.Helper()
-	if _, _, err := s.Store.Upsert(context.Background(), "widgets", "af:", smokeWorkspace, "usr_1", "usr_1", time.Now()); err != nil {
+	if _, _, err := s.Store.Upsert(context.Background(), "widgets", smokeWorkspace, "usr_1", "usr_1", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -166,10 +166,10 @@ func TestAPersonLogsInAndSubscribesAWorkspaceAgainstTheRealService_TS_16_76(t *t
 	if res.code != 0 || view["slug"] != "widgets" || view["token_state"] != "ok" || !strings.Contains(res.env["summary"].(string), "subscribed") {
 		t.Fatalf("subscribe: exit %d, result %v, summary %v, want the view of a new subscription", res.code, res.env["result"], res.env["summary"])
 	}
-	res = afRun(t, "", "workspace", "subscribe", "widgets", "--hub-token-file", pat, "--prefix", "x:")
+	res = afRun(t, "", "workspace", "subscribe", "widgets", "--hub-token-file", pat)
 	all += res.output()
 	view, _ = res.env["result"].(map[string]any)
-	if res.code != 0 || view["label_prefix"] != "x:" || !strings.Contains(res.env["summary"].(string), "replaced") {
+	if res.code != 0 || view["slug"] != "widgets" || !strings.Contains(res.env["summary"].(string), "replaced") {
 		t.Errorf("the repeated subscribe: exit %d, result %v, summary %v, want the replaced subscription", res.code, res.env["result"], res.env["summary"])
 	}
 	if res := afRun(t, "", "workspace", "list"); res.code != 0 || len(res.result()["workspaces"].([]any)) != 1 {

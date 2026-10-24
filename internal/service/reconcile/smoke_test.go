@@ -44,7 +44,7 @@ func TestThePassReleasesTheOrphanKeepsTheOtherLeasesAndCompletesAnOpenSessionOve
 	}
 	t.Cleanup(func() { st.Close() })
 	for slug, pat := range map[string]string{acme: patAcme, beta: patBeta} {
-		if _, _, err := st.Upsert(ctx, slug, "af:", pat, "usr_1", "usr_1", time.Now()); err != nil {
+		if _, _, err := st.Upsert(ctx, slug, pat, "usr_1", "usr_1", time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}

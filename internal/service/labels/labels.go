@@ -2,9 +2,7 @@
 // carries, with the kind, the colour and the description of each. The subscribe step creates them, the worker's mirror
 // and the cancel cleanup write them, and the label poll reads the request labels; all of them take the names from here.
 //
-// A label's name is the subscription's label prefix followed by the suffix. The variable AF_LABEL_PREFIX names nothing:
-// the prefix comes from the subscription only, so that no part of the service writes a label that the subscribe step
-// did not create.
+// A label's name is the prefix af: followed by the suffix.
 //
 // The package imports only the standard library, so that every part of the service can import it.
 package labels
@@ -69,14 +67,17 @@ func suffixes(kind Kind) []string {
 	return out
 }
 
-// Name is the name of the label with the suffix under the prefix of a subscription.
-func Name(prefix, suffix string) string { return prefix + suffix }
+// Prefix is the prefix of every label.
+const Prefix = "af:"
 
-// Names are the names of the seven labels under the prefix, in table order.
-func Names(prefix string) []string {
+// Name is the name of the label with the suffix.
+func Name(suffix string) string { return Prefix + suffix }
+
+// Names are the names of the seven labels, in table order.
+func Names() []string {
 	out := make([]string, len(table))
 	for i, l := range table {
-		out[i] = Name(prefix, l.Suffix)
+		out[i] = Name(l.Suffix)
 	}
 	return out
 }

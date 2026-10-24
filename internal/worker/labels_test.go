@@ -21,12 +21,11 @@ func TestTheWorkerWritesTheSameLabelsWithNamesFromTheTable_TS_17_4(t *testing.T)
 		}
 	}
 	for name, test := range map[string]func(*testing.T){
-		"prefix and AF_LABEL_PREFIX (label_prefix_ignored)": TestTheSubscriptionsPrefixIsUsedAndAFLabelPrefixIsIgnoredWithAWarning_TS_13_29,
-		"one status at a time, ready kept by a fix":         TestSettingAStatusLabelRemovesTheOtherFourExceptThatAFixsInProgressKeepsReady_TS_13_67,
-		"each outcome's label and comment":                  TestEachOutcomeMapsToItsStatusLabelAndComment_TS_13_68,
-		"a transient error removes only in-progress":        TestATransientErrorOrAFailureAnAutomaticAttemptFollowsOnlyRemovesInProgress_TS_13_69,
-		"failed writes are warnings":                        TestAFailedForgeWriteIsAWarningAndASideEffectAndNeverAStatusChange_TS_13_71,
-		"a running cancel restores the request label":       TestACancelledRunningAttemptRestoresTheRequestLabelWithinTheGrace_TS_13_72,
+		"one status at a time, ready kept by a fix":   TestSettingAStatusLabelRemovesTheOtherFourExceptThatAFixsInProgressKeepsReady_TS_13_67,
+		"each outcome's label and comment":            TestEachOutcomeMapsToItsStatusLabelAndComment_TS_13_68,
+		"a transient error removes only in-progress":  TestATransientErrorOrAFailureAnAutomaticAttemptFollowsOnlyRemovesInProgress_TS_13_69,
+		"failed writes are warnings":                  TestAFailedForgeWriteIsAWarningAndASideEffectAndNeverAStatusChange_TS_13_71,
+		"a running cancel restores the request label": TestACancelledRunningAttemptRestoresTheRequestLabelWithinTheGrace_TS_13_72,
 	} {
 		t.Run(name, test)
 	}
