@@ -57,8 +57,13 @@ func scanFollowUp(r interface{ Scan(...any) error }) (FollowUp, error) {
 // the issue is withdrawn in the same transaction, so that the fix is linked to the latest triage. ErrNotFound is a triage
 // job that does not exist.
 func (s *Service) RecordFollowUp(ctx context.Context, triage string, issue int64, label string) (FollowUp, error) {
+	return s.store.RecordFollowUp(ctx, triage, issue, label)
+}
+
+// RecordFollowUp is Service.RecordFollowUp, which the recorder of a triage attempt calls for the worker.
+func (st *Store) RecordFollowUp(ctx context.Context, triage string, issue int64, label string) (FollowUp, error) {
 	var out FollowUp
-	err := s.store.run(ctx, triage, func(x *txn) error {
+	err := st.run(ctx, triage, func(x *txn) error {
 		// The transaction writes first, so that it holds the write lock from its start (see Store.run).
 		if _, err := x.ExecContext(ctx, "UPDATE af_followups SET state = state WHERE triage_job_id = ?", triage); err != nil {
 			return err
@@ -95,7 +100,7 @@ func (s *Service) RecordFollowUp(ctx context.Context, triage string, issue int64
 		}
 		_, err = x.ExecContext(ctx,
 			"INSERT INTO af_followups (triage_job_id, workspace, issue, label, state, job_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-			triage, workspace, issue, label, out.State, out.JobID, formatTime(s.store.now()))
+			triage, workspace, issue, label, out.State, out.JobID, formatTime(st.now()))
 		return err
 	})
 	if err != nil {
