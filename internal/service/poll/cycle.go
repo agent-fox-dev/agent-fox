@@ -68,10 +68,6 @@ func (s *Supervisor) Cycle(ctx context.Context, slug string) (next time.Duration
 	}()
 	s.reconciler.reconcile(ctx, slug)
 
-	sub, err := s.cfg.Subscriptions.Get(ctx, slug)
-	if err != nil {
-		return s.storeEnded(ctx, slug, st, "read the subscription", err)
-	}
 	pat, err := s.cfg.Subscriptions.Token(ctx, slug)
 	if err != nil {
 		return s.storeEnded(ctx, slug, st, "read the token of the subscription", err)
@@ -93,11 +89,6 @@ func (s *Supervisor) Cycle(ctx context.Context, slug string) (next time.Duration
 		s.cfg.Logger.Warn("AF_POLL_INTERVAL is not a duration from 1m to 24h, so the poll uses 5m",
 			"workspace", slug, "variable", intervalVar, "value", value)
 	}
-	if value := vars[prefixVar]; value != "" && value != sub.LabelPrefix && !st.warnedPrefix[value] {
-		st.warnedPrefix[value] = true
-		s.cfg.Logger.Warn("AF_LABEL_PREFIX differs from the label prefix of the subscription, which names the request labels, so the variable is ignored",
-			"workspace", slug, "variable", prefixVar, "value", value, "label_prefix", sub.LabelPrefix)
-	}
 
 	rec, err := s.cfg.Hub.WorkspaceRecord(ctx, pat, slug)
 	if err != nil {
@@ -112,7 +103,7 @@ func (s *Supervisor) Cycle(ctx context.Context, slug string) (next time.Duration
 	run := &cycleRun{s: s, slug: slug, repo: repo, forge: s.cfg.Hub.Forge(pat, slug, repo), st: st}
 
 	for _, kind := range []jobs.Kind{jobs.KindTriage, jobs.KindFix} {
-		label := labels.Name(sub.LabelPrefix, requestSuffix[kind])
+		label := labels.Name(requestSuffix[kind])
 		requested := s.cfg.Clock.Now()
 		before, err := s.records.Last(ctx)
 		if err != nil {

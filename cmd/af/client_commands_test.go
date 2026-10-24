@@ -80,7 +80,7 @@ func (s *fakeService) requestLines() []string {
 	return out
 }
 
-const subscriptionView = `{"slug":"widgets","label_prefix":"af:","token_user":null,"subscribed_by":"u","token_state":"ok","created_at":"2026-10-23T12:00:00Z","updated_at":"2026-10-23T12:00:00Z","future":{"a":[1,{"b":2}]}}`
+const subscriptionView = `{"slug":"widgets","token_user":null,"subscribed_by":"u","token_state":"ok","created_at":"2026-10-23T12:00:00Z","updated_at":"2026-10-23T12:00:00Z","future":{"a":[1,{"b":2}]}}`
 
 // TestSubscribeSendsThePATAndThePrefixOnlyWhenGivenAndBothAnswersAreSuccess_TS_16_53 verifies
 // TS-16-53.
@@ -95,8 +95,6 @@ func TestSubscribeSendsThePATAndThePrefixOnlyWhenGivenAndBothAnswersAreSuccess_T
 	}{
 		{201, "subscribed", nil, map[string]any{"hub_token": "pat-sentinel"}},
 		{200, "replaced", nil, map[string]any{"hub_token": "pat-sentinel"}},
-		{201, "subscribed", []string{"--prefix", "P"}, map[string]any{"hub_token": "pat-sentinel", "label_prefix": "P"}},
-		{200, "replaced", []string{"--prefix", ""}, map[string]any{"hub_token": "pat-sentinel", "label_prefix": ""}},
 	} {
 		svc := ready(t, routes(map[string]reply{"PUT /api/v1/workspaces/widgets": {c.status, subscriptionView, false}}))
 		res := afRun(t, "", append([]string{"workspace", "subscribe", "widgets", "--hub-token-file", pat}, c.args...)...)

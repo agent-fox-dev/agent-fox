@@ -25,7 +25,7 @@ func (s *setup) subscribe(t *testing.T, slug, pat string) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if _, _, err := st.Upsert(ctx, slug, "af:", pat, "usr_1", "usr_1", time.Now()); err != nil {
+	if _, _, err := st.Upsert(ctx, slug, pat, "usr_1", "usr_1", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 }

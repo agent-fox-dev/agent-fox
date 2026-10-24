@@ -4,12 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -20,10 +17,8 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
-	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/reconcile"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
-	"github.com/agent-fox-dev/agentfox/internal/worker/recovery"
 )
 
 var ctx = context.Background()
@@ -79,14 +74,11 @@ func (s *syncBuffer) level(level string) []map[string]any {
 	return out
 }
 
-// fakeJobs is the jobs layer as the reconciliation pass sees it, over a directory of attempts.
+// fakeJobs is the jobs layer as the reconciliation pass sees it.
 type fakeJobs struct {
-	dir string
-
 	mu      sync.Mutex
 	known   map[string]bool
 	running map[string]bool
-	ended   []jobs.AttemptRef
 }
 
 func (f *fakeJobs) Known(_ context.Context, id string) (bool, error) {
@@ -99,16 +91,6 @@ func (f *fakeJobs) Running(id string, n int) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.running[id+"/"+strconv.Itoa(n)]
-}
-
-func (f *fakeJobs) EndedAttempts(context.Context) ([]jobs.AttemptRef, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return slices.Clone(f.ended), nil
-}
-
-func (f *fakeJobs) AttemptDir(id string, n int) string {
-	return filepath.Join(f.dir, id, strconv.Itoa(n))
 }
 
 // fakeSubs are the subscriptions, with the tokens that open and the ones that do not.
@@ -150,7 +132,7 @@ func newWorld(t *testing.T) *world {
 	w.hub.AddWorkspace(t, fakehub.Workspace{Slug: acme, PAT: patAcme})
 	w.hub.AddWorkspace(t, fakehub.Workspace{Slug: beta, PAT: patBeta})
 	w.client = hub.New(w.hub.URL, "1")
-	w.jobs = &fakeJobs{dir: t.TempDir(), known: map[string]bool{}, running: map[string]bool{}}
+	w.jobs = &fakeJobs{known: map[string]bool{}, running: map[string]bool{}}
 	w.subs = &fakeSubs{slugs: []string{acme, beta}, tokens: map[string]string{acme: patAcme, beta: patBeta}, tokenErr: map[string]error{}}
 	w.rec = reconcile.New(reconcile.Config{Subscriptions: w.subs, Hub: w.client, Jobs: w.jobs, Logger: slog.New(slog.NewJSONHandler(w.logs, nil))})
 	return w
@@ -176,90 +158,6 @@ func (w *world) listed(slug, pat, id string) bool {
 		w.t.Fatal(err)
 	}
 	return slices.ContainsFunc(leases, func(l hub.LeaseInfo) bool { return l.ID == id })
-}
-
-// attempt is an ended attempt, with the journal it left.
-type attempt struct {
-	job       string
-	n         int
-	slug, pat string
-	state     jobs.AttemptState
-	journal   func(j *recovery.Journal) // changes the journal
-	outcome   *recovery.Outcome         // the outcome it stored, or none
-	garbled   bool
-}
-
-// end makes an ended attempt: a session on hub that is open, and the journal and the outcome files of the attempt.
-func (w *world) end(a attempt) (session string, runID string) {
-	w.t.Helper()
-	runID = fmt.Sprintf("20261022_10%04d_abcdef", a.n)
-	session, err := w.client.OpenSession(ctx, a.pat, hub.SessionRequest{WorkspaceSlug: a.slug, Archetype: "fix", Model: "model-1", RunID: runID})
-	if err != nil {
-		w.t.Fatal(err)
-	}
-	if a.state == "" {
-		a.state = jobs.AttemptFailed
-	}
-	w.know(a.job)
-	w.jobs.mu.Lock()
-	w.jobs.ended = append(w.jobs.ended, jobs.AttemptRef{JobID: a.job, Attempt: a.n, Workspace: a.slug, State: a.state})
-	w.jobs.mu.Unlock()
-	dir := w.jobs.AttemptDir(a.job, a.n)
-	if err := os.MkdirAll(dir, 0o700); err != nil { // the jobs layer makes the directory of an attempt
-		w.t.Fatal(err)
-	}
-	store := recovery.NewStore(dir)
-	if a.garbled {
-		if err := os.MkdirAll(store.Dir(), 0o700); err != nil {
-			w.t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(store.Dir(), recovery.JournalFile), []byte("{garbage"), 0o600); err != nil {
-			w.t.Fatal(err)
-		}
-		return session, runID
-	}
-	j := recovery.Journal{
-		Version: recovery.FormatVersion, Job: a.job, Attempt: a.n, Kind: "fix",
-		Settings: recovery.Settings{Brain: "scripted", Model: "model-1"},
-		Session:  recovery.Session{ID: session, RunID: runID},
-		Spend:    recovery.Spend{CostUSD: 0.5, CostSource: "reported", InputTokens: 1200, OutputTokens: 300, Turns: 7},
-	}
-	if a.journal != nil {
-		a.journal(&j)
-	}
-	if err := store.Write(j); err != nil {
-		w.t.Fatal(err)
-	}
-	if a.outcome != nil {
-		o := *a.outcome
-		o.Version, o.Job, o.Attempt = recovery.FormatVersion, a.job, a.n
-		if err := store.WriteOutcome(o); err != nil {
-			w.t.Fatal(err)
-		}
-	}
-	return session, runID
-}
-
-// journalOf is the journal of the attempt.
-func (w *world) journalOf(job string, n int) recovery.Journal {
-	w.t.Helper()
-	j, err := recovery.NewStore(w.jobs.AttemptDir(job, n)).Load()
-	if err != nil {
-		w.t.Fatal(err)
-	}
-	return j
-}
-
-// sessionOf is the session as the hub holds it.
-func (w *world) sessionOf(id string) fakehub.Session {
-	w.t.Helper()
-	for _, s := range w.hub.Sessions() {
-		if s.ID == id {
-			return s
-		}
-	}
-	w.t.Fatalf("hub has no session %s", id)
-	return fakehub.Session{}
 }
 
 // TestAnOrphanLeaseOfAKnownAttemptWithNoRunnerIsReleasedAndAbsentFromTheNextListing_TS_14_51 verifies TS-14-51.
@@ -369,83 +267,6 @@ func TestLeasesWithNoJobLabelAnUnknownJobOrARunningAttemptAreNeverReleased_TS_14
 	}
 }
 
-// TestAnEndedAttemptWhoseJournalRecordsAnOpenSessionGetsItsUnpostedUsageAndACompletionExactlyOnce_TS_14_53 verifies
-// TS-14-53.
-// Verifies: 14-REQ-8.4
-func TestAnEndedAttemptWhoseJournalRecordsAnOpenSessionGetsItsUnpostedUsageAndACompletionExactlyOnce_TS_14_53(t *testing.T) {
-	w := newWorld(t)
-	failed, failedRun := w.end(attempt{job: "job_a", n: 1, slug: acme, pat: patAcme, state: jobs.AttemptFailed})
-	needsHuman, humanRun := w.end(attempt{job: "job_b", n: 1, slug: acme, pat: patAcme, state: jobs.AttemptNeedsHuman, outcome: &recovery.Outcome{
-		Envelope: `{"schema_version":"5.0.0","tool":"fix","status":"needs_human","error":null}`,
-	}})
-	posted, _ := w.end(attempt{job: "job_c", n: 2, slug: acme, pat: patAcme, state: jobs.AttemptFailed, journal: func(j *recovery.Journal) {
-		j.Report.UsagePosted = true // a delivery posted the usage, and was stopped before it completed the session
-	}})
-	idle, _ := w.end(attempt{job: "job_e", n: 1, slug: acme, pat: patAcme, state: jobs.AttemptFailed, journal: func(j *recovery.Journal) {
-		j.Spend = recovery.Spend{} // no brain ran
-	}})
-	timedOut, _ := w.end(attempt{job: "job_d", n: 1, slug: acme, pat: patAcme, state: jobs.AttemptFailed, outcome: &recovery.Outcome{
-		Envelope: `{"schema_version":"5.0.0","tool":"fix","status":"failed","error":{"category":"timeout","message":"ran out of time","retryable":false}}`,
-	}})
-
-	w.pass()
-	w.pass()
-
-	for _, c := range []struct {
-		name, id, status string
-		usage            int
-	}{{"no outcome", failed, "failed", 1}, {"an outcome that is a question", needsHuman, "completed", 1}, {"usage posted already", posted, "failed", 0}, {"no brain ran", idle, "failed", 0}, {"a timeout", timedOut, "timeout", 1}} {
-		s := w.sessionOf(c.id)
-		if n := len(w.hub.RequestsTo("POST", "/api/v1/sessions/"+c.id+"/complete")); n != 1 {
-			t.Errorf("%s: the session was completed %d times, want once across both passes", c.name, n)
-		}
-		if s.Status != c.status || s.CompletedSeq == 0 || len(s.Usage) != c.usage {
-			t.Errorf("%s: the session is %q with %d usage records, want %q completed once with %d", c.name, s.Status, len(s.Usage), c.status, c.usage)
-		}
-		if c.usage == 1 && (s.Usage[0].Model != "model-1" || s.Usage[0].Brain != "scripted" || s.Usage[0].Turns != 7 || s.Usage[0].CostUSD != 0.5 || s.Usage[0].InputTokens != 1200) {
-			t.Errorf("%s: the usage is %+v, want what the journal records as spent", c.name, s.Usage[0])
-		}
-	}
-	if s := w.sessionOf(failed); !strings.Contains(s.Message, "without") {
-		t.Errorf("the failed session says %q, want why", s.Message)
-	}
-	for _, c := range []struct {
-		job string
-		n   int
-	}{{"job_a", 1}, {"job_b", 1}, {"job_c", 2}, {"job_d", 1}, {"job_e", 1}} {
-		j := w.journalOf(c.job, c.n)
-		if !j.Session.Completed || !j.Report.UsagePosted || !j.Report.SessionCompleted {
-			t.Errorf("the journal of %s/%d records session %+v and report %+v, want both steps", c.job, c.n, j.Session, j.Report)
-		}
-	}
-	for _, run := range []string{failedRun, humanRun} {
-		if batches := w.hub.EventBatches(acme, run); len(batches) != 0 {
-			t.Errorf("%d batches of events were posted for %s, want none", len(batches), run)
-		}
-	}
-}
-
-// TestAnEndedAttemptWhoseJournalDoesNotReadOrIsNotItsOwnIsLeftUntouched_TS_14_54 verifies TS-14-54.
-// Verifies: 14-REQ-8.5
-func TestAnEndedAttemptWhoseJournalDoesNotReadOrIsNotItsOwnIsLeftUntouched_TS_14_54(t *testing.T) {
-	w := newWorld(t)
-	garbled, _ := w.end(attempt{job: "job_a", n: 1, slug: acme, pat: patAcme, garbled: true})
-	other, _ := w.end(attempt{job: "job_b", n: 1, slug: acme, pat: patAcme, journal: func(j *recovery.Journal) { j.Job = "job_other" }})
-	running, _ := w.end(attempt{job: "job_c", n: 1, slug: acme, pat: patAcme})
-	w.jobs.running["job_c/1"] = true
-	noJournal := attempt{job: "job_d", n: 1, slug: acme, pat: patAcme}
-	w.know(noJournal.job)
-	w.jobs.ended = append(w.jobs.ended, jobs.AttemptRef{JobID: "job_d", Attempt: 1, Workspace: acme, State: jobs.AttemptFailed})
-
-	w.pass()
-
-	for name, id := range map[string]string{"a journal that does not read": garbled, "a journal of another job": other, "an attempt in a runner": running} {
-		if s := w.sessionOf(id); s.Status != "open" || len(s.Usage) != 0 || s.CompletedSeq != 0 {
-			t.Errorf("%s: the session is %+v, want it untouched", name, s)
-		}
-	}
-}
-
 // TestAFailingWorkspaceIsLoggedWithoutItsTokenAndDoesNotStopTheOthersAndTheNextPassCatchesUp_TS_14_55 verifies
 // TS-14-55.
 // Verifies: 14-REQ-8.6
@@ -505,27 +326,22 @@ func TestAFailingWorkspaceIsLoggedWithoutItsTokenAndDoesNotStopTheOthersAndTheNe
 	}
 }
 
-// TestEachReleaseAndEachCompletedSessionIsLoggedAtInfoWithTheWorkspaceTheIdTheJobAndTheAttempt_TS_14_56 verifies
-// TS-14-56.
+// TestEachReleaseIsLoggedAtInfoWithTheWorkspaceTheIdTheJobAndTheAttempt_TS_14_56 verifies TS-14-56.
 // Verifies: 14-REQ-8.7
-func TestEachReleaseAndEachCompletedSessionIsLoggedAtInfoWithTheWorkspaceTheIdTheJobAndTheAttempt_TS_14_56(t *testing.T) {
+func TestEachReleaseIsLoggedAtInfoWithTheWorkspaceTheIdTheJobAndTheAttempt_TS_14_56(t *testing.T) {
 	w := newWorld(t)
 	w.know("job_1")
 	orphan := w.seedLease(acme, "job_1", 3)
-	session, _ := w.end(attempt{job: "job_2", n: 2, slug: acme, pat: patAcme})
 
 	w.pass()
 
 	infos := w.logs.level("INFO")
-	if len(infos) != 2 {
-		t.Fatalf("%d INFO lines, want one for the release and one for the completion: %s", len(infos), w.logs.String())
+	if len(infos) != 1 {
+		t.Fatalf("%d INFO lines, want one for the release: %s", len(infos), w.logs.String())
 	}
-	release, completion := infos[0], infos[1]
+	release := infos[0]
 	if release["workspace"] != acme || release["sandbox_id"] != orphan.ID || release["job"] != "job_1" || fmt.Sprint(release["attempt"]) != "3" {
 		t.Errorf("the release is logged as %v, want the workspace, the sandbox, the job and the attempt", release)
-	}
-	if completion["workspace"] != acme || completion["session_id"] != session || completion["job"] != "job_2" || fmt.Sprint(completion["attempt"]) != "2" {
-		t.Errorf("the completion is logged as %v, want the workspace, the session, the job and the attempt", completion)
 	}
 }
 
@@ -632,94 +448,5 @@ func TestTheFirstPassIsMadeAtOnceAndNotAfterTheFirstInterval(t *testing.T) {
 			t.Fatal("the orphan was not released: no pass was made at the start")
 		}
 		time.Sleep(5 * time.Millisecond)
-	}
-}
-
-// TestAFailureOfHubDuringTheEndOfASessionLeavesItToTheNextPassWithoutPostingTheUsageTwice pins the order of the two
-// steps and their record: the usage is posted before the session is completed, a session is not completed when the
-// usage could not be posted, and a usage that was posted is not posted again when the completion failed.
-// Verifies: 14-REQ-8.4
-func TestAFailureOfHubDuringTheEndOfASessionLeavesItToTheNextPassWithoutPostingTheUsageTwice(t *testing.T) {
-	t.Run("the usage cannot be posted", func(t *testing.T) {
-		w := newWorld(t)
-		session, _ := w.end(attempt{job: "job_a", n: 1, slug: acme, pat: patAcme})
-		w.hub.Inject("POST", "/api/v1/sessions/"+session+"/usage", fakehub.Fault{Status: 500})
-
-		w.pass()
-
-		if s := w.sessionOf(session); s.Status != "open" || len(s.Usage) != 0 {
-			t.Fatalf("the session is %+v, want it untouched: it is not completed before its usage is posted", s)
-		}
-		if j := w.journalOf("job_a", 1); j.Report.UsagePosted || j.Session.Completed {
-			t.Errorf("the journal records %+v and %+v, want no step", j.Report, j.Session)
-		}
-		w.hub.Clear()
-		w.pass()
-		if s := w.sessionOf(session); s.Status != "failed" || len(s.Usage) != 1 {
-			t.Errorf("the session is %+v after the next pass, want it completed with its usage", s)
-		}
-	})
-
-	t.Run("the session cannot be completed", func(t *testing.T) {
-		w := newWorld(t)
-		session, _ := w.end(attempt{job: "job_a", n: 1, slug: acme, pat: patAcme})
-		w.hub.Inject("POST", "/api/v1/sessions/"+session+"/complete", fakehub.Fault{Status: 500})
-
-		w.pass()
-
-		if s := w.sessionOf(session); s.Status != "open" || len(s.Usage) != 1 {
-			t.Fatalf("the session is %+v, want it open with its usage posted", s)
-		}
-		if j := w.journalOf("job_a", 1); !j.Report.UsagePosted || j.Session.Completed {
-			t.Errorf("the journal records %+v and %+v, want the usage as posted and the session as open", j.Report, j.Session)
-		}
-		w.hub.Clear()
-		w.pass()
-		if s := w.sessionOf(session); s.Status != "failed" || len(s.Usage) != 1 {
-			t.Errorf("the session is %+v after the next pass, want it completed, with its usage posted once", s)
-		}
-	})
-}
-
-// TestAJournalThatCannotBeWrittenMakesNeitherTheUsageNorTheCompletionBeMadeAgain pins that what a pass has done is not
-// done again by the next because it could not be written down: the usage of a session is posted once, and the session
-// is completed, whatever the state of the journal.
-// Verifies: 14-REQ-8.4
-func TestAJournalThatCannotBeWrittenMakesNeitherTheUsageNorTheCompletionBeMadeAgain(t *testing.T) {
-	w := newWorld(t)
-	session, _ := w.end(attempt{job: "job_a", n: 1, slug: acme, pat: patAcme})
-	unwritable := true
-	w.rec = reconcile.New(reconcile.Config{
-		Subscriptions: w.subs, Hub: w.client, Jobs: w.jobs, Logger: slog.New(slog.NewJSONHandler(w.logs, nil)),
-		JournalFault: func() error {
-			if unwritable {
-				return errors.New("the disk is full")
-			}
-			return nil
-		},
-	})
-
-	w.pass()
-	w.pass()
-	w.pass()
-
-	s := w.sessionOf(session)
-	if s.Status != "failed" || len(s.Usage) != 1 {
-		t.Errorf("the session is %q with %d usage records, want it completed, with its usage posted once", s.Status, len(s.Usage))
-	}
-	if n := len(w.hub.RequestsTo("POST", "/api/v1/sessions/"+session+"/complete")); n != 1 {
-		t.Errorf("the session was completed %d times, want once", n)
-	}
-	if warns := w.logs.level("WARN"); len(warns) == 0 {
-		t.Error("nothing was logged of a journal that cannot be written")
-	}
-
-	unwritable = false
-	w.pass()
-	if j := w.journalOf("job_a", 1); !j.Session.Completed || !j.Report.UsagePosted || !j.Report.SessionCompleted {
-		t.Errorf("the journal records %+v and %+v once it can be written, want both steps", j.Session, j.Report)
-	}
-	if s := w.sessionOf(session); len(s.Usage) != 1 {
-		t.Errorf("the session has %d usage records after the journal was written, want one", len(s.Usage))
 	}
 }

@@ -18,18 +18,16 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/service/reconcile"
 	"github.com/agent-fox-dev/agentfox/internal/service/secrets"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
-	"github.com/agent-fox-dev/agentfox/internal/worker/recovery"
 )
 
-// TestThePassReleasesTheOrphanKeepsTheOtherLeasesAndCompletesAnOpenSessionOverTheRealJobsLayer_TS_14_68 verifies
+// TestThePassReleasesTheOrphanAndKeepsTheOtherLeasesOverTheRealJobsLayer_TS_14_68 verifies
 // TS-14-68 and 14-PATH-7: over the real store and the real jobs layer, whose runner registry knows an attempt that is
 // being carried out, the fake hub holds four leases of a workspace (one for a known attempt with no runner, one for a
 // job the database does not have, one without labels and one for the attempt in the runner), a second workspace that
-// answers 5xx, and an attempt that ended with a session open. The first pass releases the orphan only, completes the
-// session, and logs the failing workspace without its token; the second, after the failure clears, releases what that
+// answers 5xx. The first pass releases the orphan only, and logs the failing workspace without its token; the second, after the failure clears, releases what that
 // workspace missed and does nothing else.
 // Verifies: 14-PATH-7, 14-REQ-8.2, 14-REQ-8.3, 14-REQ-8.4, 14-REQ-8.6
-func TestThePassReleasesTheOrphanKeepsTheOtherLeasesAndCompletesAnOpenSessionOverTheRealJobsLayer_TS_14_68(t *testing.T) {
+func TestThePassReleasesTheOrphanAndKeepsTheOtherLeasesOverTheRealJobsLayer_TS_14_68(t *testing.T) {
 	fh := fakehub.New(t)
 	fh.AddWorkspace(t, fakehub.Workspace{Slug: acme, PAT: patAcme})
 	fh.AddWorkspace(t, fakehub.Workspace{Slug: beta, PAT: patBeta})
@@ -44,7 +42,7 @@ func TestThePassReleasesTheOrphanKeepsTheOtherLeasesAndCompletesAnOpenSessionOve
 	}
 	t.Cleanup(func() { st.Close() })
 	for slug, pat := range map[string]string{acme: patAcme, beta: patBeta} {
-		if _, _, err := st.Upsert(ctx, slug, "af:", pat, "usr_1", "usr_1", time.Now()); err != nil {
+		if _, _, err := st.Upsert(ctx, slug, pat, "usr_1", "usr_1", time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -102,20 +100,6 @@ func TestThePassReleasesTheOrphanKeepsTheOtherLeasesAndCompletesAnOpenSessionOve
 	orphanBeta := fh.SeedLease(beta, label(endedBeta), "fix")
 	fh.Inject("GET", fmt.Sprintf(sandboxes, beta), fakehub.Fault{Status: 503})
 
-	// An attempt that ended with its session open, in the files of the layer.
-	runID := "20261022_101010_abcdef"
-	session, err := client.OpenSession(ctx, patAcme, hub.SessionRequest{WorkspaceSlug: acme, Archetype: "fix", Model: "model-1", RunID: runID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	files := recovery.NewStore(svc.AttemptDir(ended, 1))
-	if err := files.Write(recovery.Journal{
-		Version: recovery.FormatVersion, Job: ended, Attempt: 1, Kind: "fix", Settings: recovery.Settings{Brain: "scripted", Model: "model-1"},
-		Session: recovery.Session{ID: session, RunID: runID}, Spend: recovery.Spend{CostUSD: 0.5, CostSource: "reported", Turns: 7},
-	}); err != nil {
-		t.Fatal(err)
-	}
-
 	rec := reconcile.New(reconcile.Config{Subscriptions: st, Hub: client, Jobs: svc, Logger: slog.New(slog.NewJSONHandler(logs, nil))})
 	rec.Pass(ctx)
 
@@ -131,15 +115,6 @@ func TestThePassReleasesTheOrphanKeepsTheOtherLeasesAndCompletesAnOpenSessionOve
 			t.Errorf("the lease %s is not held any more", id)
 		}
 	}
-	var s fakehub.Session
-	for _, c := range fh.Sessions() {
-		if c.ID == session {
-			s = c
-		}
-	}
-	if s.Status != "failed" || len(s.Usage) != 1 || s.Usage[0].Turns != 7 || len(fh.EventBatches(acme, runID)) != 0 {
-		t.Errorf("the session is %+v, want it completed as failed with the one usage record of the journal, and no events", s)
-	}
 	warned := false
 	for _, rec := range logs.level("WARN") {
 		warned = warned || rec["workspace"] == beta
@@ -153,13 +128,5 @@ func TestThePassReleasesTheOrphanKeepsTheOtherLeasesAndCompletesAnOpenSessionOve
 
 	if got := fh.Deleted(); !slices.Equal(got, []string{orphan.ID, orphanBeta.ID}) {
 		t.Errorf("the hub released %v, want the orphan of the workspace that failed released by the second pass, and no other", got)
-	}
-	for _, c := range fh.Sessions() {
-		if c.ID == session && (len(c.Usage) != 1 || c.Status != "failed") {
-			t.Errorf("the session is %+v after the second pass, want it as it was: the pass posts and completes once", c)
-		}
-	}
-	if n := len(fh.RequestsTo("POST", "/api/v1/sessions/"+session+"/complete")); n != 1 {
-		t.Errorf("the session was completed %d times, want once", n)
 	}
 }

@@ -175,8 +175,8 @@ func TestTheWorkerCreatesOnlyCloneAndInputWithMode0700AndLeavesTheRestAlone_TS_1
 	if during.fileMode != 0o600 || !os.IsNotExist(during.staleErr) {
 		t.Errorf("input/notes.md has mode %v and the stale file of the earlier delivery is %v, want 0600 and gone", during.fileMode, during.staleErr)
 	}
-	if !slices.Equal(during.entries, []string{"clone", "envelope.json", "input", "recovery", "report.md"}) {
-		t.Errorf("the attempt directory held %v during the run, want clone/, input/, recovery/ and the two files that were there", during.entries)
+	if !slices.Equal(during.entries, []string{"clone", "envelope.json", "input", "report.md"}) {
+		t.Errorf("the attempt directory held %v during the run, want clone/, input/ and the two files that were there", during.entries)
 	}
 	if during.notes != "The greeting says helo.\n" {
 		t.Errorf("input/notes.md = %q, want the file", during.notes)
@@ -194,42 +194,41 @@ func TestTheWorkerCreatesOnlyCloneAndInputWithMode0700AndLeavesTheRestAlone_TS_1
 			}
 		}
 	}
-	if !slices.Equal(left, []string{"envelope.json", "recovery", "report.md"}) {
-		t.Errorf("the attempt directory holds %v after the attempt, want the two files and recovery/, and no other entry", left)
+	if !slices.Equal(left, []string{"envelope.json", "report.md"}) {
+		t.Errorf("the attempt directory holds %v after the attempt, want the two files, and no other entry", left)
 	}
 }
 
-// TestCloneAndInputAreRemovedOnReturnExceptAfterAShutdownOrATransientError_TS_13_39 verifies
+// TestCloneAndInputAreRemovedOnEveryReturn_TS_13_39 verifies
 // TS-13-39.
 // Verifies: 13-REQ-5.7
-func TestCloneAndInputAreRemovedOnReturnExceptAfterAShutdownOrATransientError_TS_13_39(t *testing.T) {
+func TestCloneAndInputAreRemovedOnEveryReturn_TS_13_39(t *testing.T) {
 	for name, tc := range map[string]struct {
-		body      func(cancel context.CancelCauseFunc) func(ctx context.Context, a *attempt) *outcome
-		keepClone bool
+		body func(cancel context.CancelCauseFunc) func(ctx context.Context, a *attempt) *outcome
 	}{
-		"a normal return": {func(context.CancelCauseFunc) func(context.Context, *attempt) *outcome { return succeeds }, false},
+		"a normal return": {func(context.CancelCauseFunc) func(context.Context, *attempt) *outcome { return succeeds }},
 		"a failure": {func(context.CancelCauseFunc) func(context.Context, *attempt) *outcome {
 			return func(_ context.Context, a *attempt) *outcome {
 				return ended(a, &toolio.Failure{Category: toolio.CategoryBrain, Message: "the brain failed"})
 			}
-		}, false},
+		}},
 		"a shutdown": {func(cancel context.CancelCauseFunc) func(context.Context, *attempt) *outcome {
 			return func(ctx context.Context, _ *attempt) *outcome {
 				cancel(jobs.ErrShutdown)
 				return &outcome{err: context.Cause(ctx)}
 			}
-		}, true},
+		}},
 		"a cancellation": {func(cancel context.CancelCauseFunc) func(context.Context, *attempt) *outcome {
 			return func(ctx context.Context, _ *attempt) *outcome {
 				cancel(jobs.ErrCancelled)
 				return &outcome{err: context.Cause(ctx)}
 			}
-		}, false},
+		}},
 		"a transient error": {func(context.CancelCauseFunc) func(context.Context, *attempt) *outcome {
 			return func(context.Context, *attempt) *outcome {
 				return transientFailure(toolio.CategorySandbox, "the box was lost")
 			}
-		}, true},
+		}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := leaseEnv(t, nil)
@@ -250,8 +249,8 @@ func TestCloneAndInputAreRemovedOnReturnExceptAfterAShutdownOrATransientError_TS
 
 			_, cloneErr := os.Stat(filepath.Join(e.dir, "clone"))
 			_, inputErr := os.Stat(filepath.Join(e.dir, "input"))
-			if (cloneErr == nil) != tc.keepClone {
-				t.Errorf("clone/ present: %v, want %v", cloneErr == nil, tc.keepClone)
+			if cloneErr == nil {
+				t.Error("clone/ is still there")
 			}
 			if inputErr == nil {
 				t.Error("input/ is still there")
@@ -373,9 +372,6 @@ func TestInfrastructureFailuresReturnTransientErrorsThatTheJobsLayerHandsOverAga
 		if leases := e.hub.Leases(); len(leases) != 1 || !leases[0].Released {
 			t.Errorf("leases = %+v, want the one that was granted released", leases)
 		}
-		if _, err := os.Stat(filepath.Join(e.dir, "clone")); err != nil {
-			t.Errorf("clone/ is not kept after a transient error: %v", err)
-		}
 	})
 
 	t.Run("the loop ends with a retryable forge failure", func(t *testing.T) {
@@ -437,6 +433,10 @@ func TestInfrastructureFailuresReturnTransientErrorsThatTheJobsLayerHandsOverAga
 		}
 		e.hub.Gateway().RefuseBoxes("")
 		req.Delivery = 2
+		// A clone that a delivery which died left is removed by the next one.
+		if err := os.MkdirAll(filepath.Join(e.dir, "clone"), 0o700); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(filepath.Join(e.dir, "clone", "left-by-the-first-delivery"), []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}

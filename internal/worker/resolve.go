@@ -19,7 +19,6 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
-	"github.com/agent-fox-dev/agentfox/internal/worker/recovery"
 )
 
 // attempt is one attempt as its steps share it: what resolve found out, and what the steps that
@@ -30,9 +29,8 @@ type attempt struct {
 	started time.Time
 
 	// pat is the token of the subscription, read once at the start and kept for the life of
-	// the attempt, its cleanup included. prefix is the label prefix of the subscription.
-	pat    string
-	prefix string
+	// the attempt, its cleanup included.
+	pat string
 	// record is the workspace on hub and repo its forge repository; forge is the forge as the
 	// loops see it, through hub.
 	record hub.Record
@@ -63,9 +61,6 @@ type attempt struct {
 	releaseOnce  sync.Once
 	releaseErr   error
 	releaseNoted bool // the end of the attempt has logged a release that failed
-	// labelPrefixVar is AF_LABEL_PREFIX as it was set, which nothing uses: the prefix of the labels
-	// is the subscription's. It is kept to warn when the two differ.
-	labelPrefixVar string
 	// issue is the issue the input named, nil for a text and a file. labels are the labels it
 	// carries as the attempt knows them: those it carried at resolve, and what the attempt wrote
 	// since. marked says the attempt set in-progress on it.
@@ -87,30 +82,6 @@ type attempt struct {
 	// directories it made for itself, which are removed when it ends however it ends.
 	closers []func()
 	scratch []string
-	// journal is the journal of the attempt, nil before it is made. aborted is the stage a test stopped
-	// the delivery at, see stageAbort.
-	journal       *journalHandle
-	aborted       string
-	stagesReached map[string]int
-	// resume is what the delivery carries on from, nil for one that begins the attempt afresh. pinned
-	// are the settings the run was started with, and spent what the brain runs of the attempt cost
-	// before this delivery.
-	resume *resumeState
-	pinned recovery.Settings
-	spent  recovery.Spend
-	// stored is the outcome that an earlier delivery stored, for a delivery whose attempt is ended already.
-	// discarded is why the delivery began again, and announced says the job was told that it resumed.
-	stored    *recovery.Outcome
-	discarded string
-	announced *resumeNote
-	// boxLost is the loss of the box that the loop told the delivery of, and replacing says a.resume is the state
-	// the replacement went on from, and no resume of an earlier delivery. loopStarted is when the loop began, which
-	// the timeout of the delivery counts from.
-	boxLost     error
-	replacing   bool
-	loopStarted time.Time
-	// retired are the tokens of the leases that were lost, which a text of the attempt may still hold.
-	retired []string
 }
 
 // onClose registers what the attempt gives back when it ends.
@@ -121,14 +92,6 @@ func (a *attempt) close() {
 	for i := len(a.closers) - 1; i >= 0; i-- {
 		a.closers[i]()
 	}
-	a.closers = nil
-	a.removeScratch()
-}
-
-// abandon is what a process that died leaves of an attempt: nothing is given back. Only the
-// directories it made for itself in the temporary directory of the machine, which no later delivery
-// reads, are removed.
-func (a *attempt) abandon() {
 	a.closers = nil
 	a.removeScratch()
 }
@@ -164,7 +127,7 @@ func (a *attempt) emitStep(data any) {
 }
 
 // resolve reads what the attempt needs of the store and of hub, and refuses what cannot run,
-// before anything is spent or written: the token and the label prefix, the record of the
+// before anything is spent or written: the token, the record of the
 // workspace, its variables, a fix that is not served, an issue that is not on the workspace's
 // repository or is a pull request. Hub being unavailable is a transient error.
 func (r *Runner) resolve(ctx context.Context, a *attempt) *outcome {
@@ -177,11 +140,6 @@ func (r *Runner) resolve(ctx context.Context, a *attempt) *outcome {
 		return r.envelopeOf(a, authRefusal(slug, tokenFault(err)))
 	}
 	a.pat = pat
-	sub, err := r.cfg.Subscriptions.Get(ctx, slug)
-	if err != nil {
-		return r.envelopeOf(a, authRefusal(slug, tokenFault(err)))
-	}
-	a.prefix = sub.LabelPrefix
 
 	record, err := r.cfg.Hub.WorkspaceRecord(ctx, pat, slug)
 	if err != nil {
@@ -199,7 +157,6 @@ func (r *Runner) resolve(ctx context.Context, a *attempt) *outcome {
 	if err != nil {
 		return r.hubOutcome(ctx, a, "read the variables", err)
 	}
-	a.labelPrefixVar = vars["AF_LABEL_PREFIX"]
 	settings, bad := resolveSettings(kind, vars)
 	if bad != nil {
 		if bad.Name == "AF_MAX_ATTEMPTS" {
@@ -293,20 +250,18 @@ func (r *Runner) forgeOutcome(ctx context.Context, a *attempt, input loopInput, 
 
 // openSession opens the hub session of the attempt, with a run id drawn in the form of one, which
 // the loop will be run under, and the model of the settings. The job is told the session and the
-// run at once. A session that hub does not open has cost nothing, and nothing has been written.
+// run at once. A session that hub does not open has cost nothing, and nothing has been written. An
+// attempt that is handed over again goes on in the session an earlier delivery opened, which the jobs
+// layer recorded: one session for each attempt, completed by the delivery that comes to its outcome.
 func (r *Runner) openSession(ctx context.Context, a *attempt) *outcome {
 	a.step("session")
-	if a.sessionID != "" { // the session of an earlier delivery is the session of the attempt
-		a.report.Hub(a.sessionID, a.runID, "")
-		a.noteSession()
+	if a.req.SessionID != "" && a.req.RunID != "" {
+		a.sessionID, a.runID = a.req.SessionID, a.req.RunID
 		return nil
 	}
-	runID := a.runID // the run id of a session that was completed, which the run goes on under
-	if runID == "" {
-		var err error
-		if runID, err = toolio.NewRunID(r.cfg.Now, r.cfg.Rand); err != nil {
-			return &outcome{err: err}
-		}
+	runID, err := toolio.NewRunID(r.cfg.Now, r.cfg.Rand)
+	if err != nil {
+		return &outcome{err: err}
 	}
 	id, err := r.cfg.Hub.OpenSession(ctx, a.pat, hub.SessionRequest{
 		WorkspaceSlug: a.req.Workspace, Archetype: string(a.req.Kind), Model: a.settings.Model, RunID: runID,
@@ -316,6 +271,5 @@ func (r *Runner) openSession(ctx context.Context, a *attempt) *outcome {
 	}
 	a.runID, a.sessionID = runID, id
 	a.report.Hub(id, runID, "")
-	a.noteSession()
 	return nil
 }

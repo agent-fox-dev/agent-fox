@@ -121,9 +121,6 @@ func TestThePollRecordsLiveInATableWithNoForeignKeyThatSurvivesAReopen_TS_15_37(
 	if !slices.EqualFunc(got, want, sameRecord) {
 		t.Errorf("after a reopen the records are\n%+v\nwant\n%+v", got, want)
 	}
-	if versions := column(t, reopened.DB(), "SELECT version FROM af_schema_migrations ORDER BY version"); len(versions) < 5 {
-		t.Errorf("migrations %v, want the poll's among them", versions)
-	}
 }
 
 // TestTheStoreFindsClearsAndDropsRecordsByWorkspaceIssueAndLabel is the behaviour of the store that the

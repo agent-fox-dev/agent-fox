@@ -42,11 +42,10 @@ change as the code: a document that is out of date is a regression.
 | `internal/service/jobs` | The jobs layer: the documents and the store (`af_jobs`, `af_attempts`, `af_events`), creating and validating jobs, the adapter over `aflib/jobqueue` (per-workspace order, `[workers].count` slots, transient retries, shutdown and restart, the sweep), the `Runner` seam (the binary wires the worker), ending attempts, cancel, answer, retry and unsubscribe, the event log with its broker and stream, and the retention purge. |
 | `internal/service/jobs/fakerunner`, `internal/service/jobs/fakeclock` | The fake runner that a test scripts (return, error, transient failure, panic, block) and records the inputs of, and the fake clock whose waits and tickers a test advances; exported for the tests of the specs that follow. |
 | `internal/hub` | The client of hub's API, the one place that knows hub's paths, field names and answers: who a token belongs to and whether it sees a workspace, and the calls of an attempt (the record and variables of a workspace, sessions, events, sandbox leases, the push of a branch). |
-| `internal/worker/recovery` | The files the worker keeps in `recovery/` of an attempt directory, to carry the attempt on after the process died: the journal (`journal.json`) and the outcome (`outcome.json`), written mode 0600 by an atomic synced replacement, and the status a session is completed with for an outcome. |
 | `internal/service/labels` | The one table of the label protocol: the seven labels (suffix, kind, colour, description) in order, and their names under a prefix. Standard library only, so that the subscribe step, the worker, the cancel cleanup and the poll all import it. |
-| `internal/service/labelcleanup` | The hub-backed cancel cleanup, the `jobs.Cleaner` that `cmd/agent-fox` wires: one try reads the token, the workspace record and the issue through hub, removes the status labels the cancelled job accounts for and puts back its request label, and classes every failure into its outcome. The layer's side (the mark, migration 7, the background tries, the sweep's retries, the unsubscribe's wait) is in `internal/service/jobs/cleanup.go`. |
+| `internal/service/labelcleanup` | The hub-backed cancel cleanup, the `jobs.Cleaner` that `cmd/agent-fox` wires: one try reads the token, the workspace record and the issue through hub, removes the status labels the cancelled job accounts for and puts back its request label, and classes every failure into its outcome. The layer's side (the mark, the cleanup columns of `af_jobs`, the background tries, the sweep's retries, the unsubscribe's wait) is in `internal/service/jobs/cleanup.go`. |
 | `internal/service/poll` | The label poll: the `Supervisor` that keeps one loop for each subscribed workspace (`supervisor.go`, `loop.go`), the cycle (`cycle.go`, `interval.go`), the rules for a listed issue (`handler.go`), the reconciliation of the poll's records with their jobs (`reconcile.go`), the classes of failure and the log-once rule (`failure.go`), and the store of the records, the table `af_poll_requests` (`store.go`). |
-| `internal/service/reconcile` | The reconciliation pass: it gives back the sandboxes and completes the sessions that attempts left held, when the service starts and every 15 minutes. |
+| `internal/service/reconcile` | The reconciliation pass: it gives back the sandboxes that attempts left held, when the service starts and every 15 minutes. |
 | `internal/hub/fakehub` | The `httptest` hub of the tests: a table of tokens, users and workspaces, the state an attempt works on (workspaces, issues, pull requests, sessions, leases), a git smart-HTTP server that takes only the Basic PAT, an in-process gateway for the leases, a record of every request, and failures, hang-ups, delays, redirects and oversize answers by route on demand. It serves hub's label route, `POST /api/v1/workspaces/{slug}/labels`, for any slug a token is granted (added or not), keeps each slug's labels (`Labels`, `PutLabel`), and calls a test's `OnRequest` with each request as it arrives. |
 | `cmd/af` | The binary. `main.go` keeps the identity of the build (the ldflags variables), makes the shell with `afcmd.New`, registers the commands of the client of the agent-fox service on it and sets its mode hook and its help, and hands the process to it. The client is here and in no other package, so that a caller of `afcmd.New` never has it: `client_common.go` (the server, the credential and the failures of the client), `login.go`, `workspace.go`, `jobs.go`, `client_follow.go` (the following of a job and what it ends with), `serve_queue.go` (`af triage|fix --workspace`) and `mode.go` (the choice between `--local` and `--workspace`), with the JSON Schemas of their results in `schemas/`. The tests that build the binary and run it are here, with the golden file of `af --schema`. |
 | `internal/afclient` | The library of the client: `ParseServer` (the server URL), `LoadCredential` and the editing of the credential file (`ReadExisting`, `ExistingFile.With`, `StoreCredential` behind an `FS`), `ReadSecretFile`, the `Client` (`Do`, which bounds the request, reads at most 8 MiB, refuses redirects and maps every answer to an `*Error`), the event stream (`Follow`, in tries, with an idle cut and a backoff on an injectable `Clock`) and `Envelope`. It returns plain and typed errors, never imports `internal/toolio` and never exits; the commands of `cmd/af` map its errors to the envelope. `fakeclock` is its clock for tests: the pauses of a follower cost nothing and are recorded. |
@@ -122,19 +121,13 @@ so nothing in it changes a tree hash.
   top-level properties of each command's schema with the JSON fields of its Go
   result type, so the two cannot drift apart.
 
-### Testing recovery
+### Testing the worker end to end
 
-The recovery of an attempt is tested offline, against the fake hub, its in-process gateway over the local provider and the
-scripted brain: no hub, no key of a model vendor and no container engine
-(`TestTheRecoveryTestsRunOfflineWithLoopbackListenersTheScriptedBrainAndNoContainerEngine_TS_14_60` guards it).
+The worker is tested offline, against the fake hub, its in-process gateway over the local provider and the scripted
+brain: no hub, no key of a model vendor and no container engine
+(`TestTheWorkerTestsRunOfflineWithLoopbackListenersTheScriptedBrainAndNoContainerEngine_TS_14_60` guards it). A
+redelivery is the runner called again with the handover count and the session of the first in the request.
 
-- **The stage-abort seam.** A process that dies is simulated by the stage-abort seam, `Runner.abortAfter`, which only the tests of
-  `internal/worker` can set: the delivery stops right after the named stage (`applied`, `pushed`, `mirrored`, `usage_posted`
-  and the others, `applied#2` for the second time), with no cleanup, no release and no report, as a process that
-  died is stopped. The test then runs the next delivery with the handover count in the request, and reads
-  `recovery/journal.json` and `recovery/outcome.json` of the attempt directory. `Runner.reachedHook` is called with every stage a
-  delivery reaches, which is how a test makes a sandbox go away at an exact point, and `Runner.journalFault` makes a write of the
-  journal fail. A graceful shutdown is tested through the real jobs layer, restarted on the same database file.
 - **The fake hub.** `GET /api/v1/workspaces/{slug}/sandboxes` lists the leases of the workspace that are held, with their
   id, labels, purpose and end; `SeedLease` puts a labelled lease in the hub as if an attempt had taken it, `Deleted` is
   what was released, a session keeps its status, its usage and its events, and `KillSandbox` destroys the box that a lease

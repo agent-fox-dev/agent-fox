@@ -624,8 +624,9 @@ worker, the poll, the `af` client) build on:
 - **The state file.** One SQLite file (`modernc.org/sqlite`, pure Go, WAL mode) behind `database/sql`
   (`internal/service/store`). Every table it owns is named `af_…`, and its migrations are recorded in
   `af_schema_migrations`, never in `PRAGMA user_version`, so that `aflib/jobqueue`'s tables can live in the
-  same file later. Migration 1 is `af_subscriptions`: the slug, the label prefix, the sealed token, the hub
-  user behind the token, who subscribed it, and the times. A token is sealed with AES-256-GCM under the
+  same file later. There is one migration, which makes the whole schema (the migrations of the unreleased builds were
+  squashed into it); the subscriptions are `af_subscriptions`: the slug, the sealed token, the hub user behind the token,
+  who subscribed it, and the times. A token is sealed with AES-256-GCM under the
   deployment key, with the slug as additional data, and it is the only secret the file holds; a token that
   does not open with the key reads `unreadable` and does not stop the service.
 - **Hub as the identity provider.** The service has no users, tokens or tenants of its own. Every route
@@ -673,8 +674,8 @@ worker, the poll, the `af` client) build on:
   direct forge. The client reports GitLab's body limit for a GitLab host and GitHub's otherwise.
 - **The clone and its git.** The worker clones the workspace's clone URL from hub's git server into `clone/` of
   the attempt directory (mode 0700), with the workspace's base branch checked out and the identity `agent-fox
-  <agent-fox@noreply.invalid>` in the clone's own configuration; a `clone/` that an earlier delivery kept is
-  removed first, unless the delivery carries the attempt on, which uses it (see [Recovery, as built](#recovery-as-built)). Every git command of the attempt, the clone, the commands of the fix pipeline and its push,
+  <agent-fox@noreply.invalid>` in the clone's own configuration; a `clone/` that an earlier delivery left is
+  removed first (see [Redelivery, as built](#redelivery-as-built)). Every git command of the attempt, the clone, the commands of the fix pipeline and its push,
   runs in a clean environment: a `HOME` of its own that is removed with the attempt, no global or system
   configuration, no `GIT_ASKPASS` and no prompt (`gitx.HermeticEnv`), so a credential helper of the operator is
   never asked. The PAT reaches git only in the commands that can reach hub (`clone`, `fetch`, `pull`, `push`,
@@ -693,7 +694,7 @@ worker, the poll, the `af` client) build on:
   retryable, with the branch kept on hub's git server and named in `next`, and no pull request. The seam is
   `fix.LandParams.PostPush`, which `FinishParams` and `ParkParams` carry and `afcmd.Config.PostPush` sets.
 - **The worker.** `internal/worker` is the production `jobs.Runner`: it carries out one attempt of a job against a
-  subscribed hub workspace. In order: *resolve* (the token and the label prefix of the subscription, the record and
+  subscribed hub workspace. In order: *resolve* (the token of the subscription, the record and
   the variables of the workspace from hub, the refusals that need no box and no model), the hub *session*, the
   *mark* of the issue, the *clone*, the *lease* of a sandbox, the *run* of the loop in process, the *mirror* of the
   outcome to the issue, the *release* of the lease and the *report* to hub. It holds nothing of an attempt between
@@ -724,9 +725,8 @@ worker, the poll, the `af` client) build on:
 - **Measuring in the box.** For a fix run under the service the detection of the checks (`af lang detect`), the
   baseline and the gate after the change (`af gate run`) and the revert check (`af revert-check`) are *measured in
   the box*, through the `af` of its image, and never on the host of the worker (`afcmd.Config.InBox`); the host's
-  gate and revert check are not called. A box that is lost while it measures is replaced once in the delivery (see
-  [Recovery, as built](#recovery-as-built)); a second loss ends the loop `failed`, category `sandbox`, retryable, which is
-  a transient error.
+  gate and revert check are not called. A box that is lost while it measures ends the loop `failed`, category `sandbox`,
+  retryable, which is a transient error (see [Redelivery, as built](#redelivery-as-built)).
 - **The lease and the box.** After the clone the worker leases a sandbox: `POST …/sandboxes` with `{purpose:
   "triage"|"fix", labels: {job, attempt}}` and `profile` only when `AF_SANDBOX_PROFILE` is set, and tells the job
   the sandbox id. The attempt gets a box registry of its own that holds one provider, the gateway of the lease
@@ -759,12 +759,9 @@ worker, the poll, the `af` client) build on:
   layer hands over again. Every other ending is a result with the envelope the loop wrote, amended only by
   added warnings, side effects and artifacts (`hub_session` and `sandbox`), the report of the run, and
   `AF_MAX_ATTEMPTS` as the most attempts of a round (2 when the attempt stopped before the variables were read).
-  When the attempt returns, `input/` is removed and so is `clone/`, except after a transient error and after a
-  shutdown; `recovery/` (the journal of the attempt, which a later delivery of it reads) is never removed by the worker;
-  `envelope.json`, `report.md` and the attempt directory are the jobs layer's and are never touched.
+  When the attempt returns, however it ends, `input/` and `clone/` are removed; `envelope.json`, `report.md` and the attempt directory are the jobs layer's and are never touched.
 - **The mark, the mirror and the cancel — the label mirror.** Once the session is open and an issue is named, the worker sets
-  `<prefix>in-progress` on it; the prefix is always the subscription's `label_prefix`, `AF_LABEL_PREFIX` is read
-  for nothing but the warning `label_prefix_ignored` when it differs. Setting a status label (`in-progress`,
+  `af:in-progress` on it (every label has the prefix `af:`). Setting a status label (`in-progress`,
   `ready`, `needs-human`, `landed`, `failed`) removes the other four the issue carries, except that a fix's
   `in-progress` leaves `ready`, which only the outcome of the fix replaces. When the loop is over the outcome is
   mirrored to the issue the input named, or, for a triage of a text or a file that ended `done`, to the issue the
@@ -784,11 +781,10 @@ worker, the poll, the `af` client) build on:
   minute, by taking `in-progress` off and putting the request label of the job back, leaving `ready` in place,
   with the lease released; the result carries the envelope of the loop, or one of category `cancelled` when the
   loop had not begun, and the PAT read at resolve serves it though the subscription is gone. A shutdown writes
-  nothing to the forge, keeps `clone/`, releases the lease and returns its cause.
+  nothing to the forge, releases the lease and returns its cause.
 - **The report to hub.** Once the lease is released, an attempt that has a session posts one usage record when a
   brain ran (the model of the session, and the brain, tokens, cost, source of the cost and turns of the envelope),
-  all the events of the delivery that reports (an attempt that was resumed reports the events of the delivery that
-  comes to its outcome or finds it stored), the loop's and the worker's steps, in batches of at most 500 in the order they
+  all the events of the delivery that reports, the loop's and the worker's steps, in batches of at most 500 in the order they
   happened, and completes the session: `completed` for `done`, `unverified` and `needs_human`, `timeout` for a
   failure of category `timeout`, and `failed` for the rest. An attempt that returns a transient error, and one
   that is stopped for a shutdown, posts none of this and leaves the session open: the delivery that comes to the
@@ -816,7 +812,7 @@ talks to it.
 `fix` durable, runs them in order behind a seam, and records what became of them. The surface is in
 [api.md](api.md#jobs); this is how it is made.
 
-- **Records.** Three tables, appended to the migrations of the state file: `af_jobs` (one row per job),
+- **Records.** Three tables of the state file: `af_jobs` (one row per job),
   `af_attempts` (one row per attempt, keyed by job and number) and `af_events` (the log of a job, keyed by job and
   `seq`). `aflib/jobqueue` keeps its own tables in the same file; the `af_` prefix keeps the two apart. The files
   of an attempt, `envelope.json` and `report.md` (mode 0600), go under `attempts/<job id>/<n>/` beside the
@@ -844,7 +840,7 @@ talks to it.
   token of the workspace when the attempt starts and keeps it for the life of the attempt, because an unsubscribe
   removes the subscription while a cancelled attempt may still be cleaning up; (4) what it does when it is stopped
   depends on why (`jobs.IsCancel`): for a cancel or an unsubscribe it releases what it holds and restores the
-  request label within the grace, for a shutdown it leaves the attempt resumable and what it returns is discarded.
+  request label within the grace, for a shutdown it writes nothing and what it returns is discarded: the attempt is handed over again after the restart.
   The context carries the cause: `ErrCancelled`, `ErrUnsubscribed` (which is a cancel as well) or `ErrShutdown`.
   The request carries `Round`, the position of the attempt in its round (1 for the first attempt of a job and for
   one that an answer or a retry starts, 2 for the attempt that follows by itself a failure that is tried again),
@@ -884,8 +880,8 @@ talks to it.
   blocked, its claimed attempt was in no runner of this process, or its runner was cancelled before it reported a hub
   session) is cleaned up by the layer, behind the optional seam `jobs.Cleaner`, which `cmd/agent-fox` wires to
   `internal/service/labelcleanup` over the hub client and the store; the layer itself never imports hub, and without a
-  cleaner it marks nothing. Migration 7 adds `cleanup` (`pending`, `done`, `label_not_set`), `cleanup_wanted` and
-  `cleanup_warned` to `af_jobs`. The mark is written with the cancel, or, when the cancel reached a runner, with the
+  cleaner it marks nothing. `af_jobs` has `cleanup` (`pending`, `done`, `label_not_set`), `cleanup_wanted` and
+  `cleanup_warned` for it. The mark is written with the cancel, or, when the cancel reached a runner, with the
   cancelled attempt if that reported no hub session; the cancel time is `finished_at`. Tries run in background
   goroutines of the layer's loops: one per job at a time, at most four at once, each bounded by a minute of the layer's
   clock and cut short by a shutdown. A try reads the issue and writes only what is missing: it removes `in-progress`
@@ -897,103 +893,31 @@ talks to it.
 - **Tests.** Every test runs offline against `fakehub`, the fake runner and a fake clock. `cmd/agent-fox` wires the
   worker.
 
-### Recovery, as built
+### Redelivery, as built
 
 An attempt can be handed to the worker more than once: after a restart, a crash, a shutdown or a transient error the jobs
-layer hands over the same attempt again, and `Request.Delivery` is how many times it has been (the handover count, 1 on the
-first). A delivery above 1 is a *resume*. What lets it carry on is in `recovery/` of the attempt directory, which the
-worker never removes, and the clone, which it keeps after a transient error and a shutdown.
+layer hands over the same attempt again, and `Request.Delivery` is how many times it has been. **Every delivery begins
+afresh**: the worker removes a `clone/` that a delivery which died left, clones again, takes a new lease and runs the loop
+from the start with the whole budget. Nothing of an earlier delivery is carried on, so nothing has to be journalled.
 
-- **The journal.** The journal, `journal.json` in `recovery/`, is written by the worker, mode 0600 in a directory of mode 0700, by
-  replacing the file atomically and syncing it, each time a step is done: the job, the attempt and the kind; the clone
-  and the `clone_url` of the workspace without user information; the settings the run was started with (brain, model,
-  sandbox profile, landing mode, budget, turns); the run id and the base branch and commit it was begun at; the hub
-  session (`completed` once it is); the leases, each with whether it was released and whether the sandbox was lost; the
-  deliveries, each with how it ended (`outcome`, `transient` or `shutdown`, none when the process died); what the brain
-  runs of the attempt cost and the part of it that was spent in run directories that were removed; the plan of the
-  landing and the steps of it that are done; and the steps of the mirror and of the report that are done. It holds no PAT,
-  no token of a lease, no `Authorization` value and no URL with user information. A write that fails is the warning
-  `journal_unwritable`, once in a delivery, and the delivery goes on from what it holds in memory; only the plan of a
-  landing is required, and a plan that cannot be written stops the landing with a transient error of category `io`,
-  before anything is pushed, and before any write of the landing to the forge but the issue that a text or a file
-  is made into, which the journal records as soon as hub answers and the next delivery goes on with.
-- **The outcome.** As soon as an attempt comes to its outcome, and before anything is written for it to the forge or to
-  hub, the worker writes the outcome, `outcome.json` in `recovery/`, the same way: the envelope as text, the report, the most attempts
-  and the labels, `mirrored` false. When the mirror is done it writes it again, with the envelope the mirror amended
-  (its warnings, side effects, the session and the sandbox) and `mirrored` true, before the lease is released, the usage
-  is posted and the session is completed. A shutdown and a transient error store none. The first delivery of an
-  attempt removes the journal and the outcome that an earlier run of the same directory left.
-- **How a delivery begins.** The first delivery begins afresh. A later one reads the journal. With no clone to carry on
-  (none was made, or it is gone) there is nothing to discard, and it begins as a first delivery would, without a word, on
-  the session that the journal records as open. A clone with no journal, a journal that does not read, and one of another
-  job, attempt or kind are `resume_discarded` with the reason `journal_unreadable`. A journal that reads gives back the leases it records as
-  held, pins the settings (the brain, `AF_MODEL`, `AF_SANDBOX_PROFILE`, `AF_FIX_LAND`, `AF_MAX_BUDGET_USD` and `AF_MAX_TURNS`; the
-  timeout is read afresh for each delivery, and so is `AF_MAX_ATTEMPTS`) and takes the open session; and the clone is
-  carried on only if it is the top level of a git work tree (`clone_invalid`), its `origin` is the clone URL of the
-  workspace now (`origin_changed`), the forge repository is the journal's (`forge_repository_changed`), and the run
-  directory has its pinned file (`run_missing`) and a ledger that reads (`ledger_unreadable`). Otherwise the warning
-  `resume_discarded` names the reason and the delivery clones afresh on the same attempt, with the spend and the
-  session it had carried over. What neither rule covers ends the attempt `failed`, category `internal`: a commit on the
-  base branch after the commit the run began at that has no `Agent-Fox-Run` trailer for the run, or the branch of the plan
-  on hub's git server at a commit other than the plan's. So does a clone that cannot be carried on (it is gone, its
-  run directory or its ledger is lost) after the branch of a landing reached hub's git server, or a pushed branch that
-  is gone from it: a landing made again would take another branch, and open another pull request. A local branch of the run that
-  holds no commit of its own, which a landing that died before it committed leaves (the landing marks the branch it
-  makes with the run), is deleted, so that the landing keeps the name it would have had.
-- **The stage a delivery picks up from.** In the stage `outcome` an outcome is stored for this job and attempt; there is no loop and
-  no lease, the leases of the journal are released, the mirror is finished where it is not (the labels that the journal
-  does not record, a comment only when its marker is not on the issue), the usage, the events and the completion
-  that the journal does not record are posted, and the stored envelope is returned with the one warning
-  `attempt_resumed` added. In the stage `published` the branch of the plan is on hub's git server at the plan's commit; nothing
-  is measured, committed or pushed again and no lease is taken; what the journal does not record of the landing is made
-  from the plan (the branch push route of hub, the pull request), and the envelope is built from the plan. In the stage `applied` the
-  host accepted a fix report and applied it (an `apply` record follows the last `submission_accepted`, and the payload
-  still passes its check): the change is brought back into the working tree (it is there, or it is the commits of an
-  unpushed local branch that all carry the trailer of the run, which are put back in the tree, and the branch deleted so that
-  the landing names it as it did), the brain does not run, one lease is taken, and the delivery re-measures the change once against
-  the baseline and lands or parks it. In the stage `submitted` a question or a diagnosis was accepted, and there is no lease and no box: a
-  fix question ends the run `needs_human` and the mirror posts its comment once, a triage diagnosis is landed again
-  through `triage.Land` on the clone's tree, with the issue an earlier landing created, if any, so that a triage of text
-  makes one issue. In the stage `brain`, which is any other run, the clone is put back at the commit the run began at, the run
-  directory is reused, and the loop runs again with the budget and the turns that the attempt has left.
-- **Re-measuring.** A baseline result that the clone lacks (`.agent-fox/gate/<id>`) is not a reason to leave a change
-  unverified: the delivery runs the baseline again in the box, on the tree of the base with the pinned table, with
-  the change of the run set aside (`git stash`) and put back, and fix.json names what ran; a gate result is named by its tree, its
-  checks and its mode, so the id is the one that was lost. A change that is nothing once the protected paths are put
-  back ends `failed` with category `no_result`, not retryable, and nothing is landed or parked.
-- **Budget and usage.** One budget and one bound of turns belong to the attempt, however many deliveries it takes. The
-  spend is what the ledger of the run records (every `brain_end` has its tokens), plus what was spent in run directories
-  that a discarded resume removed; a brain run that began and has no end in the ledger counts as nothing and is the
-  warning `brain_spend_unrecorded`. With nothing left the attempt ends `failed`, category `budget`, before the lease and the brain, and
-  its envelope reports what was spent. The usage the envelope reports, and the one record that is posted to hub, are the attempt's.
-- **A box that is lost.** A box whose sandbox is gone, or cannot be reached, is noticed by the box layer
-  (`box.ErrUnavailable`, `Session.Lost`). The loop stops without landing or parking, and the worker, once in a delivery,
-  releases the lost lease (a failure is logged and the journal keeps it as held), leases a replacement with the profile and
-  the purpose of the first, cuts the timeout of the loop to what is left of the delivery and to two minutes before
-  the replacement expires (`lease_shortened_timeout`), and runs the loop again from where the attempt stands, by the stages
-  above. The box is replaced as the warning and the step event `box_replaced` say, with both sandbox ids. A second loss,
-  a replacement that hub refuses or that has less than two minutes left, and one that cannot be opened are transient
-  errors of category `sandbox`; a lease that hub refuses at first, or a first box that cannot be opened, is not a loss.
+- **One session for each attempt.** The jobs layer records the hub session and the run id the worker reports
+  (`Recorder.Hub`), and hands them to the next delivery of the attempt in `Request.SessionID` and `Request.RunID`: the
+  delivery goes on in that session instead of opening another, and the one that comes to the outcome posts the usage and
+  the events and completes it. A shutdown and a transient error leave it open for that delivery.
+- **A box that is lost** ends the loop with a retryable failure of category `sandbox`: a transient error, and the attempt
+  is handed over again.
+- **What is given up.** A process that dies after the branch of a fix was pushed and before its pull request was opened
+  leaves the branch on hub's git server, and the delivery that comes next lands the change again under another branch
+  name, with a pull request of its own; a triage of a text that dies after its issue was created makes a second issue.
+  Both are a narrow window, and a person closes the extra one. A process that dies while a brain runs pays for that brain
+  again on the next delivery.
 - **The reconciliation pass.** `internal/service/reconcile` runs a pass when the service starts, in a goroutine that
   delays neither the listener nor the queue, and every 15 minutes: one at a time, and stopped when the service stops. For
   every subscribed workspace whose token opens it lists the leases through hub and releases each orphan, a lease whose
   `job` label names a job of the database and whose `attempt` label names an attempt that no runner of this process
-  carries out (a 404 is released; a lease with no labels, an unknown job or a running attempt is never released). It
-  then posts the usage that the journal of an attempt that ended records as not posted, and completes the session that
-  the journal records as open, with the status of the stored outcome or `failed`; it posts no events. A workspace
-  that cannot be asked is logged at `WARN`, without its token, and tried again by the next pass; each release and each
-  completion is logged at `INFO` with the workspace, the id, the job and the attempt.
-- **What an operator sees.** A resume emits the step event `resume` (the handover count, the stage, whether the
-  brain is skipped, and the reason when the resume was discarded), and its envelope carries the warning
-  `attempt_resumed`, which names the same; `resume_discarded`, `box_replaced`, `journal_unwritable` and
-  `brain_spend_unrecorded` come when they apply.
-- **Tests.** Nothing here needs a hub, a key or a container engine. A process that dies is simulated by the stage-abort
-  seam, which only the tests of the worker can set, `Runner.abortAfter`: it stops a delivery right after a named stage
-  (a stage of the pipeline, or `briefed`, `submission_accepted`, `applied`, `plan_recorded`, `pushed`, `hub_push`,
-  `pull_request`, `created_issue`, `outcome_stored`, `mirror_comment`, `mirror_labels`, `mirrored`, `released`,
-  `usage_posted`, `events_posted`, `session_completed`, `box_synced`; `applied#2` is the second time) without cleanup,
-  as a process that died is stopped. A graceful shutdown goes through the real jobs layer, restarted on the same database
-  file.
+  carries out (a 404 is released; a lease with no labels, an unknown job or a running attempt is never released). A
+  workspace that cannot be asked is logged at `WARN`, without its token, and tried again by the next pass; each release
+  is logged at `INFO` with the workspace, the id, the job and the attempt.
 
 ### The label poll, as built
 
@@ -1011,9 +935,9 @@ cancels nothing.
   the first-cycle delay, the scan period and the release delay are injectable; no setting is configurable but the interval
   (`AF_POLL_INTERVAL`, see [configuration.md](configuration.md#the-label-poll)).
 - **A cycle.** It first brings the poll's records for the workspace up to date with their jobs, which asks nothing of hub; then it
-  reads the label prefix and the token from the store and the resolved variables from hub. If the poll is off it ends there.
-  Otherwise it reads the workspace record, for the forge repository, and lists the open issues of `<prefix>triage` and then of
-  `<prefix>fix` through the hub forge client's `ListIssues`, at most 100 of each, takes each listing's issues in ascending number
+  reads the token from the store and the resolved variables from hub. If the poll is off it ends there.
+  Otherwise it reads the workspace record, for the forge repository, and lists the open issues of `af:triage` and then of
+  `af:fix` through the hub forge client's `ListIssues`, at most 100 of each, takes each listing's issues in ascending number
   whatever order hub returned them in, and applies the rules to each. Pull requests, closed issues and issues without a request
   label never reach the rules.
 - **The rules,** as spec 15 built them, in order, for an issue N listed under label L of kind K (the forge's follow-ups
@@ -1045,7 +969,7 @@ cancels nothing.
   first sees no runner of the job in progress and no cleanup of it pending. A hold is released only by a complete listing that does
   not contain the issue and was requested, by the poll's clock, at least the **release delay** (5 minutes) after the release
   clock started: the forge's list may not yet show a label that was just put back, and the runner may still be writing it.
-- **Records that outlive their jobs.** The poll's records are the rows of `af_poll_requests` (migration 5): the workspace, the
+- **Records that outlive their jobs.** The poll's records are the rows of `af_poll_requests`: the workspace, the
   issue, the label, the job (none for an absorbed label), whether the removal is owed, what the poll has seen of the job (open,
   ended, holding) and the release clock. There is no foreign key to `af_jobs`, so a record survives a restart and the retention
   purge of its job, which needs no step for the poll. A record is dropped once nothing is owed and nothing holds.
@@ -1089,7 +1013,7 @@ workspace, under its lock, in `cycleRun.issue`.
   names the job only when L is the job's own request label, which a cancel puts back and the poll then holds. A record
   outlives every listing asked for before it, since a workspace's listings are asked for and handled one at a time and the
   records are dropped only after a listing is handled.
-- **The attempt's context.** `af_attempts.context` (migration 9) holds the comments a retry from the forge gave its attempt;
+- **The attempt's context.** `af_attempts.context` holds the comments a retry from the forge gave its attempt;
   `RunRequest` gives the runner the job's context strings and then each attempt's, in order, so an automatic attempt after
   the retry keeps them, and the worker passes each as a `--context` value with no question. The API's retry gives none.
 - **The worker's side.** The worker reads `AF_POLL_INTERVAL` as the poll does: the forge path is named in the question,

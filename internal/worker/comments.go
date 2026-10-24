@@ -11,6 +11,7 @@ import (
 
 	"github.com/agent-fox-dev/aflib/issuex"
 
+	"github.com/agent-fox-dev/agentfox/internal/service/labels"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -152,8 +153,8 @@ func (a *attempt) compose(kind string, ref issuex.IssueRef, env toolio.Envelope,
 // the request label are on.
 func (a *attempt) forgePath() bool { return a.issue != nil && a.settings.TriggersOn }
 
-// requestLabel is the request label of the job's kind, with the subscription's prefix.
-func (a *attempt) requestLabel() string { return a.prefix + string(a.req.Kind) }
+// requestLabel is the request label of the job's kind.
+func (a *attempt) requestLabel() string { return labels.Name(string(a.req.Kind)) }
 
 // retryPath writes the sentence that names the forge's retry, when the comments name the forge path.
 func (a *attempt) retryPath(b *strings.Builder) {

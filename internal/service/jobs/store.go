@@ -654,6 +654,7 @@ func (s *Store) RunRequest(ctx context.Context, jobID string, attempt int) (Requ
 		}
 		if a.N == attempt {
 			req.Delivery = a.Deliveries
+			req.SessionID, req.RunID = a.HubSession.String, a.HubRun.String
 		}
 		if a.Answer.Valid {
 			var answer Answer

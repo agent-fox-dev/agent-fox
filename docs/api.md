@@ -94,7 +94,6 @@ view, and **the view never contains the token or its ciphertext**:
 ```json
 {
   "slug": "widgets",
-  "label_prefix": "af:",
   "token_user": "0b8bd6a4-1d6e-4f5e-9b3c-0f4a1c9a7e21",
   "subscribed_by": "7c0fd2d9-6a52-4c11-8d3e-5a0e9f4b3a10",
   "token_state": "ok",
@@ -106,7 +105,6 @@ view, and **the view never contains the token or its ciphertext**:
 | Field | Meaning |
 |---|---|
 | `slug` | The workspace. |
-| `label_prefix` | The label prefix **given at subscribe**, or `af:`. It names the seven labels of the workspace (see [Subscribing](#subscribing)); hub's variable `AF_LABEL_PREFIX` names none. |
 | `token_user` | The hub user the token belongs to, when hub said so; `null` when hub did not (a credential that is bound to a workspace can see it and still be refused by `/user`). |
 | `subscribed_by` | The hub user who subscribed the workspace last. |
 | `token_state` | `ok` when the stored token opens with this deployment's key, `unreadable` when it does not (the file was written under another key). An unreadable subscription is still listed, read, replaced and removed. |
@@ -132,12 +130,11 @@ subscribed or the caller cannot see it (the same body in both cases).
 `PUT /api/v1/workspaces/{slug}` takes
 
 ```json
-{"hub_token": "<a hub token for the workspace>", "label_prefix": "af:"}
+{"hub_token": "<a hub token for the workspace>"}
 ```
 
-`hub_token` is required and must not contain a control character. `label_prefix` is optional: it
-defaults to `af:`, and must be 1 to 32 characters with no whitespace, control character or comma
-(otherwise `400` `invalid_request`, before hub is asked anything with the token). The body is read as
+`hub_token` is required and must not contain a control character (otherwise `400` `invalid_request`, before
+hub is asked anything with the token). The body is read as
 described under [request bodies](#request-bodies).
 
 The service checks the token with two calls to hub, made with the token and not through the caches:
@@ -153,18 +150,18 @@ A refused token is `422` and never `401`, even when it is the very token that th
 with, and a call with the token never touches the caches of the caller's answers.
 
 3. **The labels.** The service creates the seven labels of the agent-fox label protocol on the workspace's
-   repository through hub (`POST /api/v1/workspaces/{slug}/labels`), with the token of the request and the
-   prefix it stores, one at a time and in this order:
+   repository through hub (`POST /api/v1/workspaces/{slug}/labels`), with the token of the request, one at a
+   time and in this order. Every label has the prefix `af:`, which is not configurable:
 
    | Label | Kind | Colour | Description |
    |---|---|---|---|
-   | `<prefix>triage` | request | `0e8a16` | Ask agent-fox to triage this issue |
-   | `<prefix>fix` | request | `0e8a16` | Ask agent-fox to fix this issue |
-   | `<prefix>in-progress` | status | `fbca04` | agent-fox is working on this issue |
-   | `<prefix>ready` | status | `1d76db` | Triaged: the diagnosis is in the body |
-   | `<prefix>needs-human` | status | `d93f0b` | agent-fox stopped with a question; see the last comment |
-   | `<prefix>landed` | status | `0e8a16` | A branch and a pull request (or a carry patch) exist |
-   | `<prefix>failed` | status | `b60205` | agent-fox could not finish; see the last comment |
+   | `af:triage` | request | `0e8a16` | Ask agent-fox to triage this issue |
+   | `af:fix` | request | `0e8a16` | Ask agent-fox to fix this issue |
+   | `af:in-progress` | status | `fbca04` | agent-fox is working on this issue |
+   | `af:ready` | status | `1d76db` | Triaged: the diagnosis is in the body |
+   | `af:needs-human` | status | `d93f0b` | agent-fox stopped with a question; see the last comment |
+   | `af:landed` | status | `0e8a16` | A branch and a pull request (or a carry patch) exist |
+   | `af:failed` | status | `b60205` | agent-fox could not finish; see the last comment |
 
    A label is in place when hub creates it (`201`) or reports it as already there: `200`, `409`, or any other
    `4xx` whose `error_type` is `already_exists` or whose message says "already exists", in any case. An
@@ -187,16 +184,14 @@ with, and a call with the token never touches the caches of the caller's answers
 
 Nothing is written to the store before every check has passed: a refused `PUT` stores nothing, and a
 refused replace leaves the subscription exactly as it was. Labels created before a refusal stay on the
-forge, where the next `PUT` finds them. A replace with another `label_prefix` creates the seven labels of
-the new prefix; no label is ever renamed or deleted, by a `PUT` or by an unsubscribe. A workspace
+forge, where the next `PUT` finds them. No label is ever renamed or deleted, by a `PUT` or by an unsubscribe. A workspace
 subscribed before this release has no labels until its next `PUT`: subscribing it again with the same
 body creates them, and nothing else does.
 
 Then the token is sealed and stored in one statement. `PUT` replaces the subscription in full:
 
 - `201` **on create**, when the workspace was not subscribed;
-- `200` **on replace**, when it was: `label_prefix` goes back to `af:` if the body leaves it out,
-  `token_user` is this request's answer (and stays `null` if hub did not say), `subscribed_by` is the
+- `200` **on replace**, when it was: `token_user` is this request's answer (and stays `null` if hub did not say), `subscribed_by` is the
   caller, `created_at` is kept and `updated_at` is now.
 
 The body of both is the view. A client treats `200` and `201` alike as success. The label step checks
@@ -275,8 +270,7 @@ that runs every minute puts it in the queue.
 ### Jobs that a request label makes
 
 The routes are not the only way to make a job. A team asks for a triage or a fix by labelling an issue with one of the
-workspace's **request labels**, `<label_prefix>triage` and `<label_prefix>fix` (`af:triage` and `af:fix` for the
-prefix `af:`). Each new request becomes exactly one job, and the service then removes the label through hub: it
+workspace's **request labels**, `af:triage` and `af:fix`. Each new request becomes exactly one job, and the service then removes the label through hub: it
 **consumes** it, so that adding it again is a new request. The service finds the label by **polling**: every
 `AF_POLL_INTERVAL` (see [the label poll](configuration.md#the-label-poll)) it asks hub for the open issues that carry the
 request labels and applies the rules below to each, one issue at a time for a workspace.
@@ -416,7 +410,7 @@ Every route that shows a job shows this document, a list entry included; `GET /a
 | `trigger` | `{"kind", "by"}`: `create`, `answer` (a person answered), `retry` (a person asked again) or `auto` (the service tried again after a failure of the brain; `by` is `agent-fox`). |
 | `answer` | For an attempt that an answer started: `{"question", "option", "text"}`, where `option` is the id chosen or `null`, and `text` is what the person typed or the label of the option. Otherwise `null`. |
 | `context` | For an attempt that a retry from the forge started: the comments since the failure, as a list of strings. Otherwise `null`. |
-| `deliveries` | How many times the attempt was handed to a runner. A handover after a restart or a crash counts. A `deliveries` above 1 means a resume: the worker carries on what the delivery before it left, if there is anything to carry on (see [Warnings](#what-an-attempt-comes-to)). |
+| `deliveries` | How many times the attempt was handed to a runner. A handover after a restart or a crash counts. Every delivery begins afresh, in the hub session of the attempt. |
 | `transient_failures` | How many times the runner reported an infrastructure failure for the attempt (at most 3). |
 | `status`, `exit_code`, `summary`, `error` | Those of the attempt's envelope; `null` until it has one. |
 | `usage` | `{"brain", "cost_usd", "cost_source", "input_tokens", "output_tokens", "turns"}` of the envelope, once the attempt has ended; otherwise `null`. |
@@ -463,23 +457,14 @@ adding to three lists; every other field of the stored envelope is the loop's, b
   the attempt is handed over again (see [What an attempt comes to](#what-an-attempt-comes-to)).
 - **Warnings.** `lease_shortened_timeout` (the timeout was cut to end two minutes before the sandbox lease
   expires), `lease_release_failed` (the lease could not be released; hub destroys it when it expires),
-  `label_prefix_ignored` (`AF_LABEL_PREFIX` is set and differs from the `label_prefix` of the subscription, which is
-  the prefix used), `status_label_failed`, `comment_failed` and `request_label_failed` (a write of the mirror to the
+  `status_label_failed`, `comment_failed` and `request_label_failed` (a write of the mirror to the
   issue failed, with a side effect of the state `failed`), `hub_usage_failed`, `hub_events_failed` and
   `hub_session_failed` (a report to hub failed). A warning never changes the status.
-  A delivery that carries an attempt on, or begins again after it could not (and one that had nothing to carry on, or only went on in a replaced box, adds none), adds `attempt_resumed`, which names the handover count, the stage it
-  picked up from (`outcome`, `published`, `applied`, `submitted` or `brain`) and whether the brain was skipped; at the
-  stage `outcome` it is the only change to the envelope that was stored. `resume_discarded` says a delivery could not
-  carry on what the one before it left, with the reason, and began again from a fresh clone; `box_replaced` says
-  the sandbox was lost during the delivery and names it and the one that replaced it; `journal_unwritable` says the
-  journal of the attempt could not be written, and the delivery went on from what it held; `brain_spend_unrecorded`
-  says a brain run was cut short by the death of the process, so that what it cost is not known and counts as nothing.
 - **Side effects.** Every label and comment the worker writes to the issue: `add_labels`, `remove_label` and
   `add_comment`, `done` or `failed`.
 - **Labels.** The result of the attempt reports the labels it set and removed, as the net of the attempt (the
   status label of the outcome is set and `in-progress` is removed), which is what `labels` of the job shows. The
-  status labels are `in-progress`, `ready`, `needs-human`, `landed` and `failed`, with the prefix of the
-  subscription.
+  status labels are `in-progress`, `ready`, `needs-human`, `landed` and `failed`, with the prefix `af:`.
 
 ### Cancel
 
@@ -506,7 +491,7 @@ cancelled attempt in the second case, and is then tried in the background, one t
 runner of the job is in progress; the route never waits for it. A try reads the token of the subscription, the
 workspace record and the issue's labels through hub, and then:
 
-- removes `<prefix>in-progress`, unless another job of the issue is running;
+- removes `af:in-progress`, unless another job of the issue is running;
 - removes each other status label that the job's `labels.set` shows, unless another open job of the issue shows
   it in its `labels.set` too;
 - adds the request label the job consumed, if the issue does not carry it; not for a cancel because the issue was
@@ -662,7 +647,7 @@ text of an internal error.
 
 | `code` | Status | When |
 |---|---|---|
-| `invalid_request` | 400 | The slug is not valid; the body is malformed JSON, has an unknown field, a field of the wrong type or data after the value; `hub_token` or `label_prefix` is not valid; a field of a job request breaks its rule; an answer is not exactly one valid answer or option; a parameter of a list or the `since` of a stream is not valid. The message names the field or the parameter. |
+| `invalid_request` | 400 | The slug is not valid; the body is malformed JSON, has an unknown field, a field of the wrong type or data after the value; `hub_token` is not valid; a field of a job request breaks its rule; an answer is not exactly one valid answer or option; a parameter of a list or the `since` of a stream is not valid. The message names the field or the parameter. |
 | `unauthenticated` | 401 | There is no usable `Authorization: Bearer` header, or hub does not accept the token. |
 | `not_found` | 404 | The workspace is not subscribed or the caller cannot see it (one answer for both), or the route does not exist. For a job: it does not exist, or its workspace is one the caller cannot see (one answer for both), or the attempt, its envelope or its report is not there. |
 | `method_not_allowed` | 405 | The route does not take the method; the `Allow` header lists those it does. |

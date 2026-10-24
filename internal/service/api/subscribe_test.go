@@ -30,13 +30,10 @@ func (a *authHarness) put(t *testing.T, slug, caller, body string, headers ...st
 	return a.do(t, "PUT", "/api/v1/workspaces/"+slug, strings.NewReader(body), all...)
 }
 
-// tokenBody is the body of a subscription with the token and, when given, the label prefix.
-func tokenBody(t *testing.T, token string, prefix ...string) string {
+// tokenBody is the body of a subscription with the token.
+func tokenBody(t *testing.T, token string) string {
 	t.Helper()
 	body := map[string]any{"hub_token": token}
-	if len(prefix) > 0 {
-		body["label_prefix"] = prefix[0]
-	}
 	data, err := json.Marshal(body)
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +52,7 @@ func (a *authHarness) rows(t *testing.T) int {
 }
 
 // viewKeys are the fields of a subscription view.
-var viewKeys = []string{"created_at", "label_prefix", "slug", "subscribed_by", "token_state", "token_user", "updated_at"}
+var viewKeys = []string{"created_at", "slug", "subscribed_by", "token_state", "token_user", "updated_at"}
 
 // keysOf are the sorted keys of a JSON object.
 func keysOf(m map[string]any) []string {
@@ -75,7 +72,7 @@ func TestANewSubscriptionAnswers201WithTheViewAndStoresASealedRow_TS_11_55(t *te
 	a.Hub.AddUser("caller", "usr_1", []string{"widgets", "gadgets"})
 	a.Hub.AddUser("pat-9", "usr_9", []string{"widgets", "gadgets"})
 
-	r := a.put(t, "widgets", "caller", `{"hub_token":"pat-9","label_prefix":"x:"}`)
+	r := a.put(t, "widgets", "caller", `{"hub_token":"pat-9"}`)
 	if r.Status != 201 || !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		t.Fatalf("PUT = %d %s, want 201 application/json", r.Status, r.Body)
 	}
@@ -83,7 +80,7 @@ func TestANewSubscriptionAnswers201WithTheViewAndStoresASealedRow_TS_11_55(t *te
 	if got := keysOf(view); !slices.Equal(got, viewKeys) {
 		t.Errorf("the view has the fields %v, want exactly %v", got, viewKeys)
 	}
-	if view["slug"] != "widgets" || view["label_prefix"] != "x:" || view["token_user"] != "usr_9" ||
+	if view["slug"] != "widgets" || view["token_user"] != "usr_9" ||
 		view["subscribed_by"] != "usr_1" || view["token_state"] != "ok" {
 		t.Errorf("view = %s, want widgets, x:, usr_9, usr_1 and ok", r.Body)
 	}
@@ -103,11 +100,6 @@ func TestANewSubscriptionAnswers201WithTheViewAndStoresASealedRow_TS_11_55(t *te
 		t.Errorf("the sealed token starts with %q (%v), want 01", first, err)
 	}
 
-	// Without a label_prefix, the prefix is af:.
-	r = a.put(t, "gadgets", "caller", `{"hub_token":"pat-9"}`)
-	if r.Status != 201 || r.JSON(t)["label_prefix"] != "af:" {
-		t.Errorf("PUT without a label_prefix = %d %s, want 201 and af:", r.Status, r.Body)
-	}
 }
 
 // TestReplacingASubscriptionAnswers200AndReplacesTheRowInFull_TS_11_56 verifies TS-11-56:
@@ -120,7 +112,7 @@ func TestReplacingASubscriptionAnswers200AndReplacesTheRowInFull_TS_11_56(t *tes
 	a.Hub.AddUser("pat-1", "usr_9", []string{"widgets"})
 	a.Hub.AddWorkspaceToken("pat-2", []string{"widgets"}) // /user refuses it
 
-	first := a.put(t, "widgets", "c1", `{"hub_token":"pat-1","label_prefix":"x:"}`)
+	first := a.put(t, "widgets", "c1", `{"hub_token":"pat-1"}`)
 	if first.Status != 201 {
 		t.Fatalf("PUT = %d %s", first.Status, first.Body)
 	}
@@ -131,7 +123,7 @@ func TestReplacingASubscriptionAnswers200AndReplacesTheRowInFull_TS_11_56(t *tes
 		t.Fatalf("the replacement = %d %s, want 200", r.Status, r.Body)
 	}
 	view, old := r.JSON(t), first.JSON(t)
-	if view["label_prefix"] != "af:" || view["token_user"] != nil || view["subscribed_by"] != "usr_2" || view["token_state"] != "ok" {
+	if view["token_user"] != nil || view["subscribed_by"] != "usr_2" || view["token_state"] != "ok" {
 		t.Errorf("view = %s, want af:, null, usr_2 and ok", r.Body)
 	}
 	if view["created_at"] != old["created_at"] {
@@ -150,7 +142,7 @@ func TestReplacingASubscriptionAnswers200AndReplacesTheRowInFull_TS_11_56(t *tes
 }
 
 // TestBadFieldsAreRefusedWithoutCallingHubWithTheTokenOrWriting_TS_11_57 verifies TS-11-57:
-// A missing or empty hub_token or a bad label_prefix answers 400 without calling
+// A missing or empty hub_token, or a field that is not known, answers 400 without calling
 // hub with the PAT or writing.
 // Verifies: 11-REQ-8.3
 func TestBadFieldsAreRefusedWithoutCallingHubWithTheTokenOrWriting_TS_11_57(t *testing.T) {
@@ -164,17 +156,7 @@ func TestBadFieldsAreRefusedWithoutCallingHubWithTheTokenOrWriting_TS_11_57(t *t
 		"a null hub_token":           `{"hub_token":null}`,
 		"a hub_token with a newline": tokenBody(t, "pat\nx"),
 		"a hub_token with a NUL":     tokenBody(t, "pat\x00"),
-		"an empty label_prefix":      tokenBody(t, "pat", ""),
-		"33 characters":              tokenBody(t, "pat", strings.Repeat("a", 33)),
-		"33 multi-byte characters":   tokenBody(t, "pat", strings.Repeat("é", 33)),
-		"a space":                    tokenBody(t, "pat", "a b"),
-		"a trailing space":           tokenBody(t, "pat", "af: "),
-		"a tab":                      tokenBody(t, "pat", "a\tb"),
-		"a newline":                  tokenBody(t, "pat", "a\nb"),
-		"a control character":        tokenBody(t, "pat", "a\x07b"),
-		"a no-break space":           tokenBody(t, "pat", "a b"),
-		"a comma":                    tokenBody(t, "pat", "a,b"),
-		"a label_prefix of a number": `{"hub_token":"pat","label_prefix":5}`,
+		"a label_prefix":             `{"hub_token":"pat","label_prefix":"af:"}`,
 	} {
 		r := a.put(t, "widgets", "caller", body)
 		if r.Status != 400 || r.errorCode(t) != "invalid_request" {
@@ -186,13 +168,6 @@ func TestBadFieldsAreRefusedWithoutCallingHubWithTheTokenOrWriting_TS_11_57(t *t
 	}
 	if n := a.rows(t); n != 0 {
 		t.Errorf("%d rows after the refused requests, want none", n)
-	}
-
-	for name, prefix := range map[string]string{"32 characters": strings.Repeat("a", 32), "32 multi-byte characters": strings.Repeat("é", 32), "one character": "x", "punctuation": "af:/_-"} {
-		slug := "widgets"
-		if r := a.put(t, slug, "caller", tokenBody(t, "pat", prefix)); r.Status != 201 && r.Status != 200 {
-			t.Errorf("%s: %d %s, want it accepted", name, r.Status, r.Body)
-		}
 	}
 }
 
@@ -520,14 +495,13 @@ func TestTheStoredTokenIsInNoFileAndNoAnswer_TS_11_62(t *testing.T) {
 	}
 	for i := range 40 {
 		slug := fmt.Sprintf("w%d-%s", i, random(alphabet, 0, 20))
-		prefix := strings.NewReplacer(",", "x").Replace(random(printable, 1, 32))
 		first, second := random(printable, 8, 200), random(printable, 8, 200)
 		a.Hub.Grant("usr_1", slug)
 		a.Hub.AddUser(first, fmt.Sprintf("usr_a%d", i), []string{slug})
 		a.Hub.AddUser(second, fmt.Sprintf("usr_b%d", i), []string{slug})
 
 		for _, pat := range []string{first, second} { // a create, then a replacement
-			r := a.put(t, slug, "caller", tokenBody(t, pat, prefix))
+			r := a.put(t, slug, "caller", tokenBody(t, pat))
 			if r.Status != 201 && r.Status != 200 {
 				t.Fatalf("iteration %d: PUT = %d %s", i, r.Status, r.Body)
 			}
@@ -641,7 +615,7 @@ func TestASubscribeSendsSevenLabelCreationsInTableOrderBeforeTheStoreWrite_TS_17
 		}
 	})
 
-	if r := a.put(t, "widgets", "caller", tokenBody(t, "pat-17", "af:")); r.Status != 201 {
+	if r := a.put(t, "widgets", "caller", tokenBody(t, "pat-17")); r.Status != 201 {
 		t.Fatalf("PUT = %d %s, want 201", r.Status, r.Body)
 	}
 	a.Hub.OnRequest(nil)
@@ -688,8 +662,8 @@ func TestANewSubscriptionAnswers201AndAReplacement200AndAnOmittedPrefixMakesAfLa
 	if got := a.Hub.Labels("widgets"); !slices.Equal(got, wantLabels("af:")) {
 		t.Errorf("hub holds %v, want the seven af: labels", got)
 	}
-	if a.rows(t) != 1 || second.JSON(t)["label_prefix"] != "af:" {
-		t.Errorf("rows %d, label_prefix %v; want the subscription stored with af:", a.rows(t), second.JSON(t)["label_prefix"])
+	if a.rows(t) != 1 {
+		t.Errorf("rows %d; want the subscription stored once", a.rows(t))
 	}
 }
 
@@ -699,13 +673,13 @@ func TestSubscribingAgainWithTheSamePrefixLeavesHubsLabelsUnchanged_TS_17_7(t *t
 	a := newAuthHarness(t)
 	a.Hub.AddUser("caller", "usr_1", []string{"widgets"})
 	a.Hub.AddUser("pat", "usr_9", []string{"widgets"})
-	if r := a.put(t, "widgets", "caller", tokenBody(t, "pat", "af:")); r.Status != 201 {
+	if r := a.put(t, "widgets", "caller", tokenBody(t, "pat")); r.Status != 201 {
 		t.Fatalf("PUT = %d %s", r.Status, r.Body)
 	}
 	a.Hub.PutLabel("widgets", fakehub.Label{Name: "af:ready", Color: "000000", Description: "a person changed it"})
 	before := a.Hub.Labels("widgets")
 
-	if r := a.put(t, "widgets", "caller", tokenBody(t, "pat", "af:")); r.Status != 200 {
+	if r := a.put(t, "widgets", "caller", tokenBody(t, "pat")); r.Status != 200 {
 		t.Fatalf("PUT again = %d %s, want 200", r.Status, r.Body)
 	}
 	if n := len(a.Hub.RequestsTo("POST", labelsPath("widgets"))); n != 14 {
@@ -713,31 +687,6 @@ func TestSubscribingAgainWithTheSamePrefixLeavesHubsLabelsUnchanged_TS_17_7(t *t
 	}
 	if got := a.Hub.Labels("widgets"); !slices.Equal(got, before) {
 		t.Errorf("hub's labels changed: %v, want %v", got, before)
-	}
-}
-
-// TestAChangedPrefixCreatesTheNewSetAndNeitherRenamesNorDeletesTheOld_TS_17_8 verifies TS-17-8.
-// Verifies: 17-REQ-2.4
-func TestAChangedPrefixCreatesTheNewSetAndNeitherRenamesNorDeletesTheOld_TS_17_8(t *testing.T) {
-	a := newAuthHarness(t)
-	a.Hub.AddUser("caller", "usr_1", []string{"widgets"})
-	a.Hub.AddUser("pat", "usr_9", []string{"widgets"})
-	if r := a.put(t, "widgets", "caller", tokenBody(t, "pat", "af:")); r.Status != 201 {
-		t.Fatalf("PUT af: = %d %s", r.Status, r.Body)
-	}
-	if r := a.put(t, "widgets", "caller", tokenBody(t, "pat", "bot-")); r.Status != 200 {
-		t.Fatalf("PUT bot- = %d %s", r.Status, r.Body)
-	}
-	if r := a.do(t, "DELETE", "/api/v1/workspaces/widgets", nil, bearer("caller")...); r.Status != 204 {
-		t.Fatalf("DELETE = %d %s", r.Status, r.Body)
-	}
-	if got := a.Hub.Labels("widgets"); !slices.Equal(got, append(wantLabels("af:"), wantLabels("bot-")...)) {
-		t.Errorf("hub holds %v, want the seven af: and the seven bot- labels", got)
-	}
-	for _, r := range a.Hub.Requests() {
-		if strings.Contains(r.Path, "/labels") && r.Method != "POST" {
-			t.Errorf("a %s %s was sent: no label is renamed or deleted", r.Method, r.Path)
-		}
 	}
 }
 
@@ -780,7 +729,7 @@ func TestAServiceStartedWithOlderSubscriptionsCreatesNoLabelUntilAPut_TS_17_10(t
 	for _, slug := range []string{"widgets", "gadgets"} {
 		pat := "pat-of-" + slug
 		a.Hub.AddWorkspace(t, fakehub.Workspace{Slug: slug, PAT: pat})
-		if _, _, err := a.Store.Upsert(ctx, slug, "af:", pat, "", "usr_1", time.Now()); err != nil {
+		if _, _, err := a.Store.Upsert(ctx, slug, pat, "", "usr_1", time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -828,12 +777,12 @@ func labelHarness(t *testing.T, third fakehub.Fault) *authHarness {
 // subscriptionRow is every column of the subscription of the slug, as the store holds it, or "" when there is none.
 func (a *authHarness) subscriptionRow(t *testing.T, slug string) string {
 	t.Helper()
-	var label, user, by, created, updated string
+	var user, by, created, updated string
 	var sealed []byte
 	var tokenUser sql.NullString
 	var revision int
-	err := a.Store.DB().QueryRowContext(ctx, "SELECT label_prefix, sealed_token, token_user, subscribed_by, created_at, updated_at, revision FROM af_subscriptions WHERE slug = ?", slug).
-		Scan(&label, &sealed, &tokenUser, &by, &created, &updated, &revision)
+	err := a.Store.DB().QueryRowContext(ctx, "SELECT sealed_token, token_user, subscribed_by, created_at, updated_at, revision FROM af_subscriptions WHERE slug = ?", slug).
+		Scan(&sealed, &tokenUser, &by, &created, &updated, &revision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ""
 	}
@@ -841,7 +790,7 @@ func (a *authHarness) subscriptionRow(t *testing.T, slug string) string {
 		t.Fatal(err)
 	}
 	user = tokenUser.String
-	return fmt.Sprintf("%s|%x|%s|%s|%s|%s|%d", label, sealed, user, by, created, updated, revision)
+	return fmt.Sprintf("%x|%s|%s|%s|%s|%d", sealed, user, by, created, updated, revision)
 }
 
 // refusedAs checks that the PUT was answered with the status, the code and a message that contains each of the parts, that
@@ -903,13 +852,13 @@ func TestAFailingThirdCreationStopsTheStepAndStoresNothing_TS_17_12(t *testing.T
 		a.Hub.AddUser("caller", "usr_1", []string{"widgets"})
 		a.Hub.AddUser("old", "usr_8", []string{"widgets"})
 		a.Hub.AddUser("pat", "usr_9", []string{"widgets"})
-		if r := a.put(t, "widgets", "caller", tokenBody(t, "old", "old:")); r.Status != 201 {
+		if r := a.put(t, "widgets", "caller", tokenBody(t, "old")); r.Status != 201 {
 			t.Fatalf("the first PUT = %d %s", r.Status, r.Body)
 		}
 		before := a.subscriptionRow(t, "widgets")
 		a.Clock.Advance(time.Hour)
 		a.Hub.Inject("POST", labelsPath("widgets"), fakehub.Fault{Status: 403, Skip: 2})
-		r := a.put(t, "widgets", "caller", tokenBody(t, "pat", "af:"))
+		r := a.put(t, "widgets", "caller", tokenBody(t, "pat"))
 		if r.Status != 422 || r.errorCode(t) != "forge_forbidden" {
 			t.Fatalf("PUT = %d %s, want 422 forge_forbidden", r.Status, r.Body)
 		}

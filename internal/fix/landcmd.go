@@ -51,8 +51,6 @@ type LandRunParams struct {
 	Conform func(ctx context.Context, dir, since string, o conform.Options) (conform.Result, error)
 	// PostPush is called with the branch once it is pushed, before the pull request; see LandParams.
 	PostPush func(ctx context.Context, branch string) error
-	// Steps is told how the landing or the parking comes on.
-	Steps LandSteps
 }
 
 // LandRunResult is what landing a run came to.
@@ -87,7 +85,7 @@ func LandRun(ctx context.Context, p LandRunParams) (LandRunResult, error) {
 		landed, err := Land(ctx, LandParams{
 			Git: p.Git, State: p.State, Input: input, Report: report, Mode: p.Mode, Forge: p.Forge, Target: p.Target, Measured: measured,
 			Brain: p.State.Brain, CostUSD: p.State.CostUSD, CostSource: costSource(p.State), Reporter: p.Reporter, WriteReport: p.WriteReport,
-			PostPush: p.PostPush, Steps: p.Steps.withResult(in),
+			PostPush: p.PostPush,
 		})
 		if err != nil {
 			return LandRunResult{}, err
@@ -101,7 +99,7 @@ func LandRun(ctx context.Context, p LandRunParams) (LandRunResult, error) {
 	}
 	parked, err := Park(ctx, ParkParams{
 		Git: p.Git, State: p.State, Input: input, Mode: p.Mode, Forge: p.Forge, Target: p.Target, Subject: report.Subject,
-		Verdict: measured.Verdict, Failing: measured.Refusal.Failing, Report: p.Reporter, PostPush: p.PostPush, Steps: p.Steps.withResult(in),
+		Verdict: measured.Verdict, Failing: measured.Refusal.Failing, Report: p.Reporter, PostPush: p.PostPush,
 	})
 	if err != nil {
 		return LandRunResult{}, err
