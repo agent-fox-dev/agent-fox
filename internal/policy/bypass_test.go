@@ -194,7 +194,7 @@ func TestProtectedPathsInOtherSpellings(t *testing.T) {
 		"find .specs -name x -fprint .specs/list", "dd of=.specs/a.md", "dd if=x of=.git/hooks/pre-commit", "install a .specs/b", "install -t .specs a b",
 		"rsync -a a .specs/", "perl -pi -e s/a/b/ .specs/x", "perl -i.bak -pe s/a/b/ .specs/x", "patch .specs/x", "go build -o .github/workflows/ci.yml",
 		"go test -coverprofile=.specs/c.out ./pkg", "go test -coverprofile .specs/c.out ./pkg", "af map --output .specs/a.md", "af map --output=.specs/a.md",
-		"af guard check --emit-events .specs/a.md", "chown me .specs/a", "chgrp me .specs/a", "rmdir .specs", "unlink .specs/a", "shred .specs/a", "mkfifo .specs/f",
+		"af map --emit-events .specs/a.md", "chown me .specs/a", "chgrp me .specs/a", "rmdir .specs", "unlink .specs/a", "shred .specs/a", "mkfifo .specs/f",
 		"curl -o .specs/a x", "sort -o .specs/a b", "ln -s .specs link", "ln .specs/a b",
 	} {
 		cases = append(cases, expectation{src, Deny, RuleProtectedPath, ""})
@@ -211,7 +211,7 @@ func TestProtectedPathsInOtherSpellings(t *testing.T) {
 
 	// Writes by the tools that write files.
 	for _, file := range []string{".SPECS/x.md", ".specs/../.specs/x.md", "/work/repo/.Git/x", "./.specs/./x.md"} {
-		d := Decide(defaultPolicy(), dir, "Write", map[string]any{"file_path": file})
+		d := Decide(defaultPolicy(), dir, "write_file", map[string]any{"path": file})
 		if d.Decision != Deny || d.Rule != RuleProtectedPath {
 			t.Errorf("Write %s: %+v, want a denial by protected_path", file, d)
 		}
@@ -260,7 +260,7 @@ func TestProtectedPathsBehindLinks(t *testing.T) {
 		{alias, "echo x > src/a.go", Allow},
 		{alias, "echo x > " + filepath.Join(checkout, "src", "a.go"), Allow},
 	} {
-		d := Decide(p, tc.dir, "Bash", map[string]any{"command": tc.command})
+		d := Decide(p, tc.dir, "execute", map[string]any{"command": tc.command})
 		if d.Decision != tc.want || tc.want == Deny && d.Rule != RuleProtectedPath {
 			t.Errorf("in %s: %s: %+v, want %s", tc.dir, tc.command, d, tc.want)
 		}
@@ -277,7 +277,7 @@ func TestProtectedPathsBehindLinks(t *testing.T) {
 		{checkout, "src/a.go", Allow},
 		{alias, filepath.Join(checkout, "src", "a.go"), Allow},
 	} {
-		d := Decide(p, tc.dir, "Write", map[string]any{"file_path": tc.file})
+		d := Decide(p, tc.dir, "write_file", map[string]any{"path": tc.file})
 		if d.Decision != tc.want || tc.want == Deny && d.Rule != RuleProtectedPath {
 			t.Errorf("Write in %s: %s: %+v, want %s", tc.dir, tc.file, d, tc.want)
 		}

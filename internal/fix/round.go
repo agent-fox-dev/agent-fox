@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"time"
 
@@ -41,10 +40,6 @@ type RoundParams struct {
 	Timeout    time.Duration
 	// Placed notes the files that the round puts on a checkout that is the box; nil notes none.
 	Placed *Placed
-	// DriverInBox says the brain is the driver of AgentKit, run as a process in the box. The
-	// run directory of the box must have no fix.json then, which would make the af fix run
-	// that the box executes the round of the host, with a box of its own.
-	DriverInBox bool
 }
 
 // RoundResult is what a round left.
@@ -66,7 +61,7 @@ const (
 // box: the table the run is measured by, as it was pinned.
 func GateFile(s State) ([]byte, error) { return project.MarshalGateFile(s.Table.Checks) }
 
-// GuardFile is the content of the guard.json that the hook in the box reads: the suite
+// GuardFile is the content of the guard.json that the tool gate in the box reads: the suite
 // of the gate, the default protected paths, and the programs a brain may run.
 func GuardFile(s State) ([]byte, error) {
 	return policy.MarshalGuardFile(policy.Policy{Suite: s.Suite, ProtectedPaths: policy.DefaultProtectedPaths(), AllowPrograms: AllowPrograms(s.Programs)})
@@ -103,27 +98,21 @@ func (p *Placed) Remove(dir string) {
 }
 
 // WriteBoxFiles places gate.json and guard.json in the box, so that a brain's own gate
-// run and the hook use the host's table and rules, and not what the box would detect, and
-// fix.json in the run directory of the box, so that a brain with hands of its own can run
-// af fix submit there, which refuses a run directory that is no fix run.
+// run and the tool gate of a driver in the box use the host's table and rules, and not
+// what the box would detect. The run directory of the box gets no fix.json: with one, the
+// af fix run that the box executes would take itself for the round of the host.
 //
 // A box that is the checkout (the none provider) has gate.json and guard.json of the
 // person's own, perhaps: the run's are placed only where there are none, and those that
-// are there are left as they are. The driver of AgentKit that runs in the box has no
-// fix.json (see RoundParams.DriverInBox).
-func WriteBoxFiles(ctx context.Context, sess *box.Session, s State, driverInBox bool, placed *Placed) error {
+// are there are left as they are.
+func WriteBoxFiles(ctx context.Context, sess *box.Session, s State, placed *Placed) error {
 	for _, f := range []struct {
-		rel   string
-		make  func(State) ([]byte, error)
-		state bool
+		rel  string
+		make func(State) ([]byte, error)
 	}{
-		{boxGatePath, GateFile, false}, {boxGuardPath, GuardFile, false},
-		{path.Join(".agent-fox", "run", s.RunID, StateFile), State.Marshal, true},
+		{boxGatePath, GateFile}, {boxGuardPath, GuardFile},
 	} {
-		if f.state && driverInBox {
-			continue
-		}
-		if sess.InPlace() && !f.state {
+		if sess.InPlace() {
 			if _, err := fs.Stat(sess.FS(ctx), f.rel); err == nil {
 				continue
 			}
@@ -135,7 +124,7 @@ func WriteBoxFiles(ctx context.Context, sess *box.Session, s State, driverInBox 
 		if err := sess.WriteFile(ctx, f.rel, data); err != nil {
 			return err
 		}
-		if sess.InPlace() && !f.state {
+		if sess.InPlace() {
 			placed.note(f.rel, data)
 		}
 	}
@@ -149,7 +138,7 @@ func WriteBoxFiles(ctx context.Context, sess *box.Session, s State, driverInBox 
 // the brain has worked on the tree that is measured next, and the commits it made on the
 // branch are taken off it first (see Checkout.Check), or the run is stopped.
 func RunRound(ctx context.Context, p RoundParams) (RoundResult, error) {
-	if err := WriteBoxFiles(ctx, p.Session, p.State, p.DriverInBox, p.Placed); err != nil {
+	if err := WriteBoxFiles(ctx, p.Session, p.State, p.Placed); err != nil {
 		return RoundResult{}, err
 	}
 	var tools []string

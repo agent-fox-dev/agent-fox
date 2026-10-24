@@ -34,7 +34,7 @@ import (
 // ring1Packages are the packages of the ring-1 commands.
 var ring1Packages = []string{"project", "checks", "conform", "policy", "repomap"}
 
-// ring1Commands are the six commands, with what each of them is given.
+// ring1Commands are the ring-1 commands, with what each of them is given.
 var ring1Commands = []struct {
 	path    string
 	timeout string
@@ -44,27 +44,22 @@ var ring1Commands = []struct {
 	{"gate run", "30m0s", []string{"--label", "--hermetic", "--no-cache"}},
 	{"gate compare", "30s", []string{"--before", "--after"}},
 	{"revert-check", "30m0s", []string{"--since"}},
-	{"guard check", "10s", []string{"--policy", "--host"}},
 	{"map", "2m0s", []string{"--tokens"}},
 }
 
-// minimalInvocation is a valid use of each command in the repository dir, and
-// the stdin it reads.
-func minimalInvocation(t *testing.T, path, dir, base string) ([]string, string) {
-	t.Helper()
+// minimalInvocation is a valid use of each command in the repository dir.
+func minimalInvocation(path, dir, base string) []string {
 	switch path {
 	case "gate compare":
-		return []string{"gate", "compare", "--dir", dir, "--before", "first", "--after", "first"}, ""
+		return []string{"gate", "compare", "--dir", dir, "--before", "first", "--after", "first"}
 	case "revert-check":
-		return []string{"revert-check", "--dir", dir, "--since", base}, ""
-	case "guard check":
-		return []string{"guard", "check", "--dir", dir}, neutral(t, "Bash", map[string]any{"command": "git diff"})
+		return []string{"revert-check", "--dir", dir, "--since", base}
 	}
-	return append(strings.Fields(path), "--dir", dir), ""
+	return append(strings.Fields(path), "--dir", dir)
 }
 
 // TestSixCommandsAreRegistered_TS_06_69 verifies TS-06-69:
-// all six commands are registered with their default timeouts, flags in --help
+// all ring-1 commands are registered with their default timeouts, flags in --help
 // and tool equal to the command path.
 // Verifies: 06-REQ-10.1
 func TestSixCommandsAreRegistered_TS_06_69(t *testing.T) {
@@ -79,7 +74,7 @@ func TestSixCommandsAreRegistered_TS_06_69(t *testing.T) {
 	for _, c := range ring1Commands {
 		t.Run(c.path, func(t *testing.T) {
 			args := append(strings.Fields(c.path), "--help")
-			code, stdout, stderr := runWithStdin(t, strings.NewReader(""), args...)
+			code, stdout, stderr := run(t, args...)
 			if code != 0 || stderr != "" {
 				t.Fatalf("--help: exit code %d, stderr %q", code, stderr)
 			}
@@ -92,8 +87,7 @@ func TestSixCommandsAreRegistered_TS_06_69(t *testing.T) {
 				t.Errorf("--help does not give the default timeout %s:\n%s", want, stdout)
 			}
 
-			argv, stdin := minimalInvocation(t, c.path, dir, base)
-			code, stdout, _ = runWithStdin(t, strings.NewReader(stdin), argv...)
+			code, stdout, _ = run(t, minimalInvocation(c.path, dir, base)...)
 			env := oneDocument(t, stdout)
 			if env["tool"] != c.path || env["status"] != "done" || code != 0 {
 				t.Errorf("a valid invocation: exit code %d, status %v, tool %v; want 0, done, %s", code, env["status"], env["tool"], c.path)
@@ -101,7 +95,7 @@ func TestSixCommandsAreRegistered_TS_06_69(t *testing.T) {
 		})
 	}
 
-	_, stdout, _ := runWithStdin(t, strings.NewReader(""), "help")
+	_, stdout, _ := run(t, "help")
 	for _, c := range ring1Commands {
 		if !strings.Contains(stdout, c.path) {
 			t.Errorf("af help does not list %s", c.path)
@@ -110,7 +104,7 @@ func TestSixCommandsAreRegistered_TS_06_69(t *testing.T) {
 }
 
 // TestNoForgeNoNetworkNoRunDirectory_TS_06_70 verifies TS-06-70:
-// none of the six commands builds a forge client, contacts the network or
+// none of the ring-1 commands builds a forge client, contacts the network or
 // creates a run directory.
 // Verifies: 06-REQ-10.2
 func TestNoForgeNoNetworkNoRunDirectory_TS_06_70(t *testing.T) {
@@ -159,9 +153,8 @@ func TestNoForgeNoNetworkNoRunDirectory_TS_06_70(t *testing.T) {
 	}
 
 	for _, c := range ring1Commands {
-		argv, stdin := minimalInvocation(t, c.path, dir, base)
 		var out, errb bytes.Buffer
-		code := app.Main(context.Background(), append([]string{"af"}, argv...), strings.NewReader(stdin), &out, &errb)
+		code := app.Main(context.Background(), append([]string{"af"}, minimalInvocation(c.path, dir, base)...), strings.NewReader(""), &out, &errb)
 		if env := oneDocument(t, out.String()); code != 0 || env["status"] != "done" {
 			t.Errorf("%s: exit code %d, status %v, error %v; want it to succeed with no token and no remote", c.path, code, env["status"], env["error"])
 		}
@@ -313,7 +306,6 @@ func TestSchemasMatchTheirTypes_TS_06_72(t *testing.T) {
 		"gate_run":     reflect.TypeOf(checks.Result{}),
 		"gate_compare": reflect.TypeOf(checks.Comparison{}),
 		"revert_check": reflect.TypeOf(conform.Result{}),
-		"guard_check":  reflect.TypeOf(guardResult{}),
 		"map":          reflect.TypeOf(repomap.Result{}),
 	}
 	for name, typ := range results {
@@ -328,17 +320,14 @@ func TestSchemasMatchTheirTypes_TS_06_72(t *testing.T) {
 
 	// The comparison notices a field that was renamed.
 	type renamed struct {
-		Decision string `json:"verdict"`
-		Rule     string `json:"rule"`
-		Reason   string `json:"reason"`
-		Tool     string `json:"tool"`
-		Segment  string `json:"segment"`
+		Outcome string `json:"verdict"`
+		Reason  string `json:"reason"`
 	}
 	var schema map[string]any
-	if err := json.Unmarshal(resultSchema("guard_check"), &schema); err != nil {
+	if err := json.Unmarshal(resultSchema("revert_check"), &schema); err != nil {
 		t.Fatal(err)
 	}
-	if diffs := schemaDiff(schema, reflect.TypeOf(renamed{}), "guard_check"); len(diffs) == 0 {
+	if diffs := schemaDiff(schema, reflect.TypeOf(renamed{}), "revert_check"); len(diffs) == 0 {
 		t.Error("a renamed field is not noticed")
 	}
 

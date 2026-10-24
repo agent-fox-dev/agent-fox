@@ -27,7 +27,7 @@ func hostWith(t *testing.T, h host) {
 	old := probe
 	probe = h
 	t.Cleanup(func() { probe = old })
-	for _, name := range []string{"AF_TEST_LANDLOCK", "AF_TEST_PODMAN", "AF_TEST_CLAUDE", "ANTHROPIC_API_KEY"} {
+	for _, name := range []string{"AF_TEST_LANDLOCK", "AF_TEST_PODMAN"} {
 		t.Setenv(name, "")
 	}
 }
@@ -38,7 +38,6 @@ func capable() host {
 		landlock: func() error { return nil },
 		podman:   func() error { return nil },
 		image:    func(string) error { return nil },
-		claude:   func() (string, error) { return "/usr/bin/claude", nil },
 	}
 }
 
@@ -49,7 +48,6 @@ func broken() host {
 		landlock: func() error { return errors.New("landlock-down") },
 		podman:   func() error { return errors.New("engine-down") },
 		image:    func(string) error { return errors.New("image-gone") },
-		claude:   func() (string, error) { return "", errors.New("claude-gone") },
 	}
 }
 
@@ -77,10 +75,6 @@ func TestAnOptInTestWithAMissingVariableOrPrerequisiteIsSkippedWithANamedReason_
 			[]string{"AF_TEST_PODMAN=1", "podman info", "engine-down"}, []string{"image-gone"}},
 		{"podman, no image", func(s Skipper) { RequirePodman(s, "img:1") }, map[string]string{"AF_TEST_PODMAN": "1"},
 			func(h *host) { h.podman = capable().podman }, []string{"img:1", "AF_SANDBOX_IMAGE", "image-gone"}, []string{"engine-down"}},
-		{"claude, variable unset", func(s Skipper) { RequireClaude(s) }, map[string]string{"ANTHROPIC_API_KEY": "sk"}, nil, []string{"AF_TEST_CLAUDE"}, []string{"claude-gone"}},
-		{"claude, no key", func(s Skipper) { RequireClaude(s) }, map[string]string{"AF_TEST_CLAUDE": "1"}, nil, []string{"AF_TEST_CLAUDE=1", "ANTHROPIC_API_KEY"}, []string{"claude-gone"}},
-		{"claude, not on PATH", func(s Skipper) { RequireClaude(s) }, map[string]string{"AF_TEST_CLAUDE": "1", "ANTHROPIC_API_KEY": "sk"}, nil,
-			[]string{"AF_TEST_CLAUDE=1", "claude", "PATH", "claude-gone"}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := broken()
@@ -115,12 +109,9 @@ func TestAnOptInTestWithAMissingVariableOrPrerequisiteIsSkippedWithANamedReason_
 	hostWith(t, capable())
 	t.Setenv("AF_TEST_LANDLOCK", "1")
 	t.Setenv("AF_TEST_PODMAN", "1")
-	t.Setenv("AF_TEST_CLAUDE", "1")
-	t.Setenv("ANTHROPIC_API_KEY", "sk")
 	var r recorder
 	RequireLandlock(&r)
 	RequirePodman(&r, "img:1")
-	RequireClaude(&r)
 	if r.skips != 0 {
 		t.Errorf("the gates skipped a test that has everything: %s", r.reason)
 	}
@@ -130,13 +121,12 @@ func TestAnOptInTestWithAMissingVariableOrPrerequisiteIsSkippedWithANamedReason_
 // call them: with no variable set they skip a real *testing.T, and that is a skip and
 // not a failure.
 func TestTheGatesOfTheRealHostSkipOnAHostWithNothingSet(t *testing.T) {
-	for _, name := range []string{"AF_TEST_LANDLOCK", "AF_TEST_PODMAN", "AF_TEST_CLAUDE"} {
+	for _, name := range []string{"AF_TEST_LANDLOCK", "AF_TEST_PODMAN"} {
 		t.Setenv(name, "")
 	}
 	for name, gate := range map[string]func(*testing.T){
 		"landlock": func(t *testing.T) { RequireLandlock(t) },
 		"podman":   func(t *testing.T) { RequirePodman(t, "img:1") },
-		"claude":   func(t *testing.T) { RequireClaude(t) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			gate(t)

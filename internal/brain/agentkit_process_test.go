@@ -24,7 +24,7 @@ import (
 func inBoxBrain(t *testing.T, w *procWorld, provider string, borrowed bool, model string, host map[string]string) (Brain, error) {
 	t.Helper()
 	return Default.New(AgentkitName, Options{
-		Provider: provider, BorrowedHands: borrowed, Model: model, Getenv: hostWith(host), AFPath: w.af, AFVersion: "v1.0.0", AFCommit: "abc123",
+		Provider: provider, BorrowedHands: borrowed, Model: model, Getenv: envOf(host), AFPath: w.af, AFVersion: "v1.0.0", AFCommit: "abc123",
 	})
 }
 
@@ -105,7 +105,7 @@ func TestAgentkitInsideABoxRunsAfAgentRunWithOnlyTheVendorKey_TS_10_57(t *testin
 
 	// Without the key the brain is not made, as failed/auth, whatever the placement.
 	for _, borrowed := range []bool{false} {
-		b, err := Default.New(AgentkitName, Options{Provider: "landlock", BorrowedHands: borrowed, Getenv: hostWith(nil)})
+		b, err := Default.New(AgentkitName, Options{Provider: "landlock", BorrowedHands: borrowed, Getenv: envOf(nil)})
 		f := asFailure(t, err)
 		if b != nil || f.Category != toolio.CategoryAuth || f.FixHint == nil || f.FixHint.Env != "ANTHROPIC_API_KEY" {
 			t.Errorf("without the key: %v, %+v, want failed/auth with the variable", b, f)

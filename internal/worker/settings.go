@@ -16,8 +16,8 @@ import (
 // of the attempt, each with its default and its range. A variable that is unset or empty takes
 // its default, an unknown one is ignored, and one out of its range refuses the attempt.
 type Settings struct {
-	// Brain is agentkit or claude: AF_BRAIN_TRIAGE or AF_BRAIN_FIX, then AF_BRAIN. The scripted
-	// brain is not one a variable may name: it needs a script file on the worker.
+	// Brain is agentkit, the one brain of the service. The scripted brain of the tests is not one a
+	// variable may name: it needs a script file on the worker.
 	Brain string
 	// Model is AF_MODEL, or the catalog's default Anthropic model. The session names it, the brain
 	// runs it and the usage record carries it.
@@ -64,18 +64,7 @@ func resolveSettings(kind jobs.Kind, vars map[string]string) (Settings, *varErro
 		Timeout: 15 * time.Minute, MaxAttempts: defaultMaxAttempts, Land: "pr", TriggersOn: triggersOn(vars["AF_POLL_INTERVAL"]),
 	}
 	if kind == jobs.KindFix {
-		s.Brain, s.Budget, s.MaxTurns, s.Timeout = "claude", 10, 150, 45*time.Minute
-	}
-
-	brainVars := []string{"AF_BRAIN_" + strings.ToUpper(string(kind)), "AF_BRAIN"}
-	for _, name := range brainVars {
-		if v := vars[name]; v != "" {
-			if v != "agentkit" && v != "claude" {
-				return s, &varError{name, v, "agentkit or claude"}
-			}
-			s.Brain = v
-			break
-		}
+		s.Budget, s.MaxTurns, s.Timeout = 10, 150, 45*time.Minute
 	}
 	if v := vars["AF_MODEL"]; v != "" {
 		s.Model = v

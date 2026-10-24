@@ -628,22 +628,18 @@ func isoboxFor(t *testing.T) {
 	box.Default.Register(entry)
 }
 
-// TestTheDriverInABoxIsNotGivenTheStateOfTheRunAndClaudeIsNotOfferedTheTool guards the two
-// facts the loop passes to a round from the brain that runs it: the driver of AgentKit that
-// runs in the box finds no fix.json in its run directory (it would be the round of the host),
-// and a brain that submits with the command alone is not told of the tool.
-func TestTheDriverInABoxIsNotGivenTheStateOfTheRunAndClaudeIsNotOfferedTheTool(t *testing.T) {
+// TestABrainInABoxIsNotGivenTheStateOfTheRun guards what a round places in the box: the driver
+// of AgentKit that runs in the box finds no fix.json in its run directory (it would be the
+// round of the host), nor does a brain on the host, and each is told of the tool.
+func TestABrainInABoxIsNotGivenTheStateOfTheRun(t *testing.T) {
 	requireMake(t)
 	isoboxFor(t)
 	for _, tc := range []struct {
-		name         string
-		entry        brain.Entry
-		wantState    bool
-		wantToolText bool
+		name  string
+		entry brain.Entry
 	}{
-		{"the driver in the box", brain.Entry{Name: "spy", DriverInBox: true}, false, true},
-		{"a brain with hands of its own", brain.Entry{Name: "spy", OwnHands: true, CommandRoute: true}, true, false},
-		{"a brain on the host", brain.Entry{Name: "spy"}, true, true},
+		{"the driver in the box", brain.Entry{Name: "spy", DriverInBox: true}},
+		{"a brain on the host", brain.Entry{Name: "spy"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
@@ -668,8 +664,8 @@ func TestTheDriverInABoxIsNotGivenTheStateOfTheRunAndClaudeIsNotOfferedTheTool(t
 			if provider != "isobox" {
 				t.Fatalf("the brain ran in the box %q", provider)
 			}
-			if hasState != tc.wantState || mentionsTool != tc.wantToolText {
-				t.Errorf("fix.json in the box: %v, the task names submit_fix: %v; want %v and %v", hasState, mentionsTool, tc.wantState, tc.wantToolText)
+			if hasState || !mentionsTool {
+				t.Errorf("fix.json in the box: %v, the task names submit_fix: %v; want no fix.json and the tool named", hasState, mentionsTool)
 			}
 		})
 	}

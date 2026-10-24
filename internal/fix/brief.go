@@ -229,9 +229,6 @@ type TaskParams struct {
 	// PreviousAttempt is why the previous attempt ended, in the first round of a
 	// later attempt.
 	PreviousAttempt string
-	// CommandOnly says the brain has no submit_fix tool, and submits with the command
-	// alone.
-	CommandOnly bool
 }
 
 // TaskBlock renders the run-specific end of the brief: the earlier questions with
@@ -274,11 +271,6 @@ func TaskBlock(p TaskParams) string {
 	}
 	if p.Refusal != nil {
 		b.WriteString(refusalText(*p.Refusal) + "\n")
-	}
-	if p.CommandOnly {
-		fmt.Fprintf(&b, "When the change is done, submit your report by running `af fix submit --run-id %s` with the "+
-			"report as JSON on stdin.\n", p.RunID)
-		return b.String()
 	}
 	fmt.Fprintf(&b, "When the change is done, submit your report by running `af fix submit --run-id %s` with the "+
 		"report as JSON on stdin, or by calling the `submit_fix` tool with the report as its input.\n", p.RunID)

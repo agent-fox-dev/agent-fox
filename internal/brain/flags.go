@@ -22,7 +22,6 @@ const (
 const (
 	AgentkitName = "agentkit"
 	ScriptedName = "scripted"
-	ClaudeName   = "claude"
 )
 
 // sandboxVar is the variable that names the box provider when --sandbox does not.
@@ -64,7 +63,7 @@ func Flags(fs *flag.FlagSet, d Defaults) *Settings {
 		d.Brain = AgentkitName
 	}
 	s := &Settings{}
-	fs.StringVar(&s.Brain, "brain", d.Brain, "the `brain` that runs the brief: agentkit, scripted or claude")
+	fs.StringVar(&s.Brain, "brain", d.Brain, "the `brain` that runs the brief: agentkit, or scripted for a test")
 	fs.StringVar(&s.Sandbox, "sandbox", d.Sandbox, "the box `provider` that holds the tree: landlock, podman, local or none; without it AF_SANDBOX, else landlock on Linux and podman anywhere else. local and none have no isolation")
 	fs.Float64Var(&s.Budget, "budget", d.Budget, "stop the brain after this many `dollars` of model cost")
 	fs.IntVar(&s.MaxTurns, "max-turns", d.MaxTurns, "stop the brain after this many `turns`")

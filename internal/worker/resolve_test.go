@@ -18,8 +18,8 @@ import (
 
 // TestVariablesApplyWithTheirDefaultsAndRangesAndReachTheLoopAsFlags_TS_13_27 verifies TS-13-27:
 // variables that are unset or empty take the defaults, the boundary values of the ranges are
-// accepted, unknown variables are ignored, AF_BRAIN_FIX is read before AF_BRAIN, and the loop
-// is given the resolved values as flags.
+// accepted, unknown variables (AF_BRAIN among them) are ignored, and the loop is given the
+// resolved values as flags.
 // Verifies: 13-REQ-4.1
 func TestVariablesApplyWithTheirDefaultsAndRangesAndReachTheLoopAsFlags_TS_13_27(t *testing.T) {
 	model := catalog.Default().DefaultModelID("anthropic")
@@ -37,39 +37,30 @@ func TestVariablesApplyWithTheirDefaultsAndRangesAndReachTheLoopAsFlags_TS_13_27
 			Settings{Brain: "agentkit", Model: model, Budget: 2, MaxTurns: 100, Timeout: 15 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
 			"--brain agentkit --budget 2 --max-turns 100 --timeout 15m0s"},
 		{"fix defaults", jobs.KindFix, map[string]string{},
-			Settings{Brain: "claude", Model: model, Budget: 10, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
-			"--brain claude --budget 10 --max-turns 150 --timeout 45m0s --attempts 1 --land pr"},
+			Settings{Brain: "agentkit", Model: model, Budget: 10, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
+			"--brain agentkit --budget 10 --max-turns 150 --timeout 45m0s --attempts 1 --land pr"},
 		{"empty values are unset", jobs.KindFix,
-			map[string]string{"AF_BRAIN": "", "AF_BRAIN_FIX": "", "AF_MODEL": "", "AF_MAX_BUDGET_USD": "", "AF_MAX_TURNS": "", "AF_TIMEOUT": "", "AF_MAX_ATTEMPTS": "", "AF_SANDBOX_PROFILE": "", "AF_FIX_LAND": ""},
-			Settings{Brain: "claude", Model: model, Budget: 10, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
-			"--brain claude --budget 10 --max-turns 150 --timeout 45m0s --attempts 1 --land pr"},
+			map[string]string{"AF_MODEL": "", "AF_MAX_BUDGET_USD": "", "AF_MAX_TURNS": "", "AF_TIMEOUT": "", "AF_MAX_ATTEMPTS": "", "AF_SANDBOX_PROFILE": "", "AF_FIX_LAND": ""},
+			Settings{Brain: "agentkit", Model: model, Budget: 10, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
+			"--brain agentkit --budget 10 --max-turns 150 --timeout 45m0s --attempts 1 --land pr"},
 		{"the lower boundaries", jobs.KindTriage,
 			map[string]string{"AF_TIMEOUT": "1m", "AF_MAX_ATTEMPTS": "1", "AF_MAX_TURNS": "1", "AF_MAX_BUDGET_USD": "0.01", "AF_MODEL": "m-1", "AF_SANDBOX_PROFILE": "py"},
 			Settings{Brain: "agentkit", Model: "m-1", Budget: 0.01, MaxTurns: 1, Timeout: time.Minute, MaxAttempts: 1, Profile: "py", Land: "pr", TriggersOn: true},
 			"--brain agentkit --budget 0.01 --max-turns 1 --timeout 1m0s"},
 		{"the upper boundaries", jobs.KindFix,
 			map[string]string{"AF_TIMEOUT": "24h", "AF_MAX_ATTEMPTS": "10", "AF_FIX_LAND": "branch"},
-			Settings{Brain: "claude", Model: model, Budget: 10, MaxTurns: 150, Timeout: 24 * time.Hour, MaxAttempts: 10, Land: "branch", TriggersOn: true},
-			"--brain claude --budget 10 --max-turns 150 --timeout 24h0m0s --attempts 1 --land branch"},
-		{"AF_BRAIN_FIX over AF_BRAIN", jobs.KindFix, map[string]string{"AF_BRAIN": "claude", "AF_BRAIN_FIX": "agentkit", "AF_BRAIN_TRIAGE": "claude"},
-			Settings{Brain: "agentkit", Model: model, Budget: 10, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
-			"--brain agentkit --budget 10 --max-turns 150 --timeout 45m0s --attempts 1 --land pr"},
+			Settings{Brain: "agentkit", Model: model, Budget: 10, MaxTurns: 150, Timeout: 24 * time.Hour, MaxAttempts: 10, Land: "branch", TriggersOn: true},
+			"--brain agentkit --budget 10 --max-turns 150 --timeout 24h0m0s --attempts 1 --land branch"},
 		{"fractions of a dollar", jobs.KindTriage, map[string]string{"AF_MAX_BUDGET_USD": "12.375"},
 			Settings{Brain: "agentkit", Model: model, Budget: 12.375, MaxTurns: 100, Timeout: 15 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
 			"--brain agentkit --budget 12.375 --max-turns 100 --timeout 15m0s"},
 		{"very small and very large budgets", jobs.KindFix, map[string]string{"AF_MAX_BUDGET_USD": "0.00001"},
-			Settings{Brain: "claude", Model: model, Budget: 0.00001, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
-			"--brain claude --budget 0.00001 --max-turns 150 --timeout 45m0s --attempts 1 --land pr"},
-		{"AF_BRAIN_TRIAGE over AF_BRAIN", jobs.KindTriage, map[string]string{"AF_BRAIN": "claude", "AF_BRAIN_TRIAGE": "agentkit", "AF_BRAIN_FIX": "claude"},
-			Settings{Brain: "agentkit", Model: model, Budget: 2, MaxTurns: 100, Timeout: 15 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
-			"--brain agentkit --budget 2 --max-turns 100 --timeout 15m0s"},
-		{"AF_BRAIN alone", jobs.KindTriage, map[string]string{"AF_BRAIN": "claude"},
-			Settings{Brain: "claude", Model: model, Budget: 2, MaxTurns: 100, Timeout: 15 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
-			"--brain claude --budget 2 --max-turns 100 --timeout 15m0s"},
-		{"unknown variables are ignored", jobs.KindFix, map[string]string{"AF_UNKNOWN": "x", "PATH": "/nowhere", "AF_LABEL_PREFIX": "z:", "AF_SANDBOX": "none", "AF_BRAIN_OTHER": "scripted"},
-			Settings{Brain: "claude", Model: model, Budget: 10, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
-			"--brain claude --budget 10 --max-turns 150 --timeout 45m0s --attempts 1 --land pr"},
-		{"a variable of the other kind is not looked at", jobs.KindTriage, map[string]string{"AF_BRAIN_FIX": "scripted", "AF_FIX_LAND": "weird"},
+			Settings{Brain: "agentkit", Model: model, Budget: 0.00001, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
+			"--brain agentkit --budget 0.00001 --max-turns 150 --timeout 45m0s --attempts 1 --land pr"},
+		{"unknown variables are ignored", jobs.KindFix, map[string]string{"AF_UNKNOWN": "x", "PATH": "/nowhere", "AF_LABEL_PREFIX": "z:", "AF_SANDBOX": "none", "AF_BRAIN": "claude", "AF_BRAIN_FIX": "scripted"},
+			Settings{Brain: "agentkit", Model: model, Budget: 10, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
+			"--brain agentkit --budget 10 --max-turns 150 --timeout 45m0s --attempts 1 --land pr"},
+		{"a variable of the other kind is not looked at", jobs.KindTriage, map[string]string{"AF_FIX_LAND": "weird"},
 			Settings{Brain: "agentkit", Model: model, Budget: 2, MaxTurns: 100, Timeout: 15 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
 			"--brain agentkit --budget 2 --max-turns 100 --timeout 15m0s"},
 	}
@@ -97,29 +88,24 @@ var badVariables = []struct {
 	kind  jobs.Kind
 	name  string
 	value string
-	vars  map[string]string
 }{
-	{jobs.KindFix, "AF_MAX_BUDGET_USD", "0", nil},
-	{jobs.KindFix, "AF_MAX_BUDGET_USD", "NaN", nil},
-	{jobs.KindFix, "AF_MAX_BUDGET_USD", "-3", nil},
-	{jobs.KindTriage, "AF_MAX_BUDGET_USD", "lots", nil},
-	{jobs.KindTriage, "AF_MAX_BUDGET_USD", "Inf", nil},
-	{jobs.KindFix, "AF_MAX_TURNS", "0", nil},
-	{jobs.KindFix, "AF_MAX_TURNS", "1.5", nil},
-	{jobs.KindTriage, "AF_MAX_TURNS", "many", nil},
-	{jobs.KindFix, "AF_TIMEOUT", "30s", nil},
-	{jobs.KindFix, "AF_TIMEOUT", "25h", nil},
-	{jobs.KindTriage, "AF_TIMEOUT", "soon", nil},
-	{jobs.KindTriage, "AF_TIMEOUT", "59s", nil},
-	{jobs.KindFix, "AF_MAX_ATTEMPTS", "11", nil},
-	{jobs.KindFix, "AF_MAX_ATTEMPTS", "0", nil},
-	{jobs.KindFix, "AF_MAX_ATTEMPTS", "two", nil},
-	{jobs.KindFix, "AF_BRAIN", "scripted", nil},
-	{jobs.KindFix, "AF_BRAIN_FIX", "scripted", map[string]string{"AF_BRAIN": "claude"}},
-	{jobs.KindTriage, "AF_BRAIN_TRIAGE", "gpt", nil},
-	{jobs.KindTriage, "AF_BRAIN", "", map[string]string{"AF_BRAIN": " claude"}},
-	{jobs.KindFix, "AF_FIX_LAND", "weird", nil},
-	{jobs.KindFix, "AF_FIX_LAND", "PR", nil},
+	{jobs.KindFix, "AF_MAX_BUDGET_USD", "0"},
+	{jobs.KindFix, "AF_MAX_BUDGET_USD", "NaN"},
+	{jobs.KindFix, "AF_MAX_BUDGET_USD", "-3"},
+	{jobs.KindTriage, "AF_MAX_BUDGET_USD", "lots"},
+	{jobs.KindTriage, "AF_MAX_BUDGET_USD", "Inf"},
+	{jobs.KindFix, "AF_MAX_TURNS", "0"},
+	{jobs.KindFix, "AF_MAX_TURNS", "1.5"},
+	{jobs.KindTriage, "AF_MAX_TURNS", "many"},
+	{jobs.KindFix, "AF_TIMEOUT", "30s"},
+	{jobs.KindFix, "AF_TIMEOUT", "25h"},
+	{jobs.KindTriage, "AF_TIMEOUT", "soon"},
+	{jobs.KindTriage, "AF_TIMEOUT", "59s"},
+	{jobs.KindFix, "AF_MAX_ATTEMPTS", "11"},
+	{jobs.KindFix, "AF_MAX_ATTEMPTS", "0"},
+	{jobs.KindFix, "AF_MAX_ATTEMPTS", "two"},
+	{jobs.KindFix, "AF_FIX_LAND", "weird"},
+	{jobs.KindFix, "AF_FIX_LAND", "PR"},
 }
 
 // TestAVariableOutOfRangeFailsTheAttemptAsConfigBeforeASessionOpens_TS_13_28 verifies TS-13-28:
@@ -130,15 +116,7 @@ func TestAVariableOutOfRangeFailsTheAttemptAsConfigBeforeASessionOpens_TS_13_28(
 	for _, bad := range badVariables {
 		name := fmt.Sprintf("%s %s=%q", bad.kind, bad.name, bad.value)
 		t.Run(name, func(t *testing.T) {
-			vars := map[string]string{bad.name: bad.value}
-			for k, v := range bad.vars {
-				vars[k] = v
-			}
-			if bad.value == "" {
-				vars = bad.vars
-				bad.value = vars[bad.name]
-			}
-			e := newEnv(t, fakehub.Workspace{Vars: vars})
+			e := newEnv(t, fakehub.Workspace{Vars: map[string]string{bad.name: bad.value}})
 
 			res, err := e.run(e.request(bad.kind, issueInput("42")))
 
@@ -177,10 +155,9 @@ func TestAVariableOutOfRangeFailsTheAttemptAsConfigBeforeASessionOpens_TS_13_28(
 // Verifies: 13-REQ-4.6
 func TestAFixOnACarryPatchWorkspaceOrWithPatchLandingIsRefusedAsUnsupported_TS_13_31(t *testing.T) {
 	for name, w := range map[string]fakehub.Workspace{
-		"a carry_patch workspace":      {Mode: "carry_patch", Files: map[string]string{"a": "b"}},
-		"AF_FIX_LAND=patch":            {Vars: map[string]string{"AF_FIX_LAND": "patch"}, Files: map[string]string{"a": "b"}},
-		"both":                         {Mode: "carry_patch", Vars: map[string]string{"AF_FIX_LAND": "patch"}, Files: map[string]string{"a": "b"}},
-		"a carry_patch workspace, fix": {Mode: "carry_patch", Vars: map[string]string{"AF_BRAIN": "claude"}, Files: map[string]string{"a": "b"}},
+		"a carry_patch workspace": {Mode: "carry_patch", Files: map[string]string{"a": "b"}},
+		"AF_FIX_LAND=patch":       {Vars: map[string]string{"AF_FIX_LAND": "patch"}, Files: map[string]string{"a": "b"}},
+		"both":                    {Mode: "carry_patch", Vars: map[string]string{"AF_FIX_LAND": "patch"}, Files: map[string]string{"a": "b"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := newEnv(t, w)

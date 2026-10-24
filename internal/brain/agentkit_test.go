@@ -99,19 +99,18 @@ func toolNames(req core.Request) []string {
 }
 
 // TestTheDefaultRegistryHasBothBrains_TS_07_2 verifies TS-07-2:
-// an unknown brain name is a usage failure that lists the registered names. (Spec 10
-// registers claude beside the two of spec 07.)
+// an unknown brain name is a usage failure that lists the registered names.
 // Verifies: 07-REQ-1.2
 func TestTheDefaultRegistryHasBothBrains_TS_07_2(t *testing.T) {
-	if names := Default.Names(); !slices.Equal(names, []string{"agentkit", "claude", "scripted"}) {
-		t.Errorf("the default registry has %v, want agentkit, claude and scripted", names)
+	if names := Default.Names(); !slices.Equal(names, []string{"agentkit", "scripted"}) {
+		t.Errorf("the default registry has %v, want agentkit and scripted", names)
 	}
 
-	b, err := Default.New("claude-x", Options{})
+	b, err := Default.New("claude", Options{})
 
 	f := asFailure(t, err)
-	if b != nil || f.Category != toolio.CategoryUsage || !strings.Contains(f.Message, "agentkit") || !strings.Contains(f.Message, "claude, scripted") || !strings.Contains(f.Message, "claude-x") {
-		t.Errorf("New = %v, %v; want a usage failure that lists agentkit, claude and scripted", b, err)
+	if b != nil || f.Category != toolio.CategoryUsage || !strings.Contains(f.Message, "agentkit, scripted") || !strings.Contains(f.Message, `"claude"`) {
+		t.Errorf("New = %v, %v; want a usage failure that lists agentkit and scripted", b, err)
 	}
 	for _, name := range []string{AgentkitName, ScriptedName} {
 		if e, err := Default.Lookup(name); err != nil || len(e.CredentialNames(PlacementHost)) != 0 {

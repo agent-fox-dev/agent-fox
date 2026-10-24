@@ -20,8 +20,8 @@ import (
 const sentinelKey = "sk-ant-sentinel-key-of-the-host"
 
 // gatewayWorld is a fake hub with a lease, a registry whose gateway provider is the one of the
-// lease, wrapped so that the commands its boxes run are recorded, and the fake af and claude
-// first on the PATH that the gateway's local backend gives its boxes.
+// lease, wrapped so that the commands its boxes run are recorded, and the fake af first on
+// the PATH that the gateway's local backend gives its boxes.
 type gatewayWorld struct {
 	hub *fakehub.Hub
 	reg *box.Registry
@@ -30,7 +30,7 @@ type gatewayWorld struct {
 
 func newGatewayWorld(t *testing.T) *gatewayWorld {
 	t.Helper()
-	bin, af, _ := fakeBin(t)
+	bin, af := fakeBin(t)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	h := fakehub.New(t)
 	h.AddWorkspace(t, fakehub.Workspace{Slug: "acme", PAT: "pat-for-the-brain-tests"})
@@ -54,7 +54,7 @@ func newGatewayWorld(t *testing.T) *gatewayWorld {
 
 // TestABrainInAGatewayBoxNeedsNoHostKeyAndNamesItsCredentialsByReference_TS_13_45 verifies
 // TS-13-45: with a lookup of the environment that yields nothing, while the process holds the
-// key, the brains that run in a box start in a gateway box without a key; a process they start
+// key, the brain that runs in a box starts in a gateway box without a key; a process they start
 // there is told the name of the key as a reference to the box's own environment, and the
 // command holds the reference and not the value. A box whose environment is not its own is
 // told no name that its spec does not hold, and a brain there still needs the key.
@@ -64,19 +64,6 @@ func TestABrainInAGatewayBoxNeedsNoHostKeyAndNamesItsCredentialsByReference_TS_1
 	w := newGatewayWorld(t)
 	opts := Options{Getenv: noEnv, Provider: box.GatewayName, Boxes: w.reg, AFVersion: "v1.0.0", AFCommit: "abc123"}
 
-	if _, err := newClaude(opts); err != nil {
-		t.Errorf("the claude brain in a gateway box needs no host key: %v", err)
-	}
-	// Nor does it need claude on this machine: the image has it, and it is called by name.
-	t.Run("no claude on the host", func(t *testing.T) {
-		t.Setenv("PATH", t.TempDir())
-		if _, err := newClaude(opts); err != nil {
-			t.Errorf("the claude brain in a gateway box needs claude on the host: %v", err)
-		}
-		if _, err := newClaude(Options{Getenv: noEnv, Provider: "local"}); err == nil {
-			t.Error("the claude brain under local started with no claude on the host")
-		}
-	})
 	if _, err := newAgentkitInBox(opts); err != nil {
 		t.Errorf("the agentkit brain in a gateway box needs no host key: %v", err)
 	}
@@ -91,9 +78,6 @@ func TestABrainInAGatewayBoxNeedsNoHostKeyAndNamesItsCredentialsByReference_TS_1
 		t.Fatal("the local provider supplies credentials")
 	}
 	noKey := Options{Getenv: noEnv, Provider: "local"}
-	if _, err := newClaude(noKey); err == nil {
-		t.Error("the claude brain under local started without a key")
-	}
 	if _, err := newAgentkitInBox(noKey); err == nil {
 		t.Error("the agentkit brain in a local box started without a key")
 	}
@@ -118,7 +102,7 @@ func TestABrainInAGatewayBoxNeedsNoHostKeyAndNamesItsCredentialsByReference_TS_1
 			t.Fatalf("Run: %v", err)
 		}
 	}
-	spec := ProcessSpec{Brain: ClaudeName, Program: ProgramAF, Args: []string{"--version"}, Credentials: []string{VendorKeyVar}, Probes: []string{ProgramAF}}
+	spec := ProcessSpec{Brain: AgentkitName, Args: []string{"--version"}, Credentials: []string{VendorKeyVar}}
 	run(s, spec)
 
 	var holding []string
@@ -146,7 +130,7 @@ func TestABrainInAGatewayBoxNeedsNoHostKeyAndNamesItsCredentialsByReference_TS_1
 	}
 	t.Cleanup(func() { _ = ps.Close() })
 	before := len(w.hub.Gateway().Commands())
-	run(ps, ProcessSpec{Brain: ClaudeName, Program: ProgramAF, Args: []string{"--version"}, Credentials: []string{VendorKeyVar}, Probes: []string{ProgramAF}})
+	run(ps, spec)
 	for _, c := range w.hub.Gateway().Commands()[before:] {
 		if strings.Contains(c.Command, VendorKeyVar) {
 			t.Errorf("a box that supplies no credentials of its own was told to refer to %s: %s", VendorKeyVar, c.Command)
@@ -171,7 +155,7 @@ func TestTheProbeIsSharedByEveryRunnerOfASession(t *testing.T) {
 	t.Cleanup(func() { _ = s.Close() })
 	b := Brief{RunID: rd.ID, Attempt: 1, Box: s, RunDir: rd.Path, Timeout: time.Minute, Warn: func(string, string) {}}
 	for range 2 {
-		spec := ProcessSpec{Brain: "ring1", Program: ProgramAF, Args: []string{"--version"}, Probes: []string{ProgramAF}}
+		spec := ProcessSpec{Brain: "ring1", Args: []string{"--version"}}
 		if _, err := NewProcess(opts.ProcessConfig()).Run(context.Background(), b, spec); err != nil {
 			t.Fatal(err)
 		}
@@ -188,78 +172,17 @@ func TestTheProbeIsSharedByEveryRunnerOfASession(t *testing.T) {
 	}
 }
 
-// TestTheClaudeBrainRunsInAGatewayBoxWithItsKeyByReference verifies the claude brain end to end in
-// a gateway box: no key on the host, the process told the name of the key and not its value,
-// and claude run by name in the box.
-func TestTheClaudeBrainRunsInAGatewayBoxWithItsKeyByReference(t *testing.T) {
-	t.Setenv(VendorKeyVar, sentinelKey)
-	w := newGatewayWorld(t)
-	_, af, claude := fakeBin(t)
-	opts := Options{Getenv: noEnv, Provider: box.GatewayName, Boxes: w.reg, AFVersion: "v1.0.0", AFCommit: "abc123"}
-	entry, err := Default.Lookup(ClaudeName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gw, err := w.reg.Lookup(box.GatewayName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := newRepo(t)
-	rd := newRunDir(t, dir)
-	req := BoxRequest(BoxParams{
-		Brain: entry, Provider: gw, Getenv: noEnv, Tools: []string{"read_file", "list_files"}, HostDir: dir, RunID: rd.ID, Tool: "fix",
-		Record: rd.Record, Warn: func(string, string) {}, Registry: w.reg,
-	})
-	if len(req.Env) != 0 {
-		t.Fatalf("the request for the box holds the environment %v", req.Env)
-	}
-	s, err := box.Open(context.Background(), req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-	b, err := Default.New(ClaudeName, opts)
-	if err != nil {
-		t.Fatalf("the claude brain in a gateway box: %v", err)
-	}
-	cw := &claudeWorld{procWorld: &procWorld{world: &world{t: t, dir: dir, run: rd, session: s, report: &recorder{}}, af: af, claude: claude}, brain: b}
-
-	if _, err := cw.runClaude(1, nil); err != nil {
-		t.Fatal(err)
-	}
-
-	if runs := cw.runsOf(ProgramClaude); len(runs) != 1 {
-		t.Fatalf("claude ran %d times in the box", len(runs))
-	}
-	var holding int
-	for _, c := range w.hub.Gateway().Commands() {
-		if strings.Contains(c.Command, sentinelKey) {
-			t.Errorf("a command holds the value of the key: %s", c.Command)
-		}
-		if strings.Contains(c.Command, `ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"`) && strings.Contains(c.Command, `'claude'`) {
-			holding++
-		}
-	}
-	if holding != 1 {
-		t.Errorf("%d commands run claude with the key by reference, want one", holding)
-	}
-}
-
-// TestTheProcessesOfTheBrainsNameTheVendorKeyAndHoldNoValue pins what each brain asks of a box that
+// TestTheProcessOfTheBrainNamesTheVendorKeyAndHoldsNoValue pins what the brain asks of a box that
 // supplies the credentials: the name of the vendor key, as the one credential, and nothing that
 // holds a value of it.
 // Verifies: 13-REQ-6.5
-func TestTheProcessesOfTheBrainsNameTheVendorKeyAndHoldNoValue(t *testing.T) {
+func TestTheProcessOfTheBrainNamesTheVendorKeyAndHoldsNoValue(t *testing.T) {
 	t.Setenv(VendorKeyVar, sentinelKey)
-	for name, spec := range map[string]ProcessSpec{
-		"agentkit": agentkitProcess([]string{"fix", "run"}, map[string]string{"AF_MODEL": "m1"}),
-		"claude":   claudeProcess([]string{"-p"}),
-	} {
-		if !slices.Equal(spec.Credentials, []string{VendorKeyVar}) {
-			t.Errorf("%s: credentials = %v, want the name of the vendor key alone", name, spec.Credentials)
-		}
-		if strings.Contains(strings.Join(spec.Args, " ")+fmt.Sprint(spec.Inline), sentinelKey) {
-			t.Errorf("%s: the spec holds the value of the key", name)
-		}
+	spec := agentkitProcess([]string{"fix", "run"}, map[string]string{"AF_MODEL": "m1"})
+	if !slices.Equal(spec.Credentials, []string{VendorKeyVar}) {
+		t.Errorf("credentials = %v, want the name of the vendor key alone", spec.Credentials)
+	}
+	if strings.Contains(strings.Join(spec.Args, " ")+fmt.Sprint(spec.Inline), sentinelKey) {
+		t.Error("the spec holds the value of the key")
 	}
 }

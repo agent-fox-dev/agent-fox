@@ -175,10 +175,7 @@ func TestLoadPolicyRefusesWhatCannotBeUsed(t *testing.T) {
 // Verifies: 06-REQ-8.2
 func TestWriteTools_TS_06_56(t *testing.T) {
 	tmp := filepath.Join(os.TempDir(), "af-policy-test", "x.txt")
-	tools := map[string]string{
-		"Write": "file_path", "Edit": "file_path", "MultiEdit": "file_path", "NotebookEdit": "notebook_path",
-		"write_file": "path", "edit_file": "path",
-	}
+	tools := map[string]string{"write_file": "path", "edit_file": "path"}
 	for tool, field := range tools {
 		for _, tc := range []struct {
 			path, decision, rule string
@@ -216,22 +213,22 @@ func TestWriteTools_TS_06_56(t *testing.T) {
 	}
 
 	// A tool reads the field that is its own.
-	if d := Decide(defaultPolicy(), dir, "NotebookEdit", map[string]any{"file_path": ".specs/x"}); d.Decision != Deny {
-		t.Errorf("a NotebookEdit with a file_path: %+v, want a denial: a write call that names no path in its own field cannot be judged", d)
+	if d := Decide(defaultPolicy(), dir, "write_file", map[string]any{"file_path": ".specs/x"}); d.Decision != Deny {
+		t.Errorf("a write_file with a file_path: %+v, want a denial: a write call that names no path in its own field cannot be judged", d)
 	}
-	for _, in := range []map[string]any{nil, {}, {"file_path": 7}, {"file_path": ""}} {
-		d := Decide(defaultPolicy(), dir, "Write", in)
+	for _, in := range []map[string]any{nil, {}, {"path": 7}, {"path": ""}} {
+		d := Decide(defaultPolicy(), dir, "write_file", in)
 		if d.Decision != Deny || d.Rule != RuleUnparseable || d.Segment == "" || d.Reason == "" {
-			t.Errorf("a Write with %v: %+v, want a denial by unparseable: there is no path to judge", in, d)
+			t.Errorf("a write_file with %v: %+v, want a denial by unparseable: there is no path to judge", in, d)
 		}
 	}
 	// A policy with no protected paths protects none, and still keeps the
 	// checkout.
 	open := Policy{}
-	if d := Decide(open, dir, "Write", input("file_path", ".specs/x")); d.Decision != Allow {
+	if d := Decide(open, dir, "write_file", input("path", ".specs/x")); d.Decision != Allow {
 		t.Errorf("no protected paths: %+v", d)
 	}
-	if d := Decide(open, dir, "Write", input("file_path", "/etc/x")); d.Rule != RuleOutsideDir {
+	if d := Decide(open, dir, "write_file", input("path", "/etc/x")); d.Rule != RuleOutsideDir {
 		t.Errorf("no protected paths, outside the checkout: %+v", d)
 	}
 }
@@ -255,18 +252,18 @@ func TestWriteToolsInTheDirectoryOfASession(t *testing.T) {
 		{".specs/x", Deny, RuleProtectedPath},
 		{"../../outside", Deny, RuleOutsideDir},
 	} {
-		d := DecideAt(defaultPolicy(), dir, cwd, "Write", input("file_path", tc.path))
+		d := DecideAt(defaultPolicy(), dir, cwd, "write_file", input("path", tc.path))
 		if d.Decision != tc.decision || d.Rule != tc.rule {
-			t.Errorf("Write %s from %s: %+v, want %s by %q", tc.path, cwd, d, tc.decision, tc.rule)
+			t.Errorf("write_file %s from %s: %+v, want %s by %q", tc.path, cwd, d, tc.decision, tc.rule)
 		}
 	}
 	// And for a shell, which sees the .specs of the checkout from below it.
-	d := DecideAt(defaultPolicy(), dir, cwd, "Bash", map[string]any{"command": "echo x > ../.specs/a"})
+	d := DecideAt(defaultPolicy(), dir, cwd, "execute", map[string]any{"command": "echo x > ../.specs/a"})
 	if d.Rule != RuleProtectedPath {
 		t.Errorf("a redirection from a subdirectory: %+v", d)
 	}
 	// A directory outside the checkout is not a place to judge from.
-	d = DecideAt(defaultPolicy(), dir, "/elsewhere", "Write", input("file_path", "a.go"))
+	d = DecideAt(defaultPolicy(), dir, "/elsewhere", "write_file", input("path", "a.go"))
 	if d.Decision != Allow {
 		t.Errorf("a cwd outside the checkout is ignored: %+v", d)
 	}
@@ -277,7 +274,7 @@ func TestWriteToolsInTheDirectoryOfASession(t *testing.T) {
 // rule from the closed set, a segment and a reason.
 // Verifies: 06-REQ-8.3
 func TestUnknownToolsAreAllowed_TS_06_57(t *testing.T) {
-	for _, tool := range []string{"Read", "Grep", "WebFetch", "mcp__x", "run_command", "Glob", "Task", ""} {
+	for _, tool := range []string{"Bash", "Write", "read_file", "search_files", "mcp__x", "run_command", "list_files", ""} {
 		d := Decide(defaultPolicy(), dir, tool, map[string]any{"command": "git push", "file_path": ".specs/x", "path": "/etc/x", "argv": []any{"git", "push"}})
 		if d != (Decision{Decision: Allow}) {
 			t.Errorf("%q: %+v, want an allowance with nothing else", tool, d)
@@ -292,16 +289,16 @@ func TestUnknownToolsAreAllowed_TS_06_57(t *testing.T) {
 		tool  string
 		input map[string]any
 	}{
-		{"Bash", map[string]any{"command": `echo "x`}},
-		{"Bash", map[string]any{"command": "PATH=/x ls"}},
-		{"Bash", map[string]any{"command": "git push"}},
-		{"Bash", map[string]any{"command": "make check"}},
-		{"Bash", map[string]any{"command": "af fix land"}},
-		{"Bash", map[string]any{"command": "curl x"}},
-		{"Bash", map[string]any{"command": "ls > .specs/a"}},
-		{"Write", map[string]any{"file_path": "/etc/x"}},
-		{"Write", map[string]any{"file_path": ".specs/x"}},
-		{"Edit", nil},
+		{"execute", map[string]any{"command": `echo "x`}},
+		{"execute", map[string]any{"command": "PATH=/x ls"}},
+		{"execute", map[string]any{"command": "git push"}},
+		{"execute", map[string]any{"command": "make check"}},
+		{"execute", map[string]any{"command": "af fix land"}},
+		{"execute", map[string]any{"command": "curl x"}},
+		{"execute", map[string]any{"command": "ls > .specs/a"}},
+		{"write_file", map[string]any{"path": "/etc/x"}},
+		{"write_file", map[string]any{"path": ".specs/x"}},
+		{"edit_file", nil},
 	} {
 		d := Decide(p, dir, call.tool, call.input)
 		if d.Decision != Deny || !slices.Contains(rules, d.Rule) || d.Segment == "" || d.Reason == "" {

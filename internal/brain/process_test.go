@@ -42,11 +42,11 @@ func (p standIn) Create(ctx context.Context, spec sandbox.Spec) (sandbox.Sandbox
 	return p.Provider.Create(ctx, spec)
 }
 
-// procWorld is a world with the fake af and claude, and a runner that finds them.
+// procWorld is a world with the fake af, and a runner that finds it.
 type procWorld struct {
 	*world
-	bin, af, claude string
-	p               *Process
+	bin, af string
+	p       *Process
 }
 
 // newProcWorld opens a box of the provider (podman is the local provider under that
@@ -54,7 +54,7 @@ type procWorld struct {
 // for the host environment.
 func newProcWorld(t *testing.T, provider string, boxEnv map[string]string, getenv Getenv) *procWorld {
 	t.Helper()
-	bin, af, claude := fakeBin(t)
+	bin, af := fakeBin(t)
 	dir := newRepo(t)
 	rd := newRunDir(t, dir)
 	req := box.Request{Provider: provider, HostDir: dir, RunID: rd.ID, Tool: "fix", Record: rd.Record, Warn: func(string, string) {}, Env: boxEnv}
@@ -75,10 +75,8 @@ func newProcWorld(t *testing.T, provider string, boxEnv map[string]string, geten
 	if getenv == nil {
 		getenv = os.LookupEnv
 	}
-	pw := &procWorld{world: &world{t: t, dir: dir, run: rd, session: s, report: &recorder{}}, bin: bin, af: af, claude: claude}
-	pw.p = NewProcess(ProcessConfig{
-		AFPath: af, LookPath: func(string) (string, error) { return claude, nil }, Getenv: getenv, Version: "v1.0.0", Commit: "abc123",
-	})
+	pw := &procWorld{world: &world{t: t, dir: dir, run: rd, session: s, report: &recorder{}}, bin: bin, af: af}
+	pw.p = NewProcess(ProcessConfig{AFPath: af, Getenv: getenv, Version: "v1.0.0", Commit: "abc123"})
 	return pw
 }
 
@@ -157,22 +155,22 @@ func (w *procWorld) probes() []map[string]any {
 	return out
 }
 
-func claudeSpec() ProcessSpec {
-	return ProcessSpec{Brain: "claude", Program: ProgramClaude, Args: []string{"-p", "--output-format", "json"}, Probes: []string{ProgramAF, ProgramClaude}}
+// afSpec is the process of a brain that runs af in the box.
+func afSpec() ProcessSpec {
+	return ProcessSpec{Brain: AgentkitName, Args: []string{"triage", "run"}}
 }
 
 // TestTheProbeRunsOnceForASessionAndRecordsEachBinary_TS_10_39 verifies TS-10-39: two
-// runs in one session run af --version and claude --version once, each probe is a
-// box_probe entry with the binary, ok and the version, and a run of a brain that is
-// not claude probes af and not claude.
+// runs in one session run af --version once, and each probe is a box_probe entry with
+// the binary, ok and the version.
 // Verifies: 10-REQ-7.2
 func TestTheProbeRunsOnceForASessionAndRecordsEachBinary_TS_10_39(t *testing.T) {
 	w := newProcWorld(t, "local", nil, nil)
-	w.script(fakeScript{AFVersion: "v1.2.3", ClaudeVersion: "2.0.5"})
+	w.script(fakeScript{AFVersion: "v1.2.3"})
 	ctx := context.Background()
 
 	for attempt := 1; attempt <= 2; attempt++ {
-		res, err := w.p.Run(ctx, w.processBrief(attempt), claudeSpec())
+		res, err := w.p.Run(ctx, w.processBrief(attempt), afSpec())
 		if err != nil || res.ExitCode != 0 {
 			t.Fatalf("attempt %d: %+v, %v", attempt, res, err)
 		}
@@ -184,38 +182,23 @@ func TestTheProbeRunsOnceForASessionAndRecordsEachBinary_TS_10_39(t *testing.T) 
 			versions[r.Program]++
 		}
 	}
-	if versions[ProgramAF] != 1 || versions[ProgramClaude] != 1 {
-		t.Errorf("--version ran %v, want once for af and once for claude in a session of two runs", versions)
+	if len(versions) != 1 || versions[ProgramAF] != 1 {
+		t.Errorf("--version ran %v, want once for af in a session of two runs", versions)
 	}
-	if n := len(w.runsOf(ProgramClaude)); n != 2 {
-		t.Errorf("claude ran %d times, want twice", n)
+	if n := len(w.runsOf(ProgramAF)); n != 2 {
+		t.Errorf("af ran %d times, want twice", n)
 	}
 	got := map[string]map[string]any{}
 	for _, p := range w.probes() {
 		got[p["binary"].(string)] = p
 	}
-	if len(w.probes()) != 3 || got["af"]["ok"] != true || got["af"]["version"] != "v1.2.3" ||
-		got["claude"]["ok"] != true || got["claude"]["version"] != "2.0.5 (Claude Code)" || got["HOME"]["ok"] != true {
-		t.Errorf("box_probe entries = %v, want af (v1.2.3), claude (2.0.5 (Claude Code)) and HOME, each ok, once", w.probes())
-	}
-
-	// A run of the driver inside a box needs af and no claude.
-	other := newProcWorld(t, "local", nil, nil)
-	if _, err := other.p.Run(ctx, other.processBrief(1), ProcessSpec{Brain: "agentkit", Program: ProgramAF, Args: []string{"triage", "run"}, Probes: []string{ProgramAF}}); err != nil {
-		t.Fatal(err)
-	}
-	for _, p := range other.probes() {
-		if p["binary"] == "claude" {
-			t.Errorf("a run of af probed claude: %v", other.probes())
-		}
-	}
-	if len(other.probes()) != 2 {
-		t.Errorf("box_probe entries = %v, want af and HOME", other.probes())
+	if len(w.probes()) != 2 || got["af"]["ok"] != true || got["af"]["version"] != "v1.2.3" || got["HOME"]["ok"] != true {
+		t.Errorf("box_probe entries = %v, want af (v1.2.3) and HOME, each ok, once", w.probes())
 	}
 }
 
 // TestAFailedProbeStopsBeforeTheBrainWithASandboxFailure_TS_10_40 verifies TS-10-40:
-// a claude that exits 127 on --version, a HOME that is unset and a HOME that cannot be
+// an af that fails on --version, a HOME that is unset and a HOME that cannot be
 // written are failed/sandbox, not retryable, name the binary (or HOME), the provider
 // and the image, record the probe as not ok, and the brain's command is never started.
 // Verifies: 10-REQ-7.3
@@ -225,8 +208,8 @@ func TestAFailedProbeStopsBeforeTheBrainWithASandboxFailure_TS_10_40(t *testing.
 		setup                  func(t *testing.T, w *procWorld)
 	}
 	for _, c := range []tc{
-		{"claude exits 127", "podman", "claude", func(t *testing.T, w *procWorld) {
-			w.script(fakeScript{VersionExit: map[string]int{"claude": 127}})
+		{"af exits 127", "podman", "af", func(t *testing.T, w *procWorld) {
+			w.script(fakeScript{VersionExit: map[string]int{"af": 127}})
 		}},
 		{"af exits 1", "local", "af", func(t *testing.T, w *procWorld) {
 			w.script(fakeScript{VersionExit: map[string]int{"af": 1}})
@@ -247,7 +230,7 @@ func TestAFailedProbeStopsBeforeTheBrainWithASandboxFailure_TS_10_40(t *testing.
 			w := newProcWorld(t, c.provider, nil, nil)
 			c.setup(t, w)
 
-			_, err := w.p.Run(context.Background(), w.processBrief(1), claudeSpec())
+			_, err := w.p.Run(context.Background(), w.processBrief(1), afSpec())
 
 			f := asFailure(t, err)
 			if f.Category != toolio.CategorySandbox || f.Retryable {
@@ -259,8 +242,8 @@ func TestAFailedProbeStopsBeforeTheBrainWithASandboxFailure_TS_10_40(t *testing.
 			if c.provider == "podman" && !strings.Contains(f.Message, "example.test/img:1") {
 				t.Errorf("message = %q, want it to name the image", f.Message)
 			}
-			if n := len(w.runsOf(ProgramClaude)); n != 0 {
-				t.Errorf("claude was started %d times after a probe that failed", n)
+			if n := len(w.runsOf(ProgramAF)); n != 0 {
+				t.Errorf("af was started %d times after a probe that failed", n)
 			}
 			var failed bool
 			for _, p := range w.probes() {
@@ -294,7 +277,7 @@ func TestADifferentAFVersionInTheImageIsAWarningAndTheRunGoesOn_TS_10_21(t *test
 			w.script(fakeScript{AFVersion: tc.version, AFCommit: tc.commit})
 
 			for attempt := 1; attempt <= 2; attempt++ {
-				res, err := w.p.Run(context.Background(), w.processBrief(attempt), claudeSpec())
+				res, err := w.p.Run(context.Background(), w.processBrief(attempt), afSpec())
 				if err != nil || res.ExitCode != 0 {
 					t.Fatalf("attempt %d = %+v, %v: a mismatch does not stop the run", attempt, res, err)
 				}
@@ -357,43 +340,27 @@ func unsetForTheTest(t *testing.T, name string) {
 	t.Cleanup(func() { _ = os.Setenv(name, old) })
 }
 
-func hostEnvOf(m map[string]string) Getenv {
-	return func(name string) (string, bool) { v, ok := m[name]; return v, ok }
-}
-
 // TestProgramsAreResolvedPerProvider_TS_10_41 verifies TS-10-41: under local, landlock
 // and none, af is the path it is given (or the running executable) with its directory
-// first on PATH and claude is the one found on the host; under podman both are called by
-// name with the PATH of the box.
+// first on PATH; under podman it is called by name with the PATH of the box.
 // Verifies: 10-REQ-7.4
 func TestProgramsAreResolvedPerProvider_TS_10_41(t *testing.T) {
-	cfg := ProcessConfig{
-		AFPath: "/x/bin/af", LookPath: func(string) (string, error) { return "/y/claude", nil },
-		Getenv: hostEnvOf(map[string]string{"PATH": "/usr/local/bin:/usr/bin"}),
-	}
+	cfg := ProcessConfig{AFPath: "/x/bin/af", Getenv: envOf(map[string]string{"PATH": "/usr/local/bin:/usr/bin"})}
 	for _, provider := range []string{"local", "landlock", "none"} {
-		af := commandFor(t, provider, cfg, ProcessSpec{Brain: "agentkit", Program: ProgramAF, Args: []string{"triage", "run"}}, nil)
-		claude := commandFor(t, provider, cfg, claudeSpec(), nil)
+		af := commandFor(t, provider, cfg, afSpec(), nil)
 		if !strings.Contains(af, `PATH='/x/bin:/usr/local/bin:/usr/bin'`) || !strings.Contains(af, ` '/x/bin/af' 'triage' 'run'`) {
 			t.Errorf("%s: af command = %s, want the path it is given, its directory first on PATH", provider, af)
 		}
-		if !strings.Contains(claude, `PATH='/x/bin:/usr/local/bin:/usr/bin'`) || !strings.Contains(claude, ` '/y/claude' '-p'`) {
-			t.Errorf("%s: claude command = %s, want the one the host finds", provider, claude)
-		}
 	}
-	af := commandFor(t, "podman", cfg, ProcessSpec{Brain: "agentkit", Program: ProgramAF, Args: []string{"triage", "run"}}, nil)
-	claude := commandFor(t, "podman", cfg, claudeSpec(), nil)
+	af := commandFor(t, "podman", cfg, afSpec(), nil)
 	if !strings.Contains(af, `PATH="$PATH"`) || !strings.Contains(af, ` 'af' 'triage' 'run'`) || strings.Contains(af, "/x/bin") {
 		t.Errorf("podman: af command = %s, want af by name with the PATH of the box", af)
-	}
-	if !strings.Contains(claude, `PATH="$PATH"`) || !strings.Contains(claude, ` 'claude' '-p'`) || strings.Contains(claude, "/y/") {
-		t.Errorf("podman: claude command = %s, want claude by name with the PATH of the box", claude)
 	}
 
 	// Without a path to af, the running executable is it.
 	self, _ := os.Executable()
 	cfg.AFPath = ""
-	if cmd := commandFor(t, "local", cfg, ProcessSpec{Brain: "agentkit", Program: ProgramAF, Args: []string{"x"}}, nil); !strings.Contains(cmd, "'"+self+"' 'x'") {
+	if cmd := commandFor(t, "local", cfg, ProcessSpec{Brain: AgentkitName, Args: []string{"x"}}, nil); !strings.Contains(cmd, "'"+self+"' 'x'") {
 		t.Errorf("without AFPath: %s, want the running executable %s", cmd, self)
 	}
 }
@@ -405,16 +372,15 @@ func TestProgramsAreResolvedPerProvider_TS_10_41(t *testing.T) {
 // Verifies: 10-REQ-7.5
 func TestTheCommandRunsUnderEnvIWithAnAllowlist_TS_10_42(t *testing.T) {
 	cfg := ProcessConfig{
-		AFPath: "/x/bin/af", LookPath: func(string) (string, error) { return "/y/claude", nil },
-		Getenv: hostEnvOf(map[string]string{
+		AFPath: "/x/bin/af",
+		Getenv: envOf(map[string]string{
 			"PATH": "/usr/bin", "LANG": "C.UTF-8", "tz": "UTC", "HTTPS_PROXY": "http://proxy:3128", "SSL_CERT_FILE": "/etc/ca.pem", "TMPDIR": "/host/tmp", "http_proxy": "a'b $(touch pwned) `id`",
 			"GITHUB_TOKEN": "ghp-secret", "FOO": "bar", "ANTHROPIC_API_KEY": "sk-secret",
 		}),
 	}
-	spec := claudeSpec()
-	spec.Args = []string{"-p", "it's", "two words", "$(touch pwned)"}
+	spec := afSpec()
+	spec.Args = []string{"triage", "it's", "two words", "$(touch pwned)"}
 	spec.Inline = map[string]string{"AF_MODEL": "m1"}
-	spec.StdinBrief = true
 
 	cmd := commandFor(t, "local", cfg, spec, []string{"ANTHROPIC_API_KEY"})
 
@@ -427,10 +393,9 @@ func TestTheCommandRunsUnderEnvIWithAnAllowlist_TS_10_42(t *testing.T) {
 	for _, want := range []string{
 		`HOME="$HOME"`, `TMPDIR="$TMPDIR"`, `LANG='C.UTF-8'`, `tz='UTC'`, `HTTPS_PROXY='http://proxy:3128'`, `SSL_CERT_FILE='/etc/ca.pem'`, `http_proxy='a'\''b $(touch pwned) ` + "`id`" + `'`,
 		`ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"`, `AF_MODEL='m1'`,
-		` '/y/claude' '-p' 'it'\''s' 'two words' '$(touch pwned)'`,
-		` < '.agent-fox/run/20261021_160000_abcdef/brief.md'`,
-		` > '.agent-fox/run/20261021_160000_abcdef/claude.2.json'`,
-		` 2> '.agent-fox/run/20261021_160000_abcdef/claude.2.stderr'`,
+		` '/x/bin/af' 'triage' 'it'\''s' 'two words' '$(touch pwned)'`,
+		` > '.agent-fox/run/20261021_160000_abcdef/agentkit.2.json'`,
+		` 2> '.agent-fox/run/20261021_160000_abcdef/agentkit.2.stderr'`,
 	} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("command = %s, want it to contain %s", cmd, want)
@@ -470,16 +435,16 @@ func TestAProcessSeesTheVendorKeyAndNoOtherCredentialOfTheHost_TS_10_42(t *testi
 	for _, provider := range []string{"local", "none"} {
 		t.Run(provider, func(t *testing.T) {
 			w := newProcWorld(t, provider, map[string]string{"ANTHROPIC_API_KEY": "sk-secret"}, nil)
-			spec := claudeSpec()
+			spec := afSpec()
 			spec.Inline = map[string]string{"AF_MODEL": "m1"}
 
 			if _, err := w.p.Run(context.Background(), w.processBrief(1), spec); err != nil {
 				t.Fatal(err)
 			}
 
-			runs := w.runsOf(ProgramClaude)
+			runs := w.runsOf(ProgramAF)
 			if len(runs) != 1 {
-				t.Fatalf("claude ran %d times", len(runs))
+				t.Fatalf("af ran %d times", len(runs))
 			}
 			seen := map[string]string{}
 			for _, kv := range runs[0].Env {
@@ -536,13 +501,13 @@ func TestAProcessEndsAsATimeoutWithItsOutputWhenTheContextHasTheSameDeadline(t *
 				}
 			}
 
-			res, err := w.p.Run(ctx, b, claudeSpec())
+			res, err := w.p.Run(ctx, b, afSpec())
 
 			if err != nil || !res.TimedOut {
 				t.Fatalf("Run = %+v, %v, want a timeout and no error", res, err)
 			}
 			slices.Sort(outputs)
-			if !slices.Equal(outputs, []string{"claude.1.json", "claude.1.stderr"}) {
+			if !slices.Equal(outputs, []string{"agentkit.1.json", "agentkit.1.stderr"}) {
 				t.Errorf("brain_output artifacts = %v, want what the process wrote, copied", outputs)
 			}
 			if entry := w.entry("brain_process"); entry["exit_code"] != float64(box.ExitTimeout) {
@@ -578,7 +543,7 @@ func TestAProcessThatOutlivesItsTimeoutIsKilledWithItsGroup_TS_10_45(t *testing.
 				}
 				start := time.Now()
 
-				res, err := w.p.Run(ctx, b, claudeSpec())
+				res, err := w.p.Run(ctx, b, afSpec())
 
 				if d := time.Since(start); d > 20*time.Second {
 					t.Errorf("Run took %s for a timeout of a second", d)
@@ -603,7 +568,7 @@ func TestAProcessThatOutlivesItsTimeoutIsKilledWithItsGroup_TS_10_45(t *testing.
 					t.Errorf("the child %d of the process is alive after the timeout", pid)
 				}
 				entry := w.entry("brain_process")
-				if entry["brain"] != "claude" || entry["duration_ms"] == nil || entry["exit_code"] == nil {
+				if entry["brain"] != AgentkitName || entry["duration_ms"] == nil || entry["exit_code"] == nil {
 					t.Errorf("brain_process = %v, want brain, exit_code and duration_ms", entry)
 				}
 			})
@@ -612,11 +577,11 @@ func TestAProcessThatOutlivesItsTimeoutIsKilledWithItsGroup_TS_10_45(t *testing.
 
 	w := newProcWorld(t, "local", nil, nil)
 	w.script(fakeScript{Exit: 3})
-	res, err := w.p.Run(context.Background(), w.processBrief(1), claudeSpec())
+	res, err := w.p.Run(context.Background(), w.processBrief(1), afSpec())
 	if err != nil || res.ExitCode != 3 || res.TimedOut {
 		t.Fatalf("a normal run = %+v, %v", res, err)
 	}
-	if entry := w.entry("brain_process"); entry["exit_code"] != float64(3) || entry["brain"] != "claude" {
+	if entry := w.entry("brain_process"); entry["exit_code"] != float64(3) || entry["brain"] != AgentkitName {
 		t.Errorf("brain_process = %v, want exit_code 3", entry)
 	}
 }

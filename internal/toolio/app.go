@@ -183,9 +183,6 @@ type Run struct {
 	Stderr io.Writer
 
 	events *eventStream
-	// document is the Document of the outcome, which stdout gets in place of
-	// the envelope.
-	document []byte
 	// app is the shell that runs the command, and closers what is closed when
 	// the command has returned: the clients ForgeFor built.
 	app     *App
@@ -617,11 +614,6 @@ func (inv *invocation) publish() int {
 		}
 	}
 
-	// A command's own document replaces the envelope on stdout, but only
-	// while the run is done: whatever failed it since gets the envelope.
-	if inv.run != nil && len(inv.run.document) > 0 && env.Status == StatusDone {
-		data = inv.run.document
-	}
 	// A broken stdout changes nothing: the exit code is the status's.
 	_, _ = inv.stdout.Write(data)
 	return env.ExitCode
@@ -798,7 +790,6 @@ func (a *App) settle(env *Envelope, r *Run, out Outcome, err error, stderr io.Wr
 	env.Status = out.Status
 	env.Summary = out.Summary
 	env.Result = out.Result
-	r.document = out.Document
 	if out.Status == StatusNeedsHuman {
 		env.NeedsHuman = newNeedsHuman(out.NeedsHuman, r.Argv)
 	}
@@ -833,9 +824,6 @@ func panicOf(err error) *panicError {
 // checkOutcome returns what is wrong with an outcome, or "". An outcome that
 // is inconsistent is a bug in the command.
 func checkOutcome(o Outcome) string {
-	if len(o.Document) > 0 && o.Status != StatusDone {
-		return fmt.Sprintf("a document with status %s", o.Status)
-	}
 	switch o.Status {
 	case StatusDone, StatusUnverified:
 		if o.NeedsHuman != nil {

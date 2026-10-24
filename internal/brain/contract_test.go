@@ -55,13 +55,6 @@ type row struct {
 	// brain as its next turn, after the run.
 	sawProblem func(t *testing.T, w *world, problem string) bool
 	costSource string
-	// observes says whether af sees each call of the brain, as it sees the calls of an
-	// in-process brain; a brain with hands of its own makes calls that only its hook sees.
-	observes bool
-	// denied are the calls the brain was denied, by the name the brain gives its tools,
-	// and wantDenied what they are expected to be.
-	denied     func(t *testing.T, w *world) []string
-	wantDenied string
 }
 
 // deniedToolCalls are the calls af denied an in-process brain, from the events of the run.
@@ -101,7 +94,6 @@ func scriptedRow() row {
 	return row{
 		name:       "scripted",
 		costSource: CostNone,
-		observes:   true, denied: deniedToolCalls, wantDenied: "execute,write_file",
 		run: func(t *testing.T, w *world, s contractSteps, observe func(ToolCall)) (Result, error) {
 			script := fmt.Sprintf(`{"steps":[
 				{"tool":"execute","args":%s,"expect":"denied"},
@@ -135,7 +127,6 @@ func agentkitRow() row {
 	return row{
 		name:       "agentkit",
 		costSource: CostMeasured,
-		observes:   true, denied: deniedToolCalls, wantDenied: "execute,write_file",
 		run: func(t *testing.T, w *world, s contractSteps, observe func(ToolCall)) (Result, error) {
 			brain, p := fauxBrain(t,
 				withUsage(call("c1", "execute", outsideCommand), usage(0.01, 100, 10)),
@@ -159,83 +150,6 @@ func agentkitRow() row {
 			}
 			return false
 		},
-	}
-}
-
-// claudeResultJSON is the output of a headless Claude Code that ended well.
-func claudeResultJSON(cost float64, turns int) string {
-	return fmt.Sprintf(`{"type":"result","subtype":"success","is_error":false,"num_turns":%d,"total_cost_usd":%v,"usage":{"input_tokens":1000,"output_tokens":200,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"session_id":"s-contract"}`, turns, cost)
-}
-
-// claudeRow runs the steps as a fake claude does: the two calls are asked of the hook of
-// its settings file, which is af guard check (a commit, which only af makes, and a
-// write under .agent-fox/), and the two submissions go to the submit core of the kind.
-// The brain is the claude brain, over a local box.
-func claudeRow() row {
-	hooked := []string{"Bash", "Write"}
-	return row{
-		name:       "claude",
-		costSource: CostReported,
-		wantDenied: "Bash,Write",
-		run: func(t *testing.T, w *world, s contractSteps, observe func(ToolCall)) (Result, error) {
-			t.Setenv("ANTHROPIC_API_KEY", "sk-contract")
-			bin, _, _ := fakeBin(t)
-			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-			b, err := Default.New(ClaudeName, Options{Provider: "local", Getenv: os.LookupEnv, AFPath: realAF(t), AFVersion: "v1.0.0", AFCommit: "abc123"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			root := w.session.Root()
-			hook := func(tool string, input map[string]any) json.RawMessage {
-				data, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": input, "cwd": root})
-				return data
-			}
-			script, err := json.Marshal(fakeScript{
-				HookPayloads: []json.RawMessage{
-					hook("Bash", map[string]any{"command": "git commit -m leaked"}),
-					hook("Write", map[string]any{"file_path": root + "/.agent-fox/planted.txt", "content": "planted"}),
-				},
-				Submits:    []json.RawMessage{json.RawMessage(s.invalid), json.RawMessage(s.valid)},
-				OutputJSON: claudeResultJSON(0.42, 5),
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := w.session.WriteFile(context.Background(), fakeScriptPath, script); err != nil {
-				t.Fatal(err)
-			}
-			req := w.request(contractBrief(w), b)
-			req.Name = ClaudeName
-			return Execute(context.Background(), req)
-		},
-		sawProblem: func(t *testing.T, w *world, problem string) bool {
-			var results []fakeSubmit
-			readBoxJSON(t, w, fakeSubmitPath, &results)
-			return len(results) == 2 && !results[0].Accepted && strings.Contains(strings.Join(results[0].Problems, "\n"), problem) && results[1].Accepted
-		},
-		denied: func(t *testing.T, w *world) []string {
-			var answers []fakeAnswer
-			readBoxJSON(t, w, fakeHooksPath, &answers)
-			var denied []string
-			for i, a := range answers {
-				if a.Exit == 0 && strings.Contains(a.Stdout, `"permissionDecision":"deny"`) && i < len(hooked) {
-					denied = append(denied, hooked[i])
-				}
-			}
-			return denied
-		},
-	}
-}
-
-// readBoxJSON reads a JSON file that a process noted in the box.
-func readBoxJSON(t *testing.T, w *world, rel string, v any) {
-	t.Helper()
-	data, err := w.boxFile(rel)
-	if err != nil {
-		t.Fatalf("%s: %v", rel, err)
-	}
-	if err := json.Unmarshal([]byte(data), v); err != nil {
-		t.Fatalf("%s: %v", rel, err)
 	}
 }
 
@@ -264,7 +178,7 @@ func TestEveryBrainSubmitsTheSame_TS_07_77(t *testing.T) {
 	}
 	payloads := map[string]string{}
 	usages := map[string]string{}
-	for _, r := range []row{scriptedRow(), agentkitRow(), claudeRow()} {
+	for _, r := range []row{scriptedRow(), agentkitRow()} {
 		t.Run(r.name, func(t *testing.T) {
 			w := newWorld(t)
 			boxHasNoSubmission := true
@@ -288,7 +202,7 @@ func TestEveryBrainSubmitsTheSame_TS_07_77(t *testing.T) {
 			if payloads[r.name] != string(res.Payload) {
 				t.Errorf("the file's payload %s is not the result's %s", payloads[r.name], res.Payload)
 			}
-			if r.observes && !boxHasNoSubmission {
+			if !boxHasNoSubmission {
 				t.Error("a submission file existed after the invalid submission")
 			}
 			if !r.sawProblem(t, w, `"nowhere/missing.go" is not in the tree`) {
@@ -302,16 +216,16 @@ func TestEveryBrainSubmitsTheSame_TS_07_77(t *testing.T) {
 			if !res.Outcome.Submitted || w.report.lastUsage().Brain != r.name {
 				t.Errorf("claim %v, usage %+v", res.Outcome.Submitted, w.report.lastUsage())
 			}
-			if denied := r.denied(t, w); strings.Join(denied, ",") != r.wantDenied {
-				t.Errorf("denied calls = %v, want %s: the one outside the allowlist and the one under .agent-fox/", denied, r.wantDenied)
+			if denied := deniedToolCalls(t, w); strings.Join(denied, ",") != "execute,write_file" {
+				t.Errorf("denied calls = %v, want execute and write_file: the one outside the allowlist and the one under .agent-fox/", denied)
 			}
 		})
 	}
-	if payloads["scripted"] != payloads["agentkit"] || payloads["scripted"] != payloads["claude"] || payloads["scripted"] == "" {
-		t.Errorf("the brains submitted different bytes:\nscripted %s\nagentkit %s\nclaude %s", payloads["scripted"], payloads["agentkit"], payloads["claude"])
+	if payloads["scripted"] != payloads["agentkit"] || payloads["scripted"] == "" {
+		t.Errorf("the brains submitted different bytes:\nscripted %s\nagentkit %s", payloads["scripted"], payloads["agentkit"])
 	}
-	if usages["scripted"] != CostNone || usages["agentkit"] != CostMeasured || usages["claude"] != CostReported {
-		t.Errorf("cost sources = %v, want none for scripted, measured for agentkit and reported for claude", usages)
+	if usages["scripted"] != CostNone || usages["agentkit"] != CostMeasured {
+		t.Errorf("cost sources = %v, want none for scripted and measured for agentkit", usages)
 	}
 }
 
@@ -389,7 +303,7 @@ func TestAnyValidPayloadIsTheSameForBothBrains_TS_07_78(t *testing.T) {
 		steps := contractSteps{invalid: `{"cite":"missing.go"}`, valid: render(t, rng, payload)}
 
 		got := map[string]string{}
-		for _, r := range []row{scriptedRow(), agentkitRow(), claudeRow()} {
+		for _, r := range []row{scriptedRow(), agentkitRow()} {
 			w := newWorld(t)
 			res, err := r.run(t, w, steps, nil)
 			if err != nil || !res.Outcome.Submitted {
@@ -400,8 +314,8 @@ func TestAnyValidPayloadIsTheSameForBothBrains_TS_07_78(t *testing.T) {
 				t.Errorf("#%d %s: cost source %q, want %q", i, r.name, w.report.lastUsage().CostSource, r.costSource)
 			}
 		}
-		if got["scripted"] != got["agentkit"] || got["scripted"] != got["claude"] || !json.Valid([]byte(got["scripted"])) {
-			t.Fatalf("#%d: the brains submitted different bytes for %s:\nscripted %s\nagentkit %s\nclaude %s", i, steps.valid, got["scripted"], got["agentkit"], got["claude"])
+		if got["scripted"] != got["agentkit"] || !json.Valid([]byte(got["scripted"])) {
+			t.Fatalf("#%d: the brains submitted different bytes for %s:\nscripted %s\nagentkit %s", i, steps.valid, got["scripted"], got["agentkit"])
 		}
 	}
 }

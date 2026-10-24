@@ -29,7 +29,7 @@ unchanged; what changes is who owns the loop.
  the loops (internal/afcmd)   af triage, af fix: preflight, brief, brain, measure, land
         |  in a box: hub's sandbox lease, or podman, landlock or local on a laptop
         v
- a brain                      the agentkit driver, headless Claude Code, or scripted
+ a brain                      the agentkit driver, or scripted for the tests
                               hands back one submission through `af triage|fix submit`
 ```
 
@@ -59,18 +59,16 @@ the run directory, and a command adds its own beside them:
 | `panic.txt` | the shell | the stack of a panic of the command |
 | `brief.<attempt>.md`, `hook.json` | `brain.Execute` | the brief a brain was given, and the hook configuration placed with it |
 | `submission.json` | `brain.Execute` | the accepted submission, written from what the host checked again in the box's file, and only if there is one: an attempt that has none leaves no such file |
-| `guard.json`, `claude-settings.json` | the `claude` brain | the policy file and the settings (the `PreToolUse` hook) it ran with, copied from the box |
-| `claude.<attempt>.json`, `claude.<attempt>.stderr`, `agentkit.<attempt>.json`, `agentkit.<attempt>.stderr` | a brain that runs as a process | what the process printed (the JSON up to 1 MiB, the last 64 KiB of the errors), copied from the box and listed as `brain_output` artifacts; nothing in them decides whether there is a submission |
+| `agentkit.<attempt>.json`, `agentkit.<attempt>.stderr` | the driver that runs as a process in a box | what the process printed (the JSON up to 1 MiB, the last 64 KiB of the errors), copied from the box and listed as `brain_output` artifacts; nothing in them decides whether there is a submission |
 | `transcript.<attempt>.jsonl` | an in-process brain | its tool calls that reached the gate, `{seq, tool, args, decision, reason, ok, result}` with `args` and `result` cut to 4096 bytes, and the steps of a script that were skipped, `{seq, skipped, step, what}`; af never reads it |
 | `brain-panic.<attempt>.txt` | `brain.Execute` | the stack of a brain that panicked |
 
 The box has run files of its own under `.agent-fox/run/<id>/`: `brief.md`,
 `run.json` (which also holds `prefix_bytes`, the length of the brief's prefix),
-`hook.json` and `submission.json`, placed by `af` and not by the brain; for `claude`
-also `guard.json` and `claude-settings.json`. The ledger of a run that has a brain holds the entries `box_open`,
+`hook.json` and `submission.json`, placed by `af` and not by the brain. The ledger of a run that has a brain holds the entries `box_open`,
 `box_sync`, `box_export`, `box_close`, `brief_placed`, `brain_start`,
 `brain_end` and the `submission_*` ones, and for a brain that runs as a process
-`box_probe`, `brain_process` and `claude_result`; under `none` a fix run also holds
+`box_probe` and `brain_process`; under `none` a fix run also holds
 `foreign_commits_reset`. [cli.md](cli.md#the-ledger) lists them.
 
 `toolio.OpenRunDir(dir, id)` opens an existing run for the commands that
@@ -81,11 +79,8 @@ later specs keep in the run directory join these files.
 
 ### Ring 1, as built
 
-Six commands answer a fact and change nothing: `af lang detect`, `af gate run`,
-`af gate compare`, `af revert-check`, `af guard check` and `af map`. (`af guard
-check` serves the hook of the `claude` brain: it reads one payload and writes
-nothing.) Each is a
-file in `internal/afcmd` over a package that knows nothing of the shell and returns a
+Five commands answer a fact and change nothing: `af lang detect`, `af gate run`,
+`af gate compare`, `af revert-check` and `af map`. Each is a file in `internal/afcmd` over a package that knows nothing of the shell and returns a
 plain result, so that the loops of later specs call the same code in process:
 
 | Package | Commands | What it holds |
@@ -93,7 +88,7 @@ plain result, so that the loops of later specs call the same code in process:
 | `internal/project` | `lang detect` | The languages, the gate table (`.agent-fox/gate.json`, else a Makefile with a `check` or `test` target, else the manifests), the suite forms, the programs, and the classification of a path as a test. |
 | `internal/checks` | `gate run`, `gate compare` | The file view and the tree hash; the gate engine, which runs the checks under the reduced or the hermetic runner; the cache keyed by tree hash, table and mode; the labels; the per-check comparison. |
 | `internal/conform` | `revert-check` | The revert check: a claimed backup, a revert that never writes the index, the tests on the reverted tree, and a restore that nothing cancels and that does not overwrite what someone else changed. |
-| `internal/policy` | `guard check` | The tokenizer, the seven rules, the policy files (`guard.json`) and the decision for a shell or a write tool. |
+| `internal/policy` | (the tool gate) | The tokenizer, the seven rules, the policy files (`guard.json`) and the decision for a shell or a write tool. |
 | `internal/repomap` | `map` | The map at a token budget: a six-level ladder over the file view and the declarations the hands' outline gives. |
 
 One view of the tree is shared. `checks.FileView` is git's own view of `--dir`
@@ -139,9 +134,7 @@ that something else changed meanwhile is kept in the backup and reported, not
 overwritten. Af's own listing of changes refreshes a copy of the index and not
 the real one; the checks run on the real one, and if they rewrote it the
 restore writes the bytes it had back.
-The hook fails closed: with `--host claude` an error, a panic or a late answer
-is a denial, because the exit code of a failed command is not one the host acts
-on. [development.md](development.md) has the layout and the conventions in
+[development.md](development.md) has the layout and the conventions in
 full.
 
 ## The box
@@ -168,34 +161,31 @@ its hands.**
 
 ### Where the brain sits
 
-A brain either borrows the hands or brings its own.
+The one brain is the AgentKit driver, and it runs in one of two places.
 
-| | Borrowed hands | Own hands |
+| | Borrowed hands | In the box |
 |---|---|---|
-| Brains | the AgentKit driver; Claude Code with its native tools denied and `af serve` as its only tools | Claude Code, Codex, Pi, OpenCode; a person at a shell |
-| The brain runs | on the host, over `sb.Tools` | inside the box, from the image |
-| What it sees | tool results | the tree, a shell, its own tools |
+| The driver runs | on the host, over `sb.Tools` | inside the box, as `af <agent> run` from the image |
+| What it sees | tool results | tool results, from the box's own tools |
 | What the box holds | no credential at all | the model vendor's key, nothing else |
 | Network the box needs | none | the vendor; a package registry if the gate fetches |
-| How it is started | `agentkit.New` over the proxy tools, or the MCP server over them | one `execute` call: the headless CLI, the brief as its prompt, its JSON output to a file in `$HOME` |
 
 Borrowed hands is the box as AgentKit
 [PRD 11](https://github.com/agent-fox-dev/agentkit-go/blob/main/docs/prd/11-run-tools-in-an-isolated-sandbox.md)
 designed it: the model, the driver and the loop on the host, only tool
-results crossing the boundary. It is the right placement for the driver.
-It is possible for Claude Code (an allowlist of `mcp__af__*` and nothing
-else, an empty working directory), but it takes from Claude Code the tools
-that are the reason to run it. So the vendor CLIs go inside, with the tools
-image as `Spec.Image` and the key in `Spec.Env`. The price is the network:
-on Podman the choice is nothing or everything (PRD 11 §9), so a brain in a
-box on a developer's machine has the whole network, and only a gateway
-whose backend filters egress narrows it to the vendor. The brain's own hook
-(`af guard check` is in the image) is still installed; the box is what
-makes its best-effort nature acceptable.
+results crossing the boundary. Run in the box, the driver keeps the model's
+traffic and the tools on the same side; the price is the network: on Podman
+the choice is nothing or everything (PRD 11 §9), so a driver in a box on a
+developer's machine has the whole network, and only a gateway whose backend
+filters egress narrows it to the vendor. Either way every call goes through the
+tool gate first; the box is what makes its best-effort nature acceptable.
+Vendor CLIs that bring their own hands (Claude Code, Codex and the like) are not
+brains of `af`: an earlier release ran Claude Code in the box, and it was cut so
+that one driver, one cost model and one guard remain.
 
 ### What the box makes physical
 
-The three things the hook could only ask for, the box enforces:
+The three things the tool gate could only ask for, the box enforces:
 
 - **The brain never pushes.** There is no forge token and no hub token in
   the box, only the vendor's. `af forge`, `af run land` and the push are
@@ -233,29 +223,21 @@ A `Sandbox` is owned by the process that created it; there is no reconnect
 (PRD 11 §9). So the loop holds the box: `af impl` and `af fix` create it at
 `run start`, keep it across every task, and close it at `run land` or when
 the attempt budget is spent. The ring-1 commands a brain calls from inside
-need no handle: they run on the tree they can see. Attended use has no
-box: a person in Claude Code on their own checkout is the brain and the
-host at once, and the hook is the only boundary, as today. `af serve`
-holding a box for an attended session is possible and is not the first
-release.
+need no handle: they run on the tree they can see.
 
 ### The image
 
-`quay.io/agentfox/tools` already is the sandbox base plus `af`, the three
-tools, Pi and Claude Code. It gains the overlay line
-(`COPY --from=quay.io/agentfox/agentkit-sandboxd:X.Y.Z …`), which puts the
-hands' agent at `AgentPath`, and Codex and OpenCode beside the other two.
-That image is `Spec.Image` for every brain with its own hands; the hands'
-base image suffices for borrowed hands.
+`quay.io/agentfox/tools` is the sandbox base plus `af`. It is `Spec.Image`
+of a `podman` box, where the driver runs as `af <agent> run`; the hands' base
+image would suffice for borrowed hands.
 
 ### What the hands lack for this
 
 Two additions to the sandbox, neither needed for the first run:
 
-- **A streaming `Exec`.** A headless brain is one process for twenty
+- **A streaming `Exec`.** The driver in a box is one process for twenty
   minutes; `execute` returns when it ends, with the output capped and
-  spilled. The first release reads the brain's own JSON output from its
-  file afterwards; a streaming RPC would carry its progress events to the
+  spilled. The first release reads the envelope from its file afterwards; a streaming RPC would carry its progress events to the
   host as they happen.
 - **A credential for the init step.** `GitRepo` is public only; a private
   clone happens on the host and is synced in. For hub, whose git server is
@@ -266,8 +248,8 @@ Two additions to the sandbox, neither needed for the first run:
 ## The brain interface
 ### The brain interface, as built
 
-`internal/brain`, `internal/box` and `internal/submission` hold the three brains
-(`agentkit`, `scripted` and `claude`) and what they run on. One Go interface, so
+`internal/brain`, `internal/box` and `internal/submission` hold the two brains
+(`agentkit`, and `scripted` for the tests) and what they run on. One Go interface, so
 that the loops are a loop over briefs and nothing in them names a vendor:
 
 ```go
@@ -311,12 +293,11 @@ box's own tools: a directory is listed with the list tool and a file is
 exported, one file at a time, because the read tool shows lines, caps them, and
 takes the box down on a file that is not UTF-8.
 
-**Choosing.** `brain.Registry` holds `Entry{Name, CostSource, Credentials, OwnHands,
-DriverInBox, CommandRoute, New}`; the default has `agentkit` (cost source `measured`;
-`DriverInBox`), `scripted` (`none`) and `claude` (`reported`; `OwnHands`,
-`CommandRoute`). `Credentials` names the host variables that reach the box of a brain
-that runs as a process, and nothing else does: `ANTHROPIC_API_KEY` for `agentkit` and
-`claude`, and none ever for a brain on the host. `box` has a registry of providers of
+**Choosing.** `brain.Registry` holds `Entry{Name, CostSource, Credentials, DriverInBox,
+New}`; the default has `agentkit` (cost source `measured`; `DriverInBox`) and `scripted`
+(`none`). `Credentials` names the host variables that reach the box of the driver when it
+runs as a process, and nothing else does: `ANTHROPIC_API_KEY` for `agentkit`, and none ever
+for a brain on the host. `box` has a registry of providers of
 its own, `Entry{Name, Unconfined, InPlace, ByName, SuppliesCredentials, Remote, New, Build,
 Explain}`, with `landlock`, `podman`, `local` and `none` in it; a provider isolates unless it
 is `Unconfined`. `ByName` says the programs of the box are called by name from its image
@@ -343,16 +324,15 @@ no submission whatever the sync does with `.agent-fox/`.
 
 **The submission file** is written by one function, `submission.Submit`, which
 validates before it writes and never leaves a refused one: inside a box a brain
-reaches it through its terminating tool (`agentkit`), a step of its script
-(`scripted`), or `af <agent> submit` (a brain with its own hands). A brain whose
-process can write the file some other way (the `local` box is not isolated) gains
+reaches it through its terminating tool (`agentkit`) or a step of its script
+(`scripted`); an agent outside `af` that was given the brief of `af <agent> brief`
+uses `af <agent> submit`. A brain whose process can write the file some other way (the `local` box is not isolated) gains
 nothing by it: the host reads the file again with `submission.Check`, and keeps
 the file it writes itself from what it checked.
 
-**The tool gate.** Both in-process brains send every call through one gate: the
-brief's allowlist, then the ring-1 policy (`policy.DecideAt`) with the brief's
-hook and the suite of the checkout, which are the rules of `af guard check`
-configured by the brief's hook (the gate does not read the checkout's
+**The tool gate.** Both brains send every call through one gate: the brief's
+allowlist, then the ring-1 policy (`policy.DecideAt`) with the brief's hook and the
+suite of the checkout (the gate does not read the checkout's
 `guard.json` beyond its suite; a `guard.json` that cannot be used is a `config`
 failure). The paths of a write are normalised as the box's tools do before they
 are judged. The `agentkit` brain uses it as the driver's `Guard` and `After`; a
@@ -368,16 +348,14 @@ with the provider and the tools of the agent's brief, into the request for the b
 |---|---|---|---|
 | `scripted` | host | host | host |
 | `agentkit` | box; with `--borrowed-hands`, host | host | host |
-| `claude` | box | box | checkout |
 
 *Host* is `af`'s process over `Session.Tools`; *box* is a process started in the box with
-`Session.Exec`; *checkout* is such a process on the host, in the checkout, which is the
-tree under `none`. The default provider is `AF_SANDBOX`, else `landlock` on Linux and
+`Session.Exec`. The default provider is `AF_SANDBOX`, else `landlock` on Linux and
 `podman` elsewhere, and it never falls back to `local` or `none`.
 
 **The `Spec` of a box, for each brain.** `Spec.Env` holds credentials and nothing else:
-the host's `ANTHROPIC_API_KEY` for a brain in the box or at the checkout, and nothing for a
-brain on the host. `Spec.Network` is `none` for a brain on the host whose brief has no tool
+the host's `ANTHROPIC_API_KEY` for the driver in the box, and nothing for a brain on the
+host. `Spec.Network` is `none` for a brain on the host whose brief has no tool
 that runs a command (all of `af triage`), and `open` for the rest, since a process in the
 box needs its vendor and Podman filters nothing narrower; `host` is what the ledger and
 the `fix` result record for `local` and `none`, where nothing is enforced.
@@ -390,24 +368,13 @@ ledger entry `box_open {provider, image, network, placement}` and the `box` of t
 result say what was built.
 
 **The host settings, for each brain.** `scripted` and the `agentkit` driver on the host need
-none beyond the files `Execute` places. For a process in a box:
+none beyond the files `Execute` places. The `agentkit` driver inside `landlock` and `podman`
+is `af <agent> run --run-id <id> --dir <root> …`: the box gets only what `Execute` places, so
+`run.json` also holds the `prefix_bytes` of the brief, and `af <agent> run` takes the brief and
+the prefix from it when the run directory has no state of its own. Its cost, tokens and claim
+are read from the envelope it wrote to `.agent-fox/run/<id>/agentkit.<attempt>.json`.
 
-- `claude` gets, for each attempt, `.agent-fox/run/<id>/guard.json` (spec 06's policy file,
-  generated from the brief's hook: `protected_paths` and `allow_programs`, no `suite`) and
-  `claude-settings.json`, whose one `PreToolUse` hook, for every tool, is `af guard check
-  --host claude --dir <root> --policy <root>/.agent-fox/run/<id>/guard.json` with a timeout
-  of 30 seconds; the brief is its prompt on stdin, and the command line has
-  `--permission-mode dontAsk`, `--strict-mcp-config`, an allowlist and a denylist made from
-  one table of the box's tools, `--append-system-prompt` with a fixed note, and `--model`
-  from `AF_MODEL`. Its cost is read from the JSON it prints, after it has stopped.
-- The `agentkit` driver inside `landlock` and `podman` is `af <agent> run --run-id <id>
-  --dir <root> …`: the box gets only what `Execute` places, so `run.json` also holds the
-  `prefix_bytes` of the brief, and `af <agent> run` takes the brief and the prefix from it
-  when the run directory has no state of its own. Its cost, tokens and claim are read from
-  the envelope it wrote to `.agent-fox/run/<id>/agentkit.<attempt>.json`.
-
-Both are started by `brain.Process`: a probe once for each box (`af --version`, `claude
---version`, a writable `HOME`; the box remembers what was probed, so that the measuring below and
+It is started by `brain.Process`: a probe once for each box (`af --version`, a writable `HOME`; the box remembers what was probed, so that the measuring below and
 a brain share it), then one command under `env -i` with an explicit allowlist, the
 credentials of `Spec.Env` by reference, its output and errors redirected to files of the run
 directory in the box and copied to the host afterwards. In a box that supplies its own
@@ -432,13 +399,12 @@ box that is lost while it measures is a `sandbox` failure that is retryable.
 **Under `none`, the checkout is the tree.** `Session.InPlace()` is the one question the apply
 step asks: it skips the export, and the loop checks the checkout for commits the brain made
 (see [cli.md](cli.md#the-steps-of-a-fix-run)). The protected-path revert runs on the checkout,
-and the hook and the checks `af` makes afterwards are the boundary, since no box is.
+and the tool gate and the checks `af` makes afterwards are the boundary, since no box is.
 
 **The tools image.** `containers/tools/Containerfile` builds `quay.io/agentfox/tools` from
 this repository's sandbox image (`ARG BASE_IMAGE`): `af` is built from this repository's
 build context, with agentkit-go cloned at `ARG AGENTKIT_REF` where the `replace` directive
-of `go.mod` expects it, and Claude Code is installed at `ARG CLAUDE_CODE_VERSION`; it keeps
-`WORKDIR /workspace` and `USER 1001:0`. `make build-tools-container` tags it
+of `go.mod` expects it; it keeps `WORKDIR /workspace` and `USER 1001:0`. `make build-tools-container` tags it
 `$(CONTAINER_REGISTRY)/tools:$(VERSION)` and `:latest`, and `make build-containers` builds it
 after the sandbox image. An image whose `af` has another version or commit than the running
 `af` raises `box_af_version_mismatch` and the run goes on, since the host checks every
