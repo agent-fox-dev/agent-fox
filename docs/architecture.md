@@ -87,7 +87,7 @@ plain result, so that the loops of later specs call the same code in process:
 | `internal/project` | `lang detect` | The languages, the gate table (`.agent-fox/gate.json`, else a Makefile with a `check` or `test` target, else the manifests), the suite forms, the programs, and the classification of a path as a test. |
 | `internal/checks` | `gate run` | The file view and the tree hash; the gate engine, which runs the checks under the reduced runner; the cache keyed by tree hash and table; the per-check comparison that `af fix` judges a change by. |
 | `internal/conform` | `revert-check` | The revert check: the change as a patch that is the claim on the checkout, taken out with `git apply --reverse` and never through the index, the tests on the reverted tree, and a `git apply` that nothing cancels and that refuses to overwrite what someone else changed. |
-| `internal/policy` | (the tool gate) | The tokenizer, the seven rules, the policy files (`guard.json`) and the decision for a shell or a write tool. |
+| `internal/policy` | (the tool gate) | The rules over the commands the hands' reader (`guard.Commands`) finds, with the words expanded where that can name a program (`$'…'`, `$IFS`, braces), the seven rules, the policy files (`guard.json`) and the decision for a shell or a write tool. |
 | `internal/repomap` | (the brief) | The map at a token budget that a brief carries: a six-level ladder over the file view and the declarations the hands' outline gives. |
 
 One view of the tree is shared. `checks.FileView` is git's own view of `--dir`

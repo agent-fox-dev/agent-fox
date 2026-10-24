@@ -15,34 +15,6 @@ const (
 	maxExpansionBytes = 1 << 20
 )
 
-// wordBuf is a word being read: its text as the shell passes it, and for each
-// byte whether it is an unquoted {, } or , that brace expansion acts on.
-type wordBuf struct {
-	text    []byte
-	active  []bool
-	touched bool // anything was written, an empty quoted string included
-}
-
-// put writes s. A quoted string, and anything an expansion wrote, is data.
-func (w *wordBuf) put(s string, quoted bool) {
-	w.touched = true
-	for i := 0; i < len(s); i++ {
-		w.text = append(w.text, s[i])
-		w.active = append(w.active, !quoted && (s[i] == '{' || s[i] == '}' || s[i] == ','))
-	}
-}
-
-// expand is the words the buffer stands for: itself, or what its brace
-// expansion makes of it when braces is set. It reports false when that is more
-// than can be judged.
-func (w *wordBuf) expand(braces bool) ([]string, bool) {
-	if !braces {
-		return []string{string(w.text)}, true
-	}
-	wordsLeft, bytesLeft := maxExpansionWords, maxExpansionBytes
-	return expandBraces(braceWord{string(w.text), w.active}, &wordsLeft, &bytesLeft)
-}
-
 // braceWord is text, and which of its bytes are braces or commas that expand.
 type braceWord struct {
 	s      string
@@ -306,11 +278,4 @@ func hexEscape(out []byte, s string, limit int, character bool) ([]byte, int) {
 
 func isHex(c byte) bool {
 	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
-}
-
-// putByte is put for one byte.
-func (w *wordBuf) putByte(c byte, quoted bool) {
-	w.touched = true
-	w.text = append(w.text, c)
-	w.active = append(w.active, !quoted && (c == '{' || c == '}' || c == ','))
 }

@@ -367,16 +367,20 @@ brain is in, and in the checkout as well.
 **The decision** covers the calls to three kinds of tool:
 
 - *Shell tools* (the hands' `execute`). The command is read as a
-  shell would read it, and every command it runs is judged: those joined by
+  shell would read it, by the hands' reader (`guard.Commands`), and every
+  command it runs is judged: those joined by
   `&&`, `||`, `;`, `|`, `&` and newlines, those in groups, in `$(…)`,
-  backticks (whose body is unescaped as the shell does before it is read) and
-  `<(…)`, in `$((…))`, `$[…]` and `((…))` where they hold substitutions, in
-  heredoc bodies that expand them, and in the script of `sh|bash|zsh -c '…'`
+  backticks and `<(…)`, in `$((…))` and `${…}` where they hold
+  substitutions, in heredoc bodies that expand them, and in the script of
+  `sh|bash|zsh -c '…'`
   (whatever options come before the script, `--rcfile` and `-o` with their
   values included), `eval`, `trap` and the commands `find` executes with
   `-exec`. Words are read as the shell passes them: `$'git'`, `$"git"`,
   `g\it`, `{git,push}` and `git${IFS}push` are `git` and `push`, and the case
-  of a program's name does not matter (`GIT`). Assignments (`FOO=1 cmd`), the
+  of a program's name does not matter (`GIT`). The reader removes the quotes
+  before braces, `$IFS` and `$'…'` are read, so they are read in quoted text
+  too (`echo "{a,b}"` is `echo a b`): a word may be read as more than the shell
+  makes of it, which can only deny more. Assignments (`FOO=1 cmd`), the
   wrappers `env` (and the command line its `-S` splits), `time`, `timeout`,
   `nice`, `nohup`, `command`, `builtin`, `exec` and `xargs`, `function NAME` and
   `coproc`, and the keywords that start a command are skipped to find the
@@ -393,8 +397,8 @@ brain is in, and in the checkout as well.
 
 | Rule | Denies |
 |---|---|
-| `unparseable` | A command with unbalanced quotes, an unterminated `$(`, `${` or `$[`, nested more than 64 deep, a brace expansion that makes more than 4096 words, longer than 64 KiB (the hands' guard takes time that grows with the square of the length, so a longer line is not read; write long content with a tool that writes files), or a shell call that has no command; and a shell that reads its commands from its input (`echo git push \| sh`, `sh <<< '…'`, `bash -s`, `bash` alone, `source <(…)`), which runs what cannot be read before it runs. |
-| `hands_guard` | What the hands' guard refuses, with its reason: an assignment of a variable that changes which program runs or what is loaded into it (`PATH`, `LD_PRELOAD`, `BASH_ENV`, …), a line it cannot read, and a line that runs no program. It can only deny. |
+| `unparseable` | A command the hands' reader cannot read with certainty (unbalanced quotes, an unterminated `$(` or `${`, an unmatched `)`, a heredoc with no terminating line, a `case` statement, a function definition with `()`, `for ((…))`), nested more than 64 deep, a brace expansion that makes more than 4096 words, longer than 64 KiB (the hands' guard takes time that grows with the square of the length, so a longer line is not read; write long content with a tool that writes files), or a shell call that has no command; and a shell that reads its commands from its input (`echo git push \| sh`, `sh <<< '…'`, `bash -s`, `bash` alone, `source <(…)`), which runs what cannot be read before it runs. |
+| `hands_guard` | What the hands' guard refuses, with its reason: an assignment of a variable that changes which program runs or what is loaded into it (`PATH`, `LD_PRELOAD`, `BASH_ENV`, …), and a line that runs no program. It can only deny. |
 | `git_mutation` | `git` with any subcommand but `status`, `log`, `diff`, `show`, `blame`, `ls-files`, `ls-tree`, `rev-parse`, `rev-list`, `grep`, `describe`, `cat-file`, `shortlog`, `merge-base`, `name-rev`, `for-each-ref` and `show-ref`; `branch` and `remote` only to list; a global `-c`, `--config-env` or `--exec-path=`; configuration from the environment that makes git run a program (`GIT_CONFIG_*`, `GIT_EXTERNAL_DIFF`, `GIT_EXEC_PATH`, `GIT_ASKPASS`, `GIT_SSH`, `GIT_SSH_COMMAND`, `GIT_PROXY_COMMAND`, `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR` and `GIT_TEMPLATE_DIR`, in front of the command, given to `env` or exported by an earlier command of the line); and `git grep` with `-O` or `--open-files-in-pager`. The reason says that af makes every commit, branch and push. |
 | `suite_command` | A command equal to a suite form once every token that starts with `-`, the value of an option that takes one as its next word (`go test -timeout 5m ./...`, `make -j 4 check`, `make -f Makefile check`: the options of `go`, `make`, `cargo` and `pytest` that the code lists) and every `NAME=value` word (`make check V=1`) is removed from both, and `$(go list ./...)` is `./...`: `make check`, `make -j4 check`, `go test ./...` and `go test -count=1 ./...` are the suite, `go test ./internal/x -run TestY` is not. The reason says to run `af gate run`, which caches the result by tree hash so that the landing reuses it, and that targeted runs are allowed. A flag that selects tests without a word of its own (`mvn -q test -Dtest=X`) is not told from the suite. |
 | `af_command` | Any `af` command but `lang detect`, `gate run`, `revert-check` and `--version`: the rest belongs to the loop. |
@@ -409,9 +413,10 @@ writes and then runs, a program that runs others (`ssh`, `sudo`, `watch`), a
 variable that was set earlier in the line and used later in a path, and what
 an interpreter writes (`python -c`, `awk`) are out of its sight, and the tool
 `run_command` (which takes an argument list) is not a shell tool here. A line
-that the hands' guard cannot read (an assignment on its own, a function
-definition, `((i++))`, which run no program) is denied, as well as one that is
-dangerous. The gate and the box are what holds.
+that the hands' reader cannot read is denied (`unparseable`), and so is one
+that runs no program (an assignment on its own, `((i++))`; `hands_guard`), as
+well as one that is dangerous. The value of an assignment in front of a
+program is not read; its name is. The gate and the box are what holds.
 
 Without `.agent-fox/guard.json`, every call detects the repository to find the
 suite (the work of [lang detect](#lang-detect)); a loop writes `guard.json` into
