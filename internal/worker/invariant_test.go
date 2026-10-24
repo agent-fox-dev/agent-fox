@@ -16,6 +16,7 @@ import (
 
 	"github.com/agent-fox-dev/agentkit-go/catalog"
 
+	"github.com/agent-fox-dev/agentfox/internal/afcmd"
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 )
@@ -67,11 +68,11 @@ func twoWorkspaces(t *testing.T) (*env, map[string]string) {
 	e.subs.mu.Lock()
 	e.subs.tokens["other"] = pats["other"]
 	e.subs.mu.Unlock()
-	flags := map[jobs.Kind][]string{
-		jobs.KindFix:    {"--brain", "scripted", "--script", scriptFile(t, fixSteps()...)},
-		jobs.KindTriage: {"--brain", "scripted", "--script", scriptFile(t, submitStep(probableDiagnosis))},
+	scripts := map[jobs.Kind]string{
+		jobs.KindFix:    scriptFile(t, fixSteps()...),
+		jobs.KindTriage: scriptFile(t, submitStep(probableDiagnosis)),
 	}
-	e.runner.loopFlags = func(a *attempt) []string { return flags[a.req.Kind] }
+	e.runner.loopOptions = func(a *attempt, o *afcmd.LoopOptions) { o.Brain, o.Script = "scripted", scripts[a.req.Kind] }
 	e.runner.sleep = func(context.Context, time.Duration) error { return nil }
 	return e, pats
 }

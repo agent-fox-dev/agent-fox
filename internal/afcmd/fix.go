@@ -58,6 +58,17 @@ func registerFix(app *toolio.App, c *Config) {
 			fs.Var(&o.land, "land", "where the change goes, as a `mode`: pr (push the branch and open a pull request), branch (push it), or none (keep it on a local branch)")
 			fs.BoolVar(&o.noVerify, "no-verify", false, "land without the gate: no baseline, no check after, a draft that says Refs")
 		},
+		Options: func(v any) error {
+			lo, err := loopOptions("fix", v)
+			if err != nil {
+				return err
+			}
+			lo.apply(o.settings)
+			if lo.Land != "" {
+				return o.land.Set(lo.Land)
+			}
+			return nil
+		},
 		Input:          toolio.InputRequired,
 		UsesForge:      true,
 		UsesRunDir:     true,

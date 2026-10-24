@@ -391,6 +391,17 @@ func registerTriageLoop(app *toolio.App, c *Config) {
 			fs.StringVar(&land, "land", triage.LandIssue, "where the diagnosis goes: `issue` (write it to the forge) or none (write diagnosis.md only)")
 			fs.Var(&labels, "label", "add this `label` to the issue; may be repeated")
 		},
+		Options: func(v any) error {
+			lo, err := loopOptions("triage", v)
+			if err != nil {
+				return err
+			}
+			lo.apply(settings)
+			if lo.Land != "" {
+				land = lo.Land
+			}
+			return nil
+		},
 		Input:          toolio.InputRequired,
 		UsesForge:      true,
 		UsesRunDir:     true,

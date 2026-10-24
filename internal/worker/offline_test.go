@@ -8,10 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 
+	"github.com/agent-fox-dev/agentfox/internal/afcmd"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 )
 
@@ -76,9 +76,10 @@ func TestTheWorkerTestsRunOfflineWithLoopbackListenersTheScriptedBrainAndNoConta
 	if err != nil || envelope(t, res)["status"] != "done" {
 		t.Fatalf("result %s, error %v", res.Envelope, err)
 	}
-	flags := strings.Join(e.runner.loopFlags(nil), " ")
-	if !strings.Contains(flags, "--brain scripted") {
-		t.Errorf("the loop was run with %q, want the scripted brain", flags)
+	var o afcmd.LoopOptions
+	e.runner.loopOptions(nil, &o)
+	if o.Brain != "scripted" {
+		t.Errorf("the loop was run with the brain %q, want the scripted brain", o.Brain)
 	}
 	if data, err := os.ReadFile(tripped); err == nil {
 		t.Errorf("a container engine was run: %s", data)

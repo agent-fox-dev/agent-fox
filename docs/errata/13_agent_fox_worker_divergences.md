@@ -309,6 +309,27 @@ comment whose marker is on the issue is not posted again).
 
 No deviation key: these are limits of the delivered work and are listed as unmet in the pull request.
 
+## 25. The worker calls the loop as a Go function
+
+**Spec:** 13-REQ-8.5 passes the input and the context of an attempt to the loop as a command line (`--context`
+values, the text on stdin, the file by path), and the settings went the same way, as flags.
+
+**Code:** the worker builds no argv and parses no stdout. It calls `toolio.App.Invoke` with a `toolio.Call`
+(`internal/worker/run.go`, `loopCall`): the command, the input as its one argument (the issue URL, a `-` with
+the text as the call's stdin, or the path of the file under `input/`), the clone as its directory, the
+context strings and then the answers as its context values, the timeout of the settings, and the settings as
+`afcmd.LoopOptions` (`internal/afcmd/options.go`): the brain in the `gateway` box, the budget, the turns, and
+for a fix the landing. The commands `triage` and `fix` take those options through `toolio.Command.Options` in
+place of their flags, over the defaults the flags set. `Invoke` runs the command as `Main` runs a command
+line, and returns the envelope as a value beside the encoding the job keeps, so `loopOutcome` reads the error
+and the report from the value; a loop that wrote no envelope can no longer happen. The `argv` of the run in
+the events and in `needs_human.resume` is the command and its argument, without the flags a command line
+would have; nothing of the service reads it.
+
+**Test:** `TestInvokeRunsACallAsMainRunsItsCommandLine`, `TestInvokeRefusesWhatMainRefuses`
+(`internal/toolio/invoke_test.go`), `TestTheLoopsTakeTheirOptionsFromACall` (`internal/afcmd/options_test.go`),
+and the worker's tests, which run the scripted brain through `loopOptions`.
+
 ## 24. Every declared deviation, and where it is explained
 
 | Key | Where, or how it ended |

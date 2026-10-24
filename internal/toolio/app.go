@@ -101,6 +101,9 @@ type Command struct {
 	Hidden bool
 	// Flags registers the command's own flags on fs.
 	Flags func(fs *flag.FlagSet)
+	// Options, when it is set, sets the command's own options from the value a Call carries, in
+	// place of its flags, after Flags has set their defaults. An error refuses the call.
+	Options func(v any) error
 	// MaxArgs is how many positional arguments the command takes. Zero means
 	// one; NoArgs means none. Another is a usage error.
 	MaxArgs int
@@ -371,7 +374,108 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 		inv.env.fail(failure)
 		return inv.finish()
 	}
+	return a.runCommand(ctx, inv, stdin)
+}
 
+// Call is an invocation of a command by a caller in this process, in place of a command line:
+// the command, its positional arguments, the values of the flags the shell owns, and the
+// command's own options, as a value of the type its Options takes.
+type Call struct {
+	// Path is the command, as it is registered ("fix").
+	Path string
+	// Args are the positional arguments, and Stdin what a "-" among them reads.
+	Args  []string
+	Stdin io.Reader
+	// Dir, Context and Timeout are --dir, --context and --timeout. A zero Timeout is the
+	// command's default.
+	Dir     string
+	Context []string
+	Timeout time.Duration
+	// Options are the command's own options; nil leaves them at their defaults.
+	Options any
+}
+
+// Invoke runs one call, as Main runs a command line, and returns the envelope: as a value, and
+// encoded as Main writes it. A command that takes no options from a call refuses one that has
+// them.
+func (a *App) Invoke(ctx context.Context, c Call) (*Envelope, []byte) {
+	started := a.now()
+	var stdout, stderr bytes.Buffer
+	cmd := a.command(c.Path)
+	if cmd == nil {
+		inv := a.newInvocation(&stdout, &stderr, a.name(), started)
+		inv.env.fail(&Failure{Category: CategoryUsage, Message: a.unknownCommand(strings.Fields(c.Path))})
+		inv.finish()
+		return inv.env, stdout.Bytes()
+	}
+	if c.Stdin == nil {
+		c.Stdin = strings.NewReader("")
+	}
+	inv := a.newInvocation(&stdout, &stderr, cmd.Path, started)
+	values, _, failure := parse(cmd, nil) // the defaults of the flags, the command's own included
+	values.dir, values.context = c.Dir, slices.Clone(c.Context)
+	if c.Timeout != 0 {
+		values.timeout = c.Timeout
+	}
+	inv.setup(cmd, append(strings.Fields(cmd.Path), c.Args...), values, slices.Clone(c.Args))
+	if failure == nil {
+		failure = callValues(cmd, values, c)
+	}
+	if failure == nil {
+		failure = checkValues(cmd, values)
+	}
+	if failure != nil {
+		inv.env.fail(failure)
+		inv.finish()
+		return inv.env, stdout.Bytes()
+	}
+	a.runCommand(ctx, inv, c.Stdin)
+	return inv.env, stdout.Bytes()
+}
+
+// command is the command registered under path, or nil.
+func (a *App) command(path string) *Command {
+	for _, cmd := range a.commands {
+		if cmd.Path == path {
+			return cmd
+		}
+	}
+	return nil
+}
+
+// callValues checks the values of a call and gives the command its options.
+func callValues(cmd *Command, values *flagValues, c Call) *Failure {
+	if max := cmd.maxArgs(); len(c.Args) > max {
+		return &Failure{Category: CategoryUsage, Message: fmt.Sprintf("the call has %d arguments, and %s takes at most %d", len(c.Args), cmd.Path, max)}
+	}
+	if slices.Contains(c.Context, "") {
+		return &Failure{Category: CategoryUsage, Message: "a context value of the call is empty"}
+	}
+	if cmd.hasDir() {
+		if c.Dir == "" {
+			return &Failure{Category: CategoryUsage, Message: "the call names no directory"}
+		}
+		abs, err := filepath.Abs(c.Dir)
+		if err != nil {
+			return &Failure{Category: CategoryUsage, Message: fmt.Sprintf("the directory %q: %v", c.Dir, err)}
+		}
+		values.dir = abs
+	}
+	switch {
+	case c.Options == nil:
+	case cmd.Options == nil:
+		return &Failure{Category: CategoryUsage, Message: fmt.Sprintf("%s takes no options from a call", cmd.Path)}
+	default:
+		if err := cmd.Options(c.Options); err != nil {
+			return &Failure{Category: CategoryUsage, Message: err.Error()}
+		}
+	}
+	return nil
+}
+
+// runCommand runs a command whose invocation is set up: it prepares what the command uses, runs
+// it under the signals (unless NoSignals) and the deadline, and finishes the envelope.
+func (a *App) runCommand(ctx context.Context, inv *invocation, stdin io.Reader) int {
 	sigCtx := ctx
 	if !a.NoSignals {
 		var stop context.CancelFunc
@@ -379,12 +483,12 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 		defer stop()
 	}
 	if err := inv.prepare(sigCtx, stdin); err != nil {
-		inv.env.fail(failureOf(err, stderr))
+		inv.env.fail(failureOf(err, inv.stderr))
 		return inv.finish()
 	}
 
-	out, err := a.execute(sigCtx, cmd, inv.run, values.timeout)
-	a.settle(inv.env, inv.run, out, err, stderr)
+	out, err := a.execute(sigCtx, inv.cmd, inv.run, inv.values.timeout)
+	a.settle(inv.env, inv.run, out, err, inv.stderr)
 	return inv.finish()
 }
 

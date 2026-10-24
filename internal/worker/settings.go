@@ -9,6 +9,8 @@ import (
 
 	"github.com/agent-fox-dev/agentkit-go/catalog"
 
+	"github.com/agent-fox-dev/agentfox/internal/afcmd"
+	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 )
 
@@ -120,17 +122,12 @@ func triggersOn(value string) bool {
 // workspaces, which a later release serves.
 const landPatch = "patch"
 
-// flags are the settings as the flags of the loop: the brain, its bounds, and for a fix where
-// the change goes.
-func (s Settings) flags(kind jobs.Kind) []string {
-	args := []string{
-		"--brain", s.Brain,
-		"--budget", strconv.FormatFloat(s.Budget, 'f', -1, 64),
-		"--max-turns", strconv.Itoa(s.MaxTurns),
-		"--timeout", s.Timeout.String(),
-	}
+// options are the settings as the options of the loop: the brain in the gateway box, its bounds,
+// and for a fix where the change goes. The timeout is the call's.
+func (s Settings) options(kind jobs.Kind) afcmd.LoopOptions {
+	o := afcmd.LoopOptions{Brain: s.Brain, Sandbox: box.GatewayName, Budget: s.Budget, MaxTurns: s.MaxTurns}
 	if kind == jobs.KindFix {
-		args = append(args, "--land", s.Land)
+		o.Land = s.Land
 	}
-	return args
+	return o
 }

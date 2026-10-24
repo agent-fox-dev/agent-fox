@@ -17,6 +17,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/agent-fox-dev/agentfox/internal/afcmd"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
@@ -67,9 +68,9 @@ type Runner struct {
 	sleep        func(ctx context.Context, d time.Duration) error
 	// releaseTimeout bounds the release of the lease, defaultReleaseTimeout when it is 0.
 	releaseTimeout time.Duration
-	// loopFlags, when it is set, gives flags put after the ones of the settings, which a test uses to
-	// choose the scripted brain, that no variable may name.
-	loopFlags func(a *attempt) []string
+	// loopOptions, when it is set, changes the options of the loop after the settings have set
+	// them, which a test uses to choose the scripted brain, that no variable may name.
+	loopOptions func(a *attempt, o *afcmd.LoopOptions)
 	// loop, when it is set, is the step that stands for the loop in a test; nil is the loop.
 	loop func(ctx context.Context, a *attempt) *outcome
 }
