@@ -204,58 +204,6 @@ func TestACycleThatEndsBeforeItReadTheVariableWaitsTheLastIntervalReadOrFiveMinu
 	})
 }
 
-// TestTheRequestLabelsComeFromTheSubscriptionPrefixReadAtTheStartOfEachCycle_TS_15_13 verifies TS-15-13.
-// Verifies: 15-REQ-2.6
-func TestTheRequestLabelsComeFromTheSubscriptionPrefixReadAtTheStartOfEachCycle_TS_15_13(t *testing.T) {
-	e := newEnv(t, withVars(map[string]string{"AF_LABEL_PREFIX": "other:"}))
-	e.cycle()
-	if got, want := e.listsOf(), []string{"issues(af:triage)", "issues(af:fix)"}; !slices.Equal(got, want) {
-		t.Errorf("the first cycle listed %v, want %v", got, want)
-	}
-	if _, _, err := e.Store.Upsert(ctx, slug, "ci:", pat, "usr_1", "usr_1", epoch); err != nil {
-		t.Fatal(err)
-	}
-	e.cycle()
-	if got, want := e.listsOf()[2:], []string{"issues(ci:triage)", "issues(ci:fix)"}; !slices.Equal(got, want) {
-		t.Errorf("the second cycle listed %v, want %v", got, want)
-	}
-	for _, p := range e.fromPoll() {
-		if strings.Contains(p, "other") {
-			t.Errorf("the poll asked for %s, which names the prefix of the variable", p)
-		}
-	}
-}
-
-// TestADifferingLabelPrefixVariableLogsOneWarningPerDistinctValueAndIsIgnored_TS_15_14 verifies TS-15-14.
-// Verifies: 15-REQ-2.7
-func TestADifferingLabelPrefixVariableLogsOneWarningPerDistinctValueAndIsIgnored_TS_15_14(t *testing.T) {
-	e := newEnv(t)
-	run := func(value string, n int) {
-		e.setVar("AF_LABEL_PREFIX", value)
-		for range n {
-			e.cycle()
-		}
-	}
-	run("x:", 3)
-	run("y:", 2)
-	run("af:", 1)
-	warned := map[any]int{}
-	for _, rec := range e.Logs.level("WARN") {
-		if rec["variable"] != "AF_LABEL_PREFIX" || rec["workspace"] != slug {
-			t.Errorf("a warning that is not about the prefix: %v", rec)
-		}
-		warned[rec["value"]]++
-	}
-	if len(warned) != 2 || warned["x:"] != 1 || warned["y:"] != 1 {
-		t.Errorf("warnings by value %v, want exactly one for x: and one for y:, and none for af:", warned)
-	}
-	for _, l := range e.listsOf() {
-		if l != "issues(af:triage)" && l != "issues(af:fix)" {
-			t.Errorf("the poll listed %s, want the labels of the subscription's prefix", l)
-		}
-	}
-}
-
 // TestOneEnabledCycleReadsTheVariablesTheWorkspaceRecordAndListsTriageThenFixWithALimitOf100_TS_15_22 verifies TS-15-22:
 // the order of the requests, the limit of each list, and that the poll's records were reconciled before the first
 // request of hub.

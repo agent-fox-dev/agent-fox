@@ -177,7 +177,7 @@ func TestEveryNewCommandRegistersASchemaThatMatchesItsTypeAndAllowsOtherFields_T
 		}
 	}
 
-	view := map[string]any{"slug": "w", "label_prefix": "af:", "token_user": nil, "subscribed_by": "u", "token_state": "ok", "created_at": "t", "updated_at": "t", "future": map[string]any{"a": []any{1}}}
+	view := map[string]any{"slug": "w", "token_user": nil, "subscribed_by": "u", "token_state": "ok", "created_at": "t", "updated_at": "t", "future": map[string]any{"a": []any{1}}}
 	job := map[string]any{"id": "j", "state": "done", "future": true, "attempts": []any{map[string]any{"n": 1, "extra": 2}}}
 	for name, samples := range map[string][]any{
 		"login":          {map[string]any{"credential_file": "/h/.af/config.toml", "server": "http://127.0.0.1:1", "future": 1}},
@@ -196,7 +196,7 @@ func TestEveryNewCommandRegistersASchemaThatMatchesItsTypeAndAllowsOtherFields_T
 	// The check is not vacuous: a result that lacks what the schema requires does not validate.
 	for name, bad := range map[string]any{
 		"login": map[string]any{"server": "http://127.0.0.1:1"}, "slug": map[string]any{}, "job_result": map[string]any{"job": job},
-		"workspace_list": map[string]any{"workspaces": "x"}, "job_page": map[string]any{"jobs": []any{}}, "subscription": map[string]any{"label_prefix": "x"},
+		"workspace_list": map[string]any{"workspaces": "x"}, "job_page": map[string]any{"jobs": []any{}}, "subscription": map[string]any{"slug": 1},
 	} {
 		if err := check(schemaOf(t, name), bad, "$"); err == nil {
 			t.Errorf("schemas/%s.json accepts %v", name, bad)

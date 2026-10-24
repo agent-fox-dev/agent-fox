@@ -131,10 +131,10 @@ func randomDelay() time.Duration { return time.Duration(rand.Int64N(int64(maxFir
 type wsState struct {
 	// last is the interval the workspace last read, zero when none was read or the last value turned the poll off.
 	last time.Duration
-	// warnedInterval and warnedPrefix are the values that have been warned of, and incomplete the labels whose
-	// incomplete listing has been warned of and that have not listed complete since.
-	warnedInterval, warnedPrefix map[string]bool
-	incomplete                   map[string]bool
+	// warnedInterval are the values that have been warned of, and incomplete the labels whose incomplete listing has
+	// been warned of and that have not listed complete since.
+	warnedInterval map[string]bool
+	incomplete     map[string]bool
 	// failures are the failures that have been logged and not yet recovered from.
 	failures failures
 }
@@ -145,7 +145,7 @@ func (s *Supervisor) stateOf(slug string) *wsState {
 	defer s.mu.Unlock()
 	st := s.states[slug]
 	if st == nil {
-		st = &wsState{warnedInterval: map[string]bool{}, warnedPrefix: map[string]bool{}, incomplete: map[string]bool{}}
+		st = &wsState{warnedInterval: map[string]bool{}, incomplete: map[string]bool{}}
 		s.states[slug] = st
 	}
 	return st

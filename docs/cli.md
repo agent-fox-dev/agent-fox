@@ -1732,14 +1732,13 @@ The result is `{credential_file, server}`, never the credential.
 
 | Command | Request | Result |
 |---|---|---|
-| `af workspace subscribe <slug> --hub-token-file FILE\|- [--prefix P]` | `PUT /api/v1/workspaces/<slug>` with `{hub_token, label_prefix?}` | the subscription view |
+| `af workspace subscribe <slug> --hub-token-file FILE\|-` | `PUT /api/v1/workspaces/<slug>` with `{hub_token}` | the subscription view |
 | `af workspace list` | `GET /api/v1/workspaces` | `{workspaces}` |
 | `af workspace get <slug>` | `GET /api/v1/workspaces/<slug>` | the subscription view |
 | `af workspace unsubscribe <slug>` | `DELETE /api/v1/workspaces/<slug>` | `{slug}` on 204 |
 
 `subscribe` reads the token of the workspace under the rules of `af login` (an unreadable file or stdin is `io`
-naming it; a content rule that is broken is a `usage` error naming `--hub-token-file`), sends `--prefix` as
-`label_prefix` only when the flag is given, and treats 201 (the summary says subscribed) and 200 (replaced) as
+naming it; a content rule that is broken is a `usage` error naming `--hub-token-file`), and treats 201 (the summary says subscribed) and 200 (replaced) as
 success. The slug is a required, path-escaped argument whose syntax is the service's to check, so a 400 is a
 `usage` error. `unsubscribe` says that the open jobs of the workspace were cancelled; the service waits up to its
 grace period for the runners, so it can take a minute.

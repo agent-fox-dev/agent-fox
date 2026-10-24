@@ -14,7 +14,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/worker/recovery"
 )
 
-// The status labels of an issue, without the prefix of the subscription, from the label table.
+// The status labels of an issue, without the prefix, from the label table.
 const (
 	statusInProgress = labels.InProgress
 	statusReady      = labels.Ready
@@ -26,17 +26,15 @@ const (
 // statuses are the five status labels. Setting one removes the other four.
 var statuses = labels.Statuses()
 
-// The warnings of the writes to the forge, and of the prefix.
+// The warnings of the writes to the forge.
 const (
 	WarnStatusLabelFailed  = "status_label_failed"
 	WarnCommentFailed      = "comment_failed"
 	WarnRequestLabelFailed = "request_label_failed"
-	WarnLabelPrefixIgnored = "label_prefix_ignored"
 )
 
-// label is the label of a status, with the prefix of the subscription: the one source of the
-// prefix, since a variable that named another could name labels that no subscribe created.
-func (a *attempt) label(status string) string { return labels.Name(a.prefix, status) }
+// label is the label of a status.
+func (a *attempt) label(status string) string { return labels.Name(status) }
 
 // write makes one write to the forge, and notes it as a side effect of the attempt. A write that
 // fails is a warning with the code, and never a change of what the attempt came to.

@@ -446,7 +446,7 @@ func TestResolveRefusesWhatHubAndTheStoreRefuseAndMakesTransientWhatIsUnavailabl
 	cases := []tc{
 		{"a token that is gone", func(e *env) { delete(e.subs.tokens, slug) }, "auth", false, "PUT /api/v1/workspaces/acme"},
 		{"a token that does not open", func(e *env) { e.subs.tokenErr[slug] = store.ErrUnreadable }, "auth", false, "PUT /api/v1/workspaces/acme"},
-		{"a subscription that is gone", func(e *env) { e.subs.getErr[slug] = store.ErrNotSubscribed }, "auth", false, "PUT /api/v1/workspaces/acme"},
+		{"a subscription that is gone", func(e *env) { e.subs.tokenErr[slug] = store.ErrNotSubscribed }, "auth", false, "PUT /api/v1/workspaces/acme"},
 		{"a record that hub refuses", func(e *env) { e.hub.Inject("GET", "/api/v1/workspaces/acme", fakehub.Fault{Status: 401}) }, "auth", false, "PUT /api/v1/workspaces/acme"},
 		{"a record that hub forbids", func(e *env) { e.hub.Inject("GET", "/api/v1/workspaces/acme", fakehub.Fault{Status: 403}) }, "auth", false, "PUT /api/v1/workspaces/acme"},
 		{"a record that is not there", func(e *env) { e.hub.Inject("GET", "/api/v1/workspaces/acme", fakehub.Fault{Status: 404}) }, "config", false, "does not find the workspace"},
@@ -521,17 +521,6 @@ func TestResolveRefusesWhatHubAndTheStoreRefuseAndMakesTransientWhatIsUnavailabl
 		_, _ = e.run(e.request(jobs.KindTriage, issueInput("42")))
 		if e.subs.reads != 1 {
 			t.Errorf("the token was read %d times, want once", e.subs.reads)
-		}
-	})
-	t.Run("the label prefix is the subscription's", func(t *testing.T) {
-		e := newEnv(t, fakehub.Workspace{})
-		e.subs.prefixes[slug] = "x-"
-		a := &attempt{req: e.request(jobs.KindTriage, jobs.Input{Text: "t"}), report: e.sink, started: time.Now()}
-		if out := e.runner.resolve(context.Background(), a); out != nil {
-			t.Fatal(out)
-		}
-		if a.prefix != "x-" {
-			t.Errorf("prefix = %q, want the subscription's", a.prefix)
 		}
 	})
 }

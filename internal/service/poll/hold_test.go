@@ -722,7 +722,7 @@ func TestTheHoldAndReleaseRulesAreTheSameForAPersonsCancelAndAnUnsubscribe_TS_17
 					t.Fatal(err)
 				}
 				// The workspace is subscribed again, and its poll goes on with the records it kept.
-				if _, _, err := e.Store.Upsert(ctx, slug, "af:", pat, "usr_1", "usr_1", e.Clock.Now()); err != nil {
+				if _, _, err := e.Store.Upsert(ctx, slug, pat, "usr_1", "usr_1", e.Clock.Now()); err != nil {
 					t.Fatal(err)
 				}
 			})

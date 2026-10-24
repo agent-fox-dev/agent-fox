@@ -2594,10 +2594,6 @@
         "slug": {
           "type": "string"
         },
-        "label_prefix": {
-          "type": "string",
-          "description": "The prefix that was given when the workspace was subscribed."
-        },
         "token_user": {
           "type": [
             "string",
@@ -2644,10 +2640,6 @@
       "properties": {
         "slug": {
           "type": "string"
-        },
-        "label_prefix": {
-          "type": "string",
-          "description": "The prefix that was given when the workspace was subscribed."
         },
         "token_user": {
           "type": [

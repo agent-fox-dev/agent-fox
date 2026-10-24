@@ -8,7 +8,6 @@ import (
 // The variables of the workspace that the poll reads, and the bounds of its interval.
 const (
 	intervalVar = "AF_POLL_INTERVAL"
-	prefixVar   = "AF_LABEL_PREFIX"
 
 	// defaultInterval is the interval of a poll with no value or an invalid one, and the wait of a poll that is off.
 	defaultInterval = 5 * time.Minute

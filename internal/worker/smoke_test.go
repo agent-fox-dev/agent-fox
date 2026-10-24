@@ -398,7 +398,7 @@ func TestAGracefulShutdownDuringTheLandIsResumedAfterTheRealJobsLayerIsRestarted
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := st.Upsert(context.Background(), slug, "af:", pat, "u1", "u1", time.Now()); err != nil {
+		if _, _, err := st.Upsert(context.Background(), slug, pat, "u1", "u1", time.Now()); err != nil {
 			t.Fatal(err)
 		}
 		svc, err := jobs.New(jobs.Config{

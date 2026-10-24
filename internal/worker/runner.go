@@ -20,7 +20,6 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
-	"github.com/agent-fox-dev/agentfox/internal/service/store"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -31,10 +30,8 @@ const CategoryHub = "hub"
 // defaultMaxAttempts is the most attempts a round may make when the variables did not say.
 const defaultMaxAttempts = 2
 
-// Subscriptions is the store of the subscriptions, as the worker reads it: the subscription of a
-// workspace, for its label prefix, and its token.
+// Subscriptions is the store of the subscriptions, as the worker reads it: the token of a workspace.
 type Subscriptions interface {
-	Get(ctx context.Context, slug string) (store.Subscription, error)
 	Token(ctx context.Context, slug string) (string, error)
 }
 

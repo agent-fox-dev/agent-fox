@@ -45,7 +45,7 @@ func TestATriageLabelBecomesOneJobThatTheRealWorkerRunsToDoneEndToEnd_TS_15_65(t
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	if _, _, err := st.Upsert(context.Background(), slug, "af:", pat, "u1", "u1", time.Now()); err != nil {
+	if _, _, err := st.Upsert(context.Background(), slug, pat, "u1", "u1", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -140,7 +140,7 @@ func pollRig(t *testing.T, e *env) (*store.Store, *jobs.Service, *poll.Superviso
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	if _, _, err := st.Upsert(context.Background(), slug, "af:", pat, "u1", "u1", time.Now()); err != nil {
+	if _, _, err := st.Upsert(context.Background(), slug, pat, "u1", "u1", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	e.runner.reporter = nil

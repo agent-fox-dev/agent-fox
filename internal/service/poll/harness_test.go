@@ -131,7 +131,7 @@ func newEnv(t *testing.T, opts ...option) *env {
 	t.Cleanup(func() { st.Close() })
 	fh := fakehub.New(t)
 	fh.AddWorkspace(t, fakehub.Workspace{Slug: slug, PAT: pat, Vars: cfg.vars})
-	if _, _, err := st.Upsert(ctx, slug, "af:", pat, "usr_1", "usr_1", epoch); err != nil {
+	if _, _, err := st.Upsert(ctx, slug, pat, "usr_1", "usr_1", epoch); err != nil {
 		t.Fatal(err)
 	}
 	logs := &syncBuffer{}

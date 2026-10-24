@@ -4,7 +4,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -58,34 +57,19 @@ func TestTheTableHoldsTheSevenLabelsInOrder_TS_17_1(t *testing.T) {
 	}
 }
 
-// TestEveryNameIsThePrefixFollowedByItsSuffix_TS_17_2 verifies TS-17-2, a property: for any label prefix, every name is the
-// prefix followed by the suffix, whatever AF_LABEL_PREFIX says.
+// TestEveryNameIsThePrefixFollowedByItsSuffix_TS_17_2 verifies TS-17-2: every name is af: followed by the suffix.
 // Verifies: 17-REQ-1.2
 func TestEveryNameIsThePrefixFollowedByItsSuffix_TS_17_2(t *testing.T) {
-	t.Setenv("AF_LABEL_PREFIX", "unrelated/")
-	prefixes := []string{"", "af:", "bot-", "ラベル:", "🦊-", strings.Repeat("x", 32)}
-	rng := rand.New(rand.NewPCG(17, 2))
-	alphabet := []rune("abcXYZ:-_/.é漢🦊0123456789")
-	for range 500 {
-		n := rng.IntN(33)
-		p := make([]rune, n)
-		for i := range p {
-			p[i] = alphabet[rng.IntN(len(alphabet))]
-		}
-		prefixes = append(prefixes, string(p))
+	names := labels.Names()
+	if len(names) != 7 {
+		t.Fatalf("Names() has %d names", len(names))
 	}
-	for _, p := range prefixes {
-		names := labels.Names(p)
-		if len(names) != 7 {
-			t.Fatalf("Names(%q) has %d names", p, len(names))
+	for i, row := range labels.Table() {
+		if got := labels.Name(row.Suffix); got != "af:"+row.Suffix {
+			t.Errorf("Name(%q) = %q, want af:%s", row.Suffix, got, row.Suffix)
 		}
-		for i, row := range labels.Table() {
-			if got := labels.Name(p, row.Suffix); got != p+row.Suffix {
-				t.Fatalf("Name(%q, %q) = %q, want %q", p, row.Suffix, got, p+row.Suffix)
-			}
-			if names[i] != p+row.Suffix {
-				t.Fatalf("Names(%q)[%d] = %q, want %q", p, i, names[i], p+row.Suffix)
-			}
+		if names[i] != "af:"+row.Suffix {
+			t.Errorf("Names()[%d] = %q, want af:%s", i, names[i], row.Suffix)
 		}
 	}
 }

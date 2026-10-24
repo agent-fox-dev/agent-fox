@@ -263,7 +263,7 @@ func (e *env) waitState(id string, state jobs.State) jobs.Doc {
 // subscribe subscribes the workspace, with a token that opens.
 func (e *env) subscribe(slug string) {
 	e.t.Helper()
-	if _, _, err := e.Store.Upsert(ctx, slug, "af:", "pat-of-"+slug, callerID, callerID, time.Now()); err != nil {
+	if _, _, err := e.Store.Upsert(ctx, slug, "pat-of-"+slug, callerID, callerID, time.Now()); err != nil {
 		e.t.Fatal(err)
 	}
 }

@@ -44,8 +44,7 @@ var (
 // Subscription is a subscribed workspace. It holds neither the token nor its
 // ciphertext.
 type Subscription struct {
-	Slug        string
-	LabelPrefix string
+	Slug string
 	// TokenUser is the hub user behind the token, empty when hub did not say.
 	TokenUser string
 	// SubscribedBy is the hub user who last subscribed the workspace.
@@ -204,15 +203,14 @@ func formatTime(t time.Time) string {
 
 // columns are the columns of a subscription that every read selects, in the
 // order scan reads them.
-const columns = "slug, label_prefix, sealed_token, token_user, subscribed_by, created_at, updated_at, revision"
+const columns = "slug, sealed_token, token_user, subscribed_by, created_at, updated_at, revision"
 
 // upsert stores a subscription in one statement: a new row, or a replacement of
 // the row of the slug in full, which keeps created_at and counts a revision.
 const upsert = `
 INSERT INTO af_subscriptions (slug, label_prefix, sealed_token, token_user, subscribed_by, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+VALUES (?, 'af:', ?, ?, ?, ?, ?)
 ON CONFLICT (slug) DO UPDATE SET
-	label_prefix  = excluded.label_prefix,
 	sealed_token  = excluded.sealed_token,
 	token_user    = excluded.token_user,
 	subscribed_by = excluded.subscribed_by,
@@ -224,7 +222,7 @@ RETURNING ` + columns
 // created_at and updated_at at now, or, when the slug is subscribed already, the
 // row replaced in full with created_at kept. An empty tokenUser is stored as
 // NULL. created says whether the row is new.
-func (s *Store) Upsert(ctx context.Context, slug, labelPrefix, token, tokenUser, subscribedBy string, now time.Time) (sub Subscription, created bool, err error) {
+func (s *Store) Upsert(ctx context.Context, slug, token, tokenUser, subscribedBy string, now time.Time) (sub Subscription, created bool, err error) {
 	sealed, err := s.key.Seal(slug, token)
 	if err != nil {
 		return Subscription{}, false, fmt.Errorf("subscription %s: %w", slug, err)
@@ -234,7 +232,7 @@ func (s *Store) Upsert(ctx context.Context, slug, labelPrefix, token, tokenUser,
 		user = tokenUser
 	}
 	stamp := formatTime(now)
-	sub, revision, err := s.scan(s.db.QueryRowContext(ctx, upsert, slug, labelPrefix, sealed, user, subscribedBy, stamp, stamp))
+	sub, revision, err := s.scan(s.db.QueryRowContext(ctx, upsert, slug, sealed, user, subscribedBy, stamp, stamp))
 	if err != nil {
 		return Subscription{}, false, fmt.Errorf("subscription %s: %w", slug, err)
 	}
@@ -314,7 +312,7 @@ func (s *Store) scan(r row) (Subscription, int64, error) {
 		created, updated string
 		revision         int64
 	)
-	if err := r.Scan(&sub.Slug, &sub.LabelPrefix, &sealed, &user, &sub.SubscribedBy, &created, &updated, &revision); err != nil {
+	if err := r.Scan(&sub.Slug, &sealed, &user, &sub.SubscribedBy, &created, &updated, &revision); err != nil {
 		return Subscription{}, 0, err
 	}
 	var err error

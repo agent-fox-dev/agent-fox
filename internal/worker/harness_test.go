@@ -21,27 +21,13 @@ const (
 	forgeRepo = "https://github.example.com/Org/Repo"
 )
 
-// subs is the store of the subscriptions of a test: a token and a label prefix by slug, and the
-// errors the store gives for a slug that is not there or whose token does not open.
+// subs is the store of the subscriptions of a test: a token by slug, and the errors the store
+// gives for a slug whose token does not open.
 type subs struct {
 	mu       sync.Mutex
 	tokens   map[string]string
-	prefixes map[string]string
-	getErr   map[string]error
 	tokenErr map[string]error
 	reads    int // how many times a token was read
-}
-
-func (s *subs) Get(_ context.Context, slug string) (store.Subscription, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.getErr[slug]; err != nil {
-		return store.Subscription{}, err
-	}
-	if _, ok := s.tokens[slug]; !ok {
-		return store.Subscription{}, store.ErrNotSubscribed
-	}
-	return store.Subscription{Slug: slug, LabelPrefix: s.prefixes[slug]}, nil
 }
 
 func (s *subs) Token(_ context.Context, slug string) (string, error) {
@@ -131,8 +117,8 @@ func newEnv(t *testing.T, w fakehub.Workspace) *env {
 	}
 	e.hub.AddWorkspace(t, w)
 	e.subs = &subs{
-		tokens: map[string]string{w.Slug: w.PAT}, prefixes: map[string]string{w.Slug: "af:"},
-		getErr: map[string]error{}, tokenErr: map[string]error{},
+		tokens:   map[string]string{w.Slug: w.PAT},
+		tokenErr: map[string]error{},
 	}
 	e.runner = New(Config{Hub: hub.New(e.hub.URL, "1"), Subscriptions: e.subs, Version: "v-test", Commit: "c-test"})
 	e.runner.reporter = e.sink

@@ -129,7 +129,7 @@ func TestOpenCreatesTheDirectoryAndTheFileAndSetsThePragmas_TS_11_24(t *testing.
 	}
 
 	// The files that the WAL mode adds are as private as the file.
-	if _, _, err := s.Upsert(ctx, "widgets", "af:", "tok", "", "usr_1", at(0)); err != nil {
+	if _, _, err := s.Upsert(ctx, "widgets", "tok", "", "usr_1", at(0)); err != nil {
 		t.Fatal(err)
 	}
 	for _, extra := range []string{path + "-wal", path + "-shm"} {
@@ -187,7 +187,7 @@ func TestTheStoreOwnsOnlyAfTablesAndLeavesTheRestAlone_TS_11_25(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if _, _, err := s.Upsert(ctx, "widgets", "af:", "tok", "usr_9", "usr_1", at(0)); err != nil {
+	if _, _, err := s.Upsert(ctx, "widgets", "tok", "usr_9", "usr_1", at(0)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Get(ctx, "widgets"); err != nil {
@@ -378,7 +378,7 @@ func TestMigrationOneCreatesTheSubscriptionsTable_TS_11_29(t *testing.T) {
 		t.Errorf("a second row for the same slug: %v, want a uniqueness violation", err)
 	}
 
-	if _, _, err := s.Upsert(ctx, "gadgets", "af:", "tok", "usr_9", "usr_1", at(5).In(time.FixedZone("CEST", 2*3600))); err != nil {
+	if _, _, err := s.Upsert(ctx, "gadgets", "tok", "usr_9", "usr_1", at(5).In(time.FixedZone("CEST", 2*3600))); err != nil {
 		t.Fatal(err)
 	}
 	for _, col := range []string{"created_at", "updated_at"} {
@@ -400,20 +400,20 @@ func TestMigrationOneCreatesTheSubscriptionsTable_TS_11_29(t *testing.T) {
 func TestUpsertCreatesThenReplacesTheRowInFull(t *testing.T) {
 	s, _, _ := newStore(t)
 
-	created, isNew, err := s.Upsert(ctx, "widgets", "x:", "pat-1", "usr_9", "usr_1", at(0))
+	created, isNew, err := s.Upsert(ctx, "widgets", "pat-1", "usr_9", "usr_1", at(0))
 	if err != nil || !isNew {
 		t.Fatalf("first Upsert = %v, new %v", err, isNew)
 	}
-	want := Subscription{Slug: "widgets", LabelPrefix: "x:", TokenUser: "usr_9", SubscribedBy: "usr_1", TokenState: TokenOK, CreatedAt: at(0), UpdatedAt: at(0)}
+	want := Subscription{Slug: "widgets", TokenUser: "usr_9", SubscribedBy: "usr_1", TokenState: TokenOK, CreatedAt: at(0), UpdatedAt: at(0)}
 	if created != want {
 		t.Errorf("created = %+v, want %+v", created, want)
 	}
 
-	replaced, isNew, err := s.Upsert(ctx, "widgets", "af:", "pat-2", "", "usr_2", at(7))
+	replaced, isNew, err := s.Upsert(ctx, "widgets", "pat-2", "", "usr_2", at(7))
 	if err != nil || isNew {
 		t.Fatalf("second Upsert = %v, new %v; want a replacement", err, isNew)
 	}
-	want = Subscription{Slug: "widgets", LabelPrefix: "af:", TokenUser: "", SubscribedBy: "usr_2", TokenState: TokenOK, CreatedAt: at(0), UpdatedAt: at(7)}
+	want = Subscription{Slug: "widgets", TokenUser: "", SubscribedBy: "usr_2", TokenState: TokenOK, CreatedAt: at(0), UpdatedAt: at(7)}
 	if replaced != want {
 		t.Errorf("replaced = %+v, want %+v (created_at kept, token_user emptied)", replaced, want)
 	}
@@ -425,7 +425,7 @@ func TestUpsertCreatesThenReplacesTheRowInFull(t *testing.T) {
 	}
 
 	// Two replacements in the same instant still say they replaced.
-	if _, isNew, err := s.Upsert(ctx, "widgets", "af:", "pat-3", "", "usr_2", at(7)); err != nil || isNew {
+	if _, isNew, err := s.Upsert(ctx, "widgets", "pat-3", "", "usr_2", at(7)); err != nil || isNew {
 		t.Errorf("third Upsert = %v, new %v; want a replacement", err, isNew)
 	}
 
@@ -444,7 +444,7 @@ func TestUpsertCreatesThenReplacesTheRowInFull(t *testing.T) {
 func TestTheTokenIsSealedAtRest(t *testing.T) {
 	s, path, _ := newStore(t)
 	const token = "pat-distinctive-0123456789"
-	if _, _, err := s.Upsert(ctx, "widgets", "af:", token, "usr_9", "usr_1", at(0)); err != nil {
+	if _, _, err := s.Upsert(ctx, "widgets", token, "usr_9", "usr_1", at(0)); err != nil {
 		t.Fatal(err)
 	}
 	var sealed []byte
@@ -478,7 +478,7 @@ func TestListIsSortedBySlugAndDeleteSaysWhetherThereWasARow(t *testing.T) {
 		t.Errorf("List of an empty store = %v, %v", got, err)
 	}
 	for _, slug := range []string{"zeta", "widgets", "alpha", "Beta"} {
-		if _, _, err := s.Upsert(ctx, slug, "af:", "tok-"+slug, "", "usr_1", at(0)); err != nil {
+		if _, _, err := s.Upsert(ctx, slug, "tok-"+slug, "", "usr_1", at(0)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -517,13 +517,13 @@ func TestTheInProcessReadReturnsTheOpenedToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.Upsert(ctx, "widgets", "af:", "pat-1", "", "usr_1", at(0)); err != nil {
+	if _, _, err := s.Upsert(ctx, "widgets", "pat-1", "", "usr_1", at(0)); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := s.Token(ctx, "widgets"); err != nil || got != "pat-1" {
 		t.Errorf("Token = %q, %v; want pat-1", got, err)
 	}
-	if _, _, err := s.Upsert(ctx, "widgets", "af:", "pat-2", "", "usr_1", at(1)); err != nil {
+	if _, _, err := s.Upsert(ctx, "widgets", "pat-2", "", "usr_1", at(1)); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := s.Token(ctx, "widgets"); err != nil || got != "pat-2" {
@@ -553,7 +553,7 @@ func TestTheInProcessReadFailsDistinguishablyAndWithoutThePlaintext_TS_11_70(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.Upsert(ctx, "widgets", "af:", pat, "usr_9", "usr_1", at(0)); err != nil {
+	if _, _, err := s.Upsert(ctx, "widgets", pat, "usr_9", "usr_1", at(0)); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {
@@ -588,7 +588,7 @@ func TestTheInProcessReadFailsDistinguishablyAndWithoutThePlaintext_TS_11_70(t *
 	}
 
 	// An unreadable subscription is replaced, and then reads.
-	replaced, isNew, err := other.Upsert(ctx, "widgets", "af:", "pat-new", "", "usr_2", at(3))
+	replaced, isNew, err := other.Upsert(ctx, "widgets", "pat-new", "", "usr_2", at(3))
 	if err != nil || isNew || replaced.TokenState != TokenOK {
 		t.Errorf("Upsert over an unreadable token = %+v, new %v, %v; want a replacement that reads", replaced, isNew, err)
 	}
@@ -625,7 +625,7 @@ func TestConcurrentWritesWaitForTheLockInsteadOfFailing(t *testing.T) {
 			defer wg.Done()
 			for i := range 10 {
 				slug := fmt.Sprintf("w%d-%d", g, i)
-				if _, _, err := s.Upsert(ctx, slug, "af:", "tok", "", "usr_1", at(0)); err != nil {
+				if _, _, err := s.Upsert(ctx, slug, "tok", "", "usr_1", at(0)); err != nil {
 					errs <- err
 				}
 			}
