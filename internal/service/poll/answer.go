@@ -64,23 +64,32 @@ func latest(doc jobs.Doc) (n int, finished time.Time) {
 	return n, finished
 }
 
-// since is the text of the comments a person wrote on the issue since the job's latest attempt, and whether hub cut the
-// thread, which makes the comments read no evidence of what is there.
-func (c *cycleRun) since(ctx context.Context, l *listing, n int, job jobs.Doc) (text string, cut, ok, more bool) {
-	thread, ok, more := c.thread(ctx, l, n)
+// read is what a sighting read of the comments of an issue for a job: the thread, the job's latest attempt, and the text
+// of the comments a person wrote since that attempt.
+type read struct {
+	thread  issuex.IssueThread
+	attempt int
+	text    string
+}
+
+// since reads the comments a person wrote on the issue since the job's latest attempt. When hub cut the thread the
+// comments read are no evidence of what is there, and the text is empty.
+func (c *cycleRun) since(ctx context.Context, l *listing, n int, job jobs.Doc) (r read, ok, more bool) {
+	r.thread, ok, more = c.thread(ctx, l, n)
 	if !ok {
-		return "", false, false, more
+		return r, false, more
 	}
 	doc, err := c.s.cfg.Jobs.Get(ctx, job.ID)
 	if err != nil {
 		c.report(ctx, failure{row: rowJobs, operation: fmt.Sprintf("read the job %s of %s on the issue %d, so the label stays", job.ID, l.Label, n), err: err})
-		return "", false, false, false
+		return r, false, false
 	}
-	if thread.Truncated {
-		return "", true, true, true
+	var finished time.Time
+	r.attempt, finished = latest(doc)
+	if !r.thread.Truncated {
+		r.text = bound(render(counted(r.thread.Comments, doc.ID, r.attempt, finished)))
 	}
-	attempt, finished := latest(doc)
-	return bound(render(counted(thread.Comments, doc.ID, attempt, finished))), false, true, true
+	return r, true, true
 }
 
 // owns says whether the label is the job's own request label, which its cancel puts back: only then does the record of a
@@ -96,11 +105,16 @@ func owns(job jobs.Doc, label string) string {
 // moved meanwhile absorbs it; a workspace that is not subscribed ends the cycle with nothing written; any other refusal is
 // reported, and the label stays.
 func (c *cycleRun) answer(ctx context.Context, l *listing, n int, job jobs.Doc) bool {
-	text, cut, ok, more := c.since(ctx, l, n, job)
-	if !ok || cut || text == "" {
+	r, ok, more := c.since(ctx, l, n, job)
+	switch {
+	case !ok:
 		return more
+	case r.thread.Truncated:
+		return c.threadCut(ctx, l, n, job, r, "answer")
+	case r.text == "":
+		return c.noAnswer(ctx, l, n, job, r)
 	}
-	_, err := c.s.cfg.Jobs.Answer(ctx, job.ID, l.by(), jobs.AnswerRequest{Answer: &text})
+	_, err := c.s.cfg.Jobs.Answer(ctx, job.ID, l.by(), jobs.AnswerRequest{Answer: &r.text})
 	var state *jobs.StateError
 	switch {
 	case err == nil:
@@ -123,13 +137,16 @@ func (c *cycleRun) answer(ctx context.Context, l *listing, n int, job jobs.Doc) 
 // issue, or a job that moved meanwhile, absorbs it; a workspace that is not subscribed ends the cycle with nothing
 // written; any other refusal is reported, and the label stays.
 func (c *cycleRun) retry(ctx context.Context, l *listing, n int, job jobs.Doc) bool {
-	text, cut, ok, more := c.since(ctx, l, n, job)
-	if !ok || cut {
+	r, ok, more := c.since(ctx, l, n, job)
+	switch {
+	case !ok:
 		return more
+	case r.thread.Truncated:
+		return c.threadCut(ctx, l, n, job, r, "retry")
 	}
 	var notes []string
-	if text != "" {
-		notes = []string{text}
+	if r.text != "" {
+		notes = []string{r.text}
 	}
 	_, err := c.s.cfg.Jobs.RetryWithContext(ctx, job.ID, l.by(), notes)
 	var (
