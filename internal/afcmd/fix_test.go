@@ -239,8 +239,9 @@ func refusedBy(t *testing.T, code int, env map[string]any, wantCode int, categor
 
 // TestPreflightChecksRunInOrderAndAFailureCostsNothing_TS_09_9 verifies TS-09-9:
 // of several things wrong with the repository the earliest check is the one that
-// is reported, and a refused run makes no brain, no box, no branch and no write to
-// the forge.
+// is reported, and a run that the checks of the host refuse makes no brain, no box, no
+// branch and no write to the forge. (The gate is the repository's, and is checked in the
+// box: see TestARunWithNoGateIsRefusedInTheBoxAndRunsNoBrain.)
 // Verifies: 09-REQ-2.1
 func TestPreflightChecksRunInOrderAndAFailureCostsNothing_TS_09_9(t *testing.T) {
 	requireMake(t)
@@ -267,8 +268,8 @@ func TestPreflightChecksRunInOrderAndAFailureCostsNothing_TS_09_9(t *testing.T) 
 			gitDo(e.t, e.dir, "checkout", "-q", "--detach")
 			e.writeFile("dirty.txt", "x")
 		}, nil, 2, "usage", "detached", nil, ""},
-		"no gate and no origin: the gate": {map[string]string{"README.md": "x\n"}, false, nil, []string{"--land", "branch"}, 1, "preflight", "gate", nil, ""},
-		"no origin: the origin":           {fixFiles, false, nil, []string{"--land", "branch"}, 1, "preflight", "origin", nil, ""},
+		"no gate and no origin: the origin": {map[string]string{"README.md": "x\n"}, false, nil, []string{"--land", "branch"}, 1, "preflight", "origin", nil, ""},
+		"no origin: the origin":             {fixFiles, false, nil, []string{"--land", "branch"}, 1, "preflight", "origin", nil, ""},
 		// The landing is checked before the brain is made, and the parts of the landing in order.
 		"no origin and a brain with no credential: the origin": {fixFiles, false, nil, []string{"--land", "pr"}, 1, "preflight", "origin", nil, "agentkit"},
 		"no token and a brain with no credential: the token": {fixFiles, true, func(e *fixEnv) { e.app.NewForge = e.forge.NewForge("") }, []string{"--land", "pr"},
@@ -303,6 +304,31 @@ func TestPreflightChecksRunInOrderAndAFailureCostsNothing_TS_09_9(t *testing.T) 
 				t.Errorf("%d writes to the forge", n)
 			}
 		})
+	}
+}
+
+// TestARunWithNoGateIsRefusedInTheBoxAndRunsNoBrain guards the last check of the preflight, which
+// is made where the checks of the repository run: a repository with no gate is refused as
+// preflight, with the hint --no-verify, once its box is open and before the brain runs, and
+// makes no branch and no write to the forge.
+func TestARunWithNoGateIsRefusedInTheBoxAndRunsNoBrain(t *testing.T) {
+	spy := &spyBrain{}
+	useFixSpy(t, spy)
+	boxes := countBoxes(t)
+	e := newFixEnvWith(t, fakeforge.GitHub, map[string]string{"README.md": "x\n"}, true)
+	before := e.branches()
+
+	code, env := e.fix(e.forge.IssueURL(7), "--land", "none", "--brain", "spy", "--sandbox", "countbox")
+
+	errObj := refusedBy(t, code, env, 1, "preflight")
+	if hint, _ := errObj["fix_hint"].(map[string]any); hint["flag"] != "--no-verify" || !strings.Contains(errObj["message"].(string), "gate") {
+		t.Errorf("error = %v, want one that names the gate and the hint --no-verify", errObj)
+	}
+	if spy.runs != 0 || boxes.Load() != 1 {
+		t.Errorf("the brain ran %d times and %d boxes were opened, want no run in the one box", spy.runs, boxes.Load())
+	}
+	if !slices.Equal(e.branches(), before) || len(e.forge.Writes()) != 0 {
+		t.Errorf("branches %v, were %v, and %d writes: a refused run makes neither", e.branches(), before, len(e.forge.Writes()))
 	}
 }
 

@@ -77,13 +77,12 @@ type Preflighted struct {
 	Brain    brain.Brain
 }
 
-// Preflight runs the checks that need no model, in order, and stops at the first
-// that fails: the work tree, the branch, a clean tree, a gate, the landing, the
-// brain. A failure makes no model call and no write. A command that lands nothing
-// has no Land and a command that runs no brain has no NewBrain, and those two checks
-// are not made. When every check has passed it records the full hash of the base and
-// runs the gate once on the tree as it is, which is the baseline a change is
-// compared with, unless the run is not verified.
+// Preflight runs the checks of this host that need no model, in order, and stops at the
+// first that fails: the work tree, the branch, a clean tree, the landing, the brain. A failure
+// makes no model call, opens no box and makes no write. A command that lands nothing has no
+// Land and a command that runs no brain has no NewBrain, and those two checks are not made.
+// It records the full hash of the base. The checks of the repository are Measure's, where they
+// can be run.
 func Preflight(ctx context.Context, p PreflightParams) (Preflighted, error) {
 	runner := p.GitRunner
 	if runner == nil {
@@ -98,10 +97,6 @@ func Preflight(ctx context.Context, p PreflightParams) (Preflighted, error) {
 		return Preflighted{}, err
 	}
 	if err := checkClean(ctx, g); err != nil {
-		return Preflighted{}, err
-	}
-	detection, files, err := checkGate(ctx, p)
-	if err != nil {
 		return Preflighted{}, err
 	}
 	if p.Land != "" {
@@ -119,13 +114,25 @@ func Preflight(ctx context.Context, p PreflightParams) (Preflighted, error) {
 	if err != nil {
 		return Preflighted{}, &toolio.Failure{Category: toolio.CategoryGit, Message: fmt.Sprintf("cannot read the commit of %s: %v", base, err)}
 	}
-	res := Preflighted{Git: g, Base: base, BaseHead: head, Detection: detection, Files: files, Brain: b}
+	return Preflighted{Git: g, Base: base, BaseHead: head, Brain: b}, nil
+}
+
+// Measure is the last of the checks before a run, made where the checks of the repository can
+// be run (Detect and Gate): there must be a gate, which is pinned for the run, and it runs once on
+// the tree as it is, which is the baseline a change is compared with, unless the run is not
+// verified.
+func (pre *Preflighted) Measure(ctx context.Context, p PreflightParams) error {
+	detection, files, err := checkGate(ctx, p)
+	if err != nil {
+		return err
+	}
+	pre.Detection, pre.Files = detection, files
 	if !p.NoVerify {
-		if res.Baseline, err = runBaseline(ctx, p, detection.Gate); err != nil {
-			return Preflighted{}, err
+		if pre.Baseline, err = runBaseline(ctx, p, detection.Gate); err != nil {
+			return err
 		}
 	}
-	return res, nil
+	return nil
 }
 
 // GateError is the failure for an error of a gate run, which is what names: a mistake in

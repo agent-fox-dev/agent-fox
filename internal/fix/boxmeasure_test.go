@@ -33,10 +33,18 @@ type scriptedAF struct {
 	argv     string // the file the af script logs its arguments to
 }
 
-// newScriptedAF makes the box over a new checkout, with a PATH whose first directory has the af
-// that body is the shell script of (it may write files in its working directory, the root of the
-// box's tree).
+// newScriptedAF makes a box that stands in for a leased one over a new checkout, with a PATH whose
+// first directory has the af that body is the shell script of (it may write files in its working
+// directory, the root of the box's tree).
 func newScriptedAF(t *testing.T, body string) *scriptedAF {
+	t.Helper()
+	return newScriptedAFIn(t, box.GatewayName, body)
+}
+
+// newScriptedAFIn is newScriptedAF with the box of the provider: the gateway, which a local box
+// stands in for under its name and calls af by name, or the local box, which runs the af of the
+// script by its path.
+func newScriptedAFIn(t *testing.T, provider, body string) *scriptedAF {
 	t.Helper()
 	bin := t.TempDir()
 	script := "#!/bin/sh\necho \"$@\" >> \"$(dirname \"$0\")/argv.log\"\n" + body + "\n"
@@ -50,21 +58,25 @@ func newScriptedAF(t *testing.T, body string) *scriptedAF {
 	if err != nil {
 		t.Fatal(err)
 	}
-	named := entry
-	named.Name, named.ByName, named.SuppliesCredentials, named.Remote = "byname", true, true, true
-	named.New = func() sandbox.Provider { return local.Unisolated() }
 	reg := box.NewRegistry()
-	reg.Register(named)
+	if provider == box.GatewayName {
+		named := entry
+		named.Name, named.ByName, named.SuppliesCredentials, named.Remote = box.GatewayName, true, true, true
+		named.New = func() sandbox.Provider { return local.Unisolated() }
+		reg.Register(named)
+	} else {
+		reg.Register(entry)
+	}
 	state := sampleState()
 	s := &scriptedAF{t: t, repo: repo}
-	sess, err := box.Open(context.Background(), box.Request{Provider: "byname", HostDir: repo.Dir, RunID: state.RunID, Tool: "fix", Registry: reg, Warn: func(string, string) {}})
+	sess, err := box.Open(context.Background(), box.Request{Provider: provider, HostDir: repo.Dir, RunID: state.RunID, Tool: "fix", Registry: reg, Warn: func(string, string) {}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sess.Close() })
 	s.sess = sess
 	s.m = &BoxMeasurer{
-		Session: sess, Process: brain.NewProcess(brain.ProcessConfig{Version: "v1", Commit: "c1"}), Profile: "py", RunID: state.RunID,
+		Session: sess, Process: brain.NewProcess(brain.ProcessConfig{AFPath: filepath.Join(bin, "af"), Version: "v1", Commit: "c1"}), Profile: "py", RunID: state.RunID,
 		Warn: func(code, message string) { s.warnings = append(s.warnings, code) },
 	}
 	s.argv = filepath.Join(bin, "argv.log")
@@ -233,6 +245,14 @@ func TestTheBoxMeasurerReadsTheFailureOfACommandAndRefusesWhatItCannotUse(t *tes
 		}
 		if len(s.runs()) != 0 {
 			t.Errorf("a ring-1 command ran: %v", s.runs())
+		}
+	})
+	t.Run("an af that is not there in a local box", func(t *testing.T) {
+		s := newScriptedAFIn(t, "local", "exit 3")
+		_, err := s.m.Gate(context.Background(), s.repo.Dir, checks.Options{})
+		var f *toolio.Failure
+		if !errors.As(err, &f) || f.Category != "sandbox" || f.Retryable || !strings.Contains(f.Message, "the local box") || strings.Contains(f.Message, "profile") || f.FixHint != nil {
+			t.Errorf("Gate = %v (%+v), want a permanent failure that names the local box, and no profile", err, f)
 		}
 	})
 	t.Run("a gate result with no id", func(t *testing.T) {

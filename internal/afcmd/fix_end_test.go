@@ -15,7 +15,6 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/brain"
-	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/internal/triage/fakeforge"
 )
@@ -301,19 +300,11 @@ func TestACancelledRunKeepsItsWorkOnALocalBranch_TS_09_51(t *testing.T) {
 func TestADeadlineThatPassesWhileTheChangeIsMeasuredKeepsItLocally(t *testing.T) {
 	requireMake(t)
 	e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
-	old := testConfig.Gate
-	calls := 0
-	testConfig.Gate = func(ctx context.Context, dir string, o checks.Options) (checks.Result, error) {
-		if calls++; calls > 1 { // the baseline has run; the gate on the change waits for the deadline
-			<-ctx.Done()
-			return checks.Result{}, ctx.Err()
-		}
-		return checks.Run(ctx, dir, o)
-	}
-	t.Cleanup(func() { testConfig.Gate = old })
-	spyRounds(t, spyRound(t, spyBroken, spyReport, 0, 1))
+	// The baseline is quick; the gate on the change waits past the deadline, in the box.
+	slow := map[string]string{"src/greet.sh": "sleep 60; echo hello\n"}
+	spyRounds(t, spyRound(t, slow, spyReport, 0, 1))
 
-	code, env := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", "local", "--timeout", "4s")
+	code, env := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", "local", "--timeout", "8s")
 
 	refusedBy(t, code, env, 1, "timeout")
 	if len(e.branches()) != 2 || len(e.remoteBranches(t)) != 1 || len(e.forge.Writes()) != 0 {

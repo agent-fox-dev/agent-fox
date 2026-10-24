@@ -375,20 +375,24 @@ directory in the box and copied to the host afterwards. In a box that supplies i
 credentials (the gateway's) the references are to the names the brain lists
 (`ProcessSpec.Credentials`: `ANTHROPIC_API_KEY`), and no key is needed on the host or sent.
 
-**Measuring in the box.** `afcmd.Config.InBox` makes a fix measure where the brain works: the
-box is opened before the detection of the checks and serves the whole attempt, and
+**Measuring in the box.** The loop of `af fix` measures where the brain works, whatever the box:
+the box is opened before the detection of the checks and serves the whole attempt, and
 `fix.BoxMeasurer` runs `af lang detect`, `af gate run` (the baseline, and the change) and
 `af revert-check` in it through `brain.Process`, after syncing the host's tree into the box and
 placing the run's gate table there, and reads each result from the envelope the command wrote.
 The results of a gate run are copied to the host's `.agent-fox/gate/<id>/`, where the comparison
 with the baseline reads them. The file view, the repository map, the path validation, the apply
 of the export, the commit and the push stay on the host, and the host's gate and revert check
-are not called. The image of the lease's profile has to provide `af`: the first ring-1 command of
-a box is preceded by `af --version`, and an `af` that is missing or fails is a `sandbox` failure
-that is not retryable and names the profile (`AF_SANDBOX_PROFILE`, or hub's default); another
+are not called by the loop (`af fix brief` and `af fix land`, the steps a person runs at their
+own checkout, still measure on the host). The `af` of the box is the image's under `podman` and
+a gateway, and the running one under `local` (`brain.DefaultAFPath` in a test binary, which is
+no `af`). The first ring-1 command of a box is preceded by `af --version`, and an `af` that is
+missing or fails is a `sandbox` failure that is not retryable and names the profile of a leased
+box (`AF_SANDBOX_PROFILE`, or hub's default) or the image of a podman one (`AF_SANDBOX_IMAGE`); another
 version or commit is the warning `box_af_version_mismatch`; an envelope of another major version
 of the schema, one that cannot be read, or a result that does not decode is the same failure. A
-box that is lost while it measures is a `sandbox` failure that is retryable.
+box that is lost while it measures is a `sandbox` failure that is retryable. A measuring has no
+time of its own: one that the box stops at the deadline of the run is the run's timeout.
 
 **The tools image.** `containers/tools/Containerfile` builds `quay.io/agentfox/tools` from
 this repository's sandbox image (`ARG BASE_IMAGE`): `af` is built from this repository's
@@ -679,7 +683,8 @@ worker, the poll, the `af` client) build on:
   provide it (`fix_hint.env` `AF_SANDBOX_PROFILE`).
 - **Measuring in the box.** For a fix run under the service the detection of the checks (`af lang detect`), the
   baseline and the gate after the change (`af gate run`) and the revert check (`af revert-check`) are *measured in
-  the box*, through the `af` of its image, and never on the host of the worker (`afcmd.Config.InBox`); the host's
+  the box*, through the `af` of its image, and never on the host of the worker (as for every `af fix`; the profile
+  is `afcmd.Config.SandboxProfile`); the host's
   gate and revert check are not called. A box that is lost while it measures ends the loop `failed`, category `sandbox`,
   retryable, which is a transient error (see [Redelivery, as built](#redelivery-as-built)).
 - **The lease and the box.** After the clone the worker leases a sandbox: `POST …/sandboxes` with `{purpose:

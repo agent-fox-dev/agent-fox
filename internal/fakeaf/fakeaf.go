@@ -109,6 +109,28 @@ func orDefault(s, d string) string {
 	return s
 }
 
+// LinkSelf makes a directory with af in it, a link to this test binary, for a TestMain to point
+// brain.DefaultAFPath at, and returns the directory and the path of af. The caller removes the
+// directory when the tests are over.
+func LinkSelf() (dir, af string, err error) {
+	self, err := os.Executable()
+	if err != nil {
+		return "", "", err
+	}
+	if dir, err = os.MkdirTemp("", "af-self-*"); err != nil {
+		return "", "", err
+	}
+	if dir, err = filepath.EvalSymlinks(dir); err != nil {
+		return "", "", err
+	}
+	af = filepath.Join(dir, AF)
+	if err := os.Symlink(self, af); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", "", err
+	}
+	return dir, af, nil
+}
+
 // Install makes a directory with af in it, a link to this test binary, and returns it with
 // the path of af. The test is skipped where the binary cannot be linked.
 func Install(t testing.TB) (dir, af string) {

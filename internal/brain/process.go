@@ -122,15 +122,25 @@ func (b Brief) warn(code, message string) {
 	}
 }
 
+// DefaultAFPath is the af that a process runs in a box whose programs are not called by name
+// (local) when the config names none; empty is the running executable. A test binary is no
+// af, and would run its tests again: its TestMain points this at a link to itself named af,
+// and acts as af when it is run under that name.
+var DefaultAFPath string
+
 // program is the path of af as the box has it. In a box whose programs are called by name
 // (podman, a gateway) it is found on the PATH of the image. Elsewhere it is the path it was
-// given or the running executable: a process there runs from the host's file system.
+// given, DefaultAFPath or the running executable: a process there runs from the host's file
+// system.
 func (p *Process) program(byName bool) (string, error) {
 	if byName {
 		return ProgramAF, nil
 	}
 	if p.cfg.AFPath != "" {
 		return p.cfg.AFPath, nil
+	}
+	if DefaultAFPath != "" {
+		return DefaultAFPath, nil
 	}
 	exe, err := os.Executable()
 	if err != nil {
