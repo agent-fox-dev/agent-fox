@@ -82,6 +82,12 @@ type Supervisor struct {
 	wg       sync.WaitGroup
 	inflight atomic.Int32
 	streams  atomic.Int32
+
+	// beforeEvent, when it is set, is called before an event of a stream is acted on; for the tests.
+	beforeEvent func()
+	// streamless starts the loops without their event streams; for the tests of the timing of the loops alone, which
+	// count the waits of the clock that the streams share.
+	streamless bool
 }
 
 // reconciler brings the records of the poll for a workspace up to date with their jobs, without a request of hub.

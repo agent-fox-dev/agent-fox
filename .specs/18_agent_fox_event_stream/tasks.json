@@ -340,7 +340,7 @@
       "done_when": [
         "no stream log record mentions AF_POLL_INTERVAL"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

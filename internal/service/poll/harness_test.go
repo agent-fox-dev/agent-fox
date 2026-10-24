@@ -92,12 +92,13 @@ type env struct {
 type option func(*envConfig)
 
 type envConfig struct {
-	runner  *fakerunner.Runner
-	vars    map[string]string
-	workers int
-	jobs    func(*jobs.Config)
-	poll    func(*Config)
-	cleanup bool
+	runner     *fakerunner.Runner
+	vars       map[string]string
+	workers    int
+	jobs       func(*jobs.Config)
+	poll       func(*Config)
+	cleanup    bool
+	streamless bool
 }
 
 // withRunner makes the runner of the jobs layer r.
@@ -105,6 +106,10 @@ func withRunner(r *fakerunner.Runner) option { return func(c *envConfig) { c.run
 
 // withVars gives the workspace the variables.
 func withVars(vars map[string]string) option { return func(c *envConfig) { c.vars = vars } }
+
+// withoutStream starts the loops without their event streams, for the tests of the timing of the loops alone, which count
+// the waits of the clock.
+func withoutStream() option { return func(c *envConfig) { c.streamless = true } }
 
 // withCleanup gives the jobs layer the hub-backed cancel cleanup, as cmd/agent-fox does.
 func withCleanup() option { return func(c *envConfig) { c.cleanup = true } }
@@ -169,7 +174,9 @@ func newEnv(t *testing.T, opts ...option) *env {
 	if cfg.poll != nil {
 		cfg.poll(&pc)
 	}
-	return &env{t: t, Hub: fh, Store: st, DB: st.DB(), Jobs: svc, Runner: cfg.runner, Clock: clk, Logs: logs, Dir: dir, Poll: New(pc), Client: client, logger: logger}
+	sup := New(pc)
+	sup.streamless = cfg.streamless
+	return &env{t: t, Hub: fh, Store: st, DB: st.DB(), Jobs: svc, Runner: cfg.runner, Clock: clk, Logs: logs, Dir: dir, Poll: sup, Client: client, logger: logger}
 }
 
 // setVar sets a variable of the workspace on the hub.

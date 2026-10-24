@@ -112,7 +112,9 @@ func (s *Supervisor) startLoop(ctx context.Context, slug string) {
 		defer s.wg.Done()
 		s.run(ctx, slug, l)
 	}()
-	s.startStream(ctx, slug, l)
+	if !s.streamless {
+		s.startStream(ctx, slug, l)
+	}
 	s.cfg.Logger.Info("the poll started for a workspace", "workspace", slug)
 }
 

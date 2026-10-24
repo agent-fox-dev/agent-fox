@@ -166,7 +166,7 @@ func (tl *timeline) handle(ctx context.Context, _ *cycleRun, l *listing) bool {
 // TestTheFirstCycleWaitsTheInjectedDelayLaterCyclesStartOneIntervalAfterTheLastEndedAndNeverOverlap_TS_15_4 verifies TS-15-4.
 // Verifies: 15-REQ-1.4
 func TestTheFirstCycleWaitsTheInjectedDelayLaterCyclesStartOneIntervalAfterTheLastEndedAndNeverOverlap_TS_15_4(t *testing.T) {
-	e := newEnv(t, withVars(map[string]string{"AF_POLL_INTERVAL": "2m"}), withPoll(func(c *Config) { c.FirstDelay = func() time.Duration { return 17 * time.Second } }))
+	e := newEnv(t, withoutStream(), withVars(map[string]string{"AF_POLL_INTERVAL": "2m"}), withPoll(func(c *Config) { c.FirstDelay = func() time.Duration { return 17 * time.Second } }))
 	tl := newTimeline(e.Clock, 2*time.Minute)
 	e.Poll.reconciler, e.Poll.handler = tl, tl
 	e.started()
@@ -283,7 +283,7 @@ func TestAtMostFourCyclesRunAtOnceAndADueCycleWaitsForASlot_TS_15_5(t *testing.T
 // interval the workspace last read.
 // Verifies: 15-REQ-1.6
 func TestACycleThatRunsFor5MinutesIsCancelledKeepsWhatItDidAndFreesItsSlot_TS_15_6(t *testing.T) {
-	e := newEnv(t, withVars(map[string]string{"AF_POLL_INTERVAL": "2m"}))
+	e := newEnv(t, withoutStream(), withVars(map[string]string{"AF_POLL_INTERVAL": "2m"}))
 	e.Hub.AddIssue(slug, fakehub.Issue{Number: 7})
 	if _, err := e.Jobs.Create(ctx, jobs.CreateRequest{
 		Workspace: slug, Kind: jobs.KindTriage, Body: jobs.Body{Issue: json.RawMessage("7")},
@@ -319,7 +319,7 @@ func TestACycleThatRunsFor5MinutesIsCancelledKeepsWhatItDidAndFreesItsSlot_TS_15
 // jobs layer stops is shown in the binary.
 // Verifies: 15-REQ-1.7
 func TestShutdownStartsNoNewCycleAndCancelsTheCyclesInFlight_TS_15_7(t *testing.T) {
-	e := newEnv(t)
+	e := newEnv(t, withoutStream())
 	e.Hub.Delay(listPath, time.Hour)
 	e.started()
 	waitFor(t, "the cycle to reach the list", func() bool { return len(e.Hub.ListRequests(slug)) > 0 })
