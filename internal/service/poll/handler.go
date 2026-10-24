@@ -81,7 +81,8 @@ func request(workspace string, l *listing, n int) jobs.CreateRequest {
 //     removed and no job is made;
 //  4. a record of the label on the issue is newer than the sighting: the other trigger took the label since, and it is
 //     left to the next cycle;
-//  5. otherwise it is a new request, and a job is made.
+//  5. the latest job of the kind for the issue failed: it is retried from the forge, with the comments since its failure;
+//  6. otherwise it is a new request, and a job is made.
 func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
 
 	recs, err := c.s.records.Find(ctx, c.slug, n, l.Label)
@@ -128,6 +129,16 @@ func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
 	// shows: the other trigger took the label since. The label is left to the next cycle.
 	if slices.ContainsFunc(recs, l.newer) {
 		return true
+	}
+	latest, err := c.s.cfg.Jobs.LatestJob(ctx, c.slug, l.Kind, int64(n))
+	switch {
+	case err == nil && latest.State == jobs.StateFailed:
+		return c.retry(ctx, l, n, latest)
+	case err != nil && !errors.Is(err, jobs.ErrNotFound):
+		c.report(ctx, failure{
+			row: rowJobs, operation: fmt.Sprintf("look up the latest job for %s on the issue %d, so the label stays", l.Label, n), err: err,
+		})
+		return false
 	}
 	return c.request(ctx, l, n)
 }

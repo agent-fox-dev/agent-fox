@@ -117,3 +117,39 @@ func (c *cycleRun) answer(ctx context.Context, l *listing, n int, job jobs.Doc) 
 		"workspace", c.slug, "kind", l.Kind, "issue", n, "label", l.Label, "job", job.ID)
 	return c.consume(ctx, l, n, owns(job, l.Label))
 }
+
+// retry asks again for the failed job, the latest of its kind for the issue, with the comments a person wrote since its
+// failure as the new attempt's context, none when there are none, and consumes the label. Another job that took the
+// issue, or a job that moved meanwhile, absorbs it; a workspace that is not subscribed ends the cycle with nothing
+// written; any other refusal is reported, and the label stays.
+func (c *cycleRun) retry(ctx context.Context, l *listing, n int, job jobs.Doc) bool {
+	text, cut, ok, more := c.since(ctx, l, n, job)
+	if !ok || cut {
+		return more
+	}
+	var notes []string
+	if text != "" {
+		notes = []string{text}
+	}
+	_, err := c.s.cfg.Jobs.RetryWithContext(ctx, job.ID, l.by(), notes)
+	var (
+		state *jobs.StateError
+		dup   *jobs.DuplicateError
+	)
+	switch {
+	case err == nil:
+	case errors.As(err, &dup):
+		return c.absorb(ctx, l, n, dup.JobID)
+	case errors.As(err, &state), errors.Is(err, jobs.ErrDuplicate):
+		return c.absorb(ctx, l, n, job.ID)
+	case errors.Is(err, jobs.ErrNotSubscribed):
+		c.notSubscribed = true
+		return false
+	default:
+		c.report(ctx, failure{row: rowJobs, operation: fmt.Sprintf("retry the failed job of %s on the issue %d, so the label stays", l.Label, n), err: err})
+		return false
+	}
+	c.s.cfg.Logger.Info("a request label retried a failed job with the comments since its failure",
+		"workspace", c.slug, "kind", l.Kind, "issue", n, "label", l.Label, "job", job.ID)
+	return c.consume(ctx, l, n, owns(job, l.Label))
+}
