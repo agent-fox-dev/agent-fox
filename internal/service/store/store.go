@@ -129,7 +129,8 @@ func reason(err error) string {
 
 // migrate applies the migrations the database has not recorded, in order, each
 // in a transaction of its own together with its record. A database that records
-// a migration beyond the list belongs to a newer binary, and is left as it is.
+// a migration beyond the list belongs to a newer binary, or to an unreleased build
+// from before the migrations were squashed, and is left as it is.
 func migrate(ctx context.Context, db *sql.DB, migrations []string, now time.Time) error {
 	applied, err := recorded(ctx, db)
 	if err != nil {
@@ -137,7 +138,7 @@ func migrate(ctx context.Context, db *sql.DB, migrations []string, now time.Time
 	}
 	for v := range applied {
 		if v > len(migrations) {
-			return fmt.Errorf("the database records migration %d, but this binary knows migrations only up to %d", v, len(migrations))
+			return fmt.Errorf("the database records migration %d, but this binary knows migrations only up to %d: it was made by a newer agent-fox, or by a build from before the migrations were squashed, whose state file has to be removed", v, len(migrations))
 		}
 	}
 	for i, statements := range migrations {
@@ -208,8 +209,8 @@ const columns = "slug, sealed_token, token_user, subscribed_by, created_at, upda
 // upsert stores a subscription in one statement: a new row, or a replacement of
 // the row of the slug in full, which keeps created_at and counts a revision.
 const upsert = `
-INSERT INTO af_subscriptions (slug, label_prefix, sealed_token, token_user, subscribed_by, created_at, updated_at)
-VALUES (?, 'af:', ?, ?, ?, ?, ?)
+INSERT INTO af_subscriptions (slug, sealed_token, token_user, subscribed_by, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT (slug) DO UPDATE SET
 	sealed_token  = excluded.sealed_token,
 	token_user    = excluded.token_user,

@@ -777,12 +777,12 @@ func labelHarness(t *testing.T, third fakehub.Fault) *authHarness {
 // subscriptionRow is every column of the subscription of the slug, as the store holds it, or "" when there is none.
 func (a *authHarness) subscriptionRow(t *testing.T, slug string) string {
 	t.Helper()
-	var label, user, by, created, updated string
+	var user, by, created, updated string
 	var sealed []byte
 	var tokenUser sql.NullString
 	var revision int
-	err := a.Store.DB().QueryRowContext(ctx, "SELECT label_prefix, sealed_token, token_user, subscribed_by, created_at, updated_at, revision FROM af_subscriptions WHERE slug = ?", slug).
-		Scan(&label, &sealed, &tokenUser, &by, &created, &updated, &revision)
+	err := a.Store.DB().QueryRowContext(ctx, "SELECT sealed_token, token_user, subscribed_by, created_at, updated_at, revision FROM af_subscriptions WHERE slug = ?", slug).
+		Scan(&sealed, &tokenUser, &by, &created, &updated, &revision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ""
 	}
@@ -790,7 +790,7 @@ func (a *authHarness) subscriptionRow(t *testing.T, slug string) string {
 		t.Fatal(err)
 	}
 	user = tokenUser.String
-	return fmt.Sprintf("%s|%x|%s|%s|%s|%s|%d", label, sealed, user, by, created, updated, revision)
+	return fmt.Sprintf("%x|%s|%s|%s|%s|%d", sealed, user, by, created, updated, revision)
 }
 
 // refusedAs checks that the PUT was answered with the status, the code and a message that contains each of the parts, that
