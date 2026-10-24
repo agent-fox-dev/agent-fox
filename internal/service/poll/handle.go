@@ -131,7 +131,7 @@ func (st *stream) request(ctx context.Context, ev hub.StreamEvent, kind jobs.Kin
 	}
 	c := &cycleRun{s: st.s, slug: st.slug, repo: st.repo, forge: forge, st: st.s.stateOf(st.slug)}
 	c.onFail = func(f failure) { st.handlingFailed(ctx, f) }
-	c.issue(ctx, &listing{Kind: kind, Label: label, Source: jobs.Source{Kind: "event", By: ev.ID}}, ev.Issue)
+	c.issue(ctx, &listing{Kind: kind, Label: label, Source: jobs.Source{Kind: "event", By: ev.ID}, Thread: &thread}, ev.Issue)
 	if !c.failed && !c.notSubscribed {
 		st.decided(ctx, ev)
 	}

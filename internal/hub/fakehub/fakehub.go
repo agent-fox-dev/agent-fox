@@ -125,6 +125,8 @@ type Hub struct {
 
 	eventConns  map[*eventConn]bool
 	emitLabeled bool
+	// clock stamps the comments that are added; the wall clock when it is nil.
+	clock func() time.Time
 
 	requests []Request
 

@@ -148,6 +148,14 @@ scripted brain: no hub, no key of a model vendor and no container engine
   the list. The tests of `internal/service/poll` drive `Supervisor.Cycle` with the real jobs layer, the fake runner and a fake
   clock, and put a recording handler or reconciler in the unexported seams of the supervisor where the listing, and not the
   rules, is what they test.
+- **The fake hub's comments.** Every comment carries its own `created_at`: a comment a request or a test adds is stamped by
+  the fake's clock (`SetClock`, the wall clock by default), and one an issue was added with keeps a fixed time.
+  `AddPersonComment` adds a person's comment, with the login as its author, last in the order of the issue's comments, which
+  the issue read and the comment list keep. A test makes hub cut a thread, or fail to read its comments, by injecting an
+  issue read with `truncated: true` or `comments_err` through `Inject` (`threadBody` in `internal/service/poll`). The forge
+  path's tests in `internal/service/poll` post the worker's question and failure comments with their markers themselves,
+  since the fake runner writes nothing to the issue; the worker's own side (its comments and `AF_AUTO_FIX`) is tested in
+  `internal/worker` with the fake hub, and end to end with the scripted brain.
 - **The fake hub's event stream.** `GET /api/v1/events?workspace=<slug>` checks the token's access to the workspace as the
   other routes do and then holds the connection open as `text/event-stream`, in hub's own frames (`event: audit_event` with
   the audit event as JSON). `SendEvent` sends a `HubEvent` (an id, a type, the issue and the label) to every open

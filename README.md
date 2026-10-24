@@ -116,6 +116,13 @@ label-driven jobs off, the stream included. See
 [`docs/api.md`](docs/api.md#jobs-that-a-request-label-makes) and
 [`docs/configuration.md`](docs/configuration.md#the-label-poll).
 
+A team also carries a job forward from the issue. A person answers a blocked job, or asks again after a failed one, by
+commenting and putting the request label back: the comments since the service's question or failure comment become the
+answer, or the new attempt's context, and when there are none the service says so on the issue. With `AF_AUTO_FIX=true` a
+triage that ends ready is followed by a fix with no person involved, linked to the triage on both job records
+(`parent_job_id`, `follow_up`) and on the issue. See
+[`docs/api.md`](docs/api.md#answering-and-retrying-from-the-forge).
+
 The test suite needs no API key, no token, no container engine and no network. It does start
 `httptest` servers on the loopback interface, so a sandbox that forbids
 binding a local port fails it.

@@ -92,6 +92,10 @@ func (s *Store) Purge(ctx context.Context, id, cutoff string, removeDir func() e
 			return false, fmt.Errorf("job %s: %w", id, err)
 		}
 	}
+	// The follow-up of a triage job goes with it; a fix job keeps the id of its parent.
+	if _, err := tx.ExecContext(ctx, "DELETE FROM af_followups WHERE triage_job_id = ?", id); err != nil {
+		return false, fmt.Errorf("job %s: %w", id, err)
+	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM af_jobs WHERE id = ?", id); err != nil {
 		return false, fmt.Errorf("job %s: %w", id, err)
 	}

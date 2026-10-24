@@ -71,7 +71,7 @@
         "internal/service/poll/thread.go",
         "internal/service/poll/thread_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,
@@ -105,7 +105,7 @@
         "internal/service/api/jobs.go",
         "internal/worker/run.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,
@@ -144,7 +144,7 @@
       "depends_on": [
         2
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 4,
@@ -200,7 +200,7 @@
         2,
         3
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 5,
@@ -240,7 +240,7 @@
       "depends_on": [
         4
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 6,
@@ -279,7 +279,7 @@
       "depends_on": [
         5
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 7,
@@ -310,7 +310,7 @@
       "depends_on": [
         6
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 8,
@@ -345,7 +345,7 @@
         3,
         7
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 9,
@@ -386,7 +386,7 @@
       "depends_on": [
         2
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 10,
@@ -431,7 +431,7 @@
         3,
         9
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 11,
@@ -473,7 +473,7 @@
       "done_when": [
         "`make check` passes offline"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }

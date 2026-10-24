@@ -1308,7 +1308,9 @@ put on, and the cycles find what the stream missed.
   `<prefix>fix` through the hub forge client's `ListIssues`, at most 100 of each, takes each listing's issues in ascending number
   whatever order hub returned them in, and applies the rules to each. Pull requests, closed issues and issues without a request
   label never reach the rules.
-- **The rules,** in order, for an issue N listed under label L of kind K: the jobs layer has an open job of kind K for N, which
+- **The rules,** as spec 15 built them, in order, for an issue N listed under label L of kind K (the forge's follow-ups put a
+  follow-up rule before them, answer a blocked job and retry a failed one: see [the forge's follow-ups, as
+  built](#the-forges-follow-ups-as-built)): the jobs layer has an open job of kind K for N, which
   absorbs L (removed, no job, an `INFO` record); a hold on L for N is in place (nothing is done); the removal of L from N is owed
   (removed, no job); otherwise a new request, for which the poll makes the job through `jobs.Service.Create`, writes its record,
   and removes L. A refusal of the jobs layer for a duplicate is handled as an absorbed label (two creators that race yield one
@@ -1409,6 +1411,46 @@ keeps one connection to it for each workspace that has a poll loop, and acts on 
   A closed event of an issue with no open job, and every event it ignores, costs no request. A connection reads the
   variables and the workspace record when it opens, and the variables again before an event once its reading is 5 minutes
   old.
+
+### The forge's follow-ups, as built
+
+The forge's follow-ups carry a job forward from the issue (`internal/service/poll`: `answer.go`, `reply.go`, `thread.go`,
+`followup.go`; `internal/service/jobs/followup.go`; `internal/worker/mirror.go`). They are part of the rules that the poll and
+the event stream share, not a third trigger: one sighting at a time per workspace, under its lock, in `cycleRun.issue`.
+
+- **The order of the rules.** For a sighting of label L of kind K on issue N: a pending follow-up of a triage (K is fix)
+  makes the linked fix job, or is absorbed by an open fix job; an open job of kind K that is blocked, with no removal of L
+  owed and no record of L newer than the sighting, is answered; any other open job absorbs L; a hold, an owed removal and a
+  newer record as before; the latest job of kind K for N, by `created_at`, failed: it is retried; otherwise a new request.
+  The newer-record rule of the event stream guards the answer and the retry too: a listing asked for before an answer or a
+  retry would otherwise find the job blocked or failed again once the new attempt ended, and repeat it.
+- **The comments.** An answer and a retry read the issue through hub's issue read (`ReadIssue`), which says when hub cut the
+  comments (`truncated`) or could not read them (`comments_err`); a sighting of the stream takes the read it made. The
+  pure functions of `thread.go` take the comments after the first comment that carries the latest attempt's marker (or
+  those made from the attempt's `finished_at`, when none does), leave out the service's own (`<!-- agent-fox`) and blank
+  ones, render them as `--- comment by <login> ---` blocks and bound the text to 8192 bytes. An answer goes through
+  `jobs.Service.Answer`, a retry through `RetryWithContext`, both with the sighting's `by`. A thread hub cut gives no
+  answer and no context: a reply names `af` and the API. An answer with no comment posts the "no answer found" reply. Each
+  reply carries a marker of its own, and is not posted again when it is the latest comment.
+- **Records.** Every outcome that consumes L writes a record of L on N before the removal, owed while the removal fails, and
+  names the job only when L is the job's own request label, which a cancel puts back and the poll then holds. A record
+  outlives every listing asked for before it, since a workspace's listings are asked for and handled one at a time and the
+  records are dropped only after a listing is handled.
+- **The attempt's context.** `af_attempts.context` (migration 9) holds the comments a retry from the forge gave its attempt;
+  `RunRequest` gives the runner the job's context strings and then each attempt's, in order, so an automatic attempt after
+  the retry keeps them, and the worker passes each as a `--context` value with no question. The API's retry gives none.
+- **The follow-up in the jobs layer.** `af_followups` (migration 9) holds at most one follow-up for each triage job and at
+  most one pending for each workspace and issue (a unique partial index): `RecordFollowUp` absorbs it into an open fix job
+  or records it pending, withdrawing an earlier triage's pending one in the same transaction. `CreateLinked` makes the fix
+  job (`source` `triage`, `parent_job_id` the triage, which `Create` checks is a triage job of the workspace) and marks the
+  follow-up made in the transaction that stores the job. The job document reads the follow-up through a subquery; the purge
+  of a triage job takes its follow-up, and a fix job keeps its parent's id.
+- **The worker's side.** The worker reads `AF_POLL_INTERVAL` as the poll does (the forge path is named in the question,
+  failure and parked-fix comments only while the label triggers are on) and, for a triage, `AF_AUTO_FIX`. When the mirror of
+  a ready triage has set the status label, and before the lease is released, it asks the jobs layer for the follow-up
+  through the attempt's `jobs.Recorder` (`RecordFollowUp`) and adds `<prefix>fix` only while the follow-up is pending, so
+  that the trigger, which may see the label within a second, finds the follow-up there; a label it cannot add withdraws the
+  follow-up. A `fix_summary` of a fix whose source is a triage names it.
 
 ### The client, as built
 

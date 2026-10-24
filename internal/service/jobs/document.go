@@ -23,16 +23,19 @@ type jobRow struct {
 	State                                   State
 	LabelsSet, LabelsRemoved, LabelsRestore sql.NullString
 	Cleanup, CancelCause                    sql.NullString
+	ParentJobID, FollowUp                   sql.NullString
 	CreatedAt                               string
 	StartedAt, FinishedAt                   sql.NullString
 }
 
 const jobColumns = `id, workspace, kind, input, issue, source_kind, source_by, request_label, state,
-	labels_set, labels_removed, labels_restore, cleanup, cancel_cause, created_at, started_at, finished_at`
+	labels_set, labels_removed, labels_restore, cleanup, cancel_cause, parent_job_id,
+	(SELECT json_object('label', f.label, 'issue', f.issue, 'state', f.state, 'job_id', f.job_id) FROM af_followups f WHERE f.triage_job_id = af_jobs.id),
+	created_at, started_at, finished_at`
 
 func (j *jobRow) scan(r interface{ Scan(...any) error }) error {
 	return r.Scan(&j.ID, &j.Workspace, &j.Kind, &j.Input, &j.Issue, &j.SourceKind, &j.SourceBy, &j.RequestLabel, &j.State,
-		&j.LabelsSet, &j.LabelsRemoved, &j.LabelsRestore, &j.Cleanup, &j.CancelCause, &j.CreatedAt, &j.StartedAt, &j.FinishedAt)
+		&j.LabelsSet, &j.LabelsRemoved, &j.LabelsRestore, &j.Cleanup, &j.CancelCause, &j.ParentJobID, &j.FollowUp, &j.CreatedAt, &j.StartedAt, &j.FinishedAt)
 }
 
 // attemptRow is a row of af_attempts.
@@ -42,7 +45,7 @@ type attemptRow struct {
 	State                          AttemptState
 	QueueSeq                       int64
 	TriggerKind, TriggerBy         string
-	Answer                         sql.NullString
+	Answer, Context                sql.NullString
 	Deliveries, TransientFailures  int
 	MaxAttempts                    int
 	HubSession, HubRun, HubSandbox sql.NullString
@@ -55,12 +58,12 @@ type attemptRow struct {
 	StartedAt, FinishedAt          sql.NullString
 }
 
-const attemptColumns = `job_id, n, state, queue_seq, trigger_kind, trigger_by, answer, deliveries, transient_failures, max_attempts,
+const attemptColumns = `job_id, n, state, queue_seq, trigger_kind, trigger_by, answer, context, deliveries, transient_failures, max_attempts,
 	hub_session, hub_run, hub_sandbox, question, options, status, exit_code, summary, error, artifacts, side_effects, usage,
 	has_envelope, has_report, started_at, finished_at`
 
 func (a *attemptRow) scan(r interface{ Scan(...any) error }) error {
-	return r.Scan(&a.JobID, &a.N, &a.State, &a.QueueSeq, &a.TriggerKind, &a.TriggerBy, &a.Answer, &a.Deliveries, &a.TransientFailures, &a.MaxAttempts,
+	return r.Scan(&a.JobID, &a.N, &a.State, &a.QueueSeq, &a.TriggerKind, &a.TriggerBy, &a.Answer, &a.Context, &a.Deliveries, &a.TransientFailures, &a.MaxAttempts,
 		&a.HubSession, &a.HubRun, &a.HubSandbox, &a.Question, &a.Options, &a.Status, &a.ExitCode, &a.Summary, &a.Error, &a.Artifacts, &a.SideEffects, &a.Usage,
 		&a.HasEnvelope, &a.HasReport, &a.StartedAt, &a.FinishedAt)
 }
@@ -159,6 +162,24 @@ func labelsDoc(j jobRow) (*LabelsDoc, error) {
 	return nil, nil
 }
 
+// record fills in what the job's row records beside its attempts: its labels, the cause of its cancel, its parent and its
+// follow-up.
+func (doc *Doc) record(j jobRow) error {
+	labels, err := labelsDoc(j)
+	if err != nil {
+		return err
+	}
+	doc.Labels = labels
+	if j.State == StateCancelled {
+		doc.CancelCause = nullable(j.CancelCause)
+	}
+	doc.ParentJobID = nullable(j.ParentJobID)
+	if err := decode("follow_up", j.FollowUp, &doc.FollowUp); err != nil {
+		return fmt.Errorf("job %s: %w", j.ID, err)
+	}
+	return nil
+}
+
 // buildDoc makes the document of a job from its rows.
 func buildDoc(j jobRow, attempts []attemptRow, withAttempts bool) (Doc, error) {
 	doc := Doc{
@@ -237,13 +258,8 @@ func buildDoc(j jobRow, attempts []attemptRow, withAttempts bool) (Doc, error) {
 		doc.Blocked = blocked
 	}
 
-	labels, err := labelsDoc(j)
-	if err != nil {
+	if err := doc.record(j); err != nil {
 		return Doc{}, err
-	}
-	doc.Labels = labels
-	if j.State == StateCancelled {
-		doc.CancelCause = nullable(j.CancelCause)
 	}
 
 	if withAttempts {
@@ -282,6 +298,9 @@ func attemptDoc(a attemptRow) (AttemptDoc, error) {
 			return AttemptDoc{}, err
 		}
 		ad.Answer = &AnswerDoc{Question: answer.Question, Option: answer.Option, Text: answer.Text}
+	}
+	if err := decode("context", a.Context, &ad.Context); err != nil {
+		return AttemptDoc{}, err
 	}
 	if err := decode("error", a.Error, &ad.Error); err != nil {
 		return AttemptDoc{}, err

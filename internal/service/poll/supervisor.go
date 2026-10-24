@@ -27,13 +27,22 @@ type Subscriptions interface {
 }
 
 // Jobs is what the poll asks of the jobs layer: to make a job, to name the open job of a kind for an issue, to say how a
-// job stands, and, for an issue that was closed, to name its open jobs and to cancel them.
+// job stands, and, for an issue that was closed, to name its open jobs and to cancel them. From the forge it answers a
+// blocked job, retries a failed one, finds the latest job of a kind for an issue, and makes, or absorbs, the fix job a
+// triage's follow-up asks for.
 type Jobs interface {
 	Create(ctx context.Context, req jobs.CreateRequest) (jobs.Doc, error)
 	OpenJob(ctx context.Context, workspace string, kind jobs.Kind, issue int64) (jobs.Doc, error)
 	Standing(ctx context.Context, id string) (jobs.Standing, error)
 	OpenIssueJobs(ctx context.Context, workspace string, issue int64) ([]string, error)
 	CancelIssue(ctx context.Context, workspace string, issue int64) ([]string, error)
+	Get(ctx context.Context, id string) (jobs.Doc, error)
+	Answer(ctx context.Context, id, by string, req jobs.AnswerRequest) (jobs.Doc, error)
+	RetryWithContext(ctx context.Context, id, by string, notes []string) (jobs.Doc, error)
+	LatestJob(ctx context.Context, workspace string, kind jobs.Kind, issue int64) (jobs.Doc, error)
+	PendingFollowUp(ctx context.Context, workspace string, issue int64) (jobs.FollowUp, error)
+	CreateLinked(ctx context.Context, triage string, req jobs.CreateRequest) (jobs.Doc, error)
+	AbsorbFollowUp(ctx context.Context, triage, job string) error
 }
 
 // The defaults of the settings that a test may change.

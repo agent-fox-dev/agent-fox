@@ -123,6 +123,9 @@ func (a *attempt) compose(kind string, ref issuex.IssueRef, env toolio.Envelope,
 			}
 		}
 		fmt.Fprintf(&b, "Answer with `af jobs answer %s`, or with `POST /api/v1/jobs/%s/answer`.", job, job)
+		if a.forgePath() {
+			fmt.Fprintf(&b, " Or reply on this issue, then add the label `%s` again: agent-fox takes the comments after this one as the answer.", a.requestLabel())
+		}
 	case commentReason:
 		confidence := res.confidence()
 		fmt.Fprintf(&b, "**agent-fox triaged this issue, and is not sure.**\n\nThe confidence of the diagnosis is `%s`. ", confidence)
@@ -140,8 +143,23 @@ func (a *attempt) compose(kind string, ref issuex.IssueRef, env toolio.Envelope,
 			category, message = env.Error.Category, env.Error.Message
 		}
 		fmt.Fprintf(&b, "**agent-fox could not finish this attempt.**\n\nCategory: `%s`\n\n%s\n\nTo ask again, `POST /api/v1/jobs/%s/retry`.", category, a.scrub(message), job)
+		a.retryPath(&b)
 	}
 	return b.String()
+}
+
+// forgePath says whether the comments name the forge path: the job is about an issue, and the label triggers that take
+// the request label are on.
+func (a *attempt) forgePath() bool { return a.issue != nil && a.settings.TriggersOn }
+
+// requestLabel is the request label of the job's kind, with the subscription's prefix.
+func (a *attempt) requestLabel() string { return a.prefix + string(a.req.Kind) }
+
+// retryPath writes the sentence that names the forge's retry, when the comments name the forge path.
+func (a *attempt) retryPath(b *strings.Builder) {
+	if a.forgePath() {
+		fmt.Fprintf(b, " Or add the label `%s` again; comments after this one go with the new attempt.", a.requestLabel())
+	}
 }
 
 // fixSummary writes the comment about a fix: what became of the change, and what was not proven.
@@ -191,6 +209,9 @@ func (a *attempt) fixSummary(b *strings.Builder, ref issuex.IssueRef, env toolio
 		word = "Closes"
 	}
 	fmt.Fprintf(b, "- %s %s\n", word, ref.URL())
+	if a.req.Source.Kind == "triage" {
+		fmt.Fprintf(b, "- Asked for by the triage job `%s` (AF_AUTO_FIX)\n", a.req.Source.By)
+	}
 
 	var unproven []string
 	if !res.Closes {
@@ -220,6 +241,7 @@ func (a *attempt) fixSummary(b *strings.Builder, ref issuex.IssueRef, env toolio
 			}
 		}
 		fmt.Fprintf(b, "\nTo ask again, `af jobs retry %s`, or `POST /api/v1/jobs/%s/retry`.", a.req.JobID, a.req.JobID)
+		a.retryPath(b)
 	}
 }
 

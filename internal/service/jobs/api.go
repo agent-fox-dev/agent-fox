@@ -43,6 +43,7 @@ type CreateRequest struct {
 	Body         Body
 	Source       Source
 	RequestLabel string
+	ParentJobID  string
 }
 
 // Create creates a job with attempt 1, queued, and returns it as it was made. It
@@ -56,6 +57,12 @@ type CreateRequest struct {
 // The attempt is queued after the job is stored. If that fails, the job is still
 // made, a warning names it, and the sweep queues the attempt.
 func (s *Service) Create(ctx context.Context, req CreateRequest) (Doc, error) {
+	return s.create(ctx, req, "")
+}
+
+// create is Create, and for a linked fix job CreateLinked: followUp names the triage job whose follow-up the job is made
+// from, and is marked made with it.
+func (s *Service) create(ctx context.Context, req CreateRequest, followUp string) (Doc, error) {
 	if req.Kind != KindTriage && req.Kind != KindFix {
 		return Doc{}, fmt.Errorf("jobs: unknown kind %q", req.Kind)
 	}
@@ -69,8 +76,11 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (Doc, error) {
 	if err != nil {
 		return Doc{}, err
 	}
+	if err := s.checkParent(ctx, req); err != nil {
+		return Doc{}, err
+	}
 
-	id, err := s.insert(ctx, req, parsed)
+	id, err := s.insert(ctx, req, parsed, followUp)
 	if err != nil {
 		return Doc{}, err
 	}
@@ -98,7 +108,7 @@ const duplicateTries = 3
 // jobs refuses a second one, however the creators race, and the one that loses is told which job won. If that job
 // ended between the refusal and the lookup, there is no job to name and the issue is free again, so the creator
 // tries once more.
-func (s *Service) insert(ctx context.Context, req CreateRequest, parsed Parsed) (string, error) {
+func (s *Service) insert(ctx context.Context, req CreateRequest, parsed Parsed, followUp string) (string, error) {
 	s.gate.RLock()
 	defer s.gate.RUnlock()
 	if err := s.subscribed(ctx, req.Workspace); err != nil {
@@ -107,7 +117,7 @@ func (s *Service) insert(ctx context.Context, req CreateRequest, parsed Parsed) 
 	for range duplicateTries {
 		id, err := s.store.CreateJob(ctx, NewJob{
 			Workspace: req.Workspace, Kind: req.Kind, Input: parsed.Input, Context: parsed.Context,
-			Issue: parsed.Issue, Source: req.Source, RequestLabel: req.RequestLabel,
+			Issue: parsed.Issue, Source: req.Source, RequestLabel: req.RequestLabel, ParentJobID: req.ParentJobID, FollowUp: followUp,
 		})
 		if !errors.Is(err, ErrDuplicate) || parsed.Issue == nil {
 			return id, err

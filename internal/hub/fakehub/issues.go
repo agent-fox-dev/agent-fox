@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // labelKey is a label of an issue.
@@ -250,4 +251,31 @@ func orderOf(order []int, n int) int {
 		return i
 	}
 	return len(order)
+}
+
+// SetClock sets the clock that stamps the comments added from then on; the wall clock when it is not set.
+func (h *Hub) SetClock(now func() time.Time) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.clock = now
+}
+
+// now is the time of the fake's clock. The caller holds the lock.
+func (h *Hub) now() time.Time {
+	if h.clock != nil {
+		return h.clock().UTC()
+	}
+	return time.Now().UTC()
+}
+
+// AddPersonComment adds a comment of the login to the issue, as a person would, stamped by the fake's clock and last in
+// the order of the issue's comments.
+func (h *Hub) AddPersonComment(slug string, n int, login, body string) {
+	h.update(slug, func(ws *workspace) {
+		issue := ws.issues[n]
+		if issue == nil {
+			panic("fakehub: AddPersonComment: no issue " + strconv.Itoa(n))
+		}
+		issue.Comments = append(issue.Comments, Comment{ID: int64(len(issue.Comments) + 1), Author: login, Body: body, CreatedAt: h.now()})
+	})
 }

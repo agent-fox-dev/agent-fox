@@ -34,43 +34,43 @@ func TestVariablesApplyWithTheirDefaultsAndRangesAndReachTheLoopAsFlags_TS_13_27
 		flags string
 	}{
 		{"triage defaults", jobs.KindTriage, nil,
-			Settings{Brain: "agentkit", Model: model, Budget: 2, MaxTurns: 100, Timeout: 15 * time.Minute, MaxAttempts: 2, Land: "pr"},
+			Settings{Brain: "agentkit", Model: model, Budget: 2, MaxTurns: 100, Timeout: 15 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
 			"--brain agentkit --budget 2 --max-turns 100 --timeout 15m0s"},
 		{"fix defaults", jobs.KindFix, map[string]string{},
-			Settings{Brain: "claude", Model: model, Budget: 10, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr"},
+			Settings{Brain: "claude", Model: model, Budget: 10, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
 			"--brain claude --budget 10 --max-turns 150 --timeout 45m0s --attempts 1 --land pr"},
 		{"empty values are unset", jobs.KindFix,
 			map[string]string{"AF_BRAIN": "", "AF_BRAIN_FIX": "", "AF_MODEL": "", "AF_MAX_BUDGET_USD": "", "AF_MAX_TURNS": "", "AF_TIMEOUT": "", "AF_MAX_ATTEMPTS": "", "AF_SANDBOX_PROFILE": "", "AF_FIX_LAND": ""},
-			Settings{Brain: "claude", Model: model, Budget: 10, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr"},
+			Settings{Brain: "claude", Model: model, Budget: 10, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
 			"--brain claude --budget 10 --max-turns 150 --timeout 45m0s --attempts 1 --land pr"},
 		{"the lower boundaries", jobs.KindTriage,
 			map[string]string{"AF_TIMEOUT": "1m", "AF_MAX_ATTEMPTS": "1", "AF_MAX_TURNS": "1", "AF_MAX_BUDGET_USD": "0.01", "AF_MODEL": "m-1", "AF_SANDBOX_PROFILE": "py"},
-			Settings{Brain: "agentkit", Model: "m-1", Budget: 0.01, MaxTurns: 1, Timeout: time.Minute, MaxAttempts: 1, Profile: "py", Land: "pr"},
+			Settings{Brain: "agentkit", Model: "m-1", Budget: 0.01, MaxTurns: 1, Timeout: time.Minute, MaxAttempts: 1, Profile: "py", Land: "pr", TriggersOn: true},
 			"--brain agentkit --budget 0.01 --max-turns 1 --timeout 1m0s"},
 		{"the upper boundaries", jobs.KindFix,
 			map[string]string{"AF_TIMEOUT": "24h", "AF_MAX_ATTEMPTS": "10", "AF_FIX_LAND": "branch"},
-			Settings{Brain: "claude", Model: model, Budget: 10, MaxTurns: 150, Timeout: 24 * time.Hour, MaxAttempts: 10, Land: "branch"},
+			Settings{Brain: "claude", Model: model, Budget: 10, MaxTurns: 150, Timeout: 24 * time.Hour, MaxAttempts: 10, Land: "branch", TriggersOn: true},
 			"--brain claude --budget 10 --max-turns 150 --timeout 24h0m0s --attempts 1 --land branch"},
 		{"AF_BRAIN_FIX over AF_BRAIN", jobs.KindFix, map[string]string{"AF_BRAIN": "claude", "AF_BRAIN_FIX": "agentkit", "AF_BRAIN_TRIAGE": "claude"},
-			Settings{Brain: "agentkit", Model: model, Budget: 10, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr"},
+			Settings{Brain: "agentkit", Model: model, Budget: 10, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
 			"--brain agentkit --budget 10 --max-turns 150 --timeout 45m0s --attempts 1 --land pr"},
 		{"fractions of a dollar", jobs.KindTriage, map[string]string{"AF_MAX_BUDGET_USD": "12.375"},
-			Settings{Brain: "agentkit", Model: model, Budget: 12.375, MaxTurns: 100, Timeout: 15 * time.Minute, MaxAttempts: 2, Land: "pr"},
+			Settings{Brain: "agentkit", Model: model, Budget: 12.375, MaxTurns: 100, Timeout: 15 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
 			"--brain agentkit --budget 12.375 --max-turns 100 --timeout 15m0s"},
 		{"very small and very large budgets", jobs.KindFix, map[string]string{"AF_MAX_BUDGET_USD": "0.00001"},
-			Settings{Brain: "claude", Model: model, Budget: 0.00001, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr"},
+			Settings{Brain: "claude", Model: model, Budget: 0.00001, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
 			"--brain claude --budget 0.00001 --max-turns 150 --timeout 45m0s --attempts 1 --land pr"},
 		{"AF_BRAIN_TRIAGE over AF_BRAIN", jobs.KindTriage, map[string]string{"AF_BRAIN": "claude", "AF_BRAIN_TRIAGE": "agentkit", "AF_BRAIN_FIX": "claude"},
-			Settings{Brain: "agentkit", Model: model, Budget: 2, MaxTurns: 100, Timeout: 15 * time.Minute, MaxAttempts: 2, Land: "pr"},
+			Settings{Brain: "agentkit", Model: model, Budget: 2, MaxTurns: 100, Timeout: 15 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
 			"--brain agentkit --budget 2 --max-turns 100 --timeout 15m0s"},
 		{"AF_BRAIN alone", jobs.KindTriage, map[string]string{"AF_BRAIN": "claude"},
-			Settings{Brain: "claude", Model: model, Budget: 2, MaxTurns: 100, Timeout: 15 * time.Minute, MaxAttempts: 2, Land: "pr"},
+			Settings{Brain: "claude", Model: model, Budget: 2, MaxTurns: 100, Timeout: 15 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
 			"--brain claude --budget 2 --max-turns 100 --timeout 15m0s"},
 		{"unknown variables are ignored", jobs.KindFix, map[string]string{"AF_UNKNOWN": "x", "PATH": "/nowhere", "AF_LABEL_PREFIX": "z:", "AF_SANDBOX": "none", "AF_BRAIN_OTHER": "scripted"},
-			Settings{Brain: "claude", Model: model, Budget: 10, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr"},
+			Settings{Brain: "claude", Model: model, Budget: 10, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
 			"--brain claude --budget 10 --max-turns 150 --timeout 45m0s --attempts 1 --land pr"},
 		{"a variable of the other kind is not looked at", jobs.KindTriage, map[string]string{"AF_BRAIN_FIX": "scripted", "AF_FIX_LAND": "weird"},
-			Settings{Brain: "agentkit", Model: model, Budget: 2, MaxTurns: 100, Timeout: 15 * time.Minute, MaxAttempts: 2, Land: "pr"},
+			Settings{Brain: "agentkit", Model: model, Budget: 2, MaxTurns: 100, Timeout: 15 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
 			"--brain agentkit --budget 2 --max-turns 100 --timeout 15m0s"},
 	}
 	for _, tc := range cases {
@@ -534,4 +534,67 @@ func TestResolveRefusesWhatHubAndTheStoreRefuseAndMakesTransientWhatIsUnavailabl
 			t.Errorf("prefix = %q, want the subscription's", a.prefix)
 		}
 	})
+}
+
+// TestTheWorkerReadsAFPollIntervalAsThePollDoesAndNeverFailsOnIt_TS_19_35 verifies TS-19-35.
+// Verifies: 19-REQ-6.4
+func TestTheWorkerReadsAFPollIntervalAsThePollDoesAndNeverFailsOnIt_TS_19_35(t *testing.T) {
+	cases := map[string]bool{"": true, "0": false, "0s": false, " 0m ": false, "30s": true, "5m": true, "1h": true, "banana": true, "-1m": true, "48h": true}
+	for value, on := range cases {
+		for _, kind := range []jobs.Kind{jobs.KindTriage, jobs.KindFix} {
+			vars := map[string]string{"AF_POLL_INTERVAL": value}
+			s, bad := resolveSettings(kind, vars)
+			if bad != nil {
+				t.Errorf("%s with AF_POLL_INTERVAL %q failed: %v", kind, value, bad)
+			}
+			if s.TriggersOn != on {
+				t.Errorf("%s with AF_POLL_INTERVAL %q: the label triggers on %v, want %v", kind, value, s.TriggersOn, on)
+			}
+		}
+	}
+	if s, _ := resolveSettings(jobs.KindFix, nil); !s.TriggersOn {
+		t.Error("an unset AF_POLL_INTERVAL turns the label triggers off")
+	}
+}
+
+// TestAFAutoFixIsReadForATriageOnlyAsTrueOrFalseInAnyCase_TS_19_36 verifies TS-19-36.
+// Verifies: 19-REQ-7.1
+func TestAFAutoFixIsReadForATriageOnlyAsTrueOrFalseInAnyCase_TS_19_36(t *testing.T) {
+	for value, want := range map[string]bool{"": false, "true": true, "TRUE": true, "True": true, "false": false, "FALSE": false} {
+		s, bad := resolveSettings(jobs.KindTriage, map[string]string{"AF_AUTO_FIX": value})
+		if bad != nil || s.AutoFix != want {
+			t.Errorf("a triage with AF_AUTO_FIX %q: AutoFix %v (%v), want %v", value, s.AutoFix, bad, want)
+		}
+	}
+	if s, bad := resolveSettings(jobs.KindFix, map[string]string{"AF_AUTO_FIX": "maybe"}); bad != nil || s.AutoFix {
+		t.Errorf("a fix looked at AF_AUTO_FIX: %+v, %v", s, bad)
+	}
+	if _, bad := resolveSettings(jobs.KindTriage, map[string]string{"AF_AUTO_FIX": "maybe"}); bad == nil || bad.Name != "AF_AUTO_FIX" {
+		t.Errorf("a triage with AF_AUTO_FIX maybe: %v, want the variable refused", bad)
+	}
+	// A triage looks at AF_FIX_LAND for patch alone, and fails on no other value.
+	for value, patch := range map[string]bool{"patch": true, "pr": false, "bogus": false, "": false} {
+		s, bad := resolveSettings(jobs.KindTriage, map[string]string{"AF_FIX_LAND": value})
+		if bad != nil || s.LandPatch != patch || s.Land != "pr" {
+			t.Errorf("a triage with AF_FIX_LAND %q: %+v (%v), want LandPatch %v and no failure", value, s, bad, patch)
+		}
+	}
+}
+
+// TestAFAutoFixMaybeFailsATriageAsANonRetryableConfigEnvelope_TS_19_37 verifies TS-19-37.
+// Verifies: 19-REQ-7.2
+func TestAFAutoFixMaybeFailsATriageAsANonRetryableConfigEnvelope_TS_19_37(t *testing.T) {
+	e := newEnv(t, fakehub.Workspace{Vars: map[string]string{"AF_AUTO_FIX": "maybe"}})
+	res, err := e.run(e.request(jobs.KindTriage, issueInput("42")))
+	if err != nil {
+		t.Fatalf("Run returned an error: %v", err)
+	}
+	env := envelope(t, res)
+	category, message, retryable, hint := errorOf(env)
+	if env["status"] != "failed" || category != "config" || retryable || hint["var"] != "AF_AUTO_FIX" {
+		t.Errorf("status %v, category %q, retryable %v, hint %v; want failed, config, not retryable, AF_AUTO_FIX", env["status"], category, retryable, hint)
+	}
+	if !strings.Contains(message, "AF_AUTO_FIX") || !strings.Contains(message, "maybe") {
+		t.Errorf("the message %q does not name the variable and its value", message)
+	}
 }

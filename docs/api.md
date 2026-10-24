@@ -300,13 +300,23 @@ other jobs of its workspace in the order they were made, and an issue that carri
 before its fix job. A fix label on a `carry_patch` workspace becomes a job that the worker refuses, as the same request
 through the route would. Pull requests, closed issues and issues that carry neither label are never touched.
 
-What becomes of a request label on an issue, whether the stream or the poll found it, is decided by the first of these that applies:
+What becomes of a request label on an issue, whether the stream or the poll found it, is decided by the first of these that
+applies. A sighting is one finding of the label, and its `by` is what a job it makes names: `label af:fix` for the poll, the
+hub event id for the stream.
 
-1. **Absorbed.** The workspace has an open job (`queued`, `running` or `blocked`) of the same kind for the issue, whoever
-   made it, an API job included: the label is removed, no job is made, and the service logs the absorbed label at `INFO`
-   with the workspace, the kind, the issue and the job. An open job of the other kind does not absorb it. A label on an
-   issue whose job `failed` is a new request.
-2. **Held.** A job made for the label was cancelled (by a person or an unsubscribe), and the label is back on
+1. **Asked for by a triage.** For `<prefix>fix` only: the issue has a pending follow-up of a triage job T, the fix that a
+   triage asked for with `AF_AUTO_FIX` (see [the follow-up](#the-follow-up-of-a-triage)). The fix job linked to T is made:
+   `source` `{"kind": "triage", "by": T}`, `parent_job_id` T, `request_label` the label, `input` `{"issue": N}`. The
+   follow-up becomes `made` with the job, in the same transaction, every hold of the label on the issue ends, the poll's
+   record of the job is written and the label is removed, with an `INFO` that the follow-up was made. An open fix job, a
+   blocked one included, absorbs the label and the follow-up becomes `absorbed` with it: the service's own label answers
+   no job.
+2. **Answered, or absorbed.** The workspace has an open job (`queued`, `running` or `blocked`) of the same kind for the
+   issue, whoever made it, an API job included. A `blocked` one whose removal of the label is not owed is **answered from
+   the forge** (below), unless a record of the label is newer than the sighting, which leaves the label to the next cycle.
+   Any other open job absorbs it: the label is removed, no job is made, and the service logs the absorbed label at `INFO`
+   with the workspace, the kind, the issue and the job. An open job of the other kind does not absorb it.
+3. **Held.** A job made for the label was cancelled (by a person or an unsubscribe), and the label is back on
    the issue, or about to be: the cancel reached one of its attempts in a runner, whatever the runner reports (the worker's
    cancel cleanup puts the label back), or the job's cancel cleanup is pending or finished with the label on the issue
    (`labels.restore` `null`, whoever put it there; see [cancel](#cancel)). The label is left in place until a person asks
@@ -317,16 +327,71 @@ What becomes of a request label on an issue, whether the stream or the poll foun
    when its cleanup ended with `labels.restore` still set; a hold that began while the cleanup was pending ends when the
    poll sees that. A job cancelled because its issue was closed holds nothing: nothing puts its label back, so a request
    label on the issue once it is reopened is a new request.
-3. **Already taken.** The removal of the label from the issue failed after the job was made (or after a label that the poll absorbed
+4. **Already taken.** The removal of the label from the issue failed after the job was made (or after a label that the poll absorbed
    was not removed), so the removal is still owed: the label is removed again, and no second job is made. A removal that hub
    answers with not found is done.
-4. **A new request.** The job is made, the poll's record of it is written, and the label is removed.
+5. **Newer.** A record of the label on the issue was made after the poll's listing was asked for: the other trigger took
+   the label since, and the label is left to the next cycle. A sighting of the stream reads the issue first, so no record
+   is newer than it.
+6. **Retried.** The latest job of the kind for the issue (by `created_at`) is `failed`: it is **retried from the forge**
+   (below). A failed job that a later job superseded is not retried.
+7. **A new request.** The latest job of the kind is `done` or `cancelled`, or there is none: the job is made, the poll's
+   record of it is written, and the label is removed. A triaged issue labelled `af:triage` again is a new triage, which
+   replaces the diagnosis in the body and keeps the original report, edited or not.
 
-So the poll does not run a request twice: a label on an issue the service is already working on is absorbed, a label it has
-already taken is removed and not taken again while its removal is owed, and a label the service put back is held. The poll's
-records are kept in the state file until nothing is owed and nothing holds, and outlive the retention purge of their jobs. It
-promises no more than its records know: once a removal has been confirmed and its job has ended, the record is dropped, so a
-forge that still lists the label for a moment after it was removed can yield a second job.
+So the poll does not run a request twice: a label on an issue the service is already working on is absorbed or answers it, a
+label it has already taken is removed and not taken again while its removal is owed, and a label the service put back is held.
+Every outcome that consumes the label (a new job, an answer, a retry, a reply below) writes a record of it before the removal,
+and the record names the job only when the label is the job's own request label, so that a cancel can put it back and hold it.
+The poll's records are kept in the state file until nothing is owed and nothing holds, and outlive the retention purge of their
+jobs. It promises no more than its records know: once a removal has been confirmed and its job has ended, the record is
+dropped, so a forge that still lists the label for a moment after it was removed can yield a second job, or answer or retry
+one again.
+
+#### Answering and retrying from the forge
+
+A team carries a job forward from the issue: a person comments, then puts the request label back. The comments that count
+are those after the comment that carries the marker of the job's latest attempt (`<!-- agent-fox job=<id> attempt=<n>
+kind=`): its question for a blocked job, its failure comment or a parked fix's summary for a failed one. When no comment
+carries it, those made at or after the attempt finished count. A comment whose body contains `<!-- agent-fox` is the
+service's own and never counts, nor does a blank one. Each comment that counts becomes `--- comment by <login> ---` and its
+body, trimmed, the blocks joined by a blank line in issue order, with NUL bytes dropped and invalid UTF-8 replaced; a text
+over 8192 bytes is cut and ends with the line `[… cut at 8192 bytes; the issue holds the rest …]`. The comments are read
+through hub's issue read, never its comment list, which cannot say when hub cut the thread.
+
+- **An answer.** The text answers the blocked job as `POST /api/v1/jobs/{id}/answer` with `{"answer": <text>}` would, with
+  `trigger` `{"kind": "answer", "by": <the sighting's by>}`; the runner is given it among the answers. One `INFO` says the
+  job was answered.
+- **No answer found.** With no comment that counts, no attempt is made: one reply, "No answer found since the question;
+  comment, then add the label `<L>` again." with its own marker (`kind=no_answer`), is posted, unless the latest comment
+  is that reply already, and the label is removed. One `INFO` says so.
+- **A retry.** The failed job is retried as `POST /api/v1/jobs/{id}/retry` would, with `trigger` `{"kind": "retry", "by":
+  <the sighting's by>}`, and the text, when there is any, becomes the new attempt's `context`. With no comment that
+  counts the retry runs with no added context, and no reply is posted. One `INFO` says the job was retried.
+- **A cut thread.** When hub says it cut the issue's comments (`truncated`), the comments read are no evidence of what is
+  there: no attempt is made, one `WARN` names the workspace, the issue and the job, and one reply says that agent-fox could
+  not read the whole thread and names `af jobs answer <id>` and `POST /api/v1/jobs/<id>/answer`, or `af jobs retry <id>` and
+  `POST /api/v1/jobs/<id>/retry`, with its own marker (`kind=thread_cut`); the label is removed. On a thread longer than hub
+  returns, `af` or the API is the way.
+- **Failures.** Hub unavailable, refusing or forbidding the token, or answering that the forge refuses its credential, on
+  the issue read leaves the label, makes no attempt and ends the poll's cycle, which the next one picks up; hub rejecting the read of the one issue, or not reading its
+  comments (`comments_err`), leaves the label and the cycle goes on. The stream acts on no sighting whose comments it
+  cannot read: it leaves the label to the poll. A reply that cannot be posted is a `WARN`, and the label is removed all the
+  same. A job that moved meanwhile, or another job that took the issue, absorbs the label; a workspace that is not
+  subscribed ends the cycle with nothing written; any other refusal of the jobs layer is logged and the label stays.
+
+#### The follow-up of a triage
+
+With `AF_AUTO_FIX=true` (see [configuration](configuration.md#the-hub-variables-of-an-attempt)), a triage that ends with the
+status `ready` asks for a fix of its issue, the input issue or the one a text or file triage created, with no person
+involved. Before it adds `<prefix>fix` to the issue, the worker has the jobs layer record a **follow-up** of the triage job:
+`absorbed`, naming the job, when a fix job of the issue is open, which adds no label; otherwise `pending`, which withdraws
+a pending follow-up of an earlier triage of the issue, and the label is added. When the label is seen, the trigger makes
+the linked fix job (rule 1 above), whose `fix_summary` comment names the triage. A follow-up stays as recorded whatever
+becomes of the triage job: a pending one waits for a sighting of the label, or a later triage of the issue withdraws it.
+The worker asks for none with `AF_POLL_INTERVAL=0`, on a `carry_patch` workspace or with `AF_FIX_LAND=patch`, and says so
+with the warning `auto_fix_skipped`; a follow-up it could not record, or a label it could not add (which withdraws the
+follow-up), is the warning `auto_fix_failed`.
 
 ### The job document
 
@@ -351,6 +416,8 @@ Every route that shows a job shows this document, a list entry included; `GET /a
   "side_effects": [],
   "labels": {"set": ["af:fixed"], "removed": ["af:fix"], "restore": null, "cleanup": null},
   "cancel_cause": null,
+  "parent_job_id": null,
+  "follow_up": null,
   "usage": {"cost_usd": 1.25, "input_tokens": 1000, "output_tokens": 200, "turns": 7},
   "hub": null,
   "created_at": "2026-10-22T08:00:00.000Z",
@@ -364,7 +431,7 @@ Every route that shows a job shows this document, a list entry included; `GET /a
 | `id`, `workspace`, `kind` | The job, its workspace and `triage` or `fix`. |
 | `input` | What the job was asked about, as it was posted and without the `context`: `{"issue": …}` (as given: the number, the URL or `owner/repo#N`), `{"text", "title"}` or `{"file": {"name", "content"}}`. |
 | `issue` | The issue number, or `null` for a text or a file. |
-| `source` | `{"kind", "by"}`: `api` for a request of this API, and who made it; `event` for a request label that hub's event stream announced, and `by` is the id of hub's event; `label` for a request label that the poll found, and `by` is `label <the request label>` (see [jobs that a request label makes](#jobs-that-a-request-label-makes)). The triggers of later specs add their own kinds. |
+| `source` | `{"kind", "by"}`: `api` for a request of this API, and who made it; `event` for a request label that hub's event stream announced, and `by` is the id of hub's event; `label` for a request label that the poll found, and `by` is `label <the request label>`; `triage` for the fix job a triage's follow-up asked for, and `by` is the triage job (see [jobs that a request label makes](#jobs-that-a-request-label-makes)). |
 | `request_label` | The request label that the trigger consumed when it made the job, or `null`. Always `null` for a job of this API; the label, prefix included (`af:fix`), for a job of the event stream or the poll. |
 | `state` | `queued`, `running`, `blocked`, `done`, `failed` or `cancelled`. |
 | `blocked` | While the job is blocked: `{"reason": "needs_human", "question", "options": [{"id", "label"}], "answer_with": "POST /api/v1/jobs/<id>/answer"}`, with the ids `A`, `B`, … in order; otherwise `null`. |
@@ -373,6 +440,8 @@ Every route that shows a job shows this document, a list entry included; `GET /a
 | `artifacts`, `side_effects` | Those of the same envelope; `[]` when there are none. |
 | `labels` | `{"set", "removed", "restore", "cleanup"}`, or `null` when none has a value. `set` and `removed` are the labels as the runner, or the cancel cleanup, last reported them. `restore` is the request label that a cancel says belongs back on the issue while it is not back. `cleanup` is the state of the job's [cancel cleanup](#cancel), the service's own label writes for a cancel that no runner cleans up: `"pending"` while tries go on, `"done"` when the request label is on the issue and the status labels the job accounts for are gone, `"label_not_set"` when it ended without that, and `null` for a job that had none. |
 | `cancel_cause` | Why a cancelled job was cancelled: `cancelled` (a person asked), `unsubscribed` (its workspace was unsubscribed) or `issue_closed` (its issue was closed, see [cancel](#cancel)); `null` for a job that is not cancelled. |
+| `parent_job_id` | The job this one follows from: the triage job of a fix job whose source is `triage`, kept when the parent is purged; otherwise `null`. |
+| `follow_up` | For a triage job that asked for a fix with `AF_AUTO_FIX`: `{"label", "issue", "state", "job_id"}`, where `state` is `pending`, `made` (the fix job is `job_id`), `absorbed` (by the open fix job `job_id`, or one a refusal named) or `withdrawn`; `null` for every other job. The purge of the triage job takes it. |
 | `usage` | The sum of `cost_usd`, `input_tokens`, `output_tokens` and `turns` over the attempts that have finished. |
 | `hub` | `{"session_id", "run_id", "sandbox_id"}` of the attempt that is running, as its runner reported them; `null` otherwise. |
 | `created_at` | When the job was made. |
@@ -386,6 +455,7 @@ Every route that shows a job shows this document, a list entry included; `GET /a
 | `n`, `state` | The number from 1, and `queued`, `running`, `done`, `needs_human`, `failed` or `cancelled`. |
 | `trigger` | `{"kind", "by"}`: `create`, `answer` (a person answered), `retry` (a person asked again) or `auto` (the service tried again after a failure of the brain; `by` is `agent-fox`). |
 | `answer` | For an attempt that an answer started: `{"question", "option", "text"}`, where `option` is the id chosen or `null`, and `text` is what the person typed or the label of the option. Otherwise `null`. |
+| `context` | For an attempt that a retry from the forge started: the comments since the failure, as a list of strings. Otherwise `null`. |
 | `deliveries` | How many times the attempt was handed to a runner. A handover after a restart or a crash counts. A `deliveries` above 1 means a resume: the worker carries on what the delivery before it left, if there is anything to carry on (see [Warnings](#what-an-attempt-comes-to)). |
 | `transient_failures` | How many times the runner reported an infrastructure failure for the attempt (at most 3). |
 | `status`, `exit_code`, `summary`, `error` | Those of the attempt's envelope; `null` until it has one. |
@@ -435,8 +505,11 @@ adding to three lists; every other field of the stored envelope is the loop's, b
   expires), `lease_release_failed` (the lease could not be released; hub destroys it when it expires),
   `label_prefix_ignored` (`AF_LABEL_PREFIX` is set and differs from the `label_prefix` of the subscription, which is
   the prefix used), `status_label_failed`, `comment_failed` and `request_label_failed` (a write of the mirror to the
-  issue failed, with a side effect of the state `failed`), and `hub_usage_failed`, `hub_events_failed` and
-  `hub_session_failed` (a report to hub failed). A warning never changes the status.
+  issue failed, with a side effect of the state `failed`), `hub_usage_failed`, `hub_events_failed` and
+  `hub_session_failed` (a report to hub failed), and for a ready triage with `AF_AUTO_FIX` `auto_fix_skipped` (no fix was
+  asked for: the label triggers are off with `AF_POLL_INTERVAL=0`, the workspace is `carry_patch`, or `AF_FIX_LAND` is
+  `patch`; the message names which) and `auto_fix_failed` (the follow-up could not be recorded, or the fix label could not
+  be added, with a side effect of the state `failed`). A warning never changes the status.
   A delivery that carries an attempt on, or begins again after it could not (and one that had nothing to carry on, or only went on in a replaced box, adds none), adds `attempt_resumed`, which names the handover count, the stage it
   picked up from (`outcome`, `published`, `applied`, `submitted` or `brain`) and whether the brain was skipped; at the
   stage `outcome` it is the only change to the envelope that was stored. `resume_discarded` says a delivery could not
@@ -517,7 +590,14 @@ given every question answered so far, with its options and the answer, in order.
 the label of the option.
 
 `POST /api/v1/jobs/{id}/retry` (no body, or `{}`) answers `202` with the job for a `failed` job, queued again
-with attempt *n*+1 (trigger `retry`). If another job has taken the issue meanwhile, it is `409` `duplicate_job`.
+with attempt *n*+1 (trigger `retry`). If another job has taken the issue meanwhile, it is `409` `duplicate_job`. It
+takes no context: the attempt it queues has `context` `null`.
+
+The same answer and retry are made from the forge, by a comment and the request label again (see [answering and retrying
+from the forge](#answering-and-retrying-from-the-forge)): the trigger's `by` is then the sighting's, `label af:fix` or the hub
+event id, since neither path knows who added the label, and a retry from the forge gives its attempt the comments since the
+failure as its `context`. The runner of an attempt is given the job's context strings followed by the `context` of each
+attempt up to its own, in order, so an automatic attempt after a retry from the forge keeps them.
 
 Both check, in this order: the job exists and its workspace is one the caller sees (`404`, one answer for both);
 a body that is too large or not `application/json` (`413`, `415`), as soon as it is read; the state (`409`

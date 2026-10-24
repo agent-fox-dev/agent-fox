@@ -69,15 +69,22 @@ func request(workspace string, l *listing, n int) jobs.CreateRequest {
 	}
 }
 
-// issue applies the rules to issue n of the listing, and says whether the cycle goes on. The first rule that applies
-// decides:
+// issue applies the rules to issue n of the listing, the sighting of its label, and says whether the cycle goes on. The
+// poll and the event stream apply the same rules. The first rule that applies decides:
 //
-//  1. an open job of the kind for the issue absorbs the label: it is removed and no job is made;
+//  0. a fix label on an issue whose pending follow-up a triage recorded becomes the fix job linked to the triage, or is
+//     absorbed by an open fix job (followup.go);
+//  1. an open job of the kind for the issue: a blocked one with no removal of the label owed is answered from the
+//     forge, with the comments since its question, unless a record of the label is newer than the sighting, which
+//     leaves the label to the next cycle; any other absorbs the label, which is removed and no job is made;
 //  2. a hold on the label for the issue is in place, because a job the poll made was cancelled while its attempt was in a
 //     runner and the worker put the label back: nothing is done, and the label stays until a person asks again;
 //  3. the removal of the label from the issue is still owed, for a job the poll made or for a label it absorbed: it is
 //     removed and no job is made;
-//  4. otherwise it is a new request, and a job is made.
+//  4. a record of the label on the issue is newer than the sighting: the other trigger took the label since, and it is
+//     left to the next cycle;
+//  5. the latest job of the kind for the issue failed: it is retried from the forge, with the comments since its failure;
+//  6. otherwise it is a new request, and a job is made.
 func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
 
 	recs, err := c.s.records.Find(ctx, c.slug, n, l.Label)
@@ -98,8 +105,19 @@ func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
 			return false
 		}
 	}
+	if l.Kind == jobs.KindFix {
+		if decided, more := c.followUp(ctx, l, n, recs); decided {
+			return more
+		}
+	}
+	owed := slices.ContainsFunc(recs, func(r Record) bool { return r.Owed })
 	open, err := c.s.cfg.Jobs.OpenJob(ctx, c.slug, l.Kind, int64(n))
 	switch {
+	case err == nil && open.State == jobs.StateBlocked && !owed:
+		if slices.ContainsFunc(recs, l.newer) {
+			return true
+		}
+		return c.answer(ctx, l, n, open)
 	case err == nil:
 		return c.absorb(ctx, l, n, open.ID)
 	case !errors.Is(err, jobs.ErrNotFound):
@@ -111,13 +129,23 @@ func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
 	if slices.ContainsFunc(recs, func(r Record) bool { return r.Seen == SeenHolding }) {
 		return true
 	}
-	if slices.ContainsFunc(recs, func(r Record) bool { return r.Owed }) {
+	if owed {
 		return c.retake(ctx, l, n)
 	}
 	// A record of the label on the issue made at or after the listing was asked for is newer than what the listing
 	// shows: the other trigger took the label since. The label is left to the next cycle.
 	if slices.ContainsFunc(recs, l.newer) {
 		return true
+	}
+	latest, err := c.s.cfg.Jobs.LatestJob(ctx, c.slug, l.Kind, int64(n))
+	switch {
+	case err == nil && latest.State == jobs.StateFailed:
+		return c.retry(ctx, l, n, latest)
+	case err != nil && !errors.Is(err, jobs.ErrNotFound):
+		c.report(ctx, failure{
+			row: rowJobs, operation: fmt.Sprintf("look up the latest job for %s on the issue %d, so the label stays", l.Label, n), err: err,
+		})
+		return false
 	}
 	return c.request(ctx, l, n)
 }
@@ -190,10 +218,20 @@ func (c *cycleRun) settle(ctx context.Context, l *listing) {
 // created records the job that was made for the label, and consumes the label.
 func (c *cycleRun) created(ctx context.Context, l *listing, n int, jobID string) bool {
 	c.s.cfg.Logger.Info("a request label became a job", "workspace", c.slug, "kind", l.Kind, "issue", n, "label", l.Label, "job", jobID)
-	// The record is written before the removal, so that a removal that fails, or a service that ends, leaves the label
-	// owed. If it cannot be written the removal goes ahead all the same.
+	return c.consume(ctx, l, n, jobID)
+}
+
+// consume consumes the label of a sighting that was acted on: a new request, an answer, a retry or a reply. The record
+// is written before the removal, so that a removal that fails, or a service that ends, leaves the label owed; it names
+// the job when the label is the job's own request label, which a cancel puts back, and no job otherwise. If it cannot be
+// written the removal goes ahead all the same.
+func (c *cycleRun) consume(ctx context.Context, l *listing, n int, jobID string) bool {
+	seen := SeenOpen
+	if jobID == "" {
+		seen = SeenEnded
+	}
 	_, werr := c.s.records.Insert(ctx, Record{
-		Workspace: c.slug, Issue: n, Label: l.Label, JobID: jobID, Owed: true, Seen: SeenOpen, CreatedAt: c.s.cfg.Clock.Now(),
+		Workspace: c.slug, Issue: n, Label: l.Label, JobID: jobID, Owed: true, Seen: seen, CreatedAt: c.s.cfg.Clock.Now(),
 	})
 	if werr != nil {
 		c.s.cfg.Logger.Warn("the record of a request label could not be written, so a removal that fails will not be owed",

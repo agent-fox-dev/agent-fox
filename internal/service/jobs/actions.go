@@ -77,13 +77,19 @@ func (s *Service) Answer(ctx context.Context, id, by string, req AnswerRequest) 
 	return s.requeue(ctx, doc, StateBlocked, Trigger{Kind: TriggerAnswer, By: by}, func() (*Answer, error) {
 		answer, err := resolveAnswer(doc.Blocked, req)
 		return &answer, err
-	})
+	}, nil)
 }
 
 // Retry asks again for a failed job: attempt n+1 is queued with the trigger retry, and the
 // job is queued. The checks are those of Answer, without the answer; and a job whose issue
 // has another open job of the kind by now is a *DuplicateError.
 func (s *Service) Retry(ctx context.Context, id, by string) (Doc, error) {
+	return s.RetryWithContext(ctx, id, by, nil)
+}
+
+// RetryWithContext is Retry from the forge: the new attempt carries the context, the comments a person wrote since the
+// failure, which its runner is given after the job's own context. The API's retry carries none.
+func (s *Service) RetryWithContext(ctx context.Context, id, by string, notes []string) (Doc, error) {
 	doc, err := s.store.Doc(ctx, id, false)
 	if err != nil {
 		return Doc{}, err
@@ -94,14 +100,14 @@ func (s *Service) Retry(ctx context.Context, id, by string) (Doc, error) {
 	if err := s.store.fails(OpObserved); err != nil {
 		return Doc{}, err
 	}
-	return s.requeue(ctx, doc, StateFailed, Trigger{Kind: TriggerRetry, By: by}, func() (*Answer, error) { return nil, nil })
+	return s.requeue(ctx, doc, StateFailed, Trigger{Kind: TriggerRetry, By: by}, func() (*Answer, error) { return nil, nil }, notes)
 }
 
 // requeue is what Answer and Retry share, after the state is known to be right: the
 // subscription, the answer, the conditional change, and the queueing of the attempt once it
 // is stored. The job is one that exists already, so an unsubscribe that starts meanwhile
 // lists it, open, and cancels it: no gate is needed, as it is for a job that is made.
-func (s *Service) requeue(ctx context.Context, doc Doc, from State, trigger Trigger, answer func() (*Answer, error)) (Doc, error) {
+func (s *Service) requeue(ctx context.Context, doc Doc, from State, trigger Trigger, answer func() (*Answer, error), notes []string) (Doc, error) {
 	if err := s.subscribed(ctx, doc.Workspace); err != nil {
 		return Doc{}, err
 	}
@@ -109,7 +115,7 @@ func (s *Service) requeue(ctx context.Context, doc Doc, from State, trigger Trig
 	if err != nil {
 		return Doc{}, err
 	}
-	n, err := s.store.Requeue(ctx, doc.ID, from, trigger, resolved)
+	n, err := s.store.RequeueWith(ctx, doc.ID, from, trigger, resolved, notes)
 	if errors.Is(err, ErrDuplicate) && doc.Issue != nil {
 		open, lookup := s.store.OpenJobID(ctx, doc.Workspace, doc.Kind, *doc.Issue)
 		if lookup != nil {

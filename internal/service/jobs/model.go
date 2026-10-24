@@ -167,6 +167,7 @@ type AttemptDoc struct {
 	State             AttemptState      `json:"state"`
 	Trigger           Trigger           `json:"trigger"`
 	Answer            *AnswerDoc        `json:"answer"`
+	Context           []string          `json:"context"`
 	Deliveries        int               `json:"deliveries"`
 	TransientFailures int               `json:"transient_failures"`
 	Status            *toolio.Status    `json:"status"`
@@ -197,6 +198,8 @@ type Doc struct {
 	SideEffects    []toolio.SideEffect `json:"side_effects"`
 	Labels         *LabelsDoc          `json:"labels"`
 	CancelCause    *string             `json:"cancel_cause"`
+	ParentJobID    *string             `json:"parent_job_id"`
+	FollowUp       *FollowUp           `json:"follow_up"`
 	Usage          UsageDoc            `json:"usage"`
 	Hub            *HubDoc             `json:"hub"`
 	CreatedAt      string              `json:"created_at"`
