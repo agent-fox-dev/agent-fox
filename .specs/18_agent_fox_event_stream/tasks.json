@@ -62,7 +62,7 @@
       "done_when": [
         "internal/hub/calls_test.go field-name walk still passes"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -105,7 +105,7 @@
       "done_when": [
         "internal/hub/calls_test.go field-name walk passes"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -150,7 +150,7 @@
       "done_when": [
         "existing jobs and store tests still pass"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -192,7 +192,7 @@
       "done_when": [
         "spec 17's cleanup tests still pass for the person's cancel and unsubscribe causes"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -234,7 +234,7 @@
       "done_when": [
         "existing poll tests still pass unchanged in behaviour"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -290,7 +290,7 @@
       "done_when": [
         "Supervisor.Stop leaves zero stream goroutines"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -340,7 +340,7 @@
       "done_when": [
         "no stream log record mentions AF_POLL_INTERVAL"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -390,7 +390,7 @@
       "done_when": [
         "a stream-made job has source {kind:event,by:evt-1} and request_label af:fix"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -437,7 +437,7 @@
       "done_when": [
         "a repeated event id sends no forge request"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -482,7 +482,7 @@
       "done_when": [
         "TS-18-52 passes under go test -race"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
@@ -534,7 +534,7 @@
         "`make check` passes",
         "every execution path 18-PATH-1..5 is live in production code"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     }
   ]

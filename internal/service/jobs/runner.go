@@ -40,8 +40,8 @@ type Runner interface {
 
 // Request is what a runner is given for an attempt, besides its context. The context
 // is cancelled when the attempt has to stop, with a cause that says why: ErrCancelled
-// for a cancel, ErrUnsubscribed for an unsubscribe (which is a cancel as well), and
-// ErrShutdown for a shutdown (which is not).
+// for a cancel, ErrUnsubscribed for an unsubscribe and ErrIssueClosed for an issue that
+// was closed (which are cancels as well), and ErrShutdown for a shutdown (which is not).
 type Request struct {
 	JobID string
 	// Attempt is the number of the attempt, from 1.
@@ -97,7 +97,30 @@ var (
 	// ErrShutdown: the service is stopping. It is not a cancel: the attempt is to be
 	// left as it is, to be handed over again after the restart.
 	ErrShutdown = errors.New("the service is shutting down")
+	// ErrIssueClosed: the issue of the job was closed. It is a cancel as well, which puts no
+	// label back: the worker takes off the in-progress it set, and writes nothing else.
+	ErrIssueClosed = fmt.Errorf("the issue was closed: %w", ErrCancelled)
 )
+
+// causeName is the cause of a cancel as the job document shows it: issue_closed, unsubscribed
+// or cancelled.
+func causeName(cause error) string {
+	switch {
+	case errors.Is(cause, ErrIssueClosed):
+		return "issue_closed"
+	case errors.Is(cause, ErrUnsubscribed):
+		return "unsubscribed"
+	}
+	return "cancelled"
+}
+
+// cancelMessage is what the envelope of an attempt that was cancelled says.
+func cancelMessage(cause error) string {
+	if errors.Is(cause, ErrIssueClosed) {
+		return "the issue was closed, so the job was cancelled"
+	}
+	return "the job was cancelled"
+}
 
 // IsCancel reports whether the cause of the cancellation of an attempt's context
 // (context.Cause) is a cancel or an unsubscribe, which a runner handles alike, and

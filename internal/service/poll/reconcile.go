@@ -47,6 +47,8 @@ func (s *Supervisor) drop(ctx context.Context, workspace string) {
 //     the job is in progress and no cleanup of it is pending.
 //   - A cancelled job whose cancel reached no runner holds nothing when it got no cleanup, or when its cleanup ended
 //     with the label not back; a record that held while the cleanup was pending stops holding when the poll sees that.
+//   - A job cancelled because its issue was closed holds nothing, whether or not its cancel reached a runner and
+//     whatever its cleanup shows: nothing was put back on the issue.
 //   - A job that retention purged before the poll saw it end may have been cancelled with its label put back, which the
 //     poll cannot know, so it holds from the moment it was found gone.
 //   - A job that is queued, running, blocked or failed has not ended: a failed job can be retried, and then cancelled.
@@ -61,6 +63,9 @@ func (s *Supervisor) note(ctx context.Context, rec Record) (Record, error) {
 		rec = s.startClock(ctx, s.hold(ctx, rec), now)
 	case err != nil:
 		return rec, err
+	case standing.State == jobs.StateCancelled && standing.CancelCause == issueClosed:
+		// Nothing was put back on a closed issue: the record holds nothing, whatever reached the runner or the cleanup.
+		rec = s.see(ctx, rec, SeenEnded)
 	case standing.State == jobs.StateDone, standing.State == jobs.StateCancelled && !holds(standing):
 		rec = s.see(ctx, rec, SeenEnded)
 	case standing.State == jobs.StateCancelled:
@@ -70,6 +75,9 @@ func (s *Supervisor) note(ctx context.Context, rec Record) (Record, error) {
 	}
 	return rec, nil
 }
+
+// issueClosed is the cancel cause of a job whose issue was closed.
+const issueClosed = "issue_closed"
 
 // holds says that a cancelled job holds its request label: its cancel reached a runner, or its cleanup is pending or put
 // the label back.

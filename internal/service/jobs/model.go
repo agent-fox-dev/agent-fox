@@ -196,6 +196,7 @@ type Doc struct {
 	Artifacts      []toolio.Artifact   `json:"artifacts"`
 	SideEffects    []toolio.SideEffect `json:"side_effects"`
 	Labels         *LabelsDoc          `json:"labels"`
+	CancelCause    *string             `json:"cancel_cause"`
 	Usage          UsageDoc            `json:"usage"`
 	Hub            *HubDoc             `json:"hub"`
 	CreatedAt      string              `json:"created_at"`

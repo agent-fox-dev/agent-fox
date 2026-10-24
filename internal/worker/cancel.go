@@ -25,6 +25,9 @@ const (
 	notStopped stop = iota
 	// stoppedByCancel is a cancel, and an unsubscribe, which is read as one.
 	stoppedByCancel
+	// stoppedByIssueClosed is a cancel because the issue was closed: the attempt stops as for any
+	// cancel, and puts no label back.
+	stoppedByIssueClosed
 	// stoppedByShutdown is the shutdown of the service, after which the attempt is handed over again.
 	stoppedByShutdown
 	// stoppedOtherwise is any other end of the context.
@@ -37,6 +40,8 @@ func stopOf(ctx context.Context) stop {
 		return notStopped
 	}
 	switch cause := context.Cause(ctx); {
+	case errors.Is(cause, jobs.ErrIssueClosed):
+		return stoppedByIssueClosed
 	case errors.Is(cause, jobs.ErrCancelled), errors.Is(cause, jobs.ErrUnsubscribed):
 		return stoppedByCancel
 	case errors.Is(cause, jobs.ErrShutdown):
@@ -45,11 +50,17 @@ func stopOf(ctx context.Context) stop {
 	return stoppedOtherwise
 }
 
+// cancel says that the attempt was stopped by a cancel of any kind.
+func (s stop) cancel() bool { return s == stoppedByCancel || s == stoppedByIssueClosed }
+
 // cancelled is the outcome of an attempt that was cancelled before the loop made an envelope: a
 // failed envelope of category cancelled, built as the envelope of a refusal is.
 func (r *Runner) cancelled(a *attempt, cause error) *outcome {
 	message := "the attempt was cancelled before the loop ran to its end"
-	if errors.Is(cause, jobs.ErrUnsubscribed) {
+	switch {
+	case errors.Is(cause, jobs.ErrIssueClosed):
+		message = "the issue was closed before the loop ran to its end"
+	case errors.Is(cause, jobs.ErrUnsubscribed):
 		message = "the workspace was unsubscribed before the loop ran to its end"
 	}
 	return r.envelopeOf(a, &refusal{category: toolio.CategoryCancelled, message: message})

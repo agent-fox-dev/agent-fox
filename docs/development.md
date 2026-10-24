@@ -148,6 +148,17 @@ scripted brain: no hub, no key of a model vendor and no container engine
   the list. The tests of `internal/service/poll` drive `Supervisor.Cycle` with the real jobs layer, the fake runner and a fake
   clock, and put a recording handler or reconciler in the unexported seams of the supervisor where the listing, and not the
   rules, is what they test.
+- **The fake hub's event stream.** `GET /api/v1/events?workspace=<slug>` checks the token's access to the workspace as the
+  other routes do and then holds the connection open as `text/event-stream`, in hub's own frames (`event: audit_event` with
+  the audit event as JSON). `SendEvent` sends a `HubEvent` (an id, a type, the issue and the label) to every open
+  connection of the slug, `SendFrame` sends any text as it is (a frame in another encoding, or a malformed one),
+  `Heartbeat` and `Comment` send hub's heartbeat frame and a comment line, `EndEvents` ends the slug's connections as hub
+  does when it goes away, `EventConns` counts the open ones and `EventsRequests` lists the requests of the route, failed
+  ones included; `Fail`, `Delay` and the other faults of a path apply to it as to any route. `EmitLabeledOnAdd` makes every
+  label added through the forge API send `hub.forge.issue.labeled`, as hub relays the forge's webhook, and `SetIssueState`
+  closes or reopens an issue. The stream's tests in `internal/service/poll` run the supervisor with `Start`, its stream
+  and a fake clock: a clock that only moves when the test moves it, with first cycles 1000 hours away when a test wants the
+  stream alone, and the supervisor's `beforeEvent` seam to hold the handling of an event.
 
 ## Opt-in tests
 

@@ -56,6 +56,9 @@ func (s *Service) settleCancelled(ctx context.Context, key attemptKey, message s
 		s.log.Warn("the job of a cancelled attempt could not be read", "job", key.job, "attempt", key.attempt, "error", err.Error())
 		return false, false
 	}
+	if job.CancelCause.String == causeName(ErrIssueClosed) {
+		message = "the issue was closed; " + message
+	}
 	env := synthesize(Kind(job.Kind), s.clock.Now(), toolio.ErrorInfo{Category: toolio.CategoryCancelled, Message: message})
 	raw, err := encodeEnvelope(env)
 	if err != nil {

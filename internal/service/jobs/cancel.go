@@ -29,13 +29,17 @@ type cancelled struct {
 // pending in the same transaction when no attempt of the job is running, and otherwise marked
 // wanted, for the layer to settle once it knows whether a runner of this process holds the
 // attempt (see Service.cancel).
-func (s *Store) CancelJob(ctx context.Context, id string, from State, cleanup bool) (cancelled, error) {
+//
+// The cause is stored with the job (cancel_cause). A cancel because the issue was closed marks
+// no request label to be put back.
+func (s *Store) CancelJob(ctx context.Context, id string, from State, cleanup bool, cause error) (cancelled, error) {
 	var found cancelled
 	err := s.run(ctx, id, func(x *txn) error {
 		now := formatTime(s.now())
 		res, err := x.ExecContext(ctx,
-			`UPDATE af_jobs SET state = 'cancelled', finished_at = ?, labels_restore = COALESCE(request_label, labels_restore)
-			 WHERE id = ? AND state = ?`, now, id, string(from))
+			`UPDATE af_jobs SET state = 'cancelled', finished_at = ?, cancel_cause = ?,
+			   labels_restore = CASE WHEN ? THEN labels_restore ELSE COALESCE(request_label, labels_restore) END
+			 WHERE id = ? AND state = ?`, now, causeName(cause), errors.Is(cause, ErrIssueClosed), id, string(from))
 		if err != nil {
 			return fmt.Errorf("job %s: %w", id, err)
 		}
@@ -90,6 +94,26 @@ func (s *Store) CancelJob(ctx context.Context, id string, from State, cleanup bo
 	return found, err
 }
 
+// OpenIssueJobIDs are the jobs of the workspace for the issue that are queued, running or blocked, of either kind and
+// whoever made them.
+func (s *Store) OpenIssueJobIDs(ctx context.Context, workspace string, issue int64) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT id FROM af_jobs WHERE workspace = ? AND issue = ? AND state IN ('queued', 'running', 'blocked') ORDER BY created_at, id", workspace, issue)
+	if err != nil {
+		return nil, fmt.Errorf("open jobs of %s#%d: %w", workspace, issue, err)
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // OpenJobIDs are the jobs of the workspace that are queued, running or blocked.
 func (s *Store) OpenJobIDs(ctx context.Context, workspace string) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, "SELECT id FROM af_jobs WHERE workspace = ? AND state IN ('queued', 'running', 'blocked') ORDER BY created_at, id", workspace)
@@ -135,15 +159,16 @@ func (s *Service) Cancel(ctx context.Context, id string) (Doc, error) {
 // timer of the grace starts: a runner that has not returned when it ends has its
 // attempt recorded cancelled without it.
 //
-// A cancel by a person or by an unsubscribe owes the job's cancel cleanup when the layer has a
+// A cancel by a person, by an unsubscribe or because the issue was closed owes the job's cancel
+// cleanup (without its request label, for the issue closed) when the layer has a
 // cleaner and no runner of this process writes the labels: the cleanup is marked pending, and
 // its first try starts at once, when no attempt was running or when the running one is held
 // by no runner here (it was claimed and its runner not yet called, or its process ended). A
 // running attempt that a runner holds is settled when it is recorded cancelled (see
 // Store.EndAttempt).
 func (s *Service) cancel(ctx context.Context, id string, from State, cause error) (*attemptRun, error) {
-	wantCleanup := s.cleaner != nil && (errors.Is(cause, ErrCancelled) || errors.Is(cause, ErrUnsubscribed))
-	found, err := s.store.CancelJob(ctx, id, from, wantCleanup)
+	wantCleanup := s.cleaner != nil && IsCancel(cause)
+	found, err := s.store.CancelJob(ctx, id, from, wantCleanup, cause)
 	if err != nil {
 		return nil, err
 	}

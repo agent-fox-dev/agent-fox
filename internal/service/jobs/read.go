@@ -66,6 +66,9 @@ type Standing struct {
 	// end decides whether it is owed is not recorded yet; CleanupPutBack that it finished with the request label on the
 	// issue (labels.restore null), whoever put it there.
 	CleanupPending, CleanupPutBack bool
+	// CancelCause is the cause of the job's cancel: cancelled, unsubscribed or issue_closed, and empty for a job that is
+	// not cancelled, or was cancelled before the cause was stored.
+	CancelCause string
 }
 
 // Standing is the standing of a job: its state, source and request label, whether its cancel reached an attempt in a
@@ -84,8 +87,9 @@ func (s *Service) Standing(ctx context.Context, id string) (Standing, error) {
 		        state = 'cancelled' AND EXISTS (SELECT 1 FROM af_attempts a WHERE a.job_id = j.id AND a.in_runner = 1 AND (a.state = 'running' OR (a.state = 'cancelled' AND a.has_envelope = 1))),
 		        cleanup IS 'pending' OR (state = 'cancelled' AND cleanup_wanted = 1 AND cleanup IS NULL
 		          AND EXISTS (SELECT 1 FROM af_attempts a WHERE a.job_id = j.id AND a.state = 'running')),
-		        (cleanup IS 'done' OR cleanup IS 'label_not_set') AND labels_restore IS NULL
-		 FROM af_jobs j WHERE j.id = ?`, id).Scan(&st.State, &st.Source.Kind, &st.Source.By, &label, &st.CancelledInRunner, &st.CleanupPending, &st.CleanupPutBack)
+		        (cleanup IS 'done' OR cleanup IS 'label_not_set') AND labels_restore IS NULL,
+		        CASE WHEN state = 'cancelled' THEN COALESCE(cancel_cause, '') ELSE '' END
+		 FROM af_jobs j WHERE j.id = ?`, id).Scan(&st.State, &st.Source.Kind, &st.Source.By, &label, &st.CancelledInRunner, &st.CleanupPending, &st.CleanupPutBack, &st.CancelCause)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Standing{}, ErrNotFound
 	}

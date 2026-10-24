@@ -29,8 +29,13 @@ type listing struct {
 	// Complete says that the listing holds every issue that carries the label: a listing that is not may leave out
 	// issues past its last page, and proves nothing about them.
 	Complete bool
-	// Requested is when the listing was asked for.
+	// Requested is when the listing was asked for; zero for the issue of an event of hub's stream, which is no listing.
+	// Before is the last record of the poll when it was asked for: a record after it, or made after then, is newer than
+	// what the listing shows.
 	Requested time.Time
+	Before    int64
+	// Source is the source of the job a new request makes: the label's when it is empty.
+	Source jobs.Source
 }
 
 // cycleRun is a cycle that is running: the workspace it is for, and what it needs to act on it.
@@ -40,6 +45,11 @@ type cycleRun struct {
 	repo  issuex.Repo
 	forge issuex.Client
 	st    *wsState
+	// onFail, when it is set, is what a failure of the rules is reported to in place of the cycle's records; failed says
+	// that one was, and notSubscribed that the jobs layer refused a job because the workspace is not subscribed.
+	onFail        func(failure)
+	failed        bool
+	notSubscribed bool
 }
 
 // Cycle makes one cycle of the workspace, and says how long to wait before the next and whether the loop of the workspace
@@ -108,6 +118,11 @@ func (s *Supervisor) Cycle(ctx context.Context, slug string) (next time.Duration
 	for _, kind := range []jobs.Kind{jobs.KindTriage, jobs.KindFix} {
 		label := labels.Name(sub.LabelPrefix, requestSuffix[kind])
 		requested := s.cfg.Clock.Now()
+		before, err := s.records.Last(ctx)
+		if err != nil {
+			s.report(ctx, slug, st, failure{row: rowStore, operation: "read the records of the poll", err: err})
+			return iv.every, false
+		}
 		list, err := run.forge.ListIssues(ctx, repo, issuex.IssueFilter{State: "open", Labels: []string{label}, Limit: listLimit})
 		if err != nil {
 			s.report(ctx, slug, st, classify("list the issues of "+label, err, false))
@@ -128,7 +143,7 @@ func (s *Supervisor) Cycle(ctx context.Context, slug string) (next time.Duration
 		case !list.Incomplete:
 			delete(st.incomplete, label)
 		}
-		l := &listing{Kind: kind, Label: label, Issues: numbers, Complete: !list.Incomplete, Requested: requested}
+		l := &listing{Kind: kind, Label: label, Issues: numbers, Complete: !list.Incomplete, Requested: requested, Before: before}
 		if !s.handler.handle(ctx, run, l) {
 			break
 		}

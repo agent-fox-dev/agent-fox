@@ -2,6 +2,7 @@ package fakehub
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -197,26 +198,30 @@ func (h *Hub) workspaceRecord(w http.ResponseWriter, token, slug string) {
 	})
 }
 
-// resolvedVars answers the resolved variables in the form the workspace was added with.
+// resolvedVars answers the resolved variables in the form the workspace was added with, as they are when it is asked:
+// a test may change them meanwhile (UpdateWorkspace).
 func (h *Hub) resolvedVars(w http.ResponseWriter, ws *workspace) {
-	names := make([]string, 0, len(ws.Vars))
-	for name := range ws.Vars {
+	h.mu.Lock()
+	vars, form := maps.Clone(ws.Vars), ws.VarsForm
+	h.mu.Unlock()
+	names := make([]string, 0, len(vars))
+	for name := range vars {
 		names = append(names, name)
 	}
 	slices.Sort(names)
-	switch ws.VarsForm {
+	switch form {
 	case "object":
-		writeJSON(w, http.StatusOK, map[string]any{"vars": ws.Vars})
+		writeJSON(w, http.StatusOK, map[string]any{"vars": vars})
 	case "namelist":
 		list := []map[string]string{}
 		for _, name := range names {
-			list = append(list, map[string]string{"name": name, "value": ws.Vars[name]})
+			list = append(list, map[string]string{"name": name, "value": vars[name]})
 		}
 		writeJSON(w, http.StatusOK, list)
 	default:
 		list := []map[string]string{}
 		for _, name := range names {
-			list = append(list, map[string]string{"key": name, "value": ws.Vars[name], "origin": "workspace"})
+			list = append(list, map[string]string{"key": name, "value": vars[name], "origin": "workspace"})
 		}
 		writeJSON(w, http.StatusOK, list)
 	}
