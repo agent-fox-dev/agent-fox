@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agent-fox-dev/aflib/issuex"
+
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs/fakerunner"
@@ -999,4 +1001,101 @@ func TestAnIssueClosedCancelTakesOnlyTheWorkersInProgressOff_TS_18_61(t *testing
 			t.Errorf("issue 43 has the labels %v, want in-progress off and nothing put back", issue.Labels)
 		}
 	})
+}
+
+// The sentences of the forge path.
+const (
+	answerPath = "Or reply on this issue, then add the label `af:fix` again: agent-fox takes the comments after this one as the answer."
+	retryPath  = "Or add the label `%s` again; comments after this one go with the new attempt."
+)
+
+// composer is an attempt of the kind on issue 42 of acme, with the label triggers on or off, as far as composing its
+// comments goes.
+func composer(t *testing.T, kind jobs.Kind, triggersOn bool, src jobs.Source) (*attempt, issuex.IssueRef) {
+	ref := issuex.IssueRef{Repo: issuex.Repo{Host: "github.example.com", Owner: "Org", Name: "Repo"}, Number: 42}
+	a := &attempt{
+		req:      jobs.Request{JobID: "job_1", Attempt: 1, Workspace: slug, Kind: kind, Source: src, Dir: t.TempDir()},
+		prefix:   "af:",
+		settings: Settings{TriggersOn: triggersOn, Land: "pr"},
+		issue:    &ref,
+	}
+	return a, ref
+}
+
+// parked is the result of a fix that was parked.
+func parkedResult() loopResult {
+	branch, verdict := "af/fix-42", "fail"
+	return loopResult{Outcome: "parked", Branch: &branch, Verdict: &verdict}
+}
+
+// TestTheQuestionCommentNamesTheForgePathAndKeepsItsInstructions_TS_19_32 verifies TS-19-32.
+// Verifies: 19-REQ-6.1
+func TestTheQuestionCommentNamesTheForgePathAndKeepsItsInstructions_TS_19_32(t *testing.T) {
+	a, ref := composer(t, jobs.KindFix, true, jobs.Source{Kind: "label", By: "label af:fix"})
+	env := toolio.Envelope{Status: toolio.StatusNeedsHuman, NeedsHuman: &toolio.NeedsHuman{Question: "Which greeting?"}}
+	c := a.compose(commentQuestion, ref, env, loopResult{})
+	for _, want := range []string{answerPath, "af jobs answer job_1", "POST /api/v1/jobs/job_1/answer"} {
+		if !strings.Contains(c, want) {
+			t.Errorf("the question comment lacks %q:\n%s", want, c)
+		}
+	}
+}
+
+// TestTheFailureCommentAndTheParkedSummaryNameTheForgePath_TS_19_33 verifies TS-19-33.
+// Verifies: 19-REQ-6.2
+func TestTheFailureCommentAndTheParkedSummaryNameTheForgePath_TS_19_33(t *testing.T) {
+	failed := toolio.Envelope{Status: toolio.StatusFailed, Error: &toolio.ErrorInfo{Category: "sandbox", Message: "gone"}}
+	for _, kind := range []jobs.Kind{jobs.KindFix, jobs.KindTriage} {
+		a, ref := composer(t, kind, true, jobs.Source{Kind: "api", By: "u"})
+		c := a.compose(commentFailure, ref, failed, loopResult{})
+		if want := fmt.Sprintf(retryPath, "af:"+string(kind)); !strings.Contains(c, want) || !strings.Contains(c, "POST /api/v1/jobs/job_1/retry") {
+			t.Errorf("the failure comment of a %s lacks %q or the retry route:\n%s", kind, want, c)
+		}
+	}
+	a, ref := composer(t, jobs.KindFix, true, jobs.Source{Kind: "api", By: "u"})
+	c := a.compose(commentFixSummary, ref, toolio.Envelope{Status: toolio.StatusDone}, parkedResult())
+	for _, want := range []string{fmt.Sprintf(retryPath, "af:fix"), "af jobs retry job_1", "POST /api/v1/jobs/job_1/retry"} {
+		if !strings.Contains(c, want) {
+			t.Errorf("the parked summary lacks %q:\n%s", want, c)
+		}
+	}
+}
+
+// TestWithTheLabelTriggersOffNoCommentNamesTheForgePath_TS_19_34 verifies TS-19-34.
+// Verifies: 19-REQ-6.3
+func TestWithTheLabelTriggersOffNoCommentNamesTheForgePath_TS_19_34(t *testing.T) {
+	s, _ := resolveSettings(jobs.KindFix, map[string]string{"AF_POLL_INTERVAL": "0s"})
+	a, ref := composer(t, jobs.KindFix, s.TriggersOn, jobs.Source{Kind: "api", By: "u"})
+	comments := map[string]string{
+		"af jobs answer job_1":          a.compose(commentQuestion, ref, toolio.Envelope{Status: toolio.StatusNeedsHuman, NeedsHuman: &toolio.NeedsHuman{Question: "Q?"}}, loopResult{}),
+		"POST /api/v1/jobs/job_1/retry": a.compose(commentFailure, ref, toolio.Envelope{Status: toolio.StatusFailed, Error: &toolio.ErrorInfo{Category: "sandbox"}}, loopResult{}),
+		"af jobs retry job_1":           a.compose(commentFixSummary, ref, toolio.Envelope{Status: toolio.StatusDone}, parkedResult()),
+	}
+	for old, c := range comments {
+		if strings.Contains(c, "add the label") || !strings.Contains(c, old) {
+			t.Errorf("with AF_POLL_INTERVAL=0s the comment names the forge path, or lacks %q:\n%s", old, c)
+		}
+	}
+}
+
+// TestTheSummaryOfATriageSourcedFixDiffersOnlyByTheAskedForLine_TS_19_56 verifies TS-19-56.
+// Verifies: 19-REQ-10.1
+func TestTheSummaryOfATriageSourcedFixDiffersOnlyByTheAskedForLine_TS_19_56(t *testing.T) {
+	branch, verdict, url := "af/fix-42", "pass", "https://github.example.com/Org/Repo/pull/9"
+	res := loopResult{Outcome: "landed", Branch: &branch, Verdict: &verdict, Closes: true}
+	res.PullRequest = &struct {
+		Number int    `json:"number"`
+		URL    string `json:"url"`
+		Draft  bool   `json:"draft"`
+	}{Number: 9, URL: url}
+	for _, r := range []loopResult{res, parkedResult()} {
+		chained, ref := composer(t, jobs.KindFix, true, jobs.Source{Kind: "triage", By: "job_t"})
+		plain, _ := composer(t, jobs.KindFix, true, jobs.Source{Kind: "label", By: "label af:fix"})
+		a := chained.compose(commentFixSummary, ref, toolio.Envelope{Status: toolio.StatusDone}, r)
+		b := plain.compose(commentFixSummary, ref, toolio.Envelope{Status: toolio.StatusDone}, r)
+		line := "- Asked for by the triage job `job_t` (AF_AUTO_FIX)\n"
+		if !strings.Contains(a, line) || strings.Replace(a, line, "", 1) != b {
+			t.Errorf("the summaries differ by more than the line %q:\n%s\n---\n%s", line, a, b)
+		}
+	}
 }

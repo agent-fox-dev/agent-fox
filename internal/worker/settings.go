@@ -34,6 +34,12 @@ type Settings struct {
 	Profile string
 	// Land is AF_FIX_LAND: pr, branch or none, and patch, which a fix refuses.
 	Land string
+	// TriggersOn is AF_POLL_INTERVAL read with the poll's values: the label triggers are on unless it is a zero duration.
+	// No value fails an attempt: the poll judges the rest.
+	TriggersOn bool
+	// AutoFix is AF_AUTO_FIX, read for a triage only: true asks for a fix of an issue the triage left ready. LandPatch
+	// says that AF_FIX_LAND is patch, which a triage looks at for that alone, since a fix would refuse it.
+	AutoFix, LandPatch bool
 }
 
 // The bounds of the variables.
@@ -58,7 +64,7 @@ func (e *varError) Error() string {
 func resolveSettings(kind jobs.Kind, vars map[string]string) (Settings, *varError) {
 	s := Settings{
 		Brain: "agentkit", Model: catalog.Default().DefaultModelID("anthropic"), Budget: 2, MaxTurns: 100,
-		Timeout: 15 * time.Minute, MaxAttempts: defaultMaxAttempts, Land: "pr",
+		Timeout: 15 * time.Minute, MaxAttempts: defaultMaxAttempts, Land: "pr", TriggersOn: triggersOn(vars["AF_POLL_INTERVAL"]),
 	}
 	if kind == jobs.KindFix {
 		s.Brain, s.Budget, s.MaxTurns, s.Timeout = "claude", 10, 150, 45*time.Minute
@@ -114,7 +120,24 @@ func resolveSettings(kind jobs.Kind, vars map[string]string) (Settings, *varErro
 			s.Land = v
 		}
 	}
+	if kind == jobs.KindTriage {
+		s.LandPatch = vars["AF_FIX_LAND"] == landPatch
+		switch v := vars["AF_AUTO_FIX"]; {
+		case v == "" || strings.EqualFold(v, "false"):
+		case strings.EqualFold(v, "true"):
+			s.AutoFix = true
+		default:
+			return s, &varError{"AF_AUTO_FIX", v, "true or false"}
+		}
+	}
 	return s, nil
+}
+
+// triggersOn reads AF_POLL_INTERVAL as the label poll does (internal/service/poll, parseInterval), as far as the worker
+// needs it: a zero duration turns the label triggers off, and anything else, an invalid value included, leaves them on.
+func triggersOn(value string) bool {
+	d, err := time.ParseDuration(strings.TrimSpace(value))
+	return err != nil || d != 0
 }
 
 // landPatch is the landing of a fix that the worker refuses: patches belong to carry-patch
