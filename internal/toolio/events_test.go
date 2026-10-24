@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // readEvents parses an event file into its lines.
@@ -32,6 +33,20 @@ func readEvents(t *testing.T, path string) []map[string]any {
 	return events
 }
 
+// sinkEvents collects the events of the invocations of app, through its EventSink.
+func sinkEvents(t *testing.T, app *App) *[]map[string]any {
+	t.Helper()
+	var events []map[string]any
+	app.EventSink = func(line []byte) {
+		var e map[string]any
+		if err := json.Unmarshal(line, &e); err != nil {
+			t.Errorf("%q is not a JSON line: %v", line, err)
+		}
+		events = append(events, e)
+	}
+	return &events
+}
+
 // eventTypes lists the types of events.
 func eventTypes(events []map[string]any) []string {
 	var types []string
@@ -42,35 +57,19 @@ func eventTypes(events []map[string]any) []string {
 }
 
 // TestEnvelopeCopiesAreIdentical_TS_05_13 verifies TS-05-13:
-// The envelope is written byte-identically to envelope.json and --output.
+// The envelope is written byte-identically to envelope.json.
 // Verifies: 05-REQ-2.5
 func TestEnvelopeCopiesAreIdentical_TS_05_13(t *testing.T) {
-	t.Run("a run directory and --output", func(t *testing.T) {
-		dir, out := t.TempDir(), filepath.Join(t.TempDir(), "envelope-copy.json")
-		var c runDirCommand
-		app := newTestApp()
-		app.Register(c.command(nil))
+	dir := t.TempDir()
+	var c runDirCommand
+	app := newTestApp()
+	app.Register(c.command(nil))
 
-		_, stdout, _ := invoke(t, app, "X", "--dir", dir, "--output", out)
+	_, stdout, _ := invoke(t, app, "X", "--dir", dir)
 
-		for name, path := range map[string]string{"envelope.json": filepath.Join(c.runDir.Path, "envelope.json"), "--output": out} {
-			if data, err := os.ReadFile(path); err != nil || string(data) != stdout {
-				t.Errorf("%s = %q (%v), want the stdout envelope %q", name, data, err, stdout)
-			}
-		}
-	})
-
-	t.Run("--output alone", func(t *testing.T) {
-		out := filepath.Join(t.TempDir(), "envelope-copy.json")
-		app := newTestApp()
-		app.Register(returning("bare", Outcome{Status: StatusDone, Summary: "ok"}, nil))
-
-		_, stdout, _ := invoke(t, app, "bare", "--output", out)
-
-		if data, err := os.ReadFile(out); err != nil || string(data) != stdout {
-			t.Errorf("--output = %q (%v), want the stdout envelope %q", data, err, stdout)
-		}
-	})
+	if data, err := os.ReadFile(filepath.Join(c.runDir.Path, "envelope.json")); err != nil || string(data) != stdout {
+		t.Errorf("envelope.json = %q (%v), want the stdout envelope %q", data, err, stdout)
+	}
 }
 
 // TestUnwritableCopyIsAWarning_TS_05_14 verifies TS-05-14:
@@ -78,18 +77,6 @@ func TestEnvelopeCopiesAreIdentical_TS_05_13(t *testing.T) {
 // unchanged.
 // Verifies: 05-REQ-2.6
 func TestUnwritableCopyIsAWarning_TS_05_14(t *testing.T) {
-	t.Run("--output", func(t *testing.T) {
-		app := newTestApp()
-		app.Register(returning("bare", Outcome{Status: StatusDone, Summary: "ok"}, nil))
-
-		code, stdout, _ := invoke(t, app, "bare", "--output", filepath.Join(t.TempDir(), "missing", "envelope.json"))
-		env := decode(t, stdout)
-
-		if code != 0 || env["status"] != "done" || !slices.Equal(warningCodes(env), []string{"output_unwritable"}) {
-			t.Errorf("exit code %d, status %v, warnings %v; want 0, done, output_unwritable", code, env["status"], warningCodes(env))
-		}
-	})
-
 	t.Run("envelope.json", func(t *testing.T) {
 		var c runDirCommand
 		app := newTestApp()
@@ -106,23 +93,6 @@ func TestUnwritableCopyIsAWarning_TS_05_14(t *testing.T) {
 		}
 	})
 
-	t.Run("one copy fails, the other still equals stdout", func(t *testing.T) {
-		out := filepath.Join(t.TempDir(), "envelope-copy.json")
-		var c runDirCommand
-		app := newTestApp()
-		app.Register(c.command(func(r *Run) (Outcome, error) {
-			return Outcome{Status: StatusDone, Summary: "ok"}, os.Mkdir(filepath.Join(r.RunDir.Path, "envelope.json"), 0o755)
-		}))
-
-		_, stdout, _ := invoke(t, app, "X", "--dir", t.TempDir(), "--output", out)
-
-		if data, err := os.ReadFile(out); err != nil || string(data) != stdout {
-			t.Errorf("--output = %q (%v), want the stdout envelope, warning included: %q", data, err, stdout)
-		}
-		if !strings.Contains(stdout, "envelope_unwritable") {
-			t.Errorf("stdout lacks the warning:\n%s", stdout)
-		}
-	})
 }
 
 // TestShellWarningCodes_TS_05_23 verifies TS-05-23:
@@ -155,12 +125,9 @@ func TestShellWarningCodes_TS_05_23(t *testing.T) {
 	_, stdout, _ = invoke(t, app, "X", srv.URL+"/o/r/issues/7")
 	collect(decode(t, stdout))
 
-	// output_unwritable and events_unwritable
-	app = newTestApp()
-	app.Register(returning("bare", Outcome{Status: StatusDone}, nil))
-	missing := filepath.Join(t.TempDir(), "missing", "file")
-	_, stdout, _ = invoke(t, app, "bare", "--output", missing, "--emit-events", missing)
-	collect(decode(t, stdout))
+	// events_unwritable, which the stream raises through the run's Warn
+	stream := newEventStream(time.Now, func(code, _ string) { collect(map[string]any{"warnings": []any{map[string]any{"code": code}}}) })
+	stream.addFile(filepath.Join(t.TempDir(), "missing", "events.jsonl"))
 
 	// envelope_unwritable
 	var c runDirCommand
@@ -180,7 +147,7 @@ func TestShellWarningCodes_TS_05_23(t *testing.T) {
 	_, stdout, _ = invoke(t, app, "bad")
 	collect(decode(t, stdout))
 
-	for _, code := range []string{"input_truncated", "comments_unreadable", "envelope_unwritable", "output_unwritable", "events_unwritable", "invalid_warning_code"} {
+	for _, code := range []string{"input_truncated", "comments_unreadable", "envelope_unwritable", "events_unwritable", "invalid_warning_code"} {
 		if !seen[code] {
 			t.Errorf("the shell did not raise %s", code)
 		}
@@ -199,31 +166,27 @@ func TestShellWarningCodes_TS_05_23(t *testing.T) {
 
 // TestEventStream_TS_05_66 verifies TS-05-66:
 // Events are flushed JSON lines bracketed by run_start and run_end, also to
-// --emit-events.
+// the EventSink of the App.
 // Verifies: 05-REQ-9.7
 func TestEventStream_TS_05_66(t *testing.T) {
 	dir := t.TempDir()
-	emitted := filepath.Join(t.TempDir(), "events.jsonl")
-	if err := os.WriteFile(emitted, []byte("an earlier line\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	var c runDirCommand
 	app := newTestApp()
+	var sunk []string
+	app.EventSink = func(line []byte) { sunk = append(sunk, string(line)+"\n") }
 	var seenWhileRunning []string
 	app.Register(c.command(func(r *Run) (Outcome, error) {
 		r.Warn("first_warning", "one")
 		r.Emit("step", map[string]any{"n": 1})
 		// Each line is on disk as soon as it is emitted, not when the run ends.
-		for _, path := range []string{filepath.Join(r.RunDir.Path, "events.jsonl"), emitted} {
-			data, _ := os.ReadFile(path)
-			seenWhileRunning = append(seenWhileRunning, string(data))
-		}
+		data, _ := os.ReadFile(filepath.Join(r.RunDir.Path, "events.jsonl"))
+		seenWhileRunning = append(seenWhileRunning, string(data), strings.Join(sunk, ""))
 		r.Warn("second_warning", "two")
 		r.Emit("heartbeat", nil)
 		return Outcome{Status: StatusDone, Summary: "ok"}, nil
 	}))
 
-	_, stdout, _ := invoke(t, app, "X", "--dir", dir, "--emit-events", emitted)
+	_, stdout, _ := invoke(t, app, "X", "--dir", dir)
 	env := decode(t, stdout)
 
 	for i, seen := range seenWhileRunning {
@@ -245,7 +208,7 @@ func TestEventStream_TS_05_66(t *testing.T) {
 	}
 	wantStart := map[string]any{
 		"tool": "X", "input_kind": "none",
-		"argv": []any{"af", "X", "--dir", dir, "--emit-events", emitted},
+		"argv": []any{"af", "X", "--dir", dir},
 	}
 	if got := events[0]["data"]; !reflect.DeepEqual(got, wantStart) {
 		t.Errorf("run_start data = %v, want %v", got, wantStart)
@@ -258,11 +221,10 @@ func TestEventStream_TS_05_66(t *testing.T) {
 		t.Errorf("run_end data = %v, want status done, exit_code 0 and duration_ms", end)
 	}
 
-	// The same lines are appended to the file --emit-events names.
+	// The same lines go to the sink.
 	runLines, _ := os.ReadFile(filepath.Join(c.runDir.Path, "events.jsonl"))
-	emitLines, _ := os.ReadFile(emitted)
-	if want := "an earlier line\n" + string(runLines); string(emitLines) != want {
-		t.Errorf("--emit-events file = %q, want the earlier line followed by the run's events", emitLines)
+	if got := strings.Join(sunk, ""); got != string(runLines) {
+		t.Errorf("the sink got %q, want the run's events", got)
 	}
 }
 
@@ -270,43 +232,33 @@ func TestEventStream_TS_05_66(t *testing.T) {
 // An unwritable event sink raises events_unwritable exactly once.
 // Verifies: 05-REQ-9.8
 func TestUnwritableEventSink_TS_05_67(t *testing.T) {
-	var c runDirCommand
-	app := newTestApp()
-	app.Register(c.command(func(r *Run) (Outcome, error) {
-		for i := range 4 {
-			r.Emit("step", map[string]any{"n": i})
-		}
-		return Outcome{Status: StatusDone, Summary: "ok"}, nil
-	}))
-
-	code, stdout, _ := invoke(t, app, "X", "--dir", t.TempDir(), "--emit-events", filepath.Join(t.TempDir(), "missing", "events.jsonl"))
-	env := decode(t, stdout)
-
-	if code != 0 || env["status"] != "done" {
-		t.Errorf("exit code %d, status %v; want 0, done", code, env["status"])
+	var warned []string
+	stream := newEventStream(time.Now, func(code, _ string) { warned = append(warned, code) })
+	stream.addFile(filepath.Join(t.TempDir(), "missing", "events.jsonl"))
+	stream.addFile(filepath.Join(t.TempDir(), "missing", "again.jsonl"))
+	stream.begin("X", []string{"af", "X"}, KindNone, nil)
+	for i := range 4 {
+		stream.emit("step", map[string]any{"n": i})
 	}
-	if got := warningCodes(env); !slices.Equal(got, []string{"events_unwritable"}) {
-		t.Errorf("warnings = %v, want exactly one events_unwritable", got)
-	}
-	events := readEvents(t, filepath.Join(c.runDir.Path, "events.jsonl"))
-	if types := eventTypes(events); types[0] != "run_start" || types[len(types)-1] != "run_end" || len(types) < 6 {
-		t.Errorf("the run directory's events = %v, want run_start … run_end", types)
+
+	if !slices.Equal(warned, []string{"events_unwritable"}) {
+		t.Errorf("warnings = %v, want exactly one events_unwritable", warned)
 	}
 }
 
 // TestEventsWithoutARunDirectory guards the rule behind TS-05-66: a command
-// without a run directory still has its events written where --emit-events
-// says, with no run id, and an invocation refused before its command ran has
+// without a run directory still has its events given to the EventSink, with no
+// run id, and an invocation refused before its command ran has
 // them bracketed too.
 func TestEventsWithoutARunDirectory(t *testing.T) {
 	t.Chdir(t.TempDir())
-	emitted := filepath.Join(t.TempDir(), "events.jsonl")
 	var rec inputRecorder
 	app := newTestApp()
 	app.Register(rec.command(InputRequired))
+	sunk := sinkEvents(t, app)
 
-	invoke(t, app, "X", "text", "--emit-events", emitted)
-	events := readEvents(t, emitted)
+	invoke(t, app, "X", "text")
+	events := *sunk
 	if got, want := eventTypes(events), []string{"run_start", "run_end"}; !slices.Equal(got, want) {
 		t.Fatalf("event types = %v, want %v", got, want)
 	}
@@ -314,9 +266,9 @@ func TestEventsWithoutARunDirectory(t *testing.T) {
 		t.Errorf("run_start = %v, want a null run_id and input_kind text", events[0])
 	}
 
-	refused := filepath.Join(t.TempDir(), "refused.jsonl")
-	code, _, _ := invoke(t, app, "X", "   ", "--emit-events", refused)
-	events = readEvents(t, refused)
+	*sunk = nil
+	code, _, _ := invoke(t, app, "X", "   ")
+	events = *sunk
 	if code != 2 || !slices.Equal(eventTypes(events), []string{"run_start", "run_end"}) {
 		t.Fatalf("a refused invocation: exit code %d, events %v; want 2 and run_start, run_end", code, eventTypes(events))
 	}
@@ -329,29 +281,28 @@ func TestEventsWithoutARunDirectory(t *testing.T) {
 // from a command the shell has stopped waiting for is dropped, not written
 // to a closed file.
 func TestEmitAfterTheRunIsDropped(t *testing.T) {
-	emitted := filepath.Join(t.TempDir(), "events.jsonl")
 	var late *Run
 	app := newTestApp()
 	app.Register(Command{Path: "X", Run: func(r *Run) (Outcome, error) {
 		late = r
 		return Outcome{Status: StatusDone}, nil
 	}})
+	sunk := sinkEvents(t, app)
 	var out bytes.Buffer
-	app.Main(context.Background(), []string{"af", "X", "--emit-events", emitted}, strings.NewReader(""), &out, &bytes.Buffer{})
-	before, _ := os.ReadFile(emitted)
+	app.Main(context.Background(), []string{"af", "X"}, strings.NewReader(""), &out, &bytes.Buffer{})
+	before := len(*sunk)
 
 	late.Emit("step", nil)
 	late.Warn("late_warning", "after the end")
 
-	if after, _ := os.ReadFile(emitted); !bytes.Equal(before, after) {
-		t.Errorf("events were written after run_end:\n%s", after)
+	if after := len(*sunk); after != before {
+		t.Errorf("%d events were written after run_end", after-before)
 	}
 }
 
 // TestRefusedInvocationsAreReported guards the rule behind TS-05-13 and
-// TS-05-66: an invocation refused before its command ran still has its
-// envelope written where --output says, and its events, run_start to run_end,
-// where --emit-events says, whether a flag, --dir or --timeout was refused.
+// TS-05-66: an invocation refused before its command ran still has its events,
+// run_start to run_end, whether a flag, --dir or --timeout was refused.
 func TestRefusedInvocationsAreReported(t *testing.T) {
 	cases := []struct {
 		name string
@@ -365,7 +316,6 @@ func TestRefusedInvocationsAreReported(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			out, events := filepath.Join(dir, "out.json"), filepath.Join(dir, "events.jsonl")
 			args := slices.Clone(tc.args)
 			for i, a := range args {
 				if a == "MISSING" {
@@ -377,16 +327,14 @@ func TestRefusedInvocationsAreReported(t *testing.T) {
 			command := c.command(nil)
 			command.Timeout = true
 			app.Register(command)
+			sunk := sinkEvents(t, app)
 
-			code, stdout, _ := invoke(t, app, append(args, "--output", out, "--emit-events", events)...)
+			code, _, _ := invoke(t, app, args...)
 
 			if code != 2 || c.ran != 0 {
 				t.Fatalf("exit code %d, ran %d; want 2, 0", code, c.ran)
 			}
-			if data, err := os.ReadFile(out); err != nil || string(data) != stdout {
-				t.Errorf("--output = %q (%v), want the stdout envelope", data, err)
-			}
-			lines := readEvents(t, events)
+			lines := *sunk
 			if got, want := eventTypes(lines), []string{"run_start", "run_end"}; !slices.Equal(got, want) {
 				t.Fatalf("event types = %v, want %v", got, want)
 			}

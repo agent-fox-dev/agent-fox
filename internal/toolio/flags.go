@@ -11,13 +11,11 @@ import (
 
 // flagValues are what the flags the shell registers parsed to.
 type flagValues struct {
-	dir        string
-	context    stringList
-	dryRun     bool
-	repo       string
-	timeout    time.Duration
-	output     string
-	emitEvents string
+	dir     string
+	context stringList
+	dryRun  bool
+	repo    string
+	timeout time.Duration
 }
 
 // stringList is a flag that may be given more than once.
@@ -30,14 +28,11 @@ func (l *stringList) Set(v string) error {
 	return nil
 }
 
-// flagSet registers the flags of cmd on a new flag set: --output and
-// --emit-events for every command, the flags the command opted into, and its
-// own. The flag package prints nothing and never exits.
+// flagSet registers the flags of cmd on a new flag set: the flags the command
+// opted into, and its own. The flag package prints nothing and never exits.
 func flagSet(cmd *Command, v *flagValues) *flag.FlagSet {
 	fs := flag.NewFlagSet(cmd.Path, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	fs.StringVar(&v.output, "output", "", "also write the envelope to this `file`")
-	fs.StringVar(&v.emitEvents, "emit-events", "", "also append the events to this `file`")
 	if cmd.hasDir() {
 		fs.StringVar(&v.dir, "dir", ".", "the checkout to work in")
 	}
@@ -79,8 +74,8 @@ func (c *Command) maxArgs() int {
 
 // parse parses the words after the command path into cmd's flags and
 // positional arguments. A failure is a usage failure. The values are returned
-// whatever happens, with the flags that were understood set, so that
-// --output and --emit-events are honoured for an invocation that is refused.
+// whatever happens, with the flags that were understood set, so that the
+// --dir of an invocation that is refused is known.
 func parse(cmd *Command, words []string) (*flagValues, []string, *Failure) {
 	v := &flagValues{}
 	fs := flagSet(cmd, v)
@@ -207,7 +202,7 @@ func SplitFlag(w string) (name string, hasValue, isFlag bool) { return splitFlag
 
 // FlagLookup returns a function that says, for the name of a flag, whether cmd has a flag of that
 // name and whether it takes the word after it as its value, which a boolean flag does not. It
-// covers the flags the shell registers for every command, the ones the command opted into and its own.
+// covers the flags the command opted into and its own.
 func (c *Command) FlagLookup() func(name string) (known, takesValue bool) {
 	fs := flagSet(c, &flagValues{})
 	return func(name string) (bool, bool) {

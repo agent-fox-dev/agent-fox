@@ -7,12 +7,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/agent-fox-dev/aflib/issuex"
 )
 
 // newTestApp returns an app with a fixed identity.
@@ -322,5 +325,48 @@ func TestArtifactPathsAreAbsolute(t *testing.T) {
 	}
 	if _, has := artifacts[1].(map[string]any)["path"]; has {
 		t.Errorf("an artifact without a path got one: %v", artifacts[1])
+	}
+}
+
+// TestShortCircuitsDoNoWork_TS_05_8 verifies TS-05-8:
+// --version and --help short-circuit input, forge and run directory work.
+// Verifies: 05-REQ-1.8
+func TestShortCircuitsDoNoWork_TS_05_8(t *testing.T) {
+	dir := t.TempDir()
+	url := "https://github.com/o/r/issues/1"
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"--version first", []string{"X", "--version", "-", "--dir", dir}},
+		{"--version after the input", []string{"X", url, "--version"}},
+		{"--help among the flags", []string{"X", url, "--help", "--dir", dir}},
+		{"-h", []string{"X", "-h", "--dry-run"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ran, forges := 0, 0
+			stdin := &countingReader{}
+			app := newTestApp()
+			app.NewForge = func(issuex.Options) (issuex.Client, error) {
+				forges++
+				return issuex.NewNoOp(), nil
+			}
+			app.Register(Command{Path: "X", Input: InputRequired, UsesForge: true, UsesRunDir: true, DryRun: true, Run: func(*Run) (Outcome, error) {
+				ran++
+				return Outcome{Status: StatusDone}, nil
+			}})
+			var out, errb bytes.Buffer
+
+			code := app.Main(context.Background(), append([]string{"af"}, tc.args...), stdin, &out, &errb)
+
+			if code != 0 || ran != 0 || forges != 0 || stdin.reads != 0 || errb.Len() != 0 || out.Len() == 0 {
+				t.Errorf("exit code %d, ran %d, forges %d, stdin reads %d, stderr %q, stdout %d bytes; want 0, 0, 0, 0, \"\", something",
+					code, ran, forges, stdin.reads, errb.String(), out.Len())
+			}
+			if _, err := os.Stat(agentFoxDir(dir)); err == nil {
+				t.Error("a run directory was created")
+			}
+		})
 	}
 }

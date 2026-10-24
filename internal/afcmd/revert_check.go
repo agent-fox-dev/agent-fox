@@ -28,9 +28,8 @@ func registerRevertCheck(app *toolio.App) {
 		DefaultTimeout: 30 * time.Minute,
 		// Once told to stop it has the tree to put back, which takes as long
 		// as the tree is big; the shell does not abandon it half way.
-		Grace:        10 * time.Minute,
-		ResultSchema: resultSchema("revert_check"),
-		Run:          func(r *toolio.Run) (toolio.Outcome, error) { return revertCheck(r, since) },
+		Grace: 10 * time.Minute,
+		Run:   func(r *toolio.Run) (toolio.Outcome, error) { return revertCheck(r, since) },
 	})
 }
 

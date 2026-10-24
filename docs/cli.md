@@ -6,8 +6,8 @@ command line is [described at the end of this document](#the-agent-fox-command-l
 contract, which the shell in `internal/toolio` implements once so that the
 commands do not: one JSON envelope on stdout, a fixed table of statuses and
 exit codes, coded warnings, a stop on a question that is resumed with
-`--context`, a `--dry-run` that cannot write to the forge, a fetchable
-schema, and a git-ignored run directory.
+`--context`, a `--dry-run` that cannot write to the forge, and a
+git-ignored run directory.
 
 **This release registers eighteen commands: [`lang detect`](#lang-detect),
 [`gate run`](#gate-run) and [`revert-check`](#revert-check), the two of [triage](#triage): `triage` and
@@ -16,7 +16,7 @@ schema, and a git-ignored run directory.
 [`workspace`](#workspace-subscribe-list-get-and-unsubscribe) (`workspace subscribe`, `workspace list`,
 `workspace get` and `workspace unsubscribe`) and the six of [`jobs`](#jobs-list-get-watch-cancel-answer-and-retry)
 (`jobs list`, `jobs get`, `jobs watch`, `jobs cancel`, `jobs answer` and `jobs retry`).** The binary also
-answers `--version`, `--schema` and `help`, which does not list `triage run` and `fix run`:
+answers `--version` and `help`, which does not list `triage run` and `fix run`:
 they are what a box executes, and no commands for a person; `af` with no arguments, or with a
 command it does not know, prints a `usage` envelope and exits 2. The other
 commands of later specs (`impl`, …) register on the shell and get everything
@@ -45,7 +45,6 @@ time when it recorded none.
 af <command> [flags] [argument]
 af help [command]
 af --version
-af --schema
 ```
 
 - A command is registered under a **command path** of one or more words
@@ -58,20 +57,12 @@ af --schema
 - A command takes at most one positional argument unless it declares
   otherwise. Another is a `usage` error. A bad flag is a `usage` error too,
   and the flag package prints nothing.
-- `-h`, `--help`, `--version` and `--schema` are answered wherever they stand
-  before a `--`, without resolving input, building a forge client, reading
-  stdin or creating a run directory. If more than one is given, help wins
-  over version, and version over schema. The word after a flag that takes a
+- `-h`, `--help` and `--version` are answered wherever they stand before a
+  `--`, without resolving input, building a forge client, reading stdin or
+  creating a run directory. If both are given, help wins over version. The word after a flag that takes a
   value is that value: in `--context --help` the answer is `--help`.
 
 ### Flags
-
-Every command accepts:
-
-| Flag | Meaning |
-|---|---|
-| `--output <file>` | Also write the envelope to this file. |
-| `--emit-events <file>` | Also append the events (see [Events](#events)) to this file. |
 
 A command opts into these, and rejects any it did not opt into as an unknown
 flag:
@@ -102,7 +93,7 @@ writes nothing at all. The default `--timeout` is 1 minute.
 |---|---|
 | `--write` | Store the freshly detected gate table in `.agent-fox/gate.json` (see [configuration](configuration.md)). Any `gate.json` there now is ignored, one that does not parse included, and replaced. The file is written through a temporary file and a rename, and is an artifact of kind `gate_file`. |
 
-The result (its schema is `lang_detect` under `$defs`) holds:
+The result holds:
 
 | Field | Meaning |
 |---|---|
@@ -193,7 +184,7 @@ the checks that ran and `<slug>` the check's name. The logs are written when
 the run is complete, just before its result: a run that is stopped writes none,
 and the logs of a stored result that it would have replaced stay as they were.
 
-**The result** (its schema is `gate_run` under `$defs`):
+**The result**:
 
 | Field | Meaning |
 |---|---|
@@ -341,7 +332,7 @@ in the tree outside the ignored paths: a file made while the reverted tree is
 tested changes the tree hash, and is a restore failure although every
 reverted path is back.
 
-**The result** (its schema is `revert_check` under `$defs`):
+**The result**:
 
 | Field | Meaning |
 |---|---|
@@ -407,9 +398,9 @@ brain is in, and in the checkout as well.
 | `hands_guard` | What the hands' guard refuses, with its reason: an assignment of a variable that changes which program runs or what is loaded into it (`PATH`, `LD_PRELOAD`, `BASH_ENV`, …), a line it cannot read, and a line that runs no program. It can only deny. |
 | `git_mutation` | `git` with any subcommand but `status`, `log`, `diff`, `show`, `blame`, `ls-files`, `ls-tree`, `rev-parse`, `rev-list`, `grep`, `describe`, `cat-file`, `shortlog`, `merge-base`, `name-rev`, `for-each-ref` and `show-ref`; `branch` and `remote` only to list; a global `-c`, `--config-env` or `--exec-path=`; configuration from the environment that makes git run a program (`GIT_CONFIG_*`, `GIT_EXTERNAL_DIFF`, `GIT_EXEC_PATH`, `GIT_ASKPASS`, `GIT_SSH`, `GIT_SSH_COMMAND`, `GIT_PROXY_COMMAND`, `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR` and `GIT_TEMPLATE_DIR`, in front of the command, given to `env` or exported by an earlier command of the line); and `git grep` with `-O` or `--open-files-in-pager`. The reason says that af makes every commit, branch and push. |
 | `suite_command` | A command equal to a suite form once every token that starts with `-`, the value of an option that takes one as its next word (`go test -timeout 5m ./...`, `make -j 4 check`, `make -f Makefile check`: the options of `go`, `make`, `cargo` and `pytest` that the code lists) and every `NAME=value` word (`make check V=1`) is removed from both, and `$(go list ./...)` is `./...`: `make check`, `make -j4 check`, `go test ./...` and `go test -count=1 ./...` are the suite, `go test ./internal/x -run TestY` is not. The reason says to run `af gate run`, which caches the result by tree hash so that the landing reuses it, and that targeted runs are allowed. A flag that selects tests without a word of its own (`mvn -q test -Dtest=X`) is not told from the suite. |
-| `af_command` | Any `af` command but `lang detect`, `gate run`, `revert-check`, `--version` and `--schema`: the rest belongs to the loop. |
+| `af_command` | Any `af` command but `lang detect`, `gate run`, `revert-check` and `--version`: the rest belongs to the loop. |
 | `program_not_allowed` | With `allow_programs` set, a program that is not on it, as it is written (`/usr/bin/ls` is not `ls`); `af` and `git` are always allowed, by their name and by an absolute path (`./git` is a file of the checkout), and so are the builtins that start no program (`cd`, `true`, `[`, `test`, `echo`, `printf`, `read`, `export`, `set`, `for`, `case`, `eval`, `trap` and the like), whose own commands are judged in turn. |
-| `protected_path` | A write into a protected path through an output redirection; through an argument of `rm`, `rmdir`, `unlink`, `shred`, `mv`, `cp`, `install`, `rsync`, `tee`, `touch`, `mkdir`, `mkfifo`, `truncate`, `chmod`, `chown`, `chgrp`, `patch`, `ln` (every operand: a link to a protected path is a way to write there), `sed -i` or `perl -i`, `dd of=`, or `find -delete` and `-fprint`; and through an option that names the file a command writes (`-o`, `--output`, `--out`, `--outfile`, `--output-file`, `--emit-events`, `-coverprofile` and the other profiles of `go test`), such as `git diff --output=.specs/x` or `af gate run --output .specs/x`. A path is resolved against the checkout (and against the directory of the session and of any `cd` before it in the command), with its links followed, so that a link to a protected directory and another spelling of the checkout are the protected path; its case does not matter, because the file system of a Mac has `.SPECS` where it has `.specs`; and it may start with `~`, `$HOME` or `$PWD`, or have a glob in a component (`.spe?s`, `.sp*`), which is matched against the protected names as the shell would (a glob does not match a name that starts with a dot unless it starts with one). Entries of `protected_paths` are cleaned before they are matched: `./docs/`, `docs//` and `a/../docs` protect `docs`. `rm`, `mv` and `find -delete` also refuse a directory above a protected path, such as `rm -rf .` and `find . -delete`; a `find` with a test before `-delete` does not count as removing its roots. |
+| `protected_path` | A write into a protected path through an output redirection; through an argument of `rm`, `rmdir`, `unlink`, `shred`, `mv`, `cp`, `install`, `rsync`, `tee`, `touch`, `mkdir`, `mkfifo`, `truncate`, `chmod`, `chown`, `chgrp`, `patch`, `ln` (every operand: a link to a protected path is a way to write there), `sed -i` or `perl -i`, `dd of=`, or `find -delete` and `-fprint`; and through an option that names the file a command writes (`-o`, `--output`, `--out`, `--outfile`, `--output-file`, `-coverprofile` and the other profiles of `go test`), such as `git diff --output=.specs/x`. A path is resolved against the checkout (and against the directory of the session and of any `cd` before it in the command), with its links followed, so that a link to a protected directory and another spelling of the checkout are the protected path; its case does not matter, because the file system of a Mac has `.SPECS` where it has `.specs`; and it may start with `~`, `$HOME` or `$PWD`, or have a glob in a component (`.spe?s`, `.sp*`), which is matched against the protected names as the shell would (a glob does not match a name that starts with a dot unless it starts with one). Entries of `protected_paths` are cleaned before they are matched: `./docs/`, `docs//` and `a/../docs` protect `docs`. `rm`, `mv` and `find -delete` also refuse a directory above a protected path, such as `rm -rf .` and `find . -delete`; a `find` with a test before `-delete` does not count as removing its roots. |
 | `outside_dir` | A write tool call to a path outside the checkout and the system temporary directory. |
 
 The policy is prevention, not a boundary. It reads the command and does not
@@ -1134,7 +1125,7 @@ A failed push, issue or pull request after that commit is a warning
 (`push_failed`, `issue_creation_failed`, `pull_request_failed`), and a pull request
 for a run with no issue is skipped (`pull_request_skipped`).
 
-**The result** (`$defs` `fix`):
+**The result**:
 
 | Field | Meaning |
 |---|---|
@@ -1228,7 +1219,7 @@ that names `--workspace`. `--local` follows Go's boolean syntax, as every boolea
 `--wait`. The service mode refuses the flags only the loop reads: for both commands `--dir`, `--repo`,
 `--dry-run`, `--land`, `--brain`, `--sandbox`, `--budget`, `--max-turns` and
 `--script`; for `triage`, `--label`; for `fix`, `--base`, `--attempts` and `--no-verify`. Both modes accept
-`--context`, `--timeout`, `--output` and `--emit-events`. `af triage --help`, `af help triage` and their
+`--context` and `--timeout`. `af triage --help`, `af help triage` and their
 `fix` counterparts describe both modes and the flags of each.
 
 **Only the binary.** The rule belongs to the command line of the `af` binary: the shell is given its
@@ -1306,9 +1297,9 @@ for the event stream), and any body is JSON with `Content-Type: application/json
 event stream lasts at most two minutes, or the time `--timeout` leaves if that is shorter; at most 8 MiB of an
 answer is read; a redirect is not followed and no request is sent to its target, so the credential
 reaches no host but the server's. `--timeout` has no default limit on any client command. The credential
-and the token of a workspace are in no output: not on stdout or stderr, not in the `--output` file, not in
-the events or `--emit-events`, whatever the service repeats in its answers: the shell takes a registered secret out of the envelope, its
-copies and every event, wherever it stands. A value shorter than 8 bytes is not taken out, since it would be in ordinary
+and the token of a workspace are in no output: not on stdout or stderr, not in
+the events, whatever the service repeats in its answers: the shell takes a registered secret out of the envelope, its
+copy and every event, wherever it stands. A value shorter than 8 bytes is not taken out, since it would be in ordinary
 words, and no credential is that short. The client uses the standard proxy variables of Go (`HTTP_PROXY`,
 `HTTPS_PROXY`, `NO_PROXY`), as the service does for its calls to hub: behind a proxy for a plain `http` server, the
 proxy sees the request.
@@ -1449,7 +1440,7 @@ following that reaches rest has neither entry.
 
 ## The envelope
 
-Every invocation other than `--version`, `--schema` and help writes exactly
+Every invocation other than `--version` and help writes exactly
 one JSON object to stdout, indented by two spaces and followed by one newline,
 and nothing else. Every field is always present and the fields appear in this
 order; arrays are `[]`, never null, and an object that does not apply is
@@ -1526,7 +1517,7 @@ the shell under a test command, with the path of the checkout shortened.)
 | `exit_code` | integer | The code the process exits with. |
 | `summary` | string | One line, with no line break. The shell writes it when it sets the status itself. |
 | `input` | object | `{kind, origin, truncated}`: what the positional argument resolved to. `kind` is `issue`, `file`, `text`, `stdin` or `none`; `origin` is the URL of the issue or the absolute path of the file, else `""`. |
-| `result` | any or null | The command's own result. Its schema is the command's (see [--schema](#--schema)). |
+| `result` | any or null | The command's own result, which the section of the command describes. |
 | `needs_human` | object or null | The question the command stopped on. Non-null exactly when `status` is `needs_human`. |
 | `error` | object or null | `{category, message, retryable, fix_hint}`. Non-null exactly when `status` is `failed` or `usage`. `fix_hint` is null, or an object with any of `flag`, `env`, `var` and `suggest`. |
 | `warnings` | array | `[{code, message}]`, in the order they were raised. |
@@ -1538,10 +1529,9 @@ the shell under a test command, with the path of the checkout shortened.)
 | `duration_ms` | integer | The wall time of the invocation. |
 
 The same bytes are written to `<run_dir>/envelope.json`, when there is a run
-directory, and to the file `--output` names, before they are printed. If a
-copy cannot be written, the envelope on stdout (the one that counts) carries
-the warning `envelope_unwritable` or `output_unwritable`, and its status does
-not change. If stdout cannot be written, the process still exits with the
+directory, before they are printed. If that copy cannot be written, the
+envelope on stdout (the one that counts) carries the warning
+`envelope_unwritable`, and its status does not change. If stdout cannot be written, the process still exits with the
 code of the status. The shell writes nothing to stderr except the stack of a
 panic.
 
@@ -1607,8 +1597,7 @@ A code matches `^[a-z][a-z0-9_]*$`; one that does not is reported under
 | `input_truncated` | The body of the input was cut at 131072 bytes, or the thread of an issue has more comments than were read. |
 | `comments_unreadable` | The issue was read and its comments were not; the run goes on with the issue. |
 | `envelope_unwritable` | `<run_dir>/envelope.json` could not be written. |
-| `output_unwritable` | The file named by `--output` could not be written. |
-| `events_unwritable` | An event could not be written to the run directory or to `--emit-events`. Raised once. |
+| `events_unwritable` | An event could not be written to the run directory. Raised once. |
 | `invalid_warning_code` | A command raised a warning whose code does not match the pattern; the message begins with the code it gave. |
 | `server_insecure` | A service command: the server is a plain `http` URL whose host is not loopback (`localhost`, `127.0.0.0/8`, `::1`), so the credential crosses the link in clear. The command goes on. |
 | `credential_file_permissions` | A service command, on Unix: `~/.af/config.toml` has a group or other permission bit set. The message names the file; the command goes on. |
@@ -1755,31 +1744,6 @@ deadline, is abandoned: the shell prints `failed`/`cancelled` or
 is ignored. A command that has something to put back may ask for longer
 (`Command.Grace`): `revert-check` asks for 10 minutes.
 
-## --schema
-
-`af --schema` prints the JSON Schema (draft 2020-12) of the envelope: every
-field, `schema_version` a constant, `required` listing the fields in envelope
-order, `result` open. The result schema of each registered command is under
-`$defs`, keyed by the command path with spaces replaced by `_`. `af
-<command> --schema` narrows it to the command: `tool` is a constant, and
-`result` is null or a reference to the command's schema. The schema of `triage` and of `fix` is a `oneOf`: the
-result of the local loop, or the job result `{job, envelope}` of the service mode. The schemas of the client commands
-(`login`, `workspace …`, `jobs …`) name the fields `af` relies on and allow the others, which the service may add.
-
-The base schema is `internal/toolio/schema/envelope.schema.json`, embedded in
-the binary. A test fails if its `required` list and the fields of
-`toolio.Envelope` differ in names or in order, and the output is compared
-with two committed files: `internal/toolio/testdata/schema.golden.json` (no
-commands registered) and `cmd/af/testdata/schema.golden.json` (the binary).
-Rewrite both after a change on purpose with
-
-```sh
-go test ./internal/toolio ./cmd/af -update
-```
-
-(`go test ./... -update` fails in the packages that do not define the flag;
-see `docs/errata/05_update_flag.md`.)
-
 ## Interface versions
 
 `schema_version` is the version of the envelope's interface: its fields and
@@ -1794,9 +1758,7 @@ an artifact `kind`, an event `type`). These are breaking, and each
 bumps the major version: removing a field, renaming it, changing its type, or
 narrowing a field documented as a closed set (`status`, `exit_code`,
 `input.kind`, `side_effects[].state`, `usage.cost_source`). A change on purpose changes
-`toolio.SchemaVersion`, the `const` in
-`internal/toolio/schema/envelope.schema.json` and the two golden files
-together; a test fails until they agree.
+`toolio.SchemaVersion`.
 
 `5.0.0` is the envelope of the `af` binary. The earlier `triage`, `fix` and
 `impl` tools printed an envelope that reached 4.0.0, and this one is not
@@ -1854,8 +1816,7 @@ those of a fix run in [the files of a fix run](#the-files-of-a-fix-run).
 
 ### Events
 
-`events.jsonl`, and the file `--emit-events` names (to which the lines are
-appended), hold one JSON object per line, written as the event happens:
+`events.jsonl` holds one JSON object per line, written as the event happens:
 
 ```
 {"seq": <n>, "ts": <RFC 3339>, "run_id": <id or null>, "type": <type>, "data": <any>}

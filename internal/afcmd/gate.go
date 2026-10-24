@@ -21,7 +21,6 @@ func registerGate(app *toolio.App) {
 		Dir:            true,
 		Timeout:        true,
 		DefaultTimeout: 30 * time.Minute,
-		ResultSchema:   resultSchema("gate_run"),
 		Run:            runGate,
 	})
 }

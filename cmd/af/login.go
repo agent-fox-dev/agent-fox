@@ -30,11 +30,10 @@ func registerLogin(app *toolio.App) {
 			fs.StringVar(&tokenFile, "token-file", "", "the `file` that holds the credential, an API key or a personal access token; - reads stdin")
 			server.bind(fs)
 		},
-		MaxArgs:      toolio.NoArgs,
-		RawStdin:     true,
-		Timeout:      true,
-		ResultSchema: resultSchema("login"),
-		Run:          func(r *toolio.Run) (toolio.Outcome, error) { return login(r, app, tokenFile, &server) },
+		MaxArgs:  toolio.NoArgs,
+		RawStdin: true,
+		Timeout:  true,
+		Run:      func(r *toolio.Run) (toolio.Outcome, error) { return login(r, app, tokenFile, &server) },
 	})
 }
 

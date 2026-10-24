@@ -48,14 +48,13 @@ func workspacePath(slug string) string { return "/workspaces/" + url.PathEscape(
 func registerWorkspaceList(app *toolio.App) {
 	var server serverFlag
 	app.Register(toolio.Command{
-		Path:         "workspace list",
-		Summary:      "List the workspaces subscribed on the agent-fox service",
-		Usage:        "af workspace list [--server URL]",
-		Flags:        server.bind,
-		MaxArgs:      toolio.NoArgs,
-		Timeout:      true,
-		ResultSchema: resultSchema("workspace_list"),
-		Run:          func(r *toolio.Run) (toolio.Outcome, error) { return workspaceList(r, app, &server) },
+		Path:    "workspace list",
+		Summary: "List the workspaces subscribed on the agent-fox service",
+		Usage:   "af workspace list [--server URL]",
+		Flags:   server.bind,
+		MaxArgs: toolio.NoArgs,
+		Timeout: true,
+		Run:     func(r *toolio.Run) (toolio.Outcome, error) { return workspaceList(r, app, &server) },
 	})
 }
 
@@ -96,9 +95,8 @@ func registerWorkspaceSubscribe(app *toolio.App) {
 			fs.StringVar(&hubTokenFile, "hub-token-file", "", "the `file` that holds the personal access token of the workspace on hub; - reads stdin")
 			server.bind(fs)
 		},
-		RawStdin:     true,
-		Timeout:      true,
-		ResultSchema: resultSchema("subscription"),
+		RawStdin: true,
+		Timeout:  true,
 		Run: func(r *toolio.Run) (toolio.Outcome, error) {
 			return workspaceSubscribe(r, app, hubTokenFile, &server)
 		},
@@ -144,12 +142,11 @@ func workspaceSubscribe(r *toolio.Run, app *toolio.App, hubTokenFile string, ser
 func registerWorkspaceGet(app *toolio.App) {
 	var server serverFlag
 	app.Register(toolio.Command{
-		Path:         "workspace get",
-		Summary:      "Show the subscription of a workspace on the agent-fox service",
-		Usage:        "af workspace get <slug> [--server URL]",
-		Flags:        server.bind,
-		Timeout:      true,
-		ResultSchema: resultSchema("subscription"),
+		Path:    "workspace get",
+		Summary: "Show the subscription of a workspace on the agent-fox service",
+		Usage:   "af workspace get <slug> [--server URL]",
+		Flags:   server.bind,
+		Timeout: true,
 		Run: func(r *toolio.Run) (toolio.Outcome, error) {
 			slug, err := slugArg(r)
 			if err != nil {
@@ -175,12 +172,11 @@ func registerWorkspaceGet(app *toolio.App) {
 func registerWorkspaceUnsubscribe(app *toolio.App) {
 	var server serverFlag
 	app.Register(toolio.Command{
-		Path:         "workspace unsubscribe",
-		Summary:      "Remove the subscription of a workspace on the agent-fox service, cancelling its open jobs",
-		Usage:        "af workspace unsubscribe <slug> [--server URL]",
-		Flags:        server.bind,
-		Timeout:      true,
-		ResultSchema: resultSchema("slug"),
+		Path:    "workspace unsubscribe",
+		Summary: "Remove the subscription of a workspace on the agent-fox service, cancelling its open jobs",
+		Usage:   "af workspace unsubscribe <slug> [--server URL]",
+		Flags:   server.bind,
+		Timeout: true,
 		Run: func(r *toolio.Run) (toolio.Outcome, error) {
 			slug, err := slugArg(r)
 			if err != nil {

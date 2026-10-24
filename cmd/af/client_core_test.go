@@ -78,6 +78,22 @@ func afRun(t *testing.T, stdin string, args ...string) afResult {
 	return res
 }
 
+// afRunEvents runs the shell of the binary with args, as afRun does, and returns the lines of
+// its events as well.
+func afRunEvents(t *testing.T, args ...string) (afResult, string) {
+	t.Helper()
+	var out, errb bytes.Buffer
+	var events strings.Builder
+	app := newApp()
+	app.EventSink = func(line []byte) { events.Write(line); events.WriteByte('\n') }
+	code := app.Main(context.Background(), append([]string{"af"}, args...), strings.NewReader(""), &out, &errb)
+	res := afResult{code: code, stdout: out.String(), stderr: errb.String()}
+	if out.Len() > 0 {
+		res.env = oneDocument(t, res.stdout)
+	}
+	return res, events.String()
+}
+
 // message is the error message of the envelope, or "".
 func (r afResult) message() string {
 	s, _ := field(r.env, "error", "message").(string)

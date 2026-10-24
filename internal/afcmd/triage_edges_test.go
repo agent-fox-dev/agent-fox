@@ -219,10 +219,9 @@ func TestTheRefusalsOfTheLandingCheckAreTheEnvelopesTheySay(t *testing.T) {
 	}
 }
 
-// TestTheLoopWritesTheBodyAloneAndItsResultIsTheSchemasOwn guards 08-REQ-8.3 and
-// 9.3 end to end: the update that replaces the body sends the body and nothing
-// else, and the result of the loop validates against the schema of the command.
-func TestTheLoopWritesTheBodyAloneAndItsResultIsTheSchemasOwn(t *testing.T) {
+// TestTheLoopWritesTheBodyAlone guards 08-REQ-8.3 end to end: the update that
+// replaces the body sends the body and nothing else.
+func TestTheLoopWritesTheBodyAlone(t *testing.T) {
 	for _, kind := range []string{fakeforge.GitHub, fakeforge.GitLab} {
 		t.Run(kind, func(t *testing.T) {
 			e := newTriageEnv(t, kind)
@@ -244,7 +243,6 @@ func TestTheLoopWritesTheBodyAloneAndItsResultIsTheSchemasOwn(t *testing.T) {
 			if keys := mapKeys(bodies[0].JSON); len(keys) != 1 || (keys[0] != "body" && keys[0] != "description") {
 				t.Errorf("the update sent %v, want the body alone", keys)
 			}
-			valid(t, "triage", resultOf(t, env))
 		})
 	}
 }

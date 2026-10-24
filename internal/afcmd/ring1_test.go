@@ -3,8 +3,6 @@ package afcmd
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -14,9 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,10 +20,6 @@ import (
 	"testing"
 
 	"github.com/agent-fox-dev/aflib/issuex"
-
-	"github.com/agent-fox-dev/agentfox/internal/checks"
-	"github.com/agent-fox-dev/agentfox/internal/conform"
-	"github.com/agent-fox-dev/agentfox/internal/project"
 )
 
 // ring1Packages are the packages of the ring-1 commands.
@@ -73,7 +65,7 @@ func TestTheRing1CommandsAreRegistered_TS_06_69(t *testing.T) {
 			if code != 0 || stderr != "" {
 				t.Fatalf("--help: exit code %d, stderr %q", code, stderr)
 			}
-			for _, flag := range append([]string{"--dir", "--timeout", "--output", "--emit-events"}, c.flags...) {
+			for _, flag := range append([]string{"--dir", "--timeout"}, c.flags...) {
 				if !strings.Contains(stdout, flag) {
 					t.Errorf("--help does not list %s:\n%s", flag, stdout)
 				}
@@ -216,179 +208,6 @@ func TestPackagesDoNotKnowTheShell_TS_06_71(t *testing.T) {
 			}
 		}
 	}
-}
-
-// jsonFields are the names a struct is encoded with and whether each is
-// always there (no omitempty).
-func jsonFields(typ reflect.Type) (all, required []string) {
-	for i := range typ.NumField() {
-		f := typ.Field(i)
-		tag := f.Tag.Get("json")
-		if tag == "-" || !f.IsExported() {
-			continue
-		}
-		name, opts, _ := strings.Cut(tag, ",")
-		if name == "" {
-			name = f.Name
-		}
-		all = append(all, name)
-		if !strings.Contains(opts, "omitempty") && !strings.Contains(opts, "omitzero") {
-			required = append(required, name)
-		}
-	}
-	slices.Sort(all)
-	slices.Sort(required)
-	return all, required
-}
-
-// schemaDiff lists where a schema and the Go type it describes differ: the
-// properties of an object against the fields of a struct, the ones it requires
-// against the ones that are never omitted, and the same below them.
-func schemaDiff(schema map[string]any, typ reflect.Type, where string) []string {
-	for typ.Kind() == reflect.Pointer || typ.Kind() == reflect.Slice {
-		typ = typ.Elem()
-	}
-	if typ.Kind() != reflect.Struct {
-		return nil
-	}
-	props, _ := schema["properties"].(map[string]any)
-	var have []string
-	for name := range props {
-		have = append(have, name)
-	}
-	slices.Sort(have)
-	all, required := jsonFields(typ)
-	var diffs []string
-	if !slices.Equal(have, all) {
-		diffs = append(diffs, fmt.Sprintf("%s: the schema has %v, the Go type %v", where, have, all))
-	}
-	var req []string
-	for _, r := range schema["required"].([]any) {
-		req = append(req, r.(string))
-	}
-	slices.Sort(req)
-	if !slices.Equal(req, required) {
-		diffs = append(diffs, fmt.Sprintf("%s: the schema requires %v, the Go type always has %v", where, req, required))
-	}
-	if schema["additionalProperties"] != false {
-		diffs = append(diffs, where+": the schema allows other properties")
-	}
-
-	for i := range typ.NumField() {
-		f := typ.Field(i)
-		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
-		sub, ok := props[name].(map[string]any)
-		if !ok || name == "" || name == "-" {
-			continue
-		}
-		if items, ok := sub["items"].(map[string]any); ok {
-			sub = items
-		}
-		if _, nested := sub["properties"]; nested {
-			diffs = append(diffs, schemaDiff(sub, f.Type, where+"."+name)...)
-		}
-	}
-	return diffs
-}
-
-// TestSchemasMatchTheirTypes_TS_06_72 verifies TS-06-72:
-// each command's embedded schema matches its Go result type's JSON fields,
-// appears in af --schema, and the golden of the binary holds them.
-// Verifies: 06-REQ-10.4
-func TestSchemasMatchTheirTypes_TS_06_72(t *testing.T) {
-	results := map[string]reflect.Type{
-		"lang_detect":  reflect.TypeOf(project.Detection{}),
-		"gate_run":     reflect.TypeOf(checks.Result{}),
-		"revert_check": reflect.TypeOf(conform.Result{}),
-	}
-	for name, typ := range results {
-		var schema map[string]any
-		if err := json.Unmarshal(resultSchema(name), &schema); err != nil {
-			t.Fatalf("schemas/%s.json: %v", name, err)
-		}
-		for _, diff := range schemaDiff(schema, typ, name) {
-			t.Error(diff)
-		}
-	}
-
-	// The comparison notices a field that was renamed.
-	type renamed struct {
-		Outcome string `json:"verdict"`
-		Reason  string `json:"reason"`
-	}
-	var schema map[string]any
-	if err := json.Unmarshal(resultSchema("revert_check"), &schema); err != nil {
-		t.Fatal(err)
-	}
-	if diffs := schemaDiff(schema, reflect.TypeOf(renamed{}), "revert_check"); len(diffs) == 0 {
-		t.Error("a renamed field is not noticed")
-	}
-
-	// Every schema is in af --schema, under the path of its command, and the
-	// envelope's version is the one of spec 05.
-	_, stdout, _ := run(t, "--schema")
-	var doc struct {
-		Defs       map[string]json.RawMessage `json:"$defs"`
-		Properties struct {
-			Version struct {
-				Const string `json:"const"`
-			} `json:"schema_version"`
-		} `json:"properties"`
-	}
-	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
-		t.Fatal(err)
-	}
-	for _, c := range ring1Commands {
-		def := strings.ReplaceAll(c.path, " ", "_")
-		if _, ok := doc.Defs[def]; !ok {
-			t.Errorf("af --schema has no $defs.%s", def)
-		}
-	}
-	if doc.Properties.Version.Const != "5.0.0" {
-		t.Errorf("the envelope schema_version is %q, want the 5.0.0 of spec 05", doc.Properties.Version.Const)
-	}
-	golden, err := os.ReadFile(filepath.Join("..", "..", "cmd", "af", "testdata", "schema.golden.json"))
-	if err == nil {
-		err = goldenCovers(golden, []byte(stdout))
-	}
-	if err != nil {
-		t.Errorf("the golden file is not current (%v); rewrite it with go test ./internal/toolio ./cmd/af -update", err)
-	}
-}
-
-// goldenCovers says whether the golden schema of the af binary holds the schema of this
-// package's shell: the same envelope, and every $defs entry of the shell as it is, or, for the
-// result of triage and fix, as the first of the two that the binary admits. The binary registers
-// more commands than this package does (the client of the agent-fox service), so the golden has
-// entries that the shell has not; cmd/af checks the golden byte for byte.
-func goldenCovers(golden, current []byte) error {
-	var g, c map[string]any
-	if err := json.Unmarshal(golden, &g); err != nil {
-		return err
-	}
-	if err := json.Unmarshal(current, &c); err != nil {
-		return err
-	}
-	goldenDefs, _ := g["$defs"].(map[string]any)
-	currentDefs, _ := c["$defs"].(map[string]any)
-	delete(g, "$defs")
-	delete(c, "$defs")
-	if !reflect.DeepEqual(g, c) {
-		return errors.New("the envelope schema differs")
-	}
-	for name, def := range currentDefs {
-		held := goldenDefs[name]
-		// The binary describes the result of triage and fix as one of two: this shell's own, and the job result.
-		if m, ok := held.(map[string]any); ok {
-			if alternatives, ok := m["oneOf"].([]any); ok && len(alternatives) > 0 {
-				held = alternatives[0]
-			}
-		}
-		if !reflect.DeepEqual(held, def) {
-			return fmt.Errorf("$defs.%s differs", name)
-		}
-	}
-	return nil
 }
 
 // offlineScope are the packages whose tests this spec added or changed.

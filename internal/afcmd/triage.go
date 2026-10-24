@@ -179,7 +179,6 @@ func registerTriageRun(app *toolio.App, c *Config) {
 		Dir:            true,
 		Timeout:        true,
 		DefaultTimeout: triage.DefaultTimeout,
-		ResultSchema:   resultSchema("triage_run"),
 		Run:            func(r *toolio.Run) (toolio.Outcome, error) { return triageRun(c, r, runID, budget, maxTurns) },
 	})
 }
@@ -420,7 +419,6 @@ func registerTriageLoop(app *toolio.App, c *Config) {
 		DryRun:         true,
 		Timeout:        true,
 		DefaultTimeout: triage.DefaultTimeout,
-		ResultSchema:   resultSchema("triage"),
 		Run:            func(r *toolio.Run) (toolio.Outcome, error) { return triageLoop(c, r, settings, land, labels) },
 	})
 }

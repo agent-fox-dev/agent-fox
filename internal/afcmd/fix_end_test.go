@@ -562,7 +562,7 @@ func TestEachFixCommandAcceptsExactlyItsFlags_TS_09_3(t *testing.T) {
 			}
 		}
 		for _, f := range got {
-			if !slices.Contains(flags, f) && f != "emit-events" && f != "output" {
+			if !slices.Contains(flags, f) {
 				t.Errorf("af help %s shows --%s, which it does not take", command, f)
 			}
 		}
@@ -571,33 +571,6 @@ func TestEachFixCommandAcceptsExactlyItsFlags_TS_09_3(t *testing.T) {
 		if code, env := e.run("", args...); code != 2 {
 			t.Errorf("%v: exit code %d (%v), want usage", args, code, env["error"])
 		}
-	}
-}
-
-// TestTheFixCommandsHaveRealResultSchemas_TS_09_1 verifies TS-09-1 as it stands: the schemas
-// of af fix and af fix run are in af --schema, each describing something, and the golden file
-// has them.
-// Verifies: 09-REQ-1.1
-func TestTheFixCommandsHaveRealResultSchemas_TS_09_1(t *testing.T) {
-	var out bytes.Buffer
-	newApp().Main(context.Background(), []string{"af", "--schema"}, strings.NewReader(""), &out, &bytes.Buffer{})
-	doc := oneDocument(t, out.String())
-	defs, _ := doc["$defs"].(map[string]any)
-	golden, err := os.ReadFile(filepath.Join("..", "..", "cmd", "af", "testdata", "schema.golden.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"fix", "fix_run"} {
-		schema, _ := defs[name].(map[string]any)
-		if props, _ := schema["properties"].(map[string]any); len(props) < 3 {
-			t.Errorf("%q: result schema = %v, want one that describes the result", name, schema)
-		}
-		if !strings.Contains(string(golden), "\""+name+"\": {") {
-			t.Errorf("the golden file lacks the schema of %s", name)
-		}
-	}
-	if schema, _ := defs["fix"].(map[string]any); schema["properties"].(map[string]any)["outcome"] == nil {
-		t.Errorf("the schema of fix is still the placeholder: %v", schema)
 	}
 }
 
