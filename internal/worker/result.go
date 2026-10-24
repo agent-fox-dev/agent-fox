@@ -3,7 +3,6 @@ package worker
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -79,11 +78,4 @@ func (a *attempt) reportOf(env toolio.Envelope) string {
 func within(dir, path string) bool {
 	rel, err := filepath.Rel(dir, path)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
-}
-
-// keepsClone says whether the clone is kept when the attempt returns: after a transient error,
-// which the same attempt is handed over again for, and after a shutdown. Both find it removed and
-// made afresh by the next delivery all the same.
-func keepsClone(ctx context.Context, out *outcome) bool {
-	return jobs.IsTransient(out.err) || errors.Is(context.Cause(ctx), jobs.ErrShutdown)
 }

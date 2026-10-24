@@ -11,15 +11,17 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 )
 
-// TestTheRecoveryTestsRunOfflineWithLoopbackListenersTheScriptedBrainAndNoContainerEngine_TS_14_60 verifies TS-14-60,
-// the guard under the rest of the recovery tests: with no key of a model vendor, with a container engine that
-// fails the test when it is run, and with every dial of the process checked, an attempt that is stopped after a
-// stage as a process that died is stopped, and is resumed, comes to its end against the fake hub and the in-process
-// gateway over the local provider, with the scripted brain, and dials the loopback interface only.
+// TestTheWorkerTestsRunOfflineWithLoopbackListenersTheScriptedBrainAndNoContainerEngine_TS_14_60 verifies TS-14-60,
+// the guard under the end-to-end tests of the worker: with no key of a model vendor, with a container engine that
+// fails the test when it is run, and with every dial of the process checked, a fix attempt comes to its end against
+// the fake hub and the in-process gateway over the local provider, with the scripted brain, and dials the loopback
+// interface only.
 // Verifies: 14-REQ-10.2
-func TestTheRecoveryTestsRunOfflineWithLoopbackListenersTheScriptedBrainAndNoContainerEngine_TS_14_60(t *testing.T) {
+func TestTheWorkerTestsRunOfflineWithLoopbackListenersTheScriptedBrainAndNoContainerEngine_TS_14_60(t *testing.T) {
 	e := loopEnv(t, fixFiles, nil, nil, fixSteps()...)
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
@@ -69,8 +71,7 @@ func TestTheRecoveryTestsRunOfflineWithLoopbackListenersTheScriptedBrainAndNoCon
 		}
 	}
 
-	e.stopAfter("applied")
-	res, err := e.deliver(2)
+	res, err := e.run(e.request(jobs.KindFix, issueInput("42")))
 
 	if err != nil || envelope(t, res)["status"] != "done" {
 		t.Fatalf("result %s, error %v", res.Envelope, err)

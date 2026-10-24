@@ -48,6 +48,9 @@ type Request struct {
 	// Delivery is how many times this attempt has been handed to a runner, this
 	// time included: 1 on the first. A handover after a shutdown or a crash counts.
 	Delivery int
+	// SessionID and RunID are the hub session and the run that an earlier delivery of this attempt
+	// reported, which a later one goes on in; empty on the first.
+	SessionID, RunID string
 	// Round is the position of this attempt in its round, from 1: the attempts that follow one
 	// another by themselves, because the one before failed in a way that is tried again, are a
 	// round, and an answer, a retry or the first attempt of a job begins one.

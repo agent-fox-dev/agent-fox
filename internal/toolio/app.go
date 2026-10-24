@@ -74,14 +74,6 @@ type App struct {
 	// place of one drawn. An id that is not of the form YYYYMMDD_HHMMSS_<6 hex> is a
 	// usage failure, before anything is created.
 	RunID string
-	// ReuseRunDir makes a run id that names a run directory that exists the run of this invocation:
-	// the directory is opened, and its ledger and its events are carried on, where it would be a failure
-	// to make it again. A run id that names none makes the directory, as it does without this.
-	ReuseRunDir bool
-	// LedgerSink, when it is set, is called with every record of the ledger of the run after it was
-	// written, with its kind and its data, in the order they were written. It is called by the goroutine
-	// that records, with no lock held.
-	LedgerSink func(kind string, data json.RawMessage)
 	// Mode, when it is set, is asked once the words have named a command, before the flags are
 	// parsed, the input is resolved, a forge client is built, a run directory is made or anything
 	// is sent. It is given the command the words matched and the words after its path, and

@@ -358,30 +358,13 @@ func TestNeitherThePATNorTheLeaseTokenIsInAnyOutputOrFileAfterAFullFixAttempt_TS
 		if err != nil || envelope(t, res)["status"] != "done" {
 			t.Fatalf("result %s, error %v", res.Envelope, err)
 		}
-		// recovery/ is the one entry the worker leaves in the directory of an attempt: it never removes it.
-		if entries, _ := os.ReadDir(filepath.Join(e.dir)); len(entries) != 1 || entries[0].Name() != "recovery" {
-			t.Errorf("the attempt directory holds %d entries after a normal return, want recovery/ alone", len(entries))
+		// The worker leaves nothing in the directory of an attempt.
+		if entries, _ := os.ReadDir(filepath.Join(e.dir)); len(entries) != 0 {
+			t.Errorf("the attempt directory holds %d entries after a normal return, want none", len(entries))
 		}
 		check(t, e, res, while)
 	})
 
-	t.Run("an attempt whose clone is kept", func(t *testing.T) {
-		e := loopEnv(t, fixFiles, nil, nil, fixSteps()...)
-		e.hub.Gateway().RefuseBoxes("no room for another box")
-
-		res, err := e.run(e.request(jobs.KindFix, issueInput("42")))
-
-		if !jobs.IsTransient(err) {
-			t.Fatalf("error = %v, want a transient error", err)
-		}
-		if _, err := os.Stat(filepath.Join(e.dir, "clone", ".git", "config")); err != nil {
-			t.Fatalf("the clone is not kept: %v", err)
-		}
-		if cfg, _ := os.ReadFile(filepath.Join(e.dir, "clone", ".git", "config")); !strings.Contains(string(cfg), e.hub.CloneURL(slug)) {
-			t.Errorf(".git/config = %s, want the clone URL, with no credential", cfg)
-		}
-		check(t, e, res, nil)
-	})
 }
 
 func sortedValues(m map[string]string) []string {

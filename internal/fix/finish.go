@@ -53,9 +53,6 @@ type FinishParams struct {
 	// PostPush is called with the branch once it is pushed, before the pull request; see
 	// LandParams.
 	PostPush func(ctx context.Context, branch string) error
-	// Steps is told how the landing or the parking comes on; its plan carries the result of the run as
-	// it stands.
-	Steps LandSteps
 }
 
 // Ending is the end of a run: the result, the status it has, and the question when it ended
@@ -111,7 +108,7 @@ func (p FinishParams) landable(ctx context.Context, in ResultInput) (Ending, err
 	landed, err := Land(ctx, LandParams{
 		Git: p.Git, State: p.State, Input: p.Input, Report: *ended.Report, Mode: p.Mode, Forge: p.Forge, Target: p.Target, Measured: ended.Measured,
 		Brain: p.State.Brain, CostUSD: p.State.CostUSD, CostSource: costSource(p.State), Reporter: p.Reporter, WriteReport: p.WriteReport,
-		PostPush: p.PostPush, Steps: p.stepsFor(in),
+		PostPush: p.PostPush,
 	})
 	if err != nil {
 		if ctx.Err() != nil { // stopped while it landed: what was measured is parked, not left in the tree
@@ -152,7 +149,7 @@ func (p FinishParams) exhausted(ctx context.Context, in ResultInput) (Ending, er
 	}
 	parked, err := Park(ctx, ParkParams{
 		Git: p.Git, State: p.State, Input: p.Input, Mode: p.Mode, Forge: p.Forge, Target: p.Target, Subject: p.subject(),
-		Verdict: verdict, Failing: failing, Report: p.Reporter, PostPush: p.PostPush, Steps: p.stepsFor(in),
+		Verdict: verdict, Failing: failing, Report: p.Reporter, PostPush: p.PostPush,
 	})
 	if err != nil {
 		return Ending{}, err
@@ -160,10 +157,6 @@ func (p FinishParams) exhausted(ctx context.Context, in ResultInput) (Ending, er
 	in.Outcome, in.Branch, in.Commit, in.Pushed, in.PullRequest, in.IssueCreated = parked.Outcome, parked.Branch, parked.Commit, parked.Pushed, parked.PullRequest, parked.IssueCreated
 	return Ending{Result: NewResult(in), Status: parked.Status, Summary: summary(parked.Outcome, parked.Branch, parked.PullRequest)}, nil
 }
-
-// stepsFor is the steps of the caller with a plan that carries the result of the run as it stands, which
-// is the input of the result with what the landing came to so far.
-func (p FinishParams) stepsFor(in ResultInput) LandSteps { return p.Steps.withResult(in) }
 
 // subject is the subject of the last report that was accepted, or none.
 func (p FinishParams) subject() string {

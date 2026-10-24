@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -511,92 +510,4 @@ func TestAmendAddsWarningsArtifactsAndSideEffectsAndNothingElse(t *testing.T) {
 			t.Error("an envelope with no artifacts was amended")
 		}
 	})
-}
-
-// TestTheLedgerSinkIsToldEveryRecordAfterItIsWritten checks the seam of a caller that follows the
-// ledger of the run as it is written: it gets the kind and the data of each record, in order, once the
-// line is in the file.
-func TestTheLedgerSinkIsToldEveryRecordAfterItIsWritten(t *testing.T) {
-	dir := t.TempDir()
-	app := newTestApp()
-	var got []string
-	var lines []int // how many lines the ledger held when each record arrived
-	var path string
-	app.LedgerSink = func(kind string, data json.RawMessage) {
-		got = append(got, kind+" "+string(data))
-		raw, _ := os.ReadFile(path)
-		lines = append(lines, strings.Count(string(raw), "\n"))
-	}
-	app.Register(Command{Path: "X", UsesRunDir: true, Run: func(r *Run) (Outcome, error) {
-		path = filepath.Join(r.RunDir.Path, "ledger.jsonl")
-		_ = r.RunDir.Record("first", map[string]int{"n": 1})
-		_ = r.RunDir.Record("second", "x")
-		return Outcome{Status: StatusDone, Summary: "ok"}, nil
-	}})
-
-	if code, _, _ := invoke(t, app, "X", "--dir", dir); code != 0 {
-		t.Fatalf("exit code %d", code)
-	}
-
-	if want := []string{`first {"n":1}`, `second "x"`}; !slices.Equal(got, want) {
-		t.Errorf("the sink was told %q, want %q", got, want)
-	}
-	if !slices.Equal(lines, []int{1, 2}) {
-		t.Errorf("the ledger held %v lines as the records arrived, want the record written before the sink is told", lines)
-	}
-}
-
-// TestARunDirectoryThatExistsIsReopenedWhenTheCallerAsksForIt checks the seam of a caller that carries
-// a run on: the invocation has the id and the directory of the run, the ledger goes on from the record
-// where it stopped, and the events are added to the ones before.
-func TestARunDirectoryThatExistsIsReopenedWhenTheCallerAsksForIt(t *testing.T) {
-	dir := t.TempDir()
-	const id = "20250102_030405_abc123"
-	var told []string
-	run := func(app *App, kind string) {
-		app.RunID = id
-		app.LedgerSink = func(kind string, _ json.RawMessage) { told = append(told, kind) }
-		app.Register(Command{Path: "X", UsesRunDir: true, Run: func(r *Run) (Outcome, error) {
-			if r.RunDir.ID != id {
-				t.Errorf("the run directory is %s, want %s", r.RunDir.ID, id)
-			}
-			_ = r.RunDir.Record(kind, nil)
-			return Outcome{Status: StatusDone, Summary: kind}, nil
-		}})
-	}
-	first := newTestApp()
-	run(first, "first")
-	if code, _, _ := invoke(t, first, "X", "--dir", dir); code != 0 {
-		t.Fatalf("the first invocation: exit code %d", code)
-	}
-
-	again := newTestApp()
-	run(again, "second")
-	if code, _, _ := invoke(t, again, "X", "--dir", dir); code == 0 {
-		t.Error("an invocation that did not ask to reuse the run directory made it again")
-	}
-
-	reuse := newTestApp()
-	reuse.ReuseRunDir = true
-	run(reuse, "third")
-	code, stdout, _ := invoke(t, reuse, "X", "--dir", dir)
-
-	if env := decode(t, stdout); code != 0 || env["run_id"] != id {
-		t.Fatalf("the invocation that reuses the run directory: exit code %d, envelope %v", code, env)
-	}
-	rd, err := OpenRunDir(dir, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ledger, err := rd.Ledger()
-	if err != nil || len(ledger) != 2 || ledger[0].Kind != "first" || ledger[1].Kind != "third" || ledger[0].Seq != 1 || ledger[1].Seq != 2 {
-		t.Errorf("ledger = %+v, %v, want the first record and then the third, numbered 1 and 2", ledger, err)
-	}
-	if !slices.Equal(told, []string{"first", "third"}) {
-		t.Errorf("the sinks were told %v", told)
-	}
-	events, _ := os.ReadFile(filepath.Join(rd.Path, "events.jsonl"))
-	if n := strings.Count(string(events), `"run_start"`); n != 2 {
-		t.Errorf("events.jsonl holds %d run_start events, want one for each invocation that ran", n)
-	}
 }

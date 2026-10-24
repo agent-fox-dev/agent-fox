@@ -602,9 +602,6 @@ type landing struct {
 	// retry is the command that lands the run again; it is suggested when the
 	// landing fails after the run had a valid submission.
 	retry []string
-	// landed is how a caller that follows the landing is told of it: the issue it created, and the issue an
-	// earlier landing of the run created.
-	landed *Landing
 }
 
 // landRun writes the submission of a run to the forge, or to diagnosis.md alone,
@@ -614,7 +611,7 @@ func landRun(r *toolio.Run, l landing) (toolio.Outcome, error) {
 	res, err := triage.Land(r.Ctx, triage.LandParams{
 		RunDir: l.run.Path, RunID: l.run.ID, Facts: l.facts, Forge: l.forge, Mode: l.mode, Labels: l.labels,
 		IsDryRun: func(err error) bool { return errors.Is(err, toolio.ErrDryRun) },
-		Tree:     l.tree, Created: l.earlierIssue(), OnCreated: l.issueCreated(), Check: l.check,
+		Tree:     l.tree, Created: createdIssue(l.run), Check: l.check,
 		Record: func(kind string, data any) error { recordIn(r, l.run, kind, data); return nil },
 		Warn:   r.Warn,
 		Artifact: func(a triage.Artifact) {
@@ -635,31 +632,6 @@ func landRun(r *toolio.Run, l landing) (toolio.Outcome, error) {
 		return toolio.Outcome{}, err
 	}
 	return landOutcome(r, l.run, l.facts, res), nil
-}
-
-// earlierIssue is the issue an earlier landing of the run created: from its ledger, as that landing reported
-// it, or from the caller that followed the landing.
-func (l landing) earlierIssue() func() (triage.IssueInfo, bool) {
-	fromLedger := createdIssue(l.run)
-	return func() (triage.IssueInfo, bool) {
-		if info, ok := fromLedger(); ok {
-			return info, true
-		}
-		if l.landed != nil && l.landed.Created != nil {
-			if number, url, ok := l.landed.Created(); ok {
-				return triage.IssueInfo{Repo: l.facts.Target.Repo, Host: l.facts.Target.Host, Number: number, URL: url}, true
-			}
-		}
-		return triage.IssueInfo{}, false
-	}
-}
-
-// issueCreated tells the caller that follows the landing of the issue it created.
-func (l landing) issueCreated() func(triage.IssueInfo) {
-	if l.landed == nil || l.landed.IssueCreated == nil {
-		return nil
-	}
-	return func(info triage.IssueInfo) { l.landed.IssueCreated(info.Number, info.URL) }
 }
 
 // listRunArtifacts lists the files of the run that exist and a failed run still
@@ -801,32 +773,14 @@ func triageLoop(c *Config, r *toolio.Run, s *brain.Settings, land string, labelF
 	r.Emit("step", triageStep{stepBrief})
 	// A brain that submits with the command alone is told the command; every other brain
 	// submits through the tool, in this process or in the box that runs its driver.
-	var rendered renderedBrief
-	if c.Resume != nil {
-		rendered, err = pinnedBrief(r, report)
-	} else {
-		rendered, err = renderBrief(c, r, report, facts, !entry.CommandRoute, triage.Bounds{MaxTurns: s.MaxTurns, MaxCostUSD: s.Budget, Timeout: timeLeft(r)})
-	}
+	rendered, err := renderBrief(c, r, report, facts, !entry.CommandRoute, triage.Bounds{MaxTurns: s.MaxTurns, MaxCostUSD: s.Budget, Timeout: timeLeft(r)})
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
 
-	submitted := c.Resume != nil && c.Resume.Submitted
-	var res brain.Result
-	var lost error // what the box says of its sandbox when the brain is done
-	if submitted {
-		res, err = acceptedAgain(c, r, s.Brain) // the brain does not run: it has no step
-	} else {
-		r.Emit("step", triageStep{stepBrain})
-		res, err = runInBox(c, r, s, entry, boxEntry, b, opts, rendered.brief, c.seededTally(r, s.Brain), &lost)
-	}
+	r.Emit("step", triageStep{stepBrain})
+	res, err := runInBox(c, r, s, entry, boxEntry, b, opts, rendered.brief, &brain.Tally{})
 	if err != nil {
-		if c.BoxLost != nil && (errors.Is(err, box.ErrUnavailable) || lost != nil) {
-			if lost == nil {
-				lost = err
-			}
-			return toolio.Outcome{}, c.lostBox(lost)
-		}
 		return toolio.Outcome{}, err
 	}
 
@@ -846,38 +800,7 @@ func triageLoop(c *Config, r *toolio.Run, s *brain.Settings, land string, labelF
 		// The client was built from the URL of the input, so landing again is told the repository.
 		retry = triage.LandAgain(r.RunDir.ID, r.Dir, rendered.facts.Target.Repo)
 	}
-	return landRun(r, landing{run: r.RunDir, facts: rendered.facts, tree: tree, forge: r.Forge, mode: land, labels: labels, artifact: r.Artifact, retry: retry, landed: c.Landing})
-}
-
-// acceptedAgain is the submission that an earlier delivery of the run was given by the brain and the host accepted,
-// which a delivery that carries the run on lands again: no box is opened and no brain runs, and the usage of the
-// run is the attempt's.
-func acceptedAgain(c *Config, r *toolio.Run, brainName string) (brain.Result, error) {
-	c.seededTally(r, brainName)
-	path := filepath.Join(r.RunDir.Path, "submission.json")
-	data, err := os.ReadFile(path)
-	var file submission.File
-	if err == nil {
-		err = json.Unmarshal(data, &file)
-	}
-	if err != nil || file.Kind != triage.KindName || file.RunID != r.RunDir.ID {
-		return brain.Result{}, &toolio.Failure{Category: toolio.CategoryInternal, Message: fmt.Sprintf("the run %s cannot be carried on: it has no triage submission of its own", r.RunDir.ID)}
-	}
-	return brain.Result{Payload: file.Payload, Path: path}, nil
-}
-
-// pinnedBrief is the brief of a run that is carried on: the one that was rendered, as triage.json says
-// where its prefix ends, with the facts the run pinned.
-func pinnedBrief(r *toolio.Run, report triage.Report) (renderedBrief, error) {
-	facts, err := readFacts(r.RunDir)
-	if err != nil {
-		return renderedBrief{}, err
-	}
-	document, err := os.ReadFile(filepath.Join(r.RunDir.Path, "brief.md"))
-	if err != nil || facts.Prefix.Bytes <= 0 || facts.Prefix.Bytes > len(document) {
-		return renderedBrief{}, &toolio.Failure{Category: toolio.CategoryInternal, Message: fmt.Sprintf("the run %s cannot be carried on: its brief does not go with triage.json", r.RunDir.ID)}
-	}
-	return renderedBrief{brief: triage.Brief{Document: string(document), PrefixBytes: facts.Prefix.Bytes}, report: report, facts: facts}, nil
+	return landRun(r, landing{run: r.RunDir, facts: rendered.facts, tree: tree, forge: r.Forge, mode: land, labels: labels, artifact: r.Artifact, retry: retry})
 }
 
 // loopPreflight is every refusal that needs no model, in the order flags, input,
@@ -932,7 +855,7 @@ func (l loopReport) Artifact(a toolio.Artifact) {
 // provider, borrowed hands and those tools come to (brain.BoxRequest). The
 // submission and the refused calls of the box are in the run directory when it
 // returns, whether the run came to a submission or not.
-func runInBox(c *Config, r *toolio.Run, s *brain.Settings, entry brain.Entry, boxEntry box.Entry, b brain.Brain, opts brain.Options, brief triage.Brief, tally *brain.Tally, lost *error) (brain.Result, error) {
+func runInBox(c *Config, r *toolio.Run, s *brain.Settings, entry brain.Entry, boxEntry box.Entry, b brain.Brain, opts brain.Options, brief triage.Brief, tally *brain.Tally) (brain.Result, error) {
 	var res brain.Result
 	deadline, _ := r.Ctx.Deadline()
 	err := box.With(r.Ctx, brain.BoxRequest(brain.BoxParams{
@@ -955,7 +878,6 @@ func runInBox(c *Config, r *toolio.Run, s *brain.Settings, entry brain.Entry, bo
 			},
 		})
 		readBackRejections(r, sess)
-		*lost = sess.Lost()
 		return err
 	})
 	return res, err

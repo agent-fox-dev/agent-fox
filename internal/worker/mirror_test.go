@@ -758,8 +758,8 @@ func TestAShutdownWritesNothingToTheForgeKeepsTheCloneAndReleasesTheLease_TS_13_
 	if !slices.Equal(issue.Labels, []string{"af:in-progress"}) || len(issue.Comments) != 0 {
 		t.Errorf("issue 42 has the labels %v and %d comments, want in-progress kept for the resumed attempt", issue.Labels, len(issue.Comments))
 	}
-	if _, err := os.Stat(filepath.Join(e.dir, "clone")); err != nil {
-		t.Errorf("clone/ is not kept after a shutdown: %v", err)
+	if _, err := os.Stat(filepath.Join(e.dir, "clone")); !os.IsNotExist(err) {
+		t.Errorf("clone/ is kept after a shutdown: %v; the next delivery begins afresh", err)
 	}
 	leases := e.hub.Leases()
 	if len(leases) != 1 || !leases[0].Released {

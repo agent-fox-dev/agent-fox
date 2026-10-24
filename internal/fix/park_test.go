@@ -719,32 +719,3 @@ func TestAParkingThatLeavesTheTreeDirtyIsAFailure(t *testing.T) {
 		t.Errorf("failure = %v, want git naming the dirty path and the branch the work is on", err)
 	}
 }
-
-// TestABranchOfALandingIsMarkedWithTheRunThatMadeItBeforeItExists pins what a resumed delivery knows a branch by when the
-// process died after the branch was made and before the commit: the mark of the run in the configuration of the branch,
-// made with the branch, and not for a branch that is made without a run.
-func TestABranchOfALandingIsMarkedWithTheRunThatMadeItBeforeItExists(t *testing.T) {
-	w := newLandWorld(t, fakeforge.GitHub)
-	ctx := context.Background()
-
-	marked, err := makeBranchOf(ctx, w.repo.Git, w.rep, 7, "Handle nil", w.state.BaseHead, "20261022_101010_abcdef")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := w.repo.Git.BranchConfig(ctx, marked, BranchRunKey); got != "20261022_101010_abcdef" {
-		t.Errorf("the branch %s is marked with %q, want the run", marked, got)
-	}
-	gitDo(t, w.repo.Dir, "checkout", "-q", w.state.Base)
-	plain, err := MakeBranch(ctx, w.repo.Git, w.rep, 8, "Handle nil", w.state.BaseHead)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := w.repo.Git.BranchConfig(ctx, plain, BranchRunKey); got != "" {
-		t.Errorf("the branch %s that was made without a run is marked with %q", plain, got)
-	}
-	gitDo(t, w.repo.Dir, "checkout", "-q", w.state.Base)
-	gitDo(t, w.repo.Dir, "branch", "-q", "-D", marked)
-	if got := w.repo.Git.BranchConfig(ctx, marked, BranchRunKey); got != "" {
-		t.Errorf("the mark of the run stays after the branch %s is deleted: %q", marked, got)
-	}
-}
