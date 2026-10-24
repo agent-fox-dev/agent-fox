@@ -49,7 +49,7 @@ repository.
 | `containers/sandbox/` | The sandbox image. |
 | `containers/tools/` | The tools image, `quay.io/agentfox/tools`: the sandbox image with `af` and Claude Code in it, which a `podman` box runs by default (`AF_SANDBOX_IMAGE` names another). `make build-tools-container` builds it. |
 | `.specs/` | `steering.md` holds the directives every session follows; `archive/` holds the specs that are implemented (01 to 04 are `issuex`'s, which now lives in `aflib`; 05 to 19 are this repository's). The `TS-…` and `REQ-…` ids in the tests refer to them. |
-| `docs/` | `cli.md`, `configuration.md` and `model-usage.md` describe `af` as it is, and [`docs/development.md`](docs/development.md) how to work on it; `architecture.md` is the proposed target architecture, `prd/` holds the product requirements, `drafts/` holds design drafts, `errata/` holds the errata of the specs, `generated/` the Go package docs (`make doc`). |
+| `docs/` | `cli.md`, `configuration.md` and `model-usage.md` describe `af` as it is, and [`docs/development.md`](docs/development.md) how to work on it; `architecture.md` describes how it is built, `prd/` holds the product requirements, `drafts/` holds design drafts and the archived target architecture, `errata/` holds the errata of the specs, `generated/` the Go package docs (`make doc`). |
 
 [AGENTS.md](AGENTS.md) is the policy for every coding session in this
 repository.
