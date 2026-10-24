@@ -862,7 +862,7 @@ func afRule(s segment) (Decision, bool) {
 		words = append(words, a)
 	}
 	if len(words) == 0 {
-		if slices.Contains(s.args, "--version") || slices.Contains(s.args, "--schema") {
+		if slices.Contains(s.args, "--version") {
 			return Decision{}, false
 		}
 	}
@@ -1007,7 +1007,7 @@ var writerValued = map[string][]string{
 // outputFlags are the options, by their names without dashes, that name a file
 // the command writes its output to, whatever the command is.
 var outputFlags = []string{
-	"o", "output", "out", "outfile", "output-file", "emit-events", "log-file", "coverprofile", "cpuprofile", "memprofile", "blockprofile", "mutexprofile", "trace",
+	"o", "output", "out", "outfile", "output-file", "log-file", "coverprofile", "cpuprofile", "memprofile", "blockprofile", "mutexprofile", "trace",
 }
 
 // outputFiles are the files the arguments of a command name as its output.

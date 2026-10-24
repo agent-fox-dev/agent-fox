@@ -1,15 +1,12 @@
 package afcmd
 
 import (
-	"encoding/json"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/agent-fox-dev/agentkit-go/schema"
 
 	"github.com/agent-fox-dev/agentfox/internal/triage/fakeforge"
 )
@@ -162,23 +159,10 @@ func TestEveryWayARunEndsWellIsDone_TS_08_58(t *testing.T) {
 	}
 }
 
-// valid checks a value against the embedded result schema of a command.
-func valid(t *testing.T, name string, result any) {
-	t.Helper()
-	s, err := schema.Parse(resultSchema(name))
-	if err != nil {
-		t.Fatalf("the schema %s: %v", name, err)
-	}
-	if err := schema.Validate(s, result); err != nil {
-		t.Errorf("the result does not validate against %s: %v\n%v", name, err, result)
-	}
-}
-
-// TestTheResultsValidateAgainstTheDeclaredSchemas_TS_08_59 verifies TS-08-59:
-// the result of the loop and of land holds every field and passes the schema of
-// the command, with the labels in first-seen order and each once.
+// TestTheResultsHoldEveryField_TS_08_59 verifies TS-08-59 as it stands: the result
+// of the loop holds every field, with the labels in first-seen order and each once.
 // Verifies: 08-REQ-9.3
-func TestTheResultsValidateAgainstTheDeclaredSchemas_TS_08_59(t *testing.T) {
+func TestTheResultsHoldEveryField_TS_08_59(t *testing.T) {
 	required := []string{"run_id", "issue", "action", "diagnosis", "rejected_path_calls", "rejected_submissions", "labels", "original_report_sha256"}
 	check := func(t *testing.T, name string, env map[string]any, action string, labels []string) {
 		t.Helper()
@@ -194,7 +178,6 @@ func TestTheResultsValidateAgainstTheDeclaredSchemas_TS_08_59(t *testing.T) {
 		if got["action"] != action || !slices.Equal(anyStrings(got["labels"]), labels) {
 			t.Errorf("action %v, labels %v, want %s and %v", got["action"], got["labels"], action, labels)
 		}
-		valid(t, name, got)
 	}
 
 	t.Run("an issue, replaced, with a label twice", func(t *testing.T) {
@@ -404,7 +387,7 @@ func TestStepEventsStopWhereTheRunEnds_TS_08_63(t *testing.T) {
 // triage's own is none.
 var (
 	allowedWarnings = []string{
-		"input_truncated", "comments_unreadable", "ledger_unwritable", "events_unwritable", "envelope_unwritable", "output_unwritable", "invalid_warning_code",
+		"input_truncated", "comments_unreadable", "ledger_unwritable", "events_unwritable", "envelope_unwritable", "invalid_warning_code",
 		"map_outline_skipped",
 		"brain_error", "submission_invalid", "submission_claim_mismatch", "submission_not_removed", "box_unconfined", "box_close_failed", "transcript_unwritable", "model_unpriced",
 		"issue_closed", "report_changed_during_triage", "body_too_long", "labels_failed", "original_report_unparsed", "rejections_unreadable",
@@ -467,37 +450,5 @@ func TestOnlyTheAllowedWarningCodesAndCategories_TS_08_64(t *testing.T) {
 	}
 	if got := warningCodes(map[string]any{"warnings": []any{}}); len(got) != 0 {
 		t.Errorf("warningCodes of an envelope with none = %v", got)
-	}
-}
-
-// TestTheSchemaHoldsTheTriageResultSchemas_TS_08_68 verifies TS-08-68:
-// af --schema names the result schema of each triage command. (That it equals
-// the committed golden is TS-05-70.)
-// Verifies: 08-REQ-10.4
-func TestTheSchemaHoldsTheTriageResultSchemas_TS_08_68(t *testing.T) {
-	code, stdout, stderr := run(t, "--schema")
-	if code != 0 || stderr != "" {
-		t.Fatalf("exit code %d, stderr %q", code, stderr)
-	}
-	var doc struct {
-		Defs map[string]json.RawMessage `json:"$defs"`
-	}
-	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"triage", "triage_run"} {
-		def, ok := doc.Defs[name]
-		if !ok {
-			t.Errorf("af --schema has no result schema %s", name)
-			continue
-		}
-		var want map[string]any
-		if err := json.Unmarshal(resultSchema(name), &want); err != nil {
-			t.Fatal(err)
-		}
-		var got map[string]any
-		if err := json.Unmarshal(def, &got); err != nil || got["description"] != want["description"] {
-			t.Errorf("%s: the schema of --schema is not the embedded one (%v)", name, err)
-		}
 	}
 }

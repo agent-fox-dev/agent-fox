@@ -22,7 +22,7 @@ func (a *App) listHelp() string {
 	var b strings.Builder
 	name := a.name()
 	fmt.Fprintf(&b, "%s runs the agent-fox commands.\n\n", name)
-	fmt.Fprintf(&b, "Usage:\n  %s <command> [flags] [argument]\n  %s help [command]\n  %s --version\n  %s --schema\n\n", name, name, name, name)
+	fmt.Fprintf(&b, "Usage:\n  %s <command> [flags] [argument]\n  %s help [command]\n  %s --version\n\n", name, name, name)
 	b.WriteString("Commands:\n")
 	if len(a.commands) == 0 {
 		b.WriteString("  (none registered)\n")

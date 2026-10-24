@@ -414,8 +414,7 @@ func TestWatchingAJobResumesAfterADroppedStreamAndDeliversEveryEventOnce_TS_16_8
 	svc, asked := droppedStreamService(t)
 	clk := afclock.New(time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC))
 	useClock(t, clk)
-	emitted := filepath.Join(t.TempDir(), "events.jsonl")
-	res := afRun(t, "", "jobs", "watch", "j", "--emit-events", emitted)
+	res, data := afRunEvents(t, "jobs", "watch", "j")
 	if res.code != 0 || field(res.env, "status") != "done" {
 		t.Fatalf("exit %d, %s", res.code, res.message())
 	}
@@ -439,12 +438,8 @@ func TestWatchingAJobResumesAfterADroppedStreamAndDeliversEveryEventOnce_TS_16_8
 	if !slices.Equal(seqs, []int{1, 2, 3, 4, 5}) {
 		t.Errorf("stderr holds the events %v, want 1 to 5 once each in order", seqs)
 	}
-	data, err := os.ReadFile(emitted)
-	if err != nil {
-		t.Fatal(err)
-	}
 	var emittedSeqs []int
-	for _, l := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+	for _, l := range strings.Split(strings.TrimSpace(data), "\n") {
 		var ev struct {
 			Type string `json:"type"`
 			Data struct {
@@ -459,7 +454,7 @@ func TestWatchingAJobResumesAfterADroppedStreamAndDeliversEveryEventOnce_TS_16_8
 		}
 	}
 	if !slices.Equal(emittedSeqs, []int{1, 2, 3, 4, 5}) {
-		t.Errorf("--emit-events holds the job events %v, want 1 to 5 once each in order", emittedSeqs)
+		t.Errorf("the events hold the job events %v, want 1 to 5 once each in order", emittedSeqs)
 	}
 	var fetched bool
 	for _, r := range svc.Requests() {

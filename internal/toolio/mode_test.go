@@ -1,6 +1,7 @@
 package toolio
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,8 +12,8 @@ import (
 // TestTheModeHookChoosesTheCommandAndTheWordsBeforeAnythingIsBuilt_TS_16_1 verifies, for the
 // shell, what TS-16-1 and TS-16-3 rely on: an App with a Mode hook asks it once the words have
 // named a command, before the flags are parsed, the input is resolved, a forge client is built or
-// a run directory is made. The hook may refuse, with the envelope of a failure that still honours
-// --output and --emit-events, or choose another command and the words it parses, while the
+// a run directory is made. The hook may refuse, with the envelope of a failure and its events,
+// or choose another command and the words it parses, while the
 // invocation keeps its own argv.
 // Verifies: 16-REQ-1.1, 16-REQ-1.3
 func TestTheModeHookChoosesTheCommandAndTheWordsBeforeAnythingIsBuilt_TS_16_1(t *testing.T) {
@@ -36,23 +37,20 @@ func TestTheModeHookChoosesTheCommandAndTheWordsBeforeAnythingIsBuilt_TS_16_1(t 
 	}
 	dir := t.TempDir()
 
-	t.Run("a refusal builds nothing and honours --output and --emit-events", func(t *testing.T) {
+	t.Run("a refusal builds nothing and has its events", func(t *testing.T) {
 		app := newApp(func(cmd *Command, words []string) (*Command, []string, *Failure) {
 			return nil, nil, &Failure{Category: CategoryUsage, Message: "choose a mode", FixHint: &FixHint{Flag: "--local"}}
 		})
-		out, events := filepath.Join(dir, "out.json"), filepath.Join(dir, "events.jsonl")
-		code, stdout, _ := invoke(t, app, "work", "https://github.com/o/r/issues/1", "--dir", dir, "--output", out, "--emit-events", events)
+		sunk := sinkEvents(t, app)
+		code, stdout, _ := invoke(t, app, "work", "https://github.com/o/r/issues/1", "--dir", dir)
 		if code != 2 || at(decode(t, stdout), "error", "message") != "choose a mode" || at(decode(t, stdout), "tool") != "work" {
 			t.Fatalf("exit %d, %s, want 2 with the message of the hook for the tool work", code, stdout)
 		}
 		if _, err := os.Stat(filepath.Join(dir, ".agent-fox")); err == nil {
 			t.Error("a run directory was made")
 		}
-		if got, err := os.ReadFile(out); err != nil || string(got) != stdout {
-			t.Errorf("--output = %q (%v), want the envelope", got, err)
-		}
-		if got, err := os.ReadFile(events); err != nil || !strings.Contains(string(got), `"run_end"`) {
-			t.Errorf("--emit-events = %q (%v), want the events of a refused invocation", got, err)
+		if got := eventTypes(*sunk); !slices.Equal(got, []string{"run_start", "run_end"}) {
+			t.Errorf("events = %v, want those of a refused invocation", got)
 		}
 		if forgeBuilt {
 			t.Error("a forge client was built")
@@ -135,7 +133,7 @@ func TestTheShellTellsWhichFlagsTakeAValueAndLetsAppHelpAddToTheHelp_TS_16_5(t *
 	cmd := &Command{Path: "work", Summary: "does work", Dir: true, Context: true, DryRun: true, Timeout: true}
 	lookup := cmd.FlagLookup()
 	for name, want := range map[string][2]bool{
-		"dir": {true, true}, "context": {true, true}, "timeout": {true, true}, "output": {true, true}, "emit-events": {true, true},
+		"dir": {true, true}, "context": {true, true}, "timeout": {true, true}, "output": {false, false}, "emit-events": {false, false},
 		"dry-run": {true, false}, "unknown": {false, false}, "repo": {false, false},
 	} {
 		if known, takes := lookup(name); known != want[0] || takes != want[1] {
@@ -167,8 +165,8 @@ func TestTheShellTellsWhichFlagsTakeAValueAndLetsAppHelpAddToTheHelp_TS_16_5(t *
 }
 
 // TestAValueARunRedactsIsInNoOutputOfTheInvocation_TS_16_27 verifies, for the shell, what TS-16-27
-// relies on: a secret that a command registers is in neither the envelope on stdout, nor the --output
-// file, nor the events of --emit-events and the run directory, wherever the command put it: in a
+// relies on: a secret that a command registers is in neither the envelope on stdout, nor the events
+// of the sink and the run directory, wherever the command put it: in a
 // warning, in a result, in an event of its own or in its error. A value that is too short to be
 // a secret is left alone.
 // Verifies: 16-REQ-4.6
@@ -186,15 +184,18 @@ func TestAValueARunRedactsIsInNoOutputOfTheInvocation_TS_16_27(t *testing.T) {
 			return Outcome{Status: StatusDone, Summary: "ok " + secret, Result: map[string]string{"echo": secret, "short": "short"}}, nil
 		}})
 		dir := t.TempDir()
-		out, events := filepath.Join(dir, "out.json"), filepath.Join(dir, "events.jsonl")
-		_, stdout, stderr := invoke(t, app, "leak", "--dir", dir, "--output", out, "--emit-events", events)
+		var sunk bytes.Buffer
+		app.EventSink = func(line []byte) { sunk.Write(line) }
+		_, stdout, stderr := invoke(t, app, "leak", "--dir", dir)
 		env := decode(t, stdout)
 		if strings.Contains(stdout, "secret-value") || strings.Contains(stderr, "secret-value") {
 			t.Errorf("%s: the output holds the secret:\n%s%s", name, stdout, stderr)
 		}
-		files := []string{out, events}
+		if strings.Contains(sunk.String(), "secret-value") {
+			t.Errorf("%s: the events of the sink hold the secret:\n%s", name, sunk.String())
+		}
 		runs, _ := filepath.Glob(filepath.Join(dir, ".agent-fox", "run", "*", "*"))
-		for _, f := range append(files, runs...) {
+		for _, f := range runs {
 			data, err := os.ReadFile(f)
 			if err != nil {
 				t.Fatal(err)
@@ -205,9 +206,6 @@ func TestAValueARunRedactsIsInNoOutputOfTheInvocation_TS_16_27(t *testing.T) {
 		}
 		if name == "done" && at(env, "result", "short") != "short" {
 			t.Errorf("a value shorter than a secret is redacted: result = %v", env["result"])
-		}
-		if got, _ := os.ReadFile(out); string(got) != stdout {
-			t.Errorf("%s: --output = %q, want the envelope of stdout", name, got)
 		}
 	}
 }

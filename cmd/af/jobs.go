@@ -59,9 +59,8 @@ func registerJobsWatch(app *toolio.App) {
 			fs.Int64Var(&since, "since", 0, "deliver the events above this `number`, in place of all of them")
 			server.bind(fs)
 		},
-		Timeout:      true,
-		ResultSchema: resultSchema("job_result"),
-		Run:          func(r *toolio.Run) (toolio.Outcome, error) { return jobsWatch(r, app, since, &server) },
+		Timeout: true,
+		Run:     func(r *toolio.Run) (toolio.Outcome, error) { return jobsWatch(r, app, since, &server) },
 	})
 }
 
@@ -149,9 +148,8 @@ func registerJobsList(app *toolio.App) {
 			cursor.bind(fs, "cursor", "the `cursor` of the page, from the next of an earlier page")
 			server.bind(fs)
 		},
-		MaxArgs:      toolio.NoArgs,
-		Timeout:      true,
-		ResultSchema: resultSchema("job_page"),
+		MaxArgs: toolio.NoArgs,
+		Timeout: true,
 		Run: func(r *toolio.Run) (toolio.Outcome, error) {
 			return jobsList(r, app, &workspace, &state, &cursor, &server)
 		},
@@ -214,12 +212,11 @@ func jobsList(r *toolio.Run, app *toolio.App, workspace, state, cursor *givenStr
 func registerJobsGet(app *toolio.App) {
 	var server serverFlag
 	app.Register(toolio.Command{
-		Path:         "jobs get",
-		Summary:      "Show a job of the agent-fox service with its attempts",
-		Usage:        "af jobs get <id> [--server URL]",
-		Flags:        server.bind,
-		Timeout:      true,
-		ResultSchema: resultSchema("job_result"),
+		Path:    "jobs get",
+		Summary: "Show a job of the agent-fox service with its attempts",
+		Usage:   "af jobs get <id> [--server URL]",
+		Flags:   server.bind,
+		Timeout: true,
 		Run: func(r *toolio.Run) (toolio.Outcome, error) {
 			return jobAction(r, app, &server, http.MethodGet, "", nil, "showed")
 		},
@@ -230,12 +227,11 @@ func registerJobsGet(app *toolio.App) {
 func registerJobsCancel(app *toolio.App) {
 	var server serverFlag
 	app.Register(toolio.Command{
-		Path:         "jobs cancel",
-		Summary:      "Cancel a job of the agent-fox service; a cancel takes effect at once",
-		Usage:        "af jobs cancel <id> [--server URL]",
-		Flags:        server.bind,
-		Timeout:      true,
-		ResultSchema: resultSchema("job_result"),
+		Path:    "jobs cancel",
+		Summary: "Cancel a job of the agent-fox service; a cancel takes effect at once",
+		Usage:   "af jobs cancel <id> [--server URL]",
+		Flags:   server.bind,
+		Timeout: true,
 		Run: func(r *toolio.Run) (toolio.Outcome, error) {
 			return jobAction(r, app, &server, http.MethodPost, "/cancel", nil, "cancelled")
 		},
@@ -272,8 +268,7 @@ func registerJobsRetry(app *toolio.App) {
 			fs.BoolVar(&wait, "wait", false, "follow the job until it is at rest, and end with what it came to")
 			server.bind(fs)
 		},
-		Timeout:      true,
-		ResultSchema: resultSchema("job_result"),
+		Timeout: true,
 		Run: func(r *toolio.Run) (toolio.Outcome, error) {
 			id, err := idArg(r)
 			if err != nil {
@@ -316,11 +311,10 @@ func registerJobsAnswer(app *toolio.App) {
 			fs.BoolVar(&wait, "wait", false, "follow the job until it is at rest, and end with what it came to")
 			server.bind(fs)
 		},
-		MaxArgs:      2,
-		Context:      true,
-		Timeout:      true,
-		ResultSchema: resultSchema("job_result"),
-		Run:          func(r *toolio.Run) (toolio.Outcome, error) { return jobsAnswer(r, app, &option, wait, &server) },
+		MaxArgs: 2,
+		Context: true,
+		Timeout: true,
+		Run:     func(r *toolio.Run) (toolio.Outcome, error) { return jobsAnswer(r, app, &option, wait, &server) },
 	})
 }
 

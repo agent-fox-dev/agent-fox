@@ -47,7 +47,6 @@ func registerFixRun(app *toolio.App, c *Config) {
 		Timeout:        true,
 		DefaultTimeout: fixDefaultTimeout,
 		Grace:          fixGrace,
-		ResultSchema:   resultSchema("fix_run"),
 		Run:            func(r *toolio.Run) (toolio.Outcome, error) { return fixRun(c, r, runID, settings) },
 	})
 }

@@ -194,7 +194,7 @@ func TestProtectedPathsInOtherSpellings(t *testing.T) {
 		"find .specs -name x -fprint .specs/list", "dd of=.specs/a.md", "dd if=x of=.git/hooks/pre-commit", "install a .specs/b", "install -t .specs a b",
 		"rsync -a a .specs/", "perl -pi -e s/a/b/ .specs/x", "perl -i.bak -pe s/a/b/ .specs/x", "patch .specs/x", "go build -o .github/workflows/ci.yml",
 		"go test -coverprofile=.specs/c.out ./pkg", "go test -coverprofile .specs/c.out ./pkg", "af gate run --output .specs/a.md", "af gate run --output=.specs/a.md",
-		"af gate run --emit-events .specs/a.md", "chown me .specs/a", "chgrp me .specs/a", "rmdir .specs", "unlink .specs/a", "shred .specs/a", "mkfifo .specs/f",
+		"chown me .specs/a", "chgrp me .specs/a", "rmdir .specs", "unlink .specs/a", "shred .specs/a", "mkfifo .specs/f",
 		"curl -o .specs/a x", "sort -o .specs/a b", "ln -s .specs link", "ln .specs/a b",
 	} {
 		cases = append(cases, expectation{src, Deny, RuleProtectedPath, ""})

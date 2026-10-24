@@ -79,7 +79,7 @@ type App struct {
 	// is sent. It is given the command the words matched and the words after its path, and
 	// answers with the command to run and the words to parse for it, or with the failure to end the
 	// invocation with: the envelope of a refusal is that of any invocation that is refused before its
-	// command runs, and honours --output and --emit-events. The invocation's argv stays what
+	// command runs. The invocation's argv stays what
 	// was received. It is for the af binary, which chooses between a loop on this machine and a
 	// job on a service; a caller that runs the commands in its own process leaves it nil.
 	Mode func(cmd *Command, words []string) (chosen *Command, parse []string, failure *Failure)
@@ -128,8 +128,7 @@ type Command struct {
 	// UsesRunDir gives the command a run directory, Run.RunDir, and --dir.
 	UsesRunDir bool
 	// Dir, Context, DryRun, Repo and Timeout opt the command into the flags
-	// --dir, --context, --dry-run, --repo and --timeout. Every command
-	// accepts --output and --emit-events.
+	// --dir, --context, --dry-run, --repo and --timeout.
 	Dir     bool
 	Context bool
 	DryRun  bool
@@ -142,9 +141,6 @@ type Command struct {
 	// command that has something to put back (a tree it changed) needs it.
 	// Zero is the App's.
 	Grace time.Duration
-	// ResultSchema is the JSON Schema of the command's result, which
-	// af --schema prints under $defs. Nil if the command has none.
-	ResultSchema json.RawMessage
 	// Run does the work. It returns an outcome or an error.
 	Run func(r *Run) (Outcome, error)
 }
@@ -242,7 +238,7 @@ func (r *Run) SetInput(kind InputKind, origin string, truncated bool) {
 const minRedacted = 8
 
 // Redact registers values that are to appear in no output of the invocation: the shell takes them
-// out of the envelope on stdout and its copies (--output and the run directory) and of every
+// out of the envelope on stdout and its copy in the run directory and of every
 // event, wherever the command put them, and puts "***" in their place. It is for a secret the
 // command holds, which a document that it carries from elsewhere may repeat. A value shorter than
 // 8 bytes is not redacted.
@@ -391,7 +387,6 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 	if a.Mode != nil {
 		chosen, parseWords, failure := a.Mode(cmd, rest)
 		if failure != nil {
-			// The flags the matched command knows are read so that --output and --emit-events are honoured.
 			values, _, _ := parse(cmd, rest)
 			inv := a.newInvocation(stdout, stderr, cmd.Path, started)
 			inv.setup(cmd, words, values, nil)
@@ -464,13 +459,10 @@ func (inv *invocation) setup(cmd *Command, words []string, values *flagValues, p
 		Stderr:  inv.stderr,
 		app:     inv.app,
 	}
-	if values.emitEvents != "" || cmd.UsesRunDir || inv.app.EventSink != nil {
+	if cmd.UsesRunDir || inv.app.EventSink != nil {
 		inv.events = newEventStream(inv.app.now, inv.run.Warn)
 		inv.events.redact = inv.run.redactBytes
 		inv.run.events = inv.events
-		if values.emitEvents != "" {
-			inv.events.addFile(values.emitEvents)
-		}
 		if inv.app.EventSink != nil {
 			inv.events.addFunc(inv.app.EventSink)
 		}
@@ -576,8 +568,7 @@ func (inv *invocation) encode() []byte {
 	return data
 }
 
-// publish writes the envelope to <run_dir>/envelope.json, to the file named
-// by --output, and to stdout, and ends the events, in this order: the
+// publish writes the envelope to <run_dir>/envelope.json and to stdout, and ends the events, in this order: the
 // copies, so that one that cannot be written is a warning and a warning event
 // like any other; run_end; stdout. A copy that was written before the
 // envelope last changed (the events can raise a warning of their own) is
@@ -590,9 +581,6 @@ func (inv *invocation) publish() int {
 	var copies []copyTo
 	if inv.run != nil && inv.run.RunDir != nil {
 		copies = append(copies, copyTo{inv.run.RunDir.file("envelope.json"), WarnEnvelopeUnwritable})
-	}
-	if inv.values != nil && inv.values.output != "" {
-		copies = append(copies, copyTo{inv.values.output, WarnOutputUnwritable})
 	}
 	data := inv.encode()
 	var written []string
@@ -664,11 +652,11 @@ func (a *App) unknownCommand(words []string) string {
 	return fmt.Sprintf("unknown command %q; the commands are: %s", strings.Join(leading, " "), commands)
 }
 
-// answer prints what a request for help, the version or the schema asks for,
+// answer prints what a request for help or the version asks for,
 // wherever on the command line it stands, and reports that it did. None of
 // them reads input, builds a forge client or creates anything.
 func (a *App) answer(words []string, started time.Time, stdout io.Writer) (code int, answered bool) {
-	wantHelp, wantVersion, wantSchema := a.requests(words)
+	wantHelp, wantVersion := a.requests(words)
 
 	switch {
 	case len(words) > 0 && words[0] == "help":
@@ -688,28 +676,14 @@ func (a *App) answer(words []string, started time.Time, stdout io.Writer) (code 
 		data, _ := encodeIndented(a.version())
 		_, _ = stdout.Write(data)
 		return 0, true
-	case wantSchema:
-		cmd, _ := a.match(words)
-		if cmd == nil && len(leadingWords(words)) > 0 {
-			return 0, false // not a command: the usage error says so
-		}
-		data, err := a.schema(cmd)
-		if err != nil {
-			inv := a.newInvocation(stdout, io.Discard, a.name(), started)
-			inv.env.fail(&Failure{Category: CategoryInternal, Message: err.Error()})
-			return inv.finish(), true
-		}
-		_, _ = stdout.Write(data)
-		return 0, true
 	}
 	return 0, false
 }
 
-// requests reports which of help, the version and the schema the words ask
-// for. They are asked for wherever they stand before a "--", except where
+// requests reports which of help and the version the words ask for. They are asked for wherever they stand before a "--", except where
 // they are the value of a flag that takes one: in "--context --help" the
 // answer is "--help".
-func (a *App) requests(words []string) (help, version, schema bool) {
+func (a *App) requests(words []string) (help, version bool) {
 	var fs *flag.FlagSet
 	scan := words
 	if cmd, rest := a.match(words); cmd != nil {
@@ -723,8 +697,6 @@ func (a *App) requests(words []string) (help, version, schema bool) {
 			help = true
 		case "-version", "--version":
 			version = true
-		case "-schema", "--schema":
-			schema = true
 		default:
 			if fs != nil && takesValue(fs, w) {
 				i++

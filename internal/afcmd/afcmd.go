@@ -8,9 +8,6 @@ package afcmd
 
 import (
 	"context"
-	"embed"
-	"encoding/json"
-	"fmt"
 	"os"
 
 	"github.com/agent-fox-dev/aflib/issuex"
@@ -201,22 +198,6 @@ func (c *Config) brainOptions() brain.Options {
 
 // modelVar is the variable that names the model of the brains.
 const modelVar = "AF_MODEL"
-
-// schemaFiles are the JSON Schemas of the commands' results, embedded in the
-// binary so that af --schema prints them.
-//
-//go:embed schemas/*.json
-var schemaFiles embed.FS
-
-// resultSchema is the embedded schema schemas/<name>.json. A missing file is
-// a mistake in the build, which a test finds, and not a condition to handle.
-func resultSchema(name string) json.RawMessage {
-	data, err := schemaFiles.ReadFile("schemas/" + name + ".json")
-	if err != nil {
-		panic(fmt.Sprintf("the result schema %q is not embedded: %v", name, err))
-	}
-	return data
-}
 
 // register registers the commands of the program on app.
 func register(app *toolio.App, c *Config) {

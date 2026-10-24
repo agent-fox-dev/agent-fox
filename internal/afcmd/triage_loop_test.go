@@ -111,7 +111,7 @@ func (e *triageEnv) loop(args ...string) (int, map[string]any) {
 // Verifies: 08-REQ-1.1
 func TestTheCommandsAreRegisteredWithTheirTimeoutsAndFlags_TS_08_1(t *testing.T) {
 	e := newTriageEnv(t, fakeforge.GitHub)
-	common := []string{"--emit-events", "--output", "--timeout"}
+	common := []string{"--timeout"}
 	for _, c := range []struct {
 		path    string
 		timeout string

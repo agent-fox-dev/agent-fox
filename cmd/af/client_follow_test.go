@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -59,25 +57,21 @@ func watch(t *testing.T, args ...string) (afResult, *afclock.Clock) {
 
 // TestWatchStartsFromSinceAndDeliversTheEventsAboveItAsJobEvents_TS_16_61 verifies TS-16-61
 // and TS-16-62 for the command: the first request asks for the stream from --since, the events
-// at or below it are not delivered, and --emit-events holds one job_event for each delivered
+// at or below it are not delivered, and the events hold one job_event for each delivered
 // event with the document of the service as its data.
 // Verifies: 16-REQ-9.1, 16-REQ-9.2
 func TestWatchStartsFromSinceAndDeliversTheEventsAboveItAsJobEvents_TS_16_61(t *testing.T) {
 	svc := ready(t, streaming([]string{eventFrame(4), eventFrame(5), eventFrame(6), eventFrame(6), eventFrame(7), eventFrame(5)}, doneJob))
-	emitted := filepath.Join(t.TempDir(), "events.jsonl")
-	res, _ := watch(t, "--since", "5", "--emit-events", emitted)
+	useClock(t, afclock.New(time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)))
+	res, data := afRunEvents(t, "jobs", "watch", "j", "--since", "5")
 	if res.code != 0 {
 		t.Fatalf("exit %d, %s", res.code, res.stdout)
 	}
 	if reqs := svc.Requests(); len(reqs) < 2 || reqs[0].RequestURI != "/api/v1/jobs/j/events?since=5" {
 		t.Errorf("requests = %+v, want the stream from since=5 first", reqs)
 	}
-	data, err := os.ReadFile(emitted)
-	if err != nil {
-		t.Fatal(err)
-	}
 	var seqs []float64
-	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(data), "\n") {
 		var ev struct {
 			Type string `json:"type"`
 			Data any    `json:"data"`

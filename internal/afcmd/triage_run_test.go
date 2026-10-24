@@ -197,11 +197,6 @@ func contains(list []string, s string) bool {
 	return false
 }
 
-// TestTheRunSchemaMatchesItsResult guards 08-REQ-10.4 for af triage run.
-func TestTheRunSchemaMatchesItsResult(t *testing.T) {
-	checkSchema(t, "triage_run", triageRunResult{})
-}
-
 // TestRunHoldsTheBrainToTheDefaultBounds guards 08-REQ-4.2 for `af triage run`: with
 // no flag the brain is told USD 2 and 100 turns, and given them; with flags, those.
 func TestRunHoldsTheBrainToTheDefaultBounds(t *testing.T) {

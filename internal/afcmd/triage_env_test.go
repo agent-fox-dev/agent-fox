@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -132,19 +131,6 @@ func warningCodes(env map[string]any) []string {
 		}
 	}
 	return out
-}
-
-// checkSchema compares the embedded schema of a command with the fields of its
-// result type.
-func checkSchema(t *testing.T, name string, typ any) {
-	t.Helper()
-	var schema map[string]any
-	if err := json.Unmarshal(resultSchema(name), &schema); err != nil {
-		t.Fatal(err)
-	}
-	for _, diff := range schemaDiff(schema, reflect.TypeOf(typ), name) {
-		t.Error(diff)
-	}
 }
 
 // git2 runs git in dir and returns what it printed.

@@ -1,8 +1,6 @@
 package main
 
 import (
-	"embed"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -27,22 +25,6 @@ const loginSuggestion = "af login --token-file FILE"
 // httpTransport is the transport of the requests the client commands make; nil is the default
 // transport. The tests replace it.
 var httpTransport http.RoundTripper
-
-// schemaFiles are the JSON Schemas of the results of the client commands, embedded in the
-// binary so that af --schema prints them.
-//
-//go:embed schemas/*.json
-var schemaFiles embed.FS
-
-// resultSchema is the embedded schema schemas/<name>.json. A missing file is a mistake in
-// the build, which a test finds, and not a condition to handle.
-func resultSchema(name string) json.RawMessage {
-	data, err := schemaFiles.ReadFile("schemas/" + name + ".json")
-	if err != nil {
-		panic(fmt.Sprintf("the result schema %q is not embedded: %v", name, err))
-	}
-	return data
-}
 
 // givenString is a string flag that remembers whether it was given: a value that was given empty
 // is not the same as a flag that was not given.
