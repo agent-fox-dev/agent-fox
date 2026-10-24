@@ -11,7 +11,6 @@ import (
 
 	"github.com/agent-fox-dev/aflib/issuex"
 
-	"github.com/agent-fox-dev/agentfox/internal/agentdir"
 	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/brain"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
@@ -139,22 +138,10 @@ func renderBrief(c *Config, r *toolio.Run, report triage.Report, facts triage.Fa
 	return renderedBrief{brief: brief, report: report, facts: facts, previous: previous != nil}, nil
 }
 
-// countRejections is the number of refused calls of the run that cited a path
-// that is no file, from rejections.jsonl. A file that cannot be read counts 0 and
-// is a warning. The count is reported and decides nothing.
-func countRejections(r *toolio.Run, run *toolio.RunDir) int {
-	pathCalls, _, warning := triage.CountRejections(filepath.Join(run.Path, triage.RejectionsFile))
-	if warning != "" {
-		r.Warn(warning, "rejections.jsonl of run "+run.ID+" cannot be read, so the refused calls are counted as 0")
-	}
-	return pathCalls
-}
-
 // triageRunResult is the result of af triage run.
 type triageRunResult struct {
-	RunID             string `json:"run_id"`
-	Submitted         bool   `json:"submitted"`
-	RejectedPathCalls int    `json:"rejected_path_calls"`
+	RunID     string `json:"run_id"`
+	Submitted bool   `json:"submitted"`
 }
 
 // registerTriageRun registers af triage run, which a box executes: the agentkit
@@ -235,12 +222,11 @@ func triageRun(c *Config, r *toolio.Run, runID string, budget float64, maxTurns 
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
-	pathCalls := countRejections(r, run)
 	recordSubmission(r, run, res)
 	return toolio.Outcome{
 		Status:  toolio.StatusDone,
 		Summary: fmt.Sprintf("the agentkit brain submitted a diagnosis for run %s", runID),
-		Result:  triageRunResult{RunID: runID, Submitted: true, RejectedPathCalls: pathCalls},
+		Result:  triageRunResult{RunID: runID, Submitted: true},
 	}, nil
 }
 
@@ -258,8 +244,6 @@ type triageResult struct {
 	Issue                *triage.IssueInfo `json:"issue"`
 	Action               string            `json:"action"`
 	Diagnosis            triage.Diagnosis  `json:"diagnosis"`
-	RejectedPathCalls    int               `json:"rejected_path_calls"`
-	RejectedSubmissions  int               `json:"rejected_submissions"`
 	Labels               []string          `json:"labels"`
 	OriginalReportSHA256 string            `json:"original_report_sha256"`
 }
@@ -329,10 +313,6 @@ func landRun(r *toolio.Run, l landing) (toolio.Outcome, error) {
 // landOutcome is the outcome of a landing: done, or needs_human when the
 // submission carries a question and nothing was landed.
 func landOutcome(r *toolio.Run, run *toolio.RunDir, facts triage.Facts, res triage.LandResult) toolio.Outcome {
-	pathCalls, total, warning := triage.CountRejections(filepath.Join(run.Path, triage.RejectionsFile))
-	if warning != "" {
-		r.Warn(warning, "rejections.jsonl of run "+run.ID+" cannot be read, so the refused calls are counted as 0")
-	}
 	labels := res.Labels
 	if labels == nil {
 		labels = []string{}
@@ -343,7 +323,7 @@ func landOutcome(r *toolio.Run, run *toolio.RunDir, facts triage.Facts, res tria
 	}
 	result := triageResult{
 		RunID: run.ID, Issue: res.Issue, Action: res.Action, Diagnosis: res.Diagnosis,
-		RejectedPathCalls: pathCalls, RejectedSubmissions: total, Labels: labels, OriginalReportSHA256: sha,
+		Labels: labels, OriginalReportSHA256: sha,
 	}
 	if q := res.Question; q != nil {
 		recordIn(r, run, ledgerQuestion, q)
@@ -543,23 +523,9 @@ func runInBox(c *Config, r *toolio.Run, s *brain.Settings, entry brain.Entry, bo
 				MaxCostUSD: s.Budget, MaxTurns: s.MaxTurns, Timeout: timeLeft(r),
 			},
 		})
-		readBackRejections(r, sess)
 		return err
 	})
 	return res, err
-}
-
-// readBackRejections copies the refused calls of the box into the run directory.
-// A file that cannot be had is a warning: the count of refused calls is a report
-// and decides nothing.
-func readBackRejections(r *toolio.Run, sess *box.Session) {
-	data, err := triage.ReadBackRejections(sess.FS(r.Ctx), r.RunDir.ID)
-	if err == nil && len(data) > 0 {
-		err = agentdir.WriteFileAtomic(filepath.Join(r.RunDir.Path, triage.RejectionsFile), data)
-	}
-	if err != nil {
-		r.Warn(triage.WarnRejectionsUnreadable, fmt.Sprintf("the refused calls of run %s could not be brought out of the box, so they are counted as 0: %v", r.RunDir.ID, err))
-	}
 }
 
 // staleSubmission is the failure of a submission that the box accepted and the

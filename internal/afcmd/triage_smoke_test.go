@@ -201,19 +201,12 @@ func TestAMissingPathIsRefusedAsTheNextTurnAndCorrected_TS_08_73(t *testing.T) {
 			t.Fatalf("exit code %d, status %v, error %v", code, env["status"], env["error"])
 		}
 		got := resultOf(t, env)
-		if got["rejected_path_calls"] != float64(1) || got["rejected_submissions"] != float64(1) {
-			t.Errorf("result = %v, want 1 rejected path call", got)
-		}
 		diagnosis, _ := got["diagnosis"].(map[string]any)
 		for _, f := range diagnosis["affected_files"].([]any) {
 			path := f.(map[string]any)["path"].(string)
 			if _, err := os.Stat(filepath.Join(e.dir, filepath.FromSlash(path))); err != nil {
 				t.Errorf("the landed diagnosis cites %s: %v", path, err)
 			}
-		}
-		line := string(readFile(t, filepath.Join(e.runDir(env), "rejections.jsonl")))
-		if strings.Count(line, "\n") != 1 || !strings.Contains(line, "/affected_files/0/path") || !strings.Contains(line, `"nowhere.go"`) {
-			t.Errorf("rejections.jsonl:\n%s", line)
 		}
 		if issue := e.forge.Issue(7); strings.Contains(issue.Body, "nowhere.go") {
 			t.Errorf("the refused diagnosis was landed:\n%s", issue.Body)

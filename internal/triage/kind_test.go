@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -185,50 +184,6 @@ func TestADiagnosisSchemaHasTheFieldsOfTheType(t *testing.T) {
 	// What the schema calls valid, Validate accepts.
 	if _, problems := Validate(diagnosisFor("main.go", nil), testTree()); len(problems) != 0 {
 		t.Errorf("a diagnosis of the shape of the schema: %v", problems)
-	}
-}
-
-// TestEveryRefusedCallAppendsOneRejection guards 08-REQ-6.1: through the kind,
-// a refused call appends one line beside the submission, an accepted one none,
-// and an earlier submission stays as it was.
-func TestEveryRefusedCallAppendsOneRejection(t *testing.T) {
-	dir, target := inProcessTree(t)
-	kind := Kind(dir)
-	runDir := filepath.Join(dir, ".agent-fox", "run", testRun)
-	submit := func(payload []byte) error {
-		_, err := submission.Submit(context.Background(), target, kind, payload, time.Now())
-		return err
-	}
-
-	if err := submit(diagnosisFor("a.go", nil)); err != nil {
-		t.Fatal(err)
-	}
-	accepted, _ := os.ReadFile(filepath.Join(runDir, "submission.json"))
-	if _, err := os.Stat(filepath.Join(runDir, RejectionsFile)); err == nil {
-		t.Error("an accepted call left a rejections file")
-	}
-
-	if err := submit(diagnosisFor("missing.go", nil)); err == nil {
-		t.Fatal("a missing path was accepted")
-	}
-	if err := submit(diagnosisFor("a.go", func(m map[string]any) { m["severity"] = "urgent" })); err == nil {
-		t.Fatal("a bad severity was accepted")
-	}
-	if err := submit([]byte(`[1]`)); err == nil {
-		t.Fatal("an array was accepted")
-	}
-
-	pathCalls, total, warning := CountRejections(filepath.Join(runDir, RejectionsFile))
-	if pathCalls != 1 || total != 3 || warning != "" {
-		t.Errorf("rejections = (%d path calls, %d in all, %q), want (1, 3, none)", pathCalls, total, warning)
-	}
-	data, _ := os.ReadFile(filepath.Join(runDir, RejectionsFile))
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(lines) != 3 || !strings.Contains(lines[0], `"unresolved_paths":["missing.go"]`) || !strings.Contains(lines[1], `"unresolved_paths":[]`) {
-		t.Errorf("rejections.jsonl:\n%s", data)
-	}
-	if after, _ := os.ReadFile(filepath.Join(runDir, "submission.json")); !bytes.Equal(after, accepted) {
-		t.Error("an earlier submission was changed by the refusals")
 	}
 }
 

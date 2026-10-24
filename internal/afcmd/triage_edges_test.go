@@ -81,8 +81,8 @@ func TestAnAbsolutePathInTheBoxIsMadeRelative(t *testing.T) {
 	}
 	got := resultOf(t, env)
 	files := got["diagnosis"].(map[string]any)["affected_files"].([]any)
-	if files[0].(map[string]any)["path"] != "main.go" || got["rejected_path_calls"] != float64(0) {
-		t.Errorf("result = %v, want the path main.go and no refused call", got)
+	if files[0].(map[string]any)["path"] != "main.go" {
+		t.Errorf("result = %v, want the path main.go", got)
 	}
 }
 

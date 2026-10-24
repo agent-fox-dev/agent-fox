@@ -163,7 +163,7 @@ func TestEveryWayARunEndsWellIsDone_TS_08_58(t *testing.T) {
 // of the loop holds every field, with the labels in first-seen order and each once.
 // Verifies: 08-REQ-9.3
 func TestTheResultsHoldEveryField_TS_08_59(t *testing.T) {
-	required := []string{"run_id", "issue", "action", "diagnosis", "rejected_path_calls", "rejected_submissions", "labels", "original_report_sha256"}
+	required := []string{"run_id", "issue", "action", "diagnosis", "labels", "original_report_sha256"}
 	check := func(t *testing.T, name string, env map[string]any, action string, labels []string) {
 		t.Helper()
 		got := resultOf(t, env)
@@ -390,7 +390,7 @@ var (
 		"input_truncated", "comments_unreadable", "ledger_unwritable", "events_unwritable", "envelope_unwritable", "invalid_warning_code",
 		"map_outline_skipped",
 		"brain_error", "submission_invalid", "submission_claim_mismatch", "submission_not_removed", "box_unconfined", "box_close_failed", "transcript_unwritable", "model_unpriced",
-		"issue_closed", "report_changed_during_triage", "body_too_long", "labels_failed", "original_report_unparsed", "rejections_unreadable",
+		"issue_closed", "report_changed_during_triage", "body_too_long", "labels_failed", "original_report_unparsed",
 	}
 	allowedCategories = []string{
 		"usage", "auth", "forge", "io", "cancelled", "timeout", "internal", "config", "restore", "git", "sandbox", "submission", "brain", "no_result", "budget",

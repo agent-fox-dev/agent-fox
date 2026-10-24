@@ -8,9 +8,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/submission"
@@ -38,7 +36,7 @@ const kindDescription = "Hand over your diagnosis of the reported problem. Call 
 // view on the host and in a box, and whatever tree the submission is made in
 // supplies the number of lines of a file. extraRoots are absolute directories
 // that stand for the root of the tree beside hostDir, such as the workspace of a
-// box. A refused submission is noted in rejections.jsonl beside it.
+// box.
 func Kind(hostDir string, extraRoots ...string) submission.Kind {
 	roots := []string{hostDir}
 	if resolved, err := filepath.EvalSymlinks(hostDir); err == nil && resolved != hostDir {
@@ -70,7 +68,6 @@ func Kind(hostDir string, extraRoots ...string) submission.Kind {
 			}
 			return normalized, nil
 		},
-		OnRefused: noteRefusal,
 	}
 }
 
@@ -102,37 +99,6 @@ func asSubmission(problems []Problem) []submission.Problem {
 		out[i] = submission.Problem{Path: p.Pointer, Message: p.Message}
 	}
 	return out
-}
-
-// unresolvedPrefix starts the message of a problem with a path that is no file of
-// the tree; the path follows, quoted.
-const unresolvedPrefix = "unresolved path "
-
-// fromSubmission is the problems of a refusal as this package has them, with the
-// paths that did not resolve told from the rest by the message that says so.
-func fromSubmission(problems []submission.Problem) []Problem {
-	out := make([]Problem, len(problems))
-	for i, p := range problems {
-		out[i] = Problem{Pointer: p.Path, Message: p.Message}
-		if rest, ok := strings.CutPrefix(p.Message, unresolvedPrefix); ok {
-			if quoted, err := strconv.QuotedPrefix(rest); err == nil {
-				if cited, err := strconv.Unquote(quoted); err == nil {
-					out[i].Unresolved, out[i].Path = true, cited
-				}
-			}
-		}
-	}
-	return out
-}
-
-// noteRefusal appends the line of a refused call to rejections.jsonl, in the
-// directory the submission would be written to, through the target the
-// submission was made with.
-func noteRefusal(ctx context.Context, target submission.Target, problems []submission.Problem) {
-	rel := RejectionsPath(target.RunID)
-	existing, _ := fs.ReadFile(target.Tree, rel) // a file that is not there is an empty one
-	line := FormatRejection(time.Now(), fromSubmission(problems))
-	_ = target.Write(ctx, rel, append(existing, line...)) // noted if it can be; the refusal stands either way
 }
 
 // readOnlyTools are the tools of the hands that only read.
