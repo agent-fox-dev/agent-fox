@@ -437,7 +437,7 @@
       "done_when": [
         "a repeated event id sends no forge request"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
