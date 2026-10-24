@@ -168,7 +168,7 @@ func TestALandableChangeLandsThroughTheLoop(t *testing.T) {
 	}
 	res := resultOf(t, env)
 	branch, _ := res["branch"].(string)
-	if res["outcome"] != "landed" || res["closes"] != true || res["landable"] != true || res["pushed"] != true || res["rounds"] != float64(1) || res["attempts"] != float64(1) || res["attempts_max"] != float64(2) || res["land"] != "pr" {
+	if res["outcome"] != "landed" || res["closes"] != true || res["landable"] != true || res["pushed"] != true || res["rounds"] != float64(1) || res["land"] != "pr" {
 		t.Errorf("result = %v", res)
 	}
 	if !strings.HasPrefix(branch, "fix/7-") || !slices.Contains(e.remoteBranches(t), branch) {
@@ -190,15 +190,15 @@ func TestALandableChangeLandsThroughTheLoop(t *testing.T) {
 	}
 }
 
-// TestWithNoAttemptLeftTheAppliedChangeIsParkedAndNothingAppliedIsAFailure_TS_09_50 verifies
-// TS-09-50.
+// TestWhenTheBoundsAreSpentTheAppliedChangeIsParkedAndNothingAppliedIsAFailure_TS_09_50 verifies
+// TS-09-50 as it stands: a run has one attempt, whose bounds end it.
 // Verifies: 09-REQ-7.5
-func TestWithNoAttemptLeftTheAppliedChangeIsParkedAndNothingAppliedIsAFailure_TS_09_50(t *testing.T) {
+func TestWhenTheBoundsAreSpentTheAppliedChangeIsParkedAndNothingAppliedIsAFailure_TS_09_50(t *testing.T) {
 	requireMake(t)
 
-	t.Run("a red change and a round that failed", func(t *testing.T) {
+	t.Run("a red change that spent the budget", func(t *testing.T) {
 		e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
-		spyRounds(t, spyRound(t, spyBroken, spyReport, 10, 4)) // spends the whole attempt; attempt 2 comes to nothing
+		spyRounds(t, spyRound(t, spyBroken, spyReport, 10, 4)) // spends the whole budget
 
 		code, env := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", "local", "--land", "branch")
 
@@ -207,13 +207,13 @@ func TestWithNoAttemptLeftTheAppliedChangeIsParkedAndNothingAppliedIsAFailure_TS
 		}
 		res := resultOf(t, env)
 		branch, _ := res["branch"].(string)
-		if res["outcome"] != "parked" || res["verdict"] != "still_failing" || res["attempts"] != float64(2) || res["rounds"] != float64(2) {
+		if res["outcome"] != "parked" || res["verdict"] != "still_failing" || res["rounds"] != float64(1) {
 			t.Errorf("result = %v", res)
 		}
 		if subject := strings.TrimSpace(gitDo(t, e.dir, "log", "-1", "--format=%s", branch)); subject != "wip: say hello" {
 			t.Errorf("subject = %q, want the subject of the last accepted report", subject)
 		}
-		if codes := warningCodes(env); !slices.Contains(codes, "attempt_failed") || !slices.Contains(codes, "fix_not_landed") {
+		if codes := warningCodes(env); slices.Contains(codes, "attempt_failed") || !slices.Contains(codes, "fix_not_landed") {
 			t.Errorf("warnings = %v", codes)
 		}
 		if msg := gitDo(t, e.dir, "log", "-1", "--format=%B", branch); !strings.Contains(msg, "Parked by af fix: verdict still_failing\nFailing checks:\n- make check\n") {
@@ -245,17 +245,16 @@ func TestWithNoAttemptLeftTheAppliedChangeIsParkedAndNothingAppliedIsAFailure_TS
 
 // TestACancelledRunKeepsItsWorkOnALocalBranch_TS_09_51 verifies TS-09-51: a run that is
 // cancelled with a change applied parks it on a local branch, pushes nothing and writes nothing
-// to the forge, and is told the run was cancelled; under --dry-run the change is discarded.
+// to the forge, and is told the run was cancelled.
 // Verifies: 09-REQ-7.6
 func TestACancelledRunKeepsItsWorkOnALocalBranch_TS_09_51(t *testing.T) {
 	requireMake(t)
 	for _, tc := range []struct {
 		name string
 		args []string
-	}{{"a run", nil}, {"a dry run", []string{"--dry-run"}}} {
+	}{{"a run", nil}} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
-			head := strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "HEAD"))
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			spyRounds(t,
@@ -276,20 +275,16 @@ func TestACancelledRunKeepsItsWorkOnALocalBranch_TS_09_51(t *testing.T) {
 				t.Errorf("remote branches = %v: nothing is pushed", e.remoteBranches(t))
 			}
 			e.onBase(t)
-			if tc.args == nil {
-				local := e.branches()
-				if len(local) != 2 {
-					t.Fatalf("branches = %v, want the base and the branch the change is parked on", local)
-				}
-				for _, b := range local {
-					if b != "main" {
-						if subject := strings.TrimSpace(gitDo(t, e.dir, "log", "-1", "--format=%s", b)); !strings.HasPrefix(subject, "wip: ") {
-							t.Errorf("subject = %q", subject)
-						}
+			local := e.branches()
+			if len(local) != 2 {
+				t.Fatalf("branches = %v, want the base and the branch the change is parked on", local)
+			}
+			for _, b := range local {
+				if b != "main" {
+					if subject := strings.TrimSpace(gitDo(t, e.dir, "log", "-1", "--format=%s", b)); !strings.HasPrefix(subject, "wip: ") {
+						t.Errorf("subject = %q", subject)
 					}
 				}
-			} else if !slices.Equal(e.branches(), []string{"main"}) || strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "HEAD")) != head {
-				t.Errorf("a dry run left branches %v", e.branches())
 			}
 		})
 	}
@@ -355,53 +350,6 @@ func TestOneBoxIsHeldAndClosedOnEveryWayOutAndUsageIsTheSumOfTheRounds_TS_09_52(
 	check("a run that was cancelled", 3)
 }
 
-// TestADryRunDiscardsTheChangeAndPlansTheWrites_TS_09_65 verifies TS-09-65.
-// Verifies: 09-REQ-9.5
-func TestADryRunDiscardsTheChangeAndPlansTheWrites_TS_09_65(t *testing.T) {
-	requireMake(t)
-	e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
-	head := strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "HEAD"))
-	spy := spyRounds(t, spyRound(t, spyFixed, spyReport, 0.5, 4))
-
-	code, env := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", "local", "--dry-run")
-
-	if code != 0 || env["status"] != "done" {
-		t.Fatalf("exit code %d, status %v, error %v: a dry run has the status the real run would have had", code, env["status"], env["error"])
-	}
-	res := resultOf(t, env)
-	if res["outcome"] != "dry_run" || res["landable"] != true || res["closes"] != true || res["branch"] != nil || res["commit"] != nil || res["pushed"] != false || res["pull_request"] != nil {
-		t.Errorf("result = %v", res)
-	}
-	if !slices.Equal(e.branches(), []string{"main"}) || strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "HEAD")) != head {
-		t.Errorf("branches %v: a dry run makes no branch and no commit", e.branches())
-	}
-	e.onBase(t)
-	states := effects(env)
-	for _, kind := range []string{"branch", "commit", "push", "create_pull_request"} {
-		if states[kind] != "planned" {
-			t.Errorf("side effects = %v, want %s planned", states, kind)
-		}
-	}
-	if n := len(e.forge.Writes()); n != 0 || len(e.remoteBranches(t)) != 1 {
-		t.Errorf("%d writes to the forge, remote branches %v", n, e.remoteBranches(t))
-	}
-	if spy.runs != 1 {
-		t.Errorf("the brain ran %d times: a dry run still asks it", spy.runs)
-	}
-
-	// The same run for a text under --no-verify has the status of that run: unverified.
-	e2 := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
-	spyRounds(t, spyRound(t, spyFixed, spyReport, 0, 1))
-	code, env = e2.fix("the greeting says helo", "--repo", "o/r", "--brain", "spy", "--sandbox", "local", "--dry-run", "--no-verify")
-	if code != 4 || env["status"] != "unverified" || resultOf(t, env)["outcome"] != "dry_run" {
-		t.Fatalf("exit code %d, status %v, result %v, error %v", code, env["status"], env["result"], env["error"])
-	}
-	if got := effects(env); got["create_issue"] != "planned" || got["create_pull_request"] != "planned" || got["branch"] != "planned" {
-		t.Errorf("side effects = %v, want the issue, the branch and the pull request planned", got)
-	}
-	e2.onBase(t)
-}
-
 // TestEveryEndOfARunLeavesTheBaseCheckedOutClean_TS_09_66 verifies TS-09-66 over the ends a
 // run can have and the modes it can land in.
 // Verifies: 09-REQ-9.6
@@ -415,13 +363,10 @@ func TestEveryEndOfARunLeavesTheBaseCheckedOutClean_TS_09_66(t *testing.T) {
 		onHead bool
 	}{
 		"landed":      {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyFixed, spyReport, 0, 1)}, nil, 0, false},
-		"parked":      {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyBroken, spyReport, 10, 1)}, []string{"--attempts", "1"}, 4, false},
+		"parked":      {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyBroken, spyReport, 10, 1)}, nil, 4, false},
 		"needs_human": {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyBroken, question, 0, 1)}, nil, 3, true},
-		"dry_run":     {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyFixed, spyReport, 0, 1)}, []string{"--dry-run"}, 0, true},
 		// A question in a later round: the change of the round before it, which was refused, is not kept.
-		"needs_human after a refused round":         {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyBroken, spyReport, 0, 1), spyRound(t, nil, question, 0, 1)}, nil, 3, true},
-		"dry_run needs_human after a refused round": {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyBroken, spyReport, 0, 1), spyRound(t, nil, question, 0, 1)}, []string{"--dry-run"}, 3, true},
-		"dry_run parked":                            {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyBroken, spyReport, 10, 1)}, []string{"--dry-run", "--attempts", "1"}, 4, true},
+		"needs_human after a refused round": {[]func(context.Context, brain.Brief) (brain.Outcome, error){spyRound(t, spyBroken, spyReport, 0, 1), spyRound(t, nil, question, 0, 1)}, nil, 3, true},
 	}
 	for name, sc := range scenarios {
 		for _, mode := range []string{"pr", "branch", "none"} {
@@ -456,28 +401,24 @@ func TestArtifactsAndSideEffectsAreReportedAsDonePlannedOrFailed_TS_09_68(t *tes
 	requireMake(t)
 	e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
 	spyRounds(t, spyRound(t, spyFixed, spyReport, 0, 1))
-	_, landed := e.fix("the greeting says helo", "--repo", "o/r", "--brain", "spy", "--sandbox", "local")
+	_, landed := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", "local")
 
 	kinds := artifactKinds(landed)
-	for _, want := range []string{"branch", "commit", "pull_request", "issue", "report", "submission", "run_dir"} {
+	for _, want := range []string{"branch", "commit", "pull_request", "report", "submission", "run_dir"} {
 		if !slices.Contains(kinds, want) {
 			t.Errorf("artifacts = %v, want %s", kinds, want)
 		}
 	}
-	for _, kind := range []string{"branch", "commit", "push", "create_issue", "create_pull_request"} {
+	if _, has := effects(landed)["create_issue"]; has {
+		t.Errorf("side effects = %v: a fix makes no issue", effects(landed))
+	}
+	for _, kind := range []string{"branch", "commit", "push", "create_pull_request"} {
 		if effects(landed)[kind] != "done" {
 			t.Errorf("side effects = %v, want %s done", effects(landed), kind)
 		}
 	}
-	if got := effectTargets(landed); got["create_issue"] != "o/r" || got["create_pull_request"] != "o/r" {
+	if got := effectTargets(landed); got["create_pull_request"] != "o/r" {
 		t.Errorf("side effect targets = %v, want the repository of the run", got)
-	}
-
-	e2 := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
-	spyRounds(t, spyRound(t, spyFixed, spyReport, 0, 1))
-	_, dry := e2.fix("the greeting says helo", "--repo", "o/r", "--brain", "spy", "--sandbox", "local", "--dry-run")
-	if got := effects(dry); got["branch"] != "planned" || got["commit"] != "planned" || got["push"] != "planned" || got["create_issue"] != "planned" {
-		t.Errorf("a dry run: side effects = %v", got)
 	}
 
 	e3 := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
@@ -509,10 +450,10 @@ func TestTheDefaultsOfTheLoopApplyWhenFlagsAreOmitted_TS_09_2(t *testing.T) {
 	e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
 	spy := spyRounds(t, spyRound(t, spyFixed, spyReport, 0, 1))
 
-	_, env := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--dry-run")
+	_, env := e.fix(e.forge.IssueURL(7), "--brain", "spy")
 
 	res := resultOf(t, env)
-	if res["attempts_max"] != float64(2) || res["land"] != "pr" {
+	if res["land"] != "pr" || res["outcome"] != "landed" {
 		t.Errorf("result = %v", res)
 	}
 	if b := spy.brief; b == nil || b.MaxCostUSD != 10 || b.MaxTurns != 150 {
@@ -525,7 +466,7 @@ func TestTheDefaultsOfTheLoopApplyWhenFlagsAreOmitted_TS_09_2(t *testing.T) {
 	// The default brain is the agentkit driver: with no credential for its model, it is the one that
 	// cannot be made, and the run is refused before a box is opened.
 	e2 := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
-	code, env := e2.fix(e2.forge.IssueURL(7), "--dry-run")
+	code, env := e2.fix(e2.forge.IssueURL(7))
 	errObj := refusedBy(t, code, env, 1, "auth")
 	if hint, _ := errObj["fix_hint"].(map[string]any); hint["env"] != "ANTHROPIC_API_KEY" {
 		t.Errorf("error = %v, want the agentkit brain, which needs ANTHROPIC_API_KEY", errObj)
@@ -550,7 +491,7 @@ func TestEachFixCommandAcceptsExactlyItsFlags_TS_09_3(t *testing.T) {
 	brainFlags := []string{"brain", "sandbox", "budget", "max-turns", "script"}
 	common := []string{"dir", "timeout"}
 	want := map[string][]string{
-		"fix":     append(append(slices.Clone(common), "base", "attempts", "land", "no-verify", "repo", "dry-run", "context"), brainFlags...),
+		"fix":     append(append(slices.Clone(common), "base", "land", "no-verify", "repo", "context"), brainFlags...),
 		"fix run": append(append(slices.Clone(common), "run-id"), brainFlags...),
 	}
 	for command, flags := range want {
@@ -567,7 +508,7 @@ func TestEachFixCommandAcceptsExactlyItsFlags_TS_09_3(t *testing.T) {
 			}
 		}
 	}
-	for _, args := range [][]string{{"fix", "run", "--run-id", "x", "--base", "main"}, {"fix", "run", "--run-id", "x", "--attempts", "2"}} {
+	for _, args := range [][]string{{"fix", "run", "--run-id", "x", "--base", "main"}, {"fix", "x", "--attempts", "2"}, {"fix", "x", "--dry-run"}} {
 		if code, env := e.run("", args...); code != 2 {
 			t.Errorf("%v: exit code %d (%v), want usage", args, code, env["error"])
 		}
@@ -584,48 +525,6 @@ func effectTargets(env map[string]any) map[string]string {
 	return out
 }
 
-// TestADryRunPlansTheWritesThatTheModeWouldMake guards what a dry run lists: the branch it
-// would make, named as the real run names it, and a push and a pull request only where the
-// mode asks for them.
-func TestADryRunPlansTheWritesThatTheModeWouldMake(t *testing.T) {
-	requireMake(t)
-	for mode, want := range map[string]struct {
-		push, pr bool
-	}{"pr": {true, true}, "branch": {true, false}, "none": {false, false}} {
-		t.Run(mode, func(t *testing.T) {
-			e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
-			spyRounds(t, spyRound(t, spyFixed, spyReport, 0, 1))
-
-			code, env := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", "local", "--dry-run", "--land", mode)
-
-			if code != 0 {
-				t.Fatalf("exit code %d, error %v", code, env["error"])
-			}
-			states, targets := effects(env), effectTargets(env)
-			if states["branch"] != "planned" || states["commit"] != "planned" || targets["branch"] != "fix/7-greeting-wrong" {
-				t.Errorf("side effects = %v %v, want the branch of the issue and the commit planned", states, targets)
-			}
-			if (states["push"] == "planned") != want.push || (states["create_pull_request"] == "planned") != want.pr {
-				t.Errorf("side effects = %v, want push %v and pull request %v", states, want.push, want.pr)
-			}
-			if want.push && targets["push"] != "origin/fix/7-greeting-wrong" {
-				t.Errorf("push target = %q", targets["push"])
-			}
-			if _, has := states["create_issue"]; has {
-				t.Errorf("side effects = %v: an issue is not made for an issue", states)
-			}
-		})
-	}
-
-	// A dry run that would park plans a draft pull request, and the parked branch.
-	e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
-	spyRounds(t, spyRound(t, spyBroken, spyReport, 10, 1))
-	_, env := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", "local", "--dry-run", "--attempts", "1")
-	if states := effects(env); states["create_pull_request"] != "planned" || states["branch"] != "planned" || env["status"] != "unverified" {
-		t.Errorf("a dry run that would park: status %v, side effects %v", env["status"], states)
-	}
-}
-
 // TestRoundsThatLeaveNothingToParkEndTheRunWithAFailure guards the end of a run whose rounds
 // came to reports and no change: a brain that touches only protected paths changes nothing, and
 // the run fails with the reason and not with a parking of nothing.
@@ -633,7 +532,7 @@ func TestRoundsThatLeaveNothingToParkEndTheRunWithAFailure(t *testing.T) {
 	requireMake(t)
 	e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
 	onlyProtected := map[string]string{".specs/note.md": "# a note\n"}
-	spyRounds(t, spyRound(t, onlyProtected, spyReport, 10, 1), spyRound(t, onlyProtected, spyReport, 10, 1))
+	spyRounds(t, spyRound(t, onlyProtected, spyReport, 0, 1), spyRound(t, onlyProtected, spyReport, 10, 1)) // the second spends the budget
 
 	code, env := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", "local")
 
@@ -660,10 +559,9 @@ func count(list []string, want string) int {
 	return n
 }
 
-// TestAFailureToMeasureLeavesTheWorkWhereItIsAndADryRunLeavesAMovedCheckoutAlone guards the
-// errors that are neither a stop nor an end: a commit made outside af ends the run with the
-// change in the tree, and a dry run does not reset a checkout that has moved.
-func TestAFailureToMeasureLeavesTheWorkWhereItIsAndADryRunLeavesAMovedCheckoutAlone(t *testing.T) {
+// TestAFailureToMeasureLeavesTheWorkWhereItIs guards the errors that are neither a stop nor an
+// end: a commit made outside af ends the run with the change in the tree.
+func TestAFailureToMeasureLeavesTheWorkWhereItIs(t *testing.T) {
 	requireMake(t)
 	foreign := func(e *fixEnv) func(context.Context, brain.Brief) (brain.Outcome, error) {
 		return func(ctx context.Context, b brain.Brief) (brain.Outcome, error) {
@@ -682,17 +580,6 @@ func TestAFailureToMeasureLeavesTheWorkWhereItIsAndADryRunLeavesAMovedCheckoutAl
 	}
 	if data, _ := os.ReadFile(filepath.Join(e.dir, "docs", "readme.md")); string(data) != "readme, changed\n" || !slices.Equal(e.branches(), []string{"main"}) {
 		t.Errorf("readme.md = %q, branches %v: the change stays in the tree and nothing is parked", data, e.branches())
-	}
-
-	e2 := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
-	spyRounds(t, foreign(e2))
-	code, env = e2.fix(e2.forge.IssueURL(7), "--brain", "spy", "--sandbox", "local", "--dry-run")
-	refusedBy(t, code, env, 1, "git")
-	if !slices.Contains(warningCodes(env), "dry_run_tree_kept") {
-		t.Errorf("warnings = %v, want dry_run_tree_kept", warningCodes(env))
-	}
-	if log := gitDo(t, e2.dir, "log", "-1", "--format=%s"); !strings.Contains(log, "made outside af") {
-		t.Errorf("the commit made outside af is gone: %q", log)
 	}
 }
 

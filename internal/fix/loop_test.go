@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -101,7 +100,7 @@ func (s *loopSpy) Run(ctx context.Context, b brain.Brief) (brain.Outcome, error)
 }
 
 // loop runs the loop of the world over a box, with the bounds.
-func (w *loopWorld) loop(t *testing.T, ctx context.Context, attempts int, budget float64, turns int, rounds ...func(context.Context, brain.Brief) (brain.Outcome, error)) (LoopResult, error) {
+func (w *loopWorld) loop(t *testing.T, ctx context.Context, budget float64, turns int, rounds ...func(context.Context, brain.Brief) (brain.Outcome, error)) (LoopResult, error) {
 	t.Helper()
 	w.spy = &loopSpy{rounds: rounds}
 	var res LoopResult
@@ -109,7 +108,7 @@ func (w *loopWorld) loop(t *testing.T, ctx context.Context, attempts int, budget
 		var err error
 		res, err = RunLoop(ctx, LoopParams{
 			Dir: w.repo.Dir, Git: w.repo.Git, Session: sess, Name: "spy", Brain: w.spy, Tally: w.tally, RunDir: w.run, Report: w.report, Reporter: w.rep,
-			State: &w.state, Prefix: "# Fix mandate\n", Attempts: attempts, Budget: budget, MaxTurns: turns,
+			State: &w.state, Prefix: "# Fix mandate\n", Budget: budget, MaxTurns: turns,
 			Gate: func(ctx context.Context, dir string, o checks.Options) (checks.Result, error) {
 				got, err := w.measureWorld.gateSeam()(ctx, dir, o)
 				if w.afterGate != nil {
@@ -210,13 +209,13 @@ func TestARefusalBecomesTheNextRoundWithTheBoxAsMeasured_TS_09_24(t *testing.T) 
 		return round(t, map[string]string{"src/greet.sh": "echo hello\n", "tests/greet_test.sh": measuredFiles()["tests/greet_test.sh"]}, loopReportPayload, 1, 10)(ctx, b)
 	}
 
-	res, err := w.loop(t, context.Background(), 1, 10, 150, first, second)
+	res, err := w.loop(t, context.Background(), 10, 150, first, second)
 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.End != EndLandable || res.Attempts != 1 || res.Rounds != 2 || !res.Measured.Lands || res.Report == nil || res.Report.Subject != "say hello" || !res.HoldsChange {
-		t.Fatalf("result = %+v, want a landable change in round 2 of attempt 1", res)
+	if res.End != EndLandable || res.Rounds != 2 || !res.Measured.Lands || res.Report == nil || res.Report.Subject != "say hello" || !res.HoldsChange {
+		t.Fatalf("result = %+v, want a landable change in round 2", res)
 	}
 	gate, _ := GateFile(w.state)
 	guard, _ := GuardFile(w.state)
@@ -263,10 +262,10 @@ func TestARefusalBecomesTheNextRoundWithTheBoxAsMeasured_TS_09_24(t *testing.T) 
 	}
 }
 
-// TestARoundWithNoSubmissionAppliesNothingAndTheAttemptEnds_TS_09_37 verifies TS-09-37 in
+// TestARoundWithNoSubmissionAppliesNothingAndTheRunEnds_TS_09_37 verifies TS-09-37 in
 // the loop.
 // Verifies: 09-REQ-5.7
-func TestARoundWithNoSubmissionAppliesNothingAndTheAttemptEnds_TS_09_37(t *testing.T) {
+func TestARoundWithNoSubmissionAppliesNothingAndTheRunEnds_TS_09_37(t *testing.T) {
 	w := newLoopWorld(t)
 	before := snapshotOf(t, w.repo.Dir, allPaths(t, w.repo.Dir))
 	editsOnly := func(ctx context.Context, b brain.Brief) (brain.Outcome, error) {
@@ -274,7 +273,7 @@ func TestARoundWithNoSubmissionAppliesNothingAndTheAttemptEnds_TS_09_37(t *testi
 		return brain.Outcome{StopReason: brain.StopEnded}, nil
 	}
 
-	res, err := w.loop(t, context.Background(), 1, 10, 150, editsOnly)
+	res, err := w.loop(t, context.Background(), 10, 150, editsOnly)
 
 	if err != nil {
 		t.Fatal(err)
@@ -303,7 +302,7 @@ func TestAQuestionEndsTheRunAndTouchesNothing_TS_09_30(t *testing.T) {
 		return out, err
 	}
 
-	res, err := w.loop(t, context.Background(), 2, 10, 150, ask, round(t, fixed, loopReportPayload, 0, 1))
+	res, err := w.loop(t, context.Background(), 10, 150, ask, round(t, fixed, loopReportPayload, 0, 1))
 
 	if err != nil {
 		t.Fatal(err)
@@ -331,78 +330,56 @@ func (w *measureWorld) localBranches(t *testing.T) []string {
 	return strings.Fields(gitDo(t, w.repo.Dir, "for-each-ref", "--format=%(refname:short)", "refs/heads"))
 }
 
-// TestTheAttemptsOfARunNumberTheRoundsOfTheRun_TS_09_46 verifies TS-09-46 and TS-09-48:
-// two refused rounds spend the budget of attempt 1, the second round gets what remained of
-// it, attempt 2 starts from the host tree with the whole budget and says why the last attempt
-// ended, and the numbers of the rounds run through the attempts.
-// Verifies: 09-REQ-7.1, 09-REQ-7.3
-func TestTheAttemptsOfARunNumberTheRoundsOfTheRun_TS_09_46(t *testing.T) {
+// TestTheRoundsOfARunShareItsBounds_TS_09_46 verifies TS-09-46 as it stands: a refused round
+// spends part of the budget of the run, the next round gets what remained of it, and the
+// numbers of the rounds run through the run.
+// Verifies: 09-REQ-7.1
+func TestTheRoundsOfARunShareItsBounds_TS_09_46(t *testing.T) {
 	w := newLoopWorld(t)
-	var atStartOfThree struct {
-		change string
-		there  bool
-	}
-	third := func(ctx context.Context, b brain.Brief) (brain.Outcome, error) {
-		atStartOfThree.change, atStartOfThree.there = inBox(b, "change.go")
-		return round(t, fixed, loopReportPayload, 1, 5)(ctx, b)
-	}
 
-	res, err := w.loop(t, context.Background(), 2, 10, 150,
+	res, err := w.loop(t, context.Background(), 10, 150,
 		round(t, map[string]string{"src/greet.sh": ":\n", "change.go": "package x\n"}, loopReportPayload, 4, 20),
-		round(t, map[string]string{"src/greet.sh": ":\n"}, loopReportPayload, 7, 150), // more than the $6 and the 130 turns it had left
-		third)
+		round(t, fixed, loopReportPayload, 1, 5))
 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.End != EndLandable || res.Attempts != 2 || res.Rounds != 3 {
-		t.Fatalf("result = %+v, want a landable change in round 3, the first of attempt 2", res)
+	if res.End != EndLandable || res.Rounds != 2 {
+		t.Fatalf("result = %+v, want a landable change in round 2", res)
 	}
 	var numbers []int
 	for _, b := range w.spy.briefs {
 		numbers = append(numbers, b.Attempt)
 	}
-	if !slices.Equal(numbers, []int{1, 2, 3}) {
-		t.Errorf("Brief.Attempt = %v, want 1, 2, 3", numbers)
+	if !slices.Equal(numbers, []int{1, 2}) {
+		t.Errorf("Brief.Attempt = %v, want 1, 2", numbers)
 	}
 	if b := w.spy.briefs[0]; b.MaxCostUSD != 10 || b.MaxTurns != 150 {
-		t.Errorf("round 1 got $%v and %d turns, want the whole attempt", b.MaxCostUSD, b.MaxTurns)
+		t.Errorf("round 1 got $%v and %d turns, want the whole run", b.MaxCostUSD, b.MaxTurns)
 	}
 	if b := w.spy.briefs[1]; b.MaxCostUSD != 6 || b.MaxTurns != 130 {
-		t.Errorf("round 2 got $%v and %d turns, want what remained of the attempt", b.MaxCostUSD, b.MaxTurns)
+		t.Errorf("round 2 got $%v and %d turns, want what remained of the run", b.MaxCostUSD, b.MaxTurns)
 	}
-	if b := w.spy.briefs[2]; b.MaxCostUSD != 10 || b.MaxTurns != 150 {
-		t.Errorf("round 3 got $%v and %d turns, want a fresh attempt", b.MaxCostUSD, b.MaxTurns)
+	if task := w.spy.briefs[1].Task; !strings.Contains(task, "round 2") || strings.Contains(task, "attempt") {
+		t.Errorf("the task block of round 2 =\n%s\nwant the round, and no attempt", task)
 	}
-	if !atStartOfThree.there || atStartOfThree.change != "package x\n" {
-		t.Errorf("the box of attempt 2 holds change.go = %q (%v), want the host tree with the change of attempt 1", atStartOfThree.change, atStartOfThree.there)
-	}
-	task := w.spy.briefs[2].Task
-	if !strings.Contains(task, "attempt 2, round 1") || !strings.Contains(task, "The attempt before this one ended because its bounds were spent") || !strings.Contains(task, "still_failing") && !strings.Contains(task, "regressed") {
-		t.Errorf("the first task block of attempt 2 =\n%s\nwant it to say why attempt 1 ended, and what was refused", task)
-	}
-	if strings.Contains(w.spy.briefs[1].Task, "The attempt before") {
-		t.Errorf("round 2 is in the same attempt:\n%s", w.spy.briefs[1].Task)
-	}
-	for _, n := range []string{"brief.1.md", "brief.2.md", "brief.3.md"} {
+	for _, n := range []string{"brief.1.md", "brief.2.md"} {
 		if _, err := os.Stat(filepath.Join(w.run.Path, n)); err != nil {
 			t.Errorf("%s: %v", n, err)
 		}
 	}
-	if w.state.Rounds != 3 || w.state.CostUSD != 12 {
+	if w.state.Rounds != 2 || w.state.CostUSD != 5 {
 		t.Errorf("state = rounds %d, cost %v", w.state.Rounds, w.state.CostUSD)
-	}
-	if !strings.Contains(task, "had $0.00, 0 turns and no limit of time for the brain left") {
-		t.Errorf("the reason attempt 1 ended in the task block of attempt 2 =\n%s\nwant what was left of the bounds, with the cost that was overspent as nothing", task)
 	}
 	if w.spy.briefs[0].Timeout != 0 {
 		t.Errorf("round 1 got a timeout of %v: a command with no deadline gives the brain none", w.spy.briefs[0].Timeout)
 	}
 }
 
-// TestAFailureThatCannotBeRetriedStartsNoFurtherAttempt_TS_09_49 verifies TS-09-49.
+// TestARoundThatFailsEndsTheRunWithItsFailure_TS_09_49 verifies TS-09-49 as it stands: a
+// round that comes to no report ends the run, whatever the failure, and it is the run's.
 // Verifies: 09-REQ-7.4
-func TestAFailureThatCannotBeRetriedStartsNoFurtherAttempt_TS_09_49(t *testing.T) {
+func TestARoundThatFailsEndsTheRunWithItsFailure_TS_09_49(t *testing.T) {
 	for name, tc := range map[string]struct {
 		round    func(context.Context, brain.Brief) (brain.Outcome, error)
 		category string
@@ -417,14 +394,14 @@ func TestAFailureThatCannotBeRetriedStartsNoFurtherAttempt_TS_09_49(t *testing.T
 		"the credential is refused": {func(context.Context, brain.Brief) (brain.Outcome, error) {
 			return brain.Outcome{}, &toolio.Failure{Category: toolio.CategoryAuth, Message: "no key"}
 		}, toolio.CategoryAuth, 1},
-		"the brain ends with no report, which another attempt may mend": {func(context.Context, brain.Brief) (brain.Outcome, error) {
+		"the brain ends with no report": {func(context.Context, brain.Brief) (brain.Outcome, error) {
 			return brain.Outcome{StopReason: brain.StopEnded}, nil
-		}, toolio.CategoryNoResult, 2},
+		}, toolio.CategoryNoResult, 1},
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newLoopWorld(t)
 
-			res, err := w.loop(t, context.Background(), 2, 10, 150, tc.round)
+			res, err := w.loop(t, context.Background(), 10, 150, tc.round)
 
 			if err != nil {
 				t.Fatal(err)
@@ -432,45 +409,22 @@ func TestAFailureThatCannotBeRetriedStartsNoFurtherAttempt_TS_09_49(t *testing.T
 			if len(w.spy.briefs) != tc.runs || res.End != EndExhausted || res.LastFailure == nil || failure(t, res.LastFailure).Category != tc.category {
 				t.Errorf("the brain ran %d times (want %d), result %+v, want exhausted with the failure of category %s", len(w.spy.briefs), tc.runs, res, tc.category)
 			}
-			if res.Attempts != tc.runs {
-				t.Errorf("attempts = %d, want %d", res.Attempts, tc.runs)
-			}
 		})
 	}
 }
 
-// TestAFailureThatAnAttemptMendedIsNotTheFailureOfTheRun guards LastFailure: it is why the
-// last round did not come to a report, and a later round that did leaves none.
-func TestAFailureThatAnAttemptMendedIsNotTheFailureOfTheRun(t *testing.T) {
-	w := newLoopWorld(t)
-	nothing := func(context.Context, brain.Brief) (brain.Outcome, error) {
-		return brain.Outcome{StopReason: brain.StopEnded}, nil
-	}
-
-	res, err := w.loop(t, context.Background(), 2, 10, 150, nothing, round(t, broken, loopReportPayload, 10, 1))
-
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.End != EndExhausted || res.LastFailure != nil || res.LastRefusal == nil || res.Attempts != 2 || res.Rounds != 2 || !res.HoldsChange {
-		t.Errorf("result = %+v, want attempt 2 to have come to a report that was refused, and no failure", res)
-	}
-	if task := w.spy.briefs[1].Task; !strings.Contains(task, "a round ended without a fix report") {
-		t.Errorf("the first task block of attempt 2 =\n%s\nwant the reason attempt 1 ended", task)
-	}
-}
-
-// TestABoxThatCannotBeSyncedEndsTheAttemptWithItsFailure guards the way back to the measured
+// TestABoxThatCannotBeSyncedEndsTheRunWithItsFailure guards the way back to the measured
 // tree: a box that cannot be brought to it is not run in, and the failure is the run's.
-func TestABoxThatCannotBeSyncedEndsTheAttemptWithItsFailure(t *testing.T) {
+func TestABoxThatCannotBeSyncedEndsTheRunWithItsFailure(t *testing.T) {
 	w := newLoopWorld(t)
+	var bx *box.Session
 	closing := func(ctx context.Context, b brain.Brief) (brain.Outcome, error) {
-		out, err := round(t, broken, loopReportPayload, 0, 1)(ctx, b)
-		_ = b.Box.Close() // the box is gone before the next round
-		return out, err
+		bx = b.Box
+		return round(t, broken, loopReportPayload, 0, 1)(ctx, b)
 	}
+	w.afterGate = func() { _ = bx.Close() } // the box is gone once the change is measured and refused
 
-	res, err := w.loop(t, context.Background(), 3, 10, 150, closing)
+	res, err := w.loop(t, context.Background(), 10, 150, closing)
 
 	if err != nil {
 		t.Fatal(err)
@@ -488,7 +442,7 @@ func TestTheBrainIsNeverGivenLessThanASecond(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err := w.loop(t, ctx, 1, 10, 150, round(t, fixed, loopReportPayload, 0, 1))
+	_, err := w.loop(t, ctx, 10, 150, round(t, fixed, loopReportPayload, 0, 1))
 
 	if err != nil {
 		t.Fatal(err)
@@ -500,18 +454,18 @@ func TestTheBrainIsNeverGivenLessThanASecond(t *testing.T) {
 
 // TestThereIsNoRoundAfterTheTimeForTheBrainIsOut guards 09-REQ-7.2 against a real deadline:
 // with a command whose deadline leaves the brain less than a minute after the reserve, a
-// refusal ends the run's attempts, whatever cost is left.
+// refusal ends the run, whatever cost is left.
 func TestThereIsNoRoundAfterTheTimeForTheBrainIsOut(t *testing.T) {
 	w := newLoopWorld(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	res, err := w.loop(t, ctx, 3, 10, 150, round(t, broken, loopReportPayload, 1, 1), round(t, fixed, loopReportPayload, 1, 1))
+	res, err := w.loop(t, ctx, 10, 150, round(t, broken, loopReportPayload, 1, 1), round(t, fixed, loopReportPayload, 1, 1))
 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(w.spy.briefs) != 1 || res.End != EndExhausted || res.Attempts != 1 || !res.HoldsChange || res.LastRefusal == nil {
+	if len(w.spy.briefs) != 1 || res.End != EndExhausted || !res.HoldsChange || res.LastRefusal == nil {
 		t.Errorf("the brain ran %d times, result %+v, want one round, whatever cost remained: the deadline leaves no time to measure another", len(w.spy.briefs), res)
 	}
 	if b := w.spy.briefs[0]; b.Timeout <= 0 || b.Timeout > 90*time.Second-MeasureReserve(0) {
@@ -531,12 +485,12 @@ func TestAStoppedRunReturnsTheStopWithWhatWasDone(t *testing.T) {
 		return out, err
 	}
 
-	res, err := w.loop(t, ctx, 2, 10, 150, round(t, broken, loopReportPayload, 0, 1), stopping)
+	res, err := w.loop(t, ctx, 10, 150, round(t, broken, loopReportPayload, 0, 1), stopping)
 
 	if err == nil || ctx.Err() == nil {
 		t.Fatalf("error = %v, want the cancellation", err)
 	}
-	if res.Rounds != 2 || res.Attempts != 1 || res.End == EndLandable {
+	if res.Rounds != 2 || res.End == EndLandable {
 		t.Errorf("result = %+v", res)
 	}
 }
@@ -552,7 +506,7 @@ func TestACommitMadeOutsideAfStopsTheLoopWithTheChangeInTheTree(t *testing.T) {
 		return round(t, map[string]string{"docs/readme.md": "readme, changed\n"}, loopReportPayload, 0, 1)(ctx, b)
 	}
 
-	res, err := w.loop(t, context.Background(), 2, 10, 150, foreign, round(t, fixed, loopReportPayload, 0, 1))
+	res, err := w.loop(t, context.Background(), 10, 150, foreign, round(t, fixed, loopReportPayload, 0, 1))
 
 	if f := failure(t, err); f.Category != toolio.CategoryGit || !strings.Contains(f.Message, "made by hand") {
 		t.Errorf("error = %v, want git naming the commit", err)
@@ -570,7 +524,7 @@ func TestACommitMadeOutsideAfStopsTheLoopWithTheChangeInTheTree(t *testing.T) {
 func TestTheHookOfEveryRoundHasTheDefaultProtectedPaths(t *testing.T) {
 	w := newLoopWorld(t)
 
-	_, err := w.loop(t, context.Background(), 1, 10, 150, round(t, fixed, loopReportPayload, 0, 1))
+	_, err := w.loop(t, context.Background(), 10, 150, round(t, fixed, loopReportPayload, 0, 1))
 
 	if err != nil {
 		t.Fatal(err)
@@ -587,40 +541,23 @@ func TestThereIsNoRoundForARunThatIsAlreadyStopped(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	res, err := w.loop(t, ctx, 2, 10, 150, round(t, fixed, loopReportPayload, 0, 1))
+	res, err := w.loop(t, ctx, 10, 150, round(t, fixed, loopReportPayload, 0, 1))
 
 	if err == nil || len(w.spy.briefs) != 0 || res.Rounds != 0 {
 		t.Errorf("error %v, the brain ran %d times, result %+v", err, len(w.spy.briefs), res)
 	}
 }
 
-// TestTheReasonAnAttemptEndedSaysHowMuchTimeWasLeft guards the words of a run with a deadline.
-func TestTheReasonAnAttemptEndedSaysHowMuchTimeWasLeft(t *testing.T) {
-	w := newLoopWorld(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
-	defer cancel()
-
-	_, err := w.loop(t, ctx, 2, 10, 150, round(t, broken, loopReportPayload, 10, 1), round(t, fixed, loopReportPayload, 0, 1))
-
-	if err != nil {
-		t.Fatal(err)
-	}
-	task := w.spy.briefs[1].Task
-	if m := regexp.MustCompile(`and (\d+m\d+s|\d+s) of time for the brain left`).FindStringSubmatch(task); m == nil || strings.Contains(task, "no limit") {
-		t.Errorf("the task block of attempt 2 =\n%s\nwant the brain time that was left, as a duration", task)
-	}
-}
-
 // TestARunStoppedBetweenRoundsIsTheStopAndNotAnExhaustedRun guards the way a cancellation is
-// told when it comes while the box is being synced: the attempts do not run out one after the
-// other with a failure of the sandbox, the stop is returned.
+// told when it comes while the box is being synced: the run does not end with a failure of the
+// sandbox, the stop is returned.
 func TestARunStoppedBetweenRoundsIsTheStopAndNotAnExhaustedRun(t *testing.T) {
 	w := newLoopWorld(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	w.afterGate = cancel // the run is stopped as the first change has been measured and refused
 
-	res, err := w.loop(t, ctx, 3, 10, 150, round(t, broken, loopReportPayload, 1, 1), round(t, fixed, loopReportPayload, 1, 1))
+	res, err := w.loop(t, ctx, 10, 150, round(t, broken, loopReportPayload, 1, 1), round(t, fixed, loopReportPayload, 1, 1))
 
 	if err == nil || ctx.Err() == nil {
 		t.Fatalf("error = %v, want the stop", err)

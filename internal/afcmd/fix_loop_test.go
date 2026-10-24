@@ -45,7 +45,7 @@ func TestAQuestionEndsTheRunWithNeedsHumanAndTouchesNothing_TS_09_30(t *testing.
 		t.Errorf("git status = %q, want a clean tree", status)
 	}
 	res := resultOf(t, env)
-	if bx, _ := res["box"].(map[string]any); res["outcome"] != "needs_human" || res["rounds"] != float64(1) || res["attempts"] != float64(1) || res["attempts_max"] != float64(2) || bx["provider"] != "local" || bx["network"] != "host" {
+	if bx, _ := res["box"].(map[string]any); res["outcome"] != "needs_human" || res["rounds"] != float64(1) || bx["provider"] != "local" || bx["network"] != "host" {
 		t.Errorf("result = %v", res)
 	}
 	if res["land"] != "pr" || res["verdict"] != nil || res["branch"] != nil {
@@ -99,21 +99,21 @@ func TestAnswerResumesTheRunWithTheSamePrefixAndTheQuestion(t *testing.T) {
 	}
 }
 
-// TestTheBoundsOfTheCommandLineAreTheBoundsOfTheRound guards that --budget, --max-turns and
-// --attempts reach the rounds: the brain gets the budget and the turns of an attempt, and the
-// loop makes as many attempts as it is told to.
+// TestTheBoundsOfTheCommandLineAreTheBoundsOfTheRound guards that --budget and --max-turns
+// reach the rounds: the brain gets the budget and the turns of the run, and a round that ends
+// with no report ends the run.
 func TestTheBoundsOfTheCommandLineAreTheBoundsOfTheRound(t *testing.T) {
 	requireMake(t)
 	e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
 	spy := &spyBrain{}
 	useFixSpy(t, spy)
 
-	_, env := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", "local", "--budget", "3.5", "--max-turns", "17", "--attempts", "3")
+	_, env := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", "local", "--budget", "3.5", "--max-turns", "17")
 
-	if spy.runs != 3 {
-		t.Errorf("the brain ran %d times, want one round for each of the 3 attempts: it ends with no report each time", spy.runs)
+	if spy.runs != 1 {
+		t.Errorf("the brain ran %d times, want one round: it ends with no report", spy.runs)
 	}
-	if b := spy.brief; b == nil || b.MaxCostUSD != 3.5 || b.MaxTurns != 17 || b.Attempt != 3 || b.Kind.Name != "fix_report" {
+	if b := spy.brief; b == nil || b.MaxCostUSD != 3.5 || b.MaxTurns != 17 || b.Attempt != 1 || b.Kind.Name != "fix_report" {
 		t.Errorf("brief = %+v", b)
 	}
 	if env["run_id"] == nil {

@@ -71,9 +71,10 @@ func lastSeqAt(e *env, method, path string) int {
 	return last
 }
 
-// TestTheFixLoopRunsWithOneAttemptAndAFMaxAttemptsIsReturned_TS_13_30 verifies TS-13-30.
+// TestAFMaxAttemptsIsReturnedWithTheResult_TS_13_30 verifies TS-13-30 as it stands: the
+// attempts of a job are the jobs layer's, and the loop has none of its own.
 // Verifies: 13-REQ-4.5
-func TestTheFixLoopRunsWithOneAttemptAndAFMaxAttemptsIsReturned_TS_13_30(t *testing.T) {
+func TestAFMaxAttemptsIsReturnedWithTheResult_TS_13_30(t *testing.T) {
 	e := loopEnv(t, fixFiles, map[string]string{"AF_MAX_ATTEMPTS": "5"}, nil, fixSteps()...)
 
 	res, err := e.run(e.request(jobs.KindFix, issueInput("42")))
@@ -85,8 +86,8 @@ func TestTheFixLoopRunsWithOneAttemptAndAFMaxAttemptsIsReturned_TS_13_30(t *test
 	if env["status"] != "done" || res.MaxAttempts != 5 {
 		t.Errorf("status %v, max attempts %d, error %v, want a done fix and 5", env["status"], res.MaxAttempts, env["error"])
 	}
-	if got := resultMap(t, res)["attempts_max"]; got != float64(1) {
-		t.Errorf("the fix reports %v attempts in the run, want 1", got)
+	if _, ok := resultMap(t, res)["attempts_max"]; ok {
+		t.Error("the result of the fix counts attempts, which the loop no longer has")
 	}
 }
 
@@ -111,12 +112,12 @@ func TestATriageOnACarryPatchWorkspaceRunsNormally_TS_13_32(t *testing.T) {
 }
 
 // TestTheWorkerCreatesOnlyCloneAndInputWithMode0700AndLeavesTheRestAlone_TS_13_33 verifies
-// TS-13-33: for an attempt on a file, clone/ and input/ are made with mode 0700 and the file is
+// TS-13-33: for an attempt of a triage on a file, clone/ and input/ are made with mode 0700 and the file is
 // written under input/ with its base name, and once the attempt has returned the pre-seeded
 // envelope.json and report.md are as they were, with the attempt directory, and nothing else.
 // Verifies: 13-REQ-5.1
 func TestTheWorkerCreatesOnlyCloneAndInputWithMode0700AndLeavesTheRestAlone_TS_13_33(t *testing.T) {
-	e := loopEnv(t, fixFiles, nil, nil, fixSteps()...)
+	e := loopEnv(t, triageFiles, nil, nil, submitStep(probableDiagnosis))
 	seeded := map[string]string{"envelope.json": "{\"seeded\": true}\n", "report.md": "# seeded\n"}
 	for name, content := range seeded {
 		if err := os.WriteFile(filepath.Join(e.dir, name), []byte(content), 0o640); err != nil {
@@ -159,7 +160,7 @@ func TestTheWorkerCreatesOnlyCloneAndInputWithMode0700AndLeavesTheRestAlone_TS_1
 	if err := os.WriteFile(filepath.Join(e.dir, "input", "stale.md"), []byte("stale"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	req := e.request(jobs.KindFix, jobs.Input{File: &jobs.File{Name: "notes.md", Content: "The greeting says helo.\n"}})
+	req := e.request(jobs.KindTriage, jobs.Input{File: &jobs.File{Name: "notes.md", Content: "The greeting says helo.\n"}})
 
 	res, err := e.run(req)
 
@@ -653,9 +654,9 @@ func TestEachStopPointHasItsDocumentedWritesLeaseAndRelease_TS_13_60(t *testing.
 // Verifies: 13-REQ-8.5
 func TestTextTitlesFilesAndContextReachTheLoopAsSpecified_TS_13_62(t *testing.T) {
 	t.Run("a text with a title", func(t *testing.T) {
-		e := loopEnv(t, fixFiles, nil, nil, fixSteps()...)
+		e := loopEnv(t, triageFiles, nil, nil, submitStep(probableDiagnosis))
 
-		res, err := e.run(e.request(jobs.KindFix, jobs.Input{Title: "Greeting is wrong", Text: "The greeting says helo."}))
+		res, err := e.run(e.request(jobs.KindTriage, jobs.Input{Title: "Greeting is wrong", Text: "The greeting says helo."}))
 
 		if err != nil || envelope(t, res)["status"] != "done" {
 			t.Fatalf("result %s, error %v", res.Envelope, err)
@@ -896,7 +897,7 @@ func TestTheLoopIsMadeOfTheSeamsOfTheAttempt(t *testing.T) {
 	if tail := args[len(args)-3:]; !slices.Equal(tail, []string{"--context=c1", "--context=c2", "--context=y"}) {
 		t.Errorf("the invocation ends %v, want the context values in order, the answer last", tail)
 	}
-	if flags := strings.Join(args, " "); !strings.Contains(flags, "--model") && !strings.Contains(flags, "--attempts 1 --land pr") {
+	if flags := strings.Join(args, " "); !strings.Contains(flags, "--model") && !(strings.Contains(flags, "--max-turns 150 --timeout ") && strings.Contains(flags, " --land pr")) {
 		t.Errorf("the invocation %q lacks the settings as flags", flags)
 	}
 }

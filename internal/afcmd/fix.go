@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"slices"
-	"strconv"
 	"time"
 
 	"github.com/agent-fox-dev/aflib/issuex"
@@ -18,28 +17,11 @@ import (
 const (
 	fixDefaultBudget   = 10
 	fixDefaultMaxTurns = 150
-	fixDefaultAttempts = 2
-	fixMaxAttempts     = 5
 	fixDefaultTimeout  = 45 * time.Minute
 	// fixGrace is how long a run that is told to stop has to put the tree back and
 	// park what it holds: the parking itself is bounded to 10 seconds.
 	fixGrace = 30 * time.Second
 )
-
-// attemptsFlag is --attempts, which has to be from 1 to 5: a value out of range
-// is refused when the flags are parsed, before anything is read or asked.
-type attemptsFlag int
-
-func (a *attemptsFlag) String() string { return strconv.Itoa(int(*a)) }
-
-func (a *attemptsFlag) Set(v string) error {
-	n, err := strconv.Atoi(v)
-	if err != nil || n < 1 || n > fixMaxAttempts {
-		return fmt.Errorf("--attempts must be a whole number from 1 to %d, not %q", fixMaxAttempts, v)
-	}
-	*a = attemptsFlag(n)
-	return nil
-}
 
 // landFlag is --land: pr, branch or none.
 type landFlag string
@@ -58,7 +40,6 @@ func (l *landFlag) Set(v string) error {
 type fixOptions struct {
 	settings *brain.Settings
 	base     string
-	attempts attemptsFlag
 	land     landFlag
 	noVerify bool
 }
@@ -69,12 +50,11 @@ func registerFix(app *toolio.App, c *Config) {
 	app.Register(toolio.Command{
 		Path:    "fix",
 		Summary: "Fix a reported problem: a verified change on a branch, and a pull request",
-		Usage:   "af fix <issue|file|text|-> [--dir DIR] [--base BRANCH] [--context ANSWER]... [--repo owner/name] [--land pr|branch|none] [--attempts N] [--no-verify] [--dry-run] [--brain NAME] [--sandbox NAME] [--budget USD] [--max-turns N] [--timeout 45m]",
+		Usage:   "af fix <issue> [--dir DIR] [--base BRANCH] [--context ANSWER]... [--repo owner/name] [--land pr|branch|none] [--no-verify] [--brain NAME] [--sandbox NAME] [--budget USD] [--max-turns N] [--timeout 45m]",
 		Flags: func(fs *flag.FlagSet) {
-			o = fixOptions{attempts: fixDefaultAttempts, land: fix.LandPR}
+			o = fixOptions{land: fix.LandPR}
 			o.settings = brain.Flags(fs, brain.Defaults{Budget: fixDefaultBudget, MaxTurns: fixDefaultMaxTurns})
 			fs.StringVar(&o.base, "base", "", baseUsage)
-			fs.Var(&o.attempts, "attempts", "up to `n` attempts, each with a budget of its own; from 1 to 5")
 			fs.Var(&o.land, "land", "where the change goes, as a `mode`: pr (push the branch and open a pull request), branch (push it), or none (keep it on a local branch)")
 			fs.BoolVar(&o.noVerify, "no-verify", false, "land without the gate: no baseline, no check after, a draft that says Refs")
 		},
@@ -83,7 +63,6 @@ func registerFix(app *toolio.App, c *Config) {
 		UsesRunDir:     true,
 		Context:        true,
 		Repo:           true,
-		DryRun:         true,
 		Timeout:        true,
 		DefaultTimeout: fixDefaultTimeout,
 		Grace:          fixGrace,
@@ -96,7 +75,7 @@ const ledgerFixQuestion = "fix.question"
 
 // fixLoop is a fix run from the report to the pull request.
 func fixLoop(c *Config, r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
-	if err := refusePullRequest(r); err != nil {
+	if err := refuseNonIssue(r); err != nil {
 		return toolio.Outcome{}, err
 	}
 	if err := o.settings.ValidateIn(c.getenv(), c.boxes()); err != nil {
@@ -147,8 +126,8 @@ func (a *fixAttempt) finish() (toolio.Outcome, error) {
 
 	fin, err := fix.Finish(r.Ctx, fix.FinishParams{
 		Git: pre.Git, State: state, Input: fix.Input{Kind: string(r.Input.Kind), Origin: r.Input.Origin, Body: r.Input.Body},
-		Mode: string(o.land), DryRun: r.DryRun, Forge: r.Forge, Target: repoOfState(state.Target), Ended: ended, LoopErr: loopErr,
-		AttemptsMax: int(o.attempts), Box: used, Reporter: r, WriteReport: r.RunDir.WriteReport,
+		Mode: string(o.land), Forge: r.Forge, Target: repoOfState(state.Target), Ended: ended, LoopErr: loopErr,
+		Box: used, Reporter: r, WriteReport: r.RunDir.WriteReport,
 		PostPush: c.PostPush,
 	})
 	if err != nil {
@@ -186,7 +165,7 @@ type fixAttempt struct {
 func (a *fixAttempt) preflightParams(m *fix.BoxMeasurer) fix.PreflightParams {
 	c, r, o := a.c, a.r, a.o
 	p := fix.PreflightParams{
-		Dir: r.Dir, Base: o.base, Land: string(o.land), NoVerify: o.noVerify, DryRun: r.DryRun,
+		Dir: r.Dir, Base: o.base, Land: string(o.land), NoVerify: o.noVerify,
 		Forge: r.Forge, Target: r.Target, Warn: r.Warn, GitRunner: c.git(),
 		NewBrain: func() (brain.Brain, error) { return a.entry.New(a.opts) },
 	}
@@ -223,7 +202,7 @@ func (a *fixAttempt) loop(sess *box.Session, m *fix.BoxMeasurer) {
 	tally := &brain.Tally{}
 	a.ended, a.loopErr = fix.RunLoop(a.r.Ctx, fix.LoopParams{
 		Dir: a.r.Dir, Git: a.pre.Git, Session: sess, Name: a.o.settings.Brain, Brain: a.pre.Brain, Tally: tally, RunDir: a.r.RunDir, Report: a.r, Reporter: a.r,
-		State: &a.state, Prefix: a.start.prefix.Text, Attempts: int(a.o.attempts), Budget: a.o.settings.Budget, MaxTurns: a.o.settings.MaxTurns,
+		State: &a.state, Prefix: a.start.prefix.Text, Budget: a.o.settings.Budget, MaxTurns: a.o.settings.MaxTurns,
 		Gate: m.Gate, Conform: m.RevertCheck, Earlier: a.c.suppliedEarlier(a.state.Context),
 	})
 }

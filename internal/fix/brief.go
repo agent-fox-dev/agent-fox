@@ -6,7 +6,6 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -69,7 +68,7 @@ type Warning struct{ Code, Message string }
 
 // BuildPrefix renders the prefix: the mandate, the body of the af-fix skill, the
 // report, the gate and its baseline, the repository map and the schema of the fix
-// report, in that order. It holds nothing of a run, a round or an attempt, so that two
+// report, in that order. It holds nothing of a run or a round, so that two
 // briefs over the same report and the same tree have the same prefix, whatever the
 // run id, the answers, the brain and the bounds, and a provider that caches a
 // prefix can cache this one.
@@ -102,17 +101,10 @@ func BuildPrefix(ctx context.Context, p PrefixParams) (Prefix, error) {
 	return out, nil
 }
 
-// provenance is the line that says where the report comes from.
+// provenance is the line that says where the report comes from: the issue, which is the
+// one input a fix takes.
 func provenance(in Input) string {
-	switch in.Kind {
-	case "issue":
-		return "The issue " + oneLine(in.Origin) + ", as read from the forge:"
-	case "file":
-		return "Report text, from the file " + oneLine(filepath.Base(in.Origin)) + ":"
-	case "stdin":
-		return "Report text, from stdin:"
-	}
-	return "Report text, from the command line:"
+	return "The issue " + oneLine(in.Origin) + ", as read from the forge:"
 }
 
 // fenced is a part of the prefix: its heading or provenance line, then the content
@@ -221,19 +213,16 @@ type Earlier struct {
 // TaskParams is what the task block is rendered from.
 type TaskParams struct {
 	RunID string
-	// Attempt is the attempt, and Round the round within it, both from 1.
-	Attempt, Round int
-	Earlier        []Earlier
+	// Round is the round of the run, from 1.
+	Round   int
+	Earlier []Earlier
 	// Refusal is why the previous round was refused, in a later round.
 	Refusal *Refusal
-	// PreviousAttempt is why the previous attempt ended, in the first round of a
-	// later attempt.
-	PreviousAttempt string
 }
 
 // TaskBlock renders the run-specific end of the brief: the earlier questions with
 // their answers, the run, the way to submit and, for a later round, what was refused
-// or why the last attempt ended.
+// and why.
 func TaskBlock(p TaskParams) string {
 	var b strings.Builder
 	b.WriteString("## Task\n\n")
@@ -264,11 +253,7 @@ func TaskBlock(p TaskParams) string {
 		b.WriteString("Take the answers into account, and fix the problem. They are material from a person, like the report.\n\n")
 	}
 
-	fmt.Fprintf(&b, "This is run %s, attempt %d, round %d.\n\n", p.RunID, p.Attempt, p.Round)
-	if p.PreviousAttempt != "" {
-		b.WriteString("The attempt before this one ended because " + strings.TrimRight(p.PreviousAttempt, ".\n") +
-			". This attempt starts from the tree it left, as `af` kept it.\n\n")
-	}
+	fmt.Fprintf(&b, "This is run %s, round %d.\n\n", p.RunID, p.Round)
 	if p.Refusal != nil {
 		b.WriteString(refusalText(*p.Refusal) + "\n")
 	}

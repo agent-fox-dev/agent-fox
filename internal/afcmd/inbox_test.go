@@ -76,7 +76,7 @@ func newBoxFixEnv(t *testing.T, files map[string]string) *boxFixEnv {
 // fixInBox runs af fix on issue 7 in the gateway box with the scripted brain.
 func (w *boxFixEnv) fixInBox(steps ...string) (int, map[string]any) {
 	w.t.Helper()
-	args := []string{"fix", w.forge.IssueURL(7), "--dir", w.dir, "--brain", "scripted", "--sandbox", "gateway", "--attempts", "1"}
+	args := []string{"fix", w.forge.IssueURL(7), "--dir", w.dir, "--brain", "scripted", "--sandbox", "gateway"}
 	return w.run("", append(args, steps...)...)
 }
 
@@ -366,7 +366,7 @@ func TestVerdictTableGateSectionAndResultFieldsKeepTheirShapeInBothModes_TS_13_5
 	if !slices.Equal(shapeIn, shapeOn) {
 		t.Errorf("the result of the fix in the box has the fields\n%v\nand the one on the host\n%v", shapeIn, shapeOn)
 	}
-	for _, key := range []string{"verdict", "baseline", "after", "revert_check", "outcome", "closes", "branch", "attempts"} {
+	for _, key := range []string{"verdict", "baseline", "after", "revert_check", "outcome", "closes", "branch", "rounds"} {
 		if _, in := resultOf(t, inBox)[key]; !in {
 			t.Errorf("the result in the box has no %s", key)
 		}

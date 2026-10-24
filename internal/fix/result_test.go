@@ -12,8 +12,8 @@ import (
 
 // resultKeys are the fields of a result, in the order of the spec.
 var resultKeys = []string{
-	"run_id", "issue", "issue_created", "base", "base_head", "attempts", "rounds", "attempts_max", "outcome", "verdict", "landable", "closes",
-	"baseline", "after", "revert_check", "changed_files", "reverted_paths", "scope", "land", "branch", "commit", "pushed", "pull_request", "box",
+	"run_id", "issue", "base", "base_head", "rounds", "outcome", "verdict", "landable", "closes",
+	"baseline", "after", "revert_check", "changed_files", "reverted_paths", "land", "branch", "commit", "pushed", "pull_request", "box",
 }
 
 // asMap is a result as the generic JSON a consumer reads.
@@ -43,11 +43,10 @@ func TestAResultCarriesEveryFieldWhateverTheRunDid_TS_09_67(t *testing.T) {
 	}
 
 	landed := NewResult(ResultInput{
-		State: state, Attempts: 1, Rounds: 2, AttemptsMax: 2, Outcome: OutcomeLanded, Land: LandPR,
+		State: state, Rounds: 2, Outcome: OutcomeLanded, Land: LandPR,
 		Measured: &Measurement{
 			Verdict: checks.VerdictPass, Landable: true, Lands: true, Closes: true, After: &GateRef{GateID: "after", Passed: true},
 			RevertCheck: &RevertRef{Outcome: "proven", Reason: "r"}, Changed: []string{"a.go"}, Reverted: []string{".specs/x.md"},
-			Scope: Scope{Undeclared: []string{"b.go"}, Unchanged: []string{}},
 		},
 		Branch: "fix/7-greeting", Commit: "0123456789abcdef0123456789abcdef01234567", Pushed: true,
 		PullRequest: &PullRequestRef{Number: 3, URL: "https://x/3", Draft: false}, Box: &info,
@@ -63,7 +62,7 @@ func TestAResultCarriesEveryFieldWhateverTheRunDid_TS_09_67(t *testing.T) {
 	}
 	if m["run_id"] != state.RunID || m["issue"] != state.Issue.URL || m["base"] != "main" || m["base_head"] != state.BaseHead || m["outcome"] != "landed" || m["verdict"] != "pass" ||
 		m["landable"] != true || m["closes"] != true || m["land"] != "pr" || m["branch"] != "fix/7-greeting" || m["commit"] != "0123456789abcdef0123456789abcdef01234567" || m["pushed"] != true ||
-		m["attempts"] != float64(1) || m["rounds"] != float64(2) || m["attempts_max"] != float64(2) {
+		m["rounds"] != float64(2) {
 		t.Errorf("result = %v", m)
 	}
 	if b, _ := m["baseline"].(map[string]any); b["gate_id"] != state.BaselineGateID || b["passed"] != state.BaselinePassed {
@@ -77,9 +76,6 @@ func TestAResultCarriesEveryFieldWhateverTheRunDid_TS_09_67(t *testing.T) {
 	}
 	if bx, _ := m["box"].(map[string]any); bx["provider"] != "local" || bx["network"] != "host" || bx["image"] != "" {
 		t.Errorf("box = %v", m["box"])
-	}
-	if s, _ := m["scope"].(map[string]any); len(s["undeclared"].([]any)) != 1 || s["unchanged"] == nil {
-		t.Errorf("scope = %v", m["scope"])
 	}
 	if got := m["changed_files"].([]any); len(got) != 1 || got[0] != "a.go" {
 		t.Errorf("changed_files = %v", m["changed_files"])
@@ -102,23 +98,20 @@ func TestAResultOfARunThatParkedOrAskedCarriesEveryField_TS_09_67(t *testing.T) 
 	state := sampleState()
 	info := sessionBoxInfo(t, "local")
 
-	// A run that parked, with an issue that was made for a text.
-	state.Issue, state.NoVerify = nil, false
+	// A run that parked.
+	state.NoVerify = false
 	parked := asMap(t, NewResult(ResultInput{
 		State: state, Outcome: OutcomeParked, Land: LandBranch,
 		Measured: &Measurement{Verdict: checks.VerdictStillFailing, After: &GateRef{GateID: "a2"}, Changed: []string{"a.go"}},
-		Branch:   "fix/x", Commit: "0123456789abcdef0123456789abcdef01234567", IssueCreated: &IssueRef{Number: 5, URL: "https://x/5"}, Box: &info,
+		Branch:   "fix/x", Commit: "0123456789abcdef0123456789abcdef01234567", Box: &info,
 	}))
 	for _, key := range resultKeys {
 		if _, ok := parked[key]; !ok {
 			t.Errorf("a parked result lacks %s", key)
 		}
 	}
-	if parked["issue"] != nil || parked["outcome"] != "parked" || parked["landable"] != false || parked["closes"] != false || parked["pull_request"] != nil || parked["pushed"] != false {
+	if parked["issue"] != state.Issue.URL || parked["outcome"] != "parked" || parked["landable"] != false || parked["closes"] != false || parked["pull_request"] != nil || parked["pushed"] != false {
 		t.Errorf("parked = %v", parked)
-	}
-	if ic, _ := parked["issue_created"].(map[string]any); ic["number"] != float64(5) {
-		t.Errorf("issue_created = %v", parked["issue_created"])
 	}
 	for _, key := range []string{"changed_files", "reverted_paths"} {
 		if list, ok := parked[key].([]any); !ok {
@@ -140,9 +133,6 @@ func TestAResultOfARunThatParkedOrAskedCarriesEveryField_TS_09_67(t *testing.T) 
 	}
 	if list, ok := asked["changed_files"].([]any); !ok || len(list) != 0 {
 		t.Errorf("changed_files = %v, want []", asked["changed_files"])
-	}
-	if s, _ := asked["scope"].(map[string]any); s["undeclared"] == nil || s["unchanged"] == nil {
-		t.Errorf("scope = %v, want two empty lists", asked["scope"])
 	}
 	if keys := slices.Sorted(func(yield func(string) bool) {
 		for k := range asked {

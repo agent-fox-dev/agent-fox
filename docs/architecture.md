@@ -533,15 +533,14 @@ proven one makes the commit say `Closes`. A refusal is recorded and is the next
 round's task block, with the tail of each failing check, in the same box and the
 same tree.
 
-**Land or park.** A landable change gets, in order, an issue (for a text or a file,
-so that the pull request has something to refer to), a branch `fix/<N>-<slug>` from
+**Land or park.** A fix takes an issue, and a landable change gets, in order, a branch `fix/<N>-<slug>` from
 `base_head`, one commit with the hooks of the repository, a push with retries and
 the pull request, whose body is rendered from facts: what `af` measured is never
 cut and what the brain reported is quoted. The checkout always ends on the base,
 clean. A change that cannot land is parked: a `wip:` commit made without the hooks,
 so that nothing can lose it, pushed and offered as a draft that says `Refs`. An
 interrupted run parks what it applied on a local branch, on a context the signal
-did not reach and within 10 seconds; a dry run discards it.
+did not reach and within 10 seconds.
 
 **The run files** are `brief.md`, `original.md`, `run.json`, `fix.json`,
 `submission.json` and `report.md`, which is the body of the pull request as it was
@@ -697,7 +696,7 @@ worker, the poll, the `af` client) build on:
   `af` command it is (`internal/afcmd`), with a shell of its own that no signal stops, only the context of the
   attempt: the forge is hub's for the workspace's repository, the box providers are the gateway of the lease
   alone, the git runner is the clone's, the checks of the repository are measured in the box, and the settings
-  are the flags (`--brain`, `--budget`, `--max-turns`, `--timeout`, and for a fix `--attempts 1` and `--land`;
+  are the flags (`--brain`, `--budget`, `--max-turns`, `--timeout`, and for a fix `--land`;
   the model goes to the brain in its options). The environment of the process is read by nothing: the brain
   gets a lookup that finds nothing. An issue is its URL on the workspace's repository, a text goes on stdin
   with its title as a Markdown heading, a file is written to `input/<base name>` (mode 0600 in a directory of

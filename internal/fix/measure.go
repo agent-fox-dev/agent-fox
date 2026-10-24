@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/agent-fox-dev/agentfox/internal/checks"
@@ -19,7 +18,6 @@ import (
 // The warnings of measuring a change.
 const (
 	WarnProtectedPathReverted = "protected_path_reverted"
-	WarnScopeMismatch         = "scope_mismatch"
 	WarnFixNotProven          = "fix_not_proven"
 	WarnTreeChangedDuringGate = "tree_changed_during_gate"
 )
@@ -41,12 +39,6 @@ type GateRef struct {
 type RevertRef struct {
 	Outcome string `json:"outcome"`
 	Reason  string `json:"reason"`
-}
-
-// Scope compares the files a report declares with the paths that changed.
-type Scope struct {
-	Undeclared []string `json:"undeclared"`
-	Unchanged  []string `json:"unchanged"`
 }
 
 // MeasureParams is what a change on the checkout is measured against.
@@ -83,7 +75,6 @@ type Measurement struct {
 	// Reverted those that were put back.
 	Changed  []string
 	Reverted []string
-	Scope    Scope
 	// Refusal is why a change does not land, and nil when it does.
 	Refusal *Refusal
 }
@@ -94,35 +85,10 @@ func (p MeasureParams) warn(code, message string) {
 	}
 }
 
-// ScopeOf compares the files a report declares with the paths that changed, both lists
-// sorted, and never nil.
-func ScopeOf(declared, changed []string) Scope {
-	declared, changed = sortedUnique(declared), sortedUnique(changed)
-	s := Scope{Undeclared: []string{}, Unchanged: []string{}}
-	for _, c := range changed {
-		if !slices.Contains(declared, c) {
-			s.Undeclared = append(s.Undeclared, c)
-		}
-	}
-	for _, d := range declared {
-		if !slices.Contains(changed, d) {
-			s.Unchanged = append(s.Unchanged, d)
-		}
-	}
-	return s
-}
-
-func sortedUnique(list []string) []string {
-	out := slices.Clone(list)
-	slices.Sort(out)
-	return slices.Compact(out)
-}
-
 // Measure measures the change on the checkout, from the facts of the checkout and of the
 // checks. The checkout must be where the run left it, or it is failed/git. The protected
 // paths that changed are put back, and a change that is nothing then is refused with no
-// check run. The report's files are compared with the paths git sees, and a difference
-// warns and refuses nothing. Unless the run is not verified, the pinned table is run and
+// check run. Unless the run is not verified, the pinned table is run and
 // compared with the baseline, and a change that may land is given the revert check, which
 // alone decides whether the commit says Closes.
 func Measure(ctx context.Context, p MeasureParams) (Measurement, error) {
@@ -133,23 +99,12 @@ func Measure(ctx context.Context, p MeasureParams) (Measurement, error) {
 	if err != nil {
 		return Measurement{}, err
 	}
-	m := Measurement{Changed: changed, Reverted: reverted, Scope: Scope{Undeclared: []string{}, Unchanged: []string{}}}
+	m := Measurement{Changed: changed, Reverted: reverted}
 	if len(changed) == 0 {
 		m.Verdict = VerdictNoChange
 		m.Refusal = &Refusal{Kind: RefusalNoChange, Verdict: VerdictNoChange, Reverted: reverted}
 		return m, nil
 	}
-	if p.Report != nil {
-		declared := make([]string, len(p.Report.Files))
-		for i, f := range p.Report.Files {
-			declared[i] = f.Path
-		}
-		if m.Scope = ScopeOf(declared, changed); len(m.Scope.Undeclared)+len(m.Scope.Unchanged) > 0 {
-			p.warn(WarnScopeMismatch, fmt.Sprintf("the report declares files that did not change (%s) and the change has files it does not declare (%s)",
-				strings.Join(m.Scope.Unchanged, ", "), strings.Join(m.Scope.Undeclared, ", ")))
-		}
-	}
-
 	if p.State.NoVerify {
 		m.Verdict, m.Lands = checks.VerdictUnverified, true
 		return m, nil

@@ -18,13 +18,8 @@ const (
 	EffectBranch            = "branch"
 	EffectCommit            = "commit"
 	EffectPush              = "push"
-	EffectCreateIssue       = "create_issue"
 	EffectCreatePullRequest = "create_pull_request"
 )
-
-// The heading of the original report in the issue that is made for one, and the line that
-// ends the body.
-const originalHeading = "## Original report"
 
 // Reporter is where a landing says what it did: its warnings, what it produced, what it
 // wrote beyond the working tree, and what to do next. A *toolio.Run is one.
@@ -74,50 +69,6 @@ func MakeBranch(ctx context.Context, g *gitx.Git, rep Reporter, number int, titl
 	return name, nil
 }
 
-// NeedsIssue says whether a report of this kind gets an issue made for it: a text, a file
-// or standard input, when the pull request is asked for.
-func NeedsIssue(kind, mode string) bool {
-	return mode == LandPR && (kind == "text" || kind == "file" || kind == "stdin")
-}
-
-// IssueParams is what the issue for a report is made of.
-type IssueParams struct {
-	Forge  issuex.Client
-	Target issuex.Repo
-	// Title is the subject of the fix, Original the report as it was given, and RunID the
-	// run that names the line at the end of the body.
-	Title, Original, RunID string
-	Report                 Reporter
-}
-
-// CreateIssue creates the issue for a text or a file report: the subject is its title and
-// the original report, under a heading, is its body, with a line that names the run. A
-// report that does not fit what the forge takes is cut, behind the marker the shell cuts
-// an input with.
-func CreateIssue(ctx context.Context, p IssueParams) (IssueRef, error) {
-	body := issueBody(p.Original, p.RunID, issuex.MaxBodyLength(p.Forge))
-	issue, err := p.Forge.CreateIssue(ctx, p.Target, issuex.CreateIssueRequest{Title: p.Title, Body: body})
-	target := p.Target.String()
-	if err != nil {
-		p.Report.SideEffect(toolio.SideEffect{Kind: EffectCreateIssue, Target: target, State: toolio.StateFailed, Detail: err.Error()})
-		return IssueRef{}, forgeFailure(ctx, "create the issue in "+target, err)
-	}
-	ref := IssueRef{Number: issue.Number, URL: firstNonEmpty(issue.HTMLURL, issue.URL)}
-	p.Report.SideEffect(toolio.SideEffect{Kind: EffectCreateIssue, Target: target, State: toolio.StateDone})
-	p.Report.Artifact(toolio.Artifact{Kind: "issue", URL: ref.URL, Number: ref.Number})
-	return ref, nil
-}
-
-// issueBody is the body of the issue for a report, within limit bytes.
-func issueBody(original, runID string, limit int) string {
-	head := originalHeading + "\n\n"
-	tail := fmt.Sprintf("\n\nCreated by af fix, run %s.\n", runID)
-	if room := limit - len(head) - len(tail); len(original) > room {
-		original = cutAtRune(original, max(0, room-len(toolio.TruncationMarker))) + toolio.TruncationMarker
-	}
-	return head + original + tail
-}
-
 // cutAtRune is s cut to at most n bytes at the end of a character.
 func cutAtRune(s string, n int) string {
 	if n >= len(s) {
@@ -136,17 +87,6 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-// forgeFailure is the failure for an error of a write to the forge, which is what names.
-func forgeFailure(ctx context.Context, what string, err error) error {
-	switch {
-	case ctx.Err() != nil:
-		return ctx.Err()
-	case errors.Is(err, issuex.ErrNoToken) || issuex.IsNoToken(err) || isUnauthorized(err):
-		return &toolio.Failure{Category: toolio.CategoryAuth, Message: fmt.Sprintf("cannot %s: %v", what, err)}
-	}
-	return &toolio.Failure{Category: toolio.CategoryForge, Message: fmt.Sprintf("cannot %s: %v", what, err), Retryable: retryable(err)}
 }
 
 // oneLine is a subject as a single line.
@@ -198,16 +138,14 @@ type LandResult struct {
 	Outcome string
 	// Status is done, or unverified for a change that was landed without the gate and for
 	// one that was parked.
-	Status       toolio.Status
-	Branch       string
-	Commit       string
-	Pushed       bool
-	PullRequest  *PullRequestRef
-	IssueCreated *IssueRef
+	Status      toolio.Status
+	Branch      string
+	Commit      string
+	Pushed      bool
+	PullRequest *PullRequestRef
 }
 
-// Land lands a change that was measured: the issue of a text or a file, a branch named by
-// it, one commit that af makes, with the hooks of the repository, the push and the pull
+// Land lands a change that was measured: a branch named by the issue, one commit that af makes, with the hooks of the repository, the push and the pull
 // request that the mode asks for, and the checkout back on the base with a clean tree. A
 // commit that a hook stops is parked instead. A push that fails after its retries is a
 // failure, with the branch and the commit kept; a pull request that fails after the push
@@ -217,13 +155,11 @@ func Land(ctx context.Context, p LandParams) (LandResult, error) {
 	l.postPush = p.PostPush
 	rep := p.Reporter
 	l.subject = singleLine(p.Report.Subject)
-	if err := l.ensureIssue(ctx); err != nil {
-		return LandResult{}, err
-	}
+	l.takeIssue()
 	if err := l.makeBranch(ctx); err != nil {
 		return LandResult{}, err
 	}
-	res := LandResult{Outcome: OutcomeLanded, Status: toolio.StatusDone, Branch: l.branch, IssueCreated: l.created}
+	res := LandResult{Outcome: OutcomeLanded, Status: toolio.StatusDone, Branch: l.branch}
 
 	typ := p.Report.Type
 	if typ == "" {
@@ -251,7 +187,7 @@ func Land(ctx context.Context, p LandParams) (LandResult, error) {
 	res.Commit = l.commit
 
 	if p.Mode != LandNone {
-		wantPR := p.Mode == LandPR && !l.skipPR && l.issueURL != ""
+		wantPR := p.Mode == LandPR
 		draft := p.State.NoVerify
 		if unmet := unmetCriteria(p.Report); wantPR && len(unmet) > 0 {
 			draft = true
@@ -261,12 +197,8 @@ func Land(ctx context.Context, p LandParams) (LandResult, error) {
 			return res, l.finish(l.pushFailure(err))
 		}
 		res.Pushed = true
-		if p.Mode == LandPR {
-			if !wantPR {
-				rep.Warn(WarnPullRequestSkipped, "no pull request was opened: there is no issue for it to refer to")
-			} else {
-				res.PullRequest = l.openPullRequest(ctx, typ+": "+l.subject, body, draft)
-			}
+		if wantPR {
+			res.PullRequest = l.openPullRequest(ctx, typ+": "+l.subject, body, draft)
 		}
 	}
 	if err := l.backToBase(); err != nil {
@@ -347,13 +279,10 @@ type landing struct {
 	interrupted bool
 
 	subject string
-	// number, title and issueURL name the issue; created is the one that was made.
+	// number, title and issueURL name the issue of the run.
 	number   int
 	title    string
 	issueURL string
-	created  *IssueRef
-	// skipPR says an issue was needed and could not be made.
-	skipPR bool
 	// hookRefused says the change is parked because a hook of the repository refused its commit,
 	// and not because the gate refused the change.
 	hookRefused bool
@@ -378,30 +307,12 @@ func newLanding(g *gitx.Git, rep Reporter, state State, input Input, mode string
 	return &landing{g: g, rep: rep, state: state, input: input, mode: mode, forge: forge, target: target, interrupted: interrupted}
 }
 
-// ensureIssue makes the issue of a text or a file when the pull request is asked for, and
-// otherwise takes the issue the run is for. An issue that cannot be made is a warning: the
-// change goes on without one. Only a run that is stopped is an error.
-func (l *landing) ensureIssue(ctx context.Context) error {
+// takeIssue takes the issue the run is for, which names the branch and the pull request.
+func (l *landing) takeIssue() {
 	l.title = l.subject
 	if l.state.Issue != nil {
 		l.number, l.title, l.issueURL = l.state.Issue.Number, l.state.Issue.Title, l.state.Issue.URL
-		return nil
 	}
-	if l.interrupted || !NeedsIssue(l.input.Kind, l.mode) {
-		return nil
-	}
-	ref, err := CreateIssue(ctx, IssueParams{Forge: l.forge, Target: l.target, Title: l.subject, Original: l.input.Body, RunID: l.state.RunID, Report: l.rep})
-	switch {
-	case err == nil:
-		l.created = &ref
-		l.number, l.issueURL = ref.Number, ref.URL
-	case ctx.Err() != nil:
-		return ctx.Err()
-	default:
-		l.rep.Warn(WarnIssueCreationFailed, err.Error()+"; the change goes on without an issue")
-		l.skipPR = true
-	}
-	return nil
 }
 
 // makeBranch makes the branch of the change, and the context the way back is made by.

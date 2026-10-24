@@ -143,3 +143,21 @@ applies nothing.
 
 **Test:** `TestFixRunRefusesWhatItCannotRun` (`internal/afcmd/fix_run_test.go`),
 `TestFixRunRunsTheDriverOnThePlacedBrief_TS_10_58` (`internal/afcmd/placed_run_test.go`).
+
+## 10. One attempt, no dry run, an issue only, and no scope
+
+09-REQ-7 gives a run up to `--attempts` attempts, each with a budget of its own, and the next
+starting from the tree the last left; 09-REQ-1 and 09-REQ-9 give `--dry-run`, which plans every
+write and discards the change; 09-REQ-2 and 09-REQ-8.1 take a text, a file or stdin and make an
+issue for it under `--land pr`; and 09-REQ-6.4 compares the files the report declares with those
+that changed (`scope_mismatch`, and `scope` in the result). All of it is gone. A run is one series
+of rounds within `--budget`, `--max-turns` and `--timeout`, and a round that ends without a report
+ends it; the attempts of a job are the jobs layer's, as they already were for the service. A fix
+takes an issue, by its URL, and anything else is a `usage` failure that says to triage it first,
+which makes the issue. The result has no `attempts`, `attempts_max`, `issue_created` or `scope`,
+and the warnings `no_forge_token`, `dry_run_tree_kept`, `issue_creation_failed`,
+`pull_request_skipped` and `scope_mismatch` are gone. The report keeps its `files`, which the body
+of the pull request quotes.
+
+**Test:** `TestTheRoundsOfARunShareItsBounds_TS_09_46`, `TestARoundThatFailsEndsTheRunWithItsFailure_TS_09_49`
+(`internal/fix/loop_test.go`), `TestAParkedRunPushesAndOpensADraftThatRefsTheIssue_TS_09_62` (`internal/fix/park_test.go`).

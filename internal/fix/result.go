@@ -6,7 +6,6 @@ import "github.com/agent-fox-dev/agentfox/internal/box"
 const (
 	OutcomeNeedsHuman = "needs_human"
 	OutcomeFailed     = "failed"
-	OutcomeDryRun     = "dry_run"
 )
 
 // BoxInfo is the box a run used.
@@ -27,15 +26,12 @@ func NewBoxInfo(sess *box.Session) BoxInfo {
 // Result is the result of `af fix` and of `af fix land`: what the run did, and the facts it
 // measured to do it.
 type Result struct {
-	RunID        string    `json:"run_id"`
-	Issue        *string   `json:"issue"`
-	IssueCreated *IssueRef `json:"issue_created"`
-	Base         string    `json:"base"`
-	BaseHead     string    `json:"base_head"`
-	Attempts     int       `json:"attempts"`
-	Rounds       int       `json:"rounds"`
-	AttemptsMax  int       `json:"attempts_max"`
-	Outcome      string    `json:"outcome"`
+	RunID    string  `json:"run_id"`
+	Issue    *string `json:"issue"`
+	Base     string  `json:"base"`
+	BaseHead string  `json:"base_head"`
+	Rounds   int     `json:"rounds"`
+	Outcome  string  `json:"outcome"`
 	// Verdict is null for a run that measured nothing.
 	Verdict       *string         `json:"verdict"`
 	Landable      bool            `json:"landable"`
@@ -45,7 +41,6 @@ type Result struct {
 	RevertCheck   *RevertRef      `json:"revert_check"`
 	ChangedFiles  []string        `json:"changed_files"`
 	RevertedPaths []string        `json:"reverted_paths"`
-	Scope         Scope           `json:"scope"`
 	Land          string          `json:"land"`
 	Branch        *string         `json:"branch"`
 	Commit        *string         `json:"commit"`
@@ -56,26 +51,24 @@ type Result struct {
 
 // ResultInput is what a result is made of.
 type ResultInput struct {
-	State            State
-	Attempts, Rounds int
-	AttemptsMax      int
-	Outcome          string
-	Measured         *Measurement
-	Land             string
-	Branch, Commit   string
-	Pushed           bool
-	PullRequest      *PullRequestRef
-	IssueCreated     *IssueRef
-	Box              *BoxInfo
+	State          State
+	Rounds         int
+	Outcome        string
+	Measured       *Measurement
+	Land           string
+	Branch, Commit string
+	Pushed         bool
+	PullRequest    *PullRequestRef
+	Box            *BoxInfo
 }
 
 // NewResult assembles the result of a run from the state of the run and what it did.
 func NewResult(in ResultInput) Result {
 	s := in.State
 	r := Result{
-		RunID: s.RunID, Base: s.Base, BaseHead: s.BaseHead, Attempts: in.Attempts, Rounds: in.Rounds, AttemptsMax: in.AttemptsMax,
-		Outcome: in.Outcome, Land: in.Land, Pushed: in.Pushed, PullRequest: in.PullRequest, IssueCreated: in.IssueCreated, Box: in.Box,
-		ChangedFiles: []string{}, RevertedPaths: []string{}, Scope: Scope{Undeclared: []string{}, Unchanged: []string{}},
+		RunID: s.RunID, Base: s.Base, BaseHead: s.BaseHead, Rounds: in.Rounds,
+		Outcome: in.Outcome, Land: in.Land, Pushed: in.Pushed, PullRequest: in.PullRequest, Box: in.Box,
+		ChangedFiles: []string{}, RevertedPaths: []string{},
 	}
 	if s.Issue != nil {
 		url := s.Issue.URL
@@ -92,7 +85,6 @@ func NewResult(in ResultInput) Result {
 		r.Landable, r.Closes, r.After, r.RevertCheck = m.Landable, m.Closes, m.After, m.RevertCheck
 		r.ChangedFiles = append(r.ChangedFiles, m.Changed...)
 		r.RevertedPaths = append(r.RevertedPaths, m.Reverted...)
-		r.Scope = Scope{Undeclared: append([]string{}, m.Scope.Undeclared...), Unchanged: append([]string{}, m.Scope.Unchanged...)}
 	}
 	if in.Branch != "" {
 		branch := in.Branch

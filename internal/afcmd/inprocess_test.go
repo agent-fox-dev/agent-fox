@@ -319,10 +319,10 @@ func TestConcurrentInvocationsShareNothing_TS_13_10(t *testing.T) {
 			return []string{"triage", "the greeting is wrong", "--dir", e.dir, "--repo", "o/r", "--land", "none", "--brain", "scripted", "--sandbox", "inbox", "--script", script(e.t, submitStep(`{}`, "refused"))}
 		}},
 		{"fix of an issue", func(e *fixEnv) []string {
-			return []string{"fix", e.forge.IssueURL(7), "--dir", e.dir, "--brain", "scripted", "--sandbox", "inbox", "--script", script(e.t, fixSteps()...), "--attempts", "1"}
+			return []string{"fix", e.forge.IssueURL(7), "--dir", e.dir, "--brain", "scripted", "--sandbox", "inbox", "--script", script(e.t, fixSteps()...)}
 		}},
-		{"fix of text", func(e *fixEnv) []string {
-			return []string{"fix", "the greeting is wrong", "--dir", e.dir, "--repo", "o/r", "--land", "none", "--brain", "scripted", "--sandbox", "inbox", "--script", script(e.t, fixSteps()...), "--attempts", "1"}
+		{"fix of an issue that lands nothing", func(e *fixEnv) []string {
+			return []string{"fix", e.forge.IssueURL(7), "--dir", e.dir, "--land", "none", "--brain", "scripted", "--sandbox", "inbox", "--script", script(e.t, fixSteps()...)}
 		}},
 	}
 

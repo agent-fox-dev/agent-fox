@@ -71,8 +71,8 @@ func TestThePostPushHookRunsOnceAfterThePushAndBeforeThePullRequest_TS_13_63(t *
 
 	t.Run("a finished run lands and parks through the hook", func(t *testing.T) {
 		for name, ended := range map[string]LoopResult{
-			"landable": {End: EndLandable, Report: reportOf(addX()), Measured: proven(), HoldsChange: true, Attempts: 1, Rounds: 1},
-			"exhausted": {End: EndExhausted, Report: reportOf(addX()), HoldsChange: true, Attempts: 2, Rounds: 2,
+			"landable": {End: EndLandable, Report: reportOf(addX()), Measured: proven(), HoldsChange: true, Rounds: 1},
+			"exhausted": {End: EndExhausted, Report: reportOf(addX()), HoldsChange: true, Rounds: 2,
 				LastRefusal: &Measurement{Verdict: "still_failing", Refusal: &Refusal{Failing: []FailingCheck{{Name: "make check", Tail: "FAIL"}}}}},
 		} {
 			t.Run(name, func(t *testing.T) {

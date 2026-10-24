@@ -121,47 +121,6 @@ func TestAnIssueBecomesOneCommitOnItsBranchAndAPullRequest_TS_09_73(t *testing.T
 	e.onBase(t)
 }
 
-// TestAFileBecomesOneIssueAndAPullRequestThatRefersToIt_TS_09_74 verifies TS-09-74
-// (09-PATH-2): a report in a file under --land pr makes exactly one issue, with the report
-// under ## Original report, and a pull request whose body says Closes or Refs and that issue.
-// Verifies: 09-PATH-2, 09-REQ-8.1
-func TestAFileBecomesOneIssueAndAPullRequestThatRefersToIt_TS_09_74(t *testing.T) {
-	requireMake(t)
-	e := newFixEnvWith(t, fakeforge.GitHub, smokeFiles(), true)
-	bug := filepath.Join(t.TempDir(), "bug.md")
-	if err := os.WriteFile(bug, []byte("The greeting should say hello.\n\nRun src/greet.sh.\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	code, env := e.fix(bug, append(scripted(script(t, fixSteps()...)), "--repo", "o/r", "--land", "pr")...)
-
-	if code != 0 || env["status"] != "done" {
-		t.Fatalf("exit code %d, status %v, error %v", code, env["status"], env["error"])
-	}
-	res := resultOf(t, env)
-	created, _ := res["issue_created"].(map[string]any)
-	pr, _ := res["pull_request"].(map[string]any)
-	if created == nil || pr == nil || res["issue"] != nil {
-		t.Fatalf("result = %v, want issue_created and pull_request set", res)
-	}
-	if n := e.forge.Count(fakeforge.OpCreate); n != 1 {
-		t.Errorf("%d issues were created, want exactly 1", n)
-	}
-	number := int(created["number"].(float64))
-	if body := e.forge.Issue(number).Body; !strings.Contains(body, "## Original report") || !strings.Contains(body, "The greeting should say hello.") {
-		t.Errorf("the body of the issue is:\n%s", body)
-	}
-	url, _ := created["url"].(string)
-	prs := e.forge.PullRequests()
-	if len(prs) != 1 || !(strings.Contains(prs[0].Body, "Closes "+url) || strings.Contains(prs[0].Body, "Refs "+url)) {
-		t.Errorf("pull requests = %+v, want a body that closes or refers to %s", prs, url)
-	}
-	if !slices.Contains(e.remoteBranches(t), res["branch"].(string)) {
-		t.Errorf("the origin has %v, want %v pushed", e.remoteBranches(t), res["branch"])
-	}
-	e.onBase(t)
-}
-
 // TestARegressingChangeIsRefusedAndTheSecondRoundLands_TS_09_75 verifies TS-09-75
 // (09-PATH-3): a change that breaks a green gate is refused, the second round's task block
 // says regressed and shows the output of the failing check, the second round's change lands,
@@ -182,7 +141,7 @@ func TestARegressingChangeIsRefusedAndTheSecondRoundLands_TS_09_75(t *testing.T)
 		t.Fatalf("exit code %d, status %v, error %v", code, env["status"], env["error"])
 	}
 	res := resultOf(t, env)
-	if res["outcome"] != "landed" || res["rounds"] != float64(2) || res["attempts"] != float64(1) || res["verdict"] != "pass" {
+	if res["outcome"] != "landed" || res["rounds"] != float64(2) || res["verdict"] != "pass" {
 		t.Errorf("result = %v", res)
 	}
 	data, err := os.ReadFile(filepath.Join(runDirOf(e, env), "brief.2.md"))
@@ -202,7 +161,7 @@ func TestARegressingChangeIsRefusedAndTheSecondRoundLands_TS_09_75(t *testing.T)
 }
 
 // TestAStillRedResultIsParkedAsAWipDraftPullRequest_TS_09_76 verifies TS-09-76
-// (09-PATH-4): a change that leaves the gate red, with one attempt, is parked: a wip commit on
+// (09-PATH-4): a change that leaves the gate red is parked: a wip commit on
 // the fix branch, pushed, a draft pull request that says Refs, the status unverified at exit 4
 // with fix_not_landed, and the base checked out clean.
 // Verifies: 09-PATH-4, 09-REQ-9.2, 09-REQ-9.3
@@ -211,7 +170,7 @@ func TestAStillRedResultIsParkedAsAWipDraftPullRequest_TS_09_76(t *testing.T) {
 	e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
 	steps := []map[string]any{writeStep("src/greet.sh", ":\n"), submitStep(spyReport, "accepted")}
 
-	code, env := e.fix(e.forge.IssueURL(7), append(scripted(script(t, steps...)), "--land", "pr", "--attempts", "1")...)
+	code, env := e.fix(e.forge.IssueURL(7), append(scripted(script(t, steps...)), "--land", "pr")...)
 
 	if code != 4 || env["status"] != "unverified" {
 		t.Fatalf("exit code %d, status %v, error %v", code, env["status"], env["error"])
@@ -294,40 +253,4 @@ func TestAQuestionStopsTheRunAndTheAnswerResumesIt_TS_09_77(t *testing.T) {
 			t.Errorf("the task block of the resumed run lacks %q:\n%s", want, task)
 		}
 	}
-}
-
-// TestADryRunSpendsTheRoundAndWritesNothing_TS_09_78 verifies TS-09-78 (09-PATH-6): a dry run
-// runs the round and measures the change, sends no write to the forge, makes no branch and no
-// commit, pushes nothing, lists the branch, the commit, the push and the pull request as
-// planned, leaves the tree clean at base_head, and has the status the real run would have had.
-// Verifies: 09-PATH-6, 09-REQ-9.5
-func TestADryRunSpendsTheRoundAndWritesNothing_TS_09_78(t *testing.T) {
-	requireMake(t)
-	e := newFixEnvWith(t, fakeforge.GitHub, smokeFiles(), true)
-	head, remote := strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "HEAD")), e.remoteBranches(t)
-
-	code, env := e.fix(e.forge.IssueURL(7), append(scripted(script(t, fixSteps()...)), "--dry-run")...)
-
-	if code != 0 || env["status"] != "done" {
-		t.Fatalf("exit code %d, status %v, error %v", code, env["status"], env["error"])
-	}
-	res := resultOf(t, env)
-	if res["outcome"] != "dry_run" || res["rounds"] != float64(1) || res["verdict"] != "pass_was_already_failing" || res["branch"] != nil || res["commit"] != nil || res["pushed"] != false {
-		t.Errorf("result = %v: the round was spent and measured, and nothing was made", res)
-	}
-	if u, _ := env["usage"].(map[string]any); u["brain"] != "scripted" {
-		t.Errorf("usage = %v, want the brain that ran", env["usage"])
-	}
-	if writes := e.forge.Writes(); len(writes) != 0 {
-		t.Errorf("%d write requests reached the forge: %v", len(writes), writes)
-	}
-	for _, kind := range []string{"branch", "commit", "push", "create_pull_request"} {
-		if got := effects(env)[kind]; got != "planned" {
-			t.Errorf("side effect %s is %q, want planned (all: %v)", kind, got, effects(env))
-		}
-	}
-	if !slices.Equal(e.branches(), []string{"main"}) || strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "HEAD")) != head || !slices.Equal(e.remoteBranches(t), remote) {
-		t.Errorf("branches %v, remote %v: a dry run makes none", e.branches(), e.remoteBranches(t))
-	}
-	e.onBase(t)
 }

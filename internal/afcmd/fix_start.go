@@ -16,11 +16,18 @@ const ledgerFixBrief = "fix.brief"
 // baseUsage is the help of --base.
 const baseUsage = "the `branch` the fix is made on and goes back to; the one that is checked out when it is not given"
 
-// refusePullRequest is the usage failure for an input that is a pull or merge
-// request: a fix takes an issue, a file or text.
-func refusePullRequest(r *toolio.Run) error {
-	if r.Input.Kind == toolio.KindIssue && r.Input.Issue != nil && r.Input.Issue.IsPullRequest {
-		return &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("%s is a pull or merge request: fix takes an issue, a file or text", r.Input.Issue.URL())}
+// refuseNonIssue is the usage failure for an input that is no issue: a text, a file,
+// stdin, or a pull or merge request. A fix takes an issue, which names its branch and its
+// pull request; a report that is not one is triaged first, which makes the issue.
+func refuseNonIssue(r *toolio.Run) error {
+	switch {
+	case r.Input.Kind != toolio.KindIssue:
+		return &toolio.Failure{
+			Category: toolio.CategoryUsage,
+			Message:  "fix takes an issue, by its URL; a text, a file or stdin is no issue: triage it first with af triage <report> --repo owner/name, which creates the issue",
+		}
+	case r.Input.Issue != nil && r.Input.Issue.IsPullRequest:
+		return &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("%s is a pull or merge request: fix takes an issue", r.Input.Issue.URL())}
 	}
 	return nil
 }
@@ -81,7 +88,7 @@ func startRun(c *Config, r *toolio.Run, pre fix.Preflighted, noVerify bool) (sta
 			r.Warn(fix.WarnQuestionNotFound, fmt.Sprintf("no earlier run asked the question that --context %d answers, so the answer stands alone", i+1))
 		}
 	}
-	task := fix.TaskBlock(fix.TaskParams{RunID: r.RunDir.ID, Attempt: 1, Round: 1, Earlier: earlier})
+	task := fix.TaskBlock(fix.TaskParams{RunID: r.RunDir.ID, Round: 1, Earlier: earlier})
 
 	if err := writeRunFile(filepath.Join(r.RunDir.Path, "original.md"), []byte(in.Body)); err != nil {
 		return startedRun{}, err
