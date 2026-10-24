@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
@@ -110,6 +111,11 @@ func TestALabelOnAnIssueWhoseLatestJobIsDoneOrCancelledMakesANewJob_TS_19_9(t *t
 		e := newEnv(t, withRunner(fakerunner.New().Then(fakerunner.Block(fakerunner.Step{}))))
 		e.issue(42)
 		f0 := e.startedJob(jobs.KindFix, 42, "af:fix")
+		// The cancel waits for the runner: a job that is being claimed, a moment before its runner is called, is refused.
+		e.waitState(f0, jobs.StateRunning)
+		if !e.Runner.Wait(1, 10*time.Second) {
+			t.Fatal("the runner was not called")
+		}
 		if _, err := e.Jobs.Cancel(ctx, f0); err != nil {
 			t.Fatal(err)
 		}
