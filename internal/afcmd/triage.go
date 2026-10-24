@@ -353,7 +353,7 @@ func landOutcome(r *toolio.Run, run *toolio.RunDir, facts triage.Facts, res tria
 		}
 	}
 	if triage.FixSuggested(res.Diagnosis, res.Issue) {
-		r.Next(toolio.Next{Argv: []string{"af", "fix", res.Issue.URL, "--dir", r.Dir, "--local"}, Reason: "fix the problem the diagnosis describes"})
+		r.Next(toolio.Next{Argv: []string{"af", "fix", res.Issue.URL, "--dir", r.Dir}, Reason: "fix the problem the diagnosis describes"})
 	}
 	return toolio.Outcome{Status: toolio.StatusDone, Summary: landSummary(res), Result: result}
 }

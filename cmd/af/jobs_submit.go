@@ -27,47 +27,53 @@ var (
 	repoIssue = regexp.MustCompile(`^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+#[1-9][0-9]*$`)
 )
 
-// queueCommand is the service mode of af triage or af fix (name): it queues a job on a workspace
+// registerJobsSubmit registers af jobs submit, which queues a triage or a fix job on a workspace
 // of the agent-fox service and, with --wait, follows it. No loop runs on this machine, and no forge
 // client or run directory is made.
-func queueCommand(app *toolio.App, name string) *toolio.Command {
+func registerJobsSubmit(app *toolio.App) {
 	var workspace string
 	var wait bool
 	var server serverFlag
-	usage := "af " + name + " <input> --workspace <slug> [--wait] [--context TEXT] [--server URL]"
-	return &toolio.Command{
-		Path:    name,
-		Summary: "Queue a " + name + " job on a workspace of the agent-fox service",
-		Usage:   usage,
+	app.Register(toolio.Command{
+		Path:    "jobs submit",
+		Summary: "Queue a triage or a fix job on a workspace of the agent-fox service",
+		Usage:   "af jobs submit triage|fix <input> --workspace <slug> [--wait] [--context TEXT] [--server URL]",
 		Flags: func(fs *flag.FlagSet) {
+			workspace, wait = "", false
 			fs.StringVar(&workspace, "workspace", "", "the `slug` of the workspace that the job is queued on")
 			fs.BoolVar(&wait, "wait", false, "follow the job until it is at rest, and end with what it came to")
 			server.bind(fs)
 		},
+		MaxArgs:  2,
 		RawStdin: true,
 		Context:  true,
 		Timeout:  true,
-		Run:      func(r *toolio.Run) (toolio.Outcome, error) { return queueJob(r, app, name, workspace, wait, &server) },
-	}
+		Run:      func(r *toolio.Run) (toolio.Outcome, error) { return queueJob(r, app, workspace, wait, &server) },
+	})
 }
 
-// queueJob posts the input to the route of the workspace and ends with the job it made. Its checks
-// run in this order, and none sends a request: the flags, the input, the server, the credential.
-func queueJob(r *toolio.Run, app *toolio.App, name, workspace string, wait bool, server *serverFlag) (toolio.Outcome, error) {
-	if workspace == "" {
-		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: "--workspace is empty: give the slug of a workspace", FixHint: &toolio.FixHint{Flag: "--workspace"}}
+// queueJob posts the input to the route of the workspace for the kind of job and ends with the job
+// it made. Its checks run in this order, and none sends a request: the kind, the flags, the input,
+// the server, the credential.
+func queueJob(r *toolio.Run, app *toolio.App, workspace string, wait bool, server *serverFlag) (toolio.Outcome, error) {
+	if len(r.Args) == 0 || (r.Args[0] != "triage" && r.Args[0] != "fix") {
+		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: "name the kind of job first: af jobs submit triage <input> or af jobs submit fix <issue>"}
 	}
-	if len(r.Args) == 0 {
+	name := r.Args[0]
+	if workspace == "" {
+		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: "--workspace is required: give the slug of a workspace", FixHint: &toolio.FixHint{Flag: "--workspace"}}
+	}
+	if len(r.Args) < 2 {
 		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: "no input given: pass an issue, text, a file, or - to read stdin"}
 	}
-	body, err := queueBody(r, name, r.Args[0])
+	body, err := queueBody(r, name, r.Args[1])
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
 	if len(r.Context) > 0 {
 		body["context"] = r.Context
 	}
-	client, err := connect(r, app, server, true)
+	client, err := connect(r, app, server)
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
@@ -169,7 +175,7 @@ func queueBody(r *toolio.Run, name, arg string) (map[string]any, error) {
 func fixTakesAnIssue(arg string) error {
 	return &toolio.Failure{
 		Category: toolio.CategoryUsage,
-		Message:  fmt.Sprintf("with --workspace, af fix takes an issue: N, #N, owner/repo#N or an issue URL; %.60q is none of them", arg),
+		Message:  fmt.Sprintf("a fix job takes an issue: N, #N, owner/repo#N or an issue URL; %.60q is none of them", arg),
 	}
 }
 

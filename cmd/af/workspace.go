@@ -61,7 +61,7 @@ func registerWorkspaceList(app *toolio.App) {
 // workspaceList is GET /api/v1/workspaces: the subscriptions the caller sees, as the service
 // answered.
 func workspaceList(r *toolio.Run, app *toolio.App, server *serverFlag) (toolio.Outcome, error) {
-	client, err := connect(r, app, server, false)
+	client, err := connect(r, app, server)
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
@@ -117,7 +117,7 @@ func workspaceSubscribe(r *toolio.Run, app *toolio.App, hubTokenFile string, ser
 	if err != nil {
 		return toolio.Outcome{}, secretFailure(err)
 	}
-	client, err := connect(r, app, server, false)
+	client, err := connect(r, app, server)
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
@@ -152,7 +152,7 @@ func registerWorkspaceGet(app *toolio.App) {
 			if err != nil {
 				return toolio.Outcome{}, err
 			}
-			client, err := connect(r, app, &server, false)
+			client, err := connect(r, app, &server)
 			if err != nil {
 				return toolio.Outcome{}, err
 			}
@@ -182,7 +182,7 @@ func registerWorkspaceUnsubscribe(app *toolio.App) {
 			if err != nil {
 				return toolio.Outcome{}, err
 			}
-			client, err := connect(r, app, &server, false)
+			client, err := connect(r, app, &server)
 			if err != nil {
 				return toolio.Outcome{}, err
 			}

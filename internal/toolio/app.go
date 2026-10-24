@@ -74,18 +74,6 @@ type App struct {
 	// place of one drawn. An id that is not of the form YYYYMMDD_HHMMSS_<6 hex> is a
 	// usage failure, before anything is created.
 	RunID string
-	// Mode, when it is set, is asked once the words have named a command, before the flags are
-	// parsed, the input is resolved, a forge client is built, a run directory is made or anything
-	// is sent. It is given the command the words matched and the words after its path, and
-	// answers with the command to run and the words to parse for it, or with the failure to end the
-	// invocation with: the envelope of a refusal is that of any invocation that is refused before its
-	// command runs. The invocation's argv stays what
-	// was received. It is for the af binary, which chooses between a loop on this machine and a
-	// job on a service; a caller that runs the commands in its own process leaves it nil.
-	Mode func(cmd *Command, words []string) (chosen *Command, parse []string, failure *Failure)
-	// HelpExtra, when it is set, is the text that the help of a command ends with, for the
-	// command it is given: a section on modes, say. It is empty for a command it has nothing to add to.
-	HelpExtra func(cmd *Command) string
 	// Target, when it is valid (a host included), is the repository every command that
 	// uses a forge works on, whatever the input: the forge client is built for it, in
 	// place of --repo and the origin of --dir, and an issue URL on another repository is
@@ -339,17 +327,6 @@ func (a *App) Register(c Command) {
 	a.commands = append(a.commands, &c)
 }
 
-// Command returns the command registered under path, which a caller may adapt before it runs an
-// invocation (the schema of its result, say), or nil when there is none.
-func (a *App) Command(path string) *Command {
-	for _, c := range a.commands {
-		if c.Path == path {
-			return c
-		}
-	}
-	return nil
-}
-
 func (a *App) name() string {
 	if a.Name != "" {
 		return a.Name
@@ -384,18 +361,6 @@ func (a *App) Main(ctx context.Context, args []string, stdin io.Reader, stdout, 
 		inv.env.fail(&Failure{Category: CategoryUsage, Message: a.unknownCommand(words)})
 		return inv.finish()
 	}
-	if a.Mode != nil {
-		chosen, parseWords, failure := a.Mode(cmd, rest)
-		if failure != nil {
-			values, _, _ := parse(cmd, rest)
-			inv := a.newInvocation(stdout, stderr, cmd.Path, started)
-			inv.setup(cmd, words, values, nil)
-			inv.env.fail(failure)
-			return inv.finish()
-		}
-		cmd, rest = chosen, parseWords
-	}
-
 	inv := a.newInvocation(stdout, stderr, cmd.Path, started)
 	values, positional, failure := parse(cmd, rest)
 	inv.setup(cmd, words, values, positional)

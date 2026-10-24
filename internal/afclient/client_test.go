@@ -166,7 +166,7 @@ func TestAFailureCarriesTheFixHintOfItsAnswer_TS_16_43(t *testing.T) {
 		code         string
 		want         *Hint
 	}{
-		{"401", "GET", "/workspaces", 401, "unauthenticated", &Hint{Suggest: "af login --token-file FILE"}},
+		{"401", "GET", "/workspaces", 401, "unauthenticated", &Hint{Suggest: CredentialSuggestion}},
 		{"404 on a workspace route", "GET", "/workspaces/w", 404, "not_found", subscribe("w")},
 		{"404 on a workspace job list", "GET", "/workspaces/w/jobs", 404, "not_found", subscribe("w")},
 		{"404 on a queue route", "POST", "/workspaces/a%20b/fix", 404, "not_found", subscribe("a b")},

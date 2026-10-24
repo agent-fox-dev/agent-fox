@@ -34,7 +34,7 @@ unchanged; what changes is who owns the loop.
 ```
 
 `af` (`cmd/af`) runs the same loops on a developer's machine and is the client of the service
-(`af login`, `af workspace …`, `af jobs …`). Hub owns identity, workspaces, the git server, secrets,
+(`af workspace …`, `af jobs …`). Hub owns identity, workspaces, the git server, secrets,
 sandboxes and the forge connection; the service holds none of their credentials but one hub token per
 subscribed workspace, and the box holds the model vendor's key and nothing else.
 
@@ -976,7 +976,7 @@ workspace, under its lock, in `cycleRun.issue`.
 it is built in three places that do not know each other's concerns.
 
 - **`internal/afclient`** is the library: the server URL (`--server`, else `AF_URL`), the credential (the `token` of
-  `~/.af/config.toml`, and the byte-preserving rewrite that `af login` makes of it through a temporary file and a rename), the
+  `~/.af/config.toml`, which `af` reads and never writes), the
   `Client` that sends every request with the bearer, the bound of two minutes, the limit of 8 MiB and the refusal of
   redirects, and the mapping of every non-2xx answer to an `*Error` with its category, its retryable flag, its message and its
   hint. `Follow` reads a job's server-sent event stream in tries: it resumes from the last `seq`, drops duplicates, cuts a stream
@@ -986,11 +986,9 @@ it is built in three places that do not know each other's concerns.
   (`service`, `conflict`, `hub`, `job_cancelled` besides `usage`, `auth`, `io` and `config`), and `followJob`, which ends a
   followed job by what it came to. A job that is blocked ends `needs_human` with a resume that is `af jobs answer <id> --wait`.
   Interrupting `af`, or `--timeout`, never cancels the job, which is durable on the service.
-- **`internal/toolio`** gained what the client needed from the shell and nothing that is the client's: a `Mode` hook on the
-  `App`, asked once the words have named a command, with which the binary chooses between the loop on this machine
-  (`--local`) and a job on the service (`--workspace`) before anything is parsed, read or built; `Run.SetInput`, for a command
-  that reads its own input; the `ResumeArgv` of a question; `Run.Redact`, which takes a secret out of every output; and the help
-  and schema hooks that let the binary describe both modes. Only the binary sets the hook, because the loops are registered by
-  `internal/afcmd`, which the worker runs in process: the worker needs no `--local` and cannot reach the client.
+- **`internal/toolio`** gained what the client needed from the shell and nothing that is the client's: `Run.SetInput`, for a
+  command that reads its own input; the `ResumeArgv` of a question; and `Run.Redact`, which takes a secret out of every
+  output. The loops and the client are separate commands: `af triage` and `af fix` are the loops of `internal/afcmd`, which the
+  worker also runs in process, and `af jobs submit` is the client's way to queue the same work.
 
 The credential never leaves for a host but the server's (but for the proxy that the standard variables name, which sees a plain `http` request), and neither it nor the token of a workspace is in any output, if it is 8 bytes or more.

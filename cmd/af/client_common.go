@@ -19,9 +19,6 @@ const (
 	warnCredentialFilePermissions = "credential_file_permissions"
 )
 
-// loginSuggestion is how a person stores a credential, as the fix hint of a missing or refused one gives it.
-const loginSuggestion = "af login --token-file FILE"
-
 // httpTransport is the transport of the requests the client commands make; nil is the default
 // transport. The tests replace it.
 var httpTransport http.RoundTripper
@@ -56,12 +53,11 @@ func (f *serverFlag) bind(fs *flag.FlagSet) {
 
 // connect runs the local checks of a service command that come after its flags and its
 // input, in this order: the server, then the credential. It returns the client, or the failure
-// to end the command with; nothing has been sent. local says that the command has a local mode,
-// which the message of a missing server then names too.
-func connect(r *toolio.Run, app *toolio.App, server *serverFlag, local bool) (*afclient.Client, error) {
+// to end the command with; nothing has been sent.
+func connect(r *toolio.Run, app *toolio.App, server *serverFlag) (*afclient.Client, error) {
 	srv, err := afclient.ParseServer(server.value, server.given, os.Getenv(afclient.SourceEnv))
 	if err != nil {
-		return nil, serverFailure(err, local)
+		return nil, serverFailure(err)
 	}
 	warnInsecure(r, srv)
 	cred, err := afclient.LoadCredential(nil)
@@ -90,24 +86,23 @@ func newClient(app *toolio.App, srv afclient.Server, token string) *afclient.Cli
 	return client
 }
 
-// noServerFailure is the usage failure for a service command that names no server. local says
-// that the command has a local mode (triage and fix), which the message names.
-func noServerFailure(local bool) *toolio.Failure {
-	msg := "no server is named: pass --server URL or set AF_URL to the URL of the agent-fox service"
-	if local {
-		msg += ", or pass --local to run on this machine"
+// noServerFailure is the usage failure for a service command that names no server.
+func noServerFailure() *toolio.Failure {
+	return &toolio.Failure{
+		Category: toolio.CategoryUsage,
+		Message:  "no server is named: pass --server URL or set AF_URL to the URL of the agent-fox service",
+		FixHint:  &toolio.FixHint{Flag: "--server", Env: afclient.SourceEnv},
 	}
-	return &toolio.Failure{Category: toolio.CategoryUsage, Message: msg, FixHint: &toolio.FixHint{Flag: "--server", Env: afclient.SourceEnv}}
 }
 
 // serverFailure is the failure for a server URL that cannot be used.
-func serverFailure(err error, local bool) error {
+func serverFailure(err error) error {
 	var se *afclient.ServerError
 	if !errors.As(err, &se) {
 		return &toolio.Failure{Category: toolio.CategoryInternal, Message: err.Error()}
 	}
 	if se.Missing {
-		return noServerFailure(local)
+		return noServerFailure()
 	}
 	hint := &toolio.FixHint{Flag: afclient.SourceFlag}
 	if se.Source == afclient.SourceEnv {
@@ -125,7 +120,7 @@ func credentialFailure(err error) error {
 	f := &toolio.Failure{Message: ce.Message}
 	switch ce.Kind {
 	case afclient.CredentialAuth:
-		f.Category, f.FixHint = toolio.CategoryAuth, &toolio.FixHint{Suggest: loginSuggestion}
+		f.Category, f.FixHint = toolio.CategoryAuth, &toolio.FixHint{Suggest: afclient.CredentialSuggestion}
 	case afclient.CredentialConfig:
 		f.Category = toolio.CategoryConfig
 	default:
@@ -164,7 +159,3 @@ func requestFailure(err error) error {
 // clientClock is the clock of the requests the client commands make; nil is the system's. The
 // tests replace it.
 var clientClock afclient.Clock
-
-// credentialFS is the file system af login writes the credential file to; nil is the operating
-// system's. The tests replace it.
-var credentialFS afclient.FS

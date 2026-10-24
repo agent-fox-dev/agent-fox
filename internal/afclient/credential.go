@@ -19,6 +19,10 @@ var CredentialFile = filepath.Join(".af", "config.toml")
 // tokenKey is the top-level key of the credential file that holds the credential.
 const tokenKey = "token"
 
+// CredentialSuggestion is how a person stores a credential, as the fix hint of a missing or
+// refused one gives it: af reads the file and never writes it.
+const CredentialSuggestion = `afc login, or token = "<credential>" in ~/.af/config.toml`
+
 // The kinds of CredentialError.
 const (
 	// CredentialIO: the home directory cannot be found, or the file exists and cannot be read.
@@ -96,7 +100,7 @@ func isLoose(path string) bool {
 // noCredential is the error for a credential that is not there: what is wrong with the file, and how to store one.
 func noCredential(path, what string) error {
 	return &CredentialError{Kind: CredentialAuth, Path: path,
-		Message: fmt.Sprintf("the credential file %s %s; run `af login --token-file FILE` or `afc login` to store a credential", path, what)}
+		Message: fmt.Sprintf("the credential file %s %s; run `afc login`, or store the hub credential in it as `token = \"...\"`, with mode 0600", path, what)}
 }
 
 // credentialPath is the credential file of the home directory that home gives (os.UserHomeDir

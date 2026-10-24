@@ -75,7 +75,7 @@ func jobsWatch(r *toolio.Run, app *toolio.App, since int64, server *serverFlag) 
 		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("--since %d is negative; give the number of an event, or leave it out for all of them", since), FixHint: &toolio.FixHint{Flag: "--since"}}
 	}
 	id := r.Args[0]
-	client, err := connect(r, app, server, false)
+	client, err := connect(r, app, server)
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
@@ -163,7 +163,7 @@ func jobsList(r *toolio.Run, app *toolio.App, workspace, state, cursor *givenStr
 	if workspace.given && workspace.value == "" {
 		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: "--workspace is empty: give the slug of a workspace", FixHint: &toolio.FixHint{Flag: "--workspace"}}
 	}
-	client, err := connect(r, app, server, false)
+	client, err := connect(r, app, server)
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
@@ -245,7 +245,7 @@ func jobAction(r *toolio.Run, app *toolio.App, server *serverFlag, method, below
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
-	client, err := connect(r, app, server, false)
+	client, err := connect(r, app, server)
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
@@ -274,7 +274,7 @@ func registerJobsRetry(app *toolio.App) {
 			if err != nil {
 				return toolio.Outcome{}, err
 			}
-			client, err := connect(r, app, &server, false)
+			client, err := connect(r, app, &server)
 			if err != nil {
 				return toolio.Outcome{}, err
 			}
@@ -352,7 +352,7 @@ func jobsAnswer(r *toolio.Run, app *toolio.App, option *givenString, wait bool, 
 		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: "the answer is empty: give some text, or --option ID"}
 	}
 
-	client, err := connect(r, app, server, false)
+	client, err := connect(r, app, server)
 	if err != nil {
 		return toolio.Outcome{}, err
 	}
