@@ -403,5 +403,6 @@ the prefix `af_`, its migrations are recorded in `af_schema_migrations` (not in 
 it never reads or writes a table it does not own, so that the file can hold the tables of other modules.
 The service also makes the directory `attempts/` beside the file, with the mode `0700`, when it is
 missing: the files of each attempt of a job go in it. Migrations run when the service starts; a file that records a migration newer than the binary knows
-makes the start fail, naming both versions, and is left as it was. Two processes must not share one file.
+makes the start fail, naming both versions, and is left as it was. So does a file made by an unreleased build from
+before the migrations were squashed (October 2026): remove it, and the service makes a new one. Two processes must not share one file.
 

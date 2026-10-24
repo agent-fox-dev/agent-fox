@@ -361,7 +361,7 @@ func TestMigrationOneCreatesTheSubscriptionsTable_TS_11_29(t *testing.T) {
 		notNull[name] = nn
 	}
 	rows.Close()
-	for _, col := range []string{"slug", "label_prefix", "sealed_token", "token_user", "subscribed_by", "created_at", "updated_at"} {
+	for _, col := range []string{"slug", "sealed_token", "token_user", "subscribed_by", "created_at", "updated_at"} {
 		if _, ok := notNull[col]; !ok {
 			t.Errorf("af_subscriptions has no column %s (it has %v)", col, notNull)
 		}
@@ -370,7 +370,7 @@ func TestMigrationOneCreatesTheSubscriptionsTable_TS_11_29(t *testing.T) {
 		t.Error("token_user is NOT NULL, but a token's user can be unknown")
 	}
 
-	const insert = "INSERT INTO af_subscriptions(slug, label_prefix, sealed_token, subscribed_by, created_at, updated_at) VALUES ('widgets', 'af:', x'01', 'usr_1', '2026-10-22T08:00:00Z', '2026-10-22T08:00:00Z')"
+	const insert = "INSERT INTO af_subscriptions(slug, sealed_token, subscribed_by, created_at, updated_at) VALUES ('widgets', x'01', 'usr_1', '2026-10-22T08:00:00Z', '2026-10-22T08:00:00Z')"
 	if _, err := s.DB().ExecContext(ctx, insert); err != nil {
 		t.Fatal(err)
 	}

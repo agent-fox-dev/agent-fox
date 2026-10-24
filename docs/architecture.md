@@ -624,8 +624,9 @@ worker, the poll, the `af` client) build on:
 - **The state file.** One SQLite file (`modernc.org/sqlite`, pure Go, WAL mode) behind `database/sql`
   (`internal/service/store`). Every table it owns is named `af_…`, and its migrations are recorded in
   `af_schema_migrations`, never in `PRAGMA user_version`, so that `aflib/jobqueue`'s tables can live in the
-  same file later. Migration 1 is `af_subscriptions`: the slug, the label prefix (always `af:` now), the sealed token, the hub
-  user behind the token, who subscribed it, and the times. A token is sealed with AES-256-GCM under the
+  same file later. There is one migration, which makes the whole schema (the migrations of the unreleased builds were
+  squashed into it); the subscriptions are `af_subscriptions`: the slug, the sealed token, the hub user behind the token,
+  who subscribed it, and the times. A token is sealed with AES-256-GCM under the
   deployment key, with the slug as additional data, and it is the only secret the file holds; a token that
   does not open with the key reads `unreadable` and does not stop the service.
 - **Hub as the identity provider.** The service has no users, tokens or tenants of its own. Every route
@@ -811,7 +812,7 @@ talks to it.
 `fix` durable, runs them in order behind a seam, and records what became of them. The surface is in
 [api.md](api.md#jobs); this is how it is made.
 
-- **Records.** Three tables, appended to the migrations of the state file: `af_jobs` (one row per job),
+- **Records.** Three tables of the state file: `af_jobs` (one row per job),
   `af_attempts` (one row per attempt, keyed by job and number) and `af_events` (the log of a job, keyed by job and
   `seq`). `aflib/jobqueue` keeps its own tables in the same file; the `af_` prefix keeps the two apart. The files
   of an attempt, `envelope.json` and `report.md` (mode 0600), go under `attempts/<job id>/<n>/` beside the
@@ -879,8 +880,8 @@ talks to it.
   blocked, its claimed attempt was in no runner of this process, or its runner was cancelled before it reported a hub
   session) is cleaned up by the layer, behind the optional seam `jobs.Cleaner`, which `cmd/agent-fox` wires to
   `internal/service/labelcleanup` over the hub client and the store; the layer itself never imports hub, and without a
-  cleaner it marks nothing. Migration 7 adds `cleanup` (`pending`, `done`, `label_not_set`), `cleanup_wanted` and
-  `cleanup_warned` to `af_jobs`. The mark is written with the cancel, or, when the cancel reached a runner, with the
+  cleaner it marks nothing. `af_jobs` has `cleanup` (`pending`, `done`, `label_not_set`), `cleanup_wanted` and
+  `cleanup_warned` for it. The mark is written with the cancel, or, when the cancel reached a runner, with the
   cancelled attempt if that reported no hub session; the cancel time is `finished_at`. Tries run in background
   goroutines of the layer's loops: one per job at a time, at most four at once, each bounded by a minute of the layer's
   clock and cut short by a shutdown. A try reads the issue and writes only what is missing: it removes `in-progress`
@@ -968,7 +969,7 @@ cancels nothing.
   first sees no runner of the job in progress and no cleanup of it pending. A hold is released only by a complete listing that does
   not contain the issue and was requested, by the poll's clock, at least the **release delay** (5 minutes) after the release
   clock started: the forge's list may not yet show a label that was just put back, and the runner may still be writing it.
-- **Records that outlive their jobs.** The poll's records are the rows of `af_poll_requests` (migration 5): the workspace, the
+- **Records that outlive their jobs.** The poll's records are the rows of `af_poll_requests`: the workspace, the
   issue, the label, the job (none for an absorbed label), whether the removal is owed, what the poll has seen of the job (open,
   ended, holding) and the release clock. There is no foreign key to `af_jobs`, so a record survives a restart and the retention
   purge of its job, which needs no step for the poll. A record is dropped once nothing is owed and nothing holds.
@@ -1012,7 +1013,7 @@ workspace, under its lock, in `cycleRun.issue`.
   names the job only when L is the job's own request label, which a cancel puts back and the poll then holds. A record
   outlives every listing asked for before it, since a workspace's listings are asked for and handled one at a time and the
   records are dropped only after a listing is handled.
-- **The attempt's context.** `af_attempts.context` (migration 9) holds the comments a retry from the forge gave its attempt;
+- **The attempt's context.** `af_attempts.context` holds the comments a retry from the forge gave its attempt;
   `RunRequest` gives the runner the job's context strings and then each attempt's, in order, so an automatic attempt after
   the retry keeps them, and the worker passes each as a `--context` value with no question. The API's retry gives none.
 - **The worker's side.** The worker reads `AF_POLL_INTERVAL` as the poll does: the forge path is named in the question,

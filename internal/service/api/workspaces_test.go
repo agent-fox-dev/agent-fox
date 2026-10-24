@@ -446,7 +446,7 @@ func runScenario(t *testing.T) scenario {
 	a.Hub.Fail(userPath, 500)
 	record(a.view(t, "widgets", "another-caller-DISTINCT")) // hub is down for the caller
 	a.Hub.Clear()
-	if _, err := a.Store.DB().ExecContext(ctx, "INSERT INTO af_subscriptions (slug, label_prefix, sealed_token, subscribed_by, created_at, updated_at) VALUES ('broken', 'af:', x'0102030405', 'usr_1', '2026-10-22T08:00:00Z', '2026-10-22T08:00:00Z')"); err != nil {
+	if _, err := a.Store.DB().ExecContext(ctx, "INSERT INTO af_subscriptions (slug, sealed_token, subscribed_by, created_at, updated_at) VALUES ('broken', x'0102030405', 'usr_1', '2026-10-22T08:00:00Z', '2026-10-22T08:00:00Z')"); err != nil {
 		t.Fatal(err)
 	}
 	record(a.view(t, "broken", sc.caller)) // a token that does not open
@@ -641,7 +641,7 @@ func TestAListShowsAnUnreadableTokenAsSuch(t *testing.T) {
 	a := newAuthHarness(t)
 	a.Hub.AddUser("A", "usr_1", []string{"alpha", "broken"})
 	a.seed(t, "alpha", "pat")
-	if _, err := a.Store.DB().ExecContext(ctx, "INSERT INTO af_subscriptions (slug, label_prefix, sealed_token, subscribed_by, created_at, updated_at) VALUES ('broken', 'af:', x'00', 'usr_1', '2026-10-22T08:00:00Z', '2026-10-22T08:00:00Z')"); err != nil {
+	if _, err := a.Store.DB().ExecContext(ctx, "INSERT INTO af_subscriptions (slug, sealed_token, subscribed_by, created_at, updated_at) VALUES ('broken', x'00', 'usr_1', '2026-10-22T08:00:00Z', '2026-10-22T08:00:00Z')"); err != nil {
 		t.Fatal(err)
 	}
 	r, _ := a.list(t, "A")
