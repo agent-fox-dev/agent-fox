@@ -1,8 +1,11 @@
 package poll
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -220,5 +223,132 @@ func TestALabelAddedWhileTheStreamIsDownIsMadeIntoOneJobByThePoll_TS_18_70(t *te
 	waitFor(t, "the removal", func() bool { return !slices.Contains(e.labelsOf(45), "af:fix") })
 	if got := e.Logs.find("WARN", "open the event stream"); len(got) != 1 {
 		t.Errorf("%d WARN records of the connects, want 1: %v", len(got), got)
+	}
+}
+
+// TestAPersonAnswersABlockedFixJobFromTheIssue_TS_19_58 verifies TS-19-58 and 19-PATH-1: the poll's cycle, the real jobs
+// layer and store, the fake hub, the fake runner and clock. A person comments below the question of issue 42's blocked fix
+// job and adds af:fix again; one cycle answers the job, removes the label, and the runner of attempt 2 gets the answer.
+// Verifies: 19-PATH-1, 19-REQ-2.1
+func TestAPersonAnswersABlockedFixJobFromTheIssue_TS_19_58(t *testing.T) {
+	r := answering(1)
+	e := newEnv(t, withRunner(r))
+	id := e.blockFix(42)
+	e.comment(42, "alice", "use the greeting from the README")
+	e.Hub.AddLabel(slug, 42, "af:fix")
+	e.cycle()
+	d := e.doc(id)
+	if len(d.Attempts) != 2 || d.Attempts[1].Trigger != (jobs.Trigger{Kind: jobs.TriggerAnswer, By: "label af:fix"}) ||
+		d.Attempts[1].Answer == nil || !strings.Contains(d.Attempts[1].Answer.Text, "use the greeting from the README") {
+		t.Fatalf("the attempts are %+v, want attempt 2 answered by the label with the comment", d.Attempts)
+	}
+	if len(e.Hub.RequestsTo("DELETE", removalPath(42, "af:fix"))) != 1 || e.hasLabel(42, "af:fix") {
+		t.Errorf("af:fix on 42: %v, want it removed through hub", e.labelsOf(42))
+	}
+	waitFor(t, "attempt 2's runner", func() bool { return len(r.Calls()) == 2 })
+	if a := r.Calls()[1].Answers; len(a) != 1 || !strings.Contains(a[0].Text, "use the greeting from the README") {
+		t.Errorf("the runner was given the answers %+v", a)
+	}
+}
+
+// TestTheStreamAnswersABlockedJobAndAStalePollListingDoesNothing_TS_19_59 verifies TS-19-59 and 19-PATH-2: the stream
+// answers issue 42's blocked fix job with evt-7 while a poll listing asked for before it is still to be handled, and the
+// fake runner ends attempt 2 blocked at once: the listing, which still shows 42 under af:fix, adds no attempt and posts no
+// reply. A retry by the stream whose attempt fails at once, and a job of the API answered by the stream, behave the same.
+// Verifies: 19-PATH-2, 19-REQ-1.8
+func TestTheStreamAnswersABlockedJobAndAStalePollListingDoesNothing_TS_19_59(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		state jobs.State
+		src   jobs.Source
+		label string
+	}{
+		{"an answer", jobs.StateBlocked, jobs.Source{Kind: "label", By: "label af:fix"}, "af:fix"},
+		{"a retry", jobs.StateFailed, jobs.Source{Kind: "label", By: "label af:fix"}, "af:fix"},
+		{"a job of the API", jobs.StateBlocked, jobs.Source{Kind: "api", By: "user-1"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			step := blockedStep()
+			if tc.state == jobs.StateFailed {
+				step = fakerunner.Failed("sandbox", false)
+			}
+			var e *env
+			stale := false
+			e = streaming(t, withRunner(fakerunner.New(step, step).Then(fakerunner.Block(fakerunner.Step{}))), withBeforeRequest(func(r *http.Request) {
+				if stale && strings.Contains(r.URL.RawQuery, "labels=af%3Afix") {
+					stale = false
+					e.labeled("evt-7", 42, "af:fix")
+					waitFor(t, "the stream's outcome", func() bool { return e.taken("evt-7") })
+				}
+			}))
+			e.issue(42)
+			doc, err := e.Jobs.Create(ctx, jobs.CreateRequest{Workspace: slug, Kind: jobs.KindFix, Body: jobs.Body{Issue: json.RawMessage("42")}, Source: tc.src, RequestLabel: tc.label})
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.waitState(doc.ID, tc.state)
+			kind := map[jobs.State]string{jobs.StateBlocked: "question", jobs.StateFailed: "failure"}[tc.state]
+			e.comment(42, "agent-fox", fmt.Sprintf("<!-- agent-fox job=%s attempt=1 kind=%s -->", doc.ID, kind))
+			e.comment(42, "alice", "here it is")
+			e.Hub.AddLabel(slug, 42, "af:fix")
+			comments := e.comments(42)
+			stale = true
+			e.cycle()
+			e.waitState(doc.ID, tc.state) // attempt 2 ended at once
+			d := e.doc(doc.ID)
+			want := map[jobs.State]jobs.TriggerKind{jobs.StateBlocked: jobs.TriggerAnswer, jobs.StateFailed: jobs.TriggerRetry}[tc.state]
+			if len(d.Attempts) != 2 || d.Attempts[1].Trigger != (jobs.Trigger{Kind: want, By: "evt-7"}) {
+				t.Errorf("the attempts are %+v, want one more, by evt-7", d.Attempts)
+			}
+			if e.comments(42) != comments {
+				t.Errorf("%d comments were posted, want none", e.comments(42)-comments)
+			}
+		})
+	}
+}
+
+// TestAPersonRetriesAFailedFixJobWithContextFromTheIssue_TS_19_60 verifies TS-19-60 and 19-PATH-3.
+// Verifies: 19-PATH-3, 19-REQ-4.4
+func TestAPersonRetriesAFailedFixJobWithContextFromTheIssue_TS_19_60(t *testing.T) {
+	r := failingRuns(1)
+	e := newEnv(t, withRunner(r))
+	id := e.failFix(42)
+	e.comment(42, "bob", "the log is in CI run 812")
+	e.Hub.AddLabel(slug, 42, "af:fix")
+	e.cycle()
+	d := e.doc(id)
+	if len(d.Attempts) != 2 || d.Attempts[1].Trigger != (jobs.Trigger{Kind: jobs.TriggerRetry, By: "label af:fix"}) ||
+		len(d.Attempts[1].Context) != 1 || !strings.Contains(d.Attempts[1].Context[0], "CI run 812") {
+		t.Fatalf("the attempts are %+v, want attempt 2 retried by the label with the comment as its context", d.Attempts)
+	}
+	waitFor(t, "attempt 2's runner", func() bool { return len(r.Calls()) == 2 })
+	if c := r.Calls()[1].Context; len(c) == 0 || !strings.Contains(c[len(c)-1], "CI run 812") {
+		t.Errorf("the runner's context is %q, want it to end with the comment", c)
+	}
+	if e.hasLabel(42, "af:fix") || e.jobsFor(42) != 1 {
+		t.Errorf("af:fix %v and %d jobs, want the label removed and no new job", e.labelsOf(42), e.jobsFor(42))
+	}
+}
+
+// TestNoAnswerFoundIsRepliedThenACutThreadIsRepliedWithAfAndTheAPI_TS_19_61 verifies TS-19-61 and 19-PATH-4.
+// Verifies: 19-PATH-4, 19-REQ-5.1, 19-REQ-5.3
+func TestNoAnswerFoundIsRepliedThenACutThreadIsRepliedWithAfAndTheAPI_TS_19_61(t *testing.T) {
+	e := newEnv(t, withRunner(answering(1)))
+	id := e.blockFix(42)
+	e.Hub.AddLabel(slug, 42, "af:fix")
+	e.cycle()
+	if !strings.Contains(e.lastComment(42), "kind=no_answer") || e.hasLabel(42, "af:fix") {
+		t.Fatalf("the last comment is %q and af:fix %v, want the no_answer reply and the label removed", e.lastComment(42), e.labelsOf(42))
+	}
+	e.comment(42, "alice", "use the greeting from the README")
+	e.Hub.AddLabel(slug, 42, "af:fix")
+	e.cutRead(42)
+	e.cycle()
+	last := e.lastComment(42)
+	if !strings.Contains(last, "kind=thread_cut") || !strings.Contains(last, "af jobs answer "+id) || !strings.Contains(last, "POST /api/v1/jobs/"+id+"/answer") {
+		t.Errorf("the last comment is %q, want the thread_cut reply naming af and the API", last)
+	}
+	if len(e.Logs.level("WARN")) != 1 || e.hasLabel(42, "af:fix") || len(e.doc(id).Attempts) != 1 {
+		t.Errorf("%d WARN records, af:fix %v, %d attempts: want one WARN, the label removed and no attempt", len(e.Logs.level("WARN")), e.labelsOf(42), len(e.doc(id).Attempts))
 	}
 }

@@ -162,6 +162,24 @@ func labelsDoc(j jobRow) (*LabelsDoc, error) {
 	return nil, nil
 }
 
+// record fills in what the job's row records beside its attempts: its labels, the cause of its cancel, its parent and its
+// follow-up.
+func (doc *Doc) record(j jobRow) error {
+	labels, err := labelsDoc(j)
+	if err != nil {
+		return err
+	}
+	doc.Labels = labels
+	if j.State == StateCancelled {
+		doc.CancelCause = nullable(j.CancelCause)
+	}
+	doc.ParentJobID = nullable(j.ParentJobID)
+	if err := decode("follow_up", j.FollowUp, &doc.FollowUp); err != nil {
+		return fmt.Errorf("job %s: %w", j.ID, err)
+	}
+	return nil
+}
+
 // buildDoc makes the document of a job from its rows.
 func buildDoc(j jobRow, attempts []attemptRow, withAttempts bool) (Doc, error) {
 	doc := Doc{
@@ -240,17 +258,8 @@ func buildDoc(j jobRow, attempts []attemptRow, withAttempts bool) (Doc, error) {
 		doc.Blocked = blocked
 	}
 
-	labels, err := labelsDoc(j)
-	if err != nil {
+	if err := doc.record(j); err != nil {
 		return Doc{}, err
-	}
-	doc.Labels = labels
-	if j.State == StateCancelled {
-		doc.CancelCause = nullable(j.CancelCause)
-	}
-	doc.ParentJobID = nullable(j.ParentJobID)
-	if err := decode("follow_up", j.FollowUp, &doc.FollowUp); err != nil {
-		return Doc{}, fmt.Errorf("job %s: %w", j.ID, err)
 	}
 
 	if withAttempts {

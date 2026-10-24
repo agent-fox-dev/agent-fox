@@ -3,6 +3,7 @@ package worker
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"os"
@@ -240,3 +241,165 @@ func (b *syncBuffer) String() string {
 	defer b.mu.Unlock()
 	return b.buf.String()
 }
+
+// pollRig is the poll, the real jobs layer and its store on a state file, over the worker of the environment, which reports
+// through the jobs layer's recorder of each attempt.
+func pollRig(t *testing.T, e *env) (*store.Store, *jobs.Service, *poll.Supervisor) {
+	t.Helper()
+	key, err := secrets.NewKey(bytes.Repeat([]byte{7}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "agent-fox.db"), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if _, _, err := st.Upsert(context.Background(), slug, "af:", pat, "u1", "u1", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	e.runner.reporter = nil
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	svc, err := jobs.New(jobs.Config{
+		DB: st.DB(), Subscriptions: st, Logger: logger, Workers: 1, AttemptsDir: filepath.Join(t.TempDir(), "attempts"),
+		Runner: e.runner, PollInterval: 10 * time.Millisecond, RetryDelay: 10 * time.Millisecond, Retain: 100 * 365 * 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { svc.Close() })
+	return st, svc, poll.New(poll.Config{Subscriptions: st, Hub: hub.New(e.hub.URL, "1"), Jobs: svc, DB: st.DB(), Logger: logger})
+}
+
+// rest waits until the job is done or failed, and returns it.
+func rest(t *testing.T, svc *jobs.Service, id string) jobs.Doc {
+	t.Helper()
+	var doc jobs.Doc
+	eventually(t, "the job "+id+" to end", 90*time.Second, func() bool {
+		var err error
+		doc, err = svc.Get(context.Background(), id)
+		return err == nil && (doc.State == jobs.StateDone || doc.State == jobs.StateFailed)
+	})
+	return doc
+}
+
+// onlyJob is the one job of the kind on the workspace, waited for.
+func onlyJob(t *testing.T, st *store.Store, kind jobs.Kind, n int) string {
+	t.Helper()
+	var ids []string
+	eventually(t, "the "+string(kind)+" job", 30*time.Second, func() bool {
+		rows, err := st.DB().Query("SELECT id FROM af_jobs WHERE workspace = ? AND kind = ? ORDER BY created_at, rowid", slug, string(kind))
+		if err != nil {
+			return false
+		}
+		defer rows.Close()
+		ids = nil
+		for rows.Next() {
+			var id string
+			_ = rows.Scan(&id)
+			ids = append(ids, id)
+		}
+		return len(ids) >= n
+	})
+	if len(ids) != n {
+		t.Fatalf("%d %s jobs, want %d", len(ids), kind, n)
+	}
+	return ids[n-1]
+}
+
+// TestAutoFixChainsATriageIntoALinkedFixJobEndToEnd_TS_19_62 verifies TS-19-62 and 19-PATH-5: issue 44 carries af:triage on a
+// workspace with AF_AUTO_FIX=true; one cycle makes the triage job, the real worker runs it with the scripted brain to
+// af:ready, records its follow-up pending through the jobs layer and adds af:fix; the next cycle makes the fix job linked
+// to the triage, and the triage's follow-up is made with it.
+// Verifies: 19-PATH-5, 19-REQ-9.1, 19-REQ-7.3
+func TestAutoFixChainsATriageIntoALinkedFixJobEndToEnd_TS_19_62(t *testing.T) {
+	e := loopEnv(t, triageFiles, map[string]string{"AF_AUTO_FIX": "true"}, nil, submitStep(probableDiagnosis))
+	e.hub.AddIssue(slug, fakehub.Issue{Number: 44, Title: "App crashes", Body: "The app crashes on submit.", Labels: []string{"af:triage"}})
+	st, svc, poller := pollRig(t, e)
+
+	poller.Cycle(context.Background(), slug)
+	triage := onlyJob(t, st, jobs.KindTriage, 1)
+	doc := rest(t, svc, triage)
+	if doc.State != jobs.StateDone {
+		t.Fatalf("the triage is %s: %+v", doc.State, doc.Result)
+	}
+	if f := doc.FollowUp; f == nil || f.Label != "af:fix" || f.Issue != 44 || f.State != jobs.FollowUpPending {
+		t.Fatalf("the triage's follow-up is %+v, want af:fix on 44, pending", doc.FollowUp)
+	}
+	if issue, _ := e.hub.IssueOf(slug, 44); !slices.Contains(issue.Labels, "af:ready") || !slices.Contains(issue.Labels, "af:fix") {
+		t.Fatalf("issue 44 carries %v, want af:ready and af:fix", issue.Labels)
+	}
+
+	poller.Cycle(context.Background(), slug)
+	fix := onlyJob(t, st, jobs.KindFix, 1)
+	fd, err := svc.Get(context.Background(), fix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fd.Source != (jobs.Source{Kind: "triage", By: triage}) || fd.ParentJobID == nil || *fd.ParentJobID != triage {
+		t.Errorf("the fix job is from %+v with the parent %v, want the triage %s", fd.Source, fd.ParentJobID, triage)
+	}
+	td, _ := svc.Get(context.Background(), triage)
+	if f := td.FollowUp; f == nil || f.State != jobs.FollowUpMade || f.JobID == nil || *f.JobID != fix {
+		t.Errorf("the triage's follow-up is %+v, want made with %s", td.FollowUp, fix)
+	}
+	rest(t, svc, fix) // the fix runs to its end before the state file closes
+}
+
+// TestARelabelledTriagedIssueGetsANewTriageThatKeepsTheEditedReport_TS_19_63 verifies TS-19-63 and 19-PATH-6: issue 44's
+// latest triage job is done and its body carries the diagnosis after the original report; a person edits the original
+// report and adds af:triage; one cycle makes a new triage job of the label and leaves the done one as it was, and the real
+// worker replaces the diagnosis and keeps the edited report.
+// Verifies: 19-PATH-6, 19-REQ-1.6
+func TestARelabelledTriagedIssueGetsANewTriageThatKeepsTheEditedReport_TS_19_63(t *testing.T) {
+	e := loopEnv(t, triageFiles, nil, nil, submitStep(probableDiagnosis))
+	original := "The app crashes on submit.\n\nSteps: press the button."
+	e.hub.AddIssue(slug, fakehub.Issue{Number: 44, Title: "App crashes", Body: original, Labels: []string{"af:triage"}})
+	st, svc, poller := pollRig(t, e)
+	poller.Cycle(context.Background(), slug)
+	first := onlyJob(t, st, jobs.KindTriage, 1)
+	if d := rest(t, svc, first); d.State != jobs.StateDone {
+		t.Fatalf("the first triage is %s", d.State)
+	}
+	issue, _ := e.hub.IssueOf(slug, 44)
+	if kept, _, _ := triage.Extract(issue.Body); kept != original {
+		t.Fatalf("the first triage kept %q, want the original report", kept)
+	}
+	before, _ := svc.Get(context.Background(), first)
+
+	edited := "The app crashes on submit when it is offline.\n\nSteps: press the button."
+	firstBody := issue.Body
+	issue.Body = strings.Replace(issue.Body, original, edited, 1)
+	issue.Labels = append(issue.Labels, "af:triage")
+	e.hub.AddIssue(slug, issue)
+	poller.Cycle(context.Background(), slug)
+	second := onlyJob(t, st, jobs.KindTriage, 2)
+	sd := rest(t, svc, second)
+	if sd.State != jobs.StateDone || sd.Source != (jobs.Source{Kind: "label", By: "label af:triage"}) {
+		t.Fatalf("the second triage is %s from %+v, want done, from the label", sd.State, sd.Source)
+	}
+	if after, _ := svc.Get(context.Background(), first); !jsonEqualDocs(before, after) {
+		t.Errorf("the done triage changed:\n%+v\n%+v", before, after)
+	}
+	now, _ := e.hub.IssueOf(slug, 44)
+	kept, _, _ := triage.Extract(now.Body)
+	if kept != edited {
+		t.Errorf("the second triage kept %q, want the edited report %q", kept, edited)
+	}
+	if firstLine(now.Body) == firstLine(firstBody) || strings.Count(now.Body, triage.BeginMarker) != 1 {
+		t.Errorf("the diagnosis was not replaced:\n%s", now.Body)
+	}
+}
+
+// jsonEqualDocs says whether the two documents are the same as JSON.
+func jsonEqualDocs(a, b jobs.Doc) bool {
+	ja, _ := json.Marshal(a)
+	jb, _ := json.Marshal(b)
+	return string(ja) == string(jb)
+}
+
+// firstLine is the first line of the text.
+func firstLine(s string) string { first, _, _ := strings.Cut(s, "\n"); return first }
