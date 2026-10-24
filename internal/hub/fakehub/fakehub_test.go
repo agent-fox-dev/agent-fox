@@ -407,3 +407,57 @@ func TestTheFakeHubsEventSeams_TS_18_13(t *testing.T) {
 		t.Errorf("the issue is %s, want closed", i.State)
 	}
 }
+
+// TestAPersonsCommentAndAServiceCommentEachCarryTheirOwnTimeInTheOrderTheyWereAdded_TS_19_57 verifies TS-19-57: a test adds
+// a person's comment, the service posts one a minute later by the fake's clock, and both the issue read and the comment list
+// give them in the order they were added, with the person's login, and each with the time it was added at.
+// Verifies: 19-REQ-10.2
+func TestAPersonsCommentAndAServiceCommentEachCarryTheirOwnTimeInTheOrderTheyWereAdded_TS_19_57(t *testing.T) {
+	const pat = "pat-widgets"
+	h := New(t)
+	h.AddWorkspace(t, Workspace{Slug: "widgets", PAT: pat})
+	h.AddIssue("widgets", Issue{Number: 42})
+	now := time.Date(2026, 10, 24, 8, 0, 0, 0, time.UTC)
+	h.SetClock(func() time.Time { return now })
+
+	h.AddPersonComment("widgets", 42, "alice", "a")
+	now = now.Add(time.Minute)
+	status, _ := call(t, h, http.MethodPost, "/api/v1/workspaces/widgets/issues/42/comments", pat, map[string]string{"body": "b"})
+	if status != http.StatusCreated {
+		t.Fatalf("POST comment = %d", status)
+	}
+
+	type comment struct {
+		Body      string    `json:"body"`
+		CreatedAt time.Time `json:"created_at"`
+		User      struct {
+			Login string `json:"login"`
+		} `json:"user"`
+	}
+	var read struct {
+		Comments []comment `json:"comments"`
+	}
+	_, body := get(t, h, "/api/v1/workspaces/widgets/issues/42", pat)
+	if err := json.Unmarshal([]byte(body), &read); err != nil {
+		t.Fatal(err)
+	}
+	var listed []comment
+	_, body = get(t, h, "/api/v1/workspaces/widgets/issues/42/comments", pat)
+	if err := json.Unmarshal([]byte(body), &listed); err != nil {
+		t.Fatal(err)
+	}
+	for name, got := range map[string][]comment{"the issue read": read.Comments, "the comment list": listed} {
+		if len(got) != 2 || got[0].Body != "a" || got[1].Body != "b" {
+			t.Fatalf("%s gives %+v, want a then b", name, got)
+		}
+		if got[0].User.Login != "alice" {
+			t.Errorf("%s: the person's comment is by %q, want alice", name, got[0].User.Login)
+		}
+		if !got[0].CreatedAt.Equal(now.Add(-time.Minute)) || !got[1].CreatedAt.Equal(now) {
+			t.Errorf("%s: the times are %v and %v, want each the time it was added", name, got[0].CreatedAt, got[1].CreatedAt)
+		}
+	}
+	if issue, _ := h.IssueOf("widgets", 42); len(issue.Comments) != 2 || issue.Comments[0].Author != "alice" {
+		t.Errorf("the hub holds %+v", issue.Comments)
+	}
+}

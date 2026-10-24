@@ -7,10 +7,12 @@ import (
 	"time"
 )
 
-// Comment is a comment of an issue.
+// Comment is a comment of an issue. CreatedAt is when it was added: by the fake's clock for one a test or a request
+// adds, and a fixed time for one an issue was added with and that names none.
 type Comment struct {
 	ID           int64
 	Author, Body string
+	CreatedAt    time.Time
 }
 
 // Issue is an issue of the forge repository of a workspace; IsPR makes it a pull or merge
@@ -59,6 +61,9 @@ func (h *Hub) AddIssue(slug string, i Issue) {
 		if i.Comments[k].ID == 0 {
 			i.Comments[k].ID = int64(k + 1)
 		}
+		if i.Comments[k].CreatedAt.IsZero() {
+			i.Comments[k].CreatedAt = time.Date(2026, 1, 2, 3, 4, 6, 0, time.UTC)
+		}
 	}
 	ws.issues[i.Number] = &issueState{i}
 	ws.nextItem = max(ws.nextItem, i.Number+1)
@@ -106,7 +111,7 @@ func issueJSON(slug string, i Issue) map[string]any {
 
 // commentJSON is the comment as hub's forge API writes it.
 func commentJSON(c Comment) map[string]any {
-	return map[string]any{"id": c.ID, "body": c.Body, "user": map[string]any{"login": c.Author}, "created_at": stamp(time.Date(2026, 1, 2, 3, 4, 6, 0, time.UTC))}
+	return map[string]any{"id": c.ID, "body": c.Body, "user": map[string]any{"login": c.Author}, "created_at": stamp(c.CreatedAt)}
 }
 
 // forgeRoute serves the forge API under /api/v1/workspaces/{slug}.
@@ -188,7 +193,7 @@ func (h *Hub) issueRoute(w http.ResponseWriter, r *http.Request, ws *workspace, 
 			return
 		}
 		h.mu.Lock()
-		c := Comment{ID: int64(len(issue.Comments) + 1), Author: "agent-fox", Body: req.Body}
+		c := Comment{ID: int64(len(issue.Comments) + 1), Author: "agent-fox", Body: req.Body, CreatedAt: h.now()}
 		issue.Comments = append(issue.Comments, c)
 		h.mu.Unlock()
 		writeJSON(w, http.StatusCreated, map[string]any{"url": fmt.Sprintf("https://github.example.com/acme/widgets/issues/%d#issuecomment-%d", issue.Number, c.ID)})

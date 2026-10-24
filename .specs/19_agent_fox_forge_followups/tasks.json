@@ -71,7 +71,7 @@
         "internal/service/poll/thread.go",
         "internal/service/poll/thread_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,
