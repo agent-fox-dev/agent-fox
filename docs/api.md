@@ -1,95 +1,134 @@
-# The agent-fox API
+# HTTP API reference
 
-`agent-fox` is the long-running service of agent-fox (see [cli.md](cli.md#the-agent-fox-command-line)
-for how to start it and [configuration.md](configuration.md#the-agent-fox-service) for its
-configuration). It serves JSON over plain HTTP: a loopback address by default, and TLS, if you want it,
-is a reverse proxy's job. It has no users of its own: [hub](https://github.com/agent-fox-dev/hub) says who
-is calling and which workspaces they may see, and the service asks it.
+`agent-fox`, the long-running service, serves a JSON API over plain HTTP. It listens on a loopback
+address by default; put a reverse proxy in front of it if you need TLS. The service has no users of
+its own: [hub](https://github.com/agent-fox-dev/hub) is the identity provider, and the service asks hub
+who is calling and which workspaces they may see.
 
-This release has the probes, the subscription of workspaces and jobs: triage and fix requests against a
-subscribed workspace, queued, ordered, cancelled, answered and retried, with their attempts, their stored
-envelopes and a replayable stream of events. What runs an attempt is a runner behind an interface; the
-binary runs the worker, which carries out each attempt against the hub workspace of the job (see
-[What the worker adds to an attempt](#what-the-worker-adds-to-an-attempt)). The poll and the `af` client
-come in later specs and add their routes to this document.
+To start the service, see [cli.md](cli.md#the-agent-fox-command). To configure it, see
+[configuration.md](configuration.md#the-agent-fox-service). The `af` client wraps every route in this
+document; see [cli.md](cli.md#service-client-commands).
+
+## Contents
+
+- [Overview](#overview)
+- [Routes](#routes)
+- [Authentication](#authentication)
+  - [Workspace visibility](#workspace-visibility)
+- [Workspaces](#workspaces)
+  - [The subscription view](#the-subscription-view)
+  - [List and read](#list-and-read)
+  - [Subscribe](#subscribe)
+  - [Unsubscribe](#unsubscribe)
+- [Labels](#labels)
+  - [The label set](#the-label-set)
+  - [Request labels](#request-labels)
+  - [Answering and retrying from the issue](#answering-and-retrying-from-the-issue)
+- [Jobs](#jobs)
+  - [Job states](#job-states)
+  - [Create a job](#create-a-job)
+  - [The job document](#the-job-document)
+  - [How an attempt ends](#how-an-attempt-ends)
+  - [What the worker adds to an attempt](#what-the-worker-adds-to-an-attempt)
+  - [Cancel](#cancel)
+  - [Answer and retry](#answer-and-retry)
+  - [List and read jobs](#list-and-read-jobs)
+  - [The event stream](#the-event-stream)
+  - [Retention](#retention)
+- [Request bodies](#request-bodies)
+- [Errors](#errors)
+- [Logging](#logging)
+
+## Overview
+
+- A **subscription** connects a hub workspace to the service. You subscribe a workspace by handing
+  over a hub token for it; the service keeps that token encrypted and acts on the workspace with it.
+- A **job** is one request to `triage` or `fix` an issue (or, for triage, a text or a file) on a
+  subscribed workspace. Jobs of one workspace run one at a time, in the order they were made.
+- An **attempt** is one run of a job. Every attempt ends with an **envelope**: the JSON document that
+  `af` prints (see [cli.md](cli.md#the-envelope)). A job gets a new attempt when someone answers its
+  question, retries it, or when the service retries a failed brain by itself.
+- Each job has an **event log** that you can read, and follow live, as a server-sent event stream.
+- There are two ways to make a job: call the API, or put a **request label** (`af:triage` or `af:fix`)
+  on an issue and let the service find it.
 
 ## Routes
 
-| Route | Needs a token | What it does |
+| Route | Token | What it does |
 |---|---|---|
 | `GET /healthz` | no | `200` `{"status":"ok"}` while the process serves. |
-| `GET /readyz` | no | `200` `{"status":"ready"}` when the database answers a ping, else `503` `not_ready`. |
-| `GET /version` | no | `200` with the version document: `name` (`agent-fox`), `version`, `commit`, `build_time`, `go_version`. It is the document of `agent-fox --version`. |
-| `GET /api/v1/workspaces` | yes | The subscriptions whose workspace the caller sees on hub, sorted by slug. |
-| `GET /api/v1/workspaces/{slug}` | yes | One subscription. |
-| `PUT /api/v1/workspaces/{slug}` | yes | Subscribe a workspace, or replace its subscription. |
-| `DELETE /api/v1/workspaces/{slug}` | yes | Remove a subscription, after cancelling the open jobs of the workspace. |
-| `POST /api/v1/workspaces/{slug}/triage` | yes | Make a triage job. Body up to 1 MiB. |
-| `POST /api/v1/workspaces/{slug}/fix` | yes | Make a fix job. Body up to 256 KiB. |
-| `GET /api/v1/workspaces/{slug}/jobs` | yes | List the jobs of one workspace, subscribed or not. |
-| `GET /api/v1/jobs` | yes | List the jobs of every workspace the caller sees. |
-| `GET /api/v1/jobs/{id}` | yes | One job, with its attempts. |
-| `POST /api/v1/jobs/{id}/cancel` | yes | Cancel a job that is queued, running or blocked. |
-| `POST /api/v1/jobs/{id}/answer` | yes | Answer the question of a blocked job. |
-| `POST /api/v1/jobs/{id}/retry` | yes | Ask again for a failed job. |
-| `GET /api/v1/jobs/{id}/attempts/{n}/envelope` | yes | The `envelope.json` an attempt stored, byte for byte. |
-| `GET /api/v1/jobs/{id}/attempts/{n}/report` | yes | The `report.md` an attempt stored. |
-| `GET /api/v1/jobs/{id}/events` | yes | The events of a job as `text/event-stream`. |
+| `GET /readyz` | no | `200` `{"status":"ready"}` when the database answers; otherwise `503` `not_ready`. |
+| `GET /version` | no | `200` with the version document: `name` (`agent-fox`), `version`, `commit`, `build_time`, `go_version`. The same document as `agent-fox --version`. |
+| `GET /api/v1/workspaces` | yes | [List](#list-and-read) the subscriptions you can see. |
+| `GET /api/v1/workspaces/{slug}` | yes | [Read](#list-and-read) one subscription. |
+| `PUT /api/v1/workspaces/{slug}` | yes | [Subscribe](#subscribe) a workspace, or replace its subscription. |
+| `DELETE /api/v1/workspaces/{slug}` | yes | [Unsubscribe](#unsubscribe): cancel the workspace's open jobs and remove the subscription. |
+| `POST /api/v1/workspaces/{slug}/triage` | yes | [Create](#create-a-job) a triage job. |
+| `POST /api/v1/workspaces/{slug}/fix` | yes | [Create](#create-a-job) a fix job. |
+| `GET /api/v1/workspaces/{slug}/jobs` | yes | [List](#list-and-read-jobs) the jobs of one workspace, subscribed or not. |
+| `GET /api/v1/jobs` | yes | [List](#list-and-read-jobs) the jobs of every workspace you can see. |
+| `GET /api/v1/jobs/{id}` | yes | [Read](#list-and-read-jobs) one job, with its attempts. |
+| `POST /api/v1/jobs/{id}/cancel` | yes | [Cancel](#cancel) a queued, running or blocked job. |
+| `POST /api/v1/jobs/{id}/answer` | yes | [Answer](#answer-and-retry) the question of a blocked job. |
+| `POST /api/v1/jobs/{id}/retry` | yes | [Retry](#answer-and-retry) a failed job. |
+| `GET /api/v1/jobs/{id}/attempts/{n}/envelope` | yes | The `envelope.json` that attempt `n` stored, byte for byte. |
+| `GET /api/v1/jobs/{id}/attempts/{n}/report` | yes | The `report.md` that attempt `n` stored. |
+| `GET /api/v1/jobs/{id}/events` | yes | The job's [event stream](#the-event-stream) (`text/event-stream`). |
 
-Every response is `application/json`, except the `204` of `DELETE`, which has no body, the report of an
-attempt (`text/markdown; charset=utf-8`) and the stream of events (`text/event-stream`). A path that is
-not canonical (`//healthz`, `/x/../healthz`) is a `404`; the service redirects nothing.
+Responses are `application/json`, with three exceptions: `DELETE` answers `204` with no body, an
+attempt's report is `text/markdown; charset=utf-8`, and the event stream is `text/event-stream`.
+
+The service never redirects. A path that is not canonical (`//healthz`, `/x/../healthz`) is `404`. A
+method the route does not take is `405` with an `Allow` header.
 
 ## Authentication
 
-Every route under `/api/v1` needs a header `Authorization: Bearer <token>`. The scheme is matched
-without regard to case and the token must not be empty. The token is a credential of hub for the
-person calling; the service forwards it to hub, and to nobody else (through the proxy that `HTTP_PROXY` or
-`HTTPS_PROXY` name, if the environment has one), to learn whom it belongs to.
+Every route under `/api/v1` needs the header `Authorization: Bearer <token>`, where the token is a
+hub credential of the person calling (an API key or a personal access token). The scheme is
+case-insensitive and the token must not be empty. A request without a usable header gets `401`
+`unauthenticated` with `WWW-Authenticate: Bearer`, and hub is not asked.
 
-A request without a usable header is answered `401` `unauthenticated` with the header
-`WWW-Authenticate: Bearer`, and without a call to hub.
+The service sends the token to hub, and to nobody else, to learn who it belongs to
+(`GET /api/v1/user` on hub). It then asks hub, with the same token, whether you can see the workspace
+a route names (`GET /api/v1/workspaces/{slug}` on hub). If `HTTP_PROXY` or `HTTPS_PROXY` is set, these
+calls go through that proxy.
 
-Hub's answers are kept for `hub.auth_cache_ttl` (60 seconds unless the configuration says; at most 15
-minutes), by the SHA-256 of the token and never by the token:
+Hub's answers are cached for `hub.auth_cache_ttl` (60 seconds by default, at most 15 minutes), keyed
+by a hash of the token, never the token itself:
 
-- **Whom the token belongs to** is asked with `GET /api/v1/user` on hub. A token that hub accepts is
-  not asked about again within the TTL. A token that hub refuses (its `401` or `403`) is answered `401`
-  `unauthenticated`, and is not asked about again within the TTL either.
-- **Whether the caller sees a workspace** is asked with `GET /api/v1/workspaces/{slug}` on hub, with the
-  caller's own token, and is kept for each token and slug. A workspace that hub does not show to the
-  caller (hub's `403` or `404`) is answered `404` `not_found`.
-- **Hub being unavailable** (it is down, slow, redirects, rate limits, or answers what the service does
-  not understand) is answered `502` `hub_unavailable`, and is never kept: the next request asks hub again.
-- When hub answers `401` to a call that the service makes with the caller's token on a route, the token
-  is no longer good. Everything kept about it goes, and the request is answered `401`
-  `unauthenticated`; the next request with the token asks hub whom it belongs to again.
-- Each of the two caches holds at most 10,000 entries; when it is full the expired entries go first,
-  then the oldest.
+| Hub says | The service answers | Cached |
+|---|---|---|
+| The token is valid | (the request goes on) | yes |
+| The token is refused (`401` or `403`) | `401` `unauthenticated` | yes |
+| You cannot see the workspace (`403` or `404`) | `404` `not_found` | yes |
+| Hub is down, slow, redirects, rate-limits or answers something unexpected | `502` `hub_unavailable` | no: the next request asks again |
 
-Hub's visibility is the whole rule. Anyone who sees a workspace on hub may subscribe it, read its
-subscription, replace it and remove it; the service adds no tenancy of its own.
+If hub refuses the token during a request that has already authenticated, everything cached about the
+token is dropped and the request gets `401`.
 
-### Workspace slugs
+Hub's visibility is the whole access rule. Anyone who can see a workspace on hub can subscribe it,
+read its subscription, replace it and remove it, and make, read and act on its jobs. The service adds
+no tenancy of its own.
 
-A route with `{slug}` checks, in this order: the slug, the caller, and the caller's sight of the
-workspace.
+### Workspace visibility
 
-1. A slug must match `^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$`; otherwise `400` `invalid_request`, before hub
+A route with `{slug}` checks three things, in this order:
+
+1. The slug matches `^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$`. Otherwise `400` `invalid_request`, before hub
    is asked anything.
-2. The caller is authenticated as above.
-3. The caller must see the slug on hub; otherwise `404` `not_found`.
+2. You are authenticated.
+3. You can see the workspace on hub. Otherwise `404` `not_found`.
 
-A slug that the caller cannot see is answered **exactly as a slug that is not subscribed**: `404`, with
-the same body, which does not contain the slug. Nobody learns from an answer that a workspace they
-cannot see is subscribed.
+A workspace you cannot see gets **exactly the same answer** as a workspace that is not subscribed: the
+same `404` with the same body, which does not contain the slug. Nobody can learn from an answer that a
+workspace they cannot see is subscribed.
 
-## The subscription
+## Workspaces
 
-A subscription is what the service keeps of a workspace: the token it acts on the workspace with, which
-the caller handed over when subscribing, sealed with the deployment's key (AES-256-GCM, see
-[configuration.md](configuration.md#the-key-file)). Every route that shows a subscription shows this
-view, and **the view never contains the token or its ciphertext**:
+### The subscription view
+
+Every route that returns a subscription returns this document. It **never contains the workspace
+token or its ciphertext.**
 
 ```json
 {
@@ -105,256 +144,262 @@ view, and **the view never contains the token or its ciphertext**:
 | Field | Meaning |
 |---|---|
 | `slug` | The workspace. |
-| `token_user` | The hub user the token belongs to, when hub said so; `null` when hub did not (a credential that is bound to a workspace can see it and still be refused by `/user`). |
-| `subscribed_by` | The hub user who subscribed the workspace last. |
-| `token_state` | `ok` when the stored token opens with this deployment's key, `unreadable` when it does not (the file was written under another key). An unreadable subscription is still listed, read, replaced and removed. |
-| `created_at`, `updated_at` | RFC 3339, in UTC. A replacement keeps `created_at`. |
+| `token_user` | The hub user the workspace token belongs to, or `null` when hub did not say (a token bound to a workspace may see the workspace and still be refused by hub's `/user`). |
+| `subscribed_by` | The hub user who last subscribed the workspace. |
+| `token_state` | `ok` when the stored token decrypts with this deployment's key; `unreadable` when it does not (it was stored under another key). An unreadable subscription can still be listed, read, replaced and removed, but it cannot run jobs. |
+| `created_at`, `updated_at` | RFC 3339, UTC. Replacing a subscription keeps `created_at`. |
 
-## Reading
+### List and read
 
-`GET /api/v1/workspaces` answers `200`:
+`GET /api/v1/workspaces` answers `200` with every subscription you can see, sorted by slug:
 
 ```json
-{"workspaces":[{"slug":"alpha", …},{"slug":"widgets", …}]}
+{"workspaces": [{"slug": "alpha", …}, {"slug": "widgets", …}]}
 ```
 
-It holds every subscription whose slug the caller sees, sorted by slug, and `[]` (never `null`) when
-there is none. If hub is unavailable for any of the slugs, the answer is `502` `hub_unavailable` and not
-a list that leaves one out; if hub refuses the caller's token while the list is made, it is `401`.
+The list is `[]`, never `null`, when there are none. If hub is unavailable for any of the slugs, the
+answer is `502` `hub_unavailable` rather than a list with a gap. If hub refuses your token while the
+list is built, the answer is `401`.
 
-`GET /api/v1/workspaces/{slug}` answers `200` with the view, or `404` `not_found` when the slug is not
-subscribed or the caller cannot see it (the same body in both cases).
+`GET /api/v1/workspaces/{slug}` answers `200` with the view, or `404` `not_found` when the workspace is
+not subscribed or you cannot see it.
 
-## Subscribing
+### Subscribe
 
-`PUT /api/v1/workspaces/{slug}` takes
+`PUT /api/v1/workspaces/{slug}` subscribes a workspace, or replaces its subscription:
 
 ```json
 {"hub_token": "<a hub token for the workspace>"}
 ```
 
-`hub_token` is required and must not contain a control character (otherwise `400` `invalid_request`, before
-hub is asked anything with the token). The body is read as
-described under [request bodies](#request-bodies).
+`hub_token` is required and must not contain a control character (`400` `invalid_request`
+otherwise). The service acts on the workspace with this token from then on: it reads issues, writes
+labels and comments, clones the repository, leases sandboxes and opens pull requests through hub. The
+token needs hub's forge scope (`forge:write`) for that.
 
-The service checks the token with two calls to hub, made with the token and not through the caches:
+The service checks the token in three steps. Each call uses the handed-over token itself, and none
+goes through the caches of [authentication](#authentication).
 
-1. **The gate**: `GET /api/v1/workspaces/{slug}` must find the workspace. Hub's `401` is `422`
-   `invalid_hub_token` with a message that says hub refused the token; hub's `403` and `404` are `422`
-   `invalid_hub_token` with a message that names the workspace; hub being unavailable is `502`
-   `hub_unavailable`.
-2. **The user**: `GET /api/v1/user`, best effort. Its answer is `token_user`; if hub refuses the token
-   there, `token_user` is `null` and the subscription is stored all the same; if hub is unavailable, `502`.
+1. **Can the token see the workspace?** Hub's `GET /api/v1/workspaces/{slug}` must succeed. Hub's
+   `401`, `403` or `404` is `422` `invalid_hub_token`; hub unavailable is `502` `hub_unavailable`.
+2. **Who owns the token?** Hub's `GET /api/v1/user`, best effort. The answer becomes `token_user`. If
+   hub refuses the token here, `token_user` is `null` and the subscription is stored anyway. Hub
+   unavailable is `502`.
+3. **Create the labels.** The service creates the seven [labels](#the-label-set) on the workspace's
+   repository through hub, one at a time, in table order. A label that already exists is left as it
+   is (colour and description included). The first creation hub does not accept stops the step and
+   refuses the `PUT`:
 
-A refused token is `422` and never `401`, even when it is the very token that the caller authenticated
-with, and a call with the token never touches the caches of the caller's answers.
-
-3. **The labels.** The service creates the seven labels of the agent-fox label protocol on the workspace's
-   repository through hub (`POST /api/v1/workspaces/{slug}/labels`), with the token of the request, one at a
-   time and in this order. Every label has the prefix `af:`, which is not configurable:
-
-   | Label | Kind | Colour | Description |
-   |---|---|---|---|
-   | `af:triage` | request | `0e8a16` | Ask agent-fox to triage this issue |
-   | `af:fix` | request | `0e8a16` | Ask agent-fox to fix this issue |
-   | `af:in-progress` | status | `fbca04` | agent-fox is working on this issue |
-   | `af:ready` | status | `1d76db` | Triaged: the diagnosis is in the body |
-   | `af:needs-human` | status | `d93f0b` | agent-fox stopped with a question; see the last comment |
-   | `af:landed` | status | `0e8a16` | A branch and a pull request (or a carry patch) exist |
-   | `af:failed` | status | `b60205` | agent-fox could not finish; see the last comment |
-
-   A label is in place when hub creates it (`201`) or reports it as already there: `200`, `409`, or any other
-   `4xx` whose `error_type` is `already_exists` or whose message says "already exists", in any case. An
-   existing label's colour and description are left as they are. Once all seven are in place, one `INFO`
-   record, `the labels of the workspace are in place`, names the workspace and how many were `created` and
-   how many were already there (`existing`). The first creation that hub does not take stops the step, and
-   the `PUT` is refused:
-
-   | Hub's answer to a creation | `PUT` answers |
+   | Hub answers a label creation with | `PUT` answers |
    |---|---|
-   | `401` | `422` `invalid_hub_token`, `hub refused the token` |
-   | `403` | `422` `forge_forbidden`: `hub forbids the token to create labels on the workspace "<slug>": it lacks the scope for hub's forge API (forge:write)`. A token with that scope cures it. |
-   | `502` with `error_type` `forge_forbidden` or `forge_unauthenticated` | `422` `forge_forbidden`: `the forge refused hub's credential for the repository of the workspace "<slug>": ` and hub's message. Another token does not cure it: the credential that hub holds for the forge must be mended. |
-   | `404` or `405` | `502` `hub_unavailable`: `hub does not serve label creation for the workspace "<slug>"` |
-   | another `4xx` (not `429`) | `422` `forge_forbidden`: `hub refused to create a label on the workspace "<slug>": ` and hub's message |
-   | `429`, another `5xx`, a redirect, a transport failure, a timeout, a body that is not hub's | `502` `hub_unavailable` |
+   | `401` | `422` `invalid_hub_token`: hub refused the token. |
+   | `403` | `422` `forge_forbidden`: the token lacks the scope for hub's forge API (`forge:write`). Use a token with that scope. |
+   | `502` with `error_type` `forge_forbidden` or `forge_unauthenticated` | `422` `forge_forbidden`: the forge refused the credential hub holds for the repository. Another token does not help; the credential on hub must be fixed. |
+   | `404` or `405` | `502` `hub_unavailable`: hub does not serve label creation for the workspace. |
+   | another `4xx` (not `429`) | `422` `forge_forbidden`, with hub's message. |
+   | `429`, another `5xx`, a redirect, a transport failure, a timeout, or a body that is not hub's | `502` `hub_unavailable`. |
 
-   `af workspace subscribe` shows `forge_forbidden` as every `422`: the message and the code, with its hint
-   `--hub-token-file`.
+   A label counts as present when hub creates it (`201`) or says it already exists (`200`, `409`, or a
+   `4xx` whose `error_type` is `already_exists` or whose message says "already exists").
 
-Nothing is written to the store before every check has passed: a refused `PUT` stores nothing, and a
-refused replace leaves the subscription exactly as it was. Labels created before a refusal stay on the
-forge, where the next `PUT` finds them. No label is ever renamed or deleted, by a `PUT` or by an unsubscribe. A workspace
-subscribed before this release has no labels until its next `PUT`: subscribing it again with the same
-body creates them, and nothing else does.
+A refused token is always `422`, never `401`, even if it is the same token you authenticated with.
 
-Then the token is sealed and stored in one statement. `PUT` replaces the subscription in full:
+Nothing is stored until every check passes. A refused `PUT` stores nothing, and a refused replacement
+leaves the existing subscription as it was. Labels created before a refusal stay on the forge; the next
+`PUT` finds them.
 
-- `201` **on create**, when the workspace was not subscribed;
-- `200` **on replace**, when it was: `token_user` is this request's answer (and stays `null` if hub did not say), `subscribed_by` is the
-  caller, `created_at` is kept and `updated_at` is now.
+On success the token is encrypted and stored, and the service answers with the view:
 
-The body of both is the view. A client treats `200` and `201` alike as success. The label step checks
-the token's scope for hub's forge API; another scope that the token lacks fails at the first call that
-needs it.
+- `201` when the workspace was not subscribed;
+- `200` when it was. The subscription is replaced in full: `token_user` is this request's answer,
+  `subscribed_by` is you, `created_at` is kept and `updated_at` is now.
 
-## Removing
+Treat `200` and `201` alike as success. Subscribing an already-subscribed workspace again with the same
+token is how you create any labels that are missing.
 
-`DELETE /api/v1/workspaces/{slug}` removes the subscription, its sealed token with it, and answers `204`
-with no body. A slug that is not subscribed, or that the caller cannot see, is the same `404` as for
+### Unsubscribe
+
+`DELETE /api/v1/workspaces/{slug}` removes the subscription and its stored token, and answers `204`
+with no body. A workspace that is not subscribed, or that you cannot see, is the same `404` as for
 `GET`.
 
-Before the row goes, the workspace is marked as being unsubscribed, which refuses new work for it (a request
-to make a job is `404`, as for any workspace that is not subscribed; one to answer or retry a job is `409`
-`not_subscribed`), and every job of the workspace that is
-queued, running or blocked is cancelled with the cause *unsubscribed* (its `cancel_cause`), which a runner reads as a cancel. The
-request waits for the runners of those jobs to return, for at most 60 seconds each (see [Cancel](#cancel)). It
-also waits, while the token is still there, for the first try of the cancel cleanup of each job that gets one (see
-[Cancel](#cancel)), so that a blocked job's issue gets its request label back and loses `needs-human` before the
-workspace goes; it stops waiting 60 seconds after the cancels and the wait for the runners have ended, so a hub
-outage delays the `DELETE` by at most that. A cleanup still pending when the subscription is gone ends
-`label_not_set` at its next try. A removal that then fails is `500`; the subscription stays and the workspace
-takes jobs again. The jobs of the workspace are not removed: they are listed and read until the retention purge
-removes them.
+Before the subscription goes, the service:
+
+1. Stops taking new work for the workspace. Creating a job answers `404`; answering or retrying a job
+   answers `409` `not_subscribed`.
+2. Cancels every queued, running or blocked job of the workspace, with `cancel_cause`
+   `unsubscribed`. See [Cancel](#cancel).
+3. Waits for the running attempts to stop, at most 60 seconds each.
+4. Waits, while the token is still available, for the first try of each job's
+   [cancel cleanup](#cancel), so that a blocked issue gets its request label back before the token is
+   gone. This wait ends at most 60 seconds after step 3.
+
+The request can therefore take a minute or two. If the removal itself fails, the answer is `500`, the
+subscription stays, and the workspace takes jobs again.
+
+The workspace's jobs are not deleted. You can still list and read them until [retention](#retention)
+removes them. Labels on the forge are never renamed or deleted.
+
+## Labels
+
+A team can drive agent-fox from the issue tracker alone: put a label on an issue to ask for work, and
+read the status labels and comments that agent-fox writes back.
+
+### The label set
+
+[Subscribing](#subscribe) a workspace creates these seven labels on its repository. The `af:` prefix
+is fixed.
+
+| Label | Kind | Colour | Description |
+|---|---|---|---|
+| `af:triage` | request | `0e8a16` | Ask agent-fox to triage this issue |
+| `af:fix` | request | `0e8a16` | Ask agent-fox to fix this issue |
+| `af:in-progress` | status | `fbca04` | agent-fox is working on this issue |
+| `af:ready` | status | `1d76db` | Triaged: the diagnosis is in the body |
+| `af:needs-human` | status | `d93f0b` | agent-fox stopped with a question; see the last comment |
+| `af:landed` | status | `0e8a16` | A branch and a pull request (or a carry patch) exist |
+| `af:failed` | status | `b60205` | agent-fox could not finish; see the last comment |
+
+You add the request labels. agent-fox sets the status labels: an issue carries at most one of them at
+a time (a fix in progress keeps `af:ready` until its outcome replaces it). See
+[What the worker adds to an attempt](#what-the-worker-adds-to-an-attempt).
+
+### Request labels
+
+The service polls each subscribed workspace for open issues that carry `af:triage` or `af:fix`, every
+`AF_POLL_INTERVAL` (5 minutes by default; `0` turns polling off for the workspace). See
+[the label poll](configuration.md#the-label-poll).
+
+Each new request becomes exactly one job, and the service then removes the label. It **consumes** the
+label, so adding it again later is a new request. Pull requests, closed issues and issues without a
+request label are never touched.
+
+A job made from a label differs from an API job in three fields:
+
+| Field | Value |
+|---|---|
+| `source` | `{"kind": "label", "by": "label af:fix"}` (or `label af:triage`). The forge's list does not say who added a label, so no person is named. |
+| `request_label` | The label, with its prefix: `af:fix`. |
+| `input` | `{"issue": <number>}`. |
+
+Label jobs queue behind the workspace's other jobs in the order they are made. An issue that carries
+both labels gets its triage job before its fix job. A fix label on a `carry_patch` workspace becomes a
+job that fails as `unsupported`, as the same request through the API would.
+
+When the poll sees label L (kind K) on issue N, the first rule that applies decides:
+
+1. **A blocked job is waiting.** The workspace has a blocked job of kind K for N: the label is taken as
+   an [answer from the issue](#answering-and-retrying-from-the-issue) (unless rule 4 or 5 applies to
+   it first).
+2. **A job is already open.** The workspace has another queued, running or blocked job of kind K for N,
+   whoever made it: the label is removed and no job is made. An open job of the other kind does not
+   count.
+3. **The label was put back by a cancel.** A job made from this label was cancelled, and the cancel put
+   the label back on the issue. The label is left alone until a person asks again: remove the label and
+   add it back (no sooner than about 5 minutes after the cancel finished). Or use the API, which is the
+   immediate way to ask again.
+4. **The label was already taken.** An earlier removal of the label failed: the service removes it
+   again and makes no second job.
+5. **Someone else just took it.** Another poll cycle took the label after this listing was requested:
+   it is left to the next cycle.
+6. **The last job failed.** The latest job of kind K for N failed: it is
+   [retried from the issue](#answering-and-retrying-from-the-issue).
+7. **Otherwise it is a new request.** A job is made and the label is removed. Labelling a triaged issue
+   `af:triage` again starts a new triage, which replaces the diagnosis and keeps the original report.
+
+Every rule that consumes the label (a new job, an answer, a retry, a reply) records it first, so the
+same label is not acted on twice while its removal is pending. If the forge keeps listing a label for
+a moment after it was removed, a second job can still result; the window is small.
+
+### Answering and retrying from the issue
+
+You can move a job forward without the API: comment on the issue, then put the request label back.
+
+**Which comments count.** Every comment agent-fox writes ends with a marker
+(`<!-- agent-fox job=<id> attempt=<n> kind=… -->`). The comments that count are the ones after the
+marker of the job's latest attempt: after its question for a blocked job, or after its failure
+comment (or parked-fix summary) for a failed one. If no comment carries that marker, the comments made
+since the attempt finished count. agent-fox's own comments and blank comments never count.
+
+The counted comments are joined, in order, as `--- comment by <login> ---` blocks. The text is cut at
+8192 bytes, with a closing line saying so.
+
+| Situation | What happens |
+|---|---|
+| The job is **blocked** and comments count | The text answers the job, as `POST /api/v1/jobs/{id}/answer` with `{"answer": <text>}` would. The attempt's `trigger` is `{"kind": "answer", "by": "label af:fix"}`. |
+| The job is **blocked** and no comment counts | No attempt is made. agent-fox replies once: "No answer found since the question; comment, then add the label `<L>` again." The label is removed. |
+| The job **failed** | The job is retried, as `POST /api/v1/jobs/{id}/retry` would. The counted comments, if any, become the new attempt's `context`. |
+| Hub cut the comment thread | No attempt is made. agent-fox replies that it could not read the whole thread and points to `af jobs answer` / `af jobs retry` and the API routes. The label is removed. |
+| Hub is unavailable, or refuses the token or the forge credential | The label stays and the poll tries again next cycle. |
+
+A reply that cannot be posted is logged, and the label is removed anyway.
 
 ## Jobs
 
-A **job** is one request for `triage` or `fix` against one subscribed workspace. It is made in the state
-`queued` with its first **attempt**, and each attempt is one try of a runner, which ends with a stored
-**envelope** (the JSON that `af` writes, see [cli.md](cli.md#the-envelope)). A job is *open* while it is
-`queued`, `running` or `blocked`, and *finished* once it is `done`, `failed` or `cancelled`. It is *at rest*
-when it is blocked or finished and no attempt of it is running or queued.
+A job is one request for `triage` or `fix` against one subscribed workspace. Ids look like
+`job_` followed by 20 lowercase hex characters. All times are RFC 3339 in UTC with milliseconds
+(`2026-10-22T08:00:00.000Z`).
 
-| From | To | Because |
+### Job states
+
+A job is **open** while it is `queued`, `running` or `blocked`, and **finished** once it is `done`,
+`failed` or `cancelled`. It is **at rest** when it is blocked or finished and none of its attempts is
+queued or running.
+
+| From | To | When |
 |---|---|---|
-| (new) | `queued` | The job was made. |
-| `queued` | `running` | An attempt of it was handed to a runner. |
-| `running` | `done` | The attempt came to `done`, or `unverified` other than a parked fix. |
-| `running` | `blocked` | The attempt asked a question (`needs_human`). |
-| `running` | `failed` | The attempt failed and no automatic attempt follows (see below). |
-| `running` | `queued` | An automatic attempt was queued after a failure of the brain; a transient failure of the runner, which asks for the same attempt to be handed over again after 30 seconds and then 2 minutes, does not change the state. |
-| `blocked` | `queued` | A person answered. |
-| `failed` | `queued` | A person asked again (`retry`). |
-| `queued`, `running`, `blocked` | `cancelled` | A person cancelled the job, or its workspace was unsubscribed. |
+| (new) | `queued` | The job is created. |
+| `queued` | `running` | An attempt is handed to a worker. |
+| `running` | `done` | The attempt ends `done`, or `unverified` (except a parked fix). |
+| `running` | `blocked` | The attempt asks a question (`needs_human`). |
+| `running` | `failed` | The attempt fails and no automatic attempt follows. |
+| `running` | `queued` | The service queues an automatic attempt after a brain failure. |
+| `blocked` | `queued` | Someone answers. |
+| `failed` | `queued` | Someone retries. |
+| `queued`, `running`, `blocked` | `cancelled` | Someone cancels the job, or its workspace is unsubscribed. |
 
-A job in any open state can be cancelled. The ids are `job_` and 20 lowercase hex characters, and every time is
-RFC 3339 in UTC with milliseconds (`2026-10-22T08:00:00.000Z`).
+An infrastructure failure (hub down, no sandbox available) does not change the state: the service
+hands the same attempt to a worker again after 30 seconds, then after 2 minutes. A third such failure
+fails the attempt and the job.
 
-### Making a job
+### Create a job
 
-`POST /api/v1/workspaces/{slug}/triage` and `POST /api/v1/workspaces/{slug}/fix` answer `202` with the job
-(`state` `queued`, `source` `{"kind":"api","by":<the caller's hub user>}`, `request_label` `null`). The body is
-read as described under [request bodies](#request-bodies), with these limits: **1 MiB for a triage, 256 KiB
-for a fix and 64 KiB for everything else**. They are six times what the fields may hold, which is the most
-that a JSON encoder makes of a byte (`\u00XX`), so that a body that is valid is never `413`.
+`POST /api/v1/workspaces/{slug}/triage` and `POST /api/v1/workspaces/{slug}/fix` answer `202` with the
+new [job document](#the-job-document): `state` `queued`, `source` `{"kind": "api", "by": <your hub
+user>}`, `request_label` `null`.
+
+```json
+{"issue": "https://github.com/acme/widgets/issues/42", "context": ["The pager is in web/"]}
+```
 
 | Field | Triage | Fix | Rule |
 |---|---|---|---|
-| `issue` | one of `issue`, `text`, `file` | required | A positive integer, an issue URL that is not a pull request or a merge request (at most 2048 bytes), or `owner/repo#N`. Only the number is kept for the duplicate check; which repository it belongs to is for the runner to check against the workspace. |
-| `text` | with `title` optional | not accepted | Valid UTF-8, no NUL byte, not empty after trimming, at most 128 KiB (131072 bytes). A text over it is refused, not truncated. |
-| `title` | with `text` only | not accepted | One line, at most 256 bytes. |
-| `file` | `{"name", "content"}` | not accepted | `name` is a base name of 1 to 255 bytes with no `/` and no NUL byte; `content` follows the rule of `text`. |
-| `context` | optional | optional | At most 10 strings, each not empty after trimming and at most 8 KiB, and at most 32 KiB together. Notes for the runner; they are not part of the document of the job. |
+| `issue` | one of `issue`, `text`, `file` | required | A positive integer, an issue URL (not a pull or merge request; at most 2048 bytes), or `owner/repo#N`. |
+| `text` | one of `issue`, `text`, `file` | not accepted | Valid UTF-8, no NUL byte, not empty after trimming, at most 128 KiB (131072 bytes). Longer text is refused, not truncated. |
+| `title` | optional, with `text` only | not accepted | One line, at most 256 bytes. |
+| `file` | one of `issue`, `text`, `file` | not accepted | `{"name", "content"}`. `name` is a base name of 1 to 255 bytes with no `/` and no NUL byte; `content` follows the rule for `text`. |
+| `context` | optional | optional | Notes for the agent: at most 10 strings, each non-empty after trimming and at most 8 KiB, at most 32 KiB in total. Not shown in the job document. |
 
-A field that breaks its rule is `400` `invalid_request` and the message names it (`context: string 2 must not be
-empty`). Nothing is stored for a request that is refused. The checks come in this order: the slug, the caller
-and the caller's sight of the workspace (as for every route with a `{slug}`), the body (`415`, `413`, `400`),
-then the workspace: `404` `not_found` when it is not subscribed or is being unsubscribed, `409`
-`token_unreadable` when its token does not open, and `409` `duplicate_job` when a job of the same kind is open
-for the same issue number on the workspace (two fixes of one issue would collide on its branch).
+The request body may be up to 1 MiB for a triage and 256 KiB for a fix (see
+[Request bodies](#request-bodies)). A field that breaks its rule is `400` `invalid_request`, and the
+message names it (`context: string 2 must not be empty`).
 
-The job is stored with its first attempt, and the event `job_state` `queued`, in one transaction, and only then
-is the attempt put in the queue. If that fails the answer is still `202`, a `WARN` is logged, and the sweep
-that runs every minute puts it in the queue.
+The checks run in this order, and a refused request stores nothing:
 
-### Jobs that a request label makes
+1. The slug, the caller and the caller's view of the workspace ([as for every `{slug}`
+   route](#workspace-visibility)).
+2. The body: `415`, `413`, `400`.
+3. The workspace: `404` `not_found` when it is not subscribed or is being unsubscribed; `409`
+   `token_unreadable` when its token cannot be decrypted; `409` `duplicate_job` when an open job of the
+   same kind exists for the same issue number on the workspace (two fixes of one issue would collide on
+   its branch).
 
-The routes are not the only way to make a job. A team asks for a triage or a fix by labelling an issue with one of the
-workspace's **request labels**, `af:triage` and `af:fix`. Each new request becomes exactly one job, and the service then removes the label through hub: it
-**consumes** it, so that adding it again is a new request. The service finds the label by **polling**: every
-`AF_POLL_INTERVAL` (see [the label poll](configuration.md#the-label-poll)) it asks hub for the open issues that carry the
-request labels and applies the rules below to each, one issue at a time for a workspace.
-
-Such a job is made as the routes make one, with these fields: `source` `{"kind": "label", "by": "label af:fix"}` (`by`
-names the label, `label af:triage` for a triage; the list of issues does not say who added it, so no person is named),
-`request_label` the full label, prefix included (`af:fix`), `issue` and `input` `{"issue": 42}`. It is queued behind the
-other jobs of its workspace in the order they were made, and an issue that carries both labels gets its triage job queued
-before its fix job. A fix label on a `carry_patch` workspace becomes a job that the worker refuses, as the same request
-through the route would. Pull requests, closed issues and issues that carry neither label are never touched.
-
-What becomes of a request label on an issue is decided by the first of these that applies. A sighting is one finding of
-the label, and its `by` is what a job it makes names: `label af:fix`.
-
-1. **Answered, or absorbed.** The workspace has an open job (`queued`, `running` or `blocked`) of the same kind for the
-   issue, whoever made it, an API job included. A `blocked` one whose removal of the label is not owed is **answered from
-   the forge** (below), unless a record of the label is newer than the sighting, which leaves the label to the next cycle.
-   Any other open job absorbs it: the label is removed, no job is made, and the service logs the absorbed label at `INFO`
-   with the workspace, the kind, the issue and the job. An open job of the other kind does not absorb it.
-2. **Held.** A job made for the label was cancelled (by a person or an unsubscribe), and the label is back on
-   the issue, or about to be: the cancel reached one of its attempts in a runner, whatever the runner reports (the worker's
-   cancel cleanup puts the label back), or the job's cancel cleanup is pending or finished with the label on the issue
-   (`labels.restore` `null`, whoever put it there; see [cancel](#cancel)). The label is left in place until a person asks
-   again: the service does nothing about it until a complete listing of the label that does not contain the issue was
-   requested at least 5 minutes after the poll first saw that no runner of the job was in progress and no cleanup of it
-   was pending, which releases the hold, so removing the label and adding it back is a new request. The API is the
-   immediate way to ask again. A cancelled job whose cancel reached no runner holds nothing when it got no cleanup, or
-   when its cleanup ended with `labels.restore` still set; a hold that began while the cleanup was pending ends when the
-   poll sees that.
-3. **Already taken.** The removal of the label from the issue failed after the job was made (or after a label that the poll absorbed
-   was not removed), so the removal is still owed: the label is removed again, and no second job is made. A removal that hub
-   answers with not found is done.
-4. **Newer.** A record of the label on the issue was made after the poll's listing was asked for: another cycle took the
-   label since, and the label is left to the next cycle.
-5. **Retried.** The latest job of the kind for the issue (by `created_at`) is `failed`: it is **retried from the forge**
-   (below). A failed job that a later job superseded is not retried.
-6. **A new request.** The latest job of the kind is `done` or `cancelled`, or there is none: the job is made, the poll's
-   record of it is written, and the label is removed. A triaged issue labelled `af:triage` again is a new triage, which
-   replaces the diagnosis in the body and keeps the original report, edited or not.
-
-So the poll does not run a request twice: a label on an issue the service is already working on is absorbed or answers it, a
-label it has already taken is removed and not taken again while its removal is owed, and a label the service put back is held.
-Every outcome that consumes the label (a new job, an answer, a retry, a reply below) writes a record of it before the removal,
-and the record names the job only when the label is the job's own request label, so that a cancel can put it back and hold it.
-The poll's records are kept in the state file until nothing is owed and nothing holds, and outlive the retention purge of their
-jobs. It promises no more than its records know: once a removal has been confirmed and its job has ended, the record is
-dropped, so a forge that still lists the label for a moment after it was removed can yield a second job, or answer or retry
-one again.
-
-#### Answering and retrying from the forge
-
-A team carries a job forward from the issue: a person comments, then puts the request label back. The comments that count
-are those after the comment that carries the marker of the job's latest attempt (`<!-- agent-fox job=<id> attempt=<n>
-kind=`): its question for a blocked job, its failure comment or a parked fix's summary for a failed one. When no comment
-carries it, those made at or after the attempt finished count. A comment whose body contains `<!-- agent-fox` is the
-service's own and never counts, nor does a blank one. Each comment that counts becomes `--- comment by <login> ---` and its
-body, trimmed, the blocks joined by a blank line in issue order, with NUL bytes dropped and invalid UTF-8 replaced; a text
-over 8192 bytes is cut and ends with the line `[… cut at 8192 bytes; the issue holds the rest …]`. The comments are read
-through hub's issue read, never its comment list, which cannot say when hub cut the thread.
-
-- **An answer.** The text answers the blocked job as `POST /api/v1/jobs/{id}/answer` with `{"answer": <text>}` would, with
-  `trigger` `{"kind": "answer", "by": <the sighting's by>}`; the runner is given it among the answers. One `INFO` says the
-  job was answered.
-- **No answer found.** With no comment that counts, no attempt is made: one reply, "No answer found since the question;
-  comment, then add the label `<L>` again." with its own marker (`kind=no_answer`), is posted, unless the latest comment
-  is that reply already, and the label is removed. One `INFO` says so.
-- **A retry.** The failed job is retried as `POST /api/v1/jobs/{id}/retry` would, with `trigger` `{"kind": "retry", "by":
-  <the sighting's by>}`, and the text, when there is any, becomes the new attempt's `context`. With no comment that
-  counts the retry runs with no added context, and no reply is posted. One `INFO` says the job was retried.
-- **A cut thread.** When hub says it cut the issue's comments (`truncated`), the comments read are no evidence of what is
-  there: no attempt is made, one `WARN` names the workspace, the issue and the job, and one reply says that agent-fox could
-  not read the whole thread and names `af jobs answer <id>` and `POST /api/v1/jobs/<id>/answer`, or `af jobs retry <id>` and
-  `POST /api/v1/jobs/<id>/retry`, with its own marker (`kind=thread_cut`); the label is removed. On a thread longer than hub
-  returns, `af` or the API is the way.
-- **Failures.** Hub unavailable, refusing or forbidding the token, or answering that the forge refuses its credential, on
-  the issue read leaves the label, makes no attempt and ends the poll's cycle, which the next one picks up; hub rejecting the read of the one issue, or not reading its
-  comments (`comments_err`), leaves the label and the cycle goes on. A reply that cannot be posted is a `WARN`, and the label is removed all the
-  same. A job that moved meanwhile, or another job that took the issue, absorbs the label; a workspace that is not
-  subscribed ends the cycle with nothing written; any other refusal of the jobs layer is logged and the label stays.
+The service checks only the issue *number* for duplicates. Whether the issue belongs to the
+workspace's repository is checked when the attempt runs.
 
 ### The job document
 
-Every route that shows a job shows this document, a list entry included; `GET /api/v1/jobs/{id}` adds
-`attempts`.
+Every route that returns a job returns this document. `GET /api/v1/jobs/{id}` adds `attempts`.
 
 ```json
 {
@@ -372,7 +417,7 @@ Every route that shows a job shows this document, a list entry included; `GET /a
   "result": {"status": "done", "exit_code": 0, "summary": "Fixed the off-by-one in the pager.", "error": null},
   "artifacts": [{"kind": "pull_request", "url": "https://github.example.com/acme/widgets/pull/9", "number": 9}],
   "side_effects": [],
-  "labels": {"set": ["af:fixed"], "removed": ["af:fix"], "restore": null, "cleanup": null},
+  "labels": {"set": ["af:landed"], "removed": ["af:fix", "af:in-progress"], "restore": null, "cleanup": null},
   "cancel_cause": null,
   "usage": {"cost_usd": 1.25, "input_tokens": 1000, "output_tokens": 200, "turns": 7},
   "hub": null,
@@ -384,198 +429,211 @@ Every route that shows a job shows this document, a list entry included; `GET /a
 
 | Field | Meaning |
 |---|---|
-| `id`, `workspace`, `kind` | The job, its workspace and `triage` or `fix`. |
-| `input` | What the job was asked about, as it was posted and without the `context`: `{"issue": …}` (as given: the number, the URL or `owner/repo#N`), `{"text", "title"}` or `{"file": {"name", "content"}}`. |
+| `id`, `workspace`, `kind` | The job, its workspace, and `triage` or `fix`. |
+| `input` | What the job was asked to do, as posted, without `context`: `{"issue": …}` (number, URL or `owner/repo#N` as given), `{"text", "title"}` or `{"file": {"name", "content"}}`. |
 | `issue` | The issue number, or `null` for a text or a file. |
-| `source` | `{"kind", "by"}`: `api` for a request of this API, and who made it; `label` for a request label that the poll found, and `by` is `label <the request label>` (see [jobs that a request label makes](#jobs-that-a-request-label-makes)). |
-| `request_label` | The request label that the trigger consumed when it made the job, or `null`. Always `null` for a job of this API; the label, prefix included (`af:fix`), for a job of the poll. |
-| `state` | `queued`, `running`, `blocked`, `done`, `failed` or `cancelled`. |
-| `blocked` | While the job is blocked: `{"reason": "needs_human", "question", "options": [{"id", "label"}], "answer_with": "POST /api/v1/jobs/<id>/answer"}`, with the ids `A`, `B`, … in order; otherwise `null`. |
+| `source` | `{"kind", "by"}`. `api` with the hub user who made it, or `label` with `by` = `label <request label>` (see [request labels](#request-labels)). |
+| `request_label` | The request label the job consumed (`af:fix`), or `null` for an API job. |
+| `state` | See [job states](#job-states). |
+| `blocked` | While the job is blocked: `{"reason": "needs_human", "question", "options": [{"id", "label"}], "answer_with": "POST /api/v1/jobs/<id>/answer"}`, with option ids `A`, `B`, … in order. Otherwise `null`. |
 | `attempt_count`, `current_attempt` | How many attempts the job has, and the number of the latest. |
-| `result` | `{"status", "exit_code", "summary", "error"}` of the latest attempt that came to something, from its envelope; `null` before any. `exit_code` is that of the status (`done` 0, `failed` 1, `usage` 2, `needs_human` 3, `unverified` 4). |
-| `artifacts`, `side_effects` | Those of the same envelope; `[]` when there are none. |
-| `labels` | `{"set", "removed", "restore", "cleanup"}`, or `null` when none has a value. `set` and `removed` are the labels as the runner, or the cancel cleanup, last reported them. `restore` is the request label that a cancel says belongs back on the issue while it is not back. `cleanup` is the state of the job's [cancel cleanup](#cancel), the service's own label writes for a cancel that no runner cleans up: `"pending"` while tries go on, `"done"` when the request label is on the issue and the status labels the job accounts for are gone, `"label_not_set"` when it ended without that, and `null` for a job that had none. |
-| `cancel_cause` | Why a cancelled job was cancelled: `cancelled` (a person asked), or `unsubscribed` (its workspace was unsubscribed); `null` for a job that is not cancelled. |
-| `usage` | The sum of `cost_usd`, `input_tokens`, `output_tokens` and `turns` over the attempts that have finished. |
-| `hub` | `{"session_id", "run_id", "sandbox_id"}` of the attempt that is running, as its runner reported them; `null` otherwise. |
+| `result` | `{"status", "exit_code", "summary", "error"}` from the envelope of the latest attempt that finished, or `null` before any. `exit_code` matches the status: `done` 0, `failed` 1, `usage` 2, `needs_human` 3, `unverified` 4. |
+| `artifacts`, `side_effects` | From the same envelope; `[]` when there are none. |
+| `labels` | `{"set", "removed", "restore", "cleanup"}`, or `null` when all are empty. `set` and `removed` are the labels last written to the issue for this job. `restore` is a request label that belongs back on the issue after a cancel and is not back yet. `cleanup` is the state of the [cancel cleanup](#cancel): `"pending"`, `"done"`, `"label_not_set"`, or `null` when there was none. |
+| `cancel_cause` | `cancelled` (someone cancelled it) or `unsubscribed` (its workspace was unsubscribed); `null` when the job is not cancelled. |
+| `usage` | `cost_usd`, `input_tokens`, `output_tokens` and `turns`, summed over the finished attempts. |
+| `hub` | `{"session_id", "run_id", "sandbox_id"}` of the running attempt; `null` otherwise. |
 | `created_at` | When the job was made. |
-| `started_at` | When an attempt of the job was first handed to a runner, or `null`. A later attempt does not move it. |
-| `finished_at` | When the job last entered `done`, `failed` or `cancelled`: every such transition sets it, a cancel of a queued or blocked job included. `null` while the job is `queued`, `running` or `blocked`; an answer, a retry or an automatic attempt that queues the job again clears it. The retention is counted from it. |
+| `started_at` | When the first attempt was first handed to a worker, or `null`. Later attempts do not move it. |
+| `finished_at` | When the job last became `done`, `failed` or `cancelled`; `null` while it is open. Requeuing it (an answer, a retry, an automatic attempt) clears it. [Retention](#retention) counts from it. |
 
-`attempts` lists the attempts in the order of their numbers:
+`attempts` lists the attempts in order:
 
 | Field | Meaning |
 |---|---|
-| `n`, `state` | The number from 1, and `queued`, `running`, `done`, `needs_human`, `failed` or `cancelled`. |
-| `trigger` | `{"kind", "by"}`: `create`, `answer` (a person answered), `retry` (a person asked again) or `auto` (the service tried again after a failure of the brain; `by` is `agent-fox`). |
-| `answer` | For an attempt that an answer started: `{"question", "option", "text"}`, where `option` is the id chosen or `null`, and `text` is what the person typed or the label of the option. Otherwise `null`. |
-| `context` | For an attempt that a retry from the forge started: the comments since the failure, as a list of strings. Otherwise `null`. |
-| `deliveries` | How many times the attempt was handed to a runner. A handover after a restart or a crash counts. Every delivery begins afresh, in the hub session of the attempt. |
-| `transient_failures` | How many times the runner reported an infrastructure failure for the attempt (at most 3). |
-| `status`, `exit_code`, `summary`, `error` | Those of the attempt's envelope; `null` until it has one. |
-| `usage` | `{"brain", "cost_usd", "cost_source", "input_tokens", "output_tokens", "turns"}` of the envelope, once the attempt has ended; otherwise `null`. |
-| `started_at`, `finished_at` | When the attempt was first handed to a runner and when it ended, or `null`. |
+| `n` | The attempt number, from 1. |
+| `state` | `queued`, `running`, `done`, `needs_human`, `failed` or `cancelled`. |
+| `trigger` | `{"kind", "by"}`. `kind` is `create`, `answer`, `retry`, or `auto` (the service retried after a brain failure; `by` is `agent-fox`). |
+| `answer` | For an attempt started by an answer: `{"question", "option", "text"}`. `option` is the chosen id or `null`; `text` is the typed answer or the option's label. Otherwise `null`. |
+| `context` | For an attempt started by a retry from the issue: the counted comments, as a list of strings. Otherwise `null`. |
+| `deliveries` | How many times the attempt was handed to a worker. A handover after a restart or crash counts. Each delivery starts afresh. |
+| `transient_failures` | How many infrastructure failures the attempt hit (at most 3). |
+| `status`, `exit_code`, `summary`, `error` | From the attempt's envelope; `null` until it has one. |
+| `usage` | `{"brain", "cost_usd", "cost_source", "input_tokens", "output_tokens", "turns"}` from the envelope once the attempt has ended; otherwise `null`. |
+| `started_at`, `finished_at` | When the attempt was first handed to a worker and when it ended, or `null`. |
 
-### What an attempt comes to
+### How an attempt ends
 
-The first of these rules that matches the envelope of an attempt decides:
+The first rule that matches the attempt's envelope decides:
 
-1. `done` makes the attempt and the job `done`. `unverified` does so too, except for a fix whose `result.outcome`
-   is `parked`, which did not do what was asked and is `failed`, so that `retry` can ask again.
-2. `needs_human` with a question makes the attempt `needs_human` and the job `blocked`, with the options lettered
-   `A`, `B`, … whatever ids the envelope gave them.
-3. A `failed` envelope whose `error.category` is `brain` or `no_result` and whose `error.retryable` is true
-   queues an **automatic attempt** (`trigger.kind` `auto`) with the same context and answers, while the round
-   has made fewer attempts than the runner's maximum. A *round* is the latest attempt whose trigger is not `auto`
-   and the automatic attempts after it; the maximum is what the runner reports (`AF_MAX_ATTEMPTS`), 2 when it
-   reports none, and never less than 1 or more than 10. Each human action (create, answer, retry) opens a round
-   of its own.
-4. Everything else is `failed`: another category, `retryable` false, a round that has used its attempts, and an
-   attempt whose transient failures are spent.
+1. **`done`** makes the attempt and the job `done`. So does **`unverified`**, except a fix whose
+   `result.outcome` is `parked`: it did not do what was asked, so it is `failed` and can be retried.
+2. **`needs_human`** with a question makes the attempt `needs_human` and the job `blocked`. Options are
+   relettered `A`, `B`, … in order.
+3. **A retryable brain failure** (`failed` with `error.category` `brain` or `no_result` and
+   `error.retryable` true) queues an **automatic attempt** (`trigger.kind` `auto`) with the same context
+   and answers, unless the round has used up its attempts. A *round* is the latest attempt started by a
+   person (create, answer, retry) plus the automatic attempts after it. The limit per round is the
+   workspace's `AF_MAX_ATTEMPTS`: 2 by default, between 1 and 10.
+4. **Anything else** is `failed`: another error category, a non-retryable error, a round that has used
+   its attempts, or an attempt whose infrastructure retries are spent.
 
-An attempt that ends without a usable envelope (the runner returned an error, panicked, returned an envelope that
-is not one, or was cancelled) gets an envelope written by the service: `failed`, with the category of the error
-(`internal` for a plain error or a panic, `cancelled` for a cancel), so that every finished attempt has one
-and `result.exit_code` is always defined.
+An attempt that ends without a usable envelope (the worker errored, crashed, or was cancelled) gets a
+`failed` envelope written by the service, with category `internal` or `cancelled`. So every finished
+attempt has an envelope and `result.exit_code` is always set.
 
 ### What the worker adds to an attempt
 
-The worker runs the loop of `af triage` or `af fix` in the service's process and amends the envelope it wrote only by
-adding to three lists; every other field of the stored envelope is the loop's, byte for byte.
+The worker runs `af triage` or `af fix` for the attempt and stores the envelope the loop produced.
+It changes that envelope only by adding to its lists:
 
-- **Artifacts.** `{"kind": "hub_session", "name": <session id>}` once hub opened a session for the attempt, and
-  `{"kind": "sandbox", "name": <sandbox id>}` once it leased one. The other artifacts that name a path (`run_dir`,
-  `brief`, `report`, `transcript`, …) are paths on the worker, in a clone that is removed when the attempt returns:
-  they stay in the envelope as facts of the run and cannot be retrieved. The envelope and the report text are what
-  the service keeps.
-- **Error categories.** `hub` is a failure of hub itself, and is a transient error, with no envelope, when hub is
-  unavailable; a hub that refuses the token, or forbids a call, is `auth`, with a message that points to
-  `PUT /api/v1/workspaces/{slug}`. `unsupported` is a `fix` on a `carry_patch` workspace or
-  with `AF_FIX_LAND=patch` (carry-patch landing comes in a later release; a triage on such a workspace runs). `config` is
-  a hub variable outside its range, with `fix_hint.var` naming it. `cancelled` is an attempt that was cancelled before
-  the loop made an envelope. A loop that fails with a retryable `sandbox`, `forge` or `hub` error is not an envelope:
-  the attempt is handed over again (see [What an attempt comes to](#what-an-attempt-comes-to)).
-- **Warnings.** `lease_shortened_timeout` (the timeout was cut to end two minutes before the sandbox lease
-  expires), `lease_release_failed` (the lease could not be released; hub destroys it when it expires),
-  `status_label_failed`, `comment_failed` and `request_label_failed` (a write of the mirror to the
-  issue failed, with a side effect of the state `failed`), `hub_usage_failed`, `hub_events_failed` and
-  `hub_session_failed` (a report to hub failed). A warning never changes the status.
-- **Side effects.** Every label and comment the worker writes to the issue: `add_labels`, `remove_label` and
-  `add_comment`, `done` or `failed`.
-- **Labels.** The result of the attempt reports the labels it set and removed, as the net of the attempt (the
-  status label of the outcome is set and `in-progress` is removed), which is what `labels` of the job shows. The
-  status labels are `in-progress`, `ready`, `needs-human`, `landed` and `failed`, with the prefix `af:`.
+- **Artifacts.** `{"kind": "hub_session", "name": <session id>}` and `{"kind": "sandbox", "name":
+  <sandbox id>}`. Artifacts with a `path` (`run_dir`, `brief`, `report`, …) point into a temporary clone
+  on the worker that is deleted when the attempt ends: they record facts of the run but cannot be
+  fetched. Use the [envelope and report routes](#list-and-read-jobs) instead.
+- **Side effects.** Every label and comment the worker writes on the issue (`add_labels`,
+  `remove_label`, `add_comment`), `done` or `failed`.
+- **Warnings.** These never change the status:
+
+  | Code | Meaning |
+  |---|---|
+  | `lease_shortened_timeout` | The run's timeout was cut to end two minutes before the sandbox lease expires. |
+  | `lease_release_failed` | The sandbox lease could not be released; hub destroys it when it expires. |
+  | `status_label_failed`, `comment_failed`, `request_label_failed` | Writing a label or comment to the issue failed. |
+  | `hub_usage_failed`, `hub_events_failed`, `hub_session_failed` | Reporting the attempt to hub failed. |
+
+The worker can also end an attempt with these error categories:
+
+| Category | Meaning |
+|---|---|
+| `auth` | Hub refused or forbade the workspace token. Re-subscribe with `PUT /api/v1/workspaces/{slug}`. |
+| `unsupported` | A fix on a `carry_patch` workspace, or with `AF_FIX_LAND=patch`. Carry-patch landing is not implemented. A triage on such a workspace runs normally. |
+| `config` | A [workspace variable](configuration.md#workspace-variables-on-hub) is out of range; `fix_hint.var` names it. |
+| `cancelled` | The attempt was cancelled before the loop produced an envelope. |
+
+Infrastructure failures (hub unavailable, a sandbox or clone that cannot be had, a retryable `sandbox`,
+`forge` or `hub` failure of the loop) produce no envelope: the attempt is handed over again (see
+[job states](#job-states)).
+
+**Labels and comments on the issue.** When the attempt starts the worker sets `af:in-progress`. When
+it ends, it sets one status label and, where useful, writes one comment:
+
+| Outcome | Label | Comment |
+|---|---|---|
+| Triage `done`, confidence `confirmed` or `probable` | `af:ready` | none (the diagnosis is in the body) |
+| Triage `done`, confidence `suspected` or `not_reproducible` | `af:needs-human` | the reason |
+| Any `needs_human` | `af:needs-human` | the question |
+| Fix that landed | `af:landed` | a summary |
+| Fix that landed with `AF_FIX_LAND=none` | none | a summary saying nothing was kept |
+| Parked fix | `af:needs-human` | what failed and how to ask again |
+| Any other failure | `af:failed` | the failure |
+
+A failure that the service retries automatically, and an infrastructure failure, only remove
+`af:in-progress`. Each comment carries a marker and is not posted twice. When label polling is on, the
+question, failure and parked-fix comments explain how to answer or retry from the issue.
 
 ### Cancel
 
-`POST /api/v1/jobs/{id}/cancel` (no body, or `{}`) answers `200` with the job. A job that is `queued`, `running`
-or `blocked` becomes `cancelled` at once, with `finished_at` set; a job in another state is `409`
-`invalid_state`. A queued attempt is cancelled and never runs. The context of a running attempt is cancelled
-with the cause *cancelled*, and its runner has **60 seconds** to release what it holds, restore the request label
-and return. The attempt is recorded `cancelled` when the runner returns, or after the 60 seconds if it has not,
-with an `ERROR` in the log; either way the runner keeps its workspace's place and its worker slot until it
-actually returns. When the job is cancelled, `labels.restore` names the request label that belongs back on the
-issue, if the job consumed one and no runner has reported writing it; it stays set while the label is not back.
+`POST /api/v1/jobs/{id}/cancel` (no body, or `{}`) answers `200` with the job. A queued, running or
+blocked job becomes `cancelled` at once and `finished_at` is set. A job in any other state is `409`
+`invalid_state`.
 
-**The causes.** A job is cancelled for one of two causes, which its `cancel_cause` keeps: `cancelled`, by this route, and
-`unsubscribed`, by the [removal](#removing) of its workspace. Both are a cancel in every way: a queued attempt never runs,
-and a running attempt's runner is told and given the 60 seconds. Closing an issue cancels nothing: its jobs run on until
-they end or a person cancels them.
+- A **queued** attempt is cancelled and never runs.
+- A **running** attempt is told to stop. Its worker has **60 seconds** to release the sandbox, restore
+  the issue's labels and return. The attempt is recorded `cancelled` when the worker returns, or after
+  the 60 seconds (with an `ERROR` in the log).
 
-**The cancel cleanup.** A runner that has opened its hub session writes the labels of a cancelled attempt itself.
-For a cancel of a job with an issue that no runner cleans up, whatever its cause, the service does it: a
-job cancelled while it was queued (waiting out a backoff included) or blocked, or whose attempt was claimed and its
-runner not yet called, and a job whose runner was cancelled before it reported its hub session. The cleanup is
-marked `pending` with the cancel (the answer of this route shows `labels.cleanup` `"pending"`), or with the
-cancelled attempt in the second case, and is then tried in the background, one try of a job at a time, once no
-runner of the job is in progress; the route never waits for it. A try reads the token of the subscription, the
-workspace record and the issue's labels through hub, and then:
+A job is cancelled for one of two causes, kept in `cancel_cause`: `cancelled` (this route) or
+`unsubscribed` (the workspace was [unsubscribed](#unsubscribe)). Closing an issue cancels nothing.
 
-- removes `af:in-progress`, unless another job of the issue is running;
-- removes each other status label that the job's `labels.set` shows, unless another open job of the issue shows
-  it in its `labels.set` too;
-- adds the request label the job consumed, if the issue does not carry it; not for a cancel because the issue was
-  closed.
+**Labels after a cancel.** A cancel puts the issue back the way it was before the job: `af:in-progress`
+and the status labels this job set are removed, and the request label the job consumed is put back.
+Labels from other jobs and labels set by people stay.
 
-Every other label stays: a `ready` or `landed` of an earlier job, and a label a person set. A try writes only what
-is missing, so it may be repeated. When it finishes, `labels.restore` becomes `null` if the request label is on the
-issue, `set` and `removed` are replaced by what it wrote (if it wrote anything), `labels.cleanup` becomes `"done"`,
-and one `INFO` record names the workspace, the job, the issue and the labels set and removed. The job's event log
-is not touched.
+If the worker was running when the cancel arrived, it does this itself. Otherwise (the job was queued
+or blocked, or the worker had not started properly) the service does it in the background, as the
+**cancel cleanup**:
 
-A try that hub is unavailable for (or whose token cannot be read, or whose store fails) leaves the cleanup
-`pending`, with one `WARN` for the cleanup's first failure, and the sweep tries it again every minute, until an hour
-after the cancel; a cleanup still pending then ends `"label_not_set"` with one `ERROR`. A refusal ends it at once,
-`"label_not_set"`, with an `ERROR` that names the operation and carries hub's message: hub refusing or forbidding the
-token (which points to `PUT /api/v1/workspaces/{slug}`), the forge refusing hub's credential, a workspace record hub
-does not find or whose forge URL names no repository, another refusal of a read, and a refused addition of the
-request label. An issue that is gone ends it with an `INFO`, and so does a workspace that is no longer subscribed,
-with nothing written. A removal that hub answers `404` is done; one it refuses otherwise leaves the label, the try
-goes on, and the cleanup ends `"label_not_set"` with a `WARN`. A cleanup that ends `"label_not_set"` keeps
-`labels.restore` set unless the label is on the issue. A cleanup pending at a stop is tried again at the first sweep
-after the start.
+- `labels.cleanup` is `"pending"` while it runs. This route never waits for it.
+- It is retried every minute while hub is unavailable, for up to an hour.
+- On success `labels.cleanup` becomes `"done"` and `labels.restore` becomes `null`.
+- If it gives up, or hub or the forge refuses, it ends `"label_not_set"` with an `ERROR` in the log, and
+  `labels.restore` stays set while the request label is not on the issue.
+
+A cleanup still pending when the service stops continues after the next start. Once a request label is
+back on the issue, the poll holds it rather than treating it as a new request (see
+[request labels](#request-labels), rule 3).
 
 ### Answer and retry
 
-`POST /api/v1/jobs/{id}/answer` takes `{"answer": "<text>"}` or `{"option": "<id>"}`, exactly one: the text is
-trimmed, not empty and at most 8192 bytes, and the id is one of the options of the question. It answers `202` with
-the job, `queued` again with `finished_at` cleared, and attempt *n*+1 (trigger `answer`) queued; the runner is
-given every question answered so far, with its options and the answer, in order. The text of an answer by option is
-the label of the option.
+`POST /api/v1/jobs/{id}/answer` answers the question of a blocked job. Send exactly one of:
 
-`POST /api/v1/jobs/{id}/retry` (no body, or `{}`) answers `202` with the job for a `failed` job, queued again
-with attempt *n*+1 (trigger `retry`). If another job has taken the issue meanwhile, it is `409` `duplicate_job`. It
-takes no context: the attempt it queues has `context` `null`.
+```json
+{"answer": "The web front end; the API is fine."}
+{"option": "B"}
+```
 
-The same answer and retry are made from the forge, by a comment and the request label again (see [answering and retrying
-from the forge](#answering-and-retrying-from-the-forge)): the trigger's `by` is then the sighting's, `label af:fix` or the hub
-event id, since neither path knows who added the label, and a retry from the forge gives its attempt the comments since the
-failure as its `context`. The runner of an attempt is given the job's context strings followed by the `context` of each
-attempt up to its own, in order, so an automatic attempt after a retry from the forge keeps them.
+The text is trimmed, must not be empty, and is at most 8192 bytes. The option must be one of the
+question's ids. The route answers `202` with the job, queued again with `finished_at` cleared, and a new
+attempt (trigger `answer`). The agent is given every question answered so far, with its options and
+answer, in order. An answer by option is recorded with the option's label as its text.
 
-Both check, in this order: the job exists and its workspace is one the caller sees (`404`, one answer for both);
-a body that is too large or not `application/json` (`413`, `415`), as soon as it is read; the state (`409`
-`invalid_state`, naming it: `blocked` for an answer, `failed` for a retry); the workspace is subscribed and not
-being unsubscribed (`409` `not_subscribed`) and its token opens (`409` `token_unreadable`); and last that the body
-is exactly one valid answer or option (`400`). A refusal changes nothing. A cancel, an answer and a retry change the job only
-if it is still in the state they looked at, so of two requests that arrive together one is applied and the other
-is `409` `invalid_state`.
+`POST /api/v1/jobs/{id}/retry` (no body, or `{}`) re-runs a failed job. It answers `202` with the job,
+queued again with a new attempt (trigger `retry`, `context` `null`). If another job has taken the issue
+in the meantime, it is `409` `duplicate_job`.
 
-### Reading jobs
+Both routes are also available [from the issue](#answering-and-retrying-from-the-issue). Each attempt
+is given the job's `context` strings, then the `context` of each attempt up to its own, so an automatic
+attempt after a retry keeps the retry's comments.
 
-`GET /api/v1/jobs` lists the jobs of every workspace that has jobs, subscribed or not, that hub shows the caller
-(through the same cache as every route), and `GET /api/v1/workspaces/{slug}/jobs` lists one workspace, `404` when
-the caller cannot see it. A workspace that is no longer subscribed still lists the jobs it has left. If hub is
-unavailable for a workspace that the list needs, the answer of `GET /api/v1/jobs` is `502` `hub_unavailable` and
-no page; the workspaces it needs are those that have a job the filter matches.
+Checks, in order. A refusal changes nothing.
 
-Both take these query parameters, each at most once, and a parameter that is there must be valid, an empty one
-included (`400` `invalid_request`, naming it, the first that is wrong in this order):
+1. The job exists and you can see its workspace (`404`, the same answer for both).
+2. The body size and type (`413`, `415`).
+3. The state: `409` `invalid_state` unless the job is `blocked` (answer) or `failed` (retry).
+4. The workspace is subscribed and not being unsubscribed (`409` `not_subscribed`), and its token can
+   be decrypted (`409` `token_unreadable`).
+5. The body is exactly one valid answer or option (`400`).
+
+Cancel, answer and retry only apply if the job is still in the state they checked, so of two requests
+that arrive together, one wins and the other gets `409` `invalid_state`.
+
+### List and read jobs
+
+`GET /api/v1/jobs` lists the jobs of every workspace you can see that has jobs, subscribed or not.
+`GET /api/v1/workspaces/{slug}/jobs` lists one workspace, and answers `404` if you cannot see it. If hub
+is unavailable for a workspace the list needs, `GET /api/v1/jobs` answers `502` `hub_unavailable` with
+no page.
+
+Query parameters, each at most once. A parameter that is present must be valid, even if empty
+(`400` `invalid_request` names the first bad one).
 
 | Parameter | Value |
 |---|---|
 | `kind` | `triage` or `fix`. |
 | `state` | `queued`, `running`, `blocked`, `done`, `failed` or `cancelled`. |
-| `issue` | A positive integer, written without a sign or a leading zero. |
-| `limit` | An integer from 1 to 200; 50 when it is left out. |
-| `cursor` | The `next_cursor` of a page. |
+| `issue` | A positive integer, with no sign or leading zero. |
+| `limit` | 1 to 200; default 50. |
+| `cursor` | The `next_cursor` of the previous page. |
 
-The answer is `{"jobs": [...], "next_cursor": "..."}`: the jobs of the page, newest first by `created_at` and then
-by `id` (descending, both), as list entries without `attempts`, and the cursor of the page after it, or `null`
-on the last page. Following the cursors yields every job that matches exactly once. A cursor is opaque: it is the
-position of the last job of a page, and one that the service did not give is `400`.
+The answer is `{"jobs": [...], "next_cursor": "..."}`: jobs newest first (by `created_at`, then `id`),
+without `attempts`, and the cursor for the next page, or `null` on the last page. Following the cursors
+returns every matching job exactly once. Cursors are opaque; one the service did not issue is `400`.
 
-`GET /api/v1/jobs/{id}` answers `200` with the job and its `attempts`. `GET /api/v1/jobs/{id}/attempts/{n}/envelope`
-answers `200` with the `envelope.json` that attempt *n* stored, byte for byte, as `application/json`, and
-`GET /api/v1/jobs/{id}/attempts/{n}/report` the `report.md`, as `text/markdown; charset=utf-8`. All of them answer
-one `404` `not_found` (`job not found`) for a job that does not exist, a job on a workspace the caller cannot
-see, a number that is not an attempt's (`0`, `9` of 2, `01`, `x`), an attempt that has no envelope yet, and an
-attempt that has no report: nobody learns from an answer what exists.
+`GET /api/v1/jobs/{id}` returns the job with its `attempts`.
+
+`GET /api/v1/jobs/{id}/attempts/{n}/envelope` returns the envelope attempt `n` stored, byte for byte,
+as `application/json`. `GET /api/v1/jobs/{id}/attempts/{n}/report` returns its `report.md` as
+`text/markdown; charset=utf-8`.
+
+All of these answer the same `404` `not_found` (`job not found`) for a job that does not exist, a job
+in a workspace you cannot see, an attempt number that does not exist (`0`, `9` of 2, `01`, `x`), and an
+attempt that has no envelope or report yet.
 
 ### The event stream
 
-`GET /api/v1/jobs/{id}/events` answers `200` `text/event-stream` with `Cache-Control: no-cache`, and the
-caller sees the same `404` as for any file of a job. Each event of the log of the job is a frame:
+`GET /api/v1/jobs/{id}/events` answers `200` with `text/event-stream` and `Cache-Control: no-cache`.
+Each event in the job's log is one frame:
 
 ```
 id: 7
@@ -584,90 +642,90 @@ data: {"seq":7,"ts":"2026-10-22T08:04:12.000Z","job_id":"job_5f0c1a9e2b7d4c3a8e1
 
 ```
 
-The `data` is the event on **one line**, with the keys in this order. `seq` is the number of the event in the log
-of the job: 1, 2, 3, … across all its attempts, without a gap. An event is stored before it is published, so
-the log is whole whatever happens to a stream.
+`data` is the event on one line, with keys in this order. `seq` numbers the events of the job 1, 2, 3,
+… across all attempts, with no gaps. Events are stored before they are sent, so the log is always
+complete.
 
-- **Where it starts.** After the `since` query parameter (an integer of at least 0); else after the
-  `Last-Event-ID` header, which is what a reconnecting `EventSource` sends; else at 0, the beginning. A value that
-  is not an integer of at least 0, written without a sign, a leading zero or white space, is `400`.
-- **Order.** The stored events after the starting point, in order, and then the live ones, with none missing and
-  none sent twice. A client that reconnects with the last id it saw receives exactly the events it missed.
-- **Keepalive.** A comment, `: keepalive`, every 15 seconds.
-- **The end.** If the job is at rest when the replay ends (the latest `job_state` of its log says `at_rest`), the
-  stream ends there. Otherwise it ends after the first live `job_state` whose `at_rest` is true, and the last
-  frame of a finished job is always such a `job_state`. A `job_state` with `at_rest` false (a cancel whose runner
-  has not returned) does not end it. A client that wants more after an answer or a retry opens a new stream
-  with `since`.
-- **Slow clients.** Each stream has a buffer of 256 events. A client that falls further behind is disconnected,
-  without the runner or the other clients waiting for it, and recovers by reconnecting with its last id. The
-  shutdown of the service closes every stream in the same way.
+- **Where it starts.** After the `since` query parameter; otherwise after the `Last-Event-ID` header
+  (what a reconnecting `EventSource` sends); otherwise from the beginning. A value that is not a
+  non-negative integer without sign, leading zero or whitespace is `400`.
+- **Order.** The stored events after the starting point, then live events, with none missing and none
+  repeated. Reconnect with the last `id` you saw to get exactly what you missed.
+- **Keepalive.** A comment line, `: keepalive`, every 15 seconds.
+- **The end.** The stream ends when the job is at rest: right after the replay if it already is,
+  otherwise after the first live `job_state` with `at_rest` true. The last frame of a finished job is
+  always such a `job_state`. To follow the job after an answer or a retry, open a new stream with
+  `since`.
+- **Slow clients.** Each stream buffers 256 events. A client that falls further behind is
+  disconnected, and recovers by reconnecting with its last id. Shutting the service down closes every
+  stream the same way.
 
 | `type` | `data` |
 |---|---|
-| `job_state` | Emitted for every transition of the job: `{"state", "attempt", "at_rest", "blocked"?, "result"?}`. `blocked` is the question when the job blocks, `result` that of the finished attempt when it finishes. |
-| `attempt_start` | `{"attempt", "delivery"}`: the attempt was handed to a runner, for the *delivery*th time. |
+| `job_state` | Every state change: `{"state", "attempt", "at_rest", "blocked"?, "result"?}`. `blocked` is the question when the job blocks; `result` is the finished attempt's result when it finishes. |
+| `attempt_start` | `{"attempt", "delivery"}`: the attempt was handed to a worker for the `delivery`th time. |
 | `attempt_end` | `{"attempt", "state", "status", "exit_code"}`: how the attempt ended. |
-| anything else | What a runner reports about its attempt, under a type of its own that matches `^[a-z][a-z0-9_]*$`. |
-| `invalid_event_type` | An event of a runner whose type is malformed, or is `job_state`, `attempt_start` or `attempt_end` (the service's own): `{"type": <the type given>, "data": <the data given>}`. |
+| other types | Progress the worker reports for the attempt (the loop's events and the worker's `step` events). Types match `^[a-z][a-z0-9_]*$`. |
+| `invalid_event_type` | A worker event with a malformed type, or one that reuses `job_state`, `attempt_start` or `attempt_end`: `{"type", "data"}` as given. |
 
-Data of a runner that is larger than 64 KiB as JSON is replaced by `{"truncated": true, "bytes": N}`, and data
-that cannot be encoded by `{"error": "…"}`. An event that cannot be stored is logged at `WARN` and dropped; it never
-fails an attempt.
+Worker data larger than 64 KiB as JSON is replaced by `{"truncated": true, "bytes": N}`, and data that
+cannot be encoded by `{"error": "…"}`.
 
-### How long a job is kept
+### Retention
 
-A purge runs when the service starts and then every hour. It removes the jobs that are `done`, `failed` or
-`cancelled`, have no running attempt and no runner still in progress, and whose `finished_at` is older than
-`database.retain` (see [configuration.md](configuration.md#the-keys)): first the directory
-`attempts/<job id>/` beside the database, which holds the `envelope.json` and `report.md` of each attempt, then
-the rows of the job. A job whose directory cannot be removed keeps its rows, a `WARN` names it, and the next purge
-tries again. A blocked job is never removed, and neither is a job cancelled less than `retain` ago, though
-its question is older, nor a job whose cancel cleanup is pending. After the purge, the routes answer `404` for the job.
+A purge runs when the service starts and then every hour. It removes jobs that are `done`, `failed` or
+`cancelled`, have nothing running and no pending cancel cleanup, and finished more than
+`database.retain` ago (30 days by default; see [configuration.md](configuration.md#keys)). The job's
+stored envelopes and reports go with it. Blocked jobs are never removed. After the purge the job's
+routes answer `404`.
 
 ## Request bodies
 
-A request body must be `application/json` (parameters such as `charset=utf-8` are allowed), at most 64
-KiB (1 MiB for a triage and 256 KiB for a fix, see [Making a job](#making-a-job)), one JSON value with
-nothing after it, and with no field that the route does not know. Otherwise the request is refused before
-anything is written: `415` `unsupported_media_type`, `413` `payload_too_large`, or `400` `invalid_request`.
+A request body must be:
+
+- `application/json` (parameters such as `charset=utf-8` are allowed), otherwise `415`
+  `unsupported_media_type`;
+- at most 64 KiB, or 1 MiB for a triage job and 256 KiB for a fix job, otherwise `413`
+  `payload_too_large` (the job limits are six times what the fields may hold, so a valid body is never
+  too large);
+- one JSON value with nothing after it and no unknown fields, otherwise `400` `invalid_request`.
+
+A refused request writes nothing.
 
 ## Errors
 
-Every error is `application/json` with the body
+Every error is `application/json`:
 
 ```json
-{"error":{"code":"unauthenticated","message":"a Bearer token is required"}}
+{"error": {"code": "unauthenticated", "message": "a Bearer token is required"}}
 ```
 
-This is the error envelope of apikit. Its optional `error_type` is **not sent** in this release, and a
-client must tolerate its absence (and, in the future, its presence). `code` is for programs and does not
-change; `message` is for people and may. A message never contains a token, a ciphertext, the key or the
-text of an internal error.
+`code` is for programs and is stable; `message` is for people and may change. A message never contains
+a token, a ciphertext, the key or an internal error. The body may gain an optional `error_type` field
+in future; clients must accept it being present or absent.
 
 | `code` | Status | When |
 |---|---|---|
-| `invalid_request` | 400 | The slug is not valid; the body is malformed JSON, has an unknown field, a field of the wrong type or data after the value; `hub_token` is not valid; a field of a job request breaks its rule; an answer is not exactly one valid answer or option; a parameter of a list or the `since` of a stream is not valid. The message names the field or the parameter. |
-| `unauthenticated` | 401 | There is no usable `Authorization: Bearer` header, or hub does not accept the token. |
-| `not_found` | 404 | The workspace is not subscribed or the caller cannot see it (one answer for both), or the route does not exist. For a job: it does not exist, or its workspace is one the caller cannot see (one answer for both), or the attempt, its envelope or its report is not there. |
-| `method_not_allowed` | 405 | The route does not take the method; the `Allow` header lists those it does. |
-| `payload_too_large` | 413 | The body is larger than the limit of its route: 64 KiB, 1 MiB for a triage, 256 KiB for a fix. |
+| `invalid_request` | 400 | A bad slug, malformed JSON, an unknown or mistyped field, trailing data, a bad `hub_token`, a job field that breaks its rule, an answer that is not exactly one valid answer or option, or a bad list parameter or `since`. The message names the field. |
+| `unauthenticated` | 401 | No usable `Authorization: Bearer` header, or hub does not accept the token. |
+| `not_found` | 404 | The workspace is not subscribed or you cannot see it; the job does not exist or is in a workspace you cannot see; the attempt, envelope or report does not exist; or the route does not exist. Each case gets the same answer, so nothing leaks. |
+| `method_not_allowed` | 405 | The route does not take the method. The `Allow` header lists those it does. |
+| `invalid_state` | 409 | The action does not apply to the job's current state; the message names the state. |
+| `duplicate_job` | 409 | An open job of the same kind exists for the same issue on the workspace; the message names it. |
+| `not_subscribed` | 409 | Answer or retry on a job whose workspace is not subscribed or is being unsubscribed. (Creating a job there is `404`.) |
+| `token_unreadable` | 409 | The workspace token cannot be decrypted with this deployment's key, and the request would run an attempt with it. Subscribe the workspace again. |
+| `payload_too_large` | 413 | The body is over the route's limit. |
 | `unsupported_media_type` | 415 | The body is not `application/json`. |
-| `invalid_state` | 409 | The action does not apply to the job in the state it is in: the message names the state. |
-| `duplicate_job` | 409 | A job of the same kind is open (queued, running or blocked) for the same issue on the workspace; the message names it. |
-| `not_subscribed` | 409 | The workspace of an existing job is not subscribed, or is being unsubscribed, and the action needs it: answer and retry. Making a job on such a workspace is `404`. |
-| `token_unreadable` | 409 | The subscription's token does not open with this deployment's key (`token_state` `unreadable`), and the request would make an attempt run with it: making a job, answer and retry. Subscribe the workspace again. |
-| `invalid_hub_token` | 422 | At subscribe, hub refused the token (at the gate or at a label creation), or does not show the workspace to it. |
-| `forge_forbidden` | 422 | At subscribe, a label creation was refused: hub forbids the token to create labels (it lacks the scope for hub's forge API), the forge refused hub's credential for the repository, or hub refused the label otherwise. The message says which party refused, and carries hub's message. |
-| `internal` | 500 | A bug or a failure of the database. The panic or the error is in the log, not in the answer. |
-| `hub_unavailable` | 502 | Hub could not say. Nothing was kept or written. |
+| `invalid_hub_token` | 422 | At subscribe: hub refused the token, or it cannot see the workspace. |
+| `forge_forbidden` | 422 | At subscribe: a label could not be created. The token lacks hub's forge scope, the forge refused hub's credential, or hub refused the label. The message says which, with hub's message. |
+| `internal` | 500 | A bug or a database failure. Details are in the log, not the answer. |
+| `hub_unavailable` | 502 | Hub could not answer. Nothing was cached or written. |
 | `not_ready` | 503 | `GET /readyz`: the database does not answer. |
 
-## What the service logs
+## Logging
 
-Everything on stderr is a JSON record (`log/slog`), except the plain-text usage that a command line the
-service cannot parse gets. Each request is one record with `msg` `request` and
-`method`, `path` (without the query), `status`, `duration` (in nanoseconds) and, once the request has
-shown who is calling, `user`. The `Authorization` header, request and response bodies, tokens,
-ciphertext and the key are never logged. See [cli.md](cli.md#the-agent-fox-command-line) for the other
-records.
+The service writes one JSON log record per line to stderr. Each request produces one record with
+`msg` `request` and `method`, `path` (without the query), `status`, `duration` (nanoseconds) and, once
+the caller is known, `user` (the hub user id). The `Authorization` header, request and response
+bodies, tokens, ciphertext and the key are never logged. For the other records, see
+[cli.md](cli.md#logs).
