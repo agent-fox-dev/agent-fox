@@ -362,8 +362,8 @@ func TestAFailureMessageIsTheServicesMessageAndCodeAndATransportErrorNamesTheSer
 // Verifies: 16-REQ-6.7
 func TestAFailureCarriesTheFixHintOfItsAnswerForACommand_TS_16_43(t *testing.T) {
 	ready(t, answering(401, `{"error":{"code":"unauthenticated","message":"no"}}`))
-	if h := afRun(t, "", "workspace", "list").hint(); len(h) != 1 || h["suggest"] != "af login --token-file FILE" {
-		t.Errorf("401: fix_hint = %v, want {suggest: af login --token-file FILE}", h)
+	if h := afRun(t, "", "workspace", "list").hint(); len(h) != 1 || h["suggest"] != afclient.CredentialSuggestion {
+		t.Errorf("401: fix_hint = %v, want {suggest: %s}", h, afclient.CredentialSuggestion)
 	}
 	ready(t, answering(422, `{"error":{"code":"invalid_hub_token","message":"no"}}`))
 	if h := afRun(t, "", "workspace", "list").hint(); len(h) != 1 || h["flag"] != "--hub-token-file" {
@@ -408,7 +408,7 @@ func TestNoClientCommandHasADefaultTimeout_TS_16_39(t *testing.T) {
 		}
 		return ""
 	}
-	for _, path := range []string{"login", "workspace list", "workspace subscribe", "workspace get", "workspace unsubscribe",
+	for _, path := range []string{"jobs submit", "workspace list", "workspace subscribe", "workspace get", "workspace unsubscribe",
 		"jobs list", "jobs get", "jobs watch", "jobs cancel", "jobs answer", "jobs retry"} {
 		code, stdout, _ := rawRun(t, "", append([]string{"help"}, strings.Fields(path)...)...)
 		line := timeoutLine(stdout)
@@ -418,11 +418,6 @@ func TestNoClientCommandHasADefaultTimeout_TS_16_39(t *testing.T) {
 	}
 	for _, cmd := range []string{"triage", "fix"} {
 		_, stdout, _ := rawRun(t, "", "help", cmd)
-		_, service, found := strings.Cut(stdout, "Service mode:")
-		line := timeoutLine(service)
-		if !found || line == "" || strings.Contains(line, "(default") {
-			t.Errorf("%s in service mode: the --timeout line is %q, want one without a default", cmd, line)
-		}
 		if loop := timeoutLine(stdout); !strings.Contains(loop, "(default") {
 			t.Errorf("%s as a loop: the --timeout line is %q, want the default of the loop", cmd, loop)
 		}

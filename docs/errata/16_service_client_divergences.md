@@ -122,3 +122,17 @@ still there. Nothing else was weakened. Deviation key: `worker_docs_test_main_co
 
 The spec's `test_commands` name `make test` and `make lint`. The steering file and `CLAUDE.md` allow only `make check` while
 implementing; every task was measured with it, and `make check-release` is left to the person who merges.
+
+## 11. No modes, no `af login`, and `af jobs submit`
+
+16-REQ-1 and 16-REQ-2 give `af triage` and `af fix` two modes, `--local` and `--workspace <slug>`, chosen
+before anything else is read, with a usage error when neither is given; 16-REQ-3 gives `af login`, which
+checks a credential with the service and rewrites `~/.af/config.toml` byte for byte. Both are gone.
+`af triage` and `af fix` always run the loop on this machine, with no mode flag, and triage suggests
+`af fix <url> --dir <dir>`. Queueing a job is `af jobs submit triage|fix <input> --workspace <slug>`, with
+the input rules, `--wait` and `--context` that service mode had. `af` reads the credential file and never
+writes it: `afc login` writes it, or a person does, and the hint of a missing or refused credential says so.
+With them go the mode hook and the help hook of the shell (`App.Mode`, `App.HelpExtra`), and the editor of
+the credential file (`afclient.ReadExisting`, `StoreCredential`).
+
+**Test:** `TestJobsSubmitRefusesAMissingKindOrWorkspaceAndSendsNothing_TS_16_1` and `TestEachInputFormOfTriageBecomesTheRightRequestField_TS_16_45` (`cmd/af/client_queue_test.go`), `TestTriagesFixSuggestionRunsAsGiven_TS_16_13` (`cmd/af/client_compat_test.go`).

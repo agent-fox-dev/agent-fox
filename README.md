@@ -24,7 +24,7 @@ repository.
 
 | Path | Purpose |
 |---|---|
-| `cmd/af/` | The `af` binary: it makes the shell from `internal/afcmd`, adds the commands of the client of the agent-fox service and hands the process to it. [`internal/afcmd`](internal/afcmd) holds the commands of the loops and of ring 1, so that `agent-fox` can run them in its own process. Eighteen commands: `lang detect`, `gate run` and `revert-check`, the two of `af triage` (`triage`, and `triage run`, which a box executes) and the two of `af fix` (`fix`, and `fix run`, which a box executes), and the eleven of the service client: `login`, `workspace subscribe`, `workspace list`, `workspace get` and `workspace unsubscribe`, and `jobs list`, `jobs get`, `jobs watch`, `jobs cancel`, `jobs answer` and `jobs retry`. `af triage` and `af fix` need `--local`, to run on this machine, or `--workspace`, to queue a job on the service. [`docs/cli.md`](docs/cli.md) describes them. |
+| `cmd/af/` | The `af` binary: it makes the shell from `internal/afcmd`, adds the commands of the client of the agent-fox service and hands the process to it. [`internal/afcmd`](internal/afcmd) holds the commands of the loops and of ring 1, so that `agent-fox` can run them in its own process. Eighteen commands: `lang detect`, `gate run` and `revert-check`, the two of `af triage` (`triage`, and `triage run`, which a box executes) and the two of `af fix` (`fix`, and `fix run`, which a box executes), and the eleven of the service client: `workspace subscribe`, `workspace list`, `workspace get` and `workspace unsubscribe`, and `jobs submit`, `jobs list`, `jobs get`, `jobs watch`, `jobs cancel`, `jobs answer` and `jobs retry`. `af triage` and `af fix` run on this machine; `af jobs submit` queues the same work as a job on the service. [`docs/cli.md`](docs/cli.md) describes them. |
 | `internal/afclient/` | The library of the service client: the server URL, the credential file `~/.af/config.toml`, the requests with their bounds and the mapping of the answers, and the following of a job's event stream. |
 | `cmd/agent-fox/` | The `agent-fox` binary, the long-running service: it starts from one `config.toml`, keeps its state in one SQLite file, asks hub who is calling, and lets a caller subscribe a hub workspace by handing over a workspace token, which it keeps sealed and never returns. It runs triage and fix attempts for the jobs it queues: the worker (`internal/worker`) runs the `af` commands in its own process against a hub workspace, with a sandbox that hub leases, and mirrors the outcome to the issue. [`docs/cli.md`](docs/cli.md#the-agent-fox-command-line) describes the command line, [`docs/api.md`](docs/api.md) the routes and [`docs/configuration.md`](docs/configuration.md#the-agent-fox-service) the file. |
 | `internal/service/` | The packages of the service: `config` (the file), `secrets` (the key and the sealing of tokens), `store` (the SQLite file and its migrations), `ttl` (the cache of hub's answers) and `api` (the HTTP surface) and `jobs` (the jobs of triage and fix: the store, the queue, the runner seam, the event log and the retention) and `reconcile` (the pass that gives back the sandboxes that attempts left held) and `poll` (the label poll: a subscribed workspace picks up the issues that carry its request labels). |
@@ -124,20 +124,19 @@ binding a local port fails it.
 
 ## Using the service from af
 
-`af` is the client of the service. With `AF_URL` naming it and a hub credential in a file, a person logs in once, subscribes a
-hub workspace with its token, and queues jobs:
+`af` is the client of the service. With `AF_URL` naming it and the hub credential in `~/.af/config.toml` (as `token = "…"`,
+which `afc login` writes), a person subscribes a hub workspace with its token, and queues jobs:
 
 ```bash
 export AF_URL=http://127.0.0.1:8090
-bin/af login --token-file hub-token                       # checks the credential, writes ~/.af/config.toml (mode 0600)
 bin/af workspace subscribe widgets --hub-token-file pat   # the workspace token, kept sealed by the service
-bin/af fix 42 --workspace widgets --wait                  # queue a fix job and follow it until it is at rest
+bin/af jobs submit fix 42 --workspace widgets --wait      # queue a fix job and follow it until it is at rest
 bin/af jobs list --workspace widgets --state blocked      # one page of jobs; jobs get, watch, answer, retry and cancel
-bin/af fix https://github.com/o/r/issues/1 --local        # the loop on this machine, as before
+bin/af fix https://github.com/o/r/issues/1                # the loop on this machine
 ```
 
-`af triage` and `af fix` name where the run goes: `--workspace <slug>` queues a job, `--local` runs the loop here, and
-neither is a usage error. A job that is blocked on a question ends `--wait` with exit 3 and the command that answers it
+`af triage` and `af fix` always run the loop on this machine; `af jobs submit triage|fix` queues the same work on a
+workspace of the service. A job that is blocked on a question ends `--wait` with exit 3 and the command that answers it
 (`af jobs answer <id> --wait`, with `--context`). Every command prints the one envelope and uses the exit codes of every `af`
 command. See [`docs/cli.md`](docs/cli.md#the-client-of-the-agent-fox-service) and
 [`docs/configuration.md`](docs/configuration.md#the-client-of-the-agent-fox-service).

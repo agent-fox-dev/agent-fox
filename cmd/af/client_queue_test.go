@@ -49,110 +49,36 @@ func noRunDir(t *testing.T, dir string) {
 	}
 }
 
-// TestFixOrTriageWithNeitherLocalNorWorkspaceIsAUsageErrorNamingBothModes_TS_16_1 verifies
-// TS-16-1.
+// TestJobsSubmitRefusesAMissingKindOrWorkspaceAndSendsNothing_TS_16_1 verifies TS-16-1 as it
+// stands: af jobs submit needs the kind of the job, triage or fix, and --workspace, and a refusal
+// sends nothing and makes no run directory.
 // Verifies: 16-REQ-1.1
-func TestFixOrTriageWithNeitherLocalNorWorkspaceIsAUsageErrorNamingBothModes_TS_16_1(t *testing.T) {
+func TestJobsSubmitRefusesAMissingKindOrWorkspaceAndSendsNothing_TS_16_1(t *testing.T) {
 	dir := inDir(t)
 	svc := queueService(t)
 	t.Setenv("GITHUB_TOKEN", "forge-sentinel")
 	for _, c := range []struct {
-		name  string
-		args  []string
-		named bool // a server is named
-		flag  string
+		name string
+		args []string
+		want string
 	}{
-		{"fix with AF_URL", []string{"fix", "https://github.com/o/r/issues/1"}, true, "--workspace"},
-		{"triage with AF_URL", []string{"triage", "42"}, true, "--workspace"},
-		{"fix with --server", []string{"fix", "42", "--server", svc.URL}, true, "--workspace"},
-		{"fix without a server", []string{"fix", "https://github.com/o/r/issues/1"}, false, "--local"},
-		{"triage without a server", []string{"triage", "42"}, false, "--local"},
+		{"no kind", []string{"jobs", "submit"}, "name the kind of job first"},
+		{"another kind", []string{"jobs", "submit", "impl", "42", "--workspace", "w"}, "name the kind of job first"},
+		{"no workspace", []string{"jobs", "submit", "fix", "42"}, "--workspace is required"},
+		{"no input", []string{"jobs", "submit", "triage", "--workspace", "w"}, "no input given"},
 	} {
-		t.Setenv("AF_URL", "")
-		if c.named && !slices.Contains(c.args, "--server") {
-			t.Setenv("AF_URL", svc.URL)
-		}
 		res := afRun(t, "", c.args...)
-		if res.code != 2 || field(res.env, "status") != "usage" {
-			t.Errorf("%s: exit %d, status %v, want 2 and usage", c.name, res.code, field(res.env, "status"))
-			continue
+		if res.code != 2 || field(res.env, "status") != "usage" || !strings.Contains(res.message(), c.want) {
+			t.Errorf("%s: exit %d, status %v, message %q, want 2, usage and %q", c.name, res.code, field(res.env, "status"), res.message(), c.want)
 		}
-		for _, want := range []string{"--workspace", "--server", "AF_URL", "--local"} {
-			if !strings.Contains(res.message(), want) {
-				t.Errorf("%s: message %q does not name %s", c.name, res.message(), want)
-			}
-		}
-		if h := res.hint(); len(h) != 1 || h["flag"] != c.flag {
-			t.Errorf("%s: fix_hint = %v, want {flag: %s}", c.name, h, c.flag)
-		}
-		if field(res.env, "tool") != c.args[0] {
-			t.Errorf("%s: tool = %v, want %s", c.name, field(res.env, "tool"), c.args[0])
+		if field(res.env, "tool") != "jobs submit" {
+			t.Errorf("%s: tool = %v, want jobs submit", c.name, field(res.env, "tool"))
 		}
 	}
 	if n := len(svc.Requests()); n != 0 {
 		t.Errorf("%d requests reached the service", n)
 	}
 	noRunDir(t, dir)
-}
-
-// TestLocalTogetherWithWorkspaceIsAUsageErrorNamingBothFlags_TS_16_2 verifies TS-16-2.
-// Verifies: 16-REQ-1.2
-func TestLocalTogetherWithWorkspaceIsAUsageErrorNamingBothFlags_TS_16_2(t *testing.T) {
-	dir := inDir(t)
-	svc := queueService(t)
-	for _, args := range [][]string{
-		{"fix", "42", "--local", "--workspace", "widgets"},
-		{"triage", "42", "--workspace=w", "--local"},
-	} {
-		res := afRun(t, "", args...)
-		if res.code != 2 || !strings.Contains(res.message(), "--local") || !strings.Contains(res.message(), "--workspace") {
-			t.Errorf("%v: exit %d, message %q, want 2 naming both flags", args, res.code, res.message())
-		}
-	}
-	if n := len(svc.Requests()); n != 0 {
-		t.Errorf("%d requests reached the service", n)
-	}
-	noRunDir(t, dir)
-}
-
-// TestFixWithLocalGoesToTheLoopAndNotTheServiceCommand_TS_16_1 verifies that --local picks the
-// loop and is not one of its flags: the loop's own refusal of a missing input is what answers.
-// Verifies: 16-REQ-1.1
-func TestFixWithLocalGoesToTheLoopAndNotTheServiceCommand_TS_16_1(t *testing.T) {
-	inDir(t)
-	svc := queueService(t)
-	for _, form := range []string{"--local", "-local", "--local=true"} {
-		res := afRun(t, "", "fix", form)
-		if res.code != 2 || !strings.Contains(res.message(), "no input given") {
-			t.Errorf("fix %s: exit %d, message %q, want the loop's refusal of a missing input", form, res.code, res.message())
-		}
-	}
-	if n := len(svc.Requests()); n != 0 {
-		t.Errorf("%d requests reached the service", n)
-	}
-}
-
-// TestNoServerForFixOrTriageNamesLocalToo_TS_16_20 verifies the second half of TS-16-20: the
-// message of af fix --workspace with no server also names --local.
-// Verifies: 16-REQ-3.4
-func TestNoServerForFixOrTriageNamesLocalToo_TS_16_20(t *testing.T) {
-	inDir(t)
-	clientHome(t, str("token = \"T\"\n"))
-	t.Setenv("AF_URL", "")
-	for _, cmd := range []string{"fix", "triage"} {
-		res := afRun(t, "", cmd, "1", "--workspace", "w")
-		if res.code != 2 {
-			t.Errorf("%s: exit %d, want 2", cmd, res.code)
-		}
-		for _, want := range []string{"--server", "AF_URL", "--local"} {
-			if !strings.Contains(res.message(), want) {
-				t.Errorf("%s: message %q does not name %s", cmd, res.message(), want)
-			}
-		}
-		if h := res.hint(); h["flag"] != "--server" || h["env"] != "AF_URL" {
-			t.Errorf("%s: fix_hint = %v, want {flag: --server, env: AF_URL}", cmd, h)
-		}
-	}
 }
 
 // TestEachInputFormOfTriageBecomesTheRightRequestField_TS_16_45 verifies TS-16-45.
@@ -182,7 +108,7 @@ func TestEachInputFormOfTriageBecomesTheRightRequestField_TS_16_45(t *testing.T)
 		{"o#7", "", map[string]any{"text": "o#7"}},
 		{"0", "", map[string]any{"text": "0"}},
 	} {
-		res := afRun(t, c.stdin, "triage", c.input, "--workspace", "w")
+		res := afRun(t, c.stdin, "jobs", "submit", "triage", c.input, "--workspace", "w")
 		if res.code != 0 {
 			t.Errorf("%q: exit %d, %s", c.input, res.code, res.message())
 			continue
@@ -202,7 +128,7 @@ func TestFixWithAWorkspaceTakesOnlyIssueFormsAndRefusesTheRest_TS_16_46(t *testi
 	}
 	svc := queueService(t)
 	for _, in := range []string{"-", "notes.txt", "some words", "0"} {
-		res := afRun(t, "text", "fix", in, "--workspace", "w")
+		res := afRun(t, "text", "jobs", "submit", "fix", in, "--workspace", "w")
 		if res.code != 2 {
 			t.Errorf("%q: exit %d, want 2", in, res.code)
 		}
@@ -216,7 +142,7 @@ func TestFixWithAWorkspaceTakesOnlyIssueFormsAndRefusesTheRest_TS_16_46(t *testi
 		t.Errorf("%d requests were sent for refused inputs", n)
 	}
 	for in, want := range map[string]any{"7": float64(7), "#7": float64(7), "o/r#7": "o/r#7", "https://github.com/o/r/issues/7": "https://github.com/o/r/issues/7"} {
-		if res := afRun(t, "", "fix", in, "--workspace", "w"); res.code != 0 {
+		if res := afRun(t, "", "jobs", "submit", "fix", in, "--workspace", "w"); res.code != 0 {
 			t.Errorf("%q: exit %d, %s", in, res.code, res.message())
 		} else if got := postedBody(t, svc)["issue"]; !reflect.DeepEqual(got, want) {
 			t.Errorf("%q: issue %v, want %v", in, got, want)
@@ -267,7 +193,7 @@ func TestEmptyNULNonUTF8AndDirectoryInputsAreUsageErrorsAndAnUnreadableFileIsIO_
 		if name == "locked file" && !locked {
 			continue
 		}
-		res := afRun(t, c.stdin, "triage", c.input, "--workspace", "w")
+		res := afRun(t, c.stdin, "jobs", "submit", "triage", c.input, "--workspace", "w")
 		if res.code != c.code || res.category() != c.category {
 			t.Errorf("%s: exit %d, category %q, message %q, want %d and %s", name, res.code, res.category(), res.message(), c.code, c.category)
 		}
@@ -296,8 +222,8 @@ func TestOverLongContentIsCutAtAUTF8BoundaryAndTheResultFitsMaxInputBytes_TS_16_
 		return body["file"].(map[string]any)["content"].(string)
 	}
 	for name, run := range map[string]func() afResult{
-		"stdin": func() afResult { return afRun(t, long, "triage", "-", "--workspace", "w") },
-		"file":  func() afResult { return afRun(t, "", "triage", "long.txt", "--workspace", "w") },
+		"stdin": func() afResult { return afRun(t, long, "jobs", "submit", "triage", "-", "--workspace", "w") },
+		"file":  func() afResult { return afRun(t, "", "jobs", "submit", "triage", "long.txt", "--workspace", "w") },
 	} {
 		res := run()
 		if res.code != 0 {
@@ -311,7 +237,7 @@ func TestOverLongContentIsCutAtAUTF8BoundaryAndTheResultFitsMaxInputBytes_TS_16_
 			t.Errorf("%s: input.truncated = %v, warnings %v, want true and input_truncated", name, truncated, codes(res.env))
 		}
 	}
-	res := afRun(t, exact, "triage", "-", "--workspace", "w")
+	res := afRun(t, exact, "jobs", "submit", "triage", "-", "--workspace", "w")
 	if got := sent(postedBody(t, svc)); res.code != 0 || got != exact || field(res.env, "input", "truncated") != false || slices.Contains(codes(res.env), "input_truncated") {
 		t.Errorf("exact length: exit %d, sent %d bytes, truncated %v, want it unchanged and not truncated", res.code, len(got), field(res.env, "input", "truncated"))
 	}
@@ -340,7 +266,7 @@ func TestTheEnvelopeInputReportsKindOriginAndTruncatedForEachForm_TS_16_49(t *te
 		{"some words", "", map[string]any{"kind": "text", "origin": "", "truncated": false}},
 		{"-", "from stdin", map[string]any{"kind": "stdin", "origin": "", "truncated": false}},
 	} {
-		res := afRun(t, c.stdin, "triage", c.input, "--workspace", "w")
+		res := afRun(t, c.stdin, "jobs", "submit", "triage", c.input, "--workspace", "w")
 		got, _ := res.env["input"].(map[string]any)
 		// the temp directory may be reached through a link; compare the base of a file's origin
 		if c.want["kind"] == "file" {
@@ -361,10 +287,10 @@ func TestTheEnvelopeInputReportsKindOriginAndTruncatedForEachForm_TS_16_49(t *te
 func TestTheBodyIsPostedToTheRouteOfTheWorkspaceWithTheSlugEscapedAndTheContextInOrder_TS_16_50(t *testing.T) {
 	inDir(t)
 	svc := queueService(t)
-	if res := afRun(t, "", "triage", "1", "--workspace", "a b/c", "--context", "x", "--context", "y"); res.code != 0 {
+	if res := afRun(t, "", "jobs", "submit", "triage", "1", "--workspace", "a b/c", "--context", "x", "--context", "y"); res.code != 0 {
 		t.Fatalf("triage: exit %d, %s", res.code, res.message())
 	}
-	if res := afRun(t, "", "fix", "1", "--workspace", "w"); res.code != 0 {
+	if res := afRun(t, "", "jobs", "submit", "fix", "1", "--workspace", "w"); res.code != 0 {
 		t.Fatalf("fix: exit %d, %s", res.code, res.message())
 	}
 	reqs := svc.Requests()
@@ -398,7 +324,7 @@ func TestA202RecordsTheJobAtOnceAndWithoutWaitFinishesDoneWithNextPointingAtWatc
 		{"server from AF_URL", nil, []string{"af", "jobs", "watch", "job_abc"}},
 		{"server from the flag", []string{"--server", svc.URL}, []string{"af", "jobs", "watch", "job_abc", "--server", svc.URL}},
 	} {
-		res := afRun(t, "", append([]string{"fix", "42", "--workspace", "widgets"}, c.args...)...)
+		res := afRun(t, "", append([]string{"jobs", "submit", "fix", "42", "--workspace", "widgets"}, c.args...)...)
 		if res.code != 0 || field(res.env, "status") != "done" {
 			t.Fatalf("%s: exit %d, %s", c.name, res.code, res.message())
 		}
@@ -434,7 +360,7 @@ func TestA202RecordsTheJobAtOnceAndWithoutWaitFinishesDoneWithNextPointingAtWatc
 func TestADuplicateJobFailsConflictWithTheServicesMessage_TS_16_52(t *testing.T) {
 	inDir(t)
 	ready(t, answering(409, `{"error":{"code":"duplicate_job","message":"an open job of this kind exists for the issue: job_abc"}}`))
-	res := afRun(t, "", "fix", "42", "--workspace", "w")
+	res := afRun(t, "", "jobs", "submit", "fix", "42", "--workspace", "w")
 	if res.code != 1 || res.category() != "conflict" || res.retryable() {
 		t.Errorf("exit %d, category %q, retryable %v, want 1, conflict, not retryable", res.code, res.category(), res.retryable())
 	}
@@ -456,7 +382,7 @@ func TestWaitFollowsTheQueuedJobAndKeepsStderrQuiet_TS_16_63(t *testing.T) {
 		"GET /api/v1/jobs/job_abc/attempts/1/envelope": {200, `{"status":"done","warnings":[]}`, false},
 	}))
 	useClockNow(t)
-	res, data := afRunEvents(t, "fix", "1", "--workspace", "w", "--wait")
+	res, data := afRunEvents(t, "jobs", "submit", "fix", "1", "--workspace", "w", "--wait")
 	if res.code != 0 || field(res.env, "status") != "done" {
 		t.Fatalf("exit %d, %s", res.code, res.message())
 	}
@@ -491,11 +417,11 @@ func TestLocalChecksOfAQueueCommandRunInOrderAndSendNothing_TS_16_37(t *testing.
 		args []string
 		want string
 	}{
-		{"flag, input, server, credential", []string{"triage", "adir", "--workspace", "w", "--server", bad, "--bogus"}, "bogus"},
-		{"input, server, credential", []string{"triage", "adir", "--workspace", "w", "--server", bad}, "directory"},
-		{"server, credential", []string{"triage", "1", "--workspace", "w", "--server", bad}, "http or https"},
-		{"no server, credential", []string{"triage", "1", "--workspace", "w"}, "AF_URL"},
-		{"credential", []string{"triage", "1", "--workspace", "w", "--server", svc.URL}, "af login"},
+		{"flag, input, server, credential", []string{"jobs", "submit", "triage", "adir", "--workspace", "w", "--server", bad, "--bogus"}, "bogus"},
+		{"input, server, credential", []string{"jobs", "submit", "triage", "adir", "--workspace", "w", "--server", bad}, "directory"},
+		{"server, credential", []string{"jobs", "submit", "triage", "1", "--workspace", "w", "--server", bad}, "http or https"},
+		{"no server, credential", []string{"jobs", "submit", "triage", "1", "--workspace", "w"}, "AF_URL"},
+		{"credential", []string{"jobs", "submit", "triage", "1", "--workspace", "w", "--server", svc.URL}, "token = "},
 	} {
 		res := afRun(t, "", c.args...)
 		if res.code == 0 || !strings.Contains(res.message(), c.want) {

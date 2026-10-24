@@ -93,7 +93,7 @@ func answerError(status int, body []byte, path string) *Error {
 
 	switch {
 	case status == http.StatusUnauthorized:
-		e.Hint = &Hint{Suggest: "af login --token-file FILE"}
+		e.Hint = &Hint{Suggest: CredentialSuggestion}
 	case status == http.StatusUnprocessableEntity:
 		e.Hint = &Hint{Flag: "--hub-token-file"}
 	case status == http.StatusNotFound && kind != "":

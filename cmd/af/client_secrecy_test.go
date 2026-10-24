@@ -65,7 +65,7 @@ func TestASentinelCredentialAndAPATNeverAppearInAnyOutput_TS_16_27(t *testing.T)
 		svc := newFakeService(t, echoing(status))
 		_, config := clientHome(t, nil)
 		t.Setenv("AF_URL", svc.URL)
-		credFile, patFile := tokenFile(t, cred+"\n"), tokenFile(t, pat+"\n")
+		patFile := tokenFile(t, pat+"\n")
 		if err := os.MkdirAll(filepath.Dir(config), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -74,12 +74,11 @@ func TestASentinelCredentialAndAPATNeverAppearInAnyOutput_TS_16_27(t *testing.T)
 		}
 
 		commands := [][]string{
-			{"login", "--token-file", credFile},
 			{"workspace", "subscribe", "w", "--hub-token-file", patFile},
 			{"workspace", "list"}, {"workspace", "get", "w"}, {"workspace", "unsubscribe", "w"},
 			{"jobs", "list", "--workspace", "w"}, {"jobs", "get", "j"}, {"jobs", "cancel", "j"}, {"jobs", "retry", "j"},
 			{"jobs", "answer", "j", "--option", "A"}, {"jobs", "watch", "j"},
-			{"fix", "1", "--workspace", "w"}, {"fix", "1", "--workspace", "w", "--wait"}, {"triage", "some words", "--workspace", "w", "--wait"},
+			{"jobs", "submit", "fix", "1", "--workspace", "w"}, {"jobs", "submit", "fix", "1", "--workspace", "w", "--wait"}, {"jobs", "submit", "triage", "some words", "--workspace", "w", "--wait"},
 		}
 		args := slices.Clone(commands[rng.Intn(len(commands))])
 		res, events := afRunEvents(t, args...)
@@ -127,7 +126,7 @@ func TestAnInterruptOrTheTimeoutOfFixWaitSendsNoCancelAndSuggestsWatchAndCancel_
 					answering(200, strings.ReplaceAll(jobDocument("running", attemptList("running"), "", ""), `"id":"j"`, `"id":"job_abc"`))(w, r)
 				}
 			})
-			args := []string{"fix", "42", "--workspace", "widgets", "--wait"}
+			args := []string{"jobs", "submit", "fix", "42", "--workspace", "widgets", "--wait"}
 			for _, a := range c.extra {
 				args = append(args, strings.Replace(a, "SERVER", svc.URL, 1))
 			}

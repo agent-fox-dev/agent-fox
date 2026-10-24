@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/agent-fox-dev/agentfox/internal/afclient"
 )
 
 // recordedRequest is a request a fake service saw.
@@ -239,9 +241,8 @@ func TestAMalformedServerURLIsAUsageErrorNamingItsSourceAndTheRuleAndSendsNothin
 	}
 }
 
-// TestNoServerIsAUsageErrorNamingTheFlagAndTheVariable_TS_16_20 verifies TS-16-20 for a
-// command without a local mode: the hint is the flag and the variable. The message of
-// triage and fix also names --local; its wording comes from noServerFailure.
+// TestNoServerIsAUsageErrorNamingTheFlagAndTheVariable_TS_16_20 verifies TS-16-20: the hint
+// is the flag and the variable.
 // Verifies: 16-REQ-3.4
 func TestNoServerIsAUsageErrorNamingTheFlagAndTheVariable_TS_16_20(t *testing.T) {
 	svc := newFakeService(t, nil)
@@ -255,20 +256,13 @@ func TestNoServerIsAUsageErrorNamingTheFlagAndTheVariable_TS_16_20(t *testing.T)
 	if len(hint) != 2 || hint["flag"] != "--server" || hint["env"] != "AF_URL" {
 		t.Errorf("fix_hint = %v, want {flag: --server, env: AF_URL}", hint)
 	}
-	if m := res.message(); strings.Contains(m, "--local") || !strings.Contains(m, "--server") || !strings.Contains(m, "AF_URL") {
-		t.Errorf("message %q, want it to name --server and AF_URL and not --local", m)
+	if m := res.message(); !strings.Contains(m, "--server") || !strings.Contains(m, "AF_URL") {
+		t.Errorf("message %q, want it to name --server and AF_URL", m)
 	}
 	if n := len(svc.Requests()); n != 0 {
 		t.Errorf("%d requests were sent", n)
 	}
 
-	withLocal := noServerFailure(true)
-	if !strings.Contains(withLocal.Message, "--local") || !strings.Contains(withLocal.Message, "--server") || !strings.Contains(withLocal.Message, "AF_URL") {
-		t.Errorf("the message for triage and fix is %q, want it to name --server, AF_URL and --local", withLocal.Message)
-	}
-	if h := withLocal.FixHint; h == nil || h.Flag != "--server" || h.Env != "AF_URL" {
-		t.Errorf("the fix hint for triage and fix is %+v, want {flag: --server, env: AF_URL}", h)
-	}
 }
 
 // TestAPlainHTTPServerThatIsNotLoopbackRaisesServerInsecure_TS_16_21 verifies TS-16-21:
@@ -379,14 +373,14 @@ func TestAMissingFileOrAMissingNonStringOrEmptyTokenFailsAuthWithTheLoginHint_TS
 			if res.code != 1 || res.category() != "auth" {
 				t.Fatalf("exit %d, category %q, message %q, want 1 and auth", res.code, res.category(), res.message())
 			}
-			for _, want := range []string{path, "af login --token-file FILE", "afc login"} {
+			for _, want := range []string{path, "token = "} {
 				if !strings.Contains(res.message(), want) {
 					t.Errorf("message %q does not contain %q", res.message(), want)
 				}
 			}
 			hint, _ := field(res.env, "error", "fix_hint").(map[string]any)
-			if len(hint) != 1 || hint["suggest"] != "af login --token-file FILE" {
-				t.Errorf("fix_hint = %v, want {suggest: af login --token-file FILE}", hint)
+			if len(hint) != 1 || hint["suggest"] != afclient.CredentialSuggestion {
+				t.Errorf("fix_hint = %v, want {suggest: %s}", hint, afclient.CredentialSuggestion)
 			}
 			if n := len(svc.Requests()); n != 0 {
 				t.Errorf("%d requests were sent", n)

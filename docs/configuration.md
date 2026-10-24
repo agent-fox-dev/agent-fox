@@ -16,7 +16,7 @@ pinned in [`.agent-fox/gate.json`](#gatejson); everything else is a flag (see
 | `GITLAB_TOKEN` | The token for GitLab. |
 | `GITHUB_API_URL` | The API URL of a GitHub Enterprise Server, such as `https://ghe.example.com/api/v3`. Default `https://api.github.com`. |
 | `GITLAB_API_URL` | The API URL of a self-hosted GitLab, such as `https://gitlab.example.com/api/v4`. Default `https://gitlab.com/api/v4`; `/api/v4` is added if it is missing. |
-| `AF_URL` | The URL of the agent-fox service that the [service commands](#the-client-of-the-agent-fox-service) talk to: `af login`, `af workspace …`, `af jobs …` and `af triage` or `af fix` with `--workspace`. `--server` wins over it, and an empty value is unset. |
+| `AF_URL` | The URL of the agent-fox service that the [service commands](#the-client-of-the-agent-fox-service) talk to: `af workspace …` and `af jobs …`. `--server` wins over it, and an empty value is unset. |
 
 Without a token, `af` reads public issues and a 404 means the issue may be
 private (`failed`/`auth` with the token to set in `fix_hint`). Writing needs a
@@ -225,10 +225,7 @@ reports (`HOME` on Unix).
 token = "the credential"
 ```
 
-`af login --token-file FILE` writes the file: it checks the credential with the service first, creates `~/.af` with mode
-0700, writes the file with mode 0600 through a temporary file that it renames over the old one, and changes only the value
-of the `token` line, as a TOML basic string, leaving every other byte as it was. It refuses a file whose `token` is not a
-one-line `token = "…"` or `token = '…'` before any table. On Unix a file with a group or other permission bit set raises the
+`af` reads the file and never writes it: `afc login` writes it, or a person does, with mode 0600. On Unix a file with a group or other permission bit set raises the
 warning `credential_file_permissions`; the command goes on. The credential is never in an envelope, an event or a message,
 nor is the token of a workspace that `af workspace subscribe` hands over, as long as it is 8 bytes or more (a shorter value
 would be in ordinary words and is not taken out). The standard proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`) are

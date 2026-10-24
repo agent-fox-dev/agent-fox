@@ -48,13 +48,13 @@ credential enters which box.
 
 ## The client of the agent-fox service
 
-`af` runs no model on this machine when it talks to the agent-fox service. `af login`, `af workspace …` and `af jobs …`
-call the service and nothing else, and `af triage` or `af fix` with `--workspace` queues a job and, with `--wait`, follows
+`af` runs no model on this machine when it talks to the agent-fox service. `af workspace …` and `af jobs …`
+call the service and nothing else, and `af jobs submit` queues a job and, with `--wait`, follows
 it: the brain of the job runs in the box that the service's worker leases from hub, as described below. The envelope of such
 a command therefore has the zero usage of a run with no brain, `"cost_source": "none"`. What a job cost is in the job
 document the command returns, in `result.job.usage`: the cost, the tokens and the turns summed over the finished
 attempts of the job. A command that follows a job to a failure, a cancel or a `usage` ending returns the error and no result
-(the shell clears the result of a failed envelope), so `af jobs get <id>` shows the cost of such a job. The local mode (`--local`) is the one that runs the loop, and spends, on this machine.
+(the shell clears the result of a failed envelope), so `af jobs get <id>` shows the cost of such a job. `af triage` and `af fix` are what run the loop, and spend, on this machine.
 
 ## The agent-fox service
 

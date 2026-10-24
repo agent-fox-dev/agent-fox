@@ -165,7 +165,7 @@ func (e *localEnv) runFiles(env map[string]any) []string {
 }
 
 // eventLines are the events of the run directory of an envelope, in order, without what changes from one run
-// to the next (times, the run id, the directory) and without the argv of run_start, which has --local in one.
+// to the next (times, the run id, the directory) and without the argv of run_start.
 func (e *localEnv) eventLines(env map[string]any) []string {
 	e.t.Helper()
 	id, _ := env["run_id"].(string)
@@ -230,41 +230,25 @@ func countingListener(t *testing.T) (addr string, connections *atomic.Int32) {
 	return ln.Addr().String(), &n
 }
 
-// TestLocalModeBehavesAsBeforeTheSpecEvenWithAFURLNamingAServiceThatMustNotBeCalled_TS_16_12
-// verifies TS-16-12: the same triage, run through a shell that has no mode hook (the way it ran
-// before this spec, and the way the worker runs it) and through the binary's shell with --local,
-// gives the same statuses, exit codes, results, events, warnings and run directory. The
-// only difference is the --local of the fix that triage suggests.
+// TestTheBinaryRunsTriageAsTheShellOfAfcmdDoesEvenWithAFURLNamingAService_TS_16_12 verifies
+// TS-16-12 as it stands: the same triage, run through the shell of afcmd (the way the worker runs
+// it) and through the binary's shell, gives the same statuses, exit codes, results, events,
+// warnings and run directory, and calls no service.
 // Verifies: 16-REQ-2.4
-func TestLocalModeBehavesAsBeforeTheSpecEvenWithAFURLNamingAServiceThatMustNotBeCalled_TS_16_12(t *testing.T) {
+func TestTheBinaryRunsTriageAsTheShellOfAfcmdDoesEvenWithAFURLNamingAService_TS_16_12(t *testing.T) {
 	addr, connections := countingListener(t)
 	t.Setenv("AF_URL", "http://"+addr)
 
 	before := newLocalEnv(t, afcmd.New(&afcmd.Config{}))
 	beforeCode, beforeEnv := before.run("", before.loopArgs("confirmed")...)
 	after := newLocalEnv(t, nil)
-	afterCode, afterEnv := after.run("", after.loopArgs("confirmed", "--local")...)
+	afterCode, afterEnv := after.run("", after.loopArgs("confirmed")...)
 
 	if beforeCode != 0 || afterCode != beforeCode {
 		t.Fatalf("exit codes %d before and %d after, want both 0 (%v)", beforeCode, afterCode, afterEnv["error"])
 	}
-	// The --local at the end of the suggestion of a fix is the one change of triage's envelope, and both
-	// shells now give it; the rest of the envelope has to be the same.
-	for _, c := range []struct {
-		env  map[string]any
-		argv [][]string
-	}{{beforeEnv, nextArgvs(beforeEnv)}, {afterEnv, nextArgvs(afterEnv)}} {
-		if len(c.argv) == 0 {
-			t.Fatalf("next = %v, want the suggestion of a fix", c.argv)
-		}
-		for i, argv := range c.argv {
-			if slices.Contains(argv, "fix") {
-				if argv[len(argv)-1] != "--local" {
-					t.Errorf("the suggestion of the fix is %v, want it to end with --local", argv)
-				}
-				c.env["next"].([]any)[i].(map[string]any)["argv"] = anySlice(argv[:len(argv)-1])
-			}
-		}
+	if len(nextArgvs(afterEnv)) == 0 {
+		t.Fatalf("next = %v, want the suggestion of a fix", nextArgvs(afterEnv))
 	}
 	if b, a := normalized(t, beforeEnv, before.dir), normalized(t, afterEnv, after.dir); b != a {
 		t.Errorf("the envelope differs:\nbefore: %s\nafter:  %s", b, a)
@@ -283,32 +267,24 @@ func TestLocalModeBehavesAsBeforeTheSpecEvenWithAFURLNamingAServiceThatMustNotBe
 	}
 }
 
-func anySlice(s []string) []any {
-	out := make([]any, len(s))
-	for i, v := range s {
-		out[i] = v
-	}
-	return out
-}
-
-// TestTriagesFixSuggestionEndsWithLocalAndRunsAsGiven_TS_16_13 verifies TS-16-13 as it
-// stands: the loop is the one command that suggests af fix.
+// TestTriagesFixSuggestionRunsAsGiven_TS_16_13 verifies TS-16-13 as it stands: the loop suggests
+// af fix of the issue in the checkout, and the binary takes the suggestion as the loop.
 // Verifies: 16-REQ-2.5
-func TestTriagesFixSuggestionEndsWithLocalAndRunsAsGiven_TS_16_13(t *testing.T) {
+func TestTriagesFixSuggestionRunsAsGiven_TS_16_13(t *testing.T) {
 	hasFix := func(env map[string]any, url, dir string) []string {
 		for _, argv := range nextArgvs(env) {
-			if slices.Equal(argv, []string{"af", "fix", url, "--dir", dir, "--local"}) {
+			if slices.Equal(argv, []string{"af", "fix", url, "--dir", dir}) {
 				return argv
 			}
 		}
-		t.Errorf("next = %v, want af fix %s --dir %s --local", nextArgvs(env), url, dir)
+		t.Errorf("next = %v, want af fix %s --dir %s", nextArgvs(env), url, dir)
 		return nil
 	}
 
 	var suggestion []string
 	for _, confidence := range []string{"confirmed", "probable"} {
 		e := newLocalEnv(t, nil)
-		code, env := e.run("", e.loopArgs(confidence, "--local")...)
+		code, env := e.run("", e.loopArgs(confidence)...)
 		if code != 0 {
 			t.Fatalf("%s: exit %d, %v", confidence, code, env["error"])
 		}
@@ -316,11 +292,11 @@ func TestTriagesFixSuggestionEndsWithLocalAndRunsAsGiven_TS_16_13(t *testing.T) 
 	}
 
 	e := newLocalEnv(t, nil)
-	// The suggestion runs as given: the binary takes it as the loop, not as the no-mode error.
+	// The suggestion runs as given: the binary takes it as the loop, with no flag it does not know.
 	if suggestion != nil {
 		res := e.run2(suggestion[1:]...)
-		if strings.Contains(res, "choose where the run goes") {
-			t.Errorf("running the suggestion gave the no-mode usage error: %s", res)
+		if strings.Contains(res, "unknown flag") || strings.Contains(res, "unexpected argument") {
+			t.Errorf("running the suggestion gave a usage error of its words: %s", res)
 		}
 	}
 }
@@ -333,10 +309,10 @@ func (e *localEnv) run2(args ...string) string {
 	return msg
 }
 
-// TestAnInProcessInvocationOfTheLoopsWithoutLocalStillRunsAndNeverContactsAService_TS_16_14
-// verifies TS-16-14.
+// TestTheLoopsRunTheSameInProcessAndThroughTheBinaryAndNeverContactAService_TS_16_14 verifies
+// TS-16-14 as it stands.
 // Verifies: 16-REQ-2.6
-func TestAnInProcessInvocationOfTheLoopsWithoutLocalStillRunsAndNeverContactsAService_TS_16_14(t *testing.T) {
+func TestTheLoopsRunTheSameInProcessAndThroughTheBinaryAndNeverContactAService_TS_16_14(t *testing.T) {
 	addr, connections := countingListener(t)
 	t.Setenv("AF_URL", "http://"+addr)
 	dir := inDir(t)
@@ -351,12 +327,12 @@ func TestAnInProcessInvocationOfTheLoopsWithoutLocalStillRunsAndNeverContactsASe
 		code := app.Main(context.Background(), []string{"af", cmd, adir, "--dir", dir}, strings.NewReader(""), &out, &bytes.Buffer{})
 		env := oneDocument(t, out.String())
 		msg, _ := field(env, "error", "message").(string)
-		if code != 2 || !strings.Contains(msg, "adir") || strings.Contains(msg, "choose where the run goes") {
-			t.Errorf("%s: exit %d, message %q, want the loop's own refusal of the directory and not the no-mode error", cmd, code, msg)
+		if code != 2 || !strings.Contains(msg, "adir") {
+			t.Errorf("%s: exit %d, message %q, want the loop's own refusal of the directory", cmd, code, msg)
 		}
-		// The binary's shell refuses the same words.
-		if res := afRun(t, "", cmd, adir, "--dir", dir); res.code != 2 || !strings.Contains(res.message(), "choose where the run goes") {
-			t.Errorf("%s through the binary: exit %d, message %q, want the no-mode usage error", cmd, res.code, res.message())
+		// The binary's shell refuses the same words the same way.
+		if res := afRun(t, "", cmd, adir, "--dir", dir); res.code != 2 || res.message() != msg {
+			t.Errorf("%s through the binary: exit %d, message %q, want %q", cmd, res.code, res.message(), msg)
 		}
 	}
 	if n := connections.Load(); n != 0 {
@@ -364,12 +340,12 @@ func TestAnInProcessInvocationOfTheLoopsWithoutLocalStillRunsAndNeverContactsASe
 	}
 }
 
-// TestAFixThroughTheHookIsTheLoopAsBeforeTheSpec_TS_16_12 verifies TS-16-12 for af fix: the same fix, run
-// through a shell with no hook and through the binary's shell with --local, ends the same way, with the
+// TestAFixThroughTheBinaryIsTheLoopOfAfcmd_TS_16_12 verifies TS-16-12 for af fix: the same fix, run
+// through the shell of afcmd and through the binary's shell, ends the same way, with the
 // same envelope and run directory. The fix is refused by its preflight (the working tree is not clean), which
 // is the first thing the loop does after the forge has been read.
 // Verifies: 16-REQ-2.4
-func TestAFixThroughTheHookIsTheLoopAsBeforeTheSpec_TS_16_12(t *testing.T) {
+func TestAFixThroughTheBinaryIsTheLoopOfAfcmd_TS_16_12(t *testing.T) {
 	addr, connections := countingListener(t)
 	t.Setenv("AF_URL", "http://"+addr)
 	run := func(app *toolio.App, extra ...string) (*localEnv, int, map[string]any) {
@@ -382,7 +358,7 @@ func TestAFixThroughTheHookIsTheLoopAsBeforeTheSpec_TS_16_12(t *testing.T) {
 		return e, code, env
 	}
 	before, beforeCode, beforeEnv := run(afcmd.New(&afcmd.Config{}))
-	after, afterCode, afterEnv := run(nil, "--local")
+	after, afterCode, afterEnv := run(nil)
 	if beforeCode != 1 || afterCode != beforeCode || field(beforeEnv, "error", "category") != "preflight" {
 		t.Fatalf("exit codes %d before and %d after, category %v, want both 1 and preflight", beforeCode, afterCode, field(beforeEnv, "error", "category"))
 	}

@@ -8,10 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -135,32 +133,17 @@ func eventDocuments(t *testing.T, s *realService, id string) []string {
 	return docs
 }
 
-// TestAPersonLogsInAndSubscribesAWorkspaceAgainstTheRealService_TS_16_76 verifies TS-16-76 and
-// 16-PATH-1.
+// TestAPersonWithACredentialSubscribesAWorkspaceAgainstTheRealService_TS_16_76 verifies TS-16-76
+// and 16-PATH-1 as they stand: the credential is in the file, and the person subscribes a workspace.
 // Verifies: 16-PATH-1, 16-REQ-5.7, 16-REQ-8.1
-func TestAPersonLogsInAndSubscribesAWorkspaceAgainstTheRealService_TS_16_76(t *testing.T) {
+func TestAPersonWithACredentialSubscribesAWorkspaceAgainstTheRealService_TS_16_76(t *testing.T) {
 	s := startRealService(t)
-	home, _ := clientHome(t, nil)
+	clientHome(t, str("token = \""+smokeCredential+"\"\n"))
 	t.Setenv("AF_URL", s.URL)
 	all := ""
 
-	res := afRun(t, smokeCredential+"\n", "login", "--token-file", "-")
-	all += res.output()
-	if res.code != 0 {
-		t.Fatalf("login: exit %d, %s", res.code, res.message())
-	}
-	config := filepath.Join(home, ".af", "config.toml")
-	if got := readFile(t, config); got != "token = \""+smokeCredential+"\"\n" {
-		t.Errorf("the credential file holds %q", got)
-	}
-	if runtime.GOOS != "windows" {
-		if info, err := os.Stat(config); err != nil || info.Mode().Perm() != 0o600 {
-			t.Errorf("the credential file: %v, %v, want mode 0600", info, err)
-		}
-	}
-
 	pat := tokenFile(t, smokeWorkspace+"\n")
-	res = afRun(t, "", "workspace", "subscribe", "widgets", "--hub-token-file", pat)
+	res := afRun(t, "", "workspace", "subscribe", "widgets", "--hub-token-file", pat)
 	all += res.output()
 	view, _ := res.env["result"].(map[string]any)
 	if res.code != 0 || view["slug"] != "widgets" || view["token_state"] != "ok" || !strings.Contains(res.env["summary"].(string), "subscribed") {
@@ -192,7 +175,7 @@ func TestAFixQueuedWithWaitEndsWithTheRunnersOutcomeAgainstTheRealService_TS_16_
 		s := startRealService(t, fakerunner.Return(jobs.Result{Envelope: done}))
 		s.subscribed(t)
 		smokeEnv(t, s)
-		res := afRun(t, "", "fix", "42", "--workspace", "widgets", "--wait")
+		res := afRun(t, "", "jobs", "submit", "fix", "42", "--workspace", "widgets", "--wait")
 		if res.code != 0 || field(res.env, "status") != "done" {
 			t.Fatalf("exit %d, %s", res.code, res.message())
 		}
@@ -248,7 +231,7 @@ func TestAFixQueuedWithWaitEndsWithTheRunnersOutcomeAgainstTheRealService_TS_16_
 		s := startRealService(t, fakerunner.Envelope(fakerunner.Env(toolio.StatusUnverified, fakerunner.WithOutcome("parked"))))
 		s.subscribed(t)
 		smokeEnv(t, s)
-		res := afRun(t, "", "fix", "42", "--workspace", "widgets", "--wait")
+		res := afRun(t, "", "jobs", "submit", "fix", "42", "--workspace", "widgets", "--wait")
 		if res.code != 4 || field(res.env, "status") != "unverified" {
 			t.Errorf("exit %d, status %v, %s, want 4 and unverified", res.code, field(res.env, "status"), res.message())
 		}
@@ -257,7 +240,7 @@ func TestAFixQueuedWithWaitEndsWithTheRunnersOutcomeAgainstTheRealService_TS_16_
 		s := startRealService(t, fakerunner.Failed("sandbox", false))
 		s.subscribed(t)
 		smokeEnv(t, s)
-		res := afRun(t, "", "fix", "42", "--workspace", "widgets", "--wait")
+		res := afRun(t, "", "jobs", "submit", "fix", "42", "--workspace", "widgets", "--wait")
 		if res.code != 1 || res.category() != "sandbox" || res.retryable() {
 			t.Errorf("exit %d, category %q, retryable %v, %s, want 1 and the category of the envelope", res.code, res.category(), res.retryable(), res.message())
 		}
@@ -275,7 +258,7 @@ func TestABlockedTriageJobIsAnsweredThroughItsResumeArgvAndAttemptTwoGetsTheOpti
 	s.subscribed(t)
 	smokeEnv(t, s)
 
-	res := afRun(t, "", "triage", "42", "--workspace", "widgets", "--wait")
+	res := afRun(t, "", "jobs", "submit", "triage", "42", "--workspace", "widgets", "--wait")
 	if res.code != 3 || field(res.env, "status") != "needs_human" {
 		t.Fatalf("exit %d, status %v, %s, want 3 and needs_human", res.code, field(res.env, "status"), res.message())
 	}
@@ -309,38 +292,21 @@ func TestABlockedTriageJobIsAnsweredThroughItsResumeArgvAndAttemptTwoGetsTheOpti
 	}
 }
 
-// TestAFixWithNoModeIsRefusedBeforeAnythingHappens_TS_16_79 verifies TS-16-79 and 16-PATH-4.
-// Verifies: 16-PATH-4, 16-REQ-1.1, 16-REQ-1.3
-func TestAFixWithNoModeIsRefusedBeforeAnythingHappens_TS_16_79(t *testing.T) {
-	e := newModeEnv(t)
-	code, stdout, _ := rawRun(t, "", "fix", issueURL)
-	if code != 2 {
-		t.Fatalf("exit %d, want 2", code)
-	}
-	env := oneDocument(t, stdout)
-	msg, _ := field(env, "error", "message").(string)
-	for _, want := range []string{"--workspace", "--server", "AF_URL", "--local"} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("message %q does not name %s", msg, want)
-		}
-	}
-	e.noTrace(t, "fix with no mode")
-}
-
-// TestALocalTriageRunsAsBeforeAndSuggestsALocalFix_TS_16_80 verifies TS-16-80 and 16-PATH-5.
+// TestATriageRunsOnThisMachineAndSuggestsAFix_TS_16_80 verifies TS-16-80 and 16-PATH-5 as they
+// stand: af triage runs the loop here, and suggests af fix of the issue.
 // Verifies: 16-PATH-5, 16-REQ-2.4, 16-REQ-2.5
-func TestALocalTriageRunsAsBeforeAndSuggestsALocalFix_TS_16_80(t *testing.T) {
+func TestATriageRunsOnThisMachineAndSuggestsAFix_TS_16_80(t *testing.T) {
 	addr, connections := countingListener(t)
 	t.Setenv("AF_URL", "http://"+addr)
 	e := newLocalEnv(t, nil)
-	code, env := e.run("", e.loopArgs("confirmed", "--local")...)
+	code, env := e.run("", e.loopArgs("confirmed")...)
 	if code != 0 || field(env, "status") != "done" {
 		t.Fatalf("exit %d, %v", code, env["error"])
 	}
 	if !slices.ContainsFunc(nextArgvs(env), func(argv []string) bool {
-		return slices.Equal(argv, []string{"af", "fix", e.forge.IssueURL(7), "--dir", e.dir, "--local"})
+		return slices.Equal(argv, []string{"af", "fix", e.forge.IssueURL(7), "--dir", e.dir})
 	}) {
-		t.Errorf("next = %v, want af fix <issue url> --dir <dir> --local", nextArgvs(env))
+		t.Errorf("next = %v, want af fix <issue url> --dir <dir>", nextArgvs(env))
 	}
 	if !slices.Contains(e.runFiles(env), "events.jsonl") {
 		t.Errorf("the run directory holds %v, want it created", e.runFiles(env))
