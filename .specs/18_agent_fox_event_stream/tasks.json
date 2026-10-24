@@ -482,7 +482,7 @@
       "done_when": [
         "TS-18-52 passes under go test -race"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {

@@ -126,8 +126,51 @@ func (st *stream) request(ctx context.Context, ev hub.StreamEvent, kind jobs.Kin
 	}
 }
 
-// closedIssue acts on an issue that was closed.
-func (st *stream) closedIssue(ctx context.Context, ev hub.StreamEvent) {}
+// closedIssue acts on an issue that was closed: under the workspace's lock, it skips an event already taken, and looks in
+// the job records for the open jobs of the issue; an issue with none costs nothing more. Otherwise it makes sure the poll
+// is on, reads the issue through hub, and when hub reads it closed, cancels every open job of the issue because it was
+// closed. A cancel throws work away, so it acts on hub's view of the issue now, not on the event.
+func (st *stream) closedIssue(ctx context.Context, ev hub.StreamEvent) {
+	unlock := st.s.lockWorkspace(st.slug)
+	defer unlock()
+	if taken, err := st.s.records.EventTaken(ctx, st.slug, ev.ID); err != nil {
+		st.handlingFailed(ctx, failure{row: rowStore, operation: "read the events that were taken", err: err})
+		return
+	} else if taken {
+		return
+	}
+	open, err := st.s.cfg.Jobs.OpenIssueJobs(ctx, st.slug, int64(ev.Issue))
+	if err != nil {
+		st.handlingFailed(ctx, failure{row: rowJobs, operation: "look up the open jobs of a closed issue", err: err})
+		return
+	}
+	if len(open) == 0 {
+		st.s.cfg.Logger.Debug("the event stream: an issue with no open job was closed", "workspace", st.slug, "issue", ev.Issue)
+		return
+	}
+	if !st.pollOn(ctx) {
+		return
+	}
+	forge := st.s.cfg.Hub.Forge(st.pat, st.slug, st.repo)
+	thread, err := forge.ReadIssue(ctx, issuex.IssueRef{Repo: st.repo, Number: ev.Issue})
+	if err != nil {
+		st.handlingFailed(ctx, classify("read the issue of an event", err, false))
+		return
+	}
+	if !strings.EqualFold(thread.Issue.State, "closed") {
+		st.decided(ctx, ev)
+		return
+	}
+	cancelled, err := st.s.cfg.Jobs.CancelIssue(ctx, st.slug, int64(ev.Issue))
+	if len(cancelled) > 0 || err == nil {
+		st.s.cfg.Logger.Info("the issue was closed, so its open jobs were cancelled", "workspace", st.slug, "issue", ev.Issue, "jobs", cancelled)
+	}
+	if err != nil {
+		st.handlingFailed(ctx, failure{row: rowJobs, operation: "cancel the jobs of a closed issue", err: err})
+		return
+	}
+	st.decided(ctx, ev)
+}
 
 // carries says that the issue carries the label, whatever its case.
 func carries(issue issuex.Issue, label string) bool {
