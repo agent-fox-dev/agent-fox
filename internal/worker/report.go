@@ -8,7 +8,6 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
-	"github.com/agent-fox-dev/agentfox/internal/worker/recovery"
 )
 
 // The warnings of the report to hub.
@@ -36,57 +35,23 @@ func (r *Runner) report(ctx context.Context, a *attempt, out *outcome) {
 
 	var env toolio.Envelope
 	hasEnvelope := len(out.result.Envelope) > 0 && json.Unmarshal(out.result.Envelope, &env) == nil
-	done := a.reportDone()
-	if !done.UsagePosted {
-		usagePosted := true
-		if hasEnvelope && env.Usage.Brain != "" {
-			u := env.Usage
-			err := r.cfg.Hub.PostUsage(ctx, a.pat, slug, a.sessionID, hub.Usage{
-				Model: a.settings.Model, Brain: u.Brain, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens,
-				CostUSD: u.CostUSD, CostSource: u.CostSource, Turns: u.Turns,
-			})
-			a.reportFailed(WarnHubUsageFailed, "posting the usage of the session", err)
-			usagePosted = err == nil
-		} // no brain ran: there is no usage to post, and the step is done
-		if usagePosted {
-			a.note(stepUsage, func(j *recovery.Journal) { j.Report.UsagePosted = true })
-			r.reached(a, "usage_posted")
+	if hasEnvelope && env.Usage.Brain != "" { // no brain ran: there is no usage to post
+		u := env.Usage
+		err := r.cfg.Hub.PostUsage(ctx, a.pat, slug, a.sessionID, hub.Usage{
+			Model: a.settings.Model, Brain: u.Brain, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens,
+			CostUSD: u.CostUSD, CostSource: u.CostSource, Turns: u.Turns,
+		})
+		a.reportFailed(WarnHubUsageFailed, "posting the usage of the session", err)
+	}
+	for batch := range slices.Chunk(a.eventsOf(), eventBatch) {
+		if err := r.cfg.Hub.PostEvents(ctx, a.pat, slug, a.runID, batch); err != nil {
+			a.reportFailed(WarnHubEventsFailed, "posting the events of the run", err)
+			break
 		}
 	}
-	if !done.EventsPosted {
-		posted := true
-		for batch := range slices.Chunk(a.eventsOf(), eventBatch) {
-			if err := r.cfg.Hub.PostEvents(ctx, a.pat, slug, a.runID, batch); err != nil {
-				a.reportFailed(WarnHubEventsFailed, "posting the events of the run", err)
-				posted = false
-				break
-			}
-		}
-		if posted {
-			a.note(stepEvents, func(j *recovery.Journal) { j.Report.EventsPosted = true })
-			r.reached(a, "events_posted")
-		}
-	}
-	if !done.SessionCompleted {
-		status, message := sessionEnd(a, out, env, hasEnvelope)
-		err := r.cfg.Hub.CompleteSession(ctx, a.pat, slug, a.sessionID, status, message)
-		a.reportFailed(WarnHubSessionFailed, "completing the session", err)
-		if err == nil {
-			a.note(stepSessionDone, func(j *recovery.Journal) { j.Session.Completed, j.Report.SessionCompleted = true, true })
-			r.reached(a, "session_completed")
-		}
-	}
-}
-
-// reportDone are the steps of the report to hub that the journal records as done: a step is made once for the
-// attempt, by the delivery that comes to its outcome or by the one that finds it stored.
-func (a *attempt) reportDone() recovery.Report {
-	if a.journal == nil {
-		return recovery.Report{}
-	}
-	a.journal.mu.Lock()
-	defer a.journal.mu.Unlock()
-	return a.journal.j.Report
+	status, message := sessionEnd(a, out, env, hasEnvelope)
+	err := r.cfg.Hub.CompleteSession(ctx, a.pat, slug, a.sessionID, status, message)
+	a.reportFailed(WarnHubSessionFailed, "completing the session", err)
 }
 
 // reportFailed notes a call to hub that failed as a warning. The error holds no token.
@@ -108,9 +73,27 @@ func sessionEnd(a *attempt, out *outcome, env toolio.Envelope, hasEnvelope bool)
 		}
 		return hub.SessionFailed, bounded(a.scrub(message))
 	}
-	status, message = recovery.SessionEnd(env)
+	switch env.Status {
+	case toolio.StatusDone, toolio.StatusUnverified, toolio.StatusNeedsHuman:
+		return hub.SessionCompleted, ""
+	}
+	status = hub.SessionFailed
+	if env.Error != nil {
+		message = env.Error.Message
+		if env.Error.Category == toolio.CategoryTimeout {
+			status = hub.SessionTimeout
+		}
+	}
 	return status, bounded(a.scrub(message))
 }
 
+// maxSessionMessage is how much of a failure the completion of a session carries.
+const maxSessionMessage = 500
+
 // bounded cuts a message at a length that hub takes.
-func bounded(s string) string { return recovery.BoundMessage(s) }
+func bounded(s string) string {
+	if len(s) > maxSessionMessage {
+		return s[:maxSessionMessage]
+	}
+	return s
+}

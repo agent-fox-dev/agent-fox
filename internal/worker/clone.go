@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
-	"github.com/agent-fox-dev/agentfox/internal/worker/recovery"
 )
 
 const (
@@ -25,8 +24,8 @@ const (
 
 // clone makes the checkout the attempt works in: a fresh clone of the workspace from hub's git
 // server into clone/ of the attempt directory, on the base branch of the workspace, with the
-// identity of the commits set in its own configuration. A clone/ that an earlier delivery kept is
-// removed first. Every git command of the attempt is run by the runner this step makes, which
+// identity of the commits set in its own configuration. A clone/ that an earlier delivery left, one
+// that died, is removed first: every delivery begins afresh. Every git command of the attempt is run by the runner this step makes, which
 // holds the PAT in the environment of the commands that reach hub.
 //
 // The server refusing the credential, 401 or 403, is the credential and ends the attempt with an
@@ -34,14 +33,7 @@ const (
 // the infrastructure and a transient error, and the attempt has no envelope.
 func (r *Runner) clone(ctx context.Context, a *attempt) *outcome {
 	a.step("clone")
-	if a.resume != nil { // the clone of the attempt is the one that was kept
-		if out := r.prepareResumedClone(ctx, a); out != nil {
-			return out
-		}
-		a.announceResume()
-		return r.nothingLeft(a)
-	}
-	if out := r.nothingLeft(a); out != nil {
+	if out := r.prepareGit(a); out != nil {
 		return out
 	}
 	dir := a.cloneDir
@@ -74,8 +66,6 @@ func (r *Runner) clone(ctx context.Context, a *attempt) *outcome {
 			return transientFailure(toolio.CategoryGit, fmt.Sprintf("the identity of the commits cannot be set in the clone: %s", gitDetail(a, out, err)))
 		}
 	}
-	a.note(stepClone, func(j *recovery.Journal) { j.CloneDir = cloneDirName })
-	a.announceResume()
 	return nil
 }
 

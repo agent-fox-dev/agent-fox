@@ -24,30 +24,17 @@ const inputDirName = "input"
 // are measured in the box. Nothing is read from the environment of the process: the settings come
 // as flags and the model in the options of the brain. The loop is not stopped by a signal, only by
 // the context of the attempt, and every line of its events is passed on as it is written.
+//
+// A box that is lost while the loop runs ends it with a retryable failure of category sandbox, which is a
+// transient error: the attempt is handed over again, and begins afresh.
 func (r *Runner) run(ctx context.Context, a *attempt) *outcome {
-	if a.resume != nil && a.resume.stage == stagePublished {
-		return r.finishPublished(ctx, a)
-	}
 	a.step("run")
-	a.loopStarted = a.clock()
-	out := r.runLoop(ctx, a)
-	if a.boxLost != nil && ctx.Err() == nil {
-		return r.replaceBox(ctx, a)
-	}
-	return out
-}
-
-// runLoop runs the loop once, in the box of the lease the attempt holds now.
-func (r *Runner) runLoop(ctx context.Context, a *attempt) *outcome {
 	args, stdin, refused := r.loopArgs(a)
 	if refused != nil {
 		return r.envelopeOf(a, refused)
 	}
 	var stdout, stderr bytes.Buffer
 	r.loopApp(a).Main(ctx, args, stdin, &stdout, &stderr)
-	if a.aborted != "" { // the shell recovered the death of the process that a test made: it goes on
-		panic(stageAbort{a.aborted})
-	}
 	return r.loopOutcome(ctx, a, stdout.Bytes())
 }
 
@@ -60,8 +47,6 @@ func (r *Runner) loopApp(a *attempt) *toolio.App {
 	app.RunID = a.runID
 	app.Target = a.repo
 	app.EventSink = a.eventSink(r.cfg.Now)
-	app.LedgerSink = r.ledgerSink(a)
-	app.ReuseRunDir = a.resume != nil
 	app.Now, app.Rand = r.cfg.Now, r.cfg.Rand
 	return app
 }
@@ -79,29 +64,17 @@ func (r *Runner) loopConfig(a *attempt) *afcmd.Config {
 		}
 		questions = append(questions, &toolio.Question{Text: answer.Question, Options: options})
 	}
-	var resume *afcmd.Resume
-	if a.resume != nil {
-		resume = &afcmd.Resume{Applied: a.resume.stage == stageApplied, Submitted: a.resume.stage == stageSubmitted}
-	}
 	return &afcmd.Config{
 		Version: r.cfg.Version, Commit: r.cfg.Commit, BuildTime: r.cfg.BuildTime,
-		Resume: resume, Spent: outcomeOf(a.spent), BoxLost: func(err error) { a.boxLost = err },
 		Forge:     r.cfg.Hub.ForgeFactory(a.pat, a.req.Workspace, a.repo),
 		Boxes:     a.boxes,
 		Brain:     brain.Options{Model: a.settings.Model, Getenv: nothing},
 		Git:       a.git,
 		PostPush:  r.publishBranch(a),
-		Landing:   r.landingOf(a),
 		Earlier:   &afcmd.Earlier{Questions: questions},
 		InBox:     &afcmd.InBox{Profile: a.settings.Profile},
 		BoxLabels: a.boxLabels,
 	}
-}
-
-// landingOf is how the loop tells the journal about the landing of a fix.
-func (r *Runner) landingOf(a *attempt) *afcmd.Landing {
-	l := r.landing(a)
-	return &afcmd.Landing{Plan: l.plan, Pushed: l.pushed, Published: l.published, PullRequest: l.pullRequest, IssueCreated: l.issueCreated, Created: l.created}
 }
 
 // nothing is the environment of the loop: it has none.

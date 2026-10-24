@@ -19,7 +19,6 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
-	"github.com/agent-fox-dev/agentfox/internal/worker/recovery"
 )
 
 // attempt is one attempt as its steps share it: what resolve found out, and what the steps that
@@ -83,30 +82,6 @@ type attempt struct {
 	// directories it made for itself, which are removed when it ends however it ends.
 	closers []func()
 	scratch []string
-	// journal is the journal of the attempt, nil before it is made. aborted is the stage a test stopped
-	// the delivery at, see stageAbort.
-	journal       *journalHandle
-	aborted       string
-	stagesReached map[string]int
-	// resume is what the delivery carries on from, nil for one that begins the attempt afresh. pinned
-	// are the settings the run was started with, and spent what the brain runs of the attempt cost
-	// before this delivery.
-	resume *resumeState
-	pinned recovery.Settings
-	spent  recovery.Spend
-	// stored is the outcome that an earlier delivery stored, for a delivery whose attempt is ended already.
-	// discarded is why the delivery began again, and announced says the job was told that it resumed.
-	stored    *recovery.Outcome
-	discarded string
-	announced *resumeNote
-	// boxLost is the loss of the box that the loop told the delivery of, and replacing says a.resume is the state
-	// the replacement went on from, and no resume of an earlier delivery. loopStarted is when the loop began, which
-	// the timeout of the delivery counts from.
-	boxLost     error
-	replacing   bool
-	loopStarted time.Time
-	// retired are the tokens of the leases that were lost, which a text of the attempt may still hold.
-	retired []string
 }
 
 // onClose registers what the attempt gives back when it ends.
@@ -117,14 +92,6 @@ func (a *attempt) close() {
 	for i := len(a.closers) - 1; i >= 0; i-- {
 		a.closers[i]()
 	}
-	a.closers = nil
-	a.removeScratch()
-}
-
-// abandon is what a process that died leaves of an attempt: nothing is given back. Only the
-// directories it made for itself in the temporary directory of the machine, which no later delivery
-// reads, are removed.
-func (a *attempt) abandon() {
 	a.closers = nil
 	a.removeScratch()
 }
@@ -283,20 +250,18 @@ func (r *Runner) forgeOutcome(ctx context.Context, a *attempt, input loopInput, 
 
 // openSession opens the hub session of the attempt, with a run id drawn in the form of one, which
 // the loop will be run under, and the model of the settings. The job is told the session and the
-// run at once. A session that hub does not open has cost nothing, and nothing has been written.
+// run at once. A session that hub does not open has cost nothing, and nothing has been written. An
+// attempt that is handed over again goes on in the session an earlier delivery opened, which the jobs
+// layer recorded: one session for each attempt, completed by the delivery that comes to its outcome.
 func (r *Runner) openSession(ctx context.Context, a *attempt) *outcome {
 	a.step("session")
-	if a.sessionID != "" { // the session of an earlier delivery is the session of the attempt
-		a.report.Hub(a.sessionID, a.runID, "")
-		a.noteSession()
+	if a.req.SessionID != "" && a.req.RunID != "" {
+		a.sessionID, a.runID = a.req.SessionID, a.req.RunID
 		return nil
 	}
-	runID := a.runID // the run id of a session that was completed, which the run goes on under
-	if runID == "" {
-		var err error
-		if runID, err = toolio.NewRunID(r.cfg.Now, r.cfg.Rand); err != nil {
-			return &outcome{err: err}
-		}
+	runID, err := toolio.NewRunID(r.cfg.Now, r.cfg.Rand)
+	if err != nil {
+		return &outcome{err: err}
 	}
 	id, err := r.cfg.Hub.OpenSession(ctx, a.pat, hub.SessionRequest{
 		WorkspaceSlug: a.req.Workspace, Archetype: string(a.req.Kind), Model: a.settings.Model, RunID: runID,
@@ -306,6 +271,5 @@ func (r *Runner) openSession(ctx context.Context, a *attempt) *outcome {
 	}
 	a.runID, a.sessionID = runID, id
 	a.report.Hub(id, runID, "")
-	a.noteSession()
 	return nil
 }

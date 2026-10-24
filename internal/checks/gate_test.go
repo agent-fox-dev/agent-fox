@@ -652,21 +652,3 @@ func TestConcurrentRuns_TS_06_29(t *testing.T) {
 		}
 	}
 }
-
-func TestStoredSaysWhetherTheResultOfAnIdIsInTheCheckout(t *testing.T) {
-	requireSh(t)
-	dir := newRepo(t)
-	res := mustRun(t, dir, Options{Table: tableOf(shCheck("pass", "true"))})
-
-	if !Stored(dir, res.ID) {
-		t.Errorf("Stored(%s) = false after the run, want true", res.ID)
-	}
-	if err := os.RemoveAll(Key{ID: res.ID}.Dir(dir)); err != nil {
-		t.Fatal(err)
-	}
-	for _, id := range []string{res.ID, "0123456789ab", "../etc", ""} {
-		if Stored(dir, id) {
-			t.Errorf("Stored(%q) = true, want false: nothing is stored under it", id)
-		}
-	}
-}
