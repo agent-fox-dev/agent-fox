@@ -190,7 +190,7 @@ func TestADefaultProviderThatCannotOpenNamesHowToChooseAndNeverFallsBack_TS_10_5
 	reg.Register(Entry{Name: "podman", Explain: explainPodman, Build: func(ProviderConfig) (sandbox.Provider, error) {
 		return nil, errors.New("cannot connect to the engine")
 	}})
-	for _, name := range []string{"local", "none"} {
+	for _, name := range []string{"local"} {
 		reg.Register(Entry{Name: name, Unconfined: true, New: func() sandbox.Provider { fallbacks.Add(1); return local.Unisolated() }})
 	}
 	withPodman(t, "darwin", nil)
@@ -211,24 +211,6 @@ func TestADefaultProviderThatCannotOpenNamesHowToChooseAndNeverFallsBack_TS_10_5
 	_, err = openPodman(t, func(r *Request) { r.Registry = reg })
 	if f := asFailure(t, err); f.FixHint == nil || f.FixHint.Flag != "--sandbox" || f.FixHint.Env != "" {
 		t.Errorf("a provider that was asked for: fix_hint = %+v, want --sandbox alone", f.FixHint)
-	}
-}
-
-// TestADefaultLandlockThatIsRefusedNamesTheVariableToo guards the hint of a provider
-// whose refusal has one already: the suggestion stays, and the variable is added.
-func TestADefaultLandlockThatIsRefusedNamesTheVariableToo(t *testing.T) {
-	hostWithLandlock(t, "darwin", 4, nil)
-
-	_, err := Open(context.Background(), Request{
-		Provider: "landlock", HostDir: newRepo(t, 1, "main"), RunID: "20261021_130000_abcdef", Tool: "fix", Defaulted: true,
-	})
-
-	f := asFailure(t, err)
-	if f.FixHint == nil || f.FixHint.Flag != "--sandbox" || f.FixHint.Env != "AF_SANDBOX" || f.FixHint.Suggest != "podman" {
-		t.Errorf("fix_hint = %+v, want --sandbox, AF_SANDBOX and the suggestion of podman", f.FixHint)
-	}
-	if f.Message != "landlock needs Linux" {
-		t.Errorf("message = %q, want it unchanged", f.Message)
 	}
 }
 

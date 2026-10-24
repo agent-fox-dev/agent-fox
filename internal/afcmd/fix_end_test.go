@@ -556,7 +556,7 @@ func TestEachFixCommandAcceptsExactlyItsFlags_TS_09_3(t *testing.T) {
 		slices.Sort(flags)
 		return slices.Compact(flags)
 	}
-	brainFlags := []string{"brain", "sandbox", "budget", "max-turns", "script", "borrowed-hands"}
+	brainFlags := []string{"brain", "sandbox", "budget", "max-turns", "script"}
 	common := []string{"dir", "timeout"}
 	want := map[string][]string{
 		"fix":       append(append(slices.Clone(common), "base", "attempts", "land", "no-verify", "repo", "dry-run", "context"), brainFlags...),

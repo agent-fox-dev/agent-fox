@@ -11,8 +11,6 @@ import (
 
 	"github.com/agent-fox-dev/agentkit-go/core"
 	"github.com/agent-fox-dev/agentkit-go/provider/faux"
-	"github.com/agent-fox-dev/agentkit-go/sandbox"
-	"github.com/agent-fox-dev/agentkit-go/sandbox/local"
 
 	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/submission"
@@ -21,10 +19,10 @@ import (
 
 // inBoxBrain is the agentkit brain made for the provider as the command makes it, with
 // the fake af.
-func inBoxBrain(t *testing.T, w *procWorld, provider string, borrowed bool, model string, host map[string]string) (Brain, error) {
+func inBoxBrain(t *testing.T, w *procWorld, provider string, model string, host map[string]string) (Brain, error) {
 	t.Helper()
 	return Default.New(AgentkitName, Options{
-		Provider: provider, BorrowedHands: borrowed, Model: model, Getenv: envOf(host), AFPath: w.af, AFVersion: "v1.0.0", AFCommit: "abc123",
+		Provider: provider, Model: model, Getenv: envOf(host), AFPath: w.af, AFVersion: "v1.0.0", AFCommit: "abc123",
 	})
 }
 
@@ -36,58 +34,57 @@ func envelopeJSON(status string, usage string, result string, errObj string) str
 const measuredUsage = `{"brain":"agentkit","cost_usd":0.42,"cost_source":"measured","input_tokens":1000,"output_tokens":200,"turns":5}`
 
 // TestAgentkitInsideABoxRunsAfAgentRunWithOnlyTheVendorKey_TS_10_57 verifies TS-10-57:
-// under landlock and podman, without --borrowed-hands, the agentkit brain runs
+// under podman (a provider that isolates), the agentkit brain runs
 // <af> <agent> run with the run, the directory, the bounds and the timeout, AF_MODEL in
 // the command and the vendor key in the spec of the box; and without the key it is not
 // made.
 // Verifies: 10-REQ-9.5
 func TestAgentkitInsideABoxRunsAfAgentRunWithOnlyTheVendorKey_TS_10_57(t *testing.T) {
 	key := map[string]string{"ANTHROPIC_API_KEY": "sk-test"}
-	for _, provider := range []string{"landlock", "podman"} {
-		t.Run(provider, func(t *testing.T) {
-			w := newProcWorld(t, provider, key, nil)
-			w.script(fakeScript{OutputJSON: envelopeJSON("done", measuredUsage, `{"submitted":true}`, "null")})
-			brain, err := inBoxBrain(t, w, provider, false, "m1", key)
-			if err != nil {
-				t.Fatal(err)
-			}
+	provider := "podman"
+	t.Run(provider, func(t *testing.T) {
+		w := newProcWorld(t, provider, key, nil)
+		w.script(fakeScript{OutputJSON: envelopeJSON("done", measuredUsage, `{"submitted":true}`, "null")})
+		brain, err := inBoxBrain(t, w, provider, "m1", key)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-			_, err = brain.Run(context.Background(), w.processBrief(1, func(b *Brief) { b.MaxCostUSD = 2.5 }))
-			if err != nil {
-				t.Fatal(err)
-			}
+		_, err = brain.Run(context.Background(), w.processBrief(1, func(b *Brief) { b.MaxCostUSD = 2.5 }))
+		if err != nil {
+			t.Fatal(err)
+		}
 
-			var af []fakeRecord
-			for _, r := range w.records() {
-				if r.Program == ProgramAF && !slices.Equal(r.Argv, []string{"--version"}) {
-					af = append(af, r)
-				}
+		var af []fakeRecord
+		for _, r := range w.records() {
+			if r.Program == ProgramAF && !slices.Equal(r.Argv, []string{"--version"}) {
+				af = append(af, r)
 			}
-			if len(af) != 1 {
-				t.Fatalf("af ran %d times", len(af))
-			}
-			want := []string{"fix", "run", "--run-id", w.run.ID, "--dir", w.session.Root(), "--budget", "2.5", "--max-turns", "10"}
-			if !slices.Equal(af[0].Argv, want) {
-				t.Errorf("argv = %q, want %q", af[0].Argv, want)
-			}
-			seen := map[string]string{}
-			for _, kv := range af[0].Env {
-				name, value, _ := strings.Cut(kv, "=")
-				seen[name] = value
-			}
-			if seen["AF_MODEL"] != "m1" || seen["ANTHROPIC_API_KEY"] != "sk-test" {
-				t.Errorf("the process saw %v, want AF_MODEL=m1 and the vendor key", seen)
-			}
-			if got := w.session.Spec().Env; len(got) != 1 || got["ANTHROPIC_API_KEY"] != "sk-test" {
-				t.Errorf("Spec().Env = %v, want {ANTHROPIC_API_KEY}", got)
-			}
-		})
-	}
+		}
+		if len(af) != 1 {
+			t.Fatalf("af ran %d times", len(af))
+		}
+		want := []string{"fix", "run", "--run-id", w.run.ID, "--dir", w.session.Root(), "--budget", "2.5", "--max-turns", "10"}
+		if !slices.Equal(af[0].Argv, want) {
+			t.Errorf("argv = %q, want %q", af[0].Argv, want)
+		}
+		seen := map[string]string{}
+		for _, kv := range af[0].Env {
+			name, value, _ := strings.Cut(kv, "=")
+			seen[name] = value
+		}
+		if seen["AF_MODEL"] != "m1" || seen["ANTHROPIC_API_KEY"] != "sk-test" {
+			t.Errorf("the process saw %v, want AF_MODEL=m1 and the vendor key", seen)
+		}
+		if got := w.session.Spec().Env; len(got) != 1 || got["ANTHROPIC_API_KEY"] != "sk-test" {
+			t.Errorf("Spec().Env = %v, want {ANTHROPIC_API_KEY}", got)
+		}
+	})
 
 	// The timeout of the brief is in the command, and the model is left out when there is none.
-	w := newProcWorld(t, "landlock", key, nil)
+	w := newProcWorld(t, "podman", key, nil)
 	w.script(fakeScript{OutputJSON: envelopeJSON("done", measuredUsage, `{"submitted":true}`, "null")})
-	brain, _ := inBoxBrain(t, w, "landlock", false, "", key)
+	brain, _ := inBoxBrain(t, w, "podman", "", key)
 	b := w.processBrief(2)
 	b.Timeout = 20 * time.Minute
 	if _, err := brain.Run(context.Background(), b); err != nil {
@@ -103,13 +100,11 @@ func TestAgentkitInsideABoxRunsAfAgentRunWithOnlyTheVendorKey_TS_10_57(t *testin
 		}
 	}
 
-	// Without the key the brain is not made, as failed/auth, whatever the placement.
-	for _, borrowed := range []bool{false} {
-		b, err := Default.New(AgentkitName, Options{Provider: "landlock", BorrowedHands: borrowed, Getenv: envOf(nil)})
-		f := asFailure(t, err)
-		if b != nil || f.Category != toolio.CategoryAuth || f.FixHint == nil || f.FixHint.Env != "ANTHROPIC_API_KEY" {
-			t.Errorf("without the key: %v, %+v, want failed/auth with the variable", b, f)
-		}
+	// Without the key the brain is not made, as failed/auth.
+	nb, err := Default.New(AgentkitName, Options{Provider: "podman", Getenv: envOf(nil)})
+	f := asFailure(t, err)
+	if nb != nil || f.Category != toolio.CategoryAuth || f.FixHint == nil || f.FixHint.Env != "ANTHROPIC_API_KEY" {
+		t.Errorf("without the key: %v, %+v, want failed/auth with the variable", nb, f)
 	}
 }
 
@@ -137,9 +132,9 @@ func TestTheEnvelopeOfTheDriverMapsToTheOutcome_TS_10_59(t *testing.T) {
 		{"another failure", envelopeJSON("failed", measuredUsage, "null", `{"category":"brain","message":"the driver broke","retryable":true,"fix_hint":null}`), 1, StopError, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			w := newProcWorld(t, "landlock", key, nil)
+			w := newProcWorld(t, "podman", key, nil)
 			w.script(fakeScript{OutputJSON: tc.output, Exit: tc.exit})
-			brain, err := inBoxBrain(t, w, "landlock", false, "", key)
+			brain, err := inBoxBrain(t, w, "podman", "", key)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -166,9 +161,9 @@ func TestAMissingOrUnparseableEnvelopeIsCostZeroAndOneWarning_TS_10_54(t *testin
 	key := map[string]string{"ANTHROPIC_API_KEY": "sk-test"}
 	for name, output := range map[string]string{"no envelope": "", "not json": "usage: af fix run ..."} {
 		t.Run(name, func(t *testing.T) {
-			w := newProcWorld(t, "landlock", key, nil)
+			w := newProcWorld(t, "podman", key, nil)
 			w.script(fakeScript{OutputJSON: output})
-			driver, err := inBoxBrain(t, w, "landlock", false, "", key)
+			driver, err := inBoxBrain(t, w, "podman", "", key)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -197,73 +192,57 @@ func TestAMissingOrUnparseableEnvelopeIsCostZeroAndOneWarning_TS_10_54(t *testin
 	}
 }
 
-// TestAgentkitStaysOnTheHostOverTheBoxsToolsWithNoEnvUnderLocalNoneAndBorrowedHands_TS_10_60
-// verifies TS-10-60: under local, under none and under landlock with --borrowed-hands the
-// driver runs on the host over Session.Tools, no process is run through Session.Exec, and
-// the spec of the box has no environment.
+// TestAgentkitStaysOnTheHostOverTheBoxsToolsWithNoEnvUnderLocal_TS_10_60 verifies TS-10-60:
+// under local the driver runs on the host over Session.Tools, no process is run through
+// Session.Exec, and the spec of the box has no environment.
 // Verifies: 10-REQ-9.8
-func TestAgentkitStaysOnTheHostOverTheBoxsToolsWithNoEnvUnderLocalNoneAndBorrowedHands_TS_10_60(t *testing.T) {
+func TestAgentkitStaysOnTheHostOverTheBoxsToolsWithNoEnvUnderLocal_TS_10_60(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "sk-host")
 	entry, err := Default.Lookup(AgentkitName)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct {
-		provider string
-		borrowed bool
-	}{{"local", false}, {"none", false}, {"landlock", true}, {"podman", true}} {
-		t.Run(fmt.Sprintf("%s/borrowed=%v", tc.provider, tc.borrowed), func(t *testing.T) {
-			providerEntry, _ := box.Default.Lookup(tc.provider)
-			dir := newRepo(t)
-			rd := newRunDir(t, dir)
-			reg := box.Default
-			req := BoxRequest(BoxParams{
-				Brain: entry, Provider: providerEntry, BorrowedHands: tc.borrowed, Tools: []string{"read_file", "list_files"}, Getenv: os.LookupEnv,
-				HostDir: dir, RunID: rd.ID, Tool: "fix", Record: rd.Record, Warn: func(string, string) {},
-			})
-			// The provider that is not one of the real ones is the local one under its name.
-			if tc.provider == "landlock" || tc.provider == "podman" {
-				r := box.NewRegistry()
-				r.Register(box.Entry{Name: tc.provider, New: func() sandbox.Provider { return standIn{Provider: local.Unisolated(), name: tc.provider} }})
-				reg = r
-			}
-			req.Registry, req.Image = reg, ""
-			sess, err := box.Open(context.Background(), req)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = sess.Close() })
-			w := &world{t: t, dir: dir, run: rd, session: sess, report: &recorder{}}
-			p := faux.New(
-				withUsage(call("c1", "list_files", `{"path":"."}`), usage(0.01, 10, 2)),
-				withUsage(call("c2", "submit_test", `{"summary":"hosted","cite":"README.md"}`), usage(0.01, 10, 2)),
-			)
-			brain, err := Default.New(AgentkitName, Options{
-				Provider: tc.provider, BorrowedHands: tc.borrowed, Model: "faux-1", Getenv: noEnv,
-				NewProvider: func(string) (core.ProviderClient, error) { return p, nil },
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
+	providerEntry, _ := box.Default.Lookup("local")
+	dir := newRepo(t)
+	rd := newRunDir(t, dir)
+	req := BoxRequest(BoxParams{
+		Brain: entry, Provider: providerEntry, Tools: []string{"read_file", "list_files"}, Getenv: os.LookupEnv,
+		HostDir: dir, RunID: rd.ID, Tool: "fix", Record: rd.Record, Warn: func(string, string) {},
+	})
+	sess, err := box.Open(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sess.Close() })
+	w := &world{t: t, dir: dir, run: rd, session: sess, report: &recorder{}}
+	p := faux.New(
+		withUsage(call("c1", "list_files", `{"path":"."}`), usage(0.01, 10, 2)),
+		withUsage(call("c2", "submit_test", `{"summary":"hosted","cite":"README.md"}`), usage(0.01, 10, 2)),
+	)
+	brain, err := Default.New(AgentkitName, Options{
+		Provider: "local", Model: "faux-1", Getenv: noEnv,
+		NewProvider: func(string) (core.ProviderClient, error) { return p, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
-			res, err := runFaux(t, w, brain, nil)
+	res, err := runFaux(t, w, brain, nil)
 
-			if err != nil || !res.Outcome.Submitted {
-				t.Fatalf("run = %+v, %v", res, err)
-			}
-			if len(sess.Spec().Env) != 0 {
-				t.Errorf("Spec().Env = %v, want it empty", sess.Spec().Env)
-			}
-			kinds, _ := w.ledger()
-			for _, k := range kinds {
-				if k == "box_probe" || k == "brain_process" {
-					t.Errorf("the ledger has %s: a process was run through Session.Exec", k)
-				}
-			}
-			if len(p.Requests()) != 2 {
-				t.Errorf("%d requests to the model, want 2: the driver ran on the host", len(p.Requests()))
-			}
-		})
+	if err != nil || !res.Outcome.Submitted {
+		t.Fatalf("run = %+v, %v", res, err)
+	}
+	if len(sess.Spec().Env) != 0 {
+		t.Errorf("Spec().Env = %v, want it empty", sess.Spec().Env)
+	}
+	kinds, _ := w.ledger()
+	for _, k := range kinds {
+		if k == "box_probe" || k == "brain_process" {
+			t.Errorf("the ledger has %s: a process was run through Session.Exec", k)
+		}
+	}
+	if len(p.Requests()) != 2 {
+		t.Errorf("%d requests to the model, want 2: the driver ran on the host", len(p.Requests()))
 	}
 }
 
@@ -271,10 +250,10 @@ func TestAgentkitStaysOnTheHostOverTheBoxsToolsWithNoEnvUnderLocalNoneAndBorrowe
 // driver that could not price its model says none, and the brain says so.
 func TestAnEnvelopeOfAnUnpricedModelHasNoCostSource(t *testing.T) {
 	key := map[string]string{"ANTHROPIC_API_KEY": "sk-test"}
-	w := newProcWorld(t, "landlock", key, nil)
+	w := newProcWorld(t, "podman", key, nil)
 	unpriced := `{"brain":"agentkit","cost_usd":0,"cost_source":"none","input_tokens":10,"output_tokens":2,"turns":1}`
 	w.script(fakeScript{OutputJSON: envelopeJSON("done", unpriced, `{"submitted":true}`, "null")})
-	brain, err := inBoxBrain(t, w, "landlock", false, "", key)
+	brain, err := inBoxBrain(t, w, "podman", "", key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,10 +270,10 @@ func TestAnEnvelopeOfAnUnpricedModelHasNoCostSource(t *testing.T) {
 // envelope is an error that carries the end of its errors; one that submitted is not.
 func TestAnEnvelopeThatCannotBeReadAndAFailingExitIsAnErrorWithTheEndOfTheErrors(t *testing.T) {
 	key := map[string]string{"ANTHROPIC_API_KEY": "sk-test"}
-	w := newProcWorld(t, "landlock", key, nil)
+	w := newProcWorld(t, "podman", key, nil)
 	w.script(fakeScript{Exit: 2, StderrBytes: 5 << 10, Stderr: "TAIL-MARK"})
 	w.placeSubmission(1, "")
-	brain, err := inBoxBrain(t, w, "landlock", false, "", key)
+	brain, err := inBoxBrain(t, w, "podman", "", key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,10 +284,10 @@ func TestAnEnvelopeThatCannotBeReadAndAFailingExitIsAnErrorWithTheEndOfTheErrors
 		t.Errorf("Run = %+v, %v, want an error with the last 2 KiB of the errors", out, err)
 	}
 
-	w2 := newProcWorld(t, "landlock", key, nil)
+	w2 := newProcWorld(t, "podman", key, nil)
 	w2.script(fakeScript{Exit: 2, Stderr: "TAIL-MARK"})
 	w2.placeSubmission(1, placedNonce)
-	brain2, _ := inBoxBrain(t, w2, "landlock", false, "", key)
+	brain2, _ := inBoxBrain(t, w2, "podman", "", key)
 	if out, err := brain2.Run(context.Background(), w2.processBrief(1)); err != nil || !out.Submitted {
 		t.Errorf("with a submission: %+v, %v, want no error", out, err)
 	}

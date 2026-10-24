@@ -1,10 +1,7 @@
 package box
 
 import (
-	"errors"
-
 	"github.com/agent-fox-dev/agentkit-go/sandbox"
-	"github.com/agent-fox-dev/agentkit-go/sandbox/landlock"
 	"github.com/agent-fox-dev/agentkit-go/sandbox/local"
 	"github.com/agent-fox-dev/agentkit-go/sandbox/podman"
 )
@@ -18,19 +15,6 @@ import (
 func localEntry() Entry {
 	return Entry{Name: "local", Unconfined: true, New: local.Unisolated}
 }
-
-// newLandlockProvider is agentkit's landlock provider, which runs agentkit-sandboxd
-// as a confined child process: it checks the platform and the kernel itself, and
-// finds the agent binary beside this executable or on PATH. The directories of the
-// config are the ones a process started in the box may read and run. A test replaces
-// it.
-var newLandlockProvider = func(cfg ProviderConfig) (sandbox.Provider, error) {
-	return landlock.New(landlock.Options{ExtraRO: cfg.ExtraRO})
-}
-
-// isNoLandlock says an error of the landlock provider is its own refusal to confine on this
-// host, whenever it came: the ABI it found is too old, or Landlock is not there.
-func isNoLandlock(err error) bool { return errors.Is(err, landlock.ErrNoLandlock) }
 
 // newPodmanProvider is agentkit's podman provider, which runs the tools of a box in a
 // container of the engine on PATH. A test replaces it.

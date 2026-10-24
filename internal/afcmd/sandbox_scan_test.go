@@ -375,7 +375,7 @@ func TestTheScanFindsTheInvocationsThatDoNotSayWhichBox_TS_10_62(t *testing.T) {
 		{"a plain function with a command line, pinned", `afJSON(t, bin, "fix", e.u(), "--dir", dir, "--sandbox", "local")`, nil, false},
 		{"a plain function that is given a name", `checkSchema(t, "fix", fix.Result{}); valid(t, "triage", resultOf(t, env))`, nil, false},
 		{"a function that does not take the test", `hasNext(env, "af", "fix", e.u(), "--dir", dir)`, nil, false},
-		{"AF_SANDBOX in the function", `t.Setenv("AF_SANDBOX", "none"); e.loop("--brain", "spy")`, nil, false},
+		{"AF_SANDBOX in the function", `t.Setenv("AF_SANDBOX", "local"); e.loop("--brain", "spy")`, nil, false},
 		{"a list of arguments for a later run", `args := []string{"triage", e.forge.IssueURL(7), "--dir", dir}; e.run("", args...)`, []int{3}, false},
 		{"a list that is pinned", `args := []string{"triage", url, "--sandbox", "local"}; e.run("", args...)`, nil, false},
 		{"a list of af first", `args := []string{"af", "fix", e.forge.IssueURL(7)}; _ = args`, []int{3}, false},
@@ -394,7 +394,7 @@ func TestTheScanFindsTheInvocationsThatDoNotSayWhichBox_TS_10_62(t *testing.T) {
 		{"a list appended to a pinned variable", `scripted := []string{"--sandbox", "local"}; e.run("", append([]string{"triage", e.u()}, scripted...)...)`, nil, false},
 		{"a list appended to a variable with no pin", `scripted := []string{"--brain", "spy"}; e.run("", append([]string{"triage", e.u()}, scripted...)...)`, []int{3}, false},
 		{"a list in a table", `for _, args := range [][]string{{"triage", e.u()}, []string{"fix", e.u()}} { e.run("", args...) }`, []int{3}, false},
-		{"a list and AF_SANDBOX", `t.Setenv("AF_SANDBOX", "none"); args := []string{"fix", e.u()}; _ = args`, nil, false},
+		{"a list and AF_SANDBOX", `t.Setenv("AF_SANDBOX", "local"); args := []string{"fix", e.u()}; _ = args`, nil, false},
 		{"strings that are not a list of arguments", `names := []int{1, 2}; words := []string{"fixed", "triaged"}; _, _ = names, words`, nil, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

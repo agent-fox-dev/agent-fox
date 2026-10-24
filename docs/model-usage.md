@@ -18,7 +18,7 @@ There are two brains in the library (`internal/brain`), for the agent commands;
 
 | Brain | Model | Where it runs | Cost source |
 |---|---|---|---|
-| `agentkit` | the AgentKit driver, on the model `AF_MODEL` names (`claude-sonnet-5-5` by default), through the hands' Anthropic provider | inside the box under `landlock` and `podman`, as `af <agent> run`; on the host, over the tools of the box, under `local` and `none` and with `--borrowed-hands` | `measured`: the driver counts the tokens and prices them from the catalog; a model the catalog does not list has no price, so the run reports `none` and `--budget` is refused |
+| `agentkit` | the AgentKit driver, on the model `AF_MODEL` names (`claude-sonnet-5-5` by default), through the hands' Anthropic provider | inside the box under `podman` (and a `gateway`), as `af <agent> run`; on the host, over the tools of the box, under `local` | `measured`: the driver counts the tokens and prices them from the catalog; a model the catalog does not list has no price, so the run reports `none` and `--budget` is refused |
 | `scripted` | none: it replays a script | on the host | `none`: cost 0 |
 
 The cost of a run is the sum over its attempts, counted also for an attempt that
@@ -34,15 +34,14 @@ provider and a fake `af`, and need none.
 
 **Who holds the vendor's key.** The box that holds the tree has no model
 credential when the brain is on the host: the key stays in the process that runs the
-driver. The driver that runs as a process (`agentkit` inside `landlock` or
-`podman`) has the host's `ANTHROPIC_API_KEY` in its box, and no other credential:
-no forge token, which is the rule that makes the box safe to give a model. Under
-`landlock` and `podman` such a brain has the whole network (it needs its vendor, and
-Podman filters nothing narrower), and a brain on the host whose brief has no tool that
-runs a command (`af triage`) has none. The `local` and `none` providers are not
-isolated: their tools run with the privileges of `af`, on this machine's files and
-network, which is why every run that opens either carries the warning
-`box_unconfined`. `AF_SANDBOX` chooses the provider when `--sandbox` does not, and a
+driver. The driver that runs as a process (`agentkit` inside `podman`) has the
+host's `ANTHROPIC_API_KEY` in its box, and no other credential: no forge token, which
+is the rule that makes the box safe to give a model. Under `podman` such a brain has
+the whole network (it needs its vendor, and Podman filters nothing narrower), and a
+brain on the host whose brief has no tool that runs a command (`af triage`) has none.
+The `local` provider is not isolated: its tools run with the privileges of `af`, on
+this machine's files and network, which is why every run that opens it carries the
+warning `box_unconfined`. `AF_SANDBOX` chooses the provider when `--sandbox` does not, and a
 `podman` box runs the image `AF_SANDBOX_IMAGE` names, else the tools image with `af`
 in it. See [configuration.md](configuration.md#the-box) for which
 credential enters which box.

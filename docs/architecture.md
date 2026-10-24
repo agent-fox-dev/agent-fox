@@ -27,7 +27,7 @@ unchanged; what changes is who owns the loop.
         |  one attempt: resolve, session, clone, lease, run the loop, mirror, report
         v
  the loops (internal/afcmd)   af triage, af fix: preflight, brief, brain, measure, land
-        |  in a box: hub's sandbox lease, or podman, landlock or local on a laptop
+        |  in a box: hub's sandbox lease, or podman or local on a laptop
         v
  a brain                      the agentkit driver, or scripted for the tests
                               hands back one submission through `af triage|fix submit`
@@ -68,8 +68,7 @@ The box has run files of its own under `.agent-fox/run/<id>/`: `brief.md`,
 `hook.json` and `submission.json`, placed by `af` and not by the brain. The ledger of a run that has a brain holds the entries `box_open`,
 `box_sync`, `box_export`, `box_close`, `brief_placed`, `brain_start`,
 `brain_end` and the `submission_*` ones, and for a brain that runs as a process
-`box_probe` and `brain_process`; under `none` a fix run also holds
-`foreign_commits_reset`. [cli.md](cli.md#the-ledger) lists them.
+`box_probe` and `brain_process`. [cli.md](cli.md#the-ledger) lists them.
 
 `toolio.OpenRunDir(dir, id)` opens an existing run for the commands that
 carry one on (`submit`, `land`); an id that is not of the form of a run id is
@@ -140,8 +139,8 @@ full.
 ## The box
 
 The hands' `sandbox` package is the box. A `Provider` (`podman` for a
-container or a micro-VM, `landlock` for a confined child process on Linux,
-`gateway` for a sandbox on another host, `local` for tests) creates one
+container or a micro-VM, `gateway` for a sandbox on another host, `local`
+for tests) creates one
 from a `Spec`: an image, an explicit environment, a network mode, resource
 bounds, a TTL. `Sync` fills its workspace from a host directory over the
 rsync protocol, or from a public repository in an init step; `Tools`
@@ -161,9 +160,11 @@ its hands.**
 
 ### Where the brain sits
 
-The one brain is the AgentKit driver, and it runs in one of two places.
+The one brain is the AgentKit driver, and the box decides where it runs: in a
+box that isolates (`podman`, a `gateway`) it runs inside, and under `local`,
+which isolates nothing, it borrows the box's hands from the host.
 
-| | Borrowed hands | In the box |
+| | Borrowed hands (`local`) | In the box (`podman`, `gateway`) |
 |---|---|---|
 | The driver runs | on the host, over `sb.Tools` | inside the box, as `af <agent> run` from the image |
 | What it sees | tool results | tool results, from the box's own tools |
@@ -197,10 +198,7 @@ The three things the tool gate could only ask for, the box enforces:
   commit on the host's clone, and the next sync carries that commit back
   in, so the box's history is the host's again. ADR 09's foreign-commit
   check becomes a tree comparison: there is no branch inside for a foreign
-  commit to be on. (Under the `none` provider there is no box, so there is
-  such a branch: the checkout's own. `af` records HEAD before the brain runs,
-  takes the commits it made off the branch afterwards, and refuses a checkout
-  that was moved; see *Placement, as built*.)
+  commit to be on.
 - **The brain never reaches the spec state.** `tasks.json` is written by
   the host after the landing; the copy in the box is overwritten by the
   next sync. The protected-path revert still runs, on the exported tree,
@@ -228,8 +226,7 @@ need no handle: they run on the tree they can see.
 ### The image
 
 `quay.io/agentfox/tools` is the sandbox base plus `af`. It is `Spec.Image`
-of a `podman` box, where the driver runs as `af <agent> run`; the hands' base
-image would suffice for borrowed hands.
+of a `podman` box, where the driver runs as `af <agent> run`.
 
 ### What the hands lack for this
 
@@ -298,8 +295,8 @@ New}`; the default has `agentkit` (cost source `measured`; `DriverInBox`) and `s
 (`none`). `Credentials` names the host variables that reach the box of the driver when it
 runs as a process, and nothing else does: `ANTHROPIC_API_KEY` for `agentkit`, and none ever
 for a brain on the host. `box` has a registry of providers of
-its own, `Entry{Name, Unconfined, InPlace, ByName, SuppliesCredentials, Remote, New, Build,
-Explain}`, with `landlock`, `podman`, `local` and `none` in it; a provider isolates unless it
+its own, `Entry{Name, Unconfined, ByName, SuppliesCredentials, Remote, New, Build,
+Explain}`, with `podman` and `local` in it; a provider isolates unless it
 is `Unconfined`. `ByName` says the programs of the box are called by name from its image
 (`podman`, `gateway`), `SuppliesCredentials` that the box has the credentials of its brain in an
 environment of its own, and `Remote` that a call which cannot reach the box is an outage to try
@@ -340,42 +337,39 @@ call the driver answers itself (a tool that does not exist, arguments that do
 not fit) never reaches it. The policy is prevention and not a boundary, as its
 package says.
 
-**Placement, as built.** `brain.PlacementOf(brain, provider, borrowedHands)` is the one
+**Placement, as built.** `brain.PlacementOf(brain, provider)` is the one
 function that says where a brain runs, and `brain.BoxRequest` the one that turns it,
 with the provider and the tools of the agent's brief, into the request for the box:
 
-| Brain | `landlock`, `podman` | `local` | `none` |
-|---|---|---|---|
-| `scripted` | host | host | host |
-| `agentkit` | box; with `--borrowed-hands`, host | host | host |
+| Brain | `podman`, `gateway` | `local` |
+|---|---|---|
+| `scripted` | host | host |
+| `agentkit` | box | host |
 
 *Host* is `af`'s process over `Session.Tools`; *box* is a process started in the box with
-`Session.Exec`. The default provider is `AF_SANDBOX`, else `landlock` on Linux and
-`podman` elsewhere, and it never falls back to `local` or `none`.
+`Session.Exec`. The default provider is `AF_SANDBOX`, else `podman`, on every operating
+system, and it never falls back to `local`.
 
 **The `Spec` of a box, for each brain.** `Spec.Env` holds credentials and nothing else:
 the host's `ANTHROPIC_API_KEY` for the driver in the box, and nothing for a brain on the
 host. `Spec.Network` is `none` for a brain on the host whose brief has no tool
 that runs a command (all of `af triage`), and `open` for the rest, since a process in the
 box needs its vendor and Podman filters nothing narrower; `host` is what the ledger and
-the `fix` result record for `local` and `none`, where nothing is enforced.
+the `fix` result record for `local`, where nothing is enforced.
 `Spec.Image` is `AF_SANDBOX_IMAGE`, else `quay.io/agentfox/tools:latest`, for `podman` only;
-`Spec.TTL` is the time left on the command's deadline and ten minutes; `RequireLandlock` is
-set for `landlock`, which also refuses a host with a Landlock ABI below 4, the first with
-rules for the network, since a box that cannot confine the network it was asked to would
-break the guarantee of borrowed hands. The labels are `af.run_id` and `af.tool`. The
+`Spec.TTL` is the time left on the command's deadline and ten minutes. The labels are `af.run_id` and `af.tool`. The
 ledger entry `box_open {provider, image, network, placement}` and the `box` of the `fix`
 result say what was built.
 
 **The host settings, for each brain.** `scripted` and the `agentkit` driver on the host need
-none beyond the files `Execute` places. The `agentkit` driver inside `landlock` and `podman`
+none beyond the files `Execute` places. The `agentkit` driver inside `podman` or a gateway
 is `af <agent> run --run-id <id> --dir <root> …`: the box gets only what `Execute` places, so
 `run.json` also holds the `prefix_bytes` of the brief, and `af <agent> run` takes the brief and
 the prefix from it when the run directory has no state of its own. Its cost, tokens and claim
 are read from the envelope it wrote to `.agent-fox/run/<id>/agentkit.<attempt>.json`.
 
-It is started by `brain.Process`: a probe once for each box (`af --version`, a writable `HOME`; the box remembers what was probed, so that the measuring below and
-a brain share it), then one command under `env -i` with an explicit allowlist, the
+It is started by `brain.Process`: a probe once for each box (`af --version`, a writable
+`HOME`; the box remembers what was probed, so that the measuring below and a brain share it), then one command under `env -i` with an explicit allowlist, the
 credentials of `Spec.Env` by reference, its output and errors redirected to files of the run
 directory in the box and copied to the host afterwards. In a box that supplies its own
 credentials (the gateway's) the references are to the names the brain lists
@@ -395,11 +389,6 @@ that is not retryable and names the profile (`AF_SANDBOX_PROFILE`, or hub's defa
 version or commit is the warning `box_af_version_mismatch`; an envelope of another major version
 of the schema, one that cannot be read, or a result that does not decode is the same failure. A
 box that is lost while it measures is a `sandbox` failure that is retryable.
-
-**Under `none`, the checkout is the tree.** `Session.InPlace()` is the one question the apply
-step asks: it skips the export, and the loop checks the checkout for commits the brain made
-(see [cli.md](cli.md#the-steps-of-a-fix-run)). The protected-path revert runs on the checkout,
-and the tool gate and the checks `af` makes afterwards are the boundary, since no box is.
 
 **The tools image.** `containers/tools/Containerfile` builds `quay.io/agentfox/tools` from
 this repository's sandbox image (`ARG BASE_IMAGE`): `af` is built from this repository's

@@ -72,7 +72,7 @@ func registerFix(app *toolio.App, c *Config) {
 	app.Register(toolio.Command{
 		Path:    "fix",
 		Summary: "Fix a reported problem: a verified change on a branch, and a pull request",
-		Usage:   "af fix <issue|file|text|-> [--dir DIR] [--base BRANCH] [--context ANSWER]... [--repo owner/name] [--land pr|branch|none] [--attempts N] [--no-verify] [--dry-run] [--brain NAME] [--sandbox NAME] [--borrowed-hands] [--budget USD] [--max-turns N] [--timeout 45m]",
+		Usage:   "af fix <issue|file|text|-> [--dir DIR] [--base BRANCH] [--context ANSWER]... [--repo owner/name] [--land pr|branch|none] [--attempts N] [--no-verify] [--dry-run] [--brain NAME] [--sandbox NAME] [--budget USD] [--max-turns N] [--timeout 45m]",
 		Flags: func(fs *flag.FlagSet) {
 			o = fixOptions{attempts: fixDefaultAttempts, land: fix.LandPR}
 			o.settings = brain.Flags(fs, brain.Defaults{Budget: fixDefaultBudget, MaxTurns: fixDefaultMaxTurns})
@@ -116,7 +116,7 @@ func fixLoop(c *Config, r *toolio.Run, o fixOptions) (toolio.Outcome, error) {
 	}
 
 	opts := c.brainOptions()
-	opts.Script, opts.Provider, opts.BorrowedHands = o.settings.Script, o.settings.Sandbox, o.settings.BorrowedHands
+	opts.Script, opts.Provider = o.settings.Script, o.settings.Sandbox
 	a := &fixAttempt{c: c, r: r, o: o, entry: entry, boxEntry: boxEntry, opts: opts}
 	if c.InBox == nil {
 		// On the host: the checks of the repository run here, before the box is opened.
@@ -238,12 +238,12 @@ func (a *fixAttempt) measurer(sess *box.Session) *fix.BoxMeasurer {
 }
 
 // fixBoxRequest is the request for the box of a fix run of the brain: what the brain, the
-// provider, borrowed hands and the tools of a fix brief (all of the hands') come to.
+// provider and the tools of a fix brief (all of the hands') come to.
 func fixBoxRequest(c *Config, r *toolio.Run, run *toolio.RunDir, entry brain.Entry, provider box.Entry, s *brain.Settings, opts brain.Options) box.Request {
 	deadline, _ := r.Ctx.Deadline()
 	return brain.BoxRequest(brain.BoxParams{
-		Brain: entry, Provider: provider, BorrowedHands: s.BorrowedHands, Getenv: opts.Getenv, Deadline: deadline,
-		Defaulted: s.SandboxSource != brain.SandboxFlag, AFPath: opts.AFPath,
-		HostDir: r.Dir, RunID: run.ID, Tool: "fix", Record: run.Record, Warn: r.Warn, Registry: c.boxes(), Labels: c.BoxLabels,
+		Brain: entry, Provider: provider, Getenv: opts.Getenv, Deadline: deadline,
+		Defaulted: s.SandboxSource != brain.SandboxFlag,
+		HostDir:   r.Dir, RunID: run.ID, Tool: "fix", Record: run.Record, Warn: r.Warn, Registry: c.boxes(), Labels: c.BoxLabels,
 	})
 }

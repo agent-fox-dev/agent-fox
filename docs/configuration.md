@@ -51,7 +51,7 @@ API URL is set. A request to any other host carries no token.
 
 | Variable | Used for |
 |---|---|
-| `AF_SANDBOX` | The box provider, when `--sandbox` is not given: `landlock`, `podman`, `local` or `none`. An empty value is unset, and an unknown one is a `usage` failure that names the variable. Without it the provider is `landlock` on Linux and `podman` on any other operating system. When that provider cannot open, `af` fails with the reason and never falls back to `local` or `none`. |
+| `AF_SANDBOX` | The box provider, when `--sandbox` is not given: `podman` or `local`. An empty value is unset, and an unknown one is a `usage` failure that names the variable. Without it the provider is `podman`, on every operating system. When that provider cannot open, `af` fails with the reason and never falls back to `local`. |
 | `AF_SANDBOX_IMAGE` | The image of a `podman` box. Without it, `quay.io/agentfox/tools:latest`: the sandbox image with `af` in it, built from `containers/tools/Containerfile` by `make build-tools-container`. There is no flag for it: the image is configuration of the machine. |
 
 **Which credential enters which box.** Nothing of the host's environment reaches a
@@ -60,20 +60,19 @@ box but what the brain asks for, and that is decided by where the brain runs (se
 
 | Where the brain runs | The box holds | Network |
 |---|---|---|
-| on the host (`scripted`; `agentkit` under `local` and `none`, or with `--borrowed-hands`) | no credential at all | `none` when the brief has no tool that runs a command (`af triage`), `open` when it has (`af fix`); under `local` and `none` nothing is enforced and the network is `host` |
-| in the box (`agentkit` under `landlock` and `podman`) | `ANTHROPIC_API_KEY`, if the host has it | `open` |
+| on the host (`scripted`; `agentkit` under `local`) | no credential at all | `none` when the brief has no tool that runs a command (`af triage`), `open` when it has (`af fix`); under `local` nothing is enforced and the network is `host` |
+| in the box (`agentkit` under `podman`) | `ANTHROPIC_API_KEY`, if the host has it | `open` |
 
 No forge token (`GITHUB_TOKEN`, `GH_TOKEN`, `GITLAB_TOKEN`) is in any box. A process
 brain is started under `env -i` with only `PATH`, `HOME`, the locale and time zone,
 the proxy and certificate settings that are set, and the key (see [the process
 brains](cli.md#brains-that-run-as-a-process)); a podman box has the whole network or
 none, so a brain in one on a developer's machine has all of it. The credentials in
-the checkout's `.git/config` are taken out of the box's copy (there is no copy under
-`none`). Under `podman` the key of the vendor is on the command line of the engine on the host
-while the box lives, as `--env`, which another user of the machine can read; `landlock` runs
-a confined child process, `agentkit-sandboxd`, that must be beside `af` or on `PATH`. The `scripted` brain
-reads no variable. The `local` and the `none` providers have no process or network
-isolation, and a box opened with either says so with the warning `box_unconfined`.
+the checkout's `.git/config` are taken out of the box's copy. Under `podman` the key of
+the vendor is on the command line of the engine on the host while the box lives, as
+`--env`, which another user of the machine can read. The `scripted` brain reads no
+variable. The `local` provider has no process or network isolation, and a box opened
+with it says so with the warning `box_unconfined`.
 
 ## The `.agent-fox` directory
 
@@ -127,16 +126,13 @@ directory has, a fix run keeps in `.agent-fox/run/<id>/`:
 | `submission.json` | The report the brain handed over and `af` accepted, in its normalised form. |
 | `report.md` | The body of the pull request of a change that landed, rendered from what `af` measured and what the report says; written once the issue of a text or a file is made and before the commit. A change that was parked has none. |
 
-A round of a brain runs in a box, and `af` places three files in it before each
-round (under `none` the box is the checkout, and `gate.json` and `guard.json` are
-placed only where there are none, and taken off again when the run ends): `.agent-fox/run/<id>/fix.json`, the state of the run, so that `af fix submit`
-can be run in the box (it refuses a run directory that has none); `.agent-fox/gate.json`, the table of checks the run was pinned to, so that
+A round of a brain runs in a box, and `af` places two files in it before each
+round: `.agent-fox/gate.json`, the table of checks the run was pinned to, so that
 the brain's own `af gate run` measures what `af` will, and `.agent-fox/guard.json`,
 the policy of the tool gate (the `suite` of the gate, the default protected paths
 and, as `allow_programs`, the programs of the gate together with `af`, `git` and
 a few utilities that only read or make a directory). They are the host's table and rules, and not what the
-box would detect; the files of the checkout itself are not changed (under `none` the
-brain works on them, and `af` checks and measures what it did), and the
+box would detect; the files of the checkout itself are not changed, and the
 `.agent-fox/` directory of the box never comes back out (see
 [gate.json](#gatejson) and [guard.json](#guardjson)).
 

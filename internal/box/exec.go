@@ -4,13 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"time"
 	"unicode/utf8"
 
-	"github.com/agent-fox-dev/agentkit-go/tools"
-
-	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -22,21 +18,15 @@ const ExecOutputCap = 64 << 10
 const ExitTimeout = 124
 
 // Exec runs a shell command in the tree, where a process of the box has it: through
-// the box's execute tool, which runs it at the root of the workspace, or, in place,
-// with sh -c at the checkout. It returns the exit code and the last ExecOutputCap bytes
-// of what the command printed, the two streams together. A command that exits with a
-// code other than 0 is not an error. One that is still running when timeout (when it is
-// above 0) is over is killed, with the processes it started, and its code is
-// ExitTimeout. A box counts whole seconds, rounded down, and at least one. The error is for a command that could not be run, and for a context that
-// ended.
-//
-// In place the command's environment is the host's without its credentials (the
-// reduced environment of the hands) and the environment of the box's spec. In a box it
-// is the one the provider gives the tools of the box.
+// the box's execute tool, which runs it at the root of the workspace, with the
+// environment the provider gives the tools of the box. It returns the exit code and
+// the last ExecOutputCap bytes of what the command printed, the two streams together.
+// A command that exits with a code other than 0 is not an error. One that is still
+// running when timeout (when it is above 0) is over is killed, with the processes it
+// started, and its code is ExitTimeout. A box counts whole seconds, rounded down, and
+// at least one. The error is for a command that could not be run, and for a context
+// that ended.
 func (s *Session) Exec(ctx context.Context, command string, timeout time.Duration) (int, string, error) {
-	if s.none {
-		return s.execInPlace(ctx, command, timeout)
-	}
 	args := map[string]any{"command": command}
 	if timeout > 0 {
 		args["timeout_s"] = max(1, int(timeout/time.Second))
@@ -58,41 +48,6 @@ func (s *Session) Exec(ctx context.Context, command string, timeout time.Duratio
 		return -1, "", s.goneIf(resultGone(r), &toolio.Failure{Category: toolio.CategorySandbox, Retryable: s.remote, Message: fmt.Sprintf("the %s box could not run the command: %s %s", s.provider, r.Error, r.Detail)})
 	}
 	return code, tail(output, ExecOutputCap), nil
-}
-
-// execInPlace runs the command on the checkout with sh -c.
-func (s *Session) execInPlace(ctx context.Context, command string, timeout time.Duration) (int, string, error) {
-	env := tools.ReducedEnv(nil)
-	spec := s.sb.Spec().Env
-	for _, name := range slices.Sorted(mapKeys(spec)) {
-		env = append(env, name+"="+spec[name])
-	}
-	runCtx := ctx
-	if timeout > 0 {
-		var cancel context.CancelFunc
-		runCtx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
-	out, code, err := gitx.ExplicitEnvRunner(env)(runCtx, s.hostDir, []string{"sh", "-c", command})
-	switch {
-	case ctx.Err() != nil:
-		return -1, tail(out, ExecOutputCap), ctx.Err()
-	case runCtx.Err() != nil:
-		return ExitTimeout, tail(out, ExecOutputCap), nil
-	case err != nil:
-		return -1, "", &toolio.Failure{Category: toolio.CategoryIO, Message: fmt.Sprintf("cannot run a command on the checkout: %v", err)}
-	}
-	return code, tail(out, ExecOutputCap), nil
-}
-
-func mapKeys(m map[string]string) func(yield func(string) bool) {
-	return func(yield func(string) bool) {
-		for k := range m {
-			if !yield(k) {
-				return
-			}
-		}
-	}
 }
 
 // tail is the last n bytes of s, cut at the start of a character.

@@ -53,7 +53,7 @@ func TestASubmissionOfARunWithNoNonceIsNoClaim(t *testing.T) {
 	key := map[string]string{"ANTHROPIC_API_KEY": "sk-test"}
 	w := newProcWorld(t, "podman", key, nil)
 	w.script(fakeScript{}) // no envelope: the claim is read from the files of the box
-	brain, err := inBoxBrain(t, w, "podman", false, "", key)
+	brain, err := inBoxBrain(t, w, "podman", "", key)
 	if err != nil {
 		t.Fatal(err)
 	}

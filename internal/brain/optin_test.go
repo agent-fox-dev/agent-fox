@@ -164,18 +164,11 @@ func TestTheBoxInvariantsHoldUnderTheLocalBox(t *testing.T) {
 	boxInvariants(t, "local")
 }
 
-// TestSpec07sBoxInvariantsHoldUnderTheRealBoxes_TS_10_63 verifies, for the real
-// providers, what TS-10-63 asks: spec 07's invariants of a box hold under landlock and
-// under podman. It runs where AF_TEST_LANDLOCK or AF_TEST_PODMAN says so, and is skipped
-// with the reason otherwise.
+// TestSpec07sBoxInvariantsHoldUnderTheRealBox_TS_10_63 verifies, for the real provider,
+// what TS-10-63 asks: spec 07's invariants of a box hold under podman. It runs where
+// AF_TEST_PODMAN says so, and is skipped with the reason otherwise.
 // Verifies: 10-REQ-10.3
-func TestSpec07sBoxInvariantsHoldUnderTheRealBoxes_TS_10_63(t *testing.T) {
-	t.Run("landlock", func(t *testing.T) {
-		optin.RequireLandlock(t)
-		boxInvariants(t, "landlock")
-	})
-	t.Run("podman", func(t *testing.T) {
-		optin.RequirePodman(t, podmanImage())
-		boxInvariants(t, "podman")
-	})
+func TestSpec07sBoxInvariantsHoldUnderTheRealBox_TS_10_63(t *testing.T) {
+	optin.RequirePodman(t, podmanImage())
+	boxInvariants(t, "podman")
 }

@@ -294,7 +294,7 @@ func TestUnknownProviderIsUsage_TS_07_5(t *testing.T) {
 	if c.creates.Load() != 0 {
 		t.Errorf("%d sandboxes were created", c.creates.Load())
 	}
-	if _, err := Default.Lookup("docker"); asFailure(t, err).Category != toolio.CategoryUsage || !strings.Contains(err.Error(), "landlock, local, none, podman") {
+	if _, err := Default.Lookup("docker"); asFailure(t, err).Category != toolio.CategoryUsage || !strings.Contains(err.Error(), "local, podman") {
 		t.Errorf("the default registry says %v, want a usage failure that lists the four providers", err)
 	}
 }

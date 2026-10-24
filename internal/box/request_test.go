@@ -46,23 +46,22 @@ var (
 )
 
 // TestOpenGivesTheProviderTheSpecOfTheRequest_TS_10_13 verifies the part of TS-10-13
-// and TS-10-12 that is the box's: the image, the Landlock requirement, the
-// environment, the time to live and the labels of the request reach the provider.
+// and TS-10-12 that is the box's: the image, the environment, the time to live and the labels of the request reach the provider.
 // Verifies: 10-REQ-2.4, 10-REQ-2.5
 func TestOpenGivesTheProviderTheSpecOfTheRequest_TS_10_13(t *testing.T) {
 	spec := specOf(t, noneAndOpen, Request{
-		Image: "example.test/img:1", RequireLandlock: true, TTL: 15 * time.Minute, Env: map[string]string{"ANTHROPIC_API_KEY": "k"},
+		Image: "example.test/img:1", TTL: 15 * time.Minute, Env: map[string]string{"ANTHROPIC_API_KEY": "k"},
 	})
 
-	if spec.Image != "example.test/img:1" || !spec.RequireLandlock || spec.TTL != 15*time.Minute || spec.Env["ANTHROPIC_API_KEY"] != "k" || len(spec.Env) != 1 {
-		t.Errorf("spec = %+v, want the image, RequireLandlock, the TTL and the environment of the request", spec)
+	if spec.Image != "example.test/img:1" || spec.TTL != 15*time.Minute || spec.Env["ANTHROPIC_API_KEY"] != "k" || len(spec.Env) != 1 {
+		t.Errorf("spec = %+v, want the image, the TTL and the environment of the request", spec)
 	}
 	if spec.Labels["af.run_id"] != "20261021_100000_abcdef" || spec.Labels["af.tool"] != "fix" || len(spec.Labels) != 2 {
 		t.Errorf("labels = %v, want af.run_id and af.tool as spec 07 sets them", spec.Labels)
 	}
 
 	plain := specOf(t, noneAndOpen, Request{})
-	if plain.Image != "" || plain.RequireLandlock {
+	if plain.Image != "" {
 		t.Errorf("spec of a request that asks for neither = %+v", plain)
 	}
 }

@@ -21,9 +21,6 @@ type Entry struct {
 	// Unconfined says the provider puts no process or network boundary around
 	// the tools, so that every run that opens it raises box_unconfined.
 	Unconfined bool
-	// InPlace says the provider works on the checkout itself, with no copy of it:
-	// only `none` does.
-	InPlace bool
 	// ByName says the programs of a box are called by name and found on the PATH of its
 	// image, as under podman, and are not run from the host's file system.
 	ByName bool
@@ -49,10 +46,6 @@ type ProviderConfig struct {
 	// Ctx is the context of the opening of the box, for a provider that has to connect
 	// before it can create one.
 	Ctx context.Context
-	// ExtraRO are the directories a process started in the box has to read and run:
-	// the provider grants them read and execute. A provider that does not confine
-	// has no use for them.
-	ExtraRO []string
 }
 
 // provider makes the provider of the entry.
@@ -64,7 +57,7 @@ func (e Entry) provider(cfg ProviderConfig) (sandbox.Provider, error) {
 }
 
 // Isolates says the provider puts a process and network boundary around the
-// tools: `landlock` and `podman` do, `local` and `none` do not.
+// tools: `podman` and the `gateway` of a lease do, `local` does not.
 func (e Entry) Isolates() bool { return !e.Unconfined }
 
 // Registry holds providers by name.
@@ -76,14 +69,12 @@ type Registry struct {
 // NewRegistry returns a registry with no provider.
 func NewRegistry() *Registry { return &Registry{entries: map[string]Entry{}} }
 
-// Default is the registry that a Request without a Registry uses: the four
-// providers, landlock, podman, local and none.
+// Default is the registry that a Request without a Registry uses: the two providers,
+// podman and local.
 var Default = func() *Registry {
 	r := NewRegistry()
-	r.Register(landlockEntry())
 	r.Register(podmanEntry())
 	r.Register(localEntry())
-	r.Register(noneEntry())
 	return r
 }()
 

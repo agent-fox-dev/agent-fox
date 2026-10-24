@@ -555,15 +555,15 @@ func TestTheHelpOfFixShowsItsDefaults(t *testing.T) {
 			t.Errorf("af help fix does not show --%s with the default %s:\n%s", flag, def, help)
 		}
 	}
-	for _, want := range []string{"--base branch", "--no-verify", "--dry-run", "--context", "--repo", "--borrowed-hands"} {
+	for _, want := range []string{"--base branch", "--no-verify", "--dry-run", "--context", "--repo"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("af help fix does not show %q:\n%s", want, help)
 		}
 	}
 	// The box has no default of its own that the help could print: it is chosen by AF_SANDBOX,
-	// and without that by the platform.
+	// and without that it is podman.
 	sandbox := regexp.MustCompile(`(?m)^\s+--sandbox .*$`).FindString(help)
-	for _, want := range []string{"landlock, podman, local or none", "AF_SANDBOX", "landlock on Linux", "podman anywhere else"} {
+	for _, want := range []string{"podman or local", "AF_SANDBOX", "else podman"} {
 		if !strings.Contains(sandbox, want) {
 			t.Errorf("the --sandbox line of af help fix = %q, want it to say %q", sandbox, want)
 		}

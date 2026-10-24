@@ -78,8 +78,8 @@ func TestTheGatewayProviderCreatesTheBoxWithTheFourLabelsAndNoEnvAndIsNotAnAfCho
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !entry.Isolates() || !entry.ByName || !entry.SuppliesCredentials || !entry.Remote || entry.InPlace {
-		t.Errorf("entry = %+v, want an isolating provider, called by name, that supplies its credentials, is remote and works on a copy", entry)
+	if !entry.Isolates() || !entry.ByName || !entry.SuppliesCredentials || !entry.Remote {
+		t.Errorf("entry = %+v, want an isolating provider, called by name, that supplies its credentials and is remote", entry)
 	}
 	if !s.ByName() || !s.SuppliesCredentials() || s.Provider() != GatewayName {
 		t.Errorf("the session: ByName %v, SuppliesCredentials %v, provider %q", s.ByName(), s.SuppliesCredentials(), s.Provider())

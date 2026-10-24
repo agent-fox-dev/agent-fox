@@ -7,9 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
-	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -27,7 +25,7 @@ import (
 // delete and a script whose executable bit is to be flipped, and a check of the gate that the
 // files the apply step wrote are owned by the user who runs af: the check runs on the tree
 // that was applied, before the commit, so a file that a box's user left owned by another
-// fails the run where it matters (a landlock or podman box), and not after git has rewritten it.
+// fails the run where it matters (a podman box), and not after git has rewritten it.
 func boxFixFiles() map[string]string {
 	files := redFixFiles()
 	files["docs/old.txt"] = "old\n"
@@ -174,364 +172,6 @@ func assertFourChangesLanded(t *testing.T, e *fixEnv, code int, env map[string]a
 	gitDo(t, e.dir, "checkout", "-q", "main")
 }
 
-// sessions are the boxes that the brains of a test were given, to ask them afterwards what the
-// loop did to them.
-type sessions struct {
-	mu   sync.Mutex
-	seen []*box.Session
-}
-
-func (s *sessions) note(b *box.Session) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.seen = append(s.seen, b)
-}
-
-// exports is how many times Export was asked of those boxes.
-func (s *sessions) exports() (calls, boxes int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, b := range s.seen {
-		calls += b.ExportCalls()
-	}
-	return calls, len(s.seen)
-}
-
-// watching is a brain that notes the box it is given and runs another.
-type watching struct {
-	inner brain.Brain
-	s     *sessions
-}
-
-func (w watching) Run(ctx context.Context, b brain.Brief) (brain.Outcome, error) {
-	w.s.note(b.Box)
-	return w.inner.Run(ctx, b)
-}
-
-// watchScripted puts the scripted brain in the registry of the fix commands behind a wrapper
-// that keeps the box it is given.
-func watchScripted(t *testing.T) *sessions {
-	t.Helper()
-	s := &sessions{}
-	entry, err := brain.Default.Lookup(brain.ScriptedName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	made := entry.New
-	entry.New = func(o brain.Options) (brain.Brain, error) {
-		inner, err := made(o)
-		return watching{inner: inner, s: s}, err
-	}
-	old := testConfig.Brains
-	reg := brain.NewRegistry()
-	reg.Register(entry)
-	testConfig.Brains = reg
-	t.Cleanup(func() { testConfig.Brains = old })
-	return s
-}
-
-// watchRounds wraps the rounds of a spy so that each notes the box it is given.
-func watchRound(s *sessions, round func(context.Context, brain.Brief) (brain.Outcome, error)) func(context.Context, brain.Brief) (brain.Outcome, error) {
-	return func(ctx context.Context, b brain.Brief) (brain.Outcome, error) {
-		s.note(b.Box)
-		return round(ctx, b)
-	}
-}
-
-// TestFixUnderNoneLandsFromTheCheckoutAndNeverExports_TS_10_33 verifies TS-10-33: a
-// scripted brain under none lands one commit with the trailer, no tree is exported, and
-// what the brain wrote under a protected path is put back on the checkout.
-// Verifies: 10-REQ-6.2
-func TestFixUnderNoneLandsFromTheCheckoutAndNeverExports_TS_10_33(t *testing.T) {
-	requireMake(t)
-	t.Run("scripted", func(t *testing.T) {
-		e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
-		watched := watchScripted(t)
-		steps := script(t, writeStep("src/greet.sh", "echo hello\n"), writeStep("tests/hello_test.sh", helloTest), submitStep(spyReport, "accepted"))
-
-		code, env := e.fix(e.forge.IssueURL(7), "--brain", "scripted", "--script", steps, "--sandbox", "none")
-
-		if code != 0 || env["status"] != "done" {
-			t.Fatalf("exit code %d, status %v, error %v", code, env["status"], env["error"])
-		}
-		res := resultOf(t, env)
-		branch, _ := res["branch"].(string)
-		base, _ := res["base_head"].(string)
-		if res["outcome"] != "landed" || !strings.HasPrefix(branch, "fix/7-") {
-			t.Fatalf("result = %v", res)
-		}
-		if n := len(strings.Fields(gitDo(t, e.dir, "rev-list", base+".."+branch))); n != 1 {
-			t.Errorf("%d commits above the base, want one", n)
-		}
-		if msg := gitDo(t, e.dir, "log", "-1", "--format=%B", branch); !strings.Contains(msg, "Agent-Fox-Run: "+env["run_id"].(string)) {
-			t.Errorf("message = %q, want the trailer", msg)
-		}
-		if n := len(ledgerEntries(t, runDirOf(e, env), "box_export")); n != 0 {
-			t.Errorf("%d box_export entries, want none: Export is never called in place", n)
-		}
-		if calls, boxes := watched.exports(); calls != 0 || boxes == 0 {
-			t.Errorf("Export was asked %d times of the %d boxes the brain was given, want none", calls, boxes)
-		}
-		for _, name := range []string{"gate.json", "guard.json"} {
-			if _, err := os.Stat(filepath.Join(e.dir, ".agent-fox", name)); err == nil {
-				t.Errorf(".agent-fox/%s, which af placed for the rounds, is left on the checkout as if it were the person's", name)
-			}
-		}
-		if box, _ := res["box"].(map[string]any); box["provider"] != "none" || box["network"] != "host" || box["image"] != "" {
-			t.Errorf("box = %v, want none, no image, network host", res["box"])
-		}
-		if !slices.Contains(warningCodes(env), "box_unconfined") {
-			t.Errorf("warnings = %v, want box_unconfined", warningCodes(env))
-		}
-		e.onBase(t)
-	})
-	t.Run("a gate.json of the person's", func(t *testing.T) {
-		e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
-		if code, env := e.run("", "lang", "detect", "--write", "--dir", e.dir); code != 0 {
-			t.Fatalf("lang detect --write: exit code %d, error %v", code, env["error"])
-		}
-		mine := readFile(t, filepath.Join(e.dir, ".agent-fox", "gate.json"))
-		steps := script(t, writeStep("src/greet.sh", "echo hello\n"), writeStep("tests/hello_test.sh", helloTest), submitStep(spyReport, "accepted"))
-
-		code, env := e.fix(e.forge.IssueURL(7), "--brain", "scripted", "--script", steps, "--sandbox", "none")
-
-		if code != 0 || env["status"] != "done" {
-			t.Fatalf("exit code %d, status %v, error %v", code, env["status"], env["error"])
-		}
-		if got := readFile(t, filepath.Join(e.dir, ".agent-fox", "gate.json")); string(got) != string(mine) {
-			t.Errorf("gate.json = %q, want the person's file as it was: af placed none of its own", got)
-		}
-	})
-	t.Run("a protected path", func(t *testing.T) {
-		e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
-		files := map[string]string{"src/greet.sh": "echo hello\n", "tests/hello_test.sh": helloTest, ".github/workflows/ci.yml": "name: planted\n"}
-		watched := &sessions{}
-		spyRounds(t, watchRound(watched, spyRound(t, files, spyReport, 0, 1)))
-
-		code, env := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", "none")
-
-		if code != 0 {
-			t.Fatalf("exit code %d, error %v", code, env["error"])
-		}
-		res := resultOf(t, env)
-		branch, _ := res["branch"].(string)
-		if !slices.Contains(warningCodes(env), "protected_path_reverted") {
-			t.Errorf("warnings = %v, want protected_path_reverted: the revert ran on the checkout", warningCodes(env))
-		}
-		if tree := gitDo(t, e.dir, "ls-tree", "-r", "--name-only", branch); strings.Contains(tree, ".github/workflows/ci.yml") {
-			t.Errorf("the tree of the commit holds the planted workflow:\n%s", tree)
-		}
-		if n := len(ledgerEntries(t, runDirOf(e, env), "box_export")); n != 0 {
-			t.Errorf("%d box_export entries, want none", n)
-		}
-		if calls, boxes := watched.exports(); calls != 0 || boxes == 0 {
-			t.Errorf("Export was asked %d times of the %d boxes the brain was given, want none", calls, boxes)
-		}
-		e.onBase(t)
-	})
-}
-
-// TestACommitOnTheBaseBranchIsFoldedIntoAfsCommit_TS_10_36 verifies TS-10-36: a brain that
-// edits and commits on the base branch under none has the commit taken off it, its change
-// is inside the one commit of af, and foreign_commits_reset is raised once, with the count.
-// Verifies: 10-REQ-6.5
-func TestACommitOnTheBaseBranchIsFoldedIntoAfsCommit_TS_10_36(t *testing.T) {
-	requireMake(t)
-	e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
-	var foreign string
-	spyRounds(t, shellRound(t, `printf 'echo hello\n' > src/greet.sh
-cat > tests/hello_test.sh <<'EOF'
-[ "$(sh src/greet.sh)" = hello ] || { echo "FAIL: not hello"; exit 1; }
-EOF
-git add -A && git commit -q -m 'brain: committed on the base branch'`, spyReport, &foreign))
-
-	code, env := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", "none")
-
-	if code != 0 || env["status"] != "done" {
-		t.Fatalf("exit code %d, status %v, error %v", code, env["status"], env["error"])
-	}
-	res := resultOf(t, env)
-	branch, _ := res["branch"].(string)
-	base, _ := res["base_head"].(string)
-	if n := len(strings.Fields(gitDo(t, e.dir, "rev-list", base+".."+branch))); n != 1 {
-		t.Errorf("%d commits above the base, want af's one", n)
-	}
-	if out := gitDo(t, e.dir, "branch", "--contains", foreign); strings.Contains(out, "main") || strings.Contains(out, branch) {
-		t.Errorf("the foreign commit %s is on %q", foreign, out)
-	}
-	if got := strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "main")); got != base {
-		t.Errorf("main is at %s, want the base %s", got, base)
-	}
-	if show := gitDo(t, e.dir, "show", "--stat", "--format=", branch); !strings.Contains(show, "src/greet.sh") || !strings.Contains(show, "tests/hello_test.sh") {
-		t.Errorf("af's commit does not hold the change of the foreign one:\n%s", show)
-	}
-	var warned []map[string]any
-	for _, w := range env["warnings"].([]any) {
-		if w.(map[string]any)["code"] == "foreign_commits_reset" {
-			warned = append(warned, w.(map[string]any))
-		}
-	}
-	if len(warned) != 1 || !strings.Contains(warned[0]["message"].(string), "1 commit") {
-		t.Errorf("warnings = %v, want one foreign_commits_reset that counts 1", warned)
-	}
-	if entries := ledgerEntries(t, runDirOf(e, env), "foreign_commits_reset"); len(entries) != 1 || entries[0]["count"] != float64(1) {
-		t.Errorf("ledger entries = %v, want foreign_commits_reset with count 1", entries)
-	}
-	e.onBase(t)
-}
-
-// checkoutState is the state of the repository that a run must not change once the brain has
-// left it: every ref with what it points at, the branch HEAD is on, the index and the tree.
-func checkoutState(t *testing.T, dir string) string {
-	t.Helper()
-	return strings.Join([]string{
-		gitDo(t, dir, "for-each-ref", "--format=%(refname) %(objectname)"),
-		gitDo(t, dir, "rev-parse", "--abbrev-ref", "HEAD"), gitDo(t, dir, "rev-parse", "HEAD"),
-		gitDo(t, dir, "status", "--porcelain=v1", "--untracked-files=all"),
-		gitDo(t, dir, "diff", "--cached", "--raw"), gitDo(t, dir, "diff", "--raw"),
-	}, "\n--\n")
-}
-
-// TestABranchSwitchADetachedHeadOrRewrittenHistoryIsRefusedWithTheTreeUntouched_TS_10_37
-// verifies TS-10-37: each of the three stops the run as failed/git, not retryable, names
-// where the checkout was and where it is, leaves the tree and the refs as the brain left
-// them, and lands and parks nothing.
-// Verifies: 10-REQ-6.6, 10-REQ-6.5
-func TestABranchSwitchADetachedHeadOrRewrittenHistoryIsRefusedWithTheTreeUntouched_TS_10_37(t *testing.T) {
-	requireMake(t)
-	for name, move := range map[string]string{
-		"a branch switch":    `git checkout -q -b elsewhere && printf 'echo hello\n' > src/greet.sh`,
-		"a detached HEAD":    `git checkout -q --detach && printf 'echo hello\n' > src/greet.sh`,
-		"rewritten history":  `git commit -q --amend --allow-empty -m rewritten && printf 'echo hello\n' > src/greet.sh`,
-		"a switch to a name": `git checkout -q -b main2 && git commit -q --allow-empty -m other`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
-			// What the brain left, as git shows it the moment it ends: the refs, where HEAD
-			// is, the index and the tree.
-			var left string
-			round := shellRound(t, move, spyReport, nil)
-			spyRounds(t, func(ctx context.Context, b brain.Brief) (brain.Outcome, error) {
-				out, err := round(ctx, b)
-				left = checkoutState(t, e.dir)
-				return out, err
-			})
-			base := strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "HEAD"))
-
-			code, env := e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", "none")
-
-			errObj := refusedBy(t, code, env, 1, "git")
-			if errObj["retryable"] != false || env["status"] != "failed" {
-				t.Errorf("status %v, error %v, want failed/git and not retryable", env["status"], errObj)
-			}
-			head := strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "HEAD"))
-			msg, _ := errObj["message"].(string)
-			for _, want := range []string{"main", base, head} {
-				if !strings.Contains(msg, want) {
-					t.Errorf("message = %q, want it to name %s", msg, want)
-				}
-			}
-			for _, branch := range e.branches() {
-				if strings.HasPrefix(branch, "fix/") {
-					t.Errorf("branch %s: nothing is landed", branch)
-				}
-			}
-			if subject := gitDo(t, e.dir, "log", "-1", "--format=%s"); strings.HasPrefix(subject, "wip:") || len(e.remoteBranches(t)) != 1 {
-				t.Errorf("subject %q, remote branches %v: nothing is parked or pushed", subject, e.remoteBranches(t))
-			}
-			if n := len(e.forge.Writes()); n != 0 {
-				t.Errorf("%d writes to the forge", n)
-			}
-			if slices.Contains(warningCodes(env), "foreign_commits_reset") {
-				t.Errorf("warnings = %v, want no foreign_commits_reset", warningCodes(env))
-			}
-			if name != "a switch to a name" {
-				if data, _ := os.ReadFile(filepath.Join(e.dir, "src", "greet.sh")); string(data) != "echo hello\n" {
-					t.Errorf("src/greet.sh = %q, want what the brain left", data)
-				}
-			}
-			if after := checkoutState(t, e.dir); after != left {
-				t.Errorf("the checkout is not as the brain left it:\nleft:\n%s\nafter:\n%s", left, after)
-			}
-		})
-	}
-}
-
-// TestAForeignCommitIsTakenOffTheBranchEvenWhenTheRunIsStopped guards 10-REQ-6.5 for the
-// stop: a person who interrupts the run as the brain ends has not asked for its commit to stay
-// on their branch. The check of the checkout runs on a context the stop did not reach, the
-// commit is taken off main, and the run parks the change it holds on a local branch, as it
-// parks one when it is stopped under any other box.
-// Verifies: 10-REQ-6.5
-func TestAForeignCommitIsTakenOffTheBranchEvenWhenTheRunIsStopped(t *testing.T) {
-	requireMake(t)
-	e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
-	baseHead := strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "HEAD"))
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	var foreign string
-	round := shellRound(t, `printf 'echo hello\n' > src/greet.sh
-git add -A && git commit -q -m 'brain: committed on the base branch'`, spyReport, &foreign)
-	spyRounds(t, func(c context.Context, b brain.Brief) (brain.Outcome, error) {
-		out, err := round(c, b)
-		cancel() // the run is stopped as the brain ends
-		return out, err
-	})
-
-	code, env := e.runCtx(ctx, "", "fix", e.forge.IssueURL(7), "--dir", e.dir, "--brain", "spy", "--sandbox", "none")
-
-	if errObj, _ := env["error"].(map[string]any); code == 0 || errObj["category"] != "cancelled" {
-		t.Errorf("exit code %d, error %v, want the run to end as cancelled", code, env["error"])
-	}
-	if foreign == "" {
-		t.Fatal("the brain recorded no commit")
-	}
-	if got := strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "main")); got != baseHead {
-		t.Errorf("main is at %s, want the base %s: the commit of the brain stayed on the branch of the person", got, baseHead)
-	}
-	if on := gitDo(t, e.dir, "branch", "--contains", foreign); strings.Contains(on, "main") {
-		t.Errorf("the foreign commit %s is on %q", foreign, on)
-	}
-	var parked []string
-	for _, b := range e.branches() {
-		if b != "main" {
-			parked = append(parked, b)
-		}
-	}
-	if len(parked) != 1 || !strings.Contains(gitDo(t, e.dir, "show", "--stat", "--format=", parked[0]), "src/greet.sh") {
-		t.Errorf("branches %v: want the change parked on one local branch", e.branches())
-	}
-}
-
-// TestACheckoutThatTheBrainMovedIsNotParkedWhenTheRunIsStoppedToo guards 10-REQ-6.6 for the
-// stop: a checkout on another branch is left as the brain left it and nothing is committed on
-// it, whether or not the run was stopped as well.
-// Verifies: 10-REQ-6.6
-func TestACheckoutThatTheBrainMovedIsNotParkedWhenTheRunIsStoppedToo(t *testing.T) {
-	requireMake(t)
-	e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	round := shellRound(t, `git checkout -q -b elsewhere && printf 'echo hello\n' > src/greet.sh`, spyReport, nil)
-	spyRounds(t, func(c context.Context, b brain.Brief) (brain.Outcome, error) {
-		out, err := round(c, b)
-		cancel()
-		return out, err
-	})
-
-	e.runCtx(ctx, "", "fix", e.forge.IssueURL(7), "--dir", e.dir, "--brain", "spy", "--sandbox", "none")
-
-	if now := strings.TrimSpace(gitDo(t, e.dir, "rev-parse", "--abbrev-ref", "HEAD")); now != "elsewhere" {
-		t.Errorf("checked out %q, want the branch the brain left", now)
-	}
-	if got := strings.Fields(gitDo(t, e.dir, "rev-list", "--all")); len(got) != 1 {
-		t.Errorf("%d commits in the repository, want only the first: nothing is committed or parked on a checkout that was moved", len(got))
-	}
-	if status := gitDo(t, e.dir, "status", "--porcelain"); !strings.Contains(status, "src/greet.sh") {
-		t.Errorf("status = %q, want the edit of the brain left in the tree", status)
-	}
-}
-
 // TestTheBoxOfTheRunIsInTheLedgerAndTheResult_TS_10_14 verifies TS-10-14: the box_open
 // entry of the ledger has the image, the network and the placement, and the result of the
 // run says the box: the provider, the image and the network.
@@ -542,7 +182,7 @@ func TestTheBoxOfTheRunIsInTheLedgerAndTheResult_TS_10_14(t *testing.T) {
 	isolatingStandIn(t, "podman") // the name that gets an image, over a box that is the local one
 	const named = "registry.example/tools:v1"
 	for _, tc := range []struct{ name, provider, network, image, imageVar string }{
-		{"local", "local", "host", "", ""}, {"none", "none", "host", "", ""}, {"isobox", "isobox", "open", "", ""},
+		{"local", "local", "host", "", ""}, {"isobox", "isobox", "open", "", ""},
 		{"podman", "podman", "open", brain.DefaultImage, ""}, {"podman with AF_SANDBOX_IMAGE", "podman", "open", named, named},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -577,9 +217,8 @@ func TestTheBoxOfTheRunIsInTheLedgerAndTheResult_TS_10_14(t *testing.T) {
 
 // standIn notes what a stand-in provider was made and asked for.
 type standIn struct {
-	builds  int
-	extraRO []string
-	spec    sandbox.Spec
+	builds int
+	spec   sandbox.Spec
 }
 
 // capturing is the local provider under the name of an isolating one: it notes the spec it is
@@ -591,14 +230,14 @@ type capturing struct {
 
 func (c capturing) Create(ctx context.Context, spec sandbox.Spec) (sandbox.Sandbox, error) {
 	c.in.spec = spec
-	spec.Image, spec.RequireLandlock = "", false
+	spec.Image = ""
 	spec.Network = sandbox.Network{Mode: sandbox.NetworkUnrestricted}
 	return c.Provider.Create(ctx, spec)
 }
 
 // isolatingStandIn replaces the provider of the name, for the rest of the test, with the
-// local one that says it isolates, so that a run that names landlock or podman gets the
-// request it computes and no kernel or engine is asked for.
+// local one that says it isolates, so that a run that names podman gets the request it
+// computes and no engine is asked for.
 func isolatingStandIn(t *testing.T, name string) *standIn {
 	t.Helper()
 	original, err := box.Default.Lookup(name)
@@ -608,7 +247,6 @@ func isolatingStandIn(t *testing.T, name string) *standIn {
 	in := &standIn{}
 	box.Default.Register(box.Entry{Name: name, Build: func(cfg box.ProviderConfig) (sandbox.Provider, error) {
 		in.builds++
-		in.extraRO = cfg.ExtraRO
 		return capturing{Provider: local.Unisolated(), in: in}, nil
 	}})
 	t.Cleanup(func() { box.Default.Register(original) })

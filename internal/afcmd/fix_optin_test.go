@@ -46,18 +46,17 @@ func fixScriptedFourChangesUnder(t *testing.T, provider string) {
 	}
 }
 
-// TestFixUnderTheRealBoxesLandsAllFourChanges_TS_10_63 verifies, for landlock and podman,
+// TestFixUnderTheRealBoxesLandsAllFourChanges_TS_10_63 verifies, for podman,
 // what TS-10-63 asks: af fix end to end lands one commit with the trailer that holds an
 // edit, an addition, a deletion and a change of the executable bit, owned by the host user,
-// and not the commit a brain made in the box. It runs where AF_TEST_LANDLOCK or
-// AF_TEST_PODMAN says so, and is skipped with the reason otherwise.
+// and not the commit a brain made in the box. It runs where AF_TEST_PODMAN says so, and
+// is skipped with the reason otherwise.
 // Verifies: 10-REQ-10.3, 10-REQ-6.1
 func TestFixUnderTheRealBoxesLandsAllFourChanges_TS_10_63(t *testing.T) {
 	for _, tc := range []struct {
 		provider string
 		gate     func(*testing.T)
 	}{
-		{"landlock", func(t *testing.T) { optin.RequireLandlock(t) }},
 		{"podman", func(t *testing.T) { optin.RequirePodman(t, podmanImage()) }},
 	} {
 		t.Run(tc.provider, func(t *testing.T) {

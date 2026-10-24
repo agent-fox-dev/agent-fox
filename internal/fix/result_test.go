@@ -41,9 +41,6 @@ func TestAResultCarriesEveryFieldWhateverTheRunDid_TS_09_67(t *testing.T) {
 	if info != (BoxInfo{Provider: "local", Network: "host"}) {
 		t.Errorf("NewBoxInfo(local) = %+v, want network host", info)
 	}
-	if got := sessionBoxInfo(t, "none"); got != (BoxInfo{Provider: "none", Network: "host"}) {
-		t.Errorf("NewBoxInfo(none) = %+v, want network host", got)
-	}
 
 	landed := NewResult(ResultInput{
 		State: state, Attempts: 1, Rounds: 2, AttemptsMax: 2, Outcome: OutcomeLanded, Land: LandPR,

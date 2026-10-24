@@ -3,7 +3,6 @@ package box
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -128,52 +127,5 @@ func TestExecFailsAsASandboxFailureWhenTheToolCannotRun(t *testing.T) {
 	f := asFailure(t, err)
 	if f.Category != toolio.CategorySandbox || !strings.Contains(f.Message, "the box is gone") {
 		t.Errorf("failure = %+v, want a sandbox failure with the reason", f)
-	}
-}
-
-// TestExecOnTheCheckoutRunsShAtTheCheckoutWithTheReducedEnvironment_TS_10_38 verifies the
-// none half of TS-10-38: the command runs with sh -c at the checkout, with no host
-// credential but the ones the spec names.
-// Verifies: 10-REQ-7.1
-func TestExecOnTheCheckoutRunsShAtTheCheckoutWithTheReducedEnvironment_TS_10_38(t *testing.T) {
-	dir := newRepo(t, 1, "main")
-	t.Setenv("GITHUB_TOKEN", "ghp-host")
-	t.Setenv("ANTHROPIC_API_KEY", "sk-host")
-	t.Setenv("AF_EXEC_PLAIN", "plain")
-	s := openNone(t, dir, &ledger{}, map[string]string{"ANTHROPIC_API_KEY": "sk-spec"})
-
-	code, out, err := s.Exec(context.Background(), `pwd; echo "[$ANTHROPIC_API_KEY][$GITHUB_TOKEN][$AF_EXEC_PLAIN]"; exit 3`, 0)
-
-	if code != 3 || err != nil {
-		t.Errorf("exit = %d, %v, want 3 and no error", code, err)
-	}
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) != 2 || lines[0] != dir || lines[1] != "[sk-spec][][plain]" {
-		t.Errorf("output = %q, want the checkout, the key of the spec (not the host's), no forge token, and the plain variable", out)
-	}
-
-	execBig, _, err := func() (int, string, error) {
-		c, o, e := s.Exec(context.Background(), `i=0; while [ $i -lt 5000 ]; do echo "line-$i-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"; i=$((i+1)); done; echo THE-END`, 0)
-		return len(o), o, func() error {
-			if c != 0 {
-				return errors.New("exit code")
-			}
-			return e
-		}()
-	}()
-	if err != nil || execBig != ExecOutputCap {
-		t.Errorf("a long output has %d bytes (%v), want the last %d", execBig, err, ExecOutputCap)
-	}
-
-	start := time.Now()
-	code, _, err = s.Exec(context.Background(), "sleep 30 & wait", 700*time.Millisecond)
-	if code != ExitTimeout || err != nil || time.Since(start) > 15*time.Second {
-		t.Errorf("a timeout = %d, %v after %s, want the code of a timeout, soon", code, err, time.Since(start))
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if _, _, err := s.Exec(ctx, "true", 0); err == nil {
-		t.Error("Exec with a cancelled context succeeded")
 	}
 }

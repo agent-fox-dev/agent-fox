@@ -4,11 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentkit-go/sandbox"
 )
+
+// GOOS is the operating system the messages of the podman provider are made for; a test
+// replaces it.
+var GOOS = runtime.GOOS
 
 // podmanEntry is the provider that runs the tools of a box in a container of the
 // engine on PATH.
