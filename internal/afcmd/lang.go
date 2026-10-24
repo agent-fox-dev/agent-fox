@@ -26,7 +26,6 @@ func registerLang(app *toolio.App) {
 		Dir:            true,
 		Timeout:        true,
 		DefaultTimeout: time.Minute,
-		ResultSchema:   resultSchema("lang_detect"),
 		Run:            func(r *toolio.Run) (toolio.Outcome, error) { return langDetect(r, write) },
 	})
 }

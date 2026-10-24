@@ -115,8 +115,6 @@ func TestAModeWordThatIsTheValueOfAValueTakingFlagIsThatFlagsValue_TS_16_5(t *te
 	for _, args := range [][]string{
 		{"triage", "x", "--context", "--local"},
 		{"triage", "x", "--context", "--workspace", "w"},
-		{"fix", "1", "--output", "--local"},
-		{"fix", "1", "--emit-events=--local"},
 		{"fix", "1", "--timeout", "--local"},
 		{"fix", "1", "--server", "--local"},
 	} {
@@ -221,7 +219,7 @@ func TestHelpForTriageAndFixDescribesBothModesAndTheirFlags_TS_16_8(t *testing.T
 		if first, _, _ := strings.Cut(stdout, "\n"); !strings.HasPrefix(first, "Usage: af "+c.cmd+" ") || !strings.Contains(first, "--local") {
 			t.Errorf("%s: the synopsis is %q, want it to be the one of the local mode, with --local", c.name, first)
 		}
-		terms := []string{"--local", "--workspace", "--server", "--wait", "--brain", "--dir", "--context", "--timeout", "--output", "--emit-events", "af " + c.cmd}
+		terms := []string{"--local", "--workspace", "--server", "--wait", "--brain", "--dir", "--context", "--timeout", "af " + c.cmd}
 		if c.cmd == "triage" {
 			terms = append(terms, "--label")
 		} else {
@@ -289,16 +287,16 @@ func TestServiceModeRefusesEveryLoopOnlyFlagNamingItAndSendsNoRequest_TS_16_10(t
 	}
 }
 
-// TestContextTimeoutOutputAndEmitEventsAreAcceptedInBothModes_TS_16_11 verifies TS-16-11.
+// TestContextAndTimeoutAreAcceptedInBothModes_TS_16_11 verifies TS-16-11 as it stands.
 // Verifies: 16-REQ-2.3
-func TestContextTimeoutOutputAndEmitEventsAreAcceptedInBothModes_TS_16_11(t *testing.T) {
+func TestContextAndTimeoutAreAcceptedInBothModes_TS_16_11(t *testing.T) {
 	e := newModeEnv(t)
 	adir := filepath.Join(e.dir, "adir")
 	if err := os.Mkdir(adir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	for _, cmd := range []string{"triage", "fix"} {
-		for _, flag := range [][]string{{"--context", "c"}, {"--timeout", "30s"}, {"--output", filepath.Join(t.TempDir(), "out.json")}, {"--emit-events", filepath.Join(t.TempDir(), "ev.jsonl")}} {
+		for _, flag := range [][]string{{"--context", "c"}, {"--timeout", "30s"}} {
 			service := afRun(t, "", append([]string{cmd, "1", "--workspace", "w"}, flag...)...)
 			if service.code != 0 {
 				t.Errorf("%s %v in service mode: exit %d, %s", cmd, flag, service.code, service.message())

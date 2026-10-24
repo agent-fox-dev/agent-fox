@@ -25,7 +25,7 @@ type eventSink struct {
 }
 
 // eventStream writes the events of a run, as JSON lines, to the run
-// directory's events.jsonl and to the file named by --emit-events. The shell
+// directory's events.jsonl and to the EventSink of the App. The shell
 // emits run_start, a warning event for each warning and run_end; a command
 // emits its own through Run.Emit. Each line is written as it is emitted, and
 // a sink that cannot be written to is given up with one warning, the

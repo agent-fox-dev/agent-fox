@@ -455,18 +455,16 @@ func TestWaitFollowsTheQueuedJobAndKeepsStderrQuiet_TS_16_63(t *testing.T) {
 		"GET /api/v1/jobs/job_abc":                     {200, strings.ReplaceAll(doneJob, `"id":"j"`, `"id":"job_abc"`), false},
 		"GET /api/v1/jobs/job_abc/attempts/1/envelope": {200, `{"status":"done","warnings":[]}`, false},
 	}))
-	emitted := filepath.Join(t.TempDir(), "events.jsonl")
 	useClockNow(t)
-	res := afRun(t, "", "fix", "1", "--workspace", "w", "--wait", "--emit-events", emitted)
+	res, data := afRunEvents(t, "fix", "1", "--workspace", "w", "--wait")
 	if res.code != 0 || field(res.env, "status") != "done" {
 		t.Fatalf("exit %d, %s", res.code, res.message())
 	}
 	if res.stderr != "" {
 		t.Errorf("stderr = %q, want nothing under --wait", res.stderr)
 	}
-	data, err := os.ReadFile(emitted)
-	if err != nil || strings.Count(string(data), `"type":"job_event"`) != 2 {
-		t.Errorf("--emit-events = %q (%v), want two job_event lines", data, err)
+	if strings.Count(data, `"type":"job_event"`) != 2 {
+		t.Errorf("events = %q, want two job_event lines", data)
 	}
 	if artifacts, _ := res.env["artifacts"].([]any); len(artifacts) != 1 {
 		t.Errorf("artifacts = %v, want only the job", artifacts)

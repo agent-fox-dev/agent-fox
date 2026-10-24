@@ -426,13 +426,13 @@ func TestSuiteCommandsAreDenied_TS_06_51(t *testing.T) {
 func TestAfCommands_TS_06_52(t *testing.T) {
 	var cases []expectation
 	for _, src := range []string{
-		"af lang detect", "af gate run", "af revert-check", "af --version", "af --schema",
+		"af lang detect", "af gate run", "af revert-check", "af --version",
 		"af gate run --dir .", "af lang detect --write", "/usr/local/bin/af gate run",
 	} {
 		cases = append(cases, expectation{src, Allow, "", ""})
 	}
 	for _, src := range []string{
-		"af fix land", "af run", "af triage run", "af fix run", "af triage brief", "af fix submit", "af map", "af gate compare", "af", "af triage", "af fix", "af gate", "af fix land --dry-run", "af serve", "af help", "af --help",
+		"af fix land", "af run", "af triage run", "af fix run", "af triage brief", "af fix submit", "af map", "af gate compare", "af --schema", "af", "af triage", "af fix", "af gate", "af fix land --dry-run", "af serve", "af help", "af --help",
 		"af --dir x fix land", "af landed", "/usr/local/bin/af fix land", "env af fix land", "bash -c 'af fix land'",
 	} {
 		cases = append(cases, expectation{src, Deny, RuleAfCommand, ""})

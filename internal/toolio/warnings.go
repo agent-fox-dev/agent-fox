@@ -7,10 +7,8 @@ import "regexp"
 const (
 	// WarnEnvelopeUnwritable: <run_dir>/envelope.json could not be written.
 	WarnEnvelopeUnwritable = "envelope_unwritable"
-	// WarnOutputUnwritable: the file named by --output could not be written.
-	WarnOutputUnwritable = "output_unwritable"
 	// WarnEventsUnwritable: an event could not be written to the run
-	// directory or to the file named by --emit-events. It is raised once.
+	// directory. It is raised once.
 	WarnEventsUnwritable = "events_unwritable"
 	// WarnInvalidCode: a command raised a warning whose code does not match
 	// the pattern of a code. The message begins with that code.
@@ -23,7 +21,6 @@ var WarningCodes = []string{
 	WarnInputTruncated,
 	WarnCommentsUnreadable,
 	WarnEnvelopeUnwritable,
-	WarnOutputUnwritable,
 	WarnEventsUnwritable,
 	WarnInvalidCode,
 }

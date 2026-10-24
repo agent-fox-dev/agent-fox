@@ -44,11 +44,10 @@ func queueCommand(app *toolio.App, name string) *toolio.Command {
 			fs.BoolVar(&wait, "wait", false, "follow the job until it is at rest, and end with what it came to")
 			server.bind(fs)
 		},
-		RawStdin:     true,
-		Context:      true,
-		Timeout:      true,
-		ResultSchema: resultSchema("job_result"),
-		Run:          func(r *toolio.Run) (toolio.Outcome, error) { return queueJob(r, app, name, workspace, wait, &server) },
+		RawStdin: true,
+		Context:  true,
+		Timeout:  true,
+		Run:      func(r *toolio.Run) (toolio.Outcome, error) { return queueJob(r, app, name, workspace, wait, &server) },
 	}
 }
 

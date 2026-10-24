@@ -50,8 +50,8 @@ func echoing(status int) http.HandlerFunc {
 
 // TestASentinelCredentialAndAPATNeverAppearInAnyOutput_TS_16_27 verifies TS-16-27: for random
 // sentinels, commands and answers of a service that repeats the request into its messages and
-// warnings, the credential and the token of a workspace are in none of stdout, stderr, the
-// --output file and the --emit-events file.
+// warnings, the credential and the token of a workspace are in none of stdout, stderr and the
+// events.
 // Verifies: 16-REQ-4.6
 func TestASentinelCredentialAndAPATNeverAppearInAnyOutput_TS_16_27(t *testing.T) {
 	statuses := []int{200, 400, 401, 404, 409, 422, 500, 502, 503}
@@ -61,7 +61,7 @@ func TestASentinelCredentialAndAPATNeverAppearInAnyOutput_TS_16_27(t *testing.T)
 		cred := fmt.Sprintf("cred-%016x", rng.Uint64())
 		pat := fmt.Sprintf("pat-%016x", rng.Uint64())
 		status := statuses[rng.Intn(len(statuses))]
-		dir := inDir(t)
+		inDir(t)
 		svc := newFakeService(t, echoing(status))
 		_, config := clientHome(t, nil)
 		t.Setenv("AF_URL", svc.URL)
@@ -82,15 +82,13 @@ func TestASentinelCredentialAndAPATNeverAppearInAnyOutput_TS_16_27(t *testing.T)
 			{"fix", "1", "--workspace", "w"}, {"fix", "1", "--workspace", "w", "--wait"}, {"triage", "some words", "--workspace", "w", "--wait"},
 		}
 		args := slices.Clone(commands[rng.Intn(len(commands))])
-		output, emitted := filepath.Join(dir, "out.json"), filepath.Join(dir, "events.jsonl")
-		args = append(args, "--output", output, "--emit-events", emitted)
-		res := afRun(t, "", args...)
+		res, events := afRunEvents(t, args...)
 
-		files := map[string]string{"stdout": res.stdout, "stderr": res.stderr, "--output": readFile(t, output), "--emit-events": readFile(t, emitted)}
+		files := map[string]string{"stdout": res.stdout, "stderr": res.stderr, "events": events}
 		for name, content := range files {
 			for _, secret := range []string{cred, pat} {
 				if strings.Contains(content, secret) {
-					t.Fatalf("seed %d, %v with the status %d: %s holds %q:\n%s", seed, args[:len(args)-4], status, name, secret, content)
+					t.Fatalf("seed %d, %v with the status %d: %s holds %q:\n%s", seed, args, status, name, secret, content)
 				}
 			}
 		}

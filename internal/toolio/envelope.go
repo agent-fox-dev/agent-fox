@@ -67,7 +67,7 @@ const (
 )
 
 // Envelope is the one JSON object every command invocation other than
-// --version, --schema and help writes to stdout. Its fields are always all
+// --version and help writes to stdout. Its fields are always all
 // present and appear in this order; a consumer never has to tell "missing"
 // from "empty". The JSON tags are what the schema's required list is checked
 // against.

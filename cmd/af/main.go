@@ -1,8 +1,7 @@
 // Command af is the agent-fox command line. Every command speaks one
 // contract, which internal/toolio implements: one JSON envelope on stdout,
-// a fixed table of statuses and exit codes, a resumable needs_human stop, a
-// --dry-run that cannot write to the forge, and a schema that af --schema
-// prints. The commands of the loops and the ring-1 commands are in
+// a fixed table of statuses and exit codes, a resumable needs_human stop, and a
+// --dry-run that cannot write to the forge. The commands of the loops and the ring-1 commands are in
 // internal/afcmd; the commands of the agent-fox service client (login,
 // workspace, jobs) are in this package, which passes the process's arguments
 // and streams to the shell they are registered on.
@@ -10,8 +9,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"os"
 	"strings"
 
@@ -44,9 +41,7 @@ func registerClient(app *toolio.App) {
 	app.Mode = modeHook(service)
 	app.HelpExtra = modeHelp(app, service)
 	for name := range service {
-		// The result of a loop is its own, and in service mode it is the job result.
 		if loop := app.Command(name); loop != nil {
-			loop.ResultSchema = oneOfSchemas(loop.ResultSchema, resultSchema("job_result"))
 			// The synopsis of the loop is the one of the local mode.
 			loop.Usage = strings.Replace(loop.Usage, "<issue|file|text|-> ", "<issue|file|text|-> --local ", 1)
 		}
@@ -62,13 +57,4 @@ func registerClient(app *toolio.App) {
 	registerJobsCancel(app)
 	registerJobsAnswer(app)
 	registerJobsRetry(app)
-}
-
-// oneOfSchemas is the schema of a result that fits exactly one of the schemas.
-func oneOfSchemas(schemas ...json.RawMessage) json.RawMessage {
-	data, err := json.Marshal(map[string][]json.RawMessage{"oneOf": schemas})
-	if err != nil {
-		panic(fmt.Sprintf("the schemas cannot be joined: %v", err)) // they are JSON already
-	}
-	return data
 }
