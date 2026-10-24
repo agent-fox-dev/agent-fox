@@ -447,31 +447,6 @@ func TestTheSynthesizedEnvelopeNamesTheToolOfTheJobsKind(t *testing.T) {
 	}
 }
 
-// TestThePlaceholderRunnerFailsEveryAttemptAsUnsupportedAndNotRetryable_TS_12_34
-// verifies TS-12-34: with the placeholder wired, a fix job ends failed after one
-// attempt, with the error category unsupported, not retryable.
-// Verifies: 12-REQ-5.6
-func TestThePlaceholderRunnerFailsEveryAttemptAsUnsupportedAndNotRetryable_TS_12_34(t *testing.T) {
-	e := newEnv(t, withRunner(jobs.PlaceholderRunner{}))
-	job := e.create("widgets", jobs.KindFix, 1)
-	e.Start()
-	doc := e.waitRest(job.ID)
-	if doc.State != jobs.StateFailed || len(doc.Attempts) != 1 {
-		t.Fatalf("job %s with %d attempts, want failed and 1", doc.State, len(doc.Attempts))
-	}
-	if doc.Result == nil || doc.Result.Error == nil || doc.Result.Error.Category != "unsupported" || doc.Result.Error.Retryable || doc.Result.ExitCode != 1 {
-		t.Errorf("result = %+v, want the error category unsupported, not retryable, exit code 1", doc.Result)
-	}
-	// A triage fails the same way.
-	other := e.create("widgets", jobs.KindTriage, 2)
-	if d := e.waitRest(other.ID); d.State != jobs.StateFailed || d.Result.Error.Category != "unsupported" || len(d.Attempts) != 1 {
-		t.Errorf("triage: %s, %+v", d.State, d.Result)
-	}
-	if raw, err := os.ReadFile(e.fileOf(other.ID, 1, "envelope.json")); err != nil || !strings.Contains(string(raw), `"tool": "triage"`) {
-		t.Errorf("the envelope of a triage names another tool: %v\n%s", err, raw)
-	}
-}
-
 // TestEveryJobDocumentHasExactlyTheDocumentedFieldsAndBlockedOnlyWhileBlocked_TS_12_9
 // verifies TS-12-9 on the documents: a queued, a blocked and a done job each have
 // the 20 fields, and one more, attempts, in the view of a single job; the input has

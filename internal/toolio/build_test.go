@@ -143,7 +143,7 @@ func TestTestsStayOffTheNetwork_TS_05_73(t *testing.T) {
 	urlPattern := regexp.MustCompile(`https?://[^\s"'` + "`" + `<>)]+`)
 	forbidden := regexp.MustCompile(`\bhttp\.(Get|Post|Head|PostForm)\(|http\.DefaultClient|\bnet\.Dial(Timeout)?\(`)
 	for _, file := range append(files, more...) {
-		if file == "docs_test.go" { // this file states the rules
+		if file == "build_test.go" { // this file states the rules
 			continue
 		}
 		data, err := os.ReadFile(file)
