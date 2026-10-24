@@ -25,11 +25,6 @@ func bash(p Policy, command string) Decision {
 	return Decide(p, dir, "execute", map[string]any{"command": command})
 }
 
-// parse reads src as a line of the shell, at the top level.
-func parse(src string) ([]command, error) {
-	return parseAt(src, 0)
-}
-
 // words lists the words of every command parse finds, in order.
 func words(t *testing.T, src string) [][]string {
 	t.Helper()
@@ -44,7 +39,7 @@ func words(t *testing.T, src string) [][]string {
 	return out
 }
 
-// TestParse guards 06-REQ-7.1: the tokenizer reads POSIX quoting and finds
+// TestParse guards 06-REQ-7.1: the reader reads POSIX quoting and finds
 // every simple command a line runs, the ones in substitutions included.
 func TestParse(t *testing.T) {
 	cases := []struct {
@@ -64,7 +59,7 @@ func TestParse(t *testing.T) {
 		{"echo $(a $(b))", [][]string{{"echo", "$(a $(b))"}, {"a", "$(b)"}, {"b"}}},
 		{"(a; b) && c", [][]string{{"a"}, {"b"}, {"c"}}},
 		{"{ a; }", [][]string{{"{", "a"}, {"}"}}},
-		{"x=1 y=2 cmd arg", [][]string{{"x=1", "y=2", "cmd", "arg"}}},
+		{"x=1 y=2 cmd arg", [][]string{{"x=", "y=", "cmd", "arg"}}},
 		{"echo ${x:-$(date)}", [][]string{{"echo", "${x:-$(date)}"}, {"date"}}},
 		{"echo $((1+2)) $(( $(b) * 2 ))", [][]string{{"echo", "$((1+2))", "$(( $(b) * 2 ))"}, {"b"}}},
 		{"diff <(a) <(b)", [][]string{{"diff", "<(a)", "<(b)"}, {"a"}, {"b"}}},
@@ -72,7 +67,6 @@ func TestParse(t *testing.T) {
 		{"echo a#b", [][]string{{"echo", "a#b"}}},
 		{"ec\\\nho hi", [][]string{{"echo", "hi"}}},
 		{`echo "a > b" a\>b`, [][]string{{"echo", "a > b", "a>b"}}},
-		{"case x in a) git push ;; esac", [][]string{{"case", "x", "in", "a"}, {"git", "push"}, {"esac"}}},
 		{`echo a\`, [][]string{{"echo", `a\`}}},
 		{`"git" push`, [][]string{{"git", "push"}}},
 		{`g\it push`, [][]string{{"git", "push"}}},
@@ -110,8 +104,7 @@ func TestParseRedirections(t *testing.T) {
 		"cat <<EOF\n$(git push)\nEOF\nls":            {{"cat"}, {"git", "push"}, {"ls"}},
 		"cat <<-EOF\n\tgit push\n\tEOF\nls":          {{"cat"}, {"ls"}},
 		"cat <<EOF | wc\nbody `a`\nEOF\nls":          {{"cat"}, {"wc"}, {"a"}, {"ls"}},
-		"x=$(cat <<EOF\ninside\nEOF\n) git status":   {{"x=$(cat <<EOF\ninside\nEOF\n)", "git", "status"}, {"cat"}},
-		"cat <<EOF\nnot terminated, git push\n":      {{"cat"}},
+		"x=$(cat <<EOF\ninside\nEOF\n) git status":   {{"x=", "git", "status"}, {"cat"}},
 		`cat <<"E O F"` + "\n$(git push)\nE O F\nls": {{"cat"}, {"ls"}},
 	} {
 		if got := words(t, src); !reflect.DeepEqual(got, want) {
@@ -142,7 +135,7 @@ func TestParseSegmentText(t *testing.T) {
 // Verifies: 06-REQ-7.2
 func TestUnparseable_TS_06_48(t *testing.T) {
 	for _, src := range []string{
-		`echo "abc`, `echo 'abc`, `echo $(ls`, "echo `ls", `echo ${x`, `echo <(ls`, `(ls`, `echo $(( 1`, `echo "$(ls"`,
+		`echo "abc`, `echo 'abc`, `echo $(ls`, "echo `ls", `echo ${x`, `echo <(ls`, `(ls`, `echo $(( 1`, `echo "$(ls"`, "echo a)", "case x in a) git push ;; esac", "cat <<EOF\nnot terminated, git push\n",
 		strings.Repeat("$(", 200) + "ls" + strings.Repeat(")", 200),
 	} {
 		d := bash(defaultPolicy(), src)
@@ -151,7 +144,7 @@ func TestUnparseable_TS_06_48(t *testing.T) {
 			t.Errorf("%.40q: %+v, want a denial by unparseable with a reason and a segment", src, d)
 		}
 	}
-	for _, src := range []string{`echo "it's"`, `echo 'a"b'`, `echo a\ b`, "echo a)", `echo "a" 'b'`, `echo $(echo ")")`, `echo "$(echo ")")"`} {
+	for _, src := range []string{`echo "it's"`, `echo 'a"b'`, `echo a\ b`, `echo "a" 'b'`, `echo $(echo ")")`, `echo "$(echo ")")"`} {
 		if d := bash(defaultPolicy(), src); d.Rule == RuleUnparseable {
 			t.Errorf("%q is unparseable: %+v", src, d)
 		}

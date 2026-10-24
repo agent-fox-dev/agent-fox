@@ -29,37 +29,37 @@ func TestParseReadsWhatTheShellReads(t *testing.T) {
 		{`echo $'it\'s' $'a\tb' $'x\\y'`, [][]string{{"echo", "it's", "a\tb", `x\y`}}},
 		{`echo $'a\0b'`, [][]string{{"echo", "a"}}},
 		{`echo $'\''; git push; echo x # '`, [][]string{{"echo", "'"}, {"git", "push"}, {"echo", "x"}}},
-		{`echo "$'a'"`, [][]string{{"echo", "$'a'"}}},
+		{`echo "$'a'"`, [][]string{{"echo", "a"}}}, // quoted, and read all the same
 		// Brace expansion.
 		{"{git,push}", [][]string{{"git", "push"}}},
 		{"{make,check}", [][]string{{"make", "check"}}},
 		{"echo {a,b}{1,2}", [][]string{{"echo", "a1", "a2", "b1", "b2"}}},
 		{"echo x{,y} {a,{b,c}}", [][]string{{"echo", "x", "xy", "a", "b", "c"}}},
 		{"echo {1..3} {c..a} {1..10..4} {01..03}", [][]string{{"echo", "1", "2", "3", "c", "b", "a", "1", "5", "9", "01", "02", "03"}}},
-		{`echo "{a,b}" '{a,b}' \{a,b\} {a} {} ${x,y} a{b {a,b`, [][]string{{"echo", "{a,b}", "{a,b}", "{a,b}", "{a}", "{}", "${x,y}", "a{b", "{a,b"}}},
+		{`echo {a} {} ${x,y} a{b {a,b`, [][]string{{"echo", "{a}", "{}", "${x,y}", "a{b", "{a,b"}}},
+		// Quoted braces are expanded all the same: the quotes are gone.
+		{`echo "{a,b}" '{a,b}' \{a,b\}`, [][]string{{"echo", "a", "b", "a", "b", "a", "b"}}},
 		{"echo a{b{c,d}", [][]string{{"echo", "a{bc", "a{bd"}}},
 		{"echo $(echo {a,b}) {x,y}", [][]string{{"echo", "$(echo {a,b})", "x", "y"}, {"echo", "a", "b"}}},
 		// The word a variable that splits at once names.
 		{"git${IFS}push origin", [][]string{{"git", "push", "origin"}}},
 		{"git$IFS'push'", [][]string{{"git", "push"}}},
-		{"git$IFSx push", [][]string{{"git$IFSx", "push"}}},
-		{`"git${IFS}push" x`, [][]string{{"git${IFS}push", "x"}}},
+		{"git$IFSx push", [][]string{{"git", "x", "push"}}},
+		{`"git${IFS}push" x`, [][]string{{"git", "push", "x"}}},
 		{"echo $IFS a", [][]string{{"echo", "a"}}},
 		// Backticks unescape their body before it is read.
 		{"echo `echo \\`git push\\``", [][]string{{"echo", "`echo \\`git push\\``"}, {"echo", "`git push`"}, {"git", "push"}}},
 		{"echo `echo a\\\\b \\$HOME`", [][]string{{"echo", "`echo a\\\\b \\$HOME`"}, {"echo", "ab", "$HOME"}}},
 		// Arithmetic in the old and the new form is not a heredoc.
 		{"(( 1 << 2 ))\ngit push", [][]string{{"git", "push"}}},
-		{"echo $[1<<2]\ngit push", [][]string{{"echo", "$[1<<2]"}, {"git", "push"}}},
 		{"echo $((1<<2))\ngit push", [][]string{{"echo", "$((1<<2))"}, {"git", "push"}}},
 		{"(( x = $(git push) ))", [][]string{{"git", "push"}}},
-		{"for ((i=0;i<1<<3;i++)); do git push; done", [][]string{{"for"}, {"do", "git", "push"}, {"done"}}},
 		{"((cd x) && ls)", [][]string{{"cd", "x"}, {"ls"}}},
 		{"((git push); (git status))", [][]string{{"git", "push"}, {"git", "status"}}},
 		{"(( (git push) ); git status)", [][]string{{"git", "push"}, {"git", "status"}}},
 		{"echo $((git push) )", [][]string{{"echo", "$((git push) )"}, {"git", "push"}}},
 		{"echo $(( (1+2)*3 )) $((echo hi))", [][]string{{"echo", "$(( (1+2)*3 ))", "$((echo hi))"}}},
-		{"echo $[ $(git push) + 1 ]", [][]string{{"echo", "$[ $(git push) + 1 ]"}, {"git", "push"}}},
+		{"echo $[ $(git push) + 1 ]", [][]string{{"echo", "$[", "$(git push)", "+", "1", "]"}, {"git", "push"}}},
 	}
 	for _, tc := range cases {
 		if got := words(t, tc.src); !reflect.DeepEqual(got, tc.want) {
@@ -69,10 +69,12 @@ func TestParseReadsWhatTheShellReads(t *testing.T) {
 }
 
 // TestParseRefusesWhatItCannotBound guards 06-REQ-7.2: an expansion that
-// would make more words than can be judged is not read.
+// would make more words than can be judged is not read, and neither is a line
+// the hands' reader cannot read with certainty.
 func TestParseRefusesWhatItCannotBound(t *testing.T) {
 	for _, src := range []string{
-		"echo {1..100000}", "echo " + strings.Repeat("{a,b}", 20), `echo $'abc`, "echo $[1+",
+		"echo {1..100000}", "echo " + strings.Repeat("{a,b}", 20), `echo $'abc`, "echo $[1<<2]\ngit push",
+		"for ((i=0;i<1<<3;i++)); do git push; done",
 	} {
 		if cmds, err := parse(src); err == nil {
 			t.Errorf("parse(%.40q) = %v, want an error", src, cmds)
@@ -97,7 +99,7 @@ func TestEveryWayToNameAProgramIsJudged(t *testing.T) {
 		{`{git,push}`, RuleGitMutation}, {`git${IFS}push`, RuleGitMutation}, {`Git push`, RuleGitMutation}, {`GIT push`, RuleGitMutation},
 		{`{make,check}`, RuleSuiteCommand}, {`{go,test,./...}`, RuleSuiteCommand}, {`MAKE check`, RuleSuiteCommand}, {`Make check`, RuleSuiteCommand},
 		{"echo `echo \\`git push\\``", RuleGitMutation}, {`echo $'\''; git push; echo x # '`, RuleGitMutation},
-		{"(( 1 << 2 ))\ngit push", RuleGitMutation}, {"echo $[1<<2]\ngit push", RuleHandsGuard},
+		{"(( 1 << 2 ))\ngit push", RuleGitMutation}, {"echo $[1<<2]\ngit push", RuleUnparseable},
 		{"((git push); (git status))", RuleGitMutation}, {"echo $((git push) )", RuleGitMutation},
 		// env -S splits its string into the command.
 		{`env -S 'git push'`, RuleGitMutation}, {`env -iS 'git push'`, RuleGitMutation}, {`env --split-string='git push'`, RuleGitMutation},
@@ -107,7 +109,7 @@ func TestEveryWayToNameAProgramIsJudged(t *testing.T) {
 		{`bash --rcfile /dev/null -c 'git push'`, RuleGitMutation}, {`bash --init-file /dev/null -c 'git push'`, RuleGitMutation},
 		{`bash -c -x 'git push'`, RuleGitMutation}, {`bash -O extglob -c 'git push'`, RuleGitMutation}, {`sh -c -- 'git push'`, RuleGitMutation},
 		{`trap 'git push' EXIT`, RuleGitMutation}, {`trap "make check" EXIT INT`, RuleSuiteCommand}, {`eval -- 'git push'`, RuleGitMutation},
-		{`function f { git push; }; f`, RuleGitMutation}, {`function f() { git push; }; f`, RuleHandsGuard}, {`coproc git push`, RuleGitMutation},
+		{`function f { git push; }; f`, RuleGitMutation}, {`function f() { git push; }; f`, RuleUnparseable}, {`coproc git push`, RuleGitMutation},
 		{`coproc NAME { git push; }`, RuleGitMutation}, {`xargs git push`, RuleGitMutation}, {`xargs -n 1 -I {} git push {}`, RuleGitMutation},
 		{`find . -exec git push \;`, RuleGitMutation}, {`find . -name x -execdir make check \;`, RuleSuiteCommand},
 		// Configuration for git that runs a program.

@@ -57,7 +57,7 @@ change as the code: a document that is out of date is a regression.
 | `internal/project` | What a repository is written in and how it is checked: the languages, the gate table (`gate.json`, the Makefile, the manifests), the suite forms, the programs, and which paths are tests. |
 | `internal/checks` | The file view and the tree hash; the gate engine and its cache (`.agent-fox/gate/`), the labels and the comparison of two results. |
 | `internal/conform` | The revert check: whether the tests of a change fail without it. |
-| `internal/policy` | The guard: the tokenizer, the rules, the policy files, and the decision for a tool call. |
+| `internal/policy` | The guard: the expansion of the words of the commands the hands' reader finds, the rules, the policy files, and the decision for a tool call. |
 | `internal/repomap` | The repository map at a token budget. |
 | `internal/box` | The box that holds a brain's tree: a registry of providers (`podman` and `local`; the `gateway` of a lease is made for one attempt and held only in the registry of that attempt), `Open` and `Sync` (the checkout goes in with its `.git`), a read-only `FS`, `WriteFile` under `.agent-fox/`, `Export` (without `.git`), `Exec` (a command in the box, at its root), `Close`, and `With`, which closes on every path. `Here` is a session in place over a directory, for a process that is in a box already. Every name of the hands' sandbox module that is not a type is in `adapter.go`. |
 | `internal/submission` | The submission protocol: `Kind`, `Submit` (the path to a submission file for a brain that is af's own: it validates before it writes), `Check` (what the host asks of a file it did not write), `RootWriter`, and `Command`, the `af <agent> submit` command of a kind. |

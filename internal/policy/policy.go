@@ -263,7 +263,7 @@ func flatten(src string, depth int) ([]segment, error) {
 	if depth > maxDepth {
 		return nil, fmt.Errorf("scripts nested more than %d deep", maxDepth)
 	}
-	cmds, err := parseAt(src, depth)
+	cmds, err := parse(src)
 	if err != nil {
 		return nil, err
 	}

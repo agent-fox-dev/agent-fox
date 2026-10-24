@@ -193,3 +193,30 @@ check is there. What changes:
 `TestADirectoryThatBecameAFile`, `TestANestedRepositoryIsNotReverted`
 (`internal/conform/revert_test.go`), and `TestAGateThatCannotRunIsAFailureOfTheRun`
 (`internal/fix/measure_test.go`).
+
+## 10. The policy reads a line with the hands' reader
+
+06-REQ-7.1 has the policy tokenize a command line itself. It did, with a reader of 650 lines
+(`tokenize.go`) beside the hands' own, `guard.Commands`, which §1's guard ran on the same line
+anyway. The policy's reader is removed: `parse` (`internal/policy/parse.go`) takes the commands
+`guard.Commands` finds and expands the words where that can make a program name of them, as the
+shell would: `$'…'` and `$"…"`, `$IFS` and `${IFS}`, which split a word, and braces, within the
+same bounds as before (4096 words, 1 MiB).
+
+What changes:
+
+- `guard.Commands` removes the quotes before the expansion, so quoted braces, `$IFS` and `$'…'`
+  are expanded too (`echo "{a,b}"` is `echo a b`, `"git${IFS}push"` is `git push`), and `$IFS`
+  with a name after it splits (`git$IFSx` is `git x`). A word may be read as more than the shell
+  makes of it, which can only deny more.
+- A line the hands' reader cannot read is `unparseable`, not `hands_guard`: an unmatched `)`, a
+  heredoc with no terminating line, a `case` statement, a function definition with `()`, `for
+  ((…))`, and `$[1<<2]`, whose `<<` it reads as a heredoc. Each was denied before as well, by the
+  hands' guard. `$[…]` is not arithmetic to it, so an unterminated `$[` is a word and not an
+  error; the substitutions inside one are still found.
+- An assignment in front of a program is its name and an `=`: its value is not read, and none of
+  the rules read it.
+
+**Test:** `TestParseReadsWhatTheShellReads`, `TestParseRefusesWhatItCannotBound`,
+`TestEveryWayToNameAProgramIsJudged` (`internal/policy/bypass_test.go`), `TestParse`,
+`TestUnparseable_TS_06_48` (`internal/policy/policy_test.go`).
