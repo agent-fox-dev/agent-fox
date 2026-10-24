@@ -690,12 +690,14 @@ worker, the poll, the `af` client) build on:
 - **The loop and how the attempt ends.** After the lease the worker runs the loop in its own process, as the
   `af` command it is (`internal/afcmd`), with a shell of its own that no signal stops, only the context of the
   attempt: the forge is hub's for the workspace's repository, the box providers are the gateway of the lease
-  alone, the git runner is the clone's, the checks of the repository are measured in the box, and the settings
-  are the flags (`--brain`, `--budget`, `--max-turns`, `--timeout`, and for a fix `--land`;
-  the model goes to the brain in its options). The environment of the process is read by nothing: the brain
-  gets a lookup that finds nothing. An issue is its URL on the workspace's repository, a text goes on stdin
-  with its title as a Markdown heading, a file is written to `input/<base name>` (mode 0600 in a directory of
-  mode 0700) and passed by path, and the strings of context come as `--context` values, then the answers;
+  alone, the git runner is the clone's, and the checks of the repository are measured in the box. It calls the
+  command as a Go function, `toolio.App.Invoke` with a `toolio.Call`, and not with a command line: the settings
+  are `afcmd.LoopOptions` (the brain in the `gateway` box, the budget, the turns, and for a fix the landing),
+  the timeout is the call's, and the model goes to the brain in its options; the envelope comes back as a
+  value beside its encoding, which the job keeps. The environment of the process is read by nothing: the brain
+  gets a lookup that finds nothing. An issue is its URL on the workspace's repository, a text is the stdin of
+  the call with its title as a Markdown heading, a file is written to `input/<base name>` (mode 0600 in a
+  directory of mode 0700) and passed by path, and the strings of context are the context values of the call, then the answers;
   the earlier questions say there is no question for a string and give the question with its options for an
   answer. Every line of the loop's events reaches the job's recorder as it is written, beside the worker's
   own `step` events (`resolve`, `session`, `clone`, `lease`, `run`, `mirror`, `release` and `report`). The attempt ends in one

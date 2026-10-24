@@ -11,6 +11,7 @@ import (
 
 	"github.com/agent-fox-dev/agentkit-go/catalog"
 
+	"github.com/agent-fox-dev/agentfox/internal/afcmd"
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
@@ -27,42 +28,42 @@ func TestVariablesApplyWithTheirDefaultsAndRangesAndReachTheLoopAsFlags_TS_13_27
 		t.Fatal("the catalog has no default Anthropic model")
 	}
 	cases := []struct {
-		name  string
-		kind  jobs.Kind
-		vars  map[string]string
-		want  Settings
-		flags string
+		name    string
+		kind    jobs.Kind
+		vars    map[string]string
+		want    Settings
+		options afcmd.LoopOptions
 	}{
 		{"triage defaults", jobs.KindTriage, nil,
 			Settings{Brain: "agentkit", Model: model, Budget: 2, MaxTurns: 100, Timeout: 15 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
-			"--brain agentkit --budget 2 --max-turns 100 --timeout 15m0s"},
+			afcmd.LoopOptions{Brain: "agentkit", Sandbox: "gateway", Budget: 2, MaxTurns: 100}},
 		{"fix defaults", jobs.KindFix, map[string]string{},
 			Settings{Brain: "agentkit", Model: model, Budget: 10, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
-			"--brain agentkit --budget 10 --max-turns 150 --timeout 45m0s --land pr"},
+			afcmd.LoopOptions{Brain: "agentkit", Sandbox: "gateway", Budget: 10, MaxTurns: 150, Land: "pr"}},
 		{"empty values are unset", jobs.KindFix,
 			map[string]string{"AF_MODEL": "", "AF_MAX_BUDGET_USD": "", "AF_MAX_TURNS": "", "AF_TIMEOUT": "", "AF_MAX_ATTEMPTS": "", "AF_SANDBOX_PROFILE": "", "AF_FIX_LAND": ""},
 			Settings{Brain: "agentkit", Model: model, Budget: 10, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
-			"--brain agentkit --budget 10 --max-turns 150 --timeout 45m0s --land pr"},
+			afcmd.LoopOptions{Brain: "agentkit", Sandbox: "gateway", Budget: 10, MaxTurns: 150, Land: "pr"}},
 		{"the lower boundaries", jobs.KindTriage,
 			map[string]string{"AF_TIMEOUT": "1m", "AF_MAX_ATTEMPTS": "1", "AF_MAX_TURNS": "1", "AF_MAX_BUDGET_USD": "0.01", "AF_MODEL": "m-1", "AF_SANDBOX_PROFILE": "py"},
 			Settings{Brain: "agentkit", Model: "m-1", Budget: 0.01, MaxTurns: 1, Timeout: time.Minute, MaxAttempts: 1, Profile: "py", Land: "pr", TriggersOn: true},
-			"--brain agentkit --budget 0.01 --max-turns 1 --timeout 1m0s"},
+			afcmd.LoopOptions{Brain: "agentkit", Sandbox: "gateway", Budget: 0.01, MaxTurns: 1}},
 		{"the upper boundaries", jobs.KindFix,
 			map[string]string{"AF_TIMEOUT": "24h", "AF_MAX_ATTEMPTS": "10", "AF_FIX_LAND": "branch"},
 			Settings{Brain: "agentkit", Model: model, Budget: 10, MaxTurns: 150, Timeout: 24 * time.Hour, MaxAttempts: 10, Land: "branch", TriggersOn: true},
-			"--brain agentkit --budget 10 --max-turns 150 --timeout 24h0m0s --land branch"},
+			afcmd.LoopOptions{Brain: "agentkit", Sandbox: "gateway", Budget: 10, MaxTurns: 150, Land: "branch"}},
 		{"fractions of a dollar", jobs.KindTriage, map[string]string{"AF_MAX_BUDGET_USD": "12.375"},
 			Settings{Brain: "agentkit", Model: model, Budget: 12.375, MaxTurns: 100, Timeout: 15 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
-			"--brain agentkit --budget 12.375 --max-turns 100 --timeout 15m0s"},
+			afcmd.LoopOptions{Brain: "agentkit", Sandbox: "gateway", Budget: 12.375, MaxTurns: 100}},
 		{"very small and very large budgets", jobs.KindFix, map[string]string{"AF_MAX_BUDGET_USD": "0.00001"},
 			Settings{Brain: "agentkit", Model: model, Budget: 0.00001, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
-			"--brain agentkit --budget 0.00001 --max-turns 150 --timeout 45m0s --land pr"},
+			afcmd.LoopOptions{Brain: "agentkit", Sandbox: "gateway", Budget: 0.00001, MaxTurns: 150, Land: "pr"}},
 		{"unknown variables are ignored", jobs.KindFix, map[string]string{"AF_UNKNOWN": "x", "PATH": "/nowhere", "AF_LABEL_PREFIX": "z:", "AF_SANDBOX": "none", "AF_BRAIN": "claude", "AF_BRAIN_FIX": "scripted"},
 			Settings{Brain: "agentkit", Model: model, Budget: 10, MaxTurns: 150, Timeout: 45 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
-			"--brain agentkit --budget 10 --max-turns 150 --timeout 45m0s --land pr"},
+			afcmd.LoopOptions{Brain: "agentkit", Sandbox: "gateway", Budget: 10, MaxTurns: 150, Land: "pr"}},
 		{"a variable of the other kind is not looked at", jobs.KindTriage, map[string]string{"AF_FIX_LAND": "weird"},
 			Settings{Brain: "agentkit", Model: model, Budget: 2, MaxTurns: 100, Timeout: 15 * time.Minute, MaxAttempts: 2, Land: "pr", TriggersOn: true},
-			"--brain agentkit --budget 2 --max-turns 100 --timeout 15m0s"},
+			afcmd.LoopOptions{Brain: "agentkit", Sandbox: "gateway", Budget: 2, MaxTurns: 100}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -73,8 +74,8 @@ func TestVariablesApplyWithTheirDefaultsAndRangesAndReachTheLoopAsFlags_TS_13_27
 			if got != tc.want {
 				t.Errorf("settings = %+v\nwant     %+v", got, tc.want)
 			}
-			if flags := strings.Join(got.flags(tc.kind), " "); flags != tc.flags {
-				t.Errorf("flags = %q, want %q", flags, tc.flags)
+			if options := got.options(tc.kind); options != tc.options {
+				t.Errorf("options = %+v, want %+v", options, tc.options)
 			}
 		})
 	}

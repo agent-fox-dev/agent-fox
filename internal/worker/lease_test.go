@@ -268,9 +268,8 @@ func TestTheTimeoutIsCutToEndTwoMinutesBeforeTheLeaseExpires_TS_13_46(t *testing
 				if got := a.settings.Timeout; got < tc.low || got > tc.hi || got != got.Truncate(time.Second) {
 					t.Errorf("the timeout of the loop is %v, want a whole number of seconds from %v to %v", got, tc.low, tc.hi)
 				}
-				flags := strings.Join(a.settings.flags(jobs.KindFix), " ")
-				if !strings.Contains(flags, "--timeout "+a.settings.Timeout.String()) {
-					t.Errorf("the flags of the loop are %q, want the timeout of the settings", flags)
+				if call, _ := e.runner.loopCall(a); call.Timeout != a.settings.Timeout {
+					t.Errorf("the timeout of the call of the loop is %v, want the one of the settings", call.Timeout)
 				}
 				return ended(a, nil)
 			})

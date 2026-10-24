@@ -17,6 +17,7 @@ import (
 
 	"github.com/agent-fox-dev/aflib/issuex"
 
+	"github.com/agent-fox-dev/agentfox/internal/afcmd"
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs/fakerunner"
@@ -406,7 +407,7 @@ func TestInfrastructureFailuresReturnTransientErrorsThatTheJobsLayerHandsOverAga
 				a := &attempt{req: e.fixRequest(), report: e.sink, maxAttempts: 2}
 				stdout := fakerunner.Env(toolio.StatusFailed, fakerunner.WithError(tc.category, "it failed: "+tc.category, tc.retryable))
 
-				out := e.runner.loopOutcome(context.Background(), a, stdout)
+				out := e.runner.loopOutcome(context.Background(), a, decoded(t, stdout), stdout)
 
 				if got := jobs.IsTransient(out.err); got != tc.transient {
 					t.Fatalf("transient = %v (%v), want %v", got, out.err, tc.transient)
@@ -886,19 +887,18 @@ func TestTheLoopIsMadeOfTheSeamsOfTheAttempt(t *testing.T) {
 		t.Errorf("earlier questions = %+v, want none for the two strings and Which? with its options for the answer", cfg.Earlier)
 	}
 
-	args, _, refused := e.runner.loopArgs(a)
+	call, refused := e.runner.loopCall(a)
 	if refused != nil {
 		t.Fatal(refused.message)
 	}
-	want := []string{"af", "fix", "https://github.example.com/Org/Repo/issues/42", "--dir", a.cloneDir, "--sandbox", "gateway"}
-	if !slices.Equal(args[:len(want)], want) {
-		t.Errorf("the invocation begins %v, want %v", args[:len(want)], want)
+	if call.Path != "fix" || !slices.Equal(call.Args, []string{"https://github.example.com/Org/Repo/issues/42"}) || call.Dir != a.cloneDir {
+		t.Errorf("the call is %s %v in %s, want fix of the issue in the clone", call.Path, call.Args, call.Dir)
 	}
-	if tail := args[len(args)-3:]; !slices.Equal(tail, []string{"--context=c1", "--context=c2", "--context=y"}) {
-		t.Errorf("the invocation ends %v, want the context values in order, the answer last", tail)
+	if !slices.Equal(call.Context, []string{"c1", "c2", "y"}) {
+		t.Errorf("the context of the call is %v, want the context values in order, the answer last", call.Context)
 	}
-	if flags := strings.Join(args, " "); !strings.Contains(flags, "--model") && !(strings.Contains(flags, "--max-turns 150 --timeout ") && strings.Contains(flags, " --land pr")) {
-		t.Errorf("the invocation %q lacks the settings as flags", flags)
+	if o, ok := call.Options.(afcmd.LoopOptions); !ok || o.Sandbox != "gateway" || o.MaxTurns != 150 || o.Land != "pr" || call.Timeout != a.settings.Timeout {
+		t.Errorf("the call has the options %+v and the timeout %v, want the settings in the gateway box", call.Options, call.Timeout)
 	}
 }
 
@@ -910,7 +910,7 @@ func TestAFileWithNoNameToWriteItUnderIsRefusedAndNothingIsWritten(t *testing.T)
 		e := leaseEnv(t, nil)
 		a := &attempt{req: e.request(jobs.KindFix, jobs.Input{File: &jobs.File{Name: name, Content: "x"}}), input: loopInput{kind: inputFile, file: &jobs.File{Name: name, Content: "x"}}}
 
-		_, _, refused := e.runner.loopArgs(a)
+		_, refused := e.runner.loopCall(a)
 
 		if refused == nil || refused.category != toolio.CategoryUsage {
 			t.Errorf("name %q: refusal %+v, want a usage refusal", name, refused)
@@ -925,10 +925,10 @@ func TestAFileWithNoNameToWriteItUnderIsRefusedAndNothingIsWritten(t *testing.T)
 		file := &jobs.File{Name: "../../etc/notes.md", Content: "x"}
 		a := &attempt{req: e.request(jobs.KindFix, jobs.Input{File: file}), input: loopInput{kind: inputFile, file: file}}
 
-		args, _, refused := e.runner.loopArgs(a)
+		call, refused := e.runner.loopCall(a)
 
-		if refused != nil || args[2] != filepath.Join(e.dir, "input", "notes.md") {
-			t.Fatalf("args %v, refusal %v, want the path under input/", args, refused)
+		if refused != nil || !slices.Equal(call.Args, []string{filepath.Join(e.dir, "input", "notes.md")}) {
+			t.Fatalf("args %v, refusal %v, want the path under input/", call.Args, refused)
 		}
 	})
 }
@@ -961,7 +961,7 @@ func TestOnlyTheReportOfTheRunInTheCloneIsTheReportOfTheAttempt(t *testing.T) {
 		"a report that is not there": {[]toolio.Artifact{{Kind: "report", Path: filepath.Join(clone, "gone.md")}}, ""},
 		"a report with no path":      {[]toolio.Artifact{{Kind: "report"}}, ""},
 	} {
-		if got := a.reportOf(toolio.Envelope{Artifacts: tc.artifacts}); got != tc.want {
+		if got := a.reportOf(&toolio.Envelope{Artifacts: tc.artifacts}); got != tc.want {
 			t.Errorf("%s: report = %q, want %q", name, got, tc.want)
 		}
 	}
@@ -990,17 +990,22 @@ func TestALoopThatReturnsAfterTheAttemptWasStoppedIsItsContextsEnd(t *testing.T)
 	ctx, cancel := context.WithCancelCause(context.Background())
 	cancel(jobs.ErrCancelled)
 
-	out := e.runner.loopOutcome(ctx, a, fakerunner.Env(toolio.StatusFailed, fakerunner.WithError("cancelled", "stopped", false)))
+	stopped := fakerunner.Env(toolio.StatusFailed, fakerunner.WithError("cancelled", "stopped", false))
+	out := e.runner.loopOutcome(ctx, a, decoded(t, stopped), stopped)
 
 	if !errors.Is(out.err, jobs.ErrCancelled) || len(out.result.Envelope) == 0 {
 		t.Errorf("error %v, envelope %q, want the cancellation, with the envelope the loop wrote", out.err, out.result.Envelope)
 	}
-	if gone := e.runner.loopOutcome(ctx, a, []byte("not an envelope")); !errors.Is(gone.err, jobs.ErrCancelled) || len(gone.result.Envelope) != 0 {
-		t.Errorf("a stopped loop that wrote no envelope: %v, %q, want the cancellation alone", gone.err, gone.result.Envelope)
+}
+
+// decoded is an encoded envelope as the loop returns it beside the encoding.
+func decoded(t *testing.T, data []byte) *toolio.Envelope {
+	t.Helper()
+	var env toolio.Envelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		t.Fatal(err)
 	}
-	if bad := e.runner.loopOutcome(context.Background(), a, []byte("not an envelope")); bad.err == nil || jobs.IsTransient(bad.err) {
-		t.Errorf("a loop that wrote no envelope: %v, want an error that is not transient", bad.err)
-	}
+	return &env
 }
 
 // TestTheReportOfTheRunIsCutAtAMegabyte pins the bound of the report text.
@@ -1013,7 +1018,7 @@ func TestTheReportOfTheRunIsCutAtAMegabyte(t *testing.T) {
 	}
 	a := &attempt{cloneDir: dir}
 
-	if got := a.reportOf(toolio.Envelope{Artifacts: []toolio.Artifact{{Kind: "report", Path: path}}}); len(got) != maxReport {
+	if got := a.reportOf(&toolio.Envelope{Artifacts: []toolio.Artifact{{Kind: "report", Path: path}}}); len(got) != maxReport {
 		t.Errorf("the report is %d bytes, want %d", len(got), maxReport)
 	}
 }

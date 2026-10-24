@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agent-fox-dev/agentfox/internal/afcmd"
 	"github.com/agent-fox-dev/agentfox/internal/fakeaf"
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
 )
@@ -102,7 +103,7 @@ func loopEnv(t *testing.T, files map[string]string, vars map[string]string, muta
 	e := newEnv(t, w)
 	e.hub.SetLeaseTTL(3 * time.Hour)
 	e.hub.AddIssue(slug, fakehub.Issue{Number: 42, Title: "Greeting is wrong", Body: "The greeting should say hello."})
-	flags := []string{"--brain", "scripted", "--script", scriptFile(t, steps...)}
-	e.runner.loopFlags = func(*attempt) []string { return flags }
+	script := scriptFile(t, steps...)
+	e.runner.loopOptions = func(_ *attempt, o *afcmd.LoopOptions) { o.Brain, o.Script = "scripted", script }
 	return e
 }

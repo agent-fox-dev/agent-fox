@@ -2,8 +2,6 @@ package worker
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -16,28 +14,21 @@ import (
 // maxReport is how much of the report of a run is the report of the attempt.
 const maxReport = 1 << 20
 
-// loopOutcome is how the attempt ended when the loop returned, from the envelope it wrote. An
+// loopOutcome is how the attempt ended when the loop returned, from its envelope. An
 // attempt that was stopped is its context's end. A loop that failed in a way that is the
 // infrastructure's, an envelope of status failed whose error is retryable and of category sandbox,
 // forge or hub, is a transient error that carries the failure and no envelope, so that the same
 // attempt is handed over again. Every other ending is the envelope, as the loop wrote it, with
 // the report of the run beside it. A loop that returns after the attempt was stopped has the
 // cause of the stop beside its envelope, which the end of the attempt makes use of.
-func (r *Runner) loopOutcome(ctx context.Context, a *attempt, stdout []byte) *outcome {
-	var env toolio.Envelope
-	if err := json.Unmarshal(stdout, &env); err != nil {
-		if ctx.Err() != nil {
-			return &outcome{err: context.Cause(ctx)}
-		}
-		return &outcome{err: fmt.Errorf("worker: the loop wrote no envelope: %w", err)}
-	}
+func (r *Runner) loopOutcome(ctx context.Context, a *attempt, env *toolio.Envelope, encoded []byte) *outcome {
 	if ctx.Err() != nil { // the envelope the loop wrote when it was stopped goes with the cause
-		return &outcome{err: context.Cause(ctx), result: jobs.Result{Envelope: stdout, Report: a.reportOf(env), MaxAttempts: a.maxAttempts}}
+		return &outcome{err: context.Cause(ctx), result: jobs.Result{Envelope: encoded, Report: a.reportOf(env), MaxAttempts: a.maxAttempts}}
 	}
 	if f := infrastructureFailure(env.Error); f != nil {
 		return &outcome{err: jobs.Transient(f)}
 	}
-	return &outcome{result: jobs.Result{Envelope: stdout, Report: a.reportOf(env), MaxAttempts: a.maxAttempts}}
+	return &outcome{result: jobs.Result{Envelope: encoded, Report: a.reportOf(env), MaxAttempts: a.maxAttempts}}
 }
 
 // infrastructureFailure is the failure of an envelope that is the infrastructure's, or nil. A failure
@@ -55,7 +46,7 @@ func infrastructureFailure(e *toolio.ErrorInfo) *toolio.Failure {
 
 // reportOf is the text of the report of the run that the envelope names, or "". The file is the
 // loop's own, in the clone.
-func (a *attempt) reportOf(env toolio.Envelope) string {
+func (a *attempt) reportOf(env *toolio.Envelope) string {
 	for _, artifact := range env.Artifacts {
 		if artifact.Kind != "report" || artifact.Path == "" || !within(a.cloneDir, artifact.Path) {
 			continue

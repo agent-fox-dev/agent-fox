@@ -1,16 +1,14 @@
 package worker
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/agent-fox-dev/agentfox/internal/afcmd"
-	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/brain"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
@@ -22,20 +20,20 @@ const inputDirName = "input"
 // lease: the forge is hub's, the repository the workspace's, the git commands the hermetic ones of
 // the clone, the box providers the gateway of the lease alone, and the checks of the repository
 // are measured in the box. Nothing is read from the environment of the process: the settings come
-// as flags and the model in the options of the brain. The loop is not stopped by a signal, only by
-// the context of the attempt, and every line of its events is passed on as it is written.
+// as the options of the call and the model in the options of the brain. The loop is not stopped
+// by a signal, only by the context of the attempt, and every line of its events is passed on as it
+// is written.
 //
 // A box that is lost while the loop runs ends it with a retryable failure of category sandbox, which is a
 // transient error: the attempt is handed over again, and begins afresh.
 func (r *Runner) run(ctx context.Context, a *attempt) *outcome {
 	a.step("run")
-	args, stdin, refused := r.loopArgs(a)
+	call, refused := r.loopCall(a)
 	if refused != nil {
 		return r.envelopeOf(a, refused)
 	}
-	var stdout, stderr bytes.Buffer
-	r.loopApp(a).Main(ctx, args, stdin, &stdout, &stderr)
-	return r.loopOutcome(ctx, a, stdout.Bytes())
+	env, encoded := r.loopApp(a).Invoke(ctx, call)
+	return r.loopOutcome(ctx, a, env, encoded)
 }
 
 // loopApp is the shell the loop is run by: not stopped by a signal, with the run id of the
@@ -80,38 +78,34 @@ func (r *Runner) loopConfig(a *attempt) *afcmd.Config {
 // nothing is the environment of the loop: it has none.
 func nothing(string) (string, bool) { return "", false }
 
-// loopArgs is the invocation of the loop: the command, the input (the URL of the issue, a "-"
-// with the text on stdin, or the path of the file under input/), the clone, the gateway box, the
-// settings as flags, and the context values, the strings of the request and then the answers, in
-// order. The flags a test chose come last.
-func (r *Runner) loopArgs(a *attempt) (args []string, stdin io.Reader, refused *refusal) {
-	args = []string{"af", string(a.req.Kind)}
-	stdin = strings.NewReader("")
+// loopCall is the call of the loop: the command, the input (the URL of the issue, a "-" with the
+// text on stdin, or the path of the file under input/), the clone, the settings with the gateway
+// box, and the context values, the strings of the request and then the answers, in order. The
+// options a test chose are set last.
+func (r *Runner) loopCall(a *attempt) (toolio.Call, *refusal) {
+	call := toolio.Call{Path: string(a.req.Kind), Dir: a.cloneDir, Timeout: a.settings.Timeout}
 	switch a.input.kind {
 	case inputIssue:
-		args = append(args, a.input.url)
+		call.Args = []string{a.input.url}
 	case inputText:
-		args = append(args, "-")
-		stdin = strings.NewReader(a.input.text)
+		call.Args, call.Stdin = []string{"-"}, strings.NewReader(a.input.text)
 	case inputFile:
 		path, err := r.writeInput(a)
 		if err != nil {
-			return nil, nil, err
+			return toolio.Call{}, err
 		}
-		args = append(args, path)
+		call.Args = []string{path}
 	}
-	args = append(args, "--dir", a.cloneDir, "--sandbox", box.GatewayName)
-	args = append(args, a.settings.flags(a.req.Kind)...)
-	for _, c := range a.req.Context {
-		args = append(args, "--context="+c)
+	options := a.settings.options(a.req.Kind)
+	if r.loopOptions != nil {
+		r.loopOptions(a, &options)
 	}
+	call.Options = options
+	call.Context = slices.Clone(a.req.Context)
 	for _, answer := range a.req.Answers {
-		args = append(args, "--context="+answer.Text)
+		call.Context = append(call.Context, answer.Text)
 	}
-	if r.loopFlags != nil {
-		args = append(args, r.loopFlags(a)...)
-	}
-	return args, stdin, nil
+	return call, nil
 }
 
 // writeInput writes the file of the job to input/ of the attempt directory under its base name,
