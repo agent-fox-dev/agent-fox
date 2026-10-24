@@ -198,6 +198,8 @@ type Doc struct {
 	SideEffects    []toolio.SideEffect `json:"side_effects"`
 	Labels         *LabelsDoc          `json:"labels"`
 	CancelCause    *string             `json:"cancel_cause"`
+	ParentJobID    *string             `json:"parent_job_id"`
+	FollowUp       *FollowUp           `json:"follow_up"`
 	Usage          UsageDoc            `json:"usage"`
 	Hub            *HubDoc             `json:"hub"`
 	CreatedAt      string              `json:"created_at"`

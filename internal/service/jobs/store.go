@@ -39,6 +39,9 @@ type NewJob struct {
 	Issue        *int64
 	Source       Source
 	RequestLabel string
+	// ParentJobID is the triage job a fix job follows from, and FollowUp the triage job whose pending follow-up the job is
+	// made from, which is marked made with it; both are empty for every other job.
+	ParentJobID, FollowUp string
 }
 
 // Event is a line of the log of a job. It is also the data of a frame of the event
@@ -300,9 +303,12 @@ func (s *Store) CreateJob(ctx context.Context, in NewJob) (string, error) {
 	if in.RequestLabel != "" {
 		label = in.RequestLabel
 	}
-	var issue any
+	var issue, parent any
 	if in.Issue != nil {
 		issue = *in.Issue
+	}
+	if in.ParentJobID != "" {
+		parent = in.ParentJobID
 	}
 	now := formatTime(s.now())
 
@@ -311,9 +317,9 @@ func (s *Store) CreateJob(ctx context.Context, in NewJob) (string, error) {
 			return err
 		}
 		if _, err := x.ExecContext(ctx,
-			`INSERT INTO af_jobs (id, workspace, kind, input, context, issue, source_kind, source_by, request_label, state, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)`,
-			id, in.Workspace, string(in.Kind), string(input), string(notes), issue, in.Source.Kind, in.Source.By, label, now); err != nil {
+			`INSERT INTO af_jobs (id, workspace, kind, input, context, issue, source_kind, source_by, request_label, parent_job_id, state, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)`,
+			id, in.Workspace, string(in.Kind), string(input), string(notes), issue, in.Source.Kind, in.Source.By, label, parent, now); err != nil {
 			if uniqueViolation(err) {
 				return ErrDuplicate
 			}
@@ -322,7 +328,13 @@ func (s *Store) CreateJob(ctx context.Context, in NewJob) (string, error) {
 		if err := x.insertAttempt(ctx, 1, Trigger{Kind: TriggerCreate, By: in.Source.By}, nil, nil); err != nil {
 			return err
 		}
-		return x.emit(ctx, 1, EventJobState, jobStateData{State: StateQueued, Attempt: 1})
+		if err := x.emit(ctx, 1, EventJobState, jobStateData{State: StateQueued, Attempt: 1}); err != nil {
+			return err
+		}
+		if in.FollowUp != "" {
+			return x.linkFollowUp(ctx, in.FollowUp)
+		}
+		return nil
 	})
 	if err != nil {
 		return "", err

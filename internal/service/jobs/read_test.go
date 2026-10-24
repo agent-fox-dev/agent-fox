@@ -217,8 +217,8 @@ func TestTheRoutesServeTheDocumentsOfJobsAsTheyAre_TS_12_9_TS_12_10_TS_12_14(t *
 		}
 		return m
 	}
-	fields := []string{"artifacts", "attempt_count", "blocked", "cancel_cause", "created_at", "current_attempt", "finished_at", "hub", "id", "input", "issue",
-		"kind", "labels", "request_label", "result", "side_effects", "source", "started_at", "state", "usage", "workspace"}
+	fields := []string{"artifacts", "attempt_count", "blocked", "cancel_cause", "created_at", "current_attempt", "finished_at", "follow_up", "hub", "id", "input", "issue",
+		"kind", "labels", "parent_job_id", "request_label", "result", "side_effects", "source", "started_at", "state", "usage", "workspace"}
 
 	for name, id := range map[string]string{"done": blocked.ID, "running": running.ID, "queued": queued.ID} {
 		single := e.call("GET", "/api/v1/jobs/"+id, nil)
@@ -230,7 +230,7 @@ func TestTheRoutesServeTheDocumentsOfJobsAsTheyAre_TS_12_9_TS_12_10_TS_12_14(t *
 			t.Fatal(err)
 		}
 		if got := keysOf(raw); !slices.Equal(got, sortedWith(fields, "attempts")) {
-			t.Errorf("%s: the fields of GET /jobs/:id are %v, want the 21 and attempts", name, got)
+			t.Errorf("%s: the fields of GET /jobs/:id are %v, want the 23 and attempts", name, got)
 		}
 		if want := asMap(e.get(id)); !reflect.DeepEqual(asMap(single.Doc(t)), want) {
 			t.Errorf("%s: GET /jobs/:id is not the document of the layer\n got  %s\n want %s", name, single.Body, mustJSON(want))
@@ -249,7 +249,7 @@ func TestTheRoutesServeTheDocumentsOfJobsAsTheyAre_TS_12_9_TS_12_10_TS_12_14(t *
 			t.Errorf("entry %s of GET /jobs is not the document without attempts\n got  %s\n want %s", entry.ID, mustJSON(entry), mustJSON(want))
 		}
 		if keys := keysOf(asMap(entry)); !slices.Equal(keys, fields) {
-			t.Errorf("entry %s has the fields %v, want the 21", entry.ID, keys)
+			t.Errorf("entry %s has the fields %v, want the 23", entry.ID, keys)
 		}
 	}
 	if perWorkspace := e.call("GET", "/api/v1/workspaces/widgets/jobs", nil).page(t); !slices.Equal(perWorkspace.ids(), list.ids()) {
