@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -66,29 +65,6 @@ type sink struct {
 	hubs   [][3]string
 	// hook, when it is set, is called with every event after it was kept, without the lock.
 	hook func(typ string, data json.RawMessage)
-	// followUps are the follow-ups asked for, as "<issue> <label>", and withdrawn how many were withdrawn; followUp, when
-	// it is set, is what the jobs layer answers a follow-up with, and a pending one otherwise.
-	followUps []string
-	withdrawn int
-	followUp  func(issue int64, label string) (state, job string, err error)
-}
-
-func (s *sink) RecordFollowUp(issue int64, label string) (string, string, error) {
-	s.mu.Lock()
-	s.followUps = append(s.followUps, fmt.Sprintf("%d %s", issue, label))
-	answer := s.followUp
-	s.mu.Unlock()
-	if answer != nil {
-		return answer(issue, label)
-	}
-	return jobs.FollowUpPending, "", nil
-}
-
-func (s *sink) WithdrawFollowUp() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.withdrawn++
-	return nil
 }
 
 type sunk struct {

@@ -30,16 +30,15 @@ type cancelled struct {
 // wanted, for the layer to settle once it knows whether a runner of this process holds the
 // attempt (see Service.cancel).
 //
-// The cause is stored with the job (cancel_cause). A cancel because the issue was closed marks
-// no request label to be put back.
+// The cause is stored with the job (cancel_cause).
 func (s *Store) CancelJob(ctx context.Context, id string, from State, cleanup bool, cause error) (cancelled, error) {
 	var found cancelled
 	err := s.run(ctx, id, func(x *txn) error {
 		now := formatTime(s.now())
 		res, err := x.ExecContext(ctx,
 			`UPDATE af_jobs SET state = 'cancelled', finished_at = ?, cancel_cause = ?,
-			   labels_restore = CASE WHEN ? THEN labels_restore ELSE COALESCE(request_label, labels_restore) END
-			 WHERE id = ? AND state = ?`, now, causeName(cause), errors.Is(cause, ErrIssueClosed), id, string(from))
+			   labels_restore = COALESCE(request_label, labels_restore)
+			 WHERE id = ? AND state = ?`, now, causeName(cause), id, string(from))
 		if err != nil {
 			return fmt.Errorf("job %s: %w", id, err)
 		}
@@ -92,26 +91,6 @@ func (s *Store) CancelJob(ctx context.Context, id string, from State, cleanup bo
 		return x.emit(ctx, current, EventJobState, jobStateData{State: StateCancelled, Attempt: current, AtRest: found.running == 0})
 	})
 	return found, err
-}
-
-// OpenIssueJobIDs are the jobs of the workspace for the issue that are queued, running or blocked, of either kind and
-// whoever made them.
-func (s *Store) OpenIssueJobIDs(ctx context.Context, workspace string, issue int64) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx,
-		"SELECT id FROM af_jobs WHERE workspace = ? AND issue = ? AND state IN ('queued', 'running', 'blocked') ORDER BY created_at, id", workspace, issue)
-	if err != nil {
-		return nil, fmt.Errorf("open jobs of %s#%d: %w", workspace, issue, err)
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
 }
 
 // OpenJobIDs are the jobs of the workspace that are queued, running or blocked.

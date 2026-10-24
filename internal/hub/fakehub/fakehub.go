@@ -15,9 +15,7 @@
 //   - the label route of any workspace a token is granted, whose labels a test reads with Labels;
 //   - sessions with their usage, events and completion;
 //   - sandbox leases, which point at an in-process gateway (see Gateway) over the local
-//     provider, and their release;
-//   - the event stream of a workspace (GET /api/v1/events), on which a test sends events, heartbeats and comments,
-//     ends the connections and counts them, and which can report the labels added through the forge API.
+//     provider, and their release.
 //
 // The shapes are those of hub's OpenAPI document. Every test runs offline.
 package fakehub
@@ -123,8 +121,6 @@ type Hub struct {
 	// observe, when it is set, is called with each request as it arrives, before it is answered.
 	observe func(Request)
 
-	eventConns  map[*eventConn]bool
-	emitLabeled bool
 	// clock stamps the comments that are added; the wall clock when it is nil.
 	clock func() time.Time
 
@@ -424,8 +420,6 @@ func (h *Hub) route(w http.ResponseWriter, r *http.Request, token string) {
 	switch {
 	case r.URL.Path == userPath && r.Method == http.MethodGet:
 		h.user(w, token)
-	case r.URL.Path == eventsPath && r.Method == http.MethodGet:
-		h.eventStream(w, r, token)
 	case len(segs) >= 4 && segs[0] == "api" && segs[1] == "v1" && segs[2] == "workspaces":
 		h.workspaceRoute(w, r, token, segs[3], segs[4:])
 	case len(segs) >= 3 && segs[0] == "api" && segs[1] == "v1" && segs[2] == "sessions":

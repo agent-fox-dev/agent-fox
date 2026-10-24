@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -739,64 +737,6 @@ func TestTheHoldAndReleaseRulesAreTheSameForAPersonsCancelAndAnUnsubscribe_TS_17
 	}
 }
 
-// ordered is a jobs layer that notes each Create by its issue, and holds the Create of the issue until it is released.
-type ordered struct {
-	Jobs
-	mu      sync.Mutex
-	order   []string
-	hold    int
-	reached chan struct{}
-	release chan struct{}
-}
-
-func (o *ordered) note(s string) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.order = append(o.order, s)
-}
-
-func (o *ordered) Create(ctx context.Context, req jobs.CreateRequest) (jobs.Doc, error) {
-	n := strings.TrimSpace(string(req.Body.Issue))
-	o.note("create " + n)
-	if n == strconv.Itoa(o.hold) {
-		o.reached <- struct{}{}
-		<-o.release
-	}
-	return o.Jobs.Create(ctx, req)
-}
-
-// TestTheRulesOfOneIssueTakeTheWorkspacesLockAndNotTheCycles_TS_18_49 verifies TS-18-49: an event of the stream that comes
-// while a cycle is in the rules of its first issue is handled once they are done, and before the second issue's.
-// Verifies: 18-REQ-7.5
-func TestTheRulesOfOneIssueTakeTheWorkspacesLockAndNotTheCycles_TS_18_49(t *testing.T) {
-	o := &ordered{hold: 41, reached: make(chan struct{}, 1), release: make(chan struct{})}
-	e := streaming(t, withJobs(func(j Jobs) Jobs { o.Jobs = j; return o }))
-	e.issue(41, "af:fix")
-	e.issue(42, "af:fix")
-	e.issue(43)
-	done := make(chan struct{})
-	go func() { defer close(done); e.cycle() }()
-	<-o.reached                           // the cycle is in the rules of 41, its listings behind it
-	e.Hub.AddLabel(slug, 43, "af:triage") // a label the cycle did not list
-	e.labeled("e43", 43, "af:triage")
-	time.Sleep(100 * time.Millisecond) // the event waits for the lock, which it takes before it reads the issue
-	o.mu.Lock()
-	early := slices.Contains(o.order, "create 43")
-	o.mu.Unlock()
-	read := len(e.Hub.RequestsTo("GET", "/api/v1/workspaces/widgets/issues/43"))
-	close(o.release)
-	if early || read != 0 {
-		t.Errorf("the event was handled while the cycle was in the rules of an issue (created %v, %d reads of 43)", early, read)
-	}
-	<-done
-	waitFor(t, "the event's job", func() bool { return e.taken("e43") })
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if want := []string{"create 41", "create 43", "create 42"}; !slices.Equal(o.order, want) {
-		t.Errorf("the order is %v, want %v", o.order, want)
-	}
-}
-
 // TestACycleMakesNoJobForALabelWhoseRecordIsNewerThanItsListing_TS_18_50 verifies TS-18-50.
 // Verifies: 18-REQ-7.6
 func TestACycleMakesNoJobForALabelWhoseRecordIsNewerThanItsListing_TS_18_50(t *testing.T) {
@@ -856,65 +796,5 @@ func TestACompleteListingSettlesNothingForARecordNewerThanIt_TS_18_51(t *testing
 	}
 	if r, ok := recs[oldHeld.ID]; ok && r.Seen == SeenHolding {
 		t.Errorf("the older hold is %+v, want it released", r)
-	}
-}
-
-// TestAnIssueClosedJobIsEndedAndHoldsNothing_TS_18_65 verifies TS-18-65.
-// Verifies: 18-REQ-9.6
-func TestAnIssueClosedJobIsEndedAndHoldsNothing_TS_18_65(t *testing.T) {
-	r := fakerunner.New(fakerunner.Block(cancelledResult()), blockedStep(), fakerunner.Block(cancelledResult()))
-	e := newEnv(t, withCleanup(), withRunner(r))
-	e.takenByThePoll() // issue 42, running
-	inRunner := e.jobList()[0].ID
-	e.issue(43, "af:fix")
-	e.Hub.Inject("DELETE", "/api/v1/workspaces/widgets/issues/43/labels/af:needs-human", fakehub.Fault{Status: 503})
-	if _, err := e.Jobs.CancelIssue(ctx, slug, 42); err != nil {
-		t.Fatal(err)
-	}
-	e.runnerReturned(inRunner)
-	e.cycle() // makes the job of 43, which blocks
-	var blocked string
-	for _, j := range e.jobList() {
-		if j.Issue.Int64 == 43 {
-			blocked = j.ID
-		}
-	}
-	e.waitState(blocked, jobs.StateBlocked)
-	e.Hub.AddLabel(slug, 43, "af:needs-human")
-	if _, err := e.Jobs.CancelIssue(ctx, slug, 43); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, "the cleanup's first try", func() bool {
-		return len(e.Hub.RequestsTo("DELETE", "/api/v1/workspaces/widgets/issues/43/labels/af:needs-human")) > 0
-	})
-	if c := e.cleanupOf(blocked); c != "pending" {
-		t.Fatalf("the cleanup of 43 is %q, want pending", c)
-	}
-	e.cycle()
-	for _, n := range []int{42, 43} {
-		if _, ok := e.held(n); ok {
-			t.Errorf("the record of %d holds: %+v", n, e.recordsOf())
-		}
-	}
-
-	// A person's cancel of a job in a runner still holds.
-	e.issue(44, "af:fix")
-	e.cycle()
-	var person string
-	for _, j := range e.jobList() {
-		if j.Issue.Int64 == 44 {
-			person = j.ID
-		}
-	}
-	e.waitState(person, jobs.StateRunning)
-	if !e.Runner.Wait(3, 10*time.Second) {
-		t.Fatal("the runner of 44 was not called")
-	}
-	if _, err := e.Jobs.Cancel(ctx, person); err != nil {
-		t.Fatal(err)
-	}
-	e.cycle()
-	if _, ok := e.held(44); !ok {
-		t.Errorf("a person's cancel in a runner does not hold: %+v", e.recordsOf())
 	}
 }

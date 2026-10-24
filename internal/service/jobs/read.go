@@ -66,7 +66,7 @@ type Standing struct {
 	// end decides whether it is owed is not recorded yet; CleanupPutBack that it finished with the request label on the
 	// issue (labels.restore null), whoever put it there.
 	CleanupPending, CleanupPutBack bool
-	// CancelCause is the cause of the job's cancel: cancelled, unsubscribed or issue_closed, and empty for a job that is
+	// CancelCause is the cause of the job's cancel: cancelled or unsubscribed, and empty for a job that is
 	// not cancelled, or was cancelled before the cause was stored.
 	CancelCause string
 }

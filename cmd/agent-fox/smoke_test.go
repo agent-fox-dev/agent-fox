@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -530,49 +529,4 @@ func TestTheBinaryWiresTheCancelCleanup(t *testing.T) {
 		t.Errorf("issue 43 carries %v, want in-progress removed", i.Labels)
 	}
 	stop(t, p)
-}
-
-// TestStoppingServeClosesTheStreamsBeforeTheJobsLayerStops_TS_18_71 verifies TS-18-71 and 18-PATH-5: the service runs with a
-// subscribed workspace whose event stream is open on the fake hub; when it is stopped, the poll, and with it the stream,
-// stops before the jobs layer, hub counts no open connection of the stream, no goroutine of the stream is left, and the
-// state file is closed with exit code 0.
-// Verifies: 18-PATH-5, 18-REQ-3.8
-func TestStoppingServeClosesTheStreamsBeforeTheJobsLayerStops_TS_18_71(t *testing.T) {
-	const pat = "pat-WIDGETS-0123456789"
-	hub := fakehub.New(t)
-	hub.AddUser("tok", "usr_1", []string{"widgets"})
-	hub.AddWorkspace(t, fakehub.Workspace{Slug: "widgets", PAT: pat})
-	s := newSetup(t, hub.URL)
-	s.subscribe(t, "widgets", pat)
-
-	logs, stop, done := runService(t, s)
-	defer stop()
-	for deadline := time.Now().Add(20 * time.Second); hub.EventConns("widgets") != 1; time.Sleep(5 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("the event stream never connected")
-		}
-	}
-
-	stop()
-	if code := exitOf(t, done); code != 0 {
-		t.Errorf("exit code %d, want 0", code)
-	}
-	records := logs.records(t)
-	pollStopped, queueStopped := msgAt(records, "the label poll stopped"), msgAt(records, "queue stopped")
-	if pollStopped < 0 || queueStopped < 0 || queueStopped < pollStopped {
-		t.Errorf("the poll stopped at record %d and the jobs layer at record %d, want the poll first", pollStopped, queueStopped)
-	}
-	if n := msgAt(records, "the database could not be closed"); n >= 0 {
-		t.Errorf("the state file did not close cleanly: %v", records[n])
-	}
-	for deadline := time.Now().Add(5 * time.Second); hub.EventConns("widgets") != 0; time.Sleep(5 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatalf("hub counts %d open connections of the stream after the service stopped, want 0", hub.EventConns("widgets"))
-		}
-	}
-	buf := make([]byte, 1<<20)
-	if stacks := string(buf[:runtime.Stack(buf, true)]); strings.Contains(stacks, "internal/service/poll.(*stream)") ||
-		strings.Contains(stacks, "internal/hub.(*EventStream)") {
-		t.Errorf("a goroutine of the stream is left:\n%s", stacks)
-	}
 }

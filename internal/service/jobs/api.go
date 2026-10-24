@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -34,9 +35,8 @@ const OpDuplicate = "duplicate"
 // do yet.
 const CategoryUnsupported = "unsupported"
 
-// The kinds of source a job can have: the API, and the triggers of the specs that
-// follow.
-var sources = map[string]bool{"api": true, "label": true, "event": true, "rebuild": true, "triage": true}
+// The kinds of source a job can have: the API, and the label poll.
+var sources = map[string]bool{"api": true, "label": true}
 
 // CreateRequest is a request to create a job: what the routes take from a caller,
 // and what a trigger passes. A trigger that consumed a request label names it; a job
@@ -47,7 +47,6 @@ type CreateRequest struct {
 	Body         Body
 	Source       Source
 	RequestLabel string
-	ParentJobID  string
 }
 
 // Create creates a job with attempt 1, queued, and returns it as it was made. It
@@ -61,12 +60,6 @@ type CreateRequest struct {
 // The attempt is queued after the job is stored. If that fails, the job is still
 // made, a warning names it, and the sweep queues the attempt.
 func (s *Service) Create(ctx context.Context, req CreateRequest) (Doc, error) {
-	return s.create(ctx, req, "")
-}
-
-// create is Create, and for a linked fix job CreateLinked: followUp names the triage job whose follow-up the job is made
-// from, and is marked made with it.
-func (s *Service) create(ctx context.Context, req CreateRequest, followUp string) (Doc, error) {
 	if req.Kind != KindTriage && req.Kind != KindFix {
 		return Doc{}, fmt.Errorf("jobs: unknown kind %q", req.Kind)
 	}
@@ -80,11 +73,8 @@ func (s *Service) create(ctx context.Context, req CreateRequest, followUp string
 	if err != nil {
 		return Doc{}, err
 	}
-	if err := s.checkParent(ctx, req); err != nil {
-		return Doc{}, err
-	}
 
-	id, err := s.insert(ctx, req, parsed, followUp)
+	id, err := s.insert(ctx, req, parsed)
 	if err != nil {
 		return Doc{}, err
 	}
@@ -112,7 +102,7 @@ const duplicateTries = 3
 // jobs refuses a second one, however the creators race, and the one that loses is told which job won. If that job
 // ended between the refusal and the lookup, there is no job to name and the issue is free again, so the creator
 // tries once more.
-func (s *Service) insert(ctx context.Context, req CreateRequest, parsed Parsed, followUp string) (string, error) {
+func (s *Service) insert(ctx context.Context, req CreateRequest, parsed Parsed) (string, error) {
 	s.gate.RLock()
 	defer s.gate.RUnlock()
 	if err := s.subscribed(ctx, req.Workspace); err != nil {
@@ -121,7 +111,7 @@ func (s *Service) insert(ctx context.Context, req CreateRequest, parsed Parsed, 
 	for range duplicateTries {
 		id, err := s.store.CreateJob(ctx, NewJob{
 			Workspace: req.Workspace, Kind: req.Kind, Input: parsed.Input, Context: parsed.Context,
-			Issue: parsed.Issue, Source: req.Source, RequestLabel: req.RequestLabel, ParentJobID: req.ParentJobID, FollowUp: followUp,
+			Issue: parsed.Issue, Source: req.Source, RequestLabel: req.RequestLabel,
 		})
 		if !errors.Is(err, ErrDuplicate) || parsed.Issue == nil {
 			return id, err
@@ -139,6 +129,21 @@ func (s *Service) insert(ctx context.Context, req CreateRequest, parsed Parsed, 
 		}
 	}
 	return "", ErrDuplicate
+}
+
+// LatestJob is the job of the kind for the issue on the workspace that was made last, whatever its state, or ErrNotFound.
+func (s *Service) LatestJob(ctx context.Context, workspace string, kind Kind, issue int64) (Doc, error) {
+	var id string
+	err := s.store.db.QueryRowContext(ctx,
+		"SELECT id FROM af_jobs WHERE workspace = ? AND kind = ? AND issue = ? ORDER BY created_at DESC, rowid DESC LIMIT 1",
+		workspace, string(kind), issue).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Doc{}, ErrNotFound
+	}
+	if err != nil {
+		return Doc{}, fmt.Errorf("the latest %s job of %s#%d: %w", kind, workspace, issue, err)
+	}
+	return s.store.Doc(ctx, id, false)
 }
 
 // OpenJob is the open job (queued, running or blocked) of a kind for an issue number

@@ -89,35 +89,6 @@ func (s *Service) awaitTries(ctx context.Context, runs []*attemptRun, tries []<-
 	return nil
 }
 
-// OpenIssueJobs are the jobs of the workspace for the issue that are queued, running or blocked, of either kind and
-// whoever made them.
-func (s *Service) OpenIssueJobs(ctx context.Context, workspace string, issue int64) ([]string, error) {
-	return s.store.OpenIssueJobIDs(ctx, workspace, issue)
-}
-
-// CancelIssue cancels every job of the workspace for the issue that is open, as it finds them, because the issue was
-// closed: the cancel is a cancel in every way (queued attempts never run, a running one's runner is told with
-// ErrIssueClosed and given the grace), with its cause stored and no request label marked to be put back. A job that
-// changes state between the look and the cancel is looked at again, as the unsubscribe's cancel does. It returns the jobs
-// it cancelled, and an error, with the ones it cancelled so far, when one cannot be.
-func (s *Service) CancelIssue(ctx context.Context, workspace string, issue int64) ([]string, error) {
-	ids, err := s.store.OpenIssueJobIDs(ctx, workspace, issue)
-	if err != nil {
-		return nil, err
-	}
-	var done []string
-	for _, id := range ids {
-		_, cancelled, err := s.cancelWhatIsOpen(ctx, id, ErrIssueClosed)
-		if err != nil {
-			return done, err
-		}
-		if cancelled {
-			done = append(done, id)
-		}
-	}
-	return done, nil
-}
-
 // WorkspaceOf is the workspace of a job, or ErrNotFound.
 func (s *Service) WorkspaceOf(ctx context.Context, id string) (string, error) {
 	return s.store.WorkspaceOf(ctx, id)

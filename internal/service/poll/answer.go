@@ -15,37 +15,27 @@ import (
 // The forge's answer to a blocked job: a person comments on the issue and puts the request label back, and the comments
 // since the job's question become the answer, as POST /api/v1/jobs/{id}/answer would give it.
 
-// by is who a sighting names: the hub event of the stream, or the label for the poll, as the source of a new job would.
-func (l *listing) by() string {
-	if l.Source.By != "" {
-		return l.Source.By
-	}
-	return "label " + l.Label
-}
+// by is who a sighting names: the label, as the source of a new job does.
+func (l *listing) by() string { return "label " + l.Label }
 
 // thread reads issue n with its comments, through hub's issue read, which says when hub cut the comments or could not
-// read them; a sighting of the stream takes the read it made. It says whether the thread can be read, and whether the
-// cycle goes on: hub unavailable, or refusing or forbidding the token, ends it as a failed call of hub does, and a
-// rejection of this one issue, or comments hub could not read, are reported and the cycle goes on with the next issue.
+// read them. It says whether the thread can be read, and whether the cycle goes on: hub unavailable, or refusing or
+// forbidding the token, ends it as a failed call of hub does, and a rejection of this one issue, or comments hub could not
+// read, are reported and the cycle goes on with the next issue.
 // Either way the label stays, so that the next sighting tries again.
 func (c *cycleRun) thread(ctx context.Context, l *listing, n int) (thread issuex.IssueThread, ok, more bool) {
 	operation := fmt.Sprintf("read the comments of the issue %d, so %s stays on it", n, l.Label)
-	if l.Thread != nil && l.Thread.Issue.Number == n {
-		thread = *l.Thread
-	} else {
-		var err error
-		thread, err = c.forge.ReadIssue(ctx, issuex.IssueRef{Repo: c.repo, Number: n})
-		if err != nil {
-			f := classify(operation, err, false)
-			if f.row == rowDenied && f.status == http.StatusNotFound {
-				// The workspace was read for this cycle: what hub does not find is the issue.
-				f.row, f.message = rowRejected, "hub does not find the issue"
-			}
-			c.report(ctx, f)
-			// A rejection of the one issue lets the cycle go on; hub's 502 for a forge that refuses its credential (a
-			// rejection with a 5xx status) would fail every issue, and ends it.
-			return thread, false, f.row == rowRejected && f.status < http.StatusInternalServerError
+	thread, err := c.forge.ReadIssue(ctx, issuex.IssueRef{Repo: c.repo, Number: n})
+	if err != nil {
+		f := classify(operation, err, false)
+		if f.row == rowDenied && f.status == http.StatusNotFound {
+			// The workspace was read for this cycle: what hub does not find is the issue.
+			f.row, f.message = rowRejected, "hub does not find the issue"
 		}
+		c.report(ctx, f)
+		// A rejection of the one issue lets the cycle go on; hub's 502 for a forge that refuses its credential (a
+		// rejection with a 5xx status) would fail every issue, and ends it.
+		return thread, false, f.row == rowRejected && f.status < http.StatusInternalServerError
 	}
 	if thread.CommentsErr != nil {
 		c.report(ctx, failure{row: rowRejected, operation: operation, err: thread.CommentsErr, message: thread.CommentsErr.Error()})

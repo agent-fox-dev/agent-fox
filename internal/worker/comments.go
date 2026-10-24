@@ -209,9 +209,6 @@ func (a *attempt) fixSummary(b *strings.Builder, ref issuex.IssueRef, env toolio
 		word = "Closes"
 	}
 	fmt.Fprintf(b, "- %s %s\n", word, ref.URL())
-	if a.req.Source.Kind == "triage" {
-		fmt.Fprintf(b, "- Asked for by the triage job `%s` (AF_AUTO_FIX)\n", a.req.Source.By)
-	}
 
 	var unproven []string
 	if !res.Closes {

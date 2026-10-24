@@ -82,10 +82,6 @@ tokens that callers hand over to subscribe a workspace, which it keeps sealed (s
 - **An answer or a retry from the forge spends like one from the API.** A comment and the request label again answer a
   blocked job or retry a failed one (see [api.md](api.md#answering-and-retrying-from-the-forge)): the new attempt spends as
   the attempt `POST /api/v1/jobs/{id}/answer` or `/retry` would queue, once for each sighting that takes the label.
-- **`AF_AUTO_FIX` spends on a fix with no click.** With `AF_AUTO_FIX=true` a triage that ends ready asks for a fix of its
-  issue by itself, and the fix job it gets spends as any fix does (by default `AF_MAX_BUDGET_USD` `10`): a workspace turns
-  it on knowing that every ready triage is followed by a fix that nobody approved. It asks for none while the label
-  triggers are off (`AF_POLL_INTERVAL=0`).
 - **The model is `AF_MODEL`.** It is a hub variable of the workspace (see
   [configuration.md](configuration.md#the-hub-variables-of-an-attempt)); when it is unset the catalog's default
   Anthropic model, `claude-sonnet-5-5` today. The session that is opened on hub, the brain and the usage record carry the same one.

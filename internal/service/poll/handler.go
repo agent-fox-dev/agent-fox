@@ -31,24 +31,19 @@ func (issueHandler) handle(ctx context.Context, c *cycleRun, l *listing) bool {
 	return true
 }
 
-// report is the failure of the rules for an issue: the cycle's, or, for an event of the stream, the stream's.
+// report is the failure of the rules for an issue.
 func (c *cycleRun) report(ctx context.Context, f failure) {
 	c.failed = true
-	if c.onFail != nil {
-		c.onFail(f)
-		return
-	}
 	c.s.report(ctx, c.slug, c.st, f)
 }
 
 // newer says that the record was made at or after the listing was asked for: after the last record there was then, or at
-// a later time. The stream's issue of an event is no listing, and has no newer record.
+// a later time: a cycle of a loop that was replaced took the label since.
 func (l *listing) newer(r Record) bool {
 	return !l.Requested.IsZero() && (r.ID > l.Before || r.CreatedAt.After(l.Requested))
 }
 
-// lockedIssue applies the rules to issue n under the workspace's lock, which the event stream takes for an event, and
-// gives it back before the next issue.
+// lockedIssue applies the rules to issue n under the workspace's lock, and gives it back before the next issue.
 func (c *cycleRun) lockedIssue(ctx context.Context, l *listing, n int) bool {
 	unlock := c.s.lockWorkspace(c.slug)
 	defer unlock()
@@ -57,20 +52,15 @@ func (c *cycleRun) lockedIssue(ctx context.Context, l *listing, n int) bool {
 
 // request is the request to make a job of kind K for issue N from label L: the issue as its input, a source that names the
 // label, and the label, which the poll consumes.
-// A listing that names a source of its own (an event of hub's stream) makes the job with it.
 func request(workspace string, l *listing, n int) jobs.CreateRequest {
-	src := l.Source
-	if src.Kind == "" {
-		src = jobs.Source{Kind: "label", By: "label " + l.Label}
-	}
 	return jobs.CreateRequest{
 		Workspace: workspace, Kind: l.Kind, Body: jobs.Body{Issue: json.RawMessage(strconv.Itoa(n))},
-		Source: src, RequestLabel: l.Label,
+		Source: jobs.Source{Kind: "label", By: l.by()}, RequestLabel: l.Label,
 	}
 }
 
 // issue applies the rules to issue n of the listing, the sighting of its label, and says whether the cycle goes on. The
-// poll and the event stream apply the same rules. The first rule that applies decides:
+// first rule that applies decides:
 //
 //  0. a fix label on an issue whose pending follow-up a triage recorded becomes the fix job linked to the triage, or is
 //     absorbed by an open fix job (followup.go);
@@ -81,7 +71,7 @@ func request(workspace string, l *listing, n int) jobs.CreateRequest {
 //     runner and the worker put the label back: nothing is done, and the label stays until a person asks again;
 //  3. the removal of the label from the issue is still owed, for a job the poll made or for a label it absorbed: it is
 //     removed and no job is made;
-//  4. a record of the label on the issue is newer than the sighting: the other trigger took the label since, and it is
+//  4. a record of the label on the issue is newer than the sighting: another cycle took the label since, and it is
 //     left to the next cycle;
 //  5. the latest job of the kind for the issue failed: it is retried from the forge, with the comments since its failure;
 //  6. otherwise it is a new request, and a job is made.
@@ -103,11 +93,6 @@ func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
 				row: rowStore, operation: fmt.Sprintf("read how the job of %s on the issue %d stands, so the label stays", l.Label, n), err: err,
 			})
 			return false
-		}
-	}
-	if l.Kind == jobs.KindFix {
-		if decided, more := c.followUp(ctx, l, n, recs); decided {
-			return more
 		}
 	}
 	owed := slices.ContainsFunc(recs, func(r Record) bool { return r.Owed })

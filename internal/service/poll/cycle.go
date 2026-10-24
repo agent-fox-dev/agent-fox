@@ -29,16 +29,10 @@ type listing struct {
 	// Complete says that the listing holds every issue that carries the label: a listing that is not may leave out
 	// issues past its last page, and proves nothing about them.
 	Complete bool
-	// Requested is when the listing was asked for; zero for the issue of an event of hub's stream, which is no listing.
-	// Before is the last record of the poll when it was asked for: a record after it, or made after then, is newer than
-	// what the listing shows.
+	// Requested is when the listing was asked for, and Before the last record of the poll then: a record after it, or
+	// made after then, is newer than what the listing shows.
 	Requested time.Time
 	Before    int64
-	// Source is the source of the job a new request makes: the label's when it is empty.
-	Source jobs.Source
-	// Thread is the issue as the event of hub's stream read it, with its comments, which an answer or a retry takes
-	// rather than reading the issue again; nil for a listing, whose rules read the issue when they need its comments.
-	Thread *issuex.IssueThread
 }
 
 // cycleRun is a cycle that is running: the workspace it is for, and what it needs to act on it.
@@ -48,9 +42,8 @@ type cycleRun struct {
 	repo  issuex.Repo
 	forge issuex.Client
 	st    *wsState
-	// onFail, when it is set, is what a failure of the rules is reported to in place of the cycle's records; failed says
-	// that one was, and notSubscribed that the jobs layer refused a job because the workspace is not subscribed.
-	onFail        func(failure)
+	// failed says that a failure of the rules was reported, and notSubscribed that the jobs layer refused a job because
+	// the workspace is not subscribed.
 	failed        bool
 	notSubscribed bool
 }

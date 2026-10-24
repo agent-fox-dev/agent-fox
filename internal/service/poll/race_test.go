@@ -3,7 +3,6 @@ package poll
 import (
 	"fmt"
 	"net/http"
-	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -56,32 +55,5 @@ func TestRacingCreatorsForOneWorkspaceKindAndIssueYieldExactlyOneJob_TS_15_60(t 
 				t.Errorf("removals %v and labels %v: af:fix must be removed from 42", e.removals(), e.labelsOf(42))
 			}
 		})
-	}
-}
-
-// TestAStreamEventAndACycleOnOneNewLabelEndWithOneJob_TS_18_52 verifies TS-18-52, a property: in 50 rounds, a new label seen
-// by an event of the stream and by a cycle at the same moment, the forge's listing lagging the removal, ends with exactly one
-// job for the issue and the label off it.
-// Verifies: 18-REQ-7.8
-func TestAStreamEventAndACycleOnOneNewLabelEndWithOneJob_TS_18_52(t *testing.T) {
-	e := streaming(t)
-	e.Hub.SetRemovalLag(slug, 2)
-	for round := range 50 {
-		n := 1000 + round
-		e.issue(n, "af:fix")
-		id := fmt.Sprintf("race-%d", round)
-		left := len(e.Logs.find("WARN", "left to the poll"))
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go func() { defer wg.Done(); e.labeled(id, n, "af:fix") }()
-		go func() { defer wg.Done(); e.cycle() }()
-		wg.Wait()
-		waitFor(t, "the event to be handled", func() bool { return e.taken(id) || len(e.Logs.find("WARN", "left to the poll")) > left })
-		if got := e.jobsFor(n); got != 1 {
-			t.Fatalf("round %d: %d jobs for %d, want 1", round, got, n)
-		}
-		if slices.Contains(e.labelsOf(n), "af:fix") {
-			t.Fatalf("round %d: the label is still on %d", round, n)
-		}
 	}
 }

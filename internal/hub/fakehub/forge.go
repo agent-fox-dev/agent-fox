@@ -207,7 +207,6 @@ func (h *Hub) issueRoute(w http.ResponseWriter, r *http.Request, ws *workspace, 
 		for _, name := range names {
 			if !slices.Contains(next, name) {
 				next = append(next, name)
-				h.labeled(ws.Slug, issue.Number, name)
 			}
 		}
 		ws.relabel(issue, next)

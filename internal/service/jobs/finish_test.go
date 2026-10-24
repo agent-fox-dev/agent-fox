@@ -475,8 +475,8 @@ func TestEveryJobDocumentHasExactlyTheDocumentedFieldsAndBlockedOnlyWhileBlocked
 		t.Fatalf("the fourth job is %s, want it queued behind the third", d.State)
 	}
 
-	fields := []string{"artifacts", "attempt_count", "blocked", "cancel_cause", "created_at", "current_attempt", "finished_at", "follow_up", "hub", "id", "input", "issue",
-		"kind", "labels", "parent_job_id", "request_label", "result", "side_effects", "source", "started_at", "state", "usage", "workspace"}
+	fields := []string{"artifacts", "attempt_count", "blocked", "cancel_cause", "created_at", "current_attempt", "finished_at", "hub", "id", "input", "issue",
+		"kind", "labels", "request_label", "result", "side_effects", "source", "started_at", "state", "usage", "workspace"}
 	keys := func(doc jobs.Doc) []string {
 		var m map[string]json.RawMessage
 		raw, _ := json.Marshal(doc)

@@ -26,23 +26,17 @@ type Subscriptions interface {
 	Token(ctx context.Context, slug string) (string, error)
 }
 
-// Jobs is what the poll asks of the jobs layer: to make a job, to name the open job of a kind for an issue, to say how a
-// job stands, and, for an issue that was closed, to name its open jobs and to cancel them. From the forge it answers a
-// blocked job, retries a failed one, finds the latest job of a kind for an issue, and makes, or absorbs, the fix job a
-// triage's follow-up asks for.
+// Jobs is what the poll asks of the jobs layer: to make a job, to name the open job of a kind for an issue, and to say how a
+// job stands. From the forge it answers a blocked job, retries a failed one, and finds the latest job of a kind for an
+// issue.
 type Jobs interface {
 	Create(ctx context.Context, req jobs.CreateRequest) (jobs.Doc, error)
 	OpenJob(ctx context.Context, workspace string, kind jobs.Kind, issue int64) (jobs.Doc, error)
 	Standing(ctx context.Context, id string) (jobs.Standing, error)
-	OpenIssueJobs(ctx context.Context, workspace string, issue int64) ([]string, error)
-	CancelIssue(ctx context.Context, workspace string, issue int64) ([]string, error)
 	Get(ctx context.Context, id string) (jobs.Doc, error)
 	Answer(ctx context.Context, id, by string, req jobs.AnswerRequest) (jobs.Doc, error)
 	RetryWithContext(ctx context.Context, id, by string, notes []string) (jobs.Doc, error)
 	LatestJob(ctx context.Context, workspace string, kind jobs.Kind, issue int64) (jobs.Doc, error)
-	PendingFollowUp(ctx context.Context, workspace string, issue int64) (jobs.FollowUp, error)
-	CreateLinked(ctx context.Context, triage string, req jobs.CreateRequest) (jobs.Doc, error)
-	AbsorbFollowUp(ctx context.Context, triage, job string) error
 }
 
 // The defaults of the settings that a test may change.
@@ -90,13 +84,6 @@ type Supervisor struct {
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
 	inflight atomic.Int32
-	streams  atomic.Int32
-
-	// beforeEvent, when it is set, is called before an event of a stream is acted on; for the tests.
-	beforeEvent func()
-	// streamless starts the loops without their event streams; for the tests of the timing of the loops alone, which
-	// count the waits of the clock that the streams share.
-	streamless bool
 }
 
 // reconciler brings the records of the poll for a workspace up to date with their jobs, without a request of hub.
@@ -173,9 +160,9 @@ func (st *wsState) wait() time.Duration {
 	return defaultInterval
 }
 
-// lockWorkspace takes the lock of the workspace's rules, which a cycle holds for one issue at a time and the event stream
-// for one event, so that the rules of the two never run at once for a workspace, and returns what gives it back. The
-// locks outlive the loops, which come and go with the subscriptions.
+// lockWorkspace takes the lock of the workspace's rules, which a cycle holds for one issue at a time, so that a cycle of a
+// loop that is going and one of the loop that replaced it never apply the rules at once, and returns what gives it back.
+// The locks outlive the loops, which come and go with the subscriptions.
 func (s *Supervisor) lockWorkspace(slug string) (unlock func()) {
 	s.mu.Lock()
 	l := s.locks[slug]
@@ -184,8 +171,6 @@ func (s *Supervisor) lockWorkspace(slug string) (unlock func()) {
 		s.locks[slug] = l
 	}
 	s.mu.Unlock()
-	// A channel hands the lock to the one that has waited longest, so that a cycle that gives it back between two issues
-	// does not take it again ahead of an event that waits for it.
 	l <- struct{}{}
 	return func() { <-l }
 }

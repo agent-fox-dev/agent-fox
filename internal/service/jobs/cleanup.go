@@ -272,9 +272,6 @@ func (s *Store) CleanupRequest(ctx context.Context, id string) (CleanupRequest, 
 		return req, false, nil
 	}
 	req.Issue, req.RequestLabel = issue.Int64, label.String
-	if cause.String == causeName(ErrIssueClosed) {
-		req.RequestLabel = "" // nothing is put back on a closed issue: the try only removes
-	}
 	if err := decode("labels_set", set, &req.LabelsSet); err != nil {
 		return req, false, fmt.Errorf("job %s: %w", id, err)
 	}

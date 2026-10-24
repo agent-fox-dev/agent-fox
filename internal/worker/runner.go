@@ -99,25 +99,17 @@ func New(cfg Config) *Runner {
 }
 
 // reporter is where the worker reports while an attempt runs: the events of the attempt and the
-// references of its session on hub, and, for a triage with AF_AUTO_FIX, the follow-up it asks for.
-// A *jobs.Recorder is one.
+// references of its session on hub. A *jobs.Recorder is one.
 type reporter interface {
 	Emit(typ string, data any)
 	Hub(sessionID, runID, sandboxID string)
-	RecordFollowUp(issue int64, label string) (state, job string, err error)
-	WithdrawFollowUp() error
 }
 
-// discard is the reporter of an attempt that was given none. It records no follow-up.
+// discard is the reporter of an attempt that was given none.
 type discard struct{}
 
-// errNoJobsLayer is the refusal of a follow-up of an attempt that no jobs layer reports for.
-var errNoJobsLayer = errors.New("no jobs layer takes the follow-up of this attempt")
-
-func (discard) Emit(string, any)                                     {}
-func (discard) Hub(string, string, string)                           {}
-func (discard) RecordFollowUp(int64, string) (string, string, error) { return "", "", errNoJobsLayer }
-func (discard) WithdrawFollowUp() error                              { return errNoJobsLayer }
+func (discard) Emit(string, any)           {}
+func (discard) Hub(string, string, string) {}
 
 // reporterOf is what the attempt reports to.
 func (r *Runner) reporterOf(req jobs.Request) reporter {

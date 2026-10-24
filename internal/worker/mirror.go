@@ -8,7 +8,6 @@ import (
 
 	"github.com/agent-fox-dev/aflib/issuex"
 
-	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/labels"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -33,8 +32,6 @@ const (
 	WarnCommentFailed      = "comment_failed"
 	WarnRequestLabelFailed = "request_label_failed"
 	WarnLabelPrefixIgnored = "label_prefix_ignored"
-	WarnAutoFixFailed      = "auto_fix_failed"
-	WarnAutoFixSkipped     = "auto_fix_skipped"
 )
 
 // label is the label of a status, with the prefix of the subscription: the one source of the
@@ -146,8 +143,6 @@ func (r *Runner) mirror(ctx context.Context, a *attempt, out *outcome, how stop)
 				a.addLabel(ctx, *a.issue, a.req.RequestLabel, WarnRequestLabelFailed)
 			}
 		}
-	case how == stoppedByIssueClosed:
-		a.unmark(ctx)
 	case out.err != nil || len(out.result.Envelope) == 0:
 		a.unmark(ctx)
 	default:
@@ -188,9 +183,6 @@ func (r *Runner) mirrorEnvelope(ctx context.Context, a *attempt, data []byte) {
 		labelled = a.setStatus(ctx, *ref, p.status)
 	case a.marked:
 		a.unmark(ctx)
-	}
-	if p.status == statusReady && labelled && a.req.Kind == jobs.KindTriage {
-		a.autoFix(ctx, *ref) // after the status label, which a failed write leaves unset: the fix follows a triage that shows ready
 	}
 	a.noteLabels(labelled)
 	r.reached(a, "mirror_labels")
@@ -267,43 +259,4 @@ func (a *attempt) automaticAttemptFollows(env toolio.Envelope) bool {
 	return env.Status == toolio.StatusFailed && e != nil && e.Retryable &&
 		(e.Category == toolio.CategoryBrain || e.Category == toolio.CategoryNoResult) &&
 		max(a.req.Round, 1) < a.maxAttempts
-}
-
-// autoFix asks for the fix of an issue a triage left ready, on a workspace with AF_AUTO_FIX: the jobs layer records the
-// follow-up first, so that the trigger that sees the label knows it for the triage's request, and only a follow-up that
-// is pending gets the fix label. A delivery that finishes the mirror asks again and gets the follow-up as recorded. The
-// worker asks for nothing where nothing would take the label (the label triggers off) or a fix would be refused (a
-// carry_patch workspace, AF_FIX_LAND patch), and says so.
-func (a *attempt) autoFix(ctx context.Context, ref issuex.IssueRef) {
-	if !a.settings.AutoFix {
-		return
-	}
-	skipped := ""
-	switch {
-	case !a.settings.TriggersOn:
-		skipped = "AF_POLL_INTERVAL is a zero duration, which turns the label triggers off, so nothing would take the fix label"
-	case a.record.Mode == hub.ModeCarryPatch:
-		skipped = "the workspace is carry_patch, and a fix on it is not served yet"
-	case a.settings.LandPatch:
-		skipped = "AF_FIX_LAND is patch, which a fix refuses"
-	}
-	if skipped != "" {
-		a.warnings = append(a.warnings, toolio.Warning{Code: WarnAutoFixSkipped, Message: "AF_AUTO_FIX asked for no fix of " + ref.URL() + ": " + skipped})
-		return
-	}
-	label := a.label(labels.Fix)
-	state, _, err := a.report.RecordFollowUp(int64(ref.Number), label)
-	if err != nil {
-		a.warnings = append(a.warnings, toolio.Warning{Code: WarnAutoFixFailed,
-			Message: fmt.Sprintf("AF_AUTO_FIX could not record the follow-up of %s, so %s was not added: %v", ref.URL(), label, err)})
-		return
-	}
-	if state != jobs.FollowUpPending {
-		return // an open fix job absorbed it, or a trigger took it already
-	}
-	if !a.addLabel(ctx, ref, label, WarnAutoFixFailed) {
-		if err := a.report.WithdrawFollowUp(); err != nil {
-			a.warnings = append(a.warnings, toolio.Warning{Code: WarnAutoFixFailed, Message: "the follow-up of " + ref.URL() + " could not be withdrawn: " + err.Error()})
-		}
-	}
 }

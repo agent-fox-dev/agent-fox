@@ -398,11 +398,7 @@ func TestTheGoEntryPointsCreateAJobFromATriggerAndLookItUp_TS_12_22(t *testing.T
 	if got.Source != (jobs.Source{Kind: "label", By: "poll"}) || got.RequestLabel == nil || *got.RequestLabel != "af:fix" || got.State != jobs.StateQueued || got.Kind != jobs.KindFix {
 		t.Errorf("job = source %+v, request_label %v, state %s, want {label poll}, af:fix, queued", got.Source, got.RequestLabel, got.State)
 	}
-	if again, err := e.Svc.Create(ctx, jobs.CreateRequest{Workspace: "widgets", Kind: jobs.KindTriage, Body: jobs.Body{Issue: issue(9)}, Source: jobs.Source{Kind: "event", By: "hub"}}); err != nil || again.Source.Kind != "event" {
-		t.Errorf("Create from an event: %+v, %v", again.Source, err)
-	}
-
-	_, err = e.Svc.Create(ctx, jobs.CreateRequest{Workspace: "widgets", Kind: jobs.KindFix, Body: jobs.Body{Issue: issue(42)}, Source: jobs.Source{Kind: "event", By: "hub"}})
+	_, err = e.Svc.Create(ctx, jobs.CreateRequest{Workspace: "widgets", Kind: jobs.KindFix, Body: jobs.Body{Issue: issue(42)}, Source: jobs.Source{Kind: "label", By: "poll"}})
 	var dup *jobs.DuplicateError
 	if !errors.Is(err, jobs.ErrDuplicate) || !errors.As(err, &dup) || dup.JobID != existing.ID {
 		t.Errorf("a duplicate: err = %v, want ErrDuplicate naming %s", err, existing.ID)
