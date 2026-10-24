@@ -124,6 +124,9 @@ func TestALabelOnAnIssueWhoseLatestJobIsDoneOrCancelledMakesANewJob_TS_19_9(t *t
 		if n := e.jobsFor(42); n != 2 {
 			t.Errorf("%d jobs for 42, want a new one", n)
 		}
+		if j := e.jobList(); j[len(j)-1].SourceKind != "label" || j[len(j)-1].SourceBy != "label af:fix" {
+			t.Errorf("the new job is from %s %s, want the label", j[len(j)-1].SourceKind, j[len(j)-1].SourceBy)
+		}
 	})
 }
 
@@ -181,10 +184,13 @@ func TestADuplicateOrStateRefusalOfTheRetryAbsorbsTheLabel_TS_19_26(t *testing.T
 func TestARetryRefusedForAnotherReasonBehavesAsAnAnswerDoes_TS_19_27(t *testing.T) {
 	for _, refusal := range []error{jobs.ErrNotSubscribed, jobs.ErrTokenUnreadable, errors.New("disk full")} {
 		t.Run(refusal.Error(), func(t *testing.T) {
-			e := newEnv(t, withRunner(failingRuns(1)), withJobs(func(j Jobs) Jobs { return answerRefused{Jobs: j, err: refusal} }))
+			e := newEnv(t, withRunner(failingRuns(2)), withJobs(func(j Jobs) Jobs { return answerRefused{Jobs: j, err: refusal} }))
 			id := e.failFix(42)
-			e.comment(42, "bob", "try again")
-			e.Hub.AddLabel(slug, 42, "af:fix")
+			e.failFix(43)
+			for _, n := range []int{42, 43} {
+				e.comment(n, "bob", "try again")
+				e.Hub.AddLabel(slug, n, "af:fix")
+			}
 			before, comments := len(e.writes()), e.comments(42)
 			e.cycle()
 			if len(e.doc(id).Attempts) != 1 || e.comments(42) != comments {
@@ -192,6 +198,9 @@ func TestARetryRefusedForAnotherReasonBehavesAsAnAnswerDoes_TS_19_27(t *testing.
 			}
 			if !e.hasLabel(42, "af:fix") {
 				t.Error("the label was taken")
+			}
+			if reads := len(e.Hub.RequestsTo(http.MethodGet, issuePath(43))); reads != 0 { // every refusal ends the cycle
+				t.Errorf("43 was read %d times, want the cycle ended", reads)
 			}
 			if errors.Is(refusal, jobs.ErrNotSubscribed) {
 				if got := e.writes()[before:]; len(got) != 0 {

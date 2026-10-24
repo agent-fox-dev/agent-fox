@@ -318,7 +318,7 @@ func TestTheCommentsAreReadThroughTheIssueReadAndNeverTheCommentList_TS_19_15(t 
 // TestAHubFailureOfTheIssueReadLeavesTheLabelAndTheNextCycleAnswers_TS_19_20 verifies TS-19-20.
 // Verifies: 19-REQ-3.6
 func TestAHubFailureOfTheIssueReadLeavesTheLabelAndTheNextCycleAnswers_TS_19_20(t *testing.T) {
-	for _, status := range []int{503, 401, 403} {
+	for _, status := range []int{503, 401, 403, 502} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			e := newEnv(t, withRunner(answering(2)))
 			id := e.blockFix(42)
@@ -327,7 +327,12 @@ func TestAHubFailureOfTheIssueReadLeavesTheLabelAndTheNextCycleAnswers_TS_19_20(
 				e.comment(n, "alice", "an answer")
 				e.Hub.AddLabel(slug, n, "af:fix")
 			}
-			e.Hub.Fail(issuePath(42), status)
+			if status == 502 { // the forge refuses hub's credential, which would fail every issue
+				e.Hub.Inject(http.MethodGet, issuePath(42), fakehub.Fault{Status: 502,
+					Body: `{"error":{"code":"forge_forbidden","message":"the forge forbids hub's credential","error_type":"forge"}}`})
+			} else {
+				e.Hub.Fail(issuePath(42), status)
+			}
 			comments := e.comments(42)
 			e.cycle()
 			if !e.hasLabel(42, "af:fix") || len(e.doc(id).Attempts) != 1 || e.comments(42) != comments {
@@ -338,6 +343,9 @@ func TestAHubFailureOfTheIssueReadLeavesTheLabelAndTheNextCycleAnswers_TS_19_20(
 			}
 			if status == 503 && len(e.Logs.level("WARN")) != 1 {
 				t.Errorf("WARN records %v, want one", e.Logs.level("WARN"))
+			}
+			if (status == 401 || status == 403) && len(e.Logs.level("ERROR")) != 1 {
+				t.Errorf("ERROR records %v, want one, as the poll logs a token hub refuses", e.Logs.level("ERROR"))
 			}
 			e.Hub.Clear()
 			e.cycle()

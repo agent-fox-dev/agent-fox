@@ -373,8 +373,8 @@ through hub's issue read, never its comment list, which cannot say when hub cut 
   not read the whole thread and names `af jobs answer <id>` and `POST /api/v1/jobs/<id>/answer`, or `af jobs retry <id>` and
   `POST /api/v1/jobs/<id>/retry`, with its own marker (`kind=thread_cut`); the label is removed. On a thread longer than hub
   returns, `af` or the API is the way.
-- **Failures.** Hub unavailable, or refusing or forbidding the token, on the issue read leaves the label, makes no attempt
-  and ends the poll's cycle, which the next one picks up; hub rejecting the read of the one issue, or not reading its
+- **Failures.** Hub unavailable, refusing or forbidding the token, or answering that the forge refuses its credential, on
+  the issue read leaves the label, makes no attempt and ends the poll's cycle, which the next one picks up; hub rejecting the read of the one issue, or not reading its
   comments (`comments_err`), leaves the label and the cycle goes on. The stream acts on no sighting whose comments it
   cannot read: it leaves the label to the poll. A reply that cannot be posted is a `WARN`, and the label is removed all the
   same. A job that moved meanwhile, or another job that took the issue, absorbs the label; a workspace that is not

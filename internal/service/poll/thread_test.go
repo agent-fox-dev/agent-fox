@@ -45,6 +45,10 @@ func TestTheCommentsThatCountFollowTheLatestAttemptsMarkerOrItsFinishTime_TS_19_
 		if got := bodies(counted(thread, "job_1", 2, at)); !slices.Equal(got, []string{"at", "after"}) {
 			t.Errorf("counted %v, want [at after]", got)
 		}
+		// The forge's times are whole seconds: a comment of the second the attempt finished in counts.
+		if got := bodies(counted(thread, "job_1", 2, at.Add(400*time.Millisecond))); !slices.Equal(got, []string{"at", "after"}) {
+			t.Errorf("counted %v from a finish within the second, want [at after]", got)
+		}
 	})
 	t.Run("an older attempt's marker is no anchor", func(t *testing.T) {
 		at := t0.Add(10 * time.Minute)

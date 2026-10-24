@@ -32,8 +32,14 @@ question, so the anchor is the first comment with it: the question, the failure 
 ## 4. Smaller choices
 
 - **The reply's check applies to both replies.** R5 skips the no-answer reply when it is the latest comment already; the
-  cut-thread reply is skipped the same way, so that a sighting of the poll and one of the stream do not both post it
-  (`reply.go`, `reply`).
+  cut-thread reply goes through the same check (`reply.go`, `reply`). On a cut thread the check rarely helps, since hub
+  keeps the oldest comments and a reply at the end is not among them; the records of the sighting are what keep a second
+  sighting from posting it again.
+- **Errors of the issue read keep the poll's levels.** 19-REQ-3.6's contract names one `WARN` for hub unavailable (503); a
+  token hub refuses or forbids (401, 403) is an `ERROR`, as every such failure of the poll is (spec 15's table), naming
+  the `PUT` route that cures it. Hub's 502 for a forge that refuses its credential ends the cycle, as on a removal.
+- **A follow-up that moved to a later triage.** When the linked fix job cannot be made because a later triage's follow-up
+  became the pending one meanwhile, the label is left for the next sighting, which links it to that triage.
 - **The comments are read when a rule needs them.** A sighting reads the issue's comments only for an answer or a retry; a
   new request, an absorb or a follow-up needs none, so `comments_err` on such a sighting changes nothing (19-REQ-3.8 is about
   the comments a sighting needs).

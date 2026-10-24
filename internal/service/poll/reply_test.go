@@ -97,10 +97,13 @@ func TestACutThreadOnARetryMakesNoRetryAndNamesTheRetryPaths_TS_19_30(t *testing
 		t.Errorf("%d WARN records, want 1", n)
 	}
 	last := e.lastComment(42)
-	for _, want := range []string{"af jobs retry " + id, "POST /api/v1/jobs/" + id + "/retry", "kind=thread_cut"} {
+	for _, want := range []string{"could not read the whole thread", "af jobs retry " + id, "POST /api/v1/jobs/" + id + "/retry"} {
 		if !strings.Contains(last, want) {
 			t.Errorf("the reply %q lacks %q", last, want)
 		}
+	}
+	if !strings.HasSuffix(strings.TrimSpace(last), fmt.Sprintf("<!-- agent-fox job=%s attempt=1 kind=thread_cut -->", id)) {
+		t.Errorf("the reply %q does not end with the thread_cut marker", last)
 	}
 }
 

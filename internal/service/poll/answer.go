@@ -42,7 +42,9 @@ func (c *cycleRun) thread(ctx context.Context, l *listing, n int) (thread issuex
 				f.row, f.message = rowRejected, "hub does not find the issue"
 			}
 			c.report(ctx, f)
-			return thread, false, f.row == rowRejected
+			// A rejection of the one issue lets the cycle go on; hub's 502 for a forge that refuses its credential (a
+			// rejection with a 5xx status) would fail every issue, and ends it.
+			return thread, false, f.row == rowRejected && f.status < http.StatusInternalServerError
 		}
 	}
 	if thread.CommentsErr != nil {

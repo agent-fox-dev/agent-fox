@@ -189,8 +189,8 @@ func (r *Runner) mirrorEnvelope(ctx context.Context, a *attempt, data []byte) {
 	case a.marked:
 		a.unmark(ctx)
 	}
-	if p.status == statusReady && a.req.Kind == jobs.KindTriage {
-		a.autoFix(ctx, *ref)
+	if p.status == statusReady && labelled && a.req.Kind == jobs.KindTriage {
+		a.autoFix(ctx, *ref) // after the status label, which a failed write leaves unset: the fix follows a triage that shows ready
 	}
 	a.noteLabels(labelled)
 	r.reached(a, "mirror_labels")

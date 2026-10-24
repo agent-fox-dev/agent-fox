@@ -51,8 +51,11 @@ func (c *cycleRun) followUp(ctx context.Context, l *listing, n int, recs []Recor
 		c.notSubscribed = true
 		return true, false
 	default:
-		if pending, perr := c.s.cfg.Jobs.PendingFollowUp(ctx, c.slug, int64(n)); errors.Is(perr, jobs.ErrNotFound) || perr == nil && pending.TriageJobID != f.TriageJobID {
-			return false, true // the follow-up moved on meanwhile: the other rules decide
+		switch pending, perr := c.s.cfg.Jobs.PendingFollowUp(ctx, c.slug, int64(n)); {
+		case errors.Is(perr, jobs.ErrNotFound):
+			return false, true // the follow-up moved on meanwhile and none is pending: the other rules decide
+		case perr == nil && pending.TriageJobID != f.TriageJobID:
+			return true, true // a later triage's follow-up is pending now: the label is left to the next sighting, which links it
 		}
 		c.report(ctx, failure{row: rowJobs, operation: fmt.Sprintf("make the fix job the triage asked for on the issue %d, so %s stays", n, l.Label), err: err})
 		return true, false

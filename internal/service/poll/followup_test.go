@@ -3,6 +3,8 @@ package poll
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
@@ -209,5 +211,34 @@ func TestAFixLabelWithNoPendingFollowUpMakesAJobOfTheLabelOrTheEvent_TS_19_55(t 
 				}
 			})
 		}
+	}
+}
+
+// movedFollowUp is a jobs layer whose linked fix job is refused because the follow-up moved on: a later triage's is
+// pending when it is looked at again.
+type movedFollowUp struct {
+	Jobs
+	looks int
+}
+
+func (m *movedFollowUp) PendingFollowUp(ctx context.Context, workspace string, issue int64) (jobs.FollowUp, error) {
+	m.looks++
+	return jobs.FollowUp{TriageJobID: fmt.Sprintf("job_t%d", m.looks), Label: "af:fix", Issue: issue, State: jobs.FollowUpPending}, nil
+}
+
+func (m *movedFollowUp) CreateLinked(context.Context, string, jobs.CreateRequest) (jobs.Doc, error) {
+	return jobs.Doc{}, errors.New("the follow-up is no longer pending")
+}
+
+// TestAFollowUpThatMovedToALaterTriageLeavesTheLabelForTheNextSighting verifies that a fix label whose follow-up a later
+// triage took over while the linked job was being made is neither taken for a job of the label nor removed: the next
+// sighting links it to that triage.
+// Verifies: 19-REQ-9.1
+func TestAFollowUpThatMovedToALaterTriageLeavesTheLabelForTheNextSighting(t *testing.T) {
+	e := newEnv(t, withJobs(func(j Jobs) Jobs { return &movedFollowUp{Jobs: j} }))
+	e.issue(42, "af:fix")
+	e.cycle()
+	if n := len(e.jobList()); n != 0 || !e.hasLabel(42, "af:fix") {
+		t.Errorf("%d jobs and the labels %v, want no job and af:fix left", n, e.labelsOf(42))
 	}
 }

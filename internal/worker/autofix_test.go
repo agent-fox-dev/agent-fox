@@ -352,3 +352,32 @@ func TestAResumedMirrorAsksAgainAndAddsTheLabelOnlyWhilePending_TS_19_43(t *test
 		})
 	}
 }
+
+// TestNoFollowUpIsAskedForWhenTheStatusLabelCannotBeSet verifies that the follow-up comes after the status label: a triage
+// whose ready label hub refuses asks for no fix.
+// Verifies: 19-REQ-7.3
+func TestNoFollowUpIsAskedForWhenTheStatusLabelCannotBeSet(t *testing.T) {
+	e := mirrorEnv(t, nil, map[string]string{"AF_AUTO_FIX": "true"})
+	e.readyTriage("confirmed")
+	e.hub.Inject("POST", "/api/v1/workspaces/acme/issues/42/labels", fakehub.Fault{Status: 503, Skip: 1}) // the mark goes through
+	if _, err := e.run(e.request(jobs.KindTriage, issueInput("42"))); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.sink.followUps) != 0 {
+		t.Errorf("the follow-ups asked for are %v, want none without the status label", e.sink.followUps)
+	}
+}
+
+// TestAFailedLabelWriteWithdrawsTheFollowUpInTheJobsLayer verifies the second half of TS-19-41 through the real jobs layer:
+// the follow-up of the triage reads withdrawn.
+// Verifies: 19-REQ-7.6
+func TestAFailedLabelWriteWithdrawsTheFollowUpInTheJobsLayer(t *testing.T) {
+	e := mirrorEnv(t, []string{"af:triage"}, map[string]string{"AF_AUTO_FIX": "true"})
+	e.readyTriage("confirmed")
+	svc, _ := e.withJobs(e.runner)
+	e.hub.Inject("POST", "/api/v1/workspaces/acme/issues/42/labels", fakehub.Fault{Status: 503, Skip: 2})
+	doc := atRest(t, svc, labelJob(t, svc, jobs.KindTriage))
+	if f := doc.FollowUp; f == nil || f.State != jobs.FollowUpWithdrawn {
+		t.Errorf("the follow-up is %+v, want withdrawn", doc.FollowUp)
+	}
+}

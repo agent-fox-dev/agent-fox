@@ -38,7 +38,8 @@ func counted(comments []issuex.Comment, job string, attempt int, finished time.T
 	}
 	var out []issuex.Comment
 	for _, c := range comments[from:] {
-		if !marked && c.CreatedAt.Before(finished) {
+		// The forge's times are whole seconds, and the attempt's finish has milliseconds: a comment of the same second counts.
+		if !marked && c.CreatedAt.Before(finished.Truncate(time.Second)) {
 			continue
 		}
 		if strings.Contains(c.Body, serviceMarker) || strings.TrimSpace(c.Body) == "" {
