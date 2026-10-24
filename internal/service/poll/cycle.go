@@ -45,6 +45,11 @@ type cycleRun struct {
 	repo  issuex.Repo
 	forge issuex.Client
 	st    *wsState
+	// onFail, when it is set, is what a failure of the rules is reported to in place of the cycle's records; failed says
+	// that one was, and notSubscribed that the jobs layer refused a job because the workspace is not subscribed.
+	onFail        func(failure)
+	failed        bool
+	notSubscribed bool
 }
 
 // Cycle makes one cycle of the workspace, and says how long to wait before the next and whether the loop of the workspace

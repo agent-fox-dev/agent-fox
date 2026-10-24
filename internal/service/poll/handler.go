@@ -20,7 +20,7 @@ type issueHandler struct{}
 // complete listing settles the removals that are owed for issues it does not contain.
 func (issueHandler) handle(ctx context.Context, c *cycleRun, l *listing) bool {
 	for _, n := range l.Issues {
-		if ctx.Err() != nil || !c.issue(ctx, l, n) {
+		if ctx.Err() != nil || !c.lockedIssue(ctx, l, n) {
 			return false
 		}
 	}
@@ -31,10 +31,28 @@ func (issueHandler) handle(ctx context.Context, c *cycleRun, l *listing) bool {
 	return true
 }
 
+// report is the failure of the rules for an issue: the cycle's, or, for an event of the stream, the stream's.
+func (c *cycleRun) report(ctx context.Context, f failure) {
+	c.failed = true
+	if c.onFail != nil {
+		c.onFail(f)
+		return
+	}
+	c.s.report(ctx, c.slug, c.st, f)
+}
+
 // newer says that the record was made at or after the listing was asked for: after the last record there was then, or at
 // a later time. The stream's issue of an event is no listing, and has no newer record.
 func (l *listing) newer(r Record) bool {
 	return !l.Requested.IsZero() && (r.ID > l.Before || r.CreatedAt.After(l.Requested))
+}
+
+// lockedIssue applies the rules to issue n under the workspace's lock, which the event stream takes for an event, and
+// gives it back before the next issue.
+func (c *cycleRun) lockedIssue(ctx context.Context, l *listing, n int) bool {
+	unlock := c.s.lockWorkspace(c.slug)
+	defer unlock()
+	return c.issue(ctx, l, n)
 }
 
 // request is the request to make a job of kind K for issue N from label L: the issue as its input, a source that names the
@@ -61,11 +79,10 @@ func request(workspace string, l *listing, n int) jobs.CreateRequest {
 //     removed and no job is made;
 //  4. otherwise it is a new request, and a job is made.
 func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
-	unlock := c.s.lockWorkspace(c.slug)
-	defer unlock()
+
 	recs, err := c.s.records.Find(ctx, c.slug, n, l.Label)
 	if err != nil {
-		c.s.report(ctx, c.slug, c.st, failure{
+		c.report(ctx, failure{
 			row: rowStore, operation: fmt.Sprintf("read the records of %s on the issue %d, so the label stays", l.Label, n), err: err,
 		})
 		return false
@@ -75,7 +92,7 @@ func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
 	// is known of what became of it, and the label is not taken.
 	for i := range recs {
 		if recs[i], err = c.s.note(ctx, recs[i]); err != nil {
-			c.s.report(ctx, c.slug, c.st, failure{
+			c.report(ctx, failure{
 				row: rowStore, operation: fmt.Sprintf("read how the job of %s on the issue %d stands, so the label stays", l.Label, n), err: err,
 			})
 			return false
@@ -86,7 +103,7 @@ func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
 	case err == nil:
 		return c.absorb(ctx, l, n, open.ID)
 	case !errors.Is(err, jobs.ErrNotFound):
-		c.s.report(ctx, c.slug, c.st, failure{
+		c.report(ctx, failure{
 			row: rowJobs, operation: fmt.Sprintf("look up the open job for %s on the issue %d, so the label stays", l.Label, n), err: err,
 		})
 		return false
@@ -119,9 +136,10 @@ func (c *cycleRun) request(ctx context.Context, l *listing, n int) bool {
 		return c.absorb(ctx, l, n, "")
 	case errors.Is(err, jobs.ErrNotSubscribed):
 		// The workspace is being unsubscribed, or is gone: nothing is written to its issues.
+		c.notSubscribed = true
 		return false
 	}
-	c.s.report(ctx, c.slug, c.st, failure{
+	c.report(ctx, failure{
 		row: rowJobs, operation: fmt.Sprintf("make a job for %s on the issue %d, so the label stays on the issue", l.Label, n), err: err,
 	})
 	return false
@@ -211,7 +229,7 @@ func (c *cycleRun) removeLabel(ctx context.Context, l *listing, n int) (removed,
 		return true, true
 	}
 	f := classify(fmt.Sprintf("remove the label %s from the issue %d", l.Label, n), err, true)
-	c.s.report(ctx, c.slug, c.st, f)
+	c.report(ctx, f)
 	return false, f.row == rowRemoval
 }
 

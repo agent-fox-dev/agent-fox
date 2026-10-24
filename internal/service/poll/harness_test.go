@@ -96,7 +96,7 @@ type envConfig struct {
 	vars       map[string]string
 	workers    int
 	jobs       func(*jobs.Config)
-	poll       func(*Config)
+	poll       []func(*Config)
 	cleanup    bool
 	streamless bool
 }
@@ -115,7 +115,7 @@ func withoutStream() option { return func(c *envConfig) { c.streamless = true } 
 func withCleanup() option { return func(c *envConfig) { c.cleanup = true } }
 
 // withPoll changes the configuration of the poll.
-func withPoll(f func(*Config)) option { return func(c *envConfig) { c.poll = f } }
+func withPoll(f func(*Config)) option { return func(c *envConfig) { c.poll = append(c.poll, f) } }
 
 // newEnv builds the environment and starts the jobs layer. The poll is not started: a test calls its Cycle.
 func newEnv(t *testing.T, opts ...option) *env {
@@ -171,8 +171,8 @@ func newEnv(t *testing.T, opts ...option) *env {
 		Subscriptions: st, Hub: client, Jobs: svc, DB: st.DB(), Logger: logger, Clock: clk,
 		FirstDelay: func() time.Duration { return 0 },
 	}
-	if cfg.poll != nil {
-		cfg.poll(&pc)
+	for _, f := range cfg.poll { // in the order they were given
+		f(&pc)
 	}
 	sup := New(pc)
 	sup.streamless = cfg.streamless

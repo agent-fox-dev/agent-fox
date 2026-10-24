@@ -492,6 +492,7 @@ func TestAnOutageLongerThanThePollIntervalIsOneWarn_TS_18_32(t *testing.T) {
 	t.Run("10m read", func(t *testing.T) {
 		e := newEnv(t, noCycles(), withVars(map[string]string{"AF_POLL_INTERVAL": "10m"}))
 		outage(e, e.failing(503), 10*time.Minute+time.Second)
+		waitFor(t, "the outage WARN", func() bool { return len(e.Logs.find("WARN", "poll alone")) >= 1 })
 		if got := len(e.Logs.find("WARN", "poll alone")); got != 1 {
 			t.Errorf("%d outage WARN records, want 1", got)
 		}
@@ -509,6 +510,7 @@ func TestAnOutageLongerThanThePollIntervalIsOneWarn_TS_18_32(t *testing.T) {
 		e.started()
 		waitFor(t, "the first read", func() bool { return len(e.Hub.RequestsTo("GET", "/api/v1/workspaces/widgets/vars/resolved")) == 1 })
 		outage(e, 0, 5*time.Minute+time.Second)
+		waitFor(t, "the outage WARN", func() bool { return len(e.Logs.find("WARN", "poll alone")) >= 1 })
 		if got := len(e.Logs.find("WARN", "poll alone")); got != 1 {
 			t.Errorf("%d outage WARN records after 5 minutes with no interval read, want 1", got)
 		}

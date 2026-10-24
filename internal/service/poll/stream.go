@@ -42,6 +42,8 @@ type stream struct {
 	closeConn context.CancelFunc
 	updatedAt time.Time
 	again     bool
+	// off says that the poll was found off before an event, which closed the connection.
+	off bool
 
 	// What the open connection works with: the token, the forge repository, when the variables were read and the
 	// interval they gave.
@@ -60,12 +62,16 @@ type stream struct {
 	// active is when the stream last had activity, or started; outage says that the outage since was logged.
 	active time.Time
 	outage bool
+	// handling are the failures of the handling of events logged since an event was last handled without failure, and
+	// warnedMalformed says that the connection warned of a malformed event.
+	handling        map[failureKey]bool
+	warnedMalformed bool
 }
 
 // startStream starts the stream of the loop of the workspace, which ends with the loop's context. The caller holds the
 // lock of the Supervisor.
 func (s *Supervisor) startStream(ctx context.Context, slug string, l *loop) {
-	st := &stream{s: s, slug: slug, loop: l, failures: map[failureKey]bool{}, next: firstWait, active: s.cfg.Clock.Now()}
+	st := &stream{s: s, slug: slug, loop: l, failures: map[failureKey]bool{}, handling: map[failureKey]bool{}, next: firstWait, active: s.cfg.Clock.Now()}
 	l.stream = st
 	s.wg.Add(1)
 	go func() {
@@ -126,8 +132,9 @@ func (st *stream) connect(ctx context.Context) time.Duration {
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	st.mu.Lock()
-	st.closeConn, st.updatedAt, st.again = cancel, sub.UpdatedAt, false
+	st.closeConn, st.updatedAt, st.again, st.off = cancel, sub.UpdatedAt, false, false
 	st.mu.Unlock()
+	st.warnedMalformed = false
 	defer func() {
 		st.mu.Lock()
 		st.closeConn = nil
@@ -147,13 +154,16 @@ func (st *stream) connect(ctx context.Context) time.Duration {
 	if err != nil {
 		return st.fail(ctx, classify("open the event stream", err, false))
 	}
-	if st.consume(cctx, es) {
-		st.mu.Lock()
-		again := st.again
-		st.mu.Unlock()
-		if again {
-			return 0
-		}
+	had := st.consume(cctx, es)
+	st.mu.Lock()
+	again, off := st.again, st.off
+	st.mu.Unlock()
+	switch {
+	case off:
+		return streamOffWait
+	case again:
+		return 0
+	case had:
 		return firstWait // a connection that had activity: the first wait, which it set the backoff back to
 	}
 	return st.wait(ctx)
@@ -212,13 +222,6 @@ func (st *stream) consume(ctx context.Context, es *hub.EventStream) (had bool) {
 		case <-ctx.Done():
 			return had
 		}
-	}
-}
-
-// handle acts on an event of the connection.
-func (st *stream) handle(ctx context.Context, ev hub.StreamEvent) {
-	if st.s.beforeEvent != nil {
-		st.s.beforeEvent()
 	}
 }
 

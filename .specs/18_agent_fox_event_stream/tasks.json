@@ -390,7 +390,7 @@
       "done_when": [
         "a stream-made job has source {kind:event,by:evt-1} and request_label af:fix"
       ],
-      "state": "pending",
+      "state": "done",
       "optional": false
     },
     {
