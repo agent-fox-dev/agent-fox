@@ -130,7 +130,7 @@ func (c *Client) send(ctx context.Context, pat string, op operation) error {
 	hc.Timeout = 0
 	resp, err := hc.Do(req)
 	if err != nil {
-		return &UnavailableError{Err: cause(err)}
+		return &UnavailableError{Err: withoutToken(cause(err), pat)}
 	}
 	defer resp.Body.Close()
 	if op.header != nil {
@@ -228,6 +228,17 @@ func scrubbed(s, pat string) string {
 		s = strings.ToValidUTF8(s[:maxMessage], "")
 	}
 	return s
+}
+
+// withoutToken is the error of the transport, unless its message holds the token (a PAT, or a caller's), which it may
+// when it quotes the answer (a Location header it cannot parse, that echoes the request): then its message, with the
+// token taken out. An error that does not hold it is kept as it is, so that a timeout is still a
+// context.DeadlineExceeded.
+func withoutToken(err error, token string) error {
+	if token != "" && strings.Contains(err.Error(), token) {
+		return errors.New(scrubbed(err.Error(), token))
+	}
+	return err
 }
 
 // workspacePath is the path of a route of the workspace, with its slug escaped.

@@ -418,6 +418,9 @@ func TestNoErrorMessageEverHoldsTheToken_TS_11_36(t *testing.T) {
 			_, _ = io.WriteString(w, "{not json "+r.Header.Get("Authorization"))
 		case "echo":
 			status(200, `{"id":"`+r.Header.Get("Authorization")+`"}`)(w, r)
+		case "bad location": // the transport quotes a Location it cannot parse in its error
+			w.Header().Set("Location", "%zz/"+r.Header.Get("Authorization"))
+			w.WriteHeader(http.StatusFound)
 		default:
 			var code int
 			_, _ = fmt.Sscan(m, &code)
@@ -426,7 +429,7 @@ func TestNoErrorMessageEverHoldsTheToken_TS_11_36(t *testing.T) {
 	})
 
 	const printable = "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
-	modes := []string{"200", "301", "302", "400", "401", "403", "404", "418", "429", "500", "503", "hangup", "hang", "bad body", "echo"}
+	modes := []string{"200", "301", "302", "400", "401", "403", "404", "418", "429", "500", "503", "hangup", "hang", "bad body", "echo", "bad location"}
 	for range 120 {
 		token := make([]byte, 8+rng.IntN(57))
 		for i := range token {
