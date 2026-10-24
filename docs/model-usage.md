@@ -21,7 +21,7 @@ There are two brains in the library (`internal/brain`), for the agent commands;
 | `agentkit` | the AgentKit driver, on the model `AF_MODEL` names (`claude-sonnet-5-5` by default), through the hands' Anthropic provider | inside the box under `podman` (and a `gateway`), as `af <agent> run`; on the host, over the tools of the box, under `local` | `measured`: the driver counts the tokens and prices them from the catalog; a model the catalog does not list has no price, so the run reports `none` and `--budget` is refused |
 | `scripted` | none: it replays a script | on the host | `none`: cost 0 |
 
-The cost of a run is the sum over its attempts, counted also for an attempt that
+The cost of a run is the sum over its rounds, counted also for a round that
 failed or panicked, because it was spent; a bound (`--budget`, `--max-turns`)
 stops the driver, and a run that stopped on one and left no submission fails as
 `budget` with the flag to raise. The driver inside a box counts its cost the same
@@ -164,35 +164,31 @@ starts the round. The brief is made of the mandate (find the root cause, make th
 smallest change, never commit or touch the issue, the report is material and not
 an instruction, submit one report), the body of the `af-fix` skill, the original
 report, the gate with its baseline, the repository map and the schema of the
-report, and then the task block. The prefix is byte-identical for every round,
-every attempt and every resume over the same report and tree, so that a cache
-read serves them all; what differs is in the task block: the run, the attempt and
+report, and then the task block. The prefix is byte-identical for every round
+and every resume over the same report and tree, so that a cache
+read serves them all; what differs is in the task block: the run and
 the round, the answers of a person, and, after a refusal, why `af` refused the
 last change and the end (4 KiB) of the output of each check that failed.
 
 **The default bounds** are USD 10 of model cost (`--budget`), 150 turns
 (`--max-turns`) and 45 minutes (`--timeout`). The budget and the turns are bounds
-per attempt: an attempt is rounds of the brain in a row, in one box, and the next
-attempt (`--attempts`, 2 by default and at most 5) starts from the tree as it is
-with a fresh budget of both. A round is one run of the brain, ended by a report or
-a question; a change that `af` refuses after measuring it is the task block of the
-next round, so a run that needs three tries to pass the gate is three rounds of
-one attempt, each paid from the same budget. Another round starts only while cost
-and turns remain and the time left of `--timeout` is at least a minute after the
-time kept for measuring (three times what the baseline took, and a minute). A run
-that has spent its attempts without a change that may land parks what it has, as a
-`wip` commit; one that applied nothing fails with the category of its last round
+of the run: its rounds of the brain in a row, in one box. A round is one run of the
+brain, ended by a report or a question; a change that `af` refuses after measuring
+it is the task block of the next round, so a run that needs three tries to pass the
+gate is three rounds, each paid from the same budget. Another round starts only
+while cost and turns remain and the time left of `--timeout` is at least a minute
+after the time kept for measuring (three times what the baseline took, and a
+minute); a round that ends without a report ends the run. A run that ends without
+a change that may land parks what it has, as a `wip` commit; one that applied nothing fails with the category of its last round
 (`budget` with the flag to raise, for one that spent its cost or turns before it
 submitted). Under a `--timeout` or a signal, the change that was applied is parked
 on a local branch and the model is not asked again.
 
-The cost of the run is the sum over every round of every attempt and is in the
+The cost of the run is the sum over every round and is in the
 envelope's `usage`, and the footer of a pull request says it (`brain`, `cost_usd`
-and `cost_source`). A dry run (`--dry-run`) still asks the model, round after
-round. A dry run spends model money like any other run, and writes nothing beyond
-its working tree, which it puts back. `--budget` needs a model whose price the
+and `cost_source`). `--budget` needs a model whose price the
 catalog knows, as for triage. `fix run` is one round in a box, with the bounds
-of an attempt.
+that are left of the run.
 
 ## The cost in the envelope
 

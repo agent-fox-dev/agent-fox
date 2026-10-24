@@ -2,8 +2,6 @@ package fix
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -87,6 +85,12 @@ func newLandWorld(t *testing.T, kind string) *landWorld {
 func (w *landWorld) issueInput() {
 	w.state.Issue = &StateIssue{URL: "https://github.com/o/r/issues/7", Title: "Greeting is wrong", Number: 7}
 	w.state.Input = StateInput{Kind: "issue", Origin: w.state.Issue.URL, Key: w.state.Issue.URL}
+}
+
+// issue makes the run one of issue 7, and is its input.
+func (w *landWorld) issue() Input {
+	w.issueInput()
+	return Input{Kind: "issue", Origin: w.state.Issue.URL, Body: "x"}
 }
 
 // park parks the change with the parameters of the world, and those mutate sets.
@@ -175,92 +179,6 @@ func TestBranchesAreNamedByTheIssueOrTheSubjectMadeUniqueAndCreatedAtTheBase_TS_
 	}
 }
 
-// TestAFileOrTextReportGetsExactlyOneIssueWithTheOriginalReport_TS_09_53 verifies
-// TS-09-53 at the function: the title is the subject, the body the original report
-// under a heading and a line that names the run, and the issue is an artifact and a side
-// effect.
-// Verifies: 09-REQ-8.1
-func TestAFileOrTextReportGetsExactlyOneIssueWithTheOriginalReport_TS_09_53(t *testing.T) {
-	for kind, want := range map[string]bool{"issue": false, "file": true, "text": true, "stdin": true} {
-		if got := NeedsIssue(kind, LandPR); got != want {
-			t.Errorf("NeedsIssue(%s, pr) = %v, want %v", kind, got, want)
-		}
-		if NeedsIssue(kind, LandBranch) || NeedsIssue(kind, LandNone) {
-			t.Errorf("NeedsIssue(%s) wants an issue where no pull request is opened", kind)
-		}
-	}
-
-	for _, kind := range []string{fakeforge.GitHub, fakeforge.GitLab} {
-		t.Run(kind, func(t *testing.T) {
-			w := newLandWorld(t, kind)
-
-			issue, err := CreateIssue(context.Background(), IssueParams{Forge: w.client, Target: w.target, Title: "say hello", Original: fileInput.Body, RunID: w.state.RunID, Report: w.rep})
-
-			if err != nil {
-				t.Fatal(err)
-			}
-			creates := w.forge.Count(fakeforge.OpCreate)
-			if creates != 1 || len(w.forge.Writes()) != 1 {
-				t.Fatalf("%d create requests and %d writes, want exactly one", creates, len(w.forge.Writes()))
-			}
-			sent := w.forge.Issue(issue.Number)
-			if sent.Title != "say hello" || !strings.HasPrefix(sent.Body, "## Original report\n\n"+fileInput.Body) || !strings.Contains(sent.Body, w.state.RunID) {
-				t.Errorf("issue = %+v, want the subject, the report under its heading and the run", sent)
-			}
-			if !strings.HasSuffix(strings.TrimSpace(sent.Body), w.state.RunID+".") || issue.Number == 0 || !strings.Contains(issue.URL, fmt.Sprint(issue.Number)) {
-				t.Errorf("body ends %q, issue %+v", sent.Body[max(0, len(sent.Body)-60):], issue)
-			}
-			if a := w.rep.artifact("issue"); a.Number != issue.Number || a.URL != issue.URL {
-				t.Errorf("artifacts = %v, want the issue", w.rep.artifacts)
-			}
-			if e := w.rep.effect(EffectCreateIssue); e.State != toolio.StateDone || e.Target != "o/r" {
-				t.Errorf("effects = %v, want create_issue done on o/r", w.rep.effects)
-			}
-		})
-	}
-}
-
-// TestAnIssueIsFittedToTheForgeAndItsFailureIsReported guards the body of the issue and
-// what a refusal of the forge comes to: a body that is too long for the forge is cut in the
-// report and keeps its heading and its last line, and a failure is a forge failure with the
-// side effect failed.
-func TestAnIssueIsFittedToTheForgeAndItsFailureIsReported(t *testing.T) {
-	w := newLandWorld(t, fakeforge.GitHub)
-	long := strings.Repeat("0123456789 abcdefghij\n", 6000) // 132 KB, beyond what GitHub takes
-
-	issue, err := CreateIssue(context.Background(), IssueParams{Forge: w.client, Target: w.target, Title: "t", Original: long, RunID: w.state.RunID, Report: w.rep})
-
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := w.forge.Issue(issue.Number).Body
-	if len(body) > issuex.MaxBodyLength(w.client) || !strings.HasPrefix(body, "## Original report\n\n") || !strings.HasSuffix(strings.TrimSpace(body), w.state.RunID+".") || !strings.Contains(body, toolio.TruncationMarker) {
-		t.Errorf("the body is %d bytes (limit %d), starts %q and ends %q", len(body), issuex.MaxBodyLength(w.client), body[:40], body[max(0, len(body)-80):])
-	}
-
-	stopped, stop := context.WithCancel(context.Background())
-	stop()
-	if _, err := CreateIssue(stopped, IssueParams{Forge: w.client, Target: w.target, Title: "t", Original: "x", RunID: w.state.RunID, Report: w.rep}); !errors.Is(err, context.Canceled) {
-		t.Errorf("a stopped run: %v, want the stop and not a failure of the forge", err)
-	}
-	w3 := newLandWorld(t, fakeforge.GitHub)
-	w3.forge.Fail(fakeforge.OpCreate, fakeforge.Failure{Status: 401, Message: "Bad credentials"})
-	_, err = CreateIssue(context.Background(), IssueParams{Forge: w3.client, Target: w3.target, Title: "t", Original: "x", RunID: w3.state.RunID, Report: w3.rep})
-	if f := failure(t, err); f.Category != toolio.CategoryAuth || f.Retryable {
-		t.Errorf("a credential the forge refuses: %+v, want auth", f)
-	}
-
-	w2 := newLandWorld(t, fakeforge.GitHub)
-	w2.forge.Fail(fakeforge.OpCreate, fakeforge.Failure{Status: 500, Message: "boom"})
-	_, err = CreateIssue(context.Background(), IssueParams{Forge: w2.client, Target: w2.target, Title: "t", Original: "x", RunID: w2.state.RunID, Report: w2.rep})
-	if f := failure(t, err); f.Category != toolio.CategoryForge || !f.Retryable || !strings.Contains(f.Message, "boom") {
-		t.Errorf("failure = %+v, want a retryable forge failure that carries the error", f)
-	}
-	if e := w2.rep.effect(EffectCreateIssue); e.State != toolio.StateFailed {
-		t.Errorf("effects = %v, want create_issue failed", w2.rep.effects)
-	}
-}
-
 // TestParkingCommitsWipWithTheVerdictTheFailingChecksRefsAndTheTrailerWithoutHooks_TS_09_61
 // verifies TS-09-61.
 // Verifies: 09-REQ-9.1
@@ -314,38 +232,35 @@ func TestParkingCommitsWipWithTheVerdictTheFailingChecksRefsAndTheTrailerWithout
 }
 
 // TestAParkedRunPushesAndOpensADraftThatRefsTheIssue_TS_09_62 verifies TS-09-62: under
-// --land pr the issue is made first for a text, the branch is pushed, and the draft pull
-// request says Refs; under --land branch there is a push and no request to the forge; an
-// interrupted run is neither pushed nor given a pull request, nor an issue.
+// --land pr the branch is pushed, and the draft pull request says Refs the issue.
 // Verifies: 09-REQ-9.2
 func TestAParkedRunPushesAndOpensADraftThatRefsTheIssue_TS_09_62(t *testing.T) {
-	text := Input{Kind: "text", Body: "the greeting says helo"}
 	for _, kind := range []string{fakeforge.GitHub, fakeforge.GitLab} {
 		t.Run("pr on "+kind, func(t *testing.T) {
 			w := newLandWorld(t, kind)
+			w.issueInput()
 
-			res, err := w.park(t, text, LandPR, nil)
+			res, err := w.park(t, Input{Kind: "issue", Origin: w.state.Issue.URL, Body: "x"}, LandPR, nil)
 
 			if err != nil {
 				t.Fatal(err)
 			}
-			requests := w.forge.Requests()
 			var writes []string
-			for _, r := range requests {
+			for _, r := range w.forge.Requests() {
 				if r.Op != "" && r.Op != fakeforge.OpRepo {
 					writes = append(writes, r.Op)
 				}
 			}
-			if !slices.Equal(writes, []string{fakeforge.OpCreate, fakeforge.OpPullRequest}) {
-				t.Errorf("requests = %v, want the issue and then the pull request", writes)
+			if !slices.Equal(writes, []string{fakeforge.OpPullRequest}) {
+				t.Errorf("requests = %v, want the pull request alone", writes)
 			}
-			if res.IssueCreated == nil || res.IssueCreated.Number == 0 || res.Branch != fmt.Sprintf("fix/%d-say-hello", res.IssueCreated.Number) {
-				t.Errorf("issue %+v, branch %q, want the branch named by the issue that was made", res.IssueCreated, res.Branch)
+			if res.Branch != "fix/7-greeting-wrong" {
+				t.Errorf("branch %q, want the branch named by the issue", res.Branch)
 			}
 			prs := w.forge.PullRequests()
-			if len(prs) != 1 || !prs[0].Draft || prs[0].Head != res.Branch || prs[0].Base != "main" || !strings.Contains(prs[0].Title, "wip: say hello") ||
-				!strings.Contains(prs[0].Body, "Refs "+res.IssueCreated.URL) {
-				t.Errorf("pull requests = %+v, want one draft from the branch whose body says Refs %s", prs, res.IssueCreated.URL)
+			if len(prs) != 1 || !prs[0].Draft || prs[0].Head != res.Branch || prs[0].Base != "main" || !strings.Contains(prs[0].Title, "wip: ") ||
+				!strings.Contains(prs[0].Body, "Refs "+w.state.Issue.URL) {
+				t.Errorf("pull requests = %+v, want one draft from the branch whose body says Refs %s", prs, w.state.Issue.URL)
 			}
 			if res.PullRequest == nil || !res.PullRequest.Draft || res.PullRequest.Number != prs[0].Number || res.PullRequest.URL == "" || !res.Pushed {
 				t.Errorf("result = %+v", res)
@@ -353,32 +268,18 @@ func TestAParkedRunPushesAndOpensADraftThatRefsTheIssue_TS_09_62(t *testing.T) {
 			if !w.remoteHas(t, res.Branch) {
 				t.Error("the branch is not on the remote")
 			}
-			for _, kind := range []string{EffectBranch, EffectCommit, EffectPush, EffectCreateIssue, EffectCreatePullRequest} {
+			for _, kind := range []string{EffectBranch, EffectCommit, EffectPush, EffectCreatePullRequest} {
 				if e := w.rep.effect(kind); e.State != toolio.StateDone {
 					t.Errorf("effect %s = %+v, want done", kind, e)
 				}
 			}
-			for _, kind := range []string{"branch", "commit", "issue", "pull_request"} {
+			for _, kind := range []string{"branch", "commit", "pull_request"} {
 				if a := w.rep.artifact(kind); a.Name == "" && a.URL == "" {
 					t.Errorf("artifact %s is missing: %v", kind, w.rep.artifacts)
 				}
 			}
 		})
 	}
-
-	t.Run("an existing issue is not made again", func(t *testing.T) {
-		w := newLandWorld(t, fakeforge.GitHub)
-		w.issueInput()
-
-		res, err := w.park(t, Input{Kind: "issue", Origin: w.state.Issue.URL, Body: "x"}, LandPR, nil)
-
-		if err != nil || res.IssueCreated != nil || w.forge.Count(fakeforge.OpCreate) != 0 {
-			t.Fatalf("result %+v, %v, %d issues created, want none", res, err, w.forge.Count(fakeforge.OpCreate))
-		}
-		if prs := w.forge.PullRequests(); len(prs) != 1 || !strings.Contains(prs[0].Body, "Refs https://github.com/o/r/issues/7") {
-			t.Errorf("pull requests = %+v", prs)
-		}
-	})
 }
 
 // TestParkingFollowsTheModeOfTheLanding guards what a parked change sends and where: branch
@@ -395,7 +296,7 @@ func TestParkingFollowsTheModeOfTheLanding(t *testing.T) {
 		if err != nil || !res.Pushed || !w.remoteHas(t, res.Branch) || res.Branch != "fix/say-hello" {
 			t.Fatalf("result %+v, %v", res, err)
 		}
-		if n := len(w.forge.Requests()); n != 0 || res.PullRequest != nil || res.IssueCreated != nil {
+		if n := len(w.forge.Requests()); n != 0 || res.PullRequest != nil {
 			t.Errorf("%d requests to the forge, pull request %v: branch mode asks nothing of the forge", n, res.PullRequest)
 		}
 	})
@@ -434,7 +335,7 @@ func TestParkingFollowsTheModeOfTheLanding(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if res.Pushed || w.remoteHas(t, res.Branch) || len(w.forge.Requests()) != 0 || res.PullRequest != nil || res.IssueCreated != nil || res.Branch != "fix/say-hello" {
+		if res.Pushed || w.remoteHas(t, res.Branch) || len(w.forge.Requests()) != 0 || res.PullRequest != nil || res.Branch != "fix/say-hello" {
 			t.Errorf("result %+v, %d requests, want a local branch and nothing else", res, len(w.forge.Requests()))
 		}
 		if e := w.rep.effect(EffectPush); e.Kind != "" {
@@ -572,19 +473,6 @@ func TestParkingKeepsTheWorkWhateverTheForgeDoes(t *testing.T) {
 		}
 		if e := w.rep.effect(EffectCreatePullRequest); e.State != toolio.StateFailed {
 			t.Errorf("effects = %v", w.rep.effects)
-		}
-	})
-	t.Run("an issue that cannot be made", func(t *testing.T) {
-		w := newLandWorld(t, fakeforge.GitHub)
-		w.forge.Fail(fakeforge.OpCreate, fakeforge.Failure{Status: 500, Message: "no issues today"})
-
-		res, err := w.park(t, text, LandPR, nil)
-
-		if err != nil || res.IssueCreated != nil || res.PullRequest != nil || res.Branch != "fix/say-hello" || !res.Pushed {
-			t.Fatalf("result %+v, %v, want the work parked and pushed under a branch with no issue number", res, err)
-		}
-		if !slices.Contains(w.rep.warnings, WarnIssueCreationFailed) || !slices.Contains(w.rep.warnings, WarnPullRequestSkipped) || w.forge.Count(fakeforge.OpPullRequest) != 0 {
-			t.Errorf("warnings = %v, want issue_creation_failed and pull_request_skipped", w.rep.warnings)
 		}
 	})
 }

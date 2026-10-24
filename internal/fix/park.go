@@ -17,12 +17,10 @@ const OutcomeParked = "parked"
 
 // The warnings of a parking.
 const (
-	WarnFixNotLanded        = "fix_not_landed"
-	WarnPushRetried         = "push_retried"
-	WarnPushFailed          = "push_failed"
-	WarnPullRequestFailed   = "pull_request_failed"
-	WarnPullRequestSkipped  = "pull_request_skipped"
-	WarnIssueCreationFailed = "issue_creation_failed"
+	WarnFixNotLanded      = "fix_not_landed"
+	WarnPushRetried       = "push_retried"
+	WarnPushFailed        = "push_failed"
+	WarnPullRequestFailed = "pull_request_failed"
 )
 
 // ErrNothingToPark says the checkout holds no change: there is nothing to keep.
@@ -62,21 +60,19 @@ type ParkParams struct {
 type ParkResult struct {
 	Outcome string
 	// Status is the status of a run that parked: unverified.
-	Status       toolio.Status
-	Branch       string
-	Commit       string
-	Pushed       bool
-	PullRequest  *PullRequestRef
-	IssueCreated *IssueRef
+	Status      toolio.Status
+	Branch      string
+	Commit      string
+	Pushed      bool
+	PullRequest *PullRequestRef
 }
 
 // Park keeps the change that is in the working tree on a branch of its own, as a commit that
 // says it is work in progress, and puts the checkout back on the base with a clean tree. The
 // branch is named as a landed one is. Unless the run was interrupted, the branch is pushed
 // (not under --land none) and, under --land pr, a draft pull request that refers to the
-// issue is opened, the issue being made first for a text or a file. The commit is made
-// first and without the hooks of the repository, and nothing after it can lose the work: a
-// push, a pull request or an issue that fails is a warning.
+// issue is opened. The commit is made first and without the hooks of the repository, and
+// nothing after it can lose the work: a push or a pull request that fails is a warning.
 func Park(ctx context.Context, p ParkParams) (ParkResult, error) {
 	dirty, err := p.Git.DirtyFiles(ctx)
 	if err != nil {
@@ -89,9 +85,7 @@ func Park(ctx context.Context, p ParkParams) (ParkResult, error) {
 	l := newLanding(p.Git, p.Report, p.State, p.Input, p.Mode, p.Forge, p.Target, p.Interrupted)
 	l.postPush = p.PostPush
 	l.subject = parkSubject(p)
-	if err := l.ensureIssue(ctx); err != nil {
-		return ParkResult{}, err
-	}
+	l.takeIssue()
 	if err := l.makeBranch(ctx); err != nil {
 		return ParkResult{}, err
 	}
@@ -108,7 +102,7 @@ func Park(ctx context.Context, p ParkParams) (ParkResult, error) {
 // draft pull request that refers to the issue, and the checkout goes back to the base.
 func (l *landing) afterParkCommit(ctx context.Context, verdict string, failing []FailingCheck) (ParkResult, error) {
 	rep := l.rep
-	res := ParkResult{Outcome: OutcomeParked, Status: toolio.StatusUnverified, Branch: l.branch, IssueCreated: l.created}
+	res := ParkResult{Outcome: OutcomeParked, Status: toolio.StatusUnverified, Branch: l.branch}
 	if err := l.recordCommit(); err != nil {
 		return res, l.finish(err)
 	}
@@ -127,11 +121,7 @@ func (l *landing) afterParkCommit(ctx context.Context, verdict string, failing [
 			res.Pushed = true
 		}
 		if res.Pushed && l.mode == LandPR {
-			if l.skipPR || l.issueURL == "" {
-				rep.Warn(WarnPullRequestSkipped, "no pull request was opened: there is no issue for it to refer to")
-			} else {
-				res.PullRequest = l.openPullRequest(ctx, "wip: "+l.subject, parkedBody(l.state.RunID, verdict, failing, l.issueURL, l.hookRefused), true)
-			}
+			res.PullRequest = l.openPullRequest(ctx, "wip: "+l.subject, parkedBody(l.state.RunID, verdict, failing, l.issueURL, l.hookRefused), true)
 		}
 	}
 	if err := l.backToBase(); err != nil {

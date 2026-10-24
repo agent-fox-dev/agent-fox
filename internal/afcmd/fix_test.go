@@ -157,9 +157,9 @@ func (c countingProvider) Create(ctx context.Context, spec sandbox.Spec) (sandbo
 	return c.Provider.Create(ctx, spec)
 }
 
-// TestFlagsOutOfRangeAreRefusedBeforeAnythingIsAsked_TS_09_4 verifies TS-09-4:
-// --attempts outside 1 to 5 and a --land that is not one of three are usage
-// failures that the shell finds before it reads the issue, so the forge sees no
+// TestFlagsOutOfRangeAreRefusedBeforeAnythingIsAsked_TS_09_4 verifies TS-09-4 as it
+// stands: a --land that is not one of three, and the flags af fix no longer takes
+// (--attempts, --dry-run), are usage failures that the shell finds before it reads the issue, so the forge sees no
 // request and the brain never runs.
 // Verifies: 09-REQ-1.4
 func TestFlagsOutOfRangeAreRefusedBeforeAnythingIsAsked_TS_09_4(t *testing.T) {
@@ -168,7 +168,7 @@ func TestFlagsOutOfRangeAreRefusedBeforeAnythingIsAsked_TS_09_4(t *testing.T) {
 	spy := &spyBrain{}
 	useFixSpy(t, spy)
 
-	for _, flags := range [][]string{{"--attempts", "0"}, {"--attempts", "6"}, {"--attempts", "x"}, {"--land", "bogus"}} {
+	for _, flags := range [][]string{{"--land", "bogus"}, {"--attempts", "2"}, {"--dry-run"}} {
 		t.Run(strings.Join(flags, " "), func(t *testing.T) {
 			code, env := e.fix(e.forge.IssueURL(7), append(flags, "--brain", "spy")...)
 
@@ -184,8 +184,8 @@ func TestFlagsOutOfRangeAreRefusedBeforeAnythingIsAsked_TS_09_4(t *testing.T) {
 			}
 		})
 	}
-	for _, ok := range [][]string{{"--attempts", "1"}, {"--attempts", "5"}, {"--land", "pr"}, {"--land", "branch"}, {"--land", "none"}} {
-		if code, env := e.fix(e.forge.IssueURL(7), append(ok, "--brain", "spy", "--dry-run")...); code == 2 {
+	for _, ok := range [][]string{{"--land", "pr"}, {"--land", "branch"}, {"--land", "none"}} {
+		if code, env := e.fix(e.forge.IssueURL(7), append(ok, "--brain", "spy")...); code == 2 {
 			t.Errorf("%v: exit code %d, error %v, want the flag accepted", ok, code, env["error"])
 		}
 	}
@@ -350,7 +350,7 @@ func TestADirOrBaseThatIsNotRightIsUsage_TS_09_10(t *testing.T) {
 		t.Errorf("message = %q, want 'check out other first'", msg)
 	}
 
-	if code, env := e.fix(e.forge.IssueURL(7), "--base", "main", "--land", "none", "--dry-run"); code == 2 {
+	if code, env := e.fix(e.forge.IssueURL(7), "--base", "main", "--land", "none"); code == 2 {
 		t.Errorf("--base main on main: exit code %d, error %v, want it accepted", code, env["error"])
 	}
 
@@ -410,7 +410,7 @@ func TestLandingPrerequisitesOfTheRepositoryAndTheInvocation_TS_09_13(t *testing
 	if msg := refusedBy(t, code, env, 1, "preflight")["message"].(string); !strings.Contains(msg, "--land branch") || !strings.Contains(msg, "origin") {
 		t.Errorf("message = %q, want it to say what --land branch needs", msg)
 	}
-	for _, args := range [][]string{{"--land", "none"}, {"--land", "branch", "--dry-run"}} {
+	for _, args := range [][]string{{"--land", "none"}} {
 		if code, env := noOrigin.fix(noOrigin.forge.IssueURL(7), append(args, "--brain", "spy")...); code != 0 {
 			if errObj, _ := env["error"].(map[string]any); errObj["category"] == "preflight" {
 				t.Errorf("%v: %v, want a repository with no origin to do", args, errObj)
@@ -418,15 +418,27 @@ func TestLandingPrerequisitesOfTheRepositoryAndTheInvocation_TS_09_13(t *testing
 		}
 	}
 
+}
+
+// TestFixRefusesAnInputThatIsNoIssue guards that af fix takes an issue: a text, a file or
+// stdin is a usage failure that says to triage it first, before the forge or the brain is asked.
+func TestFixRefusesAnInputThatIsNoIssue(t *testing.T) {
+	requireMake(t)
+	spy := &spyBrain{}
+	useFixSpy(t, spy)
 	e := newFixEnv(t, fakeforge.GitHub)
-	code, env = e.fix("the greeting says helo", "--land", "pr", "--brain", "spy")
-	errObj := refusedBy(t, code, env, 2, "usage")
-	hint, _ := errObj["fix_hint"].(map[string]any)
-	if hint["flag"] != "--repo" {
-		t.Errorf("fix_hint = %v, want the flag --repo", hint)
+	report := filepath.Join(t.TempDir(), "bug.md")
+	if err := os.WriteFile(report, []byte("The greeting says helo.\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if code, env := e.fix("the greeting says helo", "--land", "pr", "--repo", "o/r", "--brain", "spy"); code == 2 {
-		t.Errorf("with --repo: exit code %d, error %v", code, env["error"])
+	for name, input := range map[string]string{"text": "the greeting says helo", "file": report} {
+		code, env := e.fix(input, "--land", "pr", "--repo", "o/r", "--brain", "spy")
+		if msg := refusedBy(t, code, env, 2, "usage")["message"].(string); !strings.Contains(msg, "af triage") {
+			t.Errorf("%s: message = %q, want it to say to triage the report first", name, msg)
+		}
+	}
+	if spy.news != 0 || len(e.forge.Writes()) != 0 {
+		t.Errorf("the brain was made %d times, %d writes to the forge", spy.news, len(e.forge.Writes()))
 	}
 }
 
@@ -446,14 +458,6 @@ func TestAForgeThatCannotTakeAPullRequest_TS_09_14(t *testing.T) {
 			errObj := refusedBy(t, code, env, 1, "auth")
 			if hint, _ := errObj["fix_hint"].(map[string]any); hint["env"] != variable {
 				t.Errorf("fix_hint = %v, want env %s", hint, variable)
-			}
-
-			code, env = e.fix(e.forge.IssueURL(7), "--land", "pr", "--dry-run", "--brain", "spy")
-			if !slices.Contains(warningCodes(env), "no_forge_token") {
-				t.Errorf("dry run: exit code %d, warnings %v, want no_forge_token", code, warningCodes(env))
-			}
-			if errObj, _ := env["error"].(map[string]any); errObj["category"] == "auth" {
-				t.Errorf("dry run: %v, want the missing token not to stop the run", errObj)
 			}
 		})
 	}
@@ -576,14 +580,19 @@ func TestTheHelpOfFixShowsItsDefaults(t *testing.T) {
 	e.app.Main(context.Background(), []string{"af", "help", "fix"}, strings.NewReader(""), &out, &out)
 	help := out.String()
 
-	for flag, def := range map[string]string{"brain": "agentkit", "budget": "10", "max-turns": "150", "attempts": "2", "land": "pr", "timeout": "45m0s"} {
+	for flag, def := range map[string]string{"brain": "agentkit", "budget": "10", "max-turns": "150", "land": "pr", "timeout": "45m0s"} {
 		if !regexp.MustCompile(`(?m)^\s+--` + flag + ` .*\(default ` + regexp.QuoteMeta(def) + `\)$`).MatchString(help) {
 			t.Errorf("af help fix does not show --%s with the default %s:\n%s", flag, def, help)
 		}
 	}
-	for _, want := range []string{"--base branch", "--no-verify", "--dry-run", "--context", "--repo"} {
+	for _, want := range []string{"--base branch", "--no-verify", "--context", "--repo"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("af help fix does not show %q:\n%s", want, help)
+		}
+	}
+	for _, gone := range []string{"--attempts", "--dry-run"} {
+		if strings.Contains(help, gone) {
+			t.Errorf("af help fix shows %q, which it no longer takes:\n%s", gone, help)
 		}
 	}
 	// The box has no default of its own that the help could print: it is chosen by AF_SANDBOX,

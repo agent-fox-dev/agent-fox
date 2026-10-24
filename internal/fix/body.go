@@ -2,6 +2,7 @@ package fix
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/agent-fox-dev/agentfox/internal/checks"
@@ -239,4 +240,11 @@ func fileLines(f BodyFacts) []string {
 		lines = append(lines, fmt.Sprintf("- `%s` — %s", codeSpan(p), reason))
 	}
 	return lines
+}
+
+// sortedUnique is the list sorted, with each entry once.
+func sortedUnique(list []string) []string {
+	out := slices.Clone(list)
+	slices.Sort(out)
+	return slices.Compact(out)
 }

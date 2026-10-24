@@ -49,7 +49,7 @@ func TestFixRunRefusesWhatItCannotRun(t *testing.T) {
 			t.Errorf("af help fix run does not show %q:\n%s", want, out.String())
 		}
 	}
-	for _, not := range []string{"--land", "--attempts", "--base", "--no-verify", "--dry-run", "--repo", "--context"} {
+	for _, not := range []string{"--land", "--base", "--no-verify", "--repo", "--context"} {
 		if strings.Contains(out.String(), not) {
 			t.Errorf("af help fix run shows %q, which it does not take", not)
 		}

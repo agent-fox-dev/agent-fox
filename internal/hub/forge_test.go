@@ -351,11 +351,14 @@ func TestHubForgeErrorsMapOntoTheIssuexTypesTheLoopsClassify_TS_13_26(t *testing
 
 	t.Run("the preflights of fix and triage yield auth, forge and retryable", func(t *testing.T) {
 		e := newForgeEnv(t)
-		g := gitx.New(t.TempDir(), nil)
+		// A checkout with an origin to push to, which is all CheckLanding asks of git.
+		g := gitx.New(t.TempDir(), func(context.Context, string, []string, ...string) (string, int, error) {
+			return "https://example.com/acme.git\n", 0, nil
+		})
 		check := func(f fakehub.Fault) *toolio.Failure {
 			e.hub.Clear()
 			e.hub.Inject("GET", "/api/v1/workspaces/acme", f)
-			err := fix.CheckLanding(ctx, g, fix.PreflightParams{Land: fix.LandPR, DryRun: true, Forge: e.forge, Target: e.repo})
+			err := fix.CheckLanding(ctx, g, fix.PreflightParams{Land: fix.LandPR, Forge: e.forge, Target: e.repo})
 			var failure *toolio.Failure
 			if !errors.As(err, &failure) {
 				t.Fatalf("CheckLanding = %v, want a failure", err)
@@ -376,7 +379,7 @@ func TestHubForgeErrorsMapOntoTheIssuexTypesTheLoopsClassify_TS_13_26(t *testing
 			}
 		}
 		e.hub.Clear()
-		if err := fix.CheckLanding(ctx, g, fix.PreflightParams{Land: fix.LandPR, DryRun: true, Forge: e.forge, Target: e.repo}); err != nil {
+		if err := fix.CheckLanding(ctx, g, fix.PreflightParams{Land: fix.LandPR, Forge: e.forge, Target: e.repo}); err != nil {
 			t.Errorf("with nothing wrong: %v", err)
 		}
 

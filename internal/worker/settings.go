@@ -120,8 +120,8 @@ func triggersOn(value string) bool {
 // workspaces, which a later release serves.
 const landPatch = "patch"
 
-// flags are the settings as the flags of the loop: the brain, its bounds, and for a fix the one
-// attempt of the loop (the attempts of a round are the jobs layer's) and where the change goes.
+// flags are the settings as the flags of the loop: the brain, its bounds, and for a fix where
+// the change goes.
 func (s Settings) flags(kind jobs.Kind) []string {
 	args := []string{
 		"--brain", s.Brain,
@@ -130,7 +130,7 @@ func (s Settings) flags(kind jobs.Kind) []string {
 		"--timeout", s.Timeout.String(),
 	}
 	if kind == jobs.KindFix {
-		args = append(args, "--attempts", "1", "--land", s.Land)
+		args = append(args, "--land", s.Land)
 	}
 	return args
 }

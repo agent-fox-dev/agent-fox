@@ -117,11 +117,11 @@ run keeps in `.agent-fox/run/<id>/`:
 | File | What it is |
 |---|---|
 | `brief.md` | The brief of the first round, which the brain read: the mandate, the `af-fix` skill, the report in a fence, the gate and its baseline, the repository map, the schema of the report, and the task block. |
-| `original.md` | The original report, exactly as `af` took it; an issue made for a text or a file under `--land pr` keeps these bytes. |
+| `original.md` | The original report, exactly as `af` took it from the issue. |
 | `run.json` | The attempt and the nonce that the submission protocol reads, as the run made them; the box has a copy that is placed again before each round. |
 | `fix.json` | The state of the run, written last and atomically: the `input` (`kind`, `origin`, `key`), the `issue` or null, the `target` repository and its host, the `base` branch and the full hash `base_head` of its commit, the pinned gate `table`, the baseline (`baseline_gate_id`, `baseline_passed`, `baseline_ms`), `no_verify`, the `prefix_sha256` and `prefix_bytes` of the brief, the `suite` and `programs` the gate detected, the `context` answers, the number of `rounds` and the `brain`, `cost_usd` and `cost_source` they used. |
 | `submission.json` | The report the brain handed over and `af` accepted, in its normalised form. |
-| `report.md` | The body of the pull request of a change that landed, rendered from what `af` measured and what the report says; written once the issue of a text or a file is made and before the commit. A change that was parked has none. |
+| `report.md` | The body of the pull request of a change that landed, rendered from what `af` measured and what the report says; written before the commit. A change that was parked has none. |
 
 A round of a brain runs in a box, and `af` places two files in it before each
 round: `.agent-fox/gate.json`, the table of checks the run was pinned to, so that
@@ -319,7 +319,7 @@ variable names it: an `AF_BRAIN`, `AF_BRAIN_TRIAGE` or `AF_BRAIN_FIX` that a wor
 | `AF_MAX_BUDGET_USD` | `2` | `10` | finite and above 0. |
 | `AF_MAX_TURNS` | `100` | `150` | a whole number from 1. |
 | `AF_TIMEOUT` | `15m` | `45m` | a Go duration from `1m` to `24h`. It is cut so that the loop ends two minutes before the sandbox lease expires, with the warning `lease_shortened_timeout`. |
-| `AF_MAX_ATTEMPTS` | `2` | `2` | a whole number from 1 to 10: the most attempts a round may make. The loop of a fix runs `--attempts 1`; the rounds are the jobs layer's. |
+| `AF_MAX_ATTEMPTS` | `2` | `2` | a whole number from 1 to 10: the most attempts a round may make. The attempts are the jobs layer's: a fix loop has none of its own. |
 | `AF_SANDBOX_PROFILE` | none | none | non-empty: the profile that hub leases the sandbox from; unset is hub's default. Its image must provide `af`. |
 | `AF_FIX_LAND` | | `pr` | `pr`, `branch` or `none`. `patch` is refused: a fix on a `carry_patch` workspace, or landing as a patch, fails as `unsupported`, because carry-patch landing comes in a later release. A triage on a `carry_patch` workspace runs as on any other, and does not read it. |
 | `AF_POLL_INTERVAL` | | | read by the worker as the label poll reads it, and never a failure: a zero duration turns the label triggers off, which drops the forge path from the question, failure and parked-fix comments; anything else, an invalid value included, leaves them on. See [the label poll](#the-label-poll). |

@@ -190,46 +190,6 @@ func TestNoChangeAfterTheRevertIsARefusalAndTheGateIsNotRun_TS_09_40(t *testing.
 	}
 }
 
-// TestScopeListsWhatTheReportAndGitDisagreeAbout_TS_09_41 verifies TS-09-41.
-// Verifies: 09-REQ-6.4
-func TestScopeListsWhatTheReportAndGitDisagreeAbout_TS_09_41(t *testing.T) {
-	got := ScopeOf([]string{"b.go", "a.go"}, []string{"c.go", "a.go"})
-	if !slices.Equal(got.Undeclared, []string{"c.go"}) || !slices.Equal(got.Unchanged, []string{"b.go"}) {
-		t.Errorf("ScopeOf = %+v, want c.go undeclared and b.go unchanged", got)
-	}
-	if same := ScopeOf([]string{"a.go"}, []string{"a.go"}); same.Undeclared == nil || same.Unchanged == nil || len(same.Undeclared)+len(same.Unchanged) != 0 {
-		t.Errorf("ScopeOf of the same = %+v, want two empty lists, which a result writes as []", same)
-	}
-	many := ScopeOf([]string{"z", "m"}, []string{"y", "b", "a"})
-	if !slices.Equal(many.Undeclared, []string{"a", "b", "y"}) || !slices.Equal(many.Unchanged, []string{"m", "z"}) {
-		t.Errorf("ScopeOf = %+v, want both lists sorted", many)
-	}
-
-	w := newMeasureWorld(t, measuredFiles())
-	w.edit(t, "docs/readme.md", "readme, changed\n")
-	w.edit(t, "docs/new.md", "new\n")
-	m, err := w.measure(&Report{Files: []File{{Path: "docs/readme.md", Why: "x"}, {Path: "docs/missing.md", Why: "y"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(m.Scope.Undeclared, []string{"docs/new.md"}) || !slices.Equal(m.Scope.Unchanged, []string{"docs/missing.md"}) {
-		t.Errorf("scope = %+v", m.Scope)
-	}
-	if count(w.warnings, "scope_mismatch") != 1 || m.Refusal != nil || !m.Lands {
-		t.Errorf("warnings %v, refusal %v, lands %v, want the warning and no refusal", w.warnings, m.Refusal, m.Lands)
-	}
-
-	// A report that says what changed has nothing to warn of, and no report has no scope.
-	w2 := newMeasureWorld(t, measuredFiles())
-	w2.edit(t, "docs/readme.md", "readme, changed\n")
-	if m, err := w2.measure(&Report{Files: []File{{Path: "docs/readme.md", Why: "x"}}}); err != nil || count(w2.warnings, "scope_mismatch") != 0 || len(m.Scope.Undeclared)+len(m.Scope.Unchanged) != 0 {
-		t.Errorf("a report that matches: %v, warnings %v, scope %+v", err, w2.warnings, m.Scope)
-	}
-	if m, err := w2.measure(nil); err != nil || count(w2.warnings, "scope_mismatch") != 0 || m.Scope.Undeclared == nil {
-		t.Errorf("no report: %v, warnings %v, scope %+v", err, w2.warnings, m.Scope)
-	}
-}
-
 // TestTheGateAfterIsComparedWithTheBaselineByID_TS_09_42 verifies TS-09-42: the gate is
 // run with the pinned table and compared with the baseline, and under --no-verify it is
 // not run and the verdict is unverified, and the change lands all the same.

@@ -17,7 +17,7 @@ import (
 func (w *landWorld) finishing(mode string, ended LoopResult) FinishParams {
 	return FinishParams{
 		Git: w.repo.Git, State: w.state, Input: Input{Kind: "issue", Origin: w.state.Issue.URL, Body: "x"}, Mode: mode, Forge: w.client, Target: w.target,
-		Ended: ended, AttemptsMax: 2, Reporter: w.rep, WriteReport: func(string) error { return nil },
+		Ended: ended, Reporter: w.rep, WriteReport: func(string) error { return nil },
 	}
 }
 
@@ -26,30 +26,27 @@ func (w *landWorld) finishing(mode string, ended LoopResult) FinishParams {
 // checkout's to keep, since the run starts again from the base with the answer, and it could
 // not otherwise: the tree is not clean.
 func TestAQuestionAfterAnAppliedRoundPutsTheCheckoutBack(t *testing.T) {
-	for _, dry := range []bool{false, true} {
-		t.Run(map[bool]string{false: "a run", true: "a dry run"}[dry], func(t *testing.T) {
-			w := newLandWorld(t, fakeforge.GitHub)
-			w.issueInput()
-			p := w.finishing(LandPR, LoopResult{End: EndQuestion, Question: &Question{Text: "Which?", Options: []string{"x", "y"}}, HoldsChange: true, Attempts: 1, Rounds: 2})
-			p.DryRun = dry
+	t.Run("a run", func(t *testing.T) {
+		w := newLandWorld(t, fakeforge.GitHub)
+		w.issueInput()
+		p := w.finishing(LandPR, LoopResult{End: EndQuestion, Question: &Question{Text: "Which?", Options: []string{"x", "y"}}, HoldsChange: true, Rounds: 2})
 
-			end, err := Finish(context.Background(), p)
+		end, err := Finish(context.Background(), p)
 
-			if err != nil || end.Status != toolio.StatusNeedsHuman || end.Question == nil {
-				t.Fatalf("ending %+v, %v, want needs_human with the question", end, err)
-			}
-			w.onBase(t)
-			if head := strings.TrimSpace(gitDo(t, w.repo.Dir, "rev-parse", "HEAD")); head != w.state.BaseHead {
-				t.Errorf("HEAD = %s, want the base %s", head, w.state.BaseHead)
-			}
-			if data, _ := os.ReadFile(filepath.Join(w.repo.Dir, "src", "greet.sh")); string(data) != "echo hello\n" {
-				t.Errorf("greet.sh = %q, want the base's content: the refused change goes", data)
-			}
-			if len(w.rep.warnings) != 0 || len(w.forge.Writes()) != 0 {
-				t.Errorf("warnings %v, %d writes to the forge, want none", w.rep.warnings, len(w.forge.Writes()))
-			}
-		})
-	}
+		if err != nil || end.Status != toolio.StatusNeedsHuman || end.Question == nil {
+			t.Fatalf("ending %+v, %v, want needs_human with the question", end, err)
+		}
+		w.onBase(t)
+		if head := strings.TrimSpace(gitDo(t, w.repo.Dir, "rev-parse", "HEAD")); head != w.state.BaseHead {
+			t.Errorf("HEAD = %s, want the base %s", head, w.state.BaseHead)
+		}
+		if data, _ := os.ReadFile(filepath.Join(w.repo.Dir, "src", "greet.sh")); string(data) != "echo hello\n" {
+			t.Errorf("greet.sh = %q, want the base's content: the refused change goes", data)
+		}
+		if len(w.rep.warnings) != 0 || len(w.forge.Writes()) != 0 {
+			t.Errorf("warnings %v, %d writes to the forge, want none", w.rep.warnings, len(w.forge.Writes()))
+		}
+	})
 
 	t.Run("a checkout that was moved is left as it is", func(t *testing.T) {
 		w := newLandWorld(t, fakeforge.GitHub)
@@ -92,7 +89,7 @@ func TestAStopDuringTheLandingParksTheChangeLocally(t *testing.T) {
 	w := newLandWorld(t, fakeforge.GitHub)
 	w.issueInput()
 	report := addX()
-	p := w.finishing(LandPR, LoopResult{End: EndLandable, Report: &report, Measured: proven(), HoldsChange: true, Attempts: 1, Rounds: 1})
+	p := w.finishing(LandPR, LoopResult{End: EndLandable, Report: &report, Measured: proven(), HoldsChange: true, Rounds: 1})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 

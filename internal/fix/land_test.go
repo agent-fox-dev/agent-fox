@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -238,12 +237,10 @@ func TestAPushThatFailsKeepsTheBranchAndFails_TS_09_57(t *testing.T) {
 // verifies TS-09-58.
 // Verifies: 09-REQ-8.6
 func TestThePullRequestIsDraftedForUnmetCriteriaAndNoVerifyAndItsFailureIsAWarning_TS_09_58(t *testing.T) {
-	text := Input{Kind: "text", Body: "x"}
-
 	t.Run("a partial criterion", func(t *testing.T) {
 		w := newLandWorld(t, fakeforge.GitHub)
 
-		res, report := w.land(t, text, LandPR, func(p *LandParams) {
+		res, report := w.land(t, w.issue(), LandPR, func(p *LandParams) {
 			p.Report.Criteria = []Criterion{{Criterion: "a", Status: "met"}, {Criterion: "second half", Status: "partial"}, {Criterion: "b", Status: "unmet"}}
 		})
 
@@ -261,7 +258,7 @@ func TestThePullRequestIsDraftedForUnmetCriteriaAndNoVerifyAndItsFailureIsAWarni
 	t.Run("everything met and verified", func(t *testing.T) {
 		w := newLandWorld(t, fakeforge.GitHub)
 
-		res, _ := w.land(t, text, LandPR, nil)
+		res, _ := w.land(t, w.issue(), LandPR, nil)
 
 		prs := w.forge.PullRequests()
 		if len(prs) != 1 || prs[0].Draft || res.PullRequest == nil || res.PullRequest.Draft || slices.Contains(w.rep.warnings, WarnCriteriaUnmet) {
@@ -272,7 +269,7 @@ func TestThePullRequestIsDraftedForUnmetCriteriaAndNoVerifyAndItsFailureIsAWarni
 		w := newLandWorld(t, fakeforge.GitHub)
 		w.state.NoVerify = true
 
-		res, _ := w.land(t, text, LandPR, func(p *LandParams) { p.Measured = unverified() })
+		res, _ := w.land(t, w.issue(), LandPR, func(p *LandParams) { p.Measured = unverified() })
 
 		prs := w.forge.PullRequests()
 		if len(prs) != 1 || !prs[0].Draft || !strings.Contains(prs[0].Body, "Refs ") || strings.Contains(prs[0].Body, "Closes ") || res.PullRequest == nil {
@@ -286,7 +283,7 @@ func TestThePullRequestIsDraftedForUnmetCriteriaAndNoVerifyAndItsFailureIsAWarni
 		w := newLandWorld(t, fakeforge.GitHub)
 		w.forge.Fail(fakeforge.OpPullRequest, fakeforge.Failure{Status: 500, Message: "boom"})
 
-		res, _ := w.land(t, text, LandPR, nil)
+		res, _ := w.land(t, w.issue(), LandPR, nil)
 
 		if res.Outcome != OutcomeLanded || res.Status != toolio.StatusDone || res.PullRequest != nil || !res.Pushed {
 			t.Errorf("result = %+v, want the landing done, pushed, with no pull request", res)
@@ -304,13 +301,14 @@ func TestThePullRequestIsDraftedForUnmetCriteriaAndNoVerifyAndItsFailureIsAWarni
 // TestAfterLandingTheCheckoutIsOnTheBaseAndNoVerifyIsUnverified_TS_09_60 verifies TS-09-60.
 // Verifies: 09-REQ-8.8
 func TestAfterLandingTheCheckoutIsOnTheBaseAndNoVerifyIsUnverified_TS_09_60(t *testing.T) {
-	text := Input{Kind: "text", Body: "x"}
 	w := newLandWorld(t, fakeforge.GitHub)
+	w.issueInput()
+	issue := Input{Kind: "issue", Origin: w.state.Issue.URL, Body: "x"}
 
-	res, _ := w.land(t, text, LandPR, nil)
+	res, _ := w.land(t, issue, LandPR, nil)
 
-	if res.Outcome != OutcomeLanded || res.Status != toolio.StatusDone || toolio.ExitCode(res.Status) != 0 || !res.Pushed || res.PullRequest == nil || res.IssueCreated == nil {
-		t.Errorf("result = %+v, want landed, done, pushed, with a pull request and the issue that was made", res)
+	if res.Outcome != OutcomeLanded || res.Status != toolio.StatusDone || toolio.ExitCode(res.Status) != 0 || !res.Pushed || res.PullRequest == nil {
+		t.Errorf("result = %+v, want landed, done, pushed, with a pull request", res)
 	}
 	if slices.Contains(w.rep.warnings, WarnNotVerified) {
 		t.Errorf("warnings = %v", w.rep.warnings)
@@ -322,15 +320,16 @@ func TestAfterLandingTheCheckoutIsOnTheBaseAndNoVerifyIsUnverified_TS_09_60(t *t
 	if data, _ := os.ReadFile(filepath.Join(w.repo.Dir, "src", "greet.sh")); string(data) != "echo hello\n" {
 		t.Errorf("greet.sh = %q on the base, want its own content", data)
 	}
-	for _, kind := range []string{EffectBranch, EffectCommit, EffectPush, EffectCreateIssue, EffectCreatePullRequest} {
+	for _, kind := range []string{EffectBranch, EffectCommit, EffectPush, EffectCreatePullRequest} {
 		if e := w.rep.effect(kind); e.State != toolio.StateDone {
 			t.Errorf("effect %s = %+v, want done", kind, e)
 		}
 	}
 
 	w2 := newLandWorld(t, fakeforge.GitHub)
+	w2.issueInput()
 	w2.state.NoVerify = true
-	res2, _ := w2.land(t, text, LandPR, func(p *LandParams) { p.Measured = unverified() })
+	res2, _ := w2.land(t, Input{Kind: "issue", Origin: w2.state.Issue.URL, Body: "x"}, LandPR, func(p *LandParams) { p.Measured = unverified() })
 	if res2.Outcome != OutcomeLanded || res2.Status != toolio.StatusUnverified || toolio.ExitCode(res2.Status) != 4 || !slices.Contains(w2.rep.warnings, WarnNotVerified) {
 		t.Errorf("--no-verify: result %+v, warnings %v, want landed, unverified and not_verified", res2, w2.rep.warnings)
 	}
@@ -345,7 +344,7 @@ func TestLandNoneMakesTheLocalBranchAndNothingElse_TS_09_64(t *testing.T) {
 
 	res, report := w.land(t, Input{Kind: "issue", Origin: w.state.Issue.URL, Body: "x"}, LandNone, nil)
 
-	if res.Pushed || res.PullRequest != nil || res.IssueCreated != nil || w.remoteHas(t, res.Branch) || len(w.forge.Requests()) != 0 {
+	if res.Pushed || res.PullRequest != nil || w.remoteHas(t, res.Branch) || len(w.forge.Requests()) != 0 {
 		t.Errorf("result %+v, %d requests: none mode writes nothing beyond the local branch", res, len(w.forge.Requests()))
 	}
 	if gitDo(t, w.repo.Dir, "rev-parse", "--verify", res.Branch) == "" || !fullHash.MatchString(res.Commit) {
@@ -358,43 +357,6 @@ func TestLandNoneMakesTheLocalBranchAndNothingElse_TS_09_64(t *testing.T) {
 		t.Error("report.md was not written: the body is kept in every mode")
 	}
 	w.onBase(t)
-}
-
-// TestLandingMakesTheIssueOfATextAndHandsItsNumberToTheBranchAndTheCommit guards 09-REQ-8.1
-// at the landing: the issue comes first, the branch is named by it, and the commit and
-// the body refer to it.
-func TestLandingMakesTheIssueOfATextAndHandsItsNumberToTheBranchAndTheCommit(t *testing.T) {
-	w := newLandWorld(t, fakeforge.GitHub)
-
-	res, report := w.land(t, fileInput, LandPR, nil)
-
-	if res.IssueCreated == nil || res.Branch != "fix/"+itoa(res.IssueCreated.Number)+"-x" {
-		t.Fatalf("result %+v, want the branch named by the issue that was made", res)
-	}
-	if w.forge.Count(fakeforge.OpCreate) != 1 || w.forge.Requests()[1].Op != fakeforge.OpCreate && w.forge.Requests()[0].Op != fakeforge.OpCreate {
-		t.Errorf("requests = %v", w.forge.Requests())
-	}
-	msg := gitDo(t, w.repo.Dir, "log", "-1", "--format=%B", res.Branch)
-	if !strings.Contains(msg, "Closes "+res.IssueCreated.URL) || !strings.Contains(report.text, "Closes "+res.IssueCreated.URL) {
-		t.Errorf("the commit and the body must close the issue %s:\n%s", res.IssueCreated.URL, msg)
-	}
-	if sent := w.forge.Issue(res.IssueCreated.Number); sent.Title != "Add x" || !strings.Contains(sent.Body, fileInput.Body) {
-		t.Errorf("issue = %+v", sent)
-	}
-
-	// An issue the forge cannot make is a warning: the change lands without it.
-	w2 := newLandWorld(t, fakeforge.GitHub)
-	w2.forge.Fail(fakeforge.OpCreate, fakeforge.Failure{Status: 500, Message: "no issues today"})
-	res2, _ := w2.land(t, fileInput, LandPR, nil)
-	if res2.IssueCreated != nil || res2.PullRequest != nil || res2.Branch != "fix/x" || !res2.Pushed || res2.Outcome != OutcomeLanded {
-		t.Errorf("result = %+v, want the change landed and pushed without an issue or a pull request", res2)
-	}
-	if !slices.Contains(w2.rep.warnings, WarnIssueCreationFailed) || !slices.Contains(w2.rep.warnings, WarnPullRequestSkipped) {
-		t.Errorf("warnings = %v", w2.rep.warnings)
-	}
-	if msg := gitDo(t, w2.repo.Dir, "log", "-1", "--format=%B", res2.Branch); strings.Contains(msg, "Closes") || strings.Contains(msg, "Refs") {
-		t.Errorf("message = %q, want no line about an issue there is not", msg)
-	}
 }
 
 // TestAReportThatCannotBeWrittenIsAWarning guards that the body is kept beside the run and
@@ -410,8 +372,6 @@ func TestAReportThatCannotBeWrittenIsAWarning(t *testing.T) {
 		t.Errorf("result %+v, warnings %v, want a landing and the warning", res, w.rep.warnings)
 	}
 }
-
-func itoa(n int) string { return strconv.Itoa(n) }
 
 // TestEachUnmetStatusDraftsThePullRequestAndNotApplicableDoesNot guards which criteria
 // make a pull request a draft.

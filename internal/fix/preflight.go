@@ -26,7 +26,6 @@ const (
 
 // The warnings of the checks before a run.
 const (
-	WarnNoForgeToken    = "no_forge_token"
 	WarnIssueClosed     = "issue_closed"
 	WarnBaselineFailing = "baseline_failing"
 	// WarnQuestionNotFound: an answer was given to a question no earlier run asked.
@@ -43,7 +42,6 @@ type PreflightParams struct {
 	// lands nothing.
 	Dir, Base, Land string
 	NoVerify        bool
-	DryRun          bool
 	// Forge and Target are the client of the forge and the repository it works
 	// on, which a pull request is opened in.
 	Forge  issuex.Client
@@ -275,13 +273,13 @@ func checkGate(ctx context.Context, p PreflightParams) (project.Detection, []str
 }
 
 // CheckLanding checks what landing needs: an origin to push to, a repository to open the
-// pull request in, and a forge that can be written to. It reads the Land, DryRun, Forge,
-// Target and Warn of the parameters.
+// pull request in, and a forge that can be written to. It reads the Land, Forge and Target
+// of the parameters.
 func CheckLanding(ctx context.Context, g *gitx.Git, p PreflightParams) error {
 	if p.Land == LandNone {
 		return nil
 	}
-	if !p.DryRun && !g.HasRemote(ctx) {
+	if !g.HasRemote(ctx) {
 		return preflight("--land %s pushes the branch, and there is no origin remote to push to: add one, or use --land none", p.Land)
 	}
 	if p.Land != LandPR {
@@ -295,13 +293,9 @@ func CheckLanding(ctx context.Context, g *gitx.Git, p PreflightParams) error {
 		}
 	}
 	if !p.Forge.Authenticated() {
-		if p.DryRun {
-			p.Warn(WarnNoForgeToken, fmt.Sprintf("opening a pull request in %s needs a credential, and none is set; a dry run goes on without one", p.Target))
-			return nil
-		}
 		return &toolio.Failure{
 			Category: toolio.CategoryAuth,
-			Message:  fmt.Sprintf("opening a pull request in %s needs a credential: set GITHUB_TOKEN, GH_TOKEN or GITLAB_TOKEN, or pass --dry-run, --land branch or --land none", p.Target),
+			Message:  fmt.Sprintf("opening a pull request in %s needs a credential: set GITHUB_TOKEN, GH_TOKEN or GITLAB_TOKEN, or pass --land branch or --land none", p.Target),
 			FixHint:  &toolio.FixHint{Env: tokenVariable(p)},
 		}
 	}
