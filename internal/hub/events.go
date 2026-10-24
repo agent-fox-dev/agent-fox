@@ -79,6 +79,9 @@ func (c *Client) Events(ctx context.Context, pat, slug string) (*EventStream, er
 	switch status := resp.StatusCode; {
 	case status >= 200 && status < 300:
 		return nil, &UnavailableError{Status: status, Err: errors.New("the answer is not an event stream")}
+	case status >= 500:
+		// Whatever hub says of the forge: the stream is hub's own, and a 5xx of it is hub being unavailable.
+		return nil, &UnavailableError{Status: status, Err: fmt.Errorf("hub answered %d%s", status, hubSaid(resp.Body, pat))}
 	case status == http.StatusForbidden:
 		return nil, fmt.Errorf("hub forbids the token to open the event stream (%d)%s: the PAT of the subscription lacks the scope audit:read; replace the token with PUT /api/v1/workspaces/%s: %w",
 			status, hubSaid(resp.Body, pat), url.PathEscape(slug), ErrForbidden)
@@ -124,6 +127,9 @@ func (s *EventStream) frame() (f sseFrame, comment bool, err error) {
 	fields := false
 	for s.lines.Scan() {
 		line := s.lines.Text()
+		if len(strings.TrimSuffix(line, "\r")) > maxEventLine {
+			return sseFrame{}, false, bufio.ErrTooLong
+		}
 		switch {
 		case line == "" && !fields:
 			continue

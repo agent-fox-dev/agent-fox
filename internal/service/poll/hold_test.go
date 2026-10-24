@@ -765,38 +765,34 @@ func (o *ordered) Create(ctx context.Context, req jobs.CreateRequest) (jobs.Doc,
 	return o.Jobs.Create(ctx, req)
 }
 
-// TestTheRulesOfOneIssueTakeTheWorkspacesLockAndNotTheCycles_TS_18_49 verifies TS-18-49: something that takes the lock of
-// the workspace while a cycle is in the rules of its first issue runs once they are done, and before the second issue's.
+// TestTheRulesOfOneIssueTakeTheWorkspacesLockAndNotTheCycles_TS_18_49 verifies TS-18-49: an event of the stream that comes
+// while a cycle is in the rules of its first issue is handled once they are done, and before the second issue's.
 // Verifies: 18-REQ-7.5
 func TestTheRulesOfOneIssueTakeTheWorkspacesLockAndNotTheCycles_TS_18_49(t *testing.T) {
 	o := &ordered{hold: 41, reached: make(chan struct{}, 1), release: make(chan struct{})}
-	e := newEnv(t, withRunner(fakerunner.New().Then(fakerunner.Block(fakerunner.Step{}))), withJobs(func(j Jobs) Jobs { o.Jobs = j; return o }))
+	e := streaming(t, withJobs(func(j Jobs) Jobs { o.Jobs = j; return o }))
 	e.issue(41, "af:fix")
 	e.issue(42, "af:fix")
+	e.issue(43)
 	done := make(chan struct{})
 	go func() { defer close(done); e.cycle() }()
-	<-o.reached // the cycle is in the rules of 41
-	locked := make(chan struct{})
-	go func() {
-		unlock := e.Poll.lockWorkspace(slug)
-		o.note("event")
-		time.Sleep(50 * time.Millisecond) // the cycle waits for the lock before the rules of 42
-		unlock()
-		close(locked)
-	}()
-	time.Sleep(50 * time.Millisecond)
+	<-o.reached                           // the cycle is in the rules of 41, its listings behind it
+	e.Hub.AddLabel(slug, 43, "af:triage") // a label the cycle did not list
+	e.labeled("e43", 43, "af:triage")
+	time.Sleep(100 * time.Millisecond) // the event waits for the lock, which it takes before it reads the issue
 	o.mu.Lock()
-	early := slices.Contains(o.order, "event")
+	early := slices.Contains(o.order, "create 43")
 	o.mu.Unlock()
-	if early {
-		t.Error("the lock was taken while the cycle was in the rules of an issue")
-	}
+	read := len(e.Hub.RequestsTo("GET", "/api/v1/workspaces/widgets/issues/43"))
 	close(o.release)
-	<-locked
+	if early || read != 0 {
+		t.Errorf("the event was handled while the cycle was in the rules of an issue (created %v, %d reads of 43)", early, read)
+	}
 	<-done
+	waitFor(t, "the event's job", func() bool { return e.taken("e43") })
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if want := []string{"create 41", "event", "create 42"}; !slices.Equal(o.order, want) {
+	if want := []string{"create 41", "create 43", "create 42"}; !slices.Equal(o.order, want) {
 		t.Errorf("the order is %v, want %v", o.order, want)
 	}
 }

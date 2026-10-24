@@ -471,6 +471,9 @@ labels the job accounts for are taken off. A runner that opened its hub session 
 set and writes nothing else; every other such cancel gets the cancel cleanup below without its last step, which adds no
 label, with `labels.cleanup` as for any cleanup. The envelope of an attempt it stopped says that the issue was closed (its
 category is `cancelled` as for any cancel), and one `INFO` record names the workspace, the issue and the jobs cancelled.
+Only the event stream cancels for a closed issue, and the poll has no catch-up for it: a close whose event the service
+missed (the stream was down, or hub could not read the issue) cancels nothing, and its jobs run on until they end or a
+person cancels them.
 
 **The cancel cleanup.** A runner that has opened its hub session writes the labels of a cancelled attempt itself.
 For a cancel of a job with an issue that no runner cleans up, whatever its cause, the service does it: a

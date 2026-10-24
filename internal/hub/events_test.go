@@ -199,10 +199,11 @@ func TestUnavailableAnswersOfTheEventsRoute_TS_18_5(t *testing.T) {
 		answer http.HandlerFunc
 		status int
 	}{
-		"429":      {hubError(429, "rate_limited", "slow down"), 429},
-		"500":      {hubError(500, "internal", "boom"), 500},
-		"503":      {hubError(503, "unavailable", "too many connections"), 503},
-		"redirect": {func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/elsewhere", http.StatusFound) }, 302},
+		"429":              {hubError(429, "rate_limited", "slow down"), 429},
+		"500":              {hubError(500, "internal", "boom"), 500},
+		"503":              {hubError(503, "unavailable", "too many connections"), 503},
+		"502 of the forge": {hubError(502, "forge_forbidden", "the forge forbids hub's credential"), 502},
+		"redirect":         {func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/elsewhere", http.StatusFound) }, 302},
 		"text/html": {func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/html")
 			_, _ = io.WriteString(w, "<html>")
@@ -412,6 +413,16 @@ func TestALineOverOneMiBEndsTheRead_TS_18_10(t *testing.T) {
 	}
 	if got := events(acts); len(got) != 1 || got[0].ID != "first" {
 		t.Errorf("the events are %+v, want the first only", got)
+	}
+	// The bound is exact: a line of 1 MiB is read, with either line break, and a line of one byte more is not.
+	line := func(n int) string { return ": " + strings.Repeat("x", n-2) }
+	for _, end := range []string{"\n", "\r\n"} {
+		if acts, err := drain(streamOf(line(1<<20) + end + end)); !errors.Is(err, io.EOF) || len(acts) != 1 {
+			t.Errorf("a line of 1 MiB ending %q: %d activities and %v, want it read", end, len(acts), err)
+		}
+		if _, err := drain(streamOf(line(1<<20+1) + end + end)); err == nil || errors.Is(err, io.EOF) {
+			t.Errorf("a line of 1 MiB and a byte ending %q ended with %v, want an error", end, err)
+		}
 	}
 }
 

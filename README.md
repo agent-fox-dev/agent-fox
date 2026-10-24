@@ -110,7 +110,8 @@ A subscribed workspace picks up labelled issues by itself, so that a team asks f
 issue with the workspace's `<prefix>triage` or `<prefix>fix` label. The service hears of the label from hub's event stream
 and makes the job within about a second (the workspace's token needs hub's scope `audit:read`); every `AF_POLL_INTERVAL`
 (5 minutes by default) it also lists the open issues that carry the labels, to catch what the stream missed. Each new
-request is one job, and the label is removed. Closing the issue cancels its open jobs. `AF_POLL_INTERVAL=0` turns
+request is one job, and the label is removed. Closing the issue cancels its open jobs when the stream hears of it (a close
+it misses is not caught up). `AF_POLL_INTERVAL=0` turns
 label-driven jobs off, the stream included. See
 [`docs/api.md`](docs/api.md#jobs-that-a-request-label-makes) and
 [`docs/configuration.md`](docs/configuration.md#the-label-poll).

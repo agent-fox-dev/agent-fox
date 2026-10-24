@@ -2,7 +2,9 @@ package poll
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 	"unicode"
@@ -12,6 +14,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/labels"
+	"github.com/agent-fox-dev/agentfox/internal/service/store"
 )
 
 // The handling of the events of a workspace's stream. A label put on an issue is a hint: the issue as hub reads it now
@@ -21,6 +24,9 @@ import (
 const (
 	// maxEventID is the longest id of an event that is taken.
 	maxEventID = 256
+	// readEventIssue is the operation of the read of an event's issue: one for every issue, so that its failure is logged
+	// once until an event is handled, whichever issue it names.
+	readEventIssue = "read the issue of an event"
 	// staleReading is how long the stream relies on its reading of the variables before it acts on an event.
 	staleReading = 5 * time.Minute
 )
@@ -69,6 +75,11 @@ func (st *stream) handle(ctx context.Context, ev hub.StreamEvent) {
 		st.s.beforeEvent()
 	}
 	sub, err := st.s.cfg.Subscriptions.Get(ctx, st.slug)
+	if errors.Is(err, store.ErrNotSubscribed) {
+		// As a connection does: the loop goes, and the stream with it.
+		st.s.dropLoop(st.slug, st.loop)
+		return
+	}
 	if err != nil {
 		st.handlingFailed(ctx, failure{row: rowStore, operation: "read the subscription", err: err})
 		return
@@ -110,7 +121,7 @@ func (st *stream) request(ctx context.Context, ev hub.StreamEvent, kind jobs.Kin
 	thread, err := forge.ReadIssue(ctx, issuex.IssueRef{Repo: st.repo, Number: ev.Issue})
 	if err != nil {
 		// One operation for every issue: the failure is logged once until an event is handled, whichever issue it names.
-		st.handlingFailed(ctx, classify("read the issue of an event", err, false))
+		st.handlingFailed(ctx, classify(readEventIssue, err, false))
 		return
 	}
 	issue := thread.Issue
@@ -154,7 +165,7 @@ func (st *stream) closedIssue(ctx context.Context, ev hub.StreamEvent) {
 	forge := st.s.cfg.Hub.Forge(st.pat, st.slug, st.repo)
 	thread, err := forge.ReadIssue(ctx, issuex.IssueRef{Repo: st.repo, Number: ev.Issue})
 	if err != nil {
-		st.handlingFailed(ctx, classify("read the issue of an event", err, false))
+		st.handlingFailed(ctx, classify(readEventIssue, err, false))
 		return
 	}
 	if !strings.EqualFold(thread.Issue.State, "closed") {
@@ -162,7 +173,7 @@ func (st *stream) closedIssue(ctx context.Context, ev hub.StreamEvent) {
 		return
 	}
 	cancelled, err := st.s.cfg.Jobs.CancelIssue(ctx, st.slug, int64(ev.Issue))
-	if len(cancelled) > 0 || err == nil {
+	if len(cancelled) > 0 {
 		st.s.cfg.Logger.Info("the issue was closed, so its open jobs were cancelled", "workspace", st.slug, "issue", ev.Issue, "jobs", cancelled)
 	}
 	if err != nil {
@@ -241,8 +252,12 @@ func (st *stream) handlingFailed(ctx context.Context, f failure) {
 
 // handlingText is the message of a failure of the handling of an event.
 func (st *stream) handlingText(f failure) string {
-	if f.row == rowUnavailable {
+	switch {
+	case f.row == rowUnavailable:
 		return fmt.Sprintf("hub could not be asked to %s", f.operation)
+	case f.row == rowDenied && f.status == http.StatusNotFound && f.operation == readEventIssue:
+		// The workspace record was read when the connection opened: what hub does not find is the issue.
+		return "hub does not find the issue of the event"
 	}
 	return st.text(f)
 }

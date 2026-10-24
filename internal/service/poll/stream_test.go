@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
+	"github.com/agent-fox-dev/agentfox/internal/service/jobs/fakerunner"
 )
 
 // noCycleDelay is the wait of the first cycle under noCycles: long, and unlike any wait of the stream.
@@ -86,18 +87,28 @@ func TestAnUnsubscribedWorkspaceLosesItsStreamAtTheNextScan_TS_18_15(t *testing.
 // TestAConnectionReadsTheVariablesThenTheRecordThenConnectsAtOnce_TS_18_16 verifies TS-18-16.
 // Verifies: 18-REQ-3.3
 func TestAConnectionReadsTheVariablesThenTheRecordThenConnectsAtOnce_TS_18_16(t *testing.T) {
-	e := newEnv(t, noCycles())
+	e := newEnv(t, noCycles(), withRunner(fakerunner.New().Then(fakerunner.Block(fakerunner.Step{}))))
 	e.started()
 	e.conns(slug, 1) // with no advance of the clock: no delay before the connect
 	if got, want := e.fromPoll(), []string{"vars", "workspace", "GET /api/v1/events"}; !slices.Equal(got, want) {
 		t.Errorf("hub saw %v with the token, want %v", got, want)
+	}
+	// A new label prefix of the subscription is the next event's, with no new connection.
+	if _, _, err := e.Store.Upsert(ctx, slug, "bot:", pat, "usr_1", "usr_1", epoch); err != nil {
+		t.Fatal(err)
+	}
+	e.issue(42, "bot:fix")
+	e.labeled("prefixed", 42, "bot:fix")
+	waitFor(t, "the job of bot:fix", func() bool { return e.jobsFor(42) == 1 })
+	if n := len(e.Hub.EventsRequests()); n != 1 {
+		t.Errorf("%d events requests, want the one connection", n)
 	}
 }
 
 // TestAReplacedTokenMakesTheNextScanReconnectWithIt_TS_18_17 verifies TS-18-17.
 // Verifies: 18-REQ-3.4
 func TestAReplacedTokenMakesTheNextScanReconnectWithIt_TS_18_17(t *testing.T) {
-	e := newEnv(t, noCycles())
+	e := newEnv(t, noCycles(), withRunner(fakerunner.New().Then(fakerunner.Block(fakerunner.Step{}))))
 	e.started()
 	e.conns(slug, 1)
 	const fresh = "pat-NEW-0123456789"
@@ -110,6 +121,21 @@ func TestAReplacedTokenMakesTheNextScanReconnectWithIt_TS_18_17(t *testing.T) {
 	if r := e.eventsOf(fresh)[0]; r.Header.Get("Authorization") != "Bearer "+fresh {
 		t.Errorf("the events request carries %q", r.Header.Get("Authorization"))
 	}
+
+	// A token replaced while an event is acted on closes the connection, and leaves the event's rules to finish.
+	e.issue(42, "af:fix")
+	e.Hub.Delay("/api/v1/workspaces/widgets/issues/42", 500*time.Millisecond)
+	e.labeled("during", 42, "af:fix")
+	waitFor(t, "the read of 42", func() bool { return len(e.Hub.RequestsTo("GET", "/api/v1/workspaces/widgets/issues/42")) == 1 })
+	const third = "pat-THIRD-0123456789"
+	e.Hub.AddWorkspaceToken(third, []string{slug})
+	if _, _, err := e.Store.Upsert(ctx, slug, "af:", third, "usr_1", "usr_1", epoch.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	e.minuteWithHeartbeats() // the scan
+	waitFor(t, "the event's job and the connection with the third token", func() bool {
+		return e.jobsFor(42) == 1 && e.taken("during") && len(e.eventsOf(third)) == 1
+	})
 }
 
 // TestAStreamThatFindsTheWorkspaceNotSubscribedTakesTheLoopWithIt_TS_18_18 verifies TS-18-18.
@@ -133,6 +159,17 @@ func TestAStreamThatFindsTheWorkspaceNotSubscribedTakesTheLoopWithIt_TS_18_18(t 
 	e.Clock.Advance(60 * time.Second)
 	waitFor(t, "the loop to come back", func() bool { return e.Poll.loopCount(slug) == 1 })
 	e.conns(slug, 1)
+
+	// The same when the store says so as an event is handled, on a connection that is open.
+	if _, err := e.Store.Delete(ctx, slug); err != nil {
+		t.Fatal(err)
+	}
+	e.labeled("gone", 42, "af:fix")
+	waitFor(t, "the loop to go on the event", func() bool { return e.Poll.loopCount(slug) == 0 })
+	e.conns(slug, 0)
+	if got := e.Logs.level("ERROR"); len(got) != 0 {
+		t.Errorf("ERROR records %v, want none for a workspace that is not subscribed", got)
+	}
 }
 
 // counting are subscriptions that count the reads of the token.
@@ -186,6 +223,11 @@ func TestStoppingThePollStopsTheStreamsAndWhatTheyAreDoing_TS_18_21(t *testing.T
 	e.Poll.Start(ctx)
 	e.conns(slug, 1)
 	waitFor(t, "the read of gadgets", func() bool { return len(e.Hub.RequestsTo("GET", "/api/v1/workspaces/gadgets")) == 1 })
+	// The handler of an event of widgets waits in its read of the issue.
+	e.issue(42, "af:fix")
+	e.Hub.Delay("/api/v1/workspaces/widgets/issues/42", time.Hour)
+	e.labeled("held", 42, "af:fix")
+	waitFor(t, "the read of 42", func() bool { return len(e.Hub.RequestsTo("GET", "/api/v1/workspaces/widgets/issues/42")) == 1 })
 	stopped := make(chan struct{})
 	go func() { e.Poll.Stop(); close(stopped) }()
 	select {
@@ -474,6 +516,18 @@ func TestA404OnTheEventsRouteIsOneWarnThatTheLabelsAreFoundByThePollAlone_TS_18_
 	}
 	if got := len(e.Logs.level("ERROR")); got != 0 {
 		t.Errorf("%d ERROR records, want none", got)
+	}
+	// Hub serving the stream again is a recovery, and the waits are the backoff's again.
+	e.Hub.Clear()
+	w, _ := e.nextWait(n)
+	e.Clock.Advance(w)
+	e.conns(slug, 1)
+	e.Hub.Heartbeat(slug)
+	waitFor(t, "the recovery", func() bool { return len(e.Logs.find("INFO", "has recovered")) == 1 })
+	n = e.waits()
+	e.Hub.EndEvents(slug)
+	if w, _ = e.nextWait(n); w != time.Second {
+		t.Errorf("the wait after the stream was served is %v, want 1s", w)
 	}
 }
 

@@ -163,7 +163,7 @@ func (r *Records) Delete(ctx context.Context, id int64) error {
 
 // TakeEvent records that the event of the workspace with the id was acted on, at the time.
 func (r *Records) TakeEvent(ctx context.Context, workspace, id string, at time.Time) error {
-	_, err := r.exec(ctx, "INSERT OR IGNORE INTO af_hub_events (workspace, event_id, taken_at) VALUES (?, ?, ?)", workspace, id, formatTime(at))
+	_, err := r.exec(ctx, "INSERT OR IGNORE INTO af_hub_events (workspace, event_id, taken_at) VALUES (?, ?, ?)", workspace, id, eventTime(at))
 	return err
 }
 
@@ -179,8 +179,11 @@ func (r *Records) EventTaken(ctx context.Context, workspace, id string) (bool, e
 
 // ExpireEvents deletes the ids of the events that were taken before the time, and returns how many it deleted.
 func (r *Records) ExpireEvents(ctx context.Context, before time.Time) (int, error) {
-	return r.exec(ctx, "DELETE FROM af_hub_events WHERE taken_at < ?", formatTime(before))
+	return r.exec(ctx, "DELETE FROM af_hub_events WHERE taken_at < ?", eventTime(before))
 }
+
+// eventTime is the time of a taken event as it is stored: of a fixed width, so that the text sorts as the time does.
+func eventTime(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05.000000000Z") }
 
 // Last is the id of the last record, 0 when there is none.
 func (r *Records) Last(ctx context.Context) (int64, error) {

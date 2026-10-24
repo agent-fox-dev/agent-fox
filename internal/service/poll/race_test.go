@@ -70,12 +70,13 @@ func TestAStreamEventAndACycleOnOneNewLabelEndWithOneJob_TS_18_52(t *testing.T) 
 		n := 1000 + round
 		e.issue(n, "af:fix")
 		id := fmt.Sprintf("race-%d", round)
+		left := len(e.Logs.find("WARN", "left to the poll"))
 		var wg sync.WaitGroup
 		wg.Add(2)
 		go func() { defer wg.Done(); e.labeled(id, n, "af:fix") }()
 		go func() { defer wg.Done(); e.cycle() }()
 		wg.Wait()
-		waitFor(t, "the event to be handled", func() bool { return e.taken(id) || len(e.Logs.find("WARN", "left to the poll")) > 0 })
+		waitFor(t, "the event to be handled", func() bool { return e.taken(id) || len(e.Logs.find("WARN", "left to the poll")) > left })
 		if got := e.jobsFor(n); got != 1 {
 			t.Fatalf("round %d: %d jobs for %d, want 1", round, got, n)
 		}

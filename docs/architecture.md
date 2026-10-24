@@ -1393,7 +1393,8 @@ keeps one connection to it for each workspace that has a poll loop, and acts on 
   `in-progress` it set; the cancel cleanup of every other such cancel makes its removals and adds no label. One `INFO`
   names the workspace, the issue and the jobs.
 - **A failure while acting on an event** leaves the event to the poll: nothing is recorded, so the next cycle, or a later
-  event, finds the label again. It is logged once (a `WARN`, or an `ERROR` for a refusal) until an event is handled without
+  event, finds the label again. A closed issue has no catch-up: the cycles list open issues only and never cancel, so a
+  close whose event was missed, or failed, cancels nothing. It is logged once (a `WARN`, or an `ERROR` for a refusal) until an event is handled without
   failure, apart from the failures of the connection and of the cycles.
 - **Reconnecting.** A connection that ends after it received anything is opened again after 1 second. One that fails, or
   ends without activity, waits out a backoff of 1 second doubling to 1 minute, which the first activity of a connection sets

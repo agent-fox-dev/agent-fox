@@ -154,7 +154,7 @@ func (st *stream) connect(ctx context.Context) time.Duration {
 	if err != nil {
 		return st.fail(ctx, classify("open the event stream", err, false))
 	}
-	had := st.consume(cctx, es)
+	had := st.consume(ctx, cctx, es)
 	st.mu.Lock()
 	again, off := st.again, st.off
 	st.mu.Unlock()
@@ -175,13 +175,14 @@ type item struct {
 	err error
 }
 
-// consume reads the connection until it ends, its context does, or it receives nothing for a minute: a reader goroutine
-// reads the stream, and this one acts on what it reads, one event at a time, while the minute does not run. It says
-// whether the connection had activity.
-func (st *stream) consume(ctx context.Context, es *hub.EventStream) (had bool) {
+// consume reads the connection until it ends, its context (cctx) does, or it receives nothing for a minute: a reader
+// goroutine reads the stream, and this one acts on what it reads, one event at a time, while the minute does not run. An
+// event is acted on with the stream's context (ctx), so that closing the connection, for a replaced token or a poll
+// turned off, does not cut the rules of an event off half-way. It says whether the connection had activity.
+func (st *stream) consume(ctx, cctx context.Context, es *hub.EventStream) (had bool) {
 	items := make(chan item)
 	read := make(chan struct{})
-	rctx, stop := context.WithCancel(ctx)
+	rctx, stop := context.WithCancel(cctx)
 	go func() {
 		defer close(read)
 		for {
@@ -210,7 +211,7 @@ func (st *stream) consume(ctx context.Context, es *hub.EventStream) (had bool) {
 			}
 			if !had {
 				had = true
-				st.recovered(ctx)
+				st.recovered()
 			}
 			st.active = st.s.cfg.Clock.Now()
 			if it.act.Event != nil {
@@ -219,7 +220,7 @@ func (st *stream) consume(ctx context.Context, es *hub.EventStream) (had bool) {
 			idle = st.s.cfg.Clock.After(idleLimit) // from the end of the handling: its time does not count
 		case <-idle:
 			return had
-		case <-ctx.Done():
+		case <-cctx.Done():
 			return had
 		}
 	}
@@ -227,12 +228,12 @@ func (st *stream) consume(ctx context.Context, es *hub.EventStream) (had bool) {
 
 // recovered ends an episode of failures with the first activity of a connection: the backoff is back to its first wait,
 // hub serves the stream after all, and what was logged is logged again if it comes back, with one INFO if anything was.
-func (st *stream) recovered(ctx context.Context) {
-	st.next, st.notServed = firstWait, false
-	if len(st.failures) > 0 || st.outage {
+func (st *stream) recovered() {
+	if len(st.failures) > 0 || st.outage || st.notServed {
 		st.s.cfg.Logger.Info("the event stream of the workspace has recovered", "workspace", st.slug)
 	}
 	st.failures, st.outage = map[failureKey]bool{}, false
+	st.next, st.notServed = firstWait, false
 }
 
 // wait is the wait before the next connection after one that failed or ended with no activity: the backoff, which
