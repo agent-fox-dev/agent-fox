@@ -88,25 +88,6 @@ func (g *Git) CurrentBranch(ctx context.Context) (string, error) {
 	return g.must(ctx, "rev-parse", "--abbrev-ref", "HEAD")
 }
 
-// BaseBranch is what a feature branch is cut from and its pull request
-// targets: the branch that is checked out now, or DefaultBranch when HEAD is
-// detached.
-//
-// The two must agree. Cutting from the checked-out branch and targeting
-// origin's default would put every commit the two differ by into the pull
-// request, and return the checkout to a branch the user was never on.
-//
-// It is only right BEFORE a feature branch is created, which is why a
-// pipeline asks once in pre-flight and keeps the answer: asked afterwards it
-// would name the feature branch, and a merge would then land the branch on
-// itself.
-func (g *Git) BaseBranch(ctx context.Context) string {
-	if b, err := g.CurrentBranch(ctx); err == nil && b != "" && b != "HEAD" {
-		return b
-	}
-	return g.DefaultBranch(ctx)
-}
-
 // DefaultBranch is origin's default branch when the remote advertises one,
 // else the branch that is checked out now, else "main". It is what --pull
 // updates when no branch is named.
@@ -205,42 +186,6 @@ func (g *Git) ChangedFiles(ctx context.Context, since string) ([]string, error) 
 	return out, nil
 }
 
-// DiffSince is the change since a commit, untracked files included, as git's
-// name-status lines (`M\tpath`, `D\tpath`, `R100\told\tnew`) and the unified
-// patch. Untracked files are marked intent-to-add so they appear in both, and
-// unmarked again before it returns: a marked file is no longer untracked, so
-// it would be taken by a commit that leaves untracked files alone, and
-// `git reset --hard` would delete it — and the checkout may hold files the
-// caller did not create.
-func (g *Git) DiffSince(ctx context.Context, since string) (nameStatus, patch string, err error) {
-	untracked, err := g.UntrackedFiles(ctx)
-	if err != nil {
-		return "", "", err
-	}
-	if len(untracked) > 0 {
-		if _, err = g.must(ctx, append([]string{"--literal-pathspecs", "add", "-N", "--"}, untracked...)...); err != nil {
-			return "", "", err
-		}
-		defer func() {
-			_, rerr := g.must(ctx, append([]string{"--literal-pathspecs", "reset", "-q", "--"}, untracked...)...)
-			if err == nil {
-				err = rerr
-			}
-		}()
-	}
-	if nameStatus, err = g.must(ctx, "diff", "--name-status", "--no-color", since); err != nil {
-		return "", "", err
-	}
-	patch, err = g.must(ctx, "diff", "--no-color", "-U0", since)
-	return nameStatus, patch, err
-}
-
-// DiffStat is the `--stat` summary of the change since a commit, for a run
-// summary that says how big the change was without printing it.
-func (g *Git) DiffStat(ctx context.Context, since string) (string, error) {
-	return g.must(ctx, "diff", "--stat", since)
-}
-
 // CommitAll stages everything and commits it, returning the new short hash.
 //
 // The message is passed through stdin rather than as an argument so that a
@@ -258,14 +203,6 @@ func (g *Git) CommitAll(ctx context.Context, message string) (string, error) {
 // that cannot commit leaves the model's files loose on the wrong branch.
 func (g *Git) CommitAllNoVerify(ctx context.Context, message string) (string, error) {
 	return g.commitAll(ctx, message, true, nil)
-}
-
-// CommitAllExcept is CommitAll that leaves the untracked paths in leave out
-// of the commit, and in the tree. A pipeline that shares the checkout with a
-// person passes the files it did not create: `git add -A` would otherwise
-// commit whatever anyone put there while it worked.
-func (g *Git) CommitAllExcept(ctx context.Context, message string, noVerify bool, leave []string) (string, error) {
-	return g.commitAll(ctx, message, noVerify, leave)
 }
 
 // StageAllExcept stages every change in the tree — new, modified and
@@ -298,13 +235,6 @@ func (g *Git) commitAll(ctx context.Context, message string, noVerify bool, leav
 		return "", fmt.Errorf("git commit exited %d: %s", code, strings.TrimSpace(out))
 	}
 	return g.Head(ctx)
-}
-
-// HeadMessage is the full message of the current commit. A pipeline reads it
-// to recognize a commit it made itself — a parked attempt it may discard —
-// from a commit a person made, which it may not.
-func (g *Git) HeadMessage(ctx context.Context) (string, error) {
-	return g.must(ctx, "log", "-1", "--format=%B")
 }
 
 // Push publishes a branch, retrying the transient half of the failure space.
@@ -429,34 +359,6 @@ func (g *Git) Clean(ctx context.Context) error {
 	return err
 }
 
-// CleanExcept removes the untracked files that are not in keep, honouring
-// .gitignore. It is Clean for a checkout the pipeline shares: an attempt is
-// thrown away without taking with it a file someone else put there.
-func (g *Git) CleanExcept(ctx context.Context, keep []string) error {
-	if len(keep) == 0 {
-		return g.Clean(ctx)
-	}
-	files, err := g.UntrackedFiles(ctx)
-	if err != nil {
-		return err
-	}
-	kept := map[string]bool{}
-	for _, p := range keep {
-		kept[p] = true
-	}
-	argv := []string{"clean", "-fdq", "--"}
-	for _, f := range files {
-		if !kept[f] {
-			argv = append(argv, f)
-		}
-	}
-	if len(argv) == 3 {
-		return nil
-	}
-	_, err = g.must(ctx, argv...)
-	return err
-}
-
 // Restore returns one path — a file or a whole directory — to its state at
 // HEAD: tracked files are checked out again and untracked ones under it are
 // removed.
@@ -470,27 +372,6 @@ func (g *Git) Restore(ctx context.Context, path string) error {
 	}
 	_, err := g.must(ctx, "clean", "-fdq", "--", path)
 	return err
-}
-
-// TrackedFiles lists every file git tracks, plus the untracked files that are
-// not ignored: the repository as a reader of it sees it.
-func (g *Git) TrackedFiles(ctx context.Context) ([]string, error) {
-	out, err := g.must(ctx, "ls-files", "--cached", "--others", "--exclude-standard")
-	if err != nil {
-		return nil, err
-	}
-	return nonEmptyLines(out), nil
-}
-
-// NameOnlySince lists the paths that differ between a commit and HEAD, as
-// `git diff --name-only <since> HEAD` reports them: what a pull request from
-// this branch would show.
-func (g *Git) NameOnlySince(ctx context.Context, since string) ([]string, error) {
-	out, err := g.must(ctx, "diff", "--name-only", since, "HEAD")
-	if err != nil {
-		return nil, err
-	}
-	return nonEmptyLines(out), nil
 }
 
 // CheckoutPaths sets paths to their content at ref, leaving everything else
@@ -549,12 +430,6 @@ func (g *Git) CommitsSince(ctx context.Context, since string) ([]Commit, error) 
 		commits = append(commits, Commit{Hash: h, Message: msg, Files: nonEmptyLines(files)})
 	}
 	return commits, nil
-}
-
-// MergeBase is the commit where HEAD left ref: the base a branch's whole
-// change is measured from, however far ref has moved since.
-func (g *Git) MergeBase(ctx context.Context, ref string) (string, error) {
-	return g.must(ctx, "merge-base", ref, "HEAD")
 }
 
 // ListFiles lists every file git tracks plus the untracked files that are

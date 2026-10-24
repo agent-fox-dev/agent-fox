@@ -496,7 +496,7 @@ adding to three lists; every other field of the stored envelope is the loop's, b
   the service keeps.
 - **Error categories.** `hub` is a failure of hub itself, and is a transient error, with no envelope, when hub is
   unavailable; a hub that refuses the token, or forbids a call, is `auth`, with a message that points to
-  `PUT /api/v1/workspaces/{slug}`. `unsupported` is, besides the placeholder's, a `fix` on a `carry_patch` workspace or
+  `PUT /api/v1/workspaces/{slug}`. `unsupported` is a `fix` on a `carry_patch` workspace or
   with `AF_FIX_LAND=patch` (carry-patch landing comes in a later release; a triage on such a workspace runs). `config` is
   a hub variable outside its range, with `fix_hint.var` naming it. `cancelled` is an attempt that was cancelled before
   the loop made an envelope. A loop that fails with a retryable `sandbox`, `forge` or `hub` error is not an envelope:

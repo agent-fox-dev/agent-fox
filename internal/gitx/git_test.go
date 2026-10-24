@@ -181,57 +181,6 @@ func TestUniqueBranchNameAvoidsAnExistingBranch(t *testing.T) {
 	}
 }
 
-// Hardcoding "main" is wrong on every repository that uses another default.
-// With no remote, the branch checked out now is the right answer — and only
-// before the feature branch is created, which is why a pipeline asks in
-// pre-flight and keeps the answer.
-func TestBaseBranchFallsBackToTheCurrentBranch(t *testing.T) {
-	g, _ := newRepo(t)
-	ctx := context.Background()
-
-	if got := g.BaseBranch(ctx); got != "main" {
-		t.Errorf("BaseBranch = %q", got)
-	}
-	if err := g.CreateBranch(ctx, "release/2.0"); err != nil {
-		t.Fatal(err)
-	}
-	if got := g.BaseBranch(ctx); got != "release/2.0" {
-		t.Errorf("BaseBranch after a checkout = %q; asked too late it names the feature branch", got)
-	}
-}
-
-// The run branches from the checked-out branch, so the pull request has to
-// target it too: a remote that advertises another default must not change the
-// base, or the pull request carries every commit the two branches differ by
-// (issue #217). Only a detached HEAD falls back to origin's default.
-func TestBaseBranchIsTheCheckedOutBranchEvenWhenOriginAdvertisesAnother(t *testing.T) {
-	g, dir := newRepo(t)
-	ctx := context.Background()
-	for _, argv := range [][]string{
-		{"git", "update-ref", "refs/remotes/origin/main", "HEAD"},
-		{"git", "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"},
-	} {
-		if out, code, err := ExecRunner(ctx, dir, argv); err != nil || code != 0 {
-			t.Fatalf("%v: %v (%d) %s", argv, err, code, out)
-		}
-	}
-	if err := g.CreateBranch(ctx, "develop"); err != nil {
-		t.Fatal(err)
-	}
-	if got := g.BaseBranch(ctx); got != "develop" {
-		t.Errorf("BaseBranch on develop = %q, want develop", got)
-	}
-	if got := g.DefaultBranch(ctx); got != "main" {
-		t.Errorf("DefaultBranch = %q, want origin's main", got)
-	}
-	if out, code, err := ExecRunner(ctx, dir, []string{"git", "checkout", "-q", "--detach"}); err != nil || code != 0 {
-		t.Fatalf("detach: %v (%d) %s", err, code, out)
-	}
-	if got := g.BaseBranch(ctx); got != "main" {
-		t.Errorf("BaseBranch on a detached HEAD = %q, want origin's main", got)
-	}
-}
-
 // A run that continues a branch reads the earlier runs' commits: each with its
 // whole message and its files, oldest first.
 func TestCommitsSinceListsMessagesAndFiles(t *testing.T) {
@@ -530,12 +479,12 @@ func TestCommitAllNoVerifySkipsAFailingHook(t *testing.T) {
 	if _, err := g.CommitAllNoVerify(ctx, "wip: parked\n\nSpec: 09_x, task 1\n"); err != nil {
 		t.Fatalf("CommitAllNoVerify: %v", err)
 	}
-	msg, err := g.HeadMessage(ctx)
+	out, err := exec.Command("git", "-C", dir, "log", "-1", "--format=%B").Output()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(msg, "wip: parked") || !strings.Contains(msg, "Spec: 09_x, task 1") {
-		t.Errorf("HeadMessage = %q", msg)
+	if msg := string(out); !strings.HasPrefix(msg, "wip: parked") || !strings.Contains(msg, "Spec: 09_x, task 1") {
+		t.Errorf("the message of HEAD = %q", msg)
 	}
 }
 
@@ -584,28 +533,6 @@ func TestUntrackedFilesSkipsTrackedAndIgnored(t *testing.T) {
 	}
 	if strings.Join(got, ",") != ".gitignore,mid.go.txt" {
 		t.Errorf("UntrackedFiles = %v", got)
-	}
-}
-
-func TestDiffSinceIncludesUntrackedFiles(t *testing.T) {
-	g, dir := newRepo(t)
-	ctx := context.Background()
-	head, _ := g.Head(ctx)
-	if err := os.WriteFile(filepath.Join(dir, "new_test.go"), []byte("t.Skip()\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(filepath.Join(dir, "README.md")); err != nil {
-		t.Fatal(err)
-	}
-	ns, patch, err := g.DiffSince(ctx, head)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(ns, "A\tnew_test.go") || !strings.Contains(ns, "D\tREADME.md") {
-		t.Errorf("name-status = %q", ns)
-	}
-	if !strings.Contains(patch, "+++ b/new_test.go") || !strings.Contains(patch, "+t.Skip()") {
-		t.Errorf("patch = %q", patch)
 	}
 }
 

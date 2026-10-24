@@ -895,7 +895,7 @@ talks to it.
   cleanups every minute, after its re-queue, and ends one an hour after its cancel; an unsubscribe waits, before it
   removes the subscription, for the first try of each cleanup it marked, at most the cancel grace.
 - **Tests.** Every test runs offline against `fakehub`, the fake runner and a fake clock. `cmd/agent-fox` wires the
-  worker; `jobs.PlaceholderRunner`, which fails every attempt as `unsupported`, is left for the tests of the layer.
+  worker.
 
 ### Recovery, as built
 

@@ -30,6 +30,10 @@ func (e *DuplicateError) Is(target error) bool { return target == ErrDuplicate }
 // job, after its insert was refused and before it looks the job up.
 const OpDuplicate = "duplicate"
 
+// CategoryUnsupported is the category of the failure of work that the service cannot
+// do yet.
+const CategoryUnsupported = "unsupported"
+
 // The kinds of source a job can have: the API, and the triggers of the specs that
 // follow.
 var sources = map[string]bool{"api": true, "label": true, "event": true, "rebuild": true, "triage": true}
