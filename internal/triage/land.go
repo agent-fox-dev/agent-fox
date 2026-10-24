@@ -113,16 +113,6 @@ type LandParams struct {
 	IsDryRun func(error) bool
 	// Tree is what the submission is validated against again.
 	Tree Tree
-	// Created is the issue an earlier landing of this run created, as that landing
-	// reported it, if any. OnCreated is called with the issue a landing creates, as soon as the
-	// forge answered, and before anything else is done.
-	Created   func() (IssueInfo, bool)
-	OnCreated func(IssueInfo)
-	// Check, when it is not nil, is asked before anything is written: it is the
-	// target and the credential of a landing that the caller has not checked
-	// already. It is asked after the submission is found to carry no question,
-	// since a question lands nothing and needs neither.
-	Check func(ctx context.Context) *Refusal
 
 	Record     func(kind string, data any) error
 	Warn       func(code, message string)
@@ -159,8 +149,7 @@ type LandResult struct {
 // the forge. For an issue it replaces the body and keeps the person's original
 // report as the issue has it now; when the body would be too long for the forge it
 // posts the diagnosis as a comment instead. For any other report it creates an
-// issue, or, when an earlier landing of the run created one, replaces that
-// issue's body. A landing can be repeated: it writes the same bytes again.
+// issue.
 //
 // The error is a *Refusal: no_result for a run with no valid submission, and
 // auth or forge for a write that failed. A submission that carries a question
@@ -178,11 +167,6 @@ func Land(ctx context.Context, p LandParams) (LandResult, error) {
 		return res, nil
 	}
 
-	if p.Check != nil && p.Mode != LandNone {
-		if refusal := p.Check(ctx); refusal != nil {
-			return res, refusal
-		}
-	}
 	original, comments, refusal := p.original(ctx)
 	if refusal != nil {
 		return res, refusal
@@ -410,35 +394,12 @@ func (p LandParams) addLabels(ctx context.Context, ref issuex.IssueRef, res *Lan
 }
 
 // landAsNewIssue creates an issue for a report that is no issue, in the
-// repository the run recorded, or, if an earlier landing created one, replaces
-// its body.
+// repository the run recorded.
 func (p LandParams) landAsNewIssue(ctx context.Context, d Diagnosis, body string, res *LandResult) *Refusal {
 	target := repoOf(p.Facts.Target.Repo, p.Facts.Target.Host)
 	if limit := issuex.MaxBodyLength(p.Forge); len(body) > limit {
 		return &Refusal{Category: CategoryUsage, Message: fmt.Sprintf("the issue would be %d bytes, and %s takes %d: the report cannot land whole; the diagnosis is in %s",
 			len(body), target, limit, res.DiagnosisPath)}
-	}
-
-	if p.Created != nil {
-		if info, ok := p.Created(); ok {
-			ref := issuex.IssueRef{Repo: repoOf(info.Repo, target.Host), Number: info.Number}
-			planned, err := p.write("update_issue", ref.String(), func() error {
-				_, err := p.Forge.UpdateIssue(ctx, ref, issuex.UpdateIssueRequest{Body: body})
-				return err
-			})
-			if err != nil {
-				return p.refuse(fmt.Sprintf("write to %s", ref.String()), ref.Repo, err)
-			}
-			res.Action = ActionReplacedBody
-			res.Issue = &IssueInfo{Repo: info.Repo, Host: firstNonEmpty(info.Host, hostOf(info.URL)), Number: info.Number, URL: info.URL}
-			if planned {
-				res.Action = ActionPlanned
-			} else {
-				p.artifact(Artifact{Kind: "issue", URL: res.Issue.URL, Number: ref.Number})
-			}
-			p.addLabels(ctx, ref, res)
-			return nil
-		}
 	}
 
 	var created issuex.Issue
@@ -460,9 +421,6 @@ func (p LandParams) landAsNewIssue(ctx context.Context, d Diagnosis, body string
 	}
 	res.Action = ActionCreatedIssue
 	res.Issue = &IssueInfo{Repo: target.String(), Host: firstNonEmpty(target.Host, hostOf(url)), Number: created.Number, URL: url}
-	if p.OnCreated != nil {
-		p.OnCreated(*res.Issue)
-	}
 	res.Labels = append([]string(nil), p.Labels...)
 	p.artifact(Artifact{Kind: "issue", URL: url, Number: created.Number})
 	return nil

@@ -550,10 +550,8 @@ func TestEachFixCommandAcceptsExactlyItsFlags_TS_09_3(t *testing.T) {
 	brainFlags := []string{"brain", "sandbox", "budget", "max-turns", "script"}
 	common := []string{"dir", "timeout"}
 	want := map[string][]string{
-		"fix":       append(append(slices.Clone(common), "base", "attempts", "land", "no-verify", "repo", "dry-run", "context"), brainFlags...),
-		"fix brief": append(slices.Clone(common), "base", "context", "repo"),
-		"fix run":   append(append(slices.Clone(common), "run-id"), brainFlags...),
-		"fix land":  append(slices.Clone(common), "run-id", "land"),
+		"fix":     append(append(slices.Clone(common), "base", "attempts", "land", "no-verify", "repo", "dry-run", "context"), brainFlags...),
+		"fix run": append(append(slices.Clone(common), "run-id"), brainFlags...),
 	}
 	for command, flags := range want {
 		slices.Sort(flags)
@@ -569,20 +567,18 @@ func TestEachFixCommandAcceptsExactlyItsFlags_TS_09_3(t *testing.T) {
 			}
 		}
 	}
-	if got, want := flagsOf("fix", "submit"), []string{"dir", "emit-events", "output", "run-id", "timeout"}; !slices.Equal(got, want) {
-		t.Errorf("af help fix submit shows %v, want exactly %v", got, want)
-	}
-	for _, args := range [][]string{{"fix", "land", "--run-id", "x", "--attempts", "2"}, {"fix", "brief", "x", "--land", "none"}, {"fix", "run", "--run-id", "x", "--base", "main"}, {"fix", "brief", "x", "--dry-run"}} {
+	for _, args := range [][]string{{"fix", "run", "--run-id", "x", "--base", "main"}, {"fix", "run", "--run-id", "x", "--attempts", "2"}} {
 		if code, env := e.run("", args...); code != 2 {
 			t.Errorf("%v: exit code %d (%v), want usage", args, code, env["error"])
 		}
 	}
 }
 
-// TestTheFiveFixCommandsHaveRealResultSchemas_TS_09_1 verifies TS-09-1: the schemas of all
-// five commands are in af --schema, each describing something, and the golden file has them.
+// TestTheFixCommandsHaveRealResultSchemas_TS_09_1 verifies TS-09-1 as it stands: the schemas
+// of af fix and af fix run are in af --schema, each describing something, and the golden file
+// has them.
 // Verifies: 09-REQ-1.1
-func TestTheFiveFixCommandsHaveRealResultSchemas_TS_09_1(t *testing.T) {
+func TestTheFixCommandsHaveRealResultSchemas_TS_09_1(t *testing.T) {
 	var out bytes.Buffer
 	newApp().Main(context.Background(), []string{"af", "--schema"}, strings.NewReader(""), &out, &bytes.Buffer{})
 	doc := oneDocument(t, out.String())
@@ -591,7 +587,7 @@ func TestTheFiveFixCommandsHaveRealResultSchemas_TS_09_1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"fix", "fix_brief", "fix_run", "fix_submit", "fix_land"} {
+	for _, name := range []string{"fix", "fix_run"} {
 		schema, _ := defs[name].(map[string]any)
 		if props, _ := schema["properties"].(map[string]any); len(props) < 3 {
 			t.Errorf("%q: result schema = %v, want one that describes the result", name, schema)

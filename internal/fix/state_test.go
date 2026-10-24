@@ -146,38 +146,6 @@ func TestTheInputKeyIdentifiesTheInputAcrossRuns(t *testing.T) {
 	}
 }
 
-// TestSplitBriefSplitsWhereTheBriefWasRenderedAndChecksThePrefix guards what a round reads
-// of a brief: the prefix is the bytes fix.json says it is, with the hash it holds, and a
-// brief that was changed is refused.
-func TestSplitBriefSplitsWhereTheBriefWasRenderedAndChecksThePrefix(t *testing.T) {
-	const prefix, task = "# Fix mandate\n\n## Report\n\n## Task\n(in the report)\n\n", "## Task\n\nThis is run x.\n"
-	sum, emptySum := sha256.Sum256([]byte(prefix)), sha256.Sum256(nil)
-	s := State{PrefixBytes: len(prefix), PrefixSHA256: hex.EncodeToString(sum[:])}
-
-	gotPrefix, gotTask, err := SplitBrief(prefix+task, s)
-
-	if err != nil || gotPrefix != prefix || gotTask != task {
-		t.Errorf("SplitBrief = %q, %q, %v, want the prefix and the task block where fix.json says", gotPrefix, gotTask, err)
-	}
-	for name, tc := range map[string]struct {
-		document string
-		state    State
-	}{
-		"a prefix that was edited":       {"# Fix mandate!\n\n## Report\n\n## Task\n(in the report)\n\n" + task, s},
-		"a brief that is shorter":        {prefix[:10], s},
-		"no length":                      {prefix + task, State{PrefixSHA256: s.PrefixSHA256}},
-		"no length, the hash of nothing": {prefix + task, State{PrefixSHA256: hex.EncodeToString(emptySum[:])}},
-		"a hash of another":              {prefix + task, State{PrefixBytes: len(prefix), PrefixSHA256: "feed"}},
-	} {
-		if _, _, err := SplitBrief(tc.document, tc.state); err == nil {
-			t.Errorf("%s: SplitBrief took it", name)
-		}
-	}
-	if _, gotTask, err := SplitBrief(prefix, s); err != nil || gotTask != "" {
-		t.Errorf("a brief that is only its prefix: %q, %v", gotTask, err)
-	}
-}
-
 // TestUsageAddsUpAndKeepsTheBestSourceOfTheCost guards what the rounds of a run have used:
 // the costs are added, the last brain is the brain, and the source is the best any round had.
 func TestUsageAddsUpAndKeepsTheBestSourceOfTheCost(t *testing.T) {

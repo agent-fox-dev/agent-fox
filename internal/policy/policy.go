@@ -846,7 +846,6 @@ func suiteRule(p Policy, s segment) (Decision, bool) {
 // afAllowed are the commands of af that a brain may run.
 var afAllowed = [][]string{
 	{"lang", "detect"}, {"gate", "run"}, {"gate", "compare"}, {"revert-check"}, {"map"},
-	{"triage", "brief"}, {"triage", "submit"}, {"fix", "brief"}, {"fix", "submit"},
 }
 
 // afRule (rule 5): a brain may read the repository, measure it and report; the

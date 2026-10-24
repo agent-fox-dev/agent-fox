@@ -106,7 +106,7 @@ func (e *triageEnv) loop(args ...string) (int, map[string]any) {
 }
 
 // TestTheCommandsAreRegisteredWithTheirTimeoutsAndFlags_TS_08_1 verifies TS-08-1:
-// the five triage commands exist with their default timeouts, and take the flags
+// the triage commands exist with their default timeouts, and take the flags
 // they are said to.
 // Verifies: 08-REQ-1.1
 func TestTheCommandsAreRegisteredWithTheirTimeoutsAndFlags_TS_08_1(t *testing.T) {
@@ -118,10 +118,7 @@ func TestTheCommandsAreRegisteredWithTheirTimeoutsAndFlags_TS_08_1(t *testing.T)
 		flags   []string
 	}{
 		{"triage", "15m0s", []string{"--brain", "--budget", "--context", "--dir", "--dry-run", "--label", "--land", "--max-turns", "--repo", "--sandbox", "--script"}},
-		{"triage brief", "2m0s", []string{"--context", "--dir", "--repo"}},
 		{"triage run", "15m0s", []string{"--budget", "--dir", "--max-turns", "--run-id"}},
-		{"triage submit", "30s", []string{"--dir", "--run-id"}},
-		{"triage land", "2m0s", []string{"--dir", "--dry-run", "--label", "--land", "--repo", "--run-id"}},
 	} {
 		t.Run(c.path, func(t *testing.T) {
 			var out strings.Builder
@@ -150,34 +147,31 @@ func TestTheCommandsAreRegisteredWithTheirTimeoutsAndFlags_TS_08_1(t *testing.T)
 		})
 	}
 
-	// What the commands declare of themselves shows in what they do: the input, the
-	// forge client and the run directory of the loop and of brief.
-	for _, args := range [][]string{{"triage", "brief"}, {"triage", "--sandbox", "local", "--brain", "scripted", "--script", script(t, submitStep(diagnosisPayload(nil), "accepted")), "--land", "none"}} {
-		before := len(e.forge.Requests())
-		code, env := e.run("", append(append(slices.Clone(args[:1]), args[1:]...), e.forge.IssueURL(7), "--dir", e.dir)...)
-		input, _ := env["input"].(map[string]any)
-		if code != 0 || env["run_id"] == nil || input["kind"] != "issue" || len(e.forge.Requests()) == before {
-			t.Errorf("%v: exit code %d, run_id %v, input %v, %d new requests: want the issue read through the forge client into a run directory",
-				args, code, env["run_id"], input, len(e.forge.Requests())-before)
-		}
+	// What the loop declares of itself shows in what it does: the input, the forge client
+	// and the run directory.
+	before := len(e.forge.Requests())
+	code, env := e.run("", "triage", "--sandbox", "local", "--brain", "scripted", "--script", script(t, submitStep(diagnosisPayload(nil), "accepted")), "--land", "none", e.forge.IssueURL(7), "--dir", e.dir)
+	input, _ := env["input"].(map[string]any)
+	if code != 0 || env["run_id"] == nil || input["kind"] != "issue" || len(e.forge.Requests()) == before {
+		t.Errorf("exit code %d, run_id %v, input %v, %d new requests: want the issue read through the forge client into a run directory",
+			code, env["run_id"], input, len(e.forge.Requests())-before)
 	}
 
+	// af triage run is the box's, and no command for a person.
 	var out strings.Builder
 	e.app.Main(context.Background(), []string{"af", "help"}, strings.NewReader(""), &out, &out)
-	for _, path := range []string{"triage brief", "triage run", "triage submit", "triage land"} {
-		if !strings.Contains(out.String(), path) {
-			t.Errorf("af help does not list %s", path)
-		}
+	if strings.Contains(out.String(), "triage run") {
+		t.Errorf("af help lists triage run:\n%s", out.String())
 	}
 }
 
-// TestRunSubmitAndLandRefuseABadRunID_TS_08_2 verifies TS-08-2:
-// a missing, malformed or unknown run id is a usage failure for run, submit and
-// land, with nothing written under .agent-fox/run and no request to the forge.
+// TestRunRefusesABadRunID_TS_08_2 verifies TS-08-2 as it stands: a missing, malformed
+// or unknown run id is a usage failure of af triage run, with nothing written under
+// .agent-fox/run and no request to the forge.
 // Verifies: 08-REQ-1.2
-func TestRunSubmitAndLandRefuseABadRunID_TS_08_2(t *testing.T) {
+func TestRunRefusesABadRunID_TS_08_2(t *testing.T) {
 	e := newTriageEnv(t, fakeforge.GitHub)
-	for _, command := range []string{"run", "submit", "land"} {
+	for _, command := range []string{"run"} {
 		for name, id := range map[string][]string{"no run id": nil, "a malformed one": {"--run-id", "bad-id"}, "an unknown one": {"--run-id", "20240101_000000_abcdef"}} {
 			t.Run(command+" with "+name, func(t *testing.T) {
 				args := append([]string{"triage", command, "--dir", e.dir}, id...)
@@ -239,7 +233,7 @@ func TestTheLedgerHoldsTheTriageRecordsInOrder_TS_08_4(t *testing.T) {
 }
 
 // TestTriageRunsOnADirtyTreeAndChangesNothingInIt_TS_08_5 verifies TS-08-5:
-// brief, a loop with --land none and a dry run all work on a dirty tree, and
+// a loop with --land none and a dry run both work on a dirty tree, and
 // leave git's status and HEAD as they were, adding files only under .agent-fox/.
 // Verifies: 08-REQ-1.5
 func TestTriageRunsOnADirtyTreeAndChangesNothingInIt_TS_08_5(t *testing.T) {
@@ -272,7 +266,6 @@ func TestTriageRunsOnADirtyTreeAndChangesNothingInIt_TS_08_5(t *testing.T) {
 	scripted := []string{"--sandbox", "local", "--brain", "scripted", "--script", script(t, submitStep(diagnosisPayload(nil), "accepted"))}
 
 	for name, args := range map[string][]string{
-		"brief":           {"triage", "brief", e.forge.IssueURL(7), "--dir", e.dir},
 		"a loop, no land": append([]string{"triage", e.forge.IssueURL(7), "--dir", e.dir, "--land", "none"}, scripted...),
 		"a dry run":       append([]string{"triage", e.forge.IssueURL(7), "--dir", e.dir, "--dry-run"}, scripted...),
 	} {

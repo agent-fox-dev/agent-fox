@@ -27,7 +27,7 @@ func (a *App) listHelp() string {
 	if len(a.commands) == 0 {
 		b.WriteString("  (none registered)\n")
 	}
-	commands := slices.Clone(a.commands)
+	commands := slices.DeleteFunc(slices.Clone(a.commands), func(c *Command) bool { return c.Hidden })
 	slices.SortFunc(commands, func(x, y *Command) int { return strings.Compare(x.Path, y.Path) })
 	width := 0
 	for _, c := range commands {

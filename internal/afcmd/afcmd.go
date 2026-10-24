@@ -17,7 +17,6 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/brain"
-	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/fix"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -59,9 +58,6 @@ type Config struct {
 	// Earlier says which questions the --context values answer; nil is to search the run
 	// directories for them, as af does.
 	Earlier *Earlier
-	// Gate runs the checks of the baseline of af fix brief, which measures on this host; nil
-	// is checks.Run. The loop of af fix measures in its box.
-	Gate func(ctx context.Context, dir string, o checks.Options) (checks.Result, error)
 	// SandboxProfile names the sandbox profile of a leased box, whose image has to provide the
 	// af that a fix measures with, for the failure that says it does not; empty is hub's
 	// default profile.
@@ -129,14 +125,6 @@ func (c *Config) git() gitx.Runner {
 		return c.Git
 	}
 	return gitx.ExecRunner
-}
-
-// gate is the gate of the baseline and of the measuring after a change.
-func (c *Config) gate() func(ctx context.Context, dir string, o checks.Options) (checks.Result, error) {
-	if c.Gate != nil {
-		return c.Gate
-	}
-	return checks.Run
 }
 
 // earlierOf is the question that each of the answers (the --context values) answers: the
@@ -239,8 +227,5 @@ func register(app *toolio.App, c *Config) {
 	registerMap(app)
 	registerTriage(app, c)
 	registerFix(app, c)
-	registerFixBrief(app, c)
 	registerFixRun(app, c)
-	registerFixSubmit(app)
-	registerFixLand(app, c)
 }

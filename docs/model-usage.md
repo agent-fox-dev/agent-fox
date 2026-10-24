@@ -1,10 +1,10 @@
 # Model usage
 
 `af` runs no model except in four commands, `af triage` and `af triage run` (see
-[Triage](#triage)) and `af fix` and `af fix run` (see [Fix](#fix)). The other
-commands it has (`lang detect`, `gate run`, `gate compare`, `revert-check`,
-`map`, `triage brief`, `triage submit`, `triage land`, `fix brief`,
-`fix submit` and `fix land`) call no model: they read files, run
+[Triage](#triage)) and `af fix` and `af fix run` (see [Fix](#fix)); the two `run`
+commands are what a box executes, and no command for a person. The other commands
+it has (`lang detect`, `gate run`, `gate compare`, `revert-check` and `map`) call
+no model: they read files, run
 git and the checks of the project, and answer from what they measured. They
 read no variable of a model vendor, and `gate run` strips from the environment
 of the checks the variables that name a credential, which are the model
@@ -135,8 +135,7 @@ Everything particular to a run is in the task block, so the part before it (the
 prefix) is the same for every run over the same tree and the same report, whatever
 the run id, the answers, the brain and the bounds. A provider that caches a prefix
 caches it; a run that resumes after a question has the same prefix as the one it
-resumes. `af triage brief` renders the brief and calls no model, so that a person
-can read what would be sent and how big it is (`estimated_tokens`).
+resumes.
 
 **The default bounds** are USD 2 of model cost (`--budget`), 100 turns
 (`--max-turns`) and 15 minutes (`--timeout`). A run that spends its cost or its turns before it submits is
@@ -170,7 +169,6 @@ every attempt and every resume over the same report and tree, so that a cache
 read serves them all; what differs is in the task block: the run, the attempt and
 the round, the answers of a person, and, after a refusal, why `af` refused the
 last change and the end (4 KiB) of the output of each check that failed.
-`af fix brief` renders it and calls no model.
 
 **The default bounds** are USD 10 of model cost (`--budget`), 150 turns
 (`--max-turns`) and 45 minutes (`--timeout`). The budget and the turns are bounds
@@ -193,9 +191,8 @@ envelope's `usage`, and the footer of a pull request says it (`brain`, `cost_usd
 and `cost_source`). A dry run (`--dry-run`) still asks the model, round after
 round. A dry run spends model money like any other run, and writes nothing beyond
 its working tree, which it puts back. `--budget` needs a model whose price the
-catalog knows, as for triage. `fix run` is one round, with the bounds of an
-attempt; `fix brief`, `fix submit` and `fix land` call no model, and a person who
-drives them with a model of their own pays for it elsewhere.
+catalog knows, as for triage. `fix run` is one round in a box, with the bounds
+of an attempt.
 
 ## The cost in the envelope
 

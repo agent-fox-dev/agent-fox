@@ -69,15 +69,7 @@ func TestTriageRunTakesTheBriefAndThePrefixFromRunJSON_TS_10_58(t *testing.T) {
 	e := newTriageEnv(t, fakeforge.GitHub)
 	id := e.briefRun()
 	runDir := filepath.Join(e.dir, ".agent-fox", "run", id)
-	document := string(readFile(t, filepath.Join(runDir, "brief.md")))
-	var facts struct{ Prefix struct{ Bytes int } }
-	if err := json.Unmarshal(readFile(t, filepath.Join(runDir, "triage.json")), &facts); err != nil {
-		t.Fatal(err)
-	}
-	prefix, task := document[:facts.Prefix.Bytes], document[facts.Prefix.Bytes:]
-	for _, name := range []string{"triage.json", "submission.json"} {
-		_ = os.Remove(filepath.Join(runDir, name))
-	}
+	const prefix, task = "PREFIX: the mandate, the skill and the report\n", "TASK: diagnose the report\n"
 	placeRun(t, e.dir, id, "triage", 2, "0123456789abcdef", prefix, task)
 	p := faux.New(fauxUsage(call("c1", "file_diagnosis", diagnosisPayload(nil)), 0.3, 900, 120))
 	fauxBrains(t, p)
@@ -110,14 +102,13 @@ func prefixTextOf(reqs []core.Request) string {
 	return prefixText(reqs[0])
 }
 
-// TestARunDirectoryWithNeitherStateNorAPrefixIsNoRun guards the refusal that stays:
-// without triage.json, and a run.json that says where the prefix ends, there is no
+// TestARunDirectoryWithNoUsablePlacedBriefIsNoRun guards the refusal of af triage run:
+// without a run.json that says where the prefix ends, of this run and kind, there is no
 // brief to split.
-func TestARunDirectoryWithNeitherStateNorAPrefixIsNoRun(t *testing.T) {
+func TestARunDirectoryWithNoUsablePlacedBriefIsNoRun(t *testing.T) {
 	e := newTriageEnv(t, fakeforge.GitHub)
 	id := e.briefRun()
 	runDir := filepath.Join(e.dir, ".agent-fox", "run", id)
-	_ = os.Remove(filepath.Join(runDir, "triage.json"))
 	fauxBrains(t, faux.New())
 	for name, runJSON := range map[string]string{
 		"no prefix_bytes":     `{"run_id":"` + id + `","kind":"triage","attempt":1,"nonce":"0123456789abcdef"}`,
@@ -140,13 +131,13 @@ func TestARunDirectoryWithNeitherStateNorAPrefixIsNoRun(t *testing.T) {
 	}
 }
 
-// TestFixRunWithNoStateRunsTheDriverOnThePlacedBrief_TS_10_58 verifies the fix half of
-// TS-10-58: over a run directory with brief.md and a run.json that has prefix_bytes, and
-// no fix.json, af fix run is the driver of the box: it takes the brief and where its
+// TestFixRunRunsTheDriverOnThePlacedBrief_TS_10_58 verifies the fix half of TS-10-58:
+// over a run directory with brief.md and a run.json that has prefix_bytes, af fix run is
+// the driver of the box: it takes the brief and where its
 // prefix ends from run.json, opens no box and applies nothing, submits under the
 // attempt and the nonce that run.json holds, and says that it submitted.
 // Verifies: 10-REQ-9.6
-func TestFixRunWithNoStateRunsTheDriverOnThePlacedBrief_TS_10_58(t *testing.T) {
+func TestFixRunRunsTheDriverOnThePlacedBrief_TS_10_58(t *testing.T) {
 	requireMake(t)
 	e := newFixEnv(t, fakeforge.GitHub)
 	const id = "20261021_150000_abcdef"
@@ -183,7 +174,7 @@ func TestFixRunWithNoStateRunsTheDriverOnThePlacedBrief_TS_10_58(t *testing.T) {
 	// Nothing was opened, applied or written outside the run directory: the box is the
 	// process's own directory, and the round of the host is not this.
 	if _, err := os.Stat(filepath.Join(runDir, "fix.json")); err == nil {
-		t.Error("the driver wrote fix.json: it would make the next fix run in this directory a round of the host")
+		t.Error("the driver wrote fix.json, which is the host's")
 	}
 	after := snapshot(t, e.dir)
 	for path := range after {
@@ -198,9 +189,9 @@ func TestFixRunWithNoStateRunsTheDriverOnThePlacedBrief_TS_10_58(t *testing.T) {
 	}
 }
 
-// TestFixRunWithNoStateAndNoPrefixIsNoRun guards the refusal of a directory that is no
-// fix run: neither fix.json nor a run.json that says where the prefix ends.
-func TestFixRunWithNoStateAndNoPrefixIsNoRun(t *testing.T) {
+// TestFixRunWithNoPrefixIsNoRun guards the refusal of a directory that is no fix run: a
+// run.json that does not say where the prefix ends.
+func TestFixRunWithNoPrefixIsNoRun(t *testing.T) {
 	requireMake(t)
 	e := newFixEnv(t, fakeforge.GitHub)
 	const id = "20261021_150000_abcdef"
@@ -213,40 +204,7 @@ func TestFixRunWithNoStateAndNoPrefixIsNoRun(t *testing.T) {
 	code, env := e.run("", "fix", "run", "--run-id", id, "--dir", e.dir, "--sandbox", "local")
 
 	errObj, _ := env["error"].(map[string]any)
-	if code != 2 || errObj["category"] != "usage" || !strings.Contains(errObj["message"].(string), "fix.json") {
-		t.Errorf("exit code %d, error %v, want the usage failure that names fix.json", code, env["error"])
-	}
-}
-
-// TestAFixRunWithStateIsTheRoundOfTheHostEvenIfRunJSONHasAPrefix guards the line between
-// the two: under the none provider brain.Execute writes prefix_bytes into the run.json of
-// the host's own run directory, and a run that has fix.json is still the one the host
-// runs a round of, with a box of its own, whatever its run.json says.
-func TestAFixRunWithStateIsTheRoundOfTheHostEvenIfRunJSONHasAPrefix(t *testing.T) {
-	requireMake(t)
-	e := newFixEnvWith(t, fakeforge.GitHub, redFixFiles(), true)
-	_, brief := e.brief(e.forge.IssueURL(7))
-	runDir := runDirOf(e, brief)
-	var run submission.Run
-	if err := json.Unmarshal(readFile(t, filepath.Join(runDir, "run.json")), &run); err != nil {
-		t.Fatal(err)
-	}
-	run.PrefixBytes = 10
-	data, _ := json.Marshal(run)
-	if err := os.WriteFile(filepath.Join(runDir, "run.json"), data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	code, env := e.fixRun(brief, "--brain", "scripted", "--script", script(t, writeStep("src/greet.sh", "echo hello\n"), submitStep(helloReport, "accepted")), "--sandbox", "local")
-
-	if code != 0 {
-		t.Fatalf("exit code %d, error %v", code, env["error"])
-	}
-	apply, _ := resultOf(t, env)["apply"].(map[string]any)
-	if apply["written"] != float64(1) || resultOf(t, env)["submitted"] != true {
-		t.Errorf("result = %v, want the round of the host, which applied the edit of the box", env["result"])
-	}
-	if got, _ := os.ReadFile(filepath.Join(e.dir, "src", "greet.sh")); string(got) != "echo hello\n" {
-		t.Errorf("src/greet.sh = %q, want the edit applied to the checkout", got)
+	if code != 2 || errObj["category"] != "usage" || !strings.Contains(errObj["message"].(string), "no brief placed") {
+		t.Errorf("exit code %d, error %v, want the usage failure that says no brief was placed", code, env["error"])
 	}
 }

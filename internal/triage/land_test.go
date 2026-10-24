@@ -386,54 +386,34 @@ func effectKinds(effects []SideEffect) []string {
 	return out
 }
 
-// TestATextReportCreatesOneIssueAndLaterLandingsUpdateIt_TS_08_53 verifies TS-08-53:
-// a report that is no issue creates one issue with the title, the body and the
-// labels; landing again updates that issue's body.
+// TestATextReportCreatesOneIssue_TS_08_53 verifies TS-08-53 as it stands: a report that
+// is no issue creates one issue with the title, the body and the labels.
 // Verifies: 08-REQ-8.5
-func TestATextReportCreatesOneIssueAndLaterLandingsUpdateIt_TS_08_53(t *testing.T) {
+func TestATextReportCreatesOneIssue_TS_08_53(t *testing.T) {
 	l := newLanding(t, fakeforge.GitHub, "the app crashes", diagnosisJSON(t, nil))
 	l.params.Facts.Input = InputFact{Kind: KindText, Origin: "", Fingerprint: sha("the app crashes")}
 	l.params.Facts.Issue = nil
 	l.params.Labels = []string{"triaged", "bug"}
-	var created *IssueInfo
-	l.params.Created = func() (IssueInfo, bool) {
-		if created == nil {
-			return IssueInfo{}, false
-		}
-		return *created, true
-	}
 
-	var results []LandResult
-	for i := range 3 {
-		res, err := l.land()
-		if err != nil {
-			t.Fatalf("landing %d: %v", i+1, err)
-		}
-		results = append(results, res)
-		if res.Issue != nil {
-			created = res.Issue
-		}
-	}
+	res, err := l.land()
 
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got := l.forge.Count(fakeforge.OpCreate); got != 1 {
 		t.Fatalf("%d create requests, want exactly 1", got)
 	}
-	if results[0].Action != ActionCreatedIssue || results[0].Issue == nil || results[0].Issue.Number != 100 {
-		t.Errorf("the first landing = %+v, want created_issue on issue 100", results[0])
-	}
-	for _, r := range results[1:] {
-		if r.Action != ActionReplacedBody || r.Issue == nil || r.Issue.Number != 100 {
-			t.Errorf("a later landing = %+v, want the body of issue 100 replaced", r)
-		}
+	if res.Action != ActionCreatedIssue || res.Issue == nil || res.Issue.Number != 100 {
+		t.Errorf("the landing = %+v, want created_issue on issue 100", res)
 	}
 	issue := l.forge.Issue(100)
 	if issue.Title != "Login fails on submit" || betweenMarkers(t, issue.Body) != "the app crashes" || !slices.Equal(issue.Labels, []string{"triaged", "bug"}) && len(issue.Labels) < 2 {
 		t.Errorf("the created issue = %+v, want the title of the submission, the input between the markers and the labels", issue)
 	}
-	if got := l.forge.Count(fakeforge.OpBody); got != 2 {
-		t.Errorf("%d body writes, want 2 (the second and third landing)", got)
+	if got := l.forge.Count(fakeforge.OpBody); got != 0 {
+		t.Errorf("%d body writes, want none", got)
 	}
-	if res := results[0]; res.Issue.URL == "" || res.Issue.Repo != "o/r" {
+	if res.Issue.URL == "" || res.Issue.Repo != "o/r" {
 		t.Errorf("issue info = %+v", res.Issue)
 	}
 }
@@ -665,117 +645,6 @@ func TestTheCommentFallbackIsPostedOnceWhateverTheNumberOfLandings(t *testing.T)
 	if kinds := effectKinds(l.effects); !slices.Equal(kinds, []string{"add_comment"}) {
 		t.Errorf("side effects = %v, want the one write", kinds)
 	}
-}
-
-// TestLandingAgainReportsTheIssueAsTheFirstLandingDid guards the result of a later
-// landing of a report that was no issue: the URL the forge gave, and a host that
-// is the host of that URL when the run recorded none.
-func TestLandingAgainReportsTheIssueAsTheFirstLandingDid(t *testing.T) {
-	l := newLanding(t, fakeforge.GitHub, "the app crashes", diagnosisJSON(t, nil))
-	l.params.Facts.Input = InputFact{Kind: KindText, Fingerprint: sha("the app crashes")}
-	l.params.Facts.Issue = nil
-	l.params.Facts.Target = RepoFact{Repo: "o/r"} // given with --repo: no host
-	var created *IssueInfo
-	l.params.Created = func() (IssueInfo, bool) {
-		if created == nil {
-			return IssueInfo{}, false
-		}
-		return *created, true
-	}
-
-	first, err := l.land()
-	if err != nil {
-		t.Fatal(err)
-	}
-	recorded := *first.Issue
-	recorded.Host = "" // the ledger of a run from before the host was reported has none
-	created = &recorded
-	second, err := l.land()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if first.Issue.URL == "" || first.Issue.Host == "" || first.Issue.Host != hostOf(first.Issue.URL) {
-		t.Errorf("first = %+v, want the URL the forge gave and its host", first.Issue)
-	}
-	if *second.Issue != *first.Issue {
-		t.Errorf("second = %+v, want the issue as the first landing reported it, %+v", second.Issue, first.Issue)
-	}
-	if got := artifactURLs(l.artifacts, "issue"); !slices.Equal(got, []string{first.Issue.URL, first.Issue.URL}) {
-		t.Errorf("issue artifacts = %v, want the URL of the issue each time", got)
-	}
-}
-
-func artifactURLs(list []Artifact, kind string) []string {
-	var out []string
-	for _, a := range list {
-		if a.Kind == kind {
-			out = append(out, a.URL)
-		}
-	}
-	return out
-}
-
-// TestTheCheckIsAskedAfterTheQuestionAndBeforeAnyWrite guards 08-REQ-2.1 for the
-// landing of its own: a refusal of the credential stops it before diagnosis.md
-// and before the forge, and a question, which lands nothing, needs no credential.
-func TestTheCheckIsAskedAfterTheQuestionAndBeforeAnyWrite(t *testing.T) {
-	refuse := func(called *int) func(context.Context) *Refusal {
-		return func(context.Context) *Refusal {
-			*called++
-			return &Refusal{Category: CategoryAuth, Message: "needs a credential", FixHintEnv: "GITHUB_TOKEN"}
-		}
-	}
-
-	t.Run("a diagnosis", func(t *testing.T) {
-		l := newLanding(t, fakeforge.GitHub, "the report", diagnosisJSON(t, nil))
-		var called int
-		l.params.Check = refuse(&called)
-
-		_, err := l.land()
-
-		if r := asRefusal(t, err); r.Category != CategoryAuth || r.FixHintEnv != "GITHUB_TOKEN" {
-			t.Errorf("refusal = %+v", r)
-		}
-		if _, ok := l.diagnosisMD(); ok || len(l.forge.Requests()) != 0 || called != 1 {
-			t.Errorf("diagnosis.md written: %v, %d requests, check called %d times; want none, none and once", ok, len(l.forge.Requests()), called)
-		}
-	})
-	t.Run("a question", func(t *testing.T) {
-		l := newLanding(t, fakeforge.GitHub, "the report", diagnosisJSON(t, func(m map[string]any) {
-			m["confidence"] = "suspected"
-			m["question"] = map[string]any{"text": "Which?", "options": []any{"a", "b"}}
-		}))
-		var called int
-		l.params.Check = refuse(&called)
-
-		res, err := l.land()
-
-		if err != nil || res.Question == nil || called != 0 {
-			t.Errorf("Land = %+v, %v; check called %d times, want the question and no check", res, err, called)
-		}
-	})
-	t.Run("--land none", func(t *testing.T) {
-		l := newLanding(t, fakeforge.GitHub, "the report", diagnosisJSON(t, nil))
-		l.params.Mode = LandNone
-		var called int
-		l.params.Check = refuse(&called)
-
-		if _, err := l.land(); err != nil || called != 0 {
-			t.Errorf("err = %v, check called %d times, want none", err, called)
-		}
-	})
-	t.Run("no submission", func(t *testing.T) {
-		l := newLanding(t, fakeforge.GitHub, "the report", nil)
-		var called int
-		l.params.Check = refuse(&called)
-
-		_, err := l.land()
-
-		if r := asRefusal(t, err); r.Category != CategoryNoResult || called != 0 {
-			t.Errorf("refusal = %+v, check called %d times, want no_result and no check", r, called)
-		}
-	})
 }
 
 // TestACommentTheForgeNormalisedIsTheCommentThatWasPosted guards the same: a forge

@@ -367,7 +367,6 @@ func TestPrefixesAreByteIdenticalAcrossRuns_TS_08_20(t *testing.T) {
 		if rng.Intn(2) == 0 {
 			p.PreviousQuestion = &Question{Text: fmt.Sprintf("question %x?", rng.Int63()), Options: []string{"first", "second"}}
 		}
-		p.InProcess = rng.Intn(2) == 0
 		p.Bounds = Bounds{MaxTurns: 1 + rng.Intn(500), MaxCostUSD: float64(1+rng.Intn(50)) / 4, Timeout: time.Duration(1+rng.Intn(120)) * time.Minute}
 
 		b := build(t, p)
@@ -386,35 +385,25 @@ func TestPrefixesAreByteIdenticalAcrossRuns_TS_08_20(t *testing.T) {
 	}
 }
 
-// TestTheTaskBlockEndsWithTheRunIDOneRouteAndTheBounds_TS_08_22 verifies TS-08-22:
-// the task block names the run, exactly one way to submit, and the bounds.
+// TestTheTaskBlockEndsWithTheRunIDTheRouteAndTheBounds_TS_08_22 verifies TS-08-22:
+// the task block names the run, the tool to submit with, and the bounds.
 // Verifies: 08-REQ-3.7
-func TestTheTaskBlockEndsWithTheRunIDOneRouteAndTheBounds_TS_08_22(t *testing.T) {
-	dir := goTree(t)
-	for name, inProcess := range map[string]bool{"an in-process brain": true, "a brain that runs af": false} {
-		t.Run(name, func(t *testing.T) {
-			p := params(dir, issueReport("body"))
-			p.InProcess = inProcess
-			p.Bounds = Bounds{MaxTurns: 40, MaxCostUSD: 3.5, Timeout: 10 * time.Minute}
+func TestTheTaskBlockEndsWithTheRunIDTheRouteAndTheBounds_TS_08_22(t *testing.T) {
+	p := params(goTree(t), issueReport("body"))
+	p.Bounds = Bounds{MaxTurns: 40, MaxCostUSD: 3.5, Timeout: 10 * time.Minute}
 
-			task := build(t, p).Task
+	task := build(t, p).Task
 
-			if !strings.Contains(task, testRun) {
-				t.Error("the task block lacks the run id")
-			}
-			tool, command := strings.Contains(task, "file_diagnosis"), strings.Contains(task, "af triage submit --run-id "+testRun)
-			if tool == command || tool != inProcess {
-				t.Errorf("file_diagnosis %v, af triage submit %v: want exactly the route of an in-process brain = %v", tool, command, inProcess)
-			}
-			if command && !strings.Contains(task, "stdin") {
-				t.Error("the command route does not say the JSON goes on stdin")
-			}
-			for _, bound := range []string{"40 turns", "$3.50", "10m0s"} {
-				if !strings.Contains(task, bound) {
-					t.Errorf("the task block lacks the bound %q:\n%s", bound, task)
-				}
-			}
-		})
+	if !strings.Contains(task, testRun) {
+		t.Error("the task block lacks the run id")
+	}
+	if !strings.Contains(task, "file_diagnosis") || strings.Contains(task, "af triage submit") {
+		t.Errorf("the task block does not name the tool file_diagnosis alone:\n%s", task)
+	}
+	for _, bound := range []string{"40 turns", "$3.50", "10m0s"} {
+		if !strings.Contains(task, bound) {
+			t.Errorf("the task block lacks the bound %q:\n%s", bound, task)
+		}
 	}
 }
 

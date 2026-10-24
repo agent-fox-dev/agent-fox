@@ -88,13 +88,12 @@ and the map read, and its `.gitignore` keeps it out of the repository.
 | `gate/<id>/` | The logs and the stored result of a gate run (see [cli.md](cli.md#gate-run)). Safe to delete: the next run makes them again, but a label in `labels.json` that names a deleted id makes `gate compare` fail with `usage` until the label is set again. |
 | `gate/labels.json` | Maps labels to those ids. `labels.json.lock` is beside it while a run writes it. |
 | `revert/<id>/` | The backup that [`revert-check`](cli.md#revert-check) keeps while it works and removes when the tree is back. One that is left means a check was killed, or the tree could not be put back, or something changed a path while the checks ran (what it held is in `changed/`): look at it before checking again. |
-| `run/<id>/` | One directory per invocation of a command that has one: the envelope, the event stream, the ledger, and a report or a panic's stack, and for a command that runs a brain its briefs, hook, accepted submission, transcripts and the stack of a brain's panic, and what a driver that runs as a process in a box printed (`agentkit.<attempt>.json`, `agentkit.<attempt>.stderr`). Delete one when it is no use; nothing refers to one except the commands that carry a run on. The layout is in [cli.md](cli.md#the-run-directory). |
+| `run/<id>/` | One directory per invocation of a command that has one: the envelope, the event stream, the ledger, and a report or a panic's stack, and for a command that runs a brain its briefs, hook, accepted submission, transcripts and the stack of a brain's panic, and what a driver that runs as a process in a box printed (`agentkit.<attempt>.json`, `agentkit.<attempt>.stderr`). Delete one when it is no use; nothing refers to one except a later run of the same input with `--context`, which reads the question it asked. The layout is in [cli.md](cli.md#the-run-directory). |
 
 ### The files of a triage run
 
-`af triage` and `af triage brief` make a run directory, and the steps that follow
-(`run`, `submit`, `land`) carry it on by its id. Besides the files every run
-directory has, a triage run keeps in `.agent-fox/run/<id>/`:
+`af triage` makes a run directory. Besides the files every run directory has, a
+triage run keeps in `.agent-fox/run/<id>/`:
 
 | File | What it is |
 |---|---|
@@ -113,15 +112,14 @@ else is a flag: [cli.md](cli.md#triage).
 
 ### The files of a fix run
 
-`af fix` and `af fix brief` make a run directory, and the steps that follow
-(`run`, `submit`, `land`) carry it on by its id. Besides the files every run
-directory has, a fix run keeps in `.agent-fox/run/<id>/`:
+`af fix` makes a run directory. Besides the files every run directory has, a fix
+run keeps in `.agent-fox/run/<id>/`:
 
 | File | What it is |
 |---|---|
 | `brief.md` | The brief of the first round, which the brain read: the mandate, the `af-fix` skill, the report in a fence, the gate and its baseline, the repository map, the schema of the report, and the task block. |
 | `original.md` | The original report, exactly as `af` took it; an issue made for a text or a file under `--land pr` keeps these bytes. |
-| `run.json` | The attempt and the nonce that the submission protocol reads, as `fix brief` made them; the box has a copy that is placed again before each round. |
+| `run.json` | The attempt and the nonce that the submission protocol reads, as the run made them; the box has a copy that is placed again before each round. |
 | `fix.json` | The state of the run, written last and atomically: the `input` (`kind`, `origin`, `key`), the `issue` or null, the `target` repository and its host, the `base` branch and the full hash `base_head` of its commit, the pinned gate `table`, the baseline (`baseline_gate_id`, `baseline_passed`, `baseline_ms`), `no_verify`, the `prefix_sha256` and `prefix_bytes` of the brief, the `suite` and `programs` the gate detected, the `context` answers, the number of `rounds` and the `brain`, `cost_usd` and `cost_source` they used. |
 | `submission.json` | The report the brain handed over and `af` accepted, in its normalised form. |
 | `report.md` | The body of the pull request of a change that landed, rendered from what `af` measured and what the report says; written once the issue of a text or a file is made and before the commit. A change that was parked has none. |

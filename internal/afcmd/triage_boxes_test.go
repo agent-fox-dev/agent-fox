@@ -112,7 +112,7 @@ func mapsEqual(a, b map[string]string) bool {
 
 // TestTheDefaultBoxOfTheCommandsComesFromAFSandbox_TS_10_3 verifies, at the commands, that
 // they pin no provider of their own: without --sandbox the box is the one AF_SANDBOX
-// names, for af triage, af fix and af fix run alike.
+// names, for af triage and af fix alike.
 // Verifies: 10-REQ-1.3
 func TestTheDefaultBoxOfTheCommandsComesFromAFSandbox_TS_10_3(t *testing.T) {
 	requireMake(t)
@@ -142,14 +142,6 @@ func TestTheDefaultBoxOfTheCommandsComesFromAFSandbox_TS_10_3(t *testing.T) {
 	}
 	if opened := ledgerEntries(t, runDirOf(fe, env), "box_open"); len(opened) != 1 || opened[0]["provider"] != "isobox" {
 		t.Errorf("box_open = %v, want the provider that AF_SANDBOX named", opened)
-	}
-
-	// So does af fix run, on the run that a brief made.
-	fixProvider = ""
-	_, brief := fe.brief(fe.forge.IssueURL(7))
-	_, env = fe.run("", "fix", "run", "--run-id", brief["run_id"].(string), "--dir", fe.dir, "--brain", "spy")
-	if fixProvider != "isobox" {
-		t.Errorf("af fix run opened the box %q, want isobox from AF_SANDBOX (error %v)", fixProvider, env["error"])
 	}
 
 	// With --sandbox the flag wins over the variable.

@@ -2,7 +2,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["run_id", "submitted", "rejected_path_calls"],
-  "description": "A triage run executed in this process over --dir: the agentkit brain ran on the brief of the run and submitted a diagnosis.",
+  "description": "A triage run executed in a box over --dir: the brain ran on the brief placed in it and submitted a diagnosis.",
   "properties": {
     "run_id": { "type": "string", "description": "The run that was executed." },
     "submitted": { "type": "boolean", "const": true, "description": "Always true: a run in which the brain submitted nothing valid is a failure and has no result." },

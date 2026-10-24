@@ -159,14 +159,9 @@ func BoxTools(offered []string) []string {
 	return list[:len(list)-1]
 }
 
-// AdaptTask turns the task block of a brief rendered for a person at a checkout
-// (the way af triage brief renders it) into the one for a brain that submits
-// through the file_diagnosis tool, with the bounds of the run that is about to
-// start: only the way to submit and the bounds change, the run id, the earlier
-// question and the answers stay. A block that is adapted already is returned as
-// it is.
-func AdaptTask(task, runID string, b Bounds) string {
-	task = strings.Replace(task, submitRoute(false, runID), submitRoute(true, runID), 1)
+// AdaptTask gives the task block of a brief the bounds of the run that is about to start:
+// only the line of the bounds changes, the run id, the earlier question and the answers stay.
+func AdaptTask(task string, b Bounds) string {
 	if i := strings.LastIndex(task, boundsPrefix); i >= 0 {
 		task = task[:i] + boundsLine(b)
 	}

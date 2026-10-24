@@ -1,104 +1,20 @@
 package afcmd
 
 import (
-	"flag"
 	"fmt"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentdir"
 	"github.com/agent-fox-dev/agentfox/internal/fix"
-	"github.com/agent-fox-dev/agentfox/internal/project"
-	"github.com/agent-fox-dev/agentfox/internal/submission"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
-// The ledger record of a rendered brief.
+// The ledger record of the brief of a fix run.
 const ledgerFixBrief = "fix.brief"
 
 // baseUsage is the help of --base.
 const baseUsage = "the `branch` the fix is made on and goes back to; the one that is checked out when it is not given"
-
-// fixBriefResult is the result of af fix brief.
-type fixBriefResult struct {
-	BriefPath    string        `json:"brief_path"`
-	PrefixSHA256 string        `json:"prefix_sha256"`
-	Base         string        `json:"base"`
-	BaseHead     string        `json:"base_head"`
-	Baseline     *fix.GateRef  `json:"baseline"`
-	Table        project.Table `json:"table"`
-	SubmitArgv   []string      `json:"submit_argv"`
-}
-
-// registerFixBrief registers af fix brief.
-func registerFixBrief(app *toolio.App, c *Config) {
-	var base string
-	app.Register(toolio.Command{
-		Path:    "fix brief",
-		Summary: "Render the brief of a fix run, without running a brain",
-		Usage:   "af fix brief <issue|file|text|-> [--dir DIR] [--base BRANCH] [--context ANSWER]... [--repo owner/name]",
-		Flags: func(fs *flag.FlagSet) {
-			base = ""
-			fs.StringVar(&base, "base", "", baseUsage)
-		},
-		Input:          toolio.InputRequired,
-		UsesForge:      true,
-		UsesRunDir:     true,
-		Context:        true,
-		Repo:           true,
-		Timeout:        true,
-		DefaultTimeout: fixDefaultTimeout,
-		ResultSchema:   resultSchema("fix_brief"),
-		Run:            func(r *toolio.Run) (toolio.Outcome, error) { return fixBrief(c, r, base) },
-	})
-}
-
-// fixBrief makes the preflight and the baseline, and writes the brief and the files
-// the steps that follow read. It calls no model, writes nothing to the forge and
-// nothing outside .agent-fox.
-func fixBrief(c *Config, r *toolio.Run, base string) (toolio.Outcome, error) {
-	if err := refusePullRequest(r); err != nil {
-		return toolio.Outcome{}, err
-	}
-	params := fix.PreflightParams{Dir: r.Dir, Base: base, Forge: r.Forge, Target: r.Target, Warn: r.Warn, Gate: c.gate(), GitRunner: c.git()}
-	pre, err := fix.Preflight(r.Ctx, params)
-	if err != nil {
-		return toolio.Outcome{}, err
-	}
-	if err := pre.Measure(r.Ctx, params); err != nil {
-		return toolio.Outcome{}, err
-	}
-	warnIssueClosed(r)
-	start, err := startRun(c, r, pre, false)
-	if err != nil {
-		return toolio.Outcome{}, err
-	}
-
-	for _, step := range []struct{ command, reason string }{
-		{"submit", "submit the fix report, as JSON on stdin"},
-		{"land", "measure the change in the checkout and land it"},
-	} {
-		r.Next(toolio.Next{Argv: []string{"af", "fix", step.command, "--run-id", r.RunDir.ID, "--dir", r.Dir}, Reason: step.reason})
-	}
-	return toolio.Outcome{
-		Status:  toolio.StatusDone,
-		Summary: fmt.Sprintf("rendered the brief of run %s: %d bytes, about %d tokens", r.RunDir.ID, len(start.document), estimatedTokens(start.document)),
-		Result: fixBriefResult{
-			BriefPath: start.briefPath, PrefixSHA256: start.state.PrefixSHA256, Base: start.state.Base, BaseHead: start.state.BaseHead,
-			Baseline: gateRef(start.state), Table: start.state.Table,
-			SubmitArgv: []string{"af", "fix", "submit", "--run-id", r.RunDir.ID, "--dir", r.Dir},
-		},
-	}, nil
-}
-
-// gateRef is the baseline of a run as a result names it, or nil when the run has none.
-func gateRef(s fix.State) *fix.GateRef {
-	if s.BaselineGateID == "" {
-		return nil
-	}
-	return &fix.GateRef{GateID: s.BaselineGateID, Passed: s.BaselinePassed}
-}
 
 // refusePullRequest is the usage failure for an input that is a pull or merge
 // request: a fix takes an issue, a file or text.
@@ -128,8 +44,8 @@ type startedRun struct {
 }
 
 // startRun records what the preflight found, renders the brief of the first round,
-// and writes brief.md, run.json and, last, fix.json: a run directory that has
-// fix.json is a run the steps that follow can carry on.
+// and writes brief.md and, last, fix.json, whose question and answers a later run
+// that resumes it reads.
 func startRun(c *Config, r *toolio.Run, pre fix.Preflighted, noVerify bool) (startedRun, error) {
 	in := fix.Input{Kind: string(r.Input.Kind), Origin: r.Input.Origin, Body: r.Input.Body}
 	prefix, err := fix.BuildPrefix(r.Ctx, fix.PrefixParams{Dir: r.Dir, Input: in, Table: pre.Detection.Gate, Baseline: pre.Baseline, Files: pre.Files})
@@ -174,9 +90,6 @@ func startRun(c *Config, r *toolio.Run, pre fix.Preflighted, noVerify bool) (sta
 	if err := writeRunFile(started.briefPath, []byte(started.document)); err != nil {
 		return startedRun{}, err
 	}
-	if err := placeRunJSON(r.RunDir, fix.KindName); err != nil {
-		return startedRun{}, err
-	}
 	if err := state.Write(r.RunDir.Path); err != nil {
 		return startedRun{}, &toolio.Failure{Category: toolio.CategoryIO, Message: err.Error()}
 	}
@@ -191,22 +104,4 @@ func writeRunFile(path string, data []byte) error {
 		return &toolio.Failure{Category: toolio.CategoryIO, Message: fmt.Sprintf("cannot write %s: %v", path, err)}
 	}
 	return nil
-}
-
-// registerFixSubmit registers af fix submit: the submit command of the submission
-// protocol with the fix report kind.
-func registerFixSubmit(app *toolio.App) {
-	cmd := submission.CommandWith("fix submit", fix.FixReport, submission.Options{
-		ResultSchema: resultSchema("fix_submit"),
-		Prepare: func(r *toolio.Run, run *toolio.RunDir) error {
-			if _, err := fix.LoadState(run.Path); err != nil {
-				return notAFixRun(run.ID, err)
-			}
-			return placeRunJSON(run, fix.KindName)
-		},
-	})
-	cmd.Summary = "Submit the fix report of a run, as JSON on stdin"
-	cmd.Usage = "af fix submit --run-id ID [--dir DIR] < report.json"
-	cmd.DefaultTimeout, cmd.Timeout = 30*time.Second, true
-	app.Register(cmd)
 }

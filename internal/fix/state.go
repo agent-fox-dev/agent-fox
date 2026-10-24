@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -91,22 +90,6 @@ func InputKey(kind, origin, body string) string {
 	}
 	sum := sha256.Sum256([]byte(body))
 	return hex.EncodeToString(sum[:])
-}
-
-// SplitBrief splits the brief of a run, as brief.md holds it, into the prefix and the
-// task block, where fix.json says the prefix ends. A brief that is not the one the run
-// was made with, because it is shorter or because its prefix is not the one whose hash
-// fix.json holds, is an error: the rounds of a run share one prefix.
-func SplitBrief(document string, s State) (prefix, task string, err error) {
-	if s.PrefixBytes <= 0 || s.PrefixBytes > len(document) {
-		return "", "", fmt.Errorf("brief.md is %d bytes, and fix.json says its prefix is %d", len(document), s.PrefixBytes)
-	}
-	prefix, task = document[:s.PrefixBytes], document[s.PrefixBytes:]
-	sum := sha256.Sum256([]byte(prefix))
-	if hex.EncodeToString(sum[:]) != s.PrefixSHA256 {
-		return "", "", errors.New("the prefix of brief.md is not the one fix.json holds the hash of: the brief was changed after it was rendered")
-	}
-	return prefix, task, nil
 }
 
 // GateMS is how long the checks of a gate run took, added up: the time a measuring of

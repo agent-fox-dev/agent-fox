@@ -1,7 +1,6 @@
 package triage
 
 import (
-	"slices"
 	"testing"
 )
 
@@ -17,16 +16,5 @@ func TestFixIsSuggestedForAConfirmedOrProbableDiagnosisOnAnIssue(t *testing.T) {
 		if FixSuggested(Diagnosis{Confidence: confidence}, nil) {
 			t.Errorf("FixSuggested(%q, no issue) = true: there is nothing to fix by", confidence)
 		}
-	}
-}
-
-func TestLandAgainNamesTheRunAndTheDirectoryAndTheRepoWhenGiven(t *testing.T) {
-	got := LandAgain("20240101_000000_abcdef", "/work/x", "")
-	if want := []string{"af", "triage", "land", "--run-id", "20240101_000000_abcdef", "--dir", "/work/x"}; !slices.Equal(got, want) {
-		t.Errorf("LandAgain = %v, want %v", got, want)
-	}
-	got = LandAgain("20240101_000000_abcdef", "/work/x", "o/r")
-	if want := []string{"af", "triage", "land", "--run-id", "20240101_000000_abcdef", "--dir", "/work/x", "--repo", "o/r"}; !slices.Equal(got, want) {
-		t.Errorf("LandAgain with a repo = %v, want %v", got, want)
 	}
 }

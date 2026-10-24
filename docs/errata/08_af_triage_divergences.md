@@ -204,3 +204,17 @@ and not triage's; the `next` entry that lands again does not repeat the `--label
 was given, as 08-REQ-9.6 words it; and a report section that is cut after several parts have
 filled it nearly to the cap can still end a few bytes over, since a part that is already in is
 not cut again.
+
+## 15. The step commands are gone
+
+08-PATH-7 and 08-REQ-1.6 give a person at their own checkout the steps of the loop as commands
+of their own: `af triage brief`, `af triage submit` and `af triage land`. They are removed, with
+the brief that named `af triage submit` as the way to submit, the suggestion of a landing that
+failed to land again (08-REQ-9.6), and a landing that finds the issue an earlier landing of the
+same run created (08-REQ-8.5): the loop is the one way to triage, and its brain submits through
+`file_diagnosis`. `af triage run` stays, as what a box executes, and help does not list it; it
+runs only on a brief that `brain.Execute` placed in its run directory.
+
+**Test:** `TestAFailedLandingSuggestsNothing_TS_08_62` (`internal/afcmd/triage_outcome_test.go`),
+`TestATextReportCreatesOneIssue_TS_08_53` (`internal/triage/land_test.go`),
+`TestARunDirectoryWithNoUsablePlacedBriefIsNoRun` (`internal/afcmd/placed_run_test.go`).

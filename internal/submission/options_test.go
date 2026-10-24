@@ -2,15 +2,9 @@ package submission
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
-	"slices"
-	"strings"
 	"testing"
-
-	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
 // TestOnRefusedHearsEveryRefusalAndOnlyRefusals guards the extension that a
@@ -80,97 +74,6 @@ func TestOnRefusedHearsEveryRefusalAndOnlyRefusals(t *testing.T) {
 		target.RunID = ".."
 		if _, err := Submit(context.Background(), target, kind, []byte(`{"a":1}`), fixedNow); err == nil || len(calls) != 0 {
 			t.Errorf("err = %v, hook calls = %v, want an error and no call", err, calls)
-		}
-	})
-}
-
-// TestCommandWithAddsWhatItIsGiven guards CommandWith: the kind is made from the
-// directory of the run, Prepare runs before the payload is read, the result and
-// its schema are the options', and a refusal gets none of that result.
-func TestCommandWithAddsWhatItIsGiven(t *testing.T) {
-	var dirs []string
-	var order []string
-	type extra struct {
-		Path string `json:"path"`
-		Seen bool   `json:"seen"`
-	}
-	opts := Options{
-		Kind: func(dir string) Kind {
-			dirs = append(dirs, dir)
-			return citeKind()
-		},
-		ResultSchema: json.RawMessage(`{"type":"object","properties":{"seen":{"type":"boolean"}}}`),
-		Prepare: func(r *toolio.Run, run *toolio.RunDir) error {
-			order = append(order, "prepare:"+run.ID)
-			return nil
-		},
-		Result: func(r *toolio.Run, run *toolio.RunDir, receipt Receipt) (any, error) {
-			order = append(order, "result:"+receipt.Path)
-			return extra{Path: receipt.Path, Seen: true}, nil
-		},
-	}
-	build := func() *toolio.App {
-		a := &toolio.App{Version: "test"}
-		a.Register(CommandWith("fake submit", echoKind(), opts))
-		return a
-	}
-
-	t.Run("an accepted submission", func(t *testing.T) {
-		dirs, order = nil, nil
-		tr := newTree(t, "test")
-
-		r := run(t, build(), `{"summary":"done"}`, submitArgs(tr)...)
-
-		if r.code != 0 || r.field("result", "seen") != true || r.field("result", "path") != submissionFile {
-			t.Fatalf("exit code %d, result %v\n%s", r.code, r.field("result"), r.stdout)
-		}
-		want := []string{"prepare:" + runID, "result:" + submissionFile}
-		if !slices.Equal(order, want) {
-			t.Errorf("order = %v, want %v", order, want)
-		}
-		if len(dirs) != 1 || !filepath.IsAbs(dirs[0]) {
-			t.Errorf("the kind was made from %v, want the absolute --dir once", dirs)
-		}
-	})
-	t.Run("the kind made from the directory is the one that validates", func(t *testing.T) {
-		tr := newTree(t, "test")
-		r := run(t, build(), `{"cite":"README.md"}`, submitArgs(tr)...)
-		if r.code != 1 || r.field("error", "category") != "submission" {
-			t.Errorf("exit code %d, category %v, want citeKind's refusal\n%s", r.code, r.field("error", "category"), r.stdout)
-		}
-	})
-	t.Run("a refusal gets no result", func(t *testing.T) {
-		order = nil
-		tr := newTree(t, "test")
-		r := run(t, build(), `[1]`, submitArgs(tr)...)
-		if r.code != 1 || r.field("result") != nil || slices.ContainsFunc(order, func(s string) bool { return strings.HasPrefix(s, "result:") }) {
-			t.Errorf("exit code %d, result %v, order %v", r.code, r.field("result"), order)
-		}
-	})
-	t.Run("a Prepare that fails ends the command", func(t *testing.T) {
-		failing := opts
-		failing.Prepare = func(*toolio.Run, *toolio.RunDir) error {
-			return &toolio.Failure{Category: toolio.CategoryIO, Message: "cannot prepare"}
-		}
-		a := &toolio.App{Version: "test"}
-		a.Register(CommandWith("fake submit", echoKind(), failing))
-		tr := newTree(t, "test")
-		r := run(t, a, `{"a":1}`, submitArgs(tr)...)
-		if r.code != 1 || r.field("error", "category") != "io" {
-			t.Errorf("exit code %d, category %v", r.code, r.field("error", "category"))
-		}
-		if _, ok := tr.submission(); ok {
-			t.Error("a submission was written after Prepare failed")
-		}
-	})
-	t.Run("a Result that fails is the command's failure", func(t *testing.T) {
-		failing := opts
-		failing.Result = func(*toolio.Run, *toolio.RunDir, Receipt) (any, error) { return nil, errors.New("cannot report") }
-		a := &toolio.App{Version: "test"}
-		a.Register(CommandWith("fake submit", echoKind(), failing))
-		r := run(t, a, `{"a":1}`, submitArgs(newTree(t, "test"))...)
-		if r.code == 0 {
-			t.Errorf("exit code 0, want the failure of Result")
 		}
 	})
 }

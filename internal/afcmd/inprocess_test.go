@@ -188,9 +188,6 @@ func TestSeamsNotSuppliedDefaultToAfs_TS_13_3(t *testing.T) {
 	if opts := cfg.brainOptions(); opts.Model != "from-the-process" || opts.AFVersion != "v1" || opts.AFCommit != "abc" {
 		t.Errorf("options = %+v, want the model of AF_MODEL and the identity of the program", opts)
 	}
-	if reflect.ValueOf(cfg.gate()).Pointer() == 0 {
-		t.Error("no gate")
-	}
 	if app := New(cfg); app.NewForge != nil || app.NoSignals || app.EventSink != nil || app.RunID != "" || app.Target.Valid() {
 		t.Errorf("the app has in-process options set: %+v", app)
 	}
@@ -251,44 +248,32 @@ func TestEarlierQuestionsRenderInTheFixBrief_TS_13_4(t *testing.T) {
 		t.Errorf("warnings = %v, want no question_not_found", warningCodes(env))
 	}
 
-	// The brief of af fix brief is the same.
-	code, env = e.run("", "fix", "brief", e.forge.IssueURL(7), "--dir", e.dir, "--context", "ctx1: the report is old", "--context", "B")
-	if code != 0 {
-		t.Fatalf("fix brief: exit code %d, error %v", code, env["error"])
-	}
-	brief := string(readFile(t, resultOf(t, env)["brief_path"].(string)))
-	if !strings.Contains(brief, "Which greeting?") || !strings.Contains(brief, "Material from a person") || strings.Contains(brief, "decoy") {
-		t.Errorf("the brief of af fix brief:\n%s", brief[max(0, len(brief)-900):])
-	}
-	if slices.Contains(warningCodes(env), "question_not_found") {
-		t.Errorf("fix brief warnings = %v, want no question_not_found", warningCodes(env))
-	}
-
 	// Without the caller's questions the run directories are searched, as af does.
 	p.cfg.Earlier = nil
-	_, env = e.run("", "fix", "brief", e.forge.IssueURL(7), "--dir", e.dir, "--context", "B")
+	_, env = e.fix(e.forge.IssueURL(7), "--brain", "spy", "--sandbox", "inbox", "--context", "B")
 	if !slices.Contains(warningCodes(env), "question_not_found") {
 		t.Errorf("af's own search: warnings = %v, want question_not_found for an answer no run asked about", warningCodes(env))
 	}
 }
 
-// TestTriageBriefHoldsTheQuestionOfTheLastValueThatHasOne_TS_13_5 verifies TS-13-5: of three
+// TestTheTriageBriefHoldsTheQuestionOfTheLastValueThatHasOne_TS_13_5 verifies TS-13-5: of three
 // --context values, the first two with the questions Q1 and Q2 and the third with none, the
 // triage brief holds exactly Q2, follows it with all three values, and warns of nothing.
 // Verifies: 13-REQ-1.3
-func TestTriageBriefHoldsTheQuestionOfTheLastValueThatHasOne_TS_13_5(t *testing.T) {
+func TestTheTriageBriefHoldsTheQuestionOfTheLastValueThatHasOne_TS_13_5(t *testing.T) {
 	e := newTriageEnv(t, fakeforge.GitHub)
 	earlierRun(t, e.dir, "the decoy question")
-	cfg := &Config{Earlier: &Earlier{Questions: []*toolio.Question{{Text: "Question one?", Options: []string{"x"}}, {Text: "Question two?", Options: []string{"y", "z"}}, nil}}}
+	spy := &spyBrain{}
+	cfg := &Config{Brains: spyRegistry(t, spy), Earlier: &Earlier{Questions: []*toolio.Question{{Text: "Question one?", Options: []string{"x"}}, {Text: "Question two?", Options: []string{"y", "z"}}, nil}}}
 	e.app = New(cfg)
 	e.app.NewForge = e.forge.NewForge("test-token")
 
-	code, env := e.run("", "triage", "brief", e.forge.IssueURL(7), "--dir", e.dir, "--context", "first", "--context", "second", "--context", "third")
+	_, env := e.run("", "triage", e.forge.IssueURL(7), "--dir", e.dir, "--brain", "spy", "--sandbox", "local", "--land", "none", "--context", "first", "--context", "second", "--context", "third")
 
-	if code != 0 {
-		t.Fatalf("exit code %d, error %v", code, env["error"])
+	if spy.brief == nil {
+		t.Fatalf("the brain was not run: status %v, error %v", env["status"], env["error"])
 	}
-	brief := string(readFile(t, resultOf(t, env)["brief"].(string)))
+	brief := spy.brief.Prefix + spy.brief.Task
 	if strings.Count(brief, "The question you asked:") != 1 || !strings.Contains(brief, "Question two?") || !strings.Contains(brief, "A. y") || !strings.Contains(brief, "B. z") {
 		t.Errorf("the brief does not hold exactly the question Q2:\n%s", brief[max(0, len(brief)-1200):])
 	}
@@ -304,11 +289,8 @@ func TestTriageBriefHoldsTheQuestionOfTheLastValueThatHasOne_TS_13_5(t *testing.
 	if strings.Count(brief, "A person's answer (") != 2 || strings.Count(brief, "Material from a person (3 of 3)") != 1 {
 		t.Errorf("the values are not framed as two answers and one piece of material:\n%s", brief[max(0, len(brief)-1500):])
 	}
-	if len(codes(env)) != 0 {
-		t.Errorf("warnings = %v, want none", codes(env))
-	}
-	if pq := resultOf(t, env)["previous_question"]; pq == nil {
-		t.Errorf("the result names no previous question")
+	if slices.Contains(codes(env), "question_not_found") {
+		t.Errorf("warnings = %v, want no question_not_found", codes(env))
 	}
 }
 
