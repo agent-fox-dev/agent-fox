@@ -440,11 +440,11 @@ func TestOmittedBoundsDefaultAndAgentkitIsTheDefaultBrain_TS_08_25(t *testing.T)
 	}
 }
 
-// TestTheLoopReadsBackBothFilesAndChecksTheHostTree_TS_08_28 verifies TS-08-28:
-// after the brain the submission and the refusals are in the run directory, and
-// a submission that cites a file the host no longer has is treated as absent.
+// TestTheLoopReadsBackTheSubmissionAndChecksTheHostTree_TS_08_28 verifies TS-08-28 as it
+// stands: after the brain the submission is in the run directory, and a submission that
+// cites a file the host no longer has is treated as absent.
 // Verifies: 08-REQ-4.5
-func TestTheLoopReadsBackBothFilesAndChecksTheHostTree_TS_08_28(t *testing.T) {
+func TestTheLoopReadsBackTheSubmissionAndChecksTheHostTree_TS_08_28(t *testing.T) {
 	e := newTriageEnv(t, fakeforge.GitHub)
 	missing := diagnosisPayload(func(m map[string]any) {
 		m["affected_files"] = []any{map[string]any{"path": "nowhere.go", "note": "x"}}
@@ -460,13 +460,6 @@ func TestTheLoopReadsBackBothFilesAndChecksTheHostTree_TS_08_28(t *testing.T) {
 	var file struct{ Payload triage.Diagnosis }
 	if err := json.Unmarshal(readFile(t, filepath.Join(dir, "submission.json")), &file); err != nil || file.Payload.Title != "Run starts the wrong thing" {
 		t.Errorf("submission.json = %v (%v)", file, err)
-	}
-	rejections := string(readFile(t, filepath.Join(dir, "rejections.jsonl")))
-	if strings.Count(rejections, "\n") != 1 || !strings.Contains(rejections, `"unresolved_paths":["nowhere.go"]`) {
-		t.Errorf("rejections.jsonl:\n%s", rejections)
-	}
-	if got := resultOf(t, env); got["rejected_path_calls"] != float64(1) || got["rejected_submissions"] != float64(1) {
-		t.Errorf("result = %v, want 1 rejected path call and 1 rejected submission", got)
 	}
 
 	t.Run("a file the host no longer has", func(t *testing.T) {
@@ -627,9 +620,6 @@ func TestTheLoopLandsWhatTheBrainSubmitted(t *testing.T) {
 			t.Errorf("%d %s artifacts, want 1", n, kind)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(dir, "rejections.jsonl")); err == nil {
-		t.Error("a run that was refused nothing has a rejections.jsonl")
-	}
 	var file struct{ Payload json.RawMessage }
 	if err := json.Unmarshal(readFile(t, filepath.Join(dir, "submission.json")), &file); err != nil {
 		t.Fatal(err)
@@ -724,46 +714,6 @@ func TestTheHostChecksTheLinesOfTheFilesAgain(t *testing.T) {
 	if n := len(e.forge.Writes()); n != 0 {
 		t.Errorf("%d writes to the forge", n)
 	}
-}
-
-// TestRefusedCallsAreBroughtOutOfTheBoxWhateverTheRunCameTo guards 08-REQ-4.5
-// for a run that ends without a submission, and the warning for a file that
-// cannot be brought out.
-func TestRefusedCallsAreBroughtOutOfTheBoxWhateverTheRunCameTo(t *testing.T) {
-	e := newTriageEnv(t, fakeforge.GitHub)
-	missing := diagnosisPayload(func(m map[string]any) {
-		m["affected_files"] = []any{map[string]any{"path": "nowhere.go", "note": "x"}}
-	})
-
-	code, env := e.loop(e.forge.IssueURL(7), "--dir", e.dir, "--brain", "scripted", "--land", "none",
-		"--script", script(t, submitStep(missing, "refused")))
-
-	if code != 1 {
-		t.Fatalf("exit code %d, error %v, want a run with no submission", code, env["error"])
-	}
-	if got := string(readFile(t, filepath.Join(e.runDir(env), "rejections.jsonl"))); !strings.Contains(got, `"unresolved_paths":["nowhere.go"]`) {
-		t.Errorf("rejections.jsonl:\n%s", got)
-	}
-
-	t.Run("a file that cannot be read", func(t *testing.T) {
-		e := newTriageEnv(t, fakeforge.GitHub)
-		spy := &spyBrain{}
-		submit := submitting(diagnosisPayload(nil))
-		spy.run = func(ctx context.Context, b brain.Brief) (brain.Outcome, error) {
-			// A directory where the file of refusals should be.
-			if err := b.Box.WriteFile(ctx, triage.RejectionsPath(b.RunID)+"/x", []byte("x")); err != nil {
-				t.Error(err)
-			}
-			return submit(ctx, b)
-		}
-		useSpy(t, spy)
-
-		code, env := e.loop(e.forge.IssueURL(7), "--dir", e.dir, "--brain", "spy", "--land", "none")
-
-		if code != 0 || !slices.Contains(warningCodes(env), triage.WarnRejectionsUnreadable) {
-			t.Errorf("exit code %d, error %v, warnings %v, want a run that went on and the warning %s", code, env["error"], warningCodes(env), triage.WarnRejectionsUnreadable)
-		}
-	})
 }
 
 // TestTheLoopOpensTheBoxOfTheSandboxItWasGiven guards 08-REQ-4.1: --sandbox names

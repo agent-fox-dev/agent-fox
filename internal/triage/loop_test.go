@@ -3,46 +3,9 @@ package triage
 import (
 	"encoding/json"
 	"errors"
-	"io/fs"
 	"strings"
 	"testing"
-	"testing/fstest"
 )
-
-// TestReadBackRejectionsReadsTheFileBesideTheSubmission verifies the read-back of
-// 08-REQ-4.5: the refused calls of a box are found where the kind notes them.
-func TestReadBackRejectionsReadsTheFileBesideTheSubmission(t *testing.T) {
-	const id = "20240101_000000_abcdef"
-	if got, want := RejectionsPath(id), ".agent-fox/run/"+id+"/rejections.jsonl"; got != want {
-		t.Fatalf("RejectionsPath = %q, want %q", got, want)
-	}
-	tree := fstest.MapFS{RejectionsPath(id): {Data: []byte("{\"a\":1}\n{\"b\":2}\n")}}
-
-	got, err := ReadBackRejections(tree, id)
-
-	if err != nil || string(got) != "{\"a\":1}\n{\"b\":2}\n" {
-		t.Errorf("ReadBackRejections = %q, %v", got, err)
-	}
-}
-
-func TestReadBackRejectionsOfATreeWithNoneIsNoBytesAndNoError(t *testing.T) {
-	got, err := ReadBackRejections(fstest.MapFS{}, "20240101_000000_abcdef")
-
-	if err != nil || len(got) != 0 {
-		t.Errorf("ReadBackRejections = %q, %v, want nothing", got, err)
-	}
-}
-
-func TestReadBackRejectionsReportsAFileThatCannotBeRead(t *testing.T) {
-	// A directory where the file should be is a file that exists and cannot be read.
-	tree := fstest.MapFS{RejectionsPath("20240101_000000_abcdef") + "/x": {Data: []byte("x")}}
-
-	_, err := ReadBackRejections(tree, "20240101_000000_abcdef")
-
-	if err == nil || errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("err = %v, want a read error that is not 'not exist'", err)
-	}
-}
 
 // TestStaleReasonHoldsWhileTheHostHasTheFiles verifies the host half of
 // 08-REQ-4.5: the submission is checked against the host's tree once more.

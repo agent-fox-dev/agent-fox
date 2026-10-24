@@ -425,8 +425,7 @@ the host's second look at what the brain handed over, and the landing; see
 tool, `file_diagnosis`, whose schema is the diagnosis; it never writes, and `af`
 does every write after it has checked the diagnosis against the host's tree. A
 diagnosis that cites a file that does not exist is refused as the brain's next
-turn, with the files that have the same name; a refusal is counted in
-`rejections.jsonl` and decides nothing.
+turn, with the files that have the same name.
 
 **The body of the issue** is the contract between `af triage` and what reads an
 issue after it (`af fix`, and `af triage` itself the next time). It is rendered
@@ -465,9 +464,7 @@ the issue is left as it is.
 over a box, which is the only placement the `local` provider means anything for;
 `af triage run` and `af fix run` are what a box executes: the brain in that
 process, on the brief placed in the box, over the directory itself. They are no
-commands for a person, and help does not list them. The refusals of the diagnosis
-are written by a hook of the submission kind (`Kind.OnRefused`), which the
-submission protocol gained for this. The divergences from the spec, with the code of each, are in
+commands for a person, and help does not list them. The divergences from the spec, with the code of each, are in
 `docs/errata/08_af_triage_divergences.md`.
 
 ### Fix, as built

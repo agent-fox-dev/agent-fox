@@ -100,7 +100,6 @@ triage run keeps in `.agent-fox/run/<id>/`:
 | `original.md` | The original report, exactly as `af` took it. The body of the issue keeps these bytes. |
 | `triage.json` | The facts of the run: `format_version` (1), the `input` (`kind`, `origin`, `fingerprint`), the `target` repository and its host, the `issue` or null, `original_report_sha256`, and the `prefix` (`bytes`, `sha256`) of the brief. |
 | `submission.json` | The diagnosis the brain handed over and `af` accepted, in its normalized form. |
-| `rejections.jsonl` | One line for each refused call to submit: `{ts, problems, unresolved_paths}`. |
 | `diagnosis.md` | The issue body, rendered from the submission; written before anything is sent to the forge, and the only output of `--land none`. |
 
 The triage commands read **no new environment variable**. The forge token and

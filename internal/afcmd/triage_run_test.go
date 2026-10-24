@@ -68,8 +68,8 @@ func TestRunExecutesTheAgentkitBrainInProcessOverDir_TS_08_30(t *testing.T) {
 		t.Fatalf("exit code %d, status %v, error %v", code, env["status"], env["error"])
 	}
 	result := resultOf(t, env)
-	if result["run_id"] != id || result["submitted"] != true || result["rejected_path_calls"] != float64(0) {
-		t.Errorf("result = %v, want run_id %s, submitted and 0 rejected path calls", result, id)
+	if result["run_id"] != id || result["submitted"] != true {
+		t.Errorf("result = %v, want run_id %s and submitted", result, id)
 	}
 	if _, err := os.Stat(e.submissionFile(id)); err != nil {
 		t.Errorf("submission.json: %v", err)
@@ -111,10 +111,9 @@ func TestRunExecutesTheAgentkitBrainInProcessOverDir_TS_08_30(t *testing.T) {
 	}
 }
 
-// TestRunCountsTheRefusedPathCalls guards 08-REQ-6.2 through the command: a
-// refusal that cites a path that is not there is counted, and is the brain's next
-// turn.
-func TestRunCountsTheRefusedPathCalls(t *testing.T) {
+// TestARefusedPathCallIsTheBrainsNextTurn guards 08-REQ-6.2 through the command: a
+// refusal that cites a path that is not there is the brain's next turn.
+func TestARefusedPathCallIsTheBrainsNextTurn(t *testing.T) {
 	e := newTriageEnv(t, fakeforge.GitHub)
 	id := e.briefRun()
 	missing := diagnosisPayload(func(m map[string]any) {
@@ -125,7 +124,7 @@ func TestRunCountsTheRefusedPathCalls(t *testing.T) {
 
 	code, env := e.run("", "triage", "run", "--run-id", id, "--dir", e.dir)
 
-	if code != 0 || resultOf(t, env)["rejected_path_calls"] != float64(1) || resultOf(t, env)["submitted"] != true {
+	if code != 0 || resultOf(t, env)["submitted"] != true {
 		t.Fatalf("exit code %d, result %v, error %v", code, env["result"], env["error"])
 	}
 	reqs := p.Requests()

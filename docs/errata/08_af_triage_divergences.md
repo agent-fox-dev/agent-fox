@@ -218,3 +218,15 @@ runs only on a brief that `brain.Execute` placed in its run directory.
 **Test:** `TestAFailedLandingSuggestsNothing_TS_08_62` (`internal/afcmd/triage_outcome_test.go`),
 `TestATextReportCreatesOneIssue_TS_08_53` (`internal/triage/land_test.go`),
 `TestARunDirectoryWithNoUsablePlacedBriefIsNoRun` (`internal/afcmd/placed_run_test.go`).
+
+## 16. No `rejections.jsonl`
+
+08-REQ-6.2 and 08-REQ-6.3 keep a line in `rejections.jsonl` for each refused call of
+`file_diagnosis`, and report `rejected_path_calls` and `rejected_submissions` in the result, with
+the warning `rejections_unreadable` for a file that cannot be read. The counts decided nothing, and
+the file was the brain's to write as well as af's. They are gone, with the hook of the submission
+kind that wrote the file (`submission.Kind.OnRefused`). A refused call is still the brain's next
+turn, with the problems and the files of the same name.
+
+**Test:** `TestARefusedPathCallIsTheBrainsNextTurn` (`internal/afcmd/triage_run_test.go`),
+`TestTheLoopReadsBackTheSubmissionAndChecksTheHostTree_TS_08_28` (`internal/afcmd/triage_loop_test.go`).

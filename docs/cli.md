@@ -722,8 +722,7 @@ git write, and creates nothing in the checkout outside `.agent-fox/`.
    next turn. A path the diagnosis cites in the form the box knows it by (its
    workspace, as an error of a tool may show it) is made relative to the
    repository.
-4. **The landing.** When the brain ends, `rejections.jsonl` is brought out of the
-   box into the run directory, and the host reads the submission it accepted and
+4. **The landing.** When the brain ends, the host reads the submission it accepted and
    checks it against its own tree once more: a file that is gone, or a line that
    is past the end of a shorter file, makes it no submission. Then the diagnosis
    is [landed](#the-landing).
@@ -747,8 +746,6 @@ The envelope's `usage` is the brain's. The `step` events are `preflight`,
   "diagnosis": {"title": "…", "severity": "high", "confidence": "probable", "root_cause": "…",
                 "affected_files": [{"path": "main.go", "line": 6, "note": "…"}],
                 "suggested_fix": "…", "acceptance_criteria": ["…"]},
-  "rejected_path_calls": 0,
-  "rejected_submissions": 0,
   "labels": ["triaged"],
   "original_report_sha256": "…"
 }
@@ -759,8 +756,6 @@ The envelope's `usage` is the brain's. The `step` events are `preflight`,
 | `issue` | The issue the diagnosis was written to, or would have been in a dry run; `null` when nothing was, and in a dry run of a text or file report, which has no issue to name. |
 | `action` | `replaced_body` (the body of the issue was replaced and the original report kept), `commented` (the body would have been too long, so the diagnosis went in one comment and the body was left), `created_issue`, `planned` (a dry run) or `none` (`--land none`, or a question). |
 | `diagnosis` | The submission as `af` normalized it. |
-| `rejected_path_calls` | How many calls of the brain were refused because they cited a path that is no file. |
-| `rejected_submissions` | How many calls were refused in all. Both counts are reported and decide nothing. |
 | `labels` | The labels added, in the order they came, each once; none in a dry run, where they are planned (a side effect) and not added. |
 | `original_report_sha256` | The SHA-256 of the original report the body holds. |
 
@@ -780,8 +775,8 @@ or `probable`: `af fix <issue url> --dir <dir>`.
 
 **Warnings** the triage commands raise besides the shell's and those of
 [Brains and boxes](#brains-and-boxes): `issue_closed`,
-`report_changed_during_triage`, `body_too_long`, `labels_failed`,
-`original_report_unparsed` and `rejections_unreadable`
+`report_changed_during_triage`, `body_too_long`, `labels_failed`
+and `original_report_unparsed`
 (see [Warning codes](#warning-codes)); `input_truncated` is the shell's, and is
 raised again when the report is cut in the brief. No failure category is new.
 
@@ -929,7 +924,6 @@ each `--context` value in order, as the answer of a person.
 | `original.md` | the loop | The original report, exactly. |
 | `triage.json` | the loop | `{format_version: 1, input: {kind, origin, fingerprint}, target: {repo, host}, issue: {repo, host, number, url} or null, original_report_sha256, prefix: {bytes, sha256}}`. The fingerprint is `owner/repo#N` for an issue, else the SHA-256 of the input. |
 | `submission.json` | the brain | The accepted diagnosis (see [Brains and boxes](#brains-and-boxes)). |
-| `rejections.jsonl` | the brain | One line `{ts, problems, unresolved_paths}` for each refused call. |
 | `diagnosis.md` | the landing | The rendered body. |
 
 The ledger of a run holds `triage.input {kind, origin, fingerprint}` when the
@@ -948,7 +942,7 @@ the box, where `brain.Execute` has placed the `brief.md` of the run and a
 brief's prefix). It runs the `agentkit` brain in its own process over `--dir`, on
 that brief, and `file_diagnosis` submits into the run directory under the attempt
 and the nonce of the host. `--budget` and `--max-turns` are the loop's. The result
-is `{run_id, submitted, rejected_path_calls}`, and the status is `done` when a
+is `{run_id, submitted}`, and the status is `done` when a
 diagnosis was accepted; the envelope's `usage` is the brain's. A run directory with
 no such `run.json` is `usage`, "run <id> has no brief placed in it".
 
@@ -1562,7 +1556,6 @@ A code matches `^[a-z][a-z0-9_]*$`; one that does not is reported under
 | `body_too_long` | `triage`: the body with the diagnosis would be longer than the forge allows, so the diagnosis was posted as one comment and the body was left. |
 | `labels_failed` | `triage`: the diagnosis was written and adding the labels failed. The side effect `add_labels` is `failed`. |
 | `original_report_unparsed` | `triage`: a body starts with the triage marker and is not what `af` wrote (the markers of its original report cannot be paired, a heading is missing, or text follows the original report), so the whole body is taken as the report. |
-| `rejections_unreadable` | `triage`: `rejections.jsonl` cannot be read, or holds a line that is not JSON, so the refused calls are counted as 0; also when it could not be brought out of the box. |
 | `baseline_failing` | `fix`: the gate fails on the tree as it is, before any change. A check that already fails is not counted against the change, and a change that makes it pass is `pass_was_already_failing`. |
 | `question_not_found` | `fix`: no earlier run asked the question that a `--context` answers, so the answer stands alone in the brief. |
 | `protected_path_reverted` | `fix`: the change touched a protected path (`.git/`, `.agent-fox/`, `.specs/`, `.github/workflows/`, `.gitlab-ci.yml`), and `af` put it back to the base's content or deleted it. One for each path. |
@@ -1743,7 +1736,7 @@ edited.
     transcript.<attempt>.jsonl   the tool calls of an in-process brain, listed as {kind: "transcript", path}
     brain-panic.<attempt>.txt    the stack of a brain that panicked
     <brain>.<attempt>.json, <brain>.<attempt>.stderr    what a brain that runs as a process printed, listed as {kind: "brain_output", path}
-    brief.md, original.md, triage.json, rejections.jsonl, diagnosis.md    the files of a triage run
+    brief.md, original.md, triage.json, diagnosis.md                      the files of a triage run
     brief.md, original.md, run.json, fix.json, report.md    the files of a fix run
 ```
 

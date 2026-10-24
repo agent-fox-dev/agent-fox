@@ -65,7 +65,7 @@ change as the code: a document that is out of date is a regression.
 | `internal/fakeaf` | The fake `af` of the tests: the test binary run under that name (see [the fake af](#the-fake-af)). |
 | `internal/optin` | The gates of the opt-in tests (see [Opt-in tests](#opt-in-tests)). |
 | `containers` | The Containerfiles of the sandbox image (`containers/sandbox/`) and of the tools image (`containers/tools/`: the sandbox image with `af`), built by `make build-containers`. |
-| `internal/triage` | `af triage` without the shell: the diagnosis, its validator and its rejections, the issue body (`Render`, `Extract`), the brief, the preflight, the landing on a forge, the submission kind and the tool allowlist. `fakeforge` is the GitHub and GitLab server (`httptest`) that its tests and those of `internal/afcmd` run against. |
+| `internal/triage` | `af triage` without the shell: the diagnosis and its validator, the issue body (`Render`, `Extract`), the brief, the preflight, the landing on a forge, the submission kind and the tool allowlist. `fakeforge` is the GitHub and GitLab server (`httptest`) that its tests and those of `internal/afcmd` run against. |
 | `skills` | The skills of the repository (`skills/af-*`) and the Go package that embeds them (`//go:embed af-*`); `skills.Triage()` is the body of `af-triage` that the brief carries. `make install-skills` and `make uninstall-skills` loop over `skills/af-*` only. |
 
 The five packages from `project` to `repomap` (not the three after them, which are
