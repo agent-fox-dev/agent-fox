@@ -6,11 +6,9 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -119,101 +117,6 @@ func TestATriageLabelBecomesOneJobThatTheRealWorkerRunsToDoneEndToEnd_TS_15_65(t
 	}
 }
 
-// TestClosingAnIssueCancelsItsRunningJobAndTheWorkerTakesInProgressOff_TS_18_68 verifies TS-18-68 and 18-PATH-2: the
-// supervisor runs with its event stream on the fake hub, an event of af:fix on 43 makes a fix job that the real worker runs
-// until its loop is under way, with af:in-progress set; then the issue is closed and hub sends the event of the close. The
-// job reads cancelled because the issue was closed, with no label to put back, the lease is released, af:in-progress is
-// taken off, no other label is added and no comment posted, one INFO names the workspace, the issue and the job, and the id
-// of the event is recorded.
-// Verifies: 18-PATH-2, 18-REQ-9.1
-func TestClosingAnIssueCancelsItsRunningJobAndTheWorkerTakesInProgressOff_TS_18_68(t *testing.T) {
-	marker := filepath.Join(t.TempDir(), "begun")
-	e := loopEnv(t, blockFiles(marker), nil, nil, blockStep())
-	e.hub.AddIssue(slug, fakehub.Issue{Number: 43, Title: "Greeting is wrong", Body: "x", Labels: []string{"af:fix"}})
-
-	key, err := secrets.NewKey(bytes.Repeat([]byte{7}, 32))
-	if err != nil {
-		t.Fatal(err)
-	}
-	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "agent-fox.db"), key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
-	if _, _, err := st.Upsert(context.Background(), slug, "af:", pat, "u1", "u1", time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	var logs syncBuffer
-	logger := slog.New(slog.NewJSONHandler(&logs, nil))
-	svc, err := jobs.New(jobs.Config{
-		DB: st.DB(), Subscriptions: st, Logger: logger, Workers: 1, AttemptsDir: filepath.Join(t.TempDir(), "attempts"),
-		Runner: e.runner, PollInterval: 10 * time.Millisecond, RetryDelay: 10 * time.Millisecond, Retain: 100 * 365 * 24 * time.Hour,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { svc.Close() })
-	poller := poll.New(poll.Config{Subscriptions: st, Hub: hub.New(e.hub.URL, "1"), Jobs: svc, DB: st.DB(), Logger: logger,
-		FirstDelay: func() time.Duration { return 1000 * time.Hour }})
-	poller.Start(context.Background())
-	t.Cleanup(poller.Stop)
-	eventually(t, "the stream to connect", 30*time.Second, func() bool { return e.hub.EventConns(slug) == 1 })
-
-	e.hub.SendEvent(slug, fakehub.HubEvent{ID: "evt-fix", Type: fakehub.EventIssueLabeled, Issue: 43, Label: "af:fix"})
-	var id string
-	eventually(t, "the job of the event", 30*time.Second, func() bool {
-		return st.DB().QueryRow("SELECT id FROM af_jobs WHERE workspace = ?", slug).Scan(&id) == nil
-	})
-	eventually(t, "the loop to begin", 90*time.Second, func() bool { _, err := os.Stat(marker); return err == nil })
-	if issue, _ := e.hub.IssueOf(slug, 43); !slices.Contains(issue.Labels, "af:in-progress") {
-		t.Fatalf("issue 43 carries %v while its job runs, want af:in-progress", issue.Labels)
-	}
-
-	e.hub.SetIssueState(slug, 43, "closed")
-	e.hub.SendEvent(slug, fakehub.HubEvent{ID: "evt-closed", Type: fakehub.EventIssueClosed, Issue: 43})
-	var doc jobs.Doc
-	eventually(t, "the job to end", 90*time.Second, func() bool {
-		doc, err = svc.Get(context.Background(), id)
-		return err == nil && doc.State == jobs.StateCancelled && len(e.hub.Leases()) == 1 && e.hub.Leases()[0].Released
-	})
-
-	if doc.CancelCause == nil || *doc.CancelCause != "issue_closed" || (doc.Labels != nil && doc.Labels.Restore != nil) {
-		t.Errorf("the job is %+v, want it cancelled because its issue was closed, with labels.restore null", doc)
-	}
-	eventually(t, "af:in-progress to be taken off", 30*time.Second, func() bool {
-		issue, _ := e.hub.IssueOf(slug, 43)
-		return !slices.Contains(issue.Labels, "af:in-progress")
-	})
-	issue, _ := e.hub.IssueOf(slug, 43)
-	if len(issue.Labels) != 0 || len(issue.Comments) != 0 {
-		t.Errorf("issue 43 has the labels %v and %d comments, want none", issue.Labels, len(issue.Comments))
-	}
-	for _, r := range e.hub.RequestsTo("POST", issue43Path+"/labels") {
-		if !strings.Contains(string(r.Body), "af:in-progress") {
-			t.Errorf("a label other than the mark was added: %s", r.Body)
-		}
-	}
-	taken, err := poll.NewRecords(st.DB()).EventTaken(context.Background(), slug, "evt-closed")
-	if err != nil || !taken {
-		t.Errorf("the id of the close is recorded %v (%v), want it recorded", taken, err)
-	}
-	infos := 0
-	for _, line := range strings.Split(logs.String(), "\n") {
-		if strings.Contains(line, `"level":"INFO"`) && strings.Contains(line, "the issue was closed") {
-			infos++
-			if !strings.Contains(line, `"workspace":"`+slug+`"`) || !strings.Contains(line, `"issue":43`) || !strings.Contains(line, id) {
-				t.Errorf("the INFO is %s, want it to name %s, 43 and %s", line, slug, id)
-			}
-		}
-	}
-	if infos != 1 {
-		t.Errorf("%d INFO records of the close, want 1", infos)
-	}
-}
-
 // eventually waits until ok says so, and fails the test after the limit.
 func eventually(t *testing.T, what string, limit time.Duration, ok func() bool) {
 	t.Helper()
@@ -222,24 +125,6 @@ func eventually(t *testing.T, what string, limit time.Duration, ok func() bool) 
 			t.Fatalf("waited %v for %s", limit, what)
 		}
 	}
-}
-
-// syncBuffer is a buffer that a logger may write while the test reads it.
-type syncBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
-}
-
-func (b *syncBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.Write(p)
-}
-
-func (b *syncBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.String()
 }
 
 // pollRig is the poll, the real jobs layer and its store on a state file, over the worker of the environment, which reports
@@ -308,45 +193,6 @@ func onlyJob(t *testing.T, st *store.Store, kind jobs.Kind, n int) string {
 		t.Fatalf("%d %s jobs, want %d", len(ids), kind, n)
 	}
 	return ids[n-1]
-}
-
-// TestAutoFixChainsATriageIntoALinkedFixJobEndToEnd_TS_19_62 verifies TS-19-62 and 19-PATH-5: issue 44 carries af:triage on a
-// workspace with AF_AUTO_FIX=true; one cycle makes the triage job, the real worker runs it with the scripted brain to
-// af:ready, records its follow-up pending through the jobs layer and adds af:fix; the next cycle makes the fix job linked
-// to the triage, and the triage's follow-up is made with it.
-// Verifies: 19-PATH-5, 19-REQ-9.1, 19-REQ-7.3
-func TestAutoFixChainsATriageIntoALinkedFixJobEndToEnd_TS_19_62(t *testing.T) {
-	e := loopEnv(t, triageFiles, map[string]string{"AF_AUTO_FIX": "true"}, nil, submitStep(probableDiagnosis))
-	e.hub.AddIssue(slug, fakehub.Issue{Number: 44, Title: "App crashes", Body: "The app crashes on submit.", Labels: []string{"af:triage"}})
-	st, svc, poller := pollRig(t, e)
-
-	poller.Cycle(context.Background(), slug)
-	triage := onlyJob(t, st, jobs.KindTriage, 1)
-	doc := rest(t, svc, triage)
-	if doc.State != jobs.StateDone {
-		t.Fatalf("the triage is %s: %+v", doc.State, doc.Result)
-	}
-	if f := doc.FollowUp; f == nil || f.Label != "af:fix" || f.Issue != 44 || f.State != jobs.FollowUpPending {
-		t.Fatalf("the triage's follow-up is %+v, want af:fix on 44, pending", doc.FollowUp)
-	}
-	if issue, _ := e.hub.IssueOf(slug, 44); !slices.Contains(issue.Labels, "af:ready") || !slices.Contains(issue.Labels, "af:fix") {
-		t.Fatalf("issue 44 carries %v, want af:ready and af:fix", issue.Labels)
-	}
-
-	poller.Cycle(context.Background(), slug)
-	fix := onlyJob(t, st, jobs.KindFix, 1)
-	fd, err := svc.Get(context.Background(), fix)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fd.Source != (jobs.Source{Kind: "triage", By: triage}) || fd.ParentJobID == nil || *fd.ParentJobID != triage {
-		t.Errorf("the fix job is from %+v with the parent %v, want the triage %s", fd.Source, fd.ParentJobID, triage)
-	}
-	td, _ := svc.Get(context.Background(), triage)
-	if f := td.FollowUp; f == nil || f.State != jobs.FollowUpMade || f.JobID == nil || *f.JobID != fix {
-		t.Errorf("the triage's follow-up is %+v, want made with %s", td.FollowUp, fix)
-	}
-	rest(t, svc, fix) // the fix runs to its end before the state file closes
 }
 
 // TestARelabelledTriagedIssueGetsANewTriageThatKeepsTheEditedReport_TS_19_63 verifies TS-19-63 and 19-PATH-6: issue 44's

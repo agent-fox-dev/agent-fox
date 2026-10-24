@@ -44,7 +44,7 @@ func TestANotSubscribedAnswerOfTheStoreStopsTheLoop_TS_15_52(t *testing.T) {
 
 	t.Run("the loop", func(t *testing.T) {
 		// The scan would end the loop too, so it is put off, and only the cycle can.
-		e := newEnv(t, withoutStream(), withPoll(func(c *Config) { c.ScanPeriod = 1000 * time.Hour }))
+		e := newEnv(t, withPoll(func(c *Config) { c.ScanPeriod = 1000 * time.Hour }))
 		e.started()
 		waitFor(t, "the first cycle", func() bool { return len(e.Hub.ListRequests(slug)) == 2 })
 		// The first delay, the cut-off of the cycle and the wait for the next cycle are the three waits of the loop.

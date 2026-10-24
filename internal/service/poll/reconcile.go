@@ -63,9 +63,6 @@ func (s *Supervisor) note(ctx context.Context, rec Record) (Record, error) {
 		rec = s.startClock(ctx, s.hold(ctx, rec), now)
 	case err != nil:
 		return rec, err
-	case standing.State == jobs.StateCancelled && standing.CancelCause == issueClosed:
-		// Nothing was put back on a closed issue: the record holds nothing, whatever reached the runner or the cleanup.
-		rec = s.see(ctx, rec, SeenEnded)
 	case standing.State == jobs.StateDone, standing.State == jobs.StateCancelled && !holds(standing):
 		rec = s.see(ctx, rec, SeenEnded)
 	case standing.State == jobs.StateCancelled:
@@ -75,9 +72,6 @@ func (s *Supervisor) note(ctx context.Context, rec Record) (Record, error) {
 	}
 	return rec, nil
 }
-
-// issueClosed is the cancel cause of a job whose issue was closed.
-const issueClosed = "issue_closed"
 
 // holds says that a cancelled job holds its request label: its cancel reached a runner, or its cleanup is pending or put
 // the label back.

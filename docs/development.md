@@ -39,7 +39,7 @@ change as the code: a document that is out of date is a regression.
 | `internal/service/store` | The SQLite state file: `af_`-prefixed tables, append-only migrations in `af_schema_migrations`, and the subscriptions (`Upsert`, `Get`, `List`, `Delete`, and `Token`, the opened token for code in this process). |
 | `internal/service/ttl` | The bounded cache with expiry that holds hub's answers; it takes its clock as a function. |
 | `internal/service/api` | The HTTP surface: probes, the error envelope, the guards that authenticate a caller and check the workspace against hub, the subscription routes, the jobs routes (make, cancel, answer, retry, list, read, the stored envelope and report, the event stream), and the request log. |
-| `internal/service/jobs` | The jobs layer: the documents and the store (`af_jobs`, `af_attempts`, `af_events`), creating and validating jobs, the adapter over `aflib/jobqueue` (per-workspace order, `[workers].count` slots, transient retries, shutdown and restart, the sweep), the `Runner` seam and the placeholder runner (the binary wires the worker), ending attempts, cancel, answer, retry and unsubscribe, the event log with its broker and stream, and the retention purge. |
+| `internal/service/jobs` | The jobs layer: the documents and the store (`af_jobs`, `af_attempts`, `af_events`), creating and validating jobs, the adapter over `aflib/jobqueue` (per-workspace order, `[workers].count` slots, transient retries, shutdown and restart, the sweep), the `Runner` seam (the binary wires the worker), ending attempts, cancel, answer, retry and unsubscribe, the event log with its broker and stream, and the retention purge. |
 | `internal/service/jobs/fakerunner`, `internal/service/jobs/fakeclock` | The fake runner that a test scripts (return, error, transient failure, panic, block) and records the inputs of, and the fake clock whose waits and tickers a test advances; exported for the tests of the specs that follow. |
 | `internal/hub` | The client of hub's API, the one place that knows hub's paths, field names and answers: who a token belongs to and whether it sees a workspace, and the calls of an attempt (the record and variables of a workspace, sessions, events, sandbox leases, the push of a branch). |
 | `internal/worker/recovery` | The files the worker keeps in `recovery/` of an attempt directory, to carry the attempt on after the process died: the journal (`journal.json`) and the outcome (`outcome.json`), written mode 0600 by an atomic synced replacement, and the status a session is completed with for an outcome. |
@@ -154,20 +154,8 @@ scripted brain: no hub, no key of a model vendor and no container engine
   the issue read and the comment list keep. A test makes hub cut a thread, or fail to read its comments, by injecting an
   issue read with `truncated: true` or `comments_err` through `Inject` (`threadBody` in `internal/service/poll`). The forge
   path's tests in `internal/service/poll` post the worker's question and failure comments with their markers themselves,
-  since the fake runner writes nothing to the issue; the worker's own side (its comments and `AF_AUTO_FIX`) is tested in
+  since the fake runner writes nothing to the issue; the worker's own side (its comments) is tested in
   `internal/worker` with the fake hub, and end to end with the scripted brain.
-- **The fake hub's event stream.** `GET /api/v1/events?workspace=<slug>` checks the token's access to the workspace as the
-  other routes do and then holds the connection open as `text/event-stream`, in hub's own frames (`event: audit_event` with
-  the audit event as JSON). `SendEvent` sends a `HubEvent` (an id, a type, the issue and the label) to every open
-  connection of the slug, `SendFrame` sends any text as it is (a frame in another encoding, or a malformed one),
-  `Heartbeat` and `Comment` send hub's heartbeat frame and a comment line, `EndEvents` ends the slug's connections as hub
-  does when it goes away, `EventConns` counts the open ones and `EventsRequests` lists the requests of the route, failed
-  ones included; `Fail`, `Delay` and the other faults of a path apply to it as to any route. `EmitLabeledOnAdd` makes every
-  label added through the forge API send `hub.forge.issue.labeled`, as hub relays the forge's webhook, and `SetIssueState`
-  closes or reopens an issue. The stream's tests in `internal/service/poll` run the supervisor with `Start`, its stream
-  and a fake clock: a clock that only moves when the test moves it, with first cycles 1000 hours away when a test wants the
-  stream alone, and the supervisor's `beforeEvent` seam to hold the handling of an event.
-
 ## Opt-in tests
 
 `make check` needs no key, no container engine and no recent kernel, so the tests that

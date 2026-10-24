@@ -23,19 +23,16 @@ type jobRow struct {
 	State                                   State
 	LabelsSet, LabelsRemoved, LabelsRestore sql.NullString
 	Cleanup, CancelCause                    sql.NullString
-	ParentJobID, FollowUp                   sql.NullString
 	CreatedAt                               string
 	StartedAt, FinishedAt                   sql.NullString
 }
 
 const jobColumns = `id, workspace, kind, input, issue, source_kind, source_by, request_label, state,
-	labels_set, labels_removed, labels_restore, cleanup, cancel_cause, parent_job_id,
-	(SELECT json_object('label', f.label, 'issue', f.issue, 'state', f.state, 'job_id', f.job_id) FROM af_followups f WHERE f.triage_job_id = af_jobs.id),
-	created_at, started_at, finished_at`
+	labels_set, labels_removed, labels_restore, cleanup, cancel_cause, created_at, started_at, finished_at`
 
 func (j *jobRow) scan(r interface{ Scan(...any) error }) error {
 	return r.Scan(&j.ID, &j.Workspace, &j.Kind, &j.Input, &j.Issue, &j.SourceKind, &j.SourceBy, &j.RequestLabel, &j.State,
-		&j.LabelsSet, &j.LabelsRemoved, &j.LabelsRestore, &j.Cleanup, &j.CancelCause, &j.ParentJobID, &j.FollowUp, &j.CreatedAt, &j.StartedAt, &j.FinishedAt)
+		&j.LabelsSet, &j.LabelsRemoved, &j.LabelsRestore, &j.Cleanup, &j.CancelCause, &j.CreatedAt, &j.StartedAt, &j.FinishedAt)
 }
 
 // attemptRow is a row of af_attempts.
@@ -162,8 +159,7 @@ func labelsDoc(j jobRow) (*LabelsDoc, error) {
 	return nil, nil
 }
 
-// record fills in what the job's row records beside its attempts: its labels, the cause of its cancel, its parent and its
-// follow-up.
+// record fills in what the job's row records beside its attempts: its labels and the cause of its cancel.
 func (doc *Doc) record(j jobRow) error {
 	labels, err := labelsDoc(j)
 	if err != nil {
@@ -172,10 +168,6 @@ func (doc *Doc) record(j jobRow) error {
 	doc.Labels = labels
 	if j.State == StateCancelled {
 		doc.CancelCause = nullable(j.CancelCause)
-	}
-	doc.ParentJobID = nullable(j.ParentJobID)
-	if err := decode("follow_up", j.FollowUp, &doc.FollowUp); err != nil {
-		return fmt.Errorf("job %s: %w", j.ID, err)
 	}
 	return nil
 }

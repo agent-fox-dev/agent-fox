@@ -2,7 +2,6 @@ package jobs
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"sync"
 )
@@ -55,38 +54,6 @@ func (r *Recorder) Hub(sessionID, runID, sandboxID string) {
 		r.log.Warn("the hub references of the attempt could not be stored and are dropped",
 			"job", r.jobID, "attempt", r.attempt, "error", err.Error())
 	}
-}
-
-// errRecorderClosed is the refusal of a call of a runner whose attempt has ended.
-var errRecorderClosed = errors.New("the attempt has ended")
-
-// RecordFollowUp records that the attempt's triage job asks for a fix of the issue with the label, as
-// Service.RecordFollowUp does, and returns the state of the follow-up as recorded and the fix job it names, if any. The
-// worker calls it for a triage that ends ready on a workspace with AF_AUTO_FIX, before it adds the label.
-func (r *Recorder) RecordFollowUp(issue int64, label string) (state, job string, err error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if r.closed {
-		return "", "", errRecorderClosed
-	}
-	f, err := r.store.RecordFollowUp(context.Background(), r.jobID, issue, label)
-	if err != nil {
-		return "", "", err
-	}
-	if f.JobID != nil {
-		job = *f.JobID
-	}
-	return f.State, job, nil
-}
-
-// WithdrawFollowUp withdraws the pending follow-up of the attempt's triage job: the worker could not add its label.
-func (r *Recorder) WithdrawFollowUp() error {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if r.closed {
-		return errRecorderClosed
-	}
-	return r.store.settleFollowUp(context.Background(), r.jobID, FollowUpWithdrawn, nil)
 }
 
 // close ends the recorder: the calls in progress finish, and the ones that follow do

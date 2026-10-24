@@ -289,10 +289,10 @@ func TestAnUnreadableTokenOrAnotherErrorOfTheAnswerLeavesTheLabelAndLogsOnce_TS_
 }
 
 // TestTheCommentsAreReadThroughTheIssueReadAndNeverTheCommentList_TS_19_15 verifies TS-19-15: the poll reads the issue to
-// answer, and the stream answers with the issue read it made already, one read for its sighting.
+// answer, once, and never the comment list.
 // Verifies: 19-REQ-3.1
 func TestTheCommentsAreReadThroughTheIssueReadAndNeverTheCommentList_TS_19_15(t *testing.T) {
-	e := streaming(t, withRunner(answering(3))) // 42's first attempt and its answer, then 43's first attempt
+	e := newEnv(t, withRunner(answering(2))) // 42's first attempt and its answer
 	e.blockFix(42)
 	e.comment(42, "alice", "by the poll")
 	e.Hub.AddLabel(slug, 42, "af:fix")
@@ -300,18 +300,8 @@ func TestTheCommentsAreReadThroughTheIssueReadAndNeverTheCommentList_TS_19_15(t 
 	if n := len(e.Hub.RequestsTo(http.MethodGet, issuePath(42))); n != 1 {
 		t.Errorf("the poll read 42 %d times, want once", n)
 	}
-	e.blockFix(43)
-	e.comment(43, "alice", "by the stream")
-	e.Hub.AddLabel(slug, 43, "af:fix")
-	e.labeled("evt-43", 43, "af:fix")
-	waitFor(t, "the stream's answer", func() bool { return e.taken("evt-43") })
-	if n := len(e.Hub.RequestsTo(http.MethodGet, issuePath(43))); n != 1 {
-		t.Errorf("the stream read 43 %d times, want once", n)
-	}
-	for _, n := range []int{42, 43} {
-		if got := len(e.Hub.RequestsTo(http.MethodGet, issuePath(n)+"/comments")); got != 0 {
-			t.Errorf("the comment list of %d was read %d times, want never", n, got)
-		}
+	if got := len(e.Hub.RequestsTo(http.MethodGet, issuePath(42)+"/comments")); got != 0 {
+		t.Errorf("the comment list of 42 was read %d times, want never", got)
 	}
 }
 

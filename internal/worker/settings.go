@@ -37,9 +37,6 @@ type Settings struct {
 	// TriggersOn is AF_POLL_INTERVAL read with the poll's values: the label triggers are on unless it is a zero duration.
 	// No value fails an attempt: the poll judges the rest.
 	TriggersOn bool
-	// AutoFix is AF_AUTO_FIX, read for a triage only: true asks for a fix of an issue the triage left ready. LandPatch
-	// says that AF_FIX_LAND is patch, which a triage looks at for that alone, since a fix would refuse it.
-	AutoFix, LandPatch bool
 }
 
 // The bounds of the variables.
@@ -118,16 +115,6 @@ func resolveSettings(kind jobs.Kind, vars map[string]string) (Settings, *varErro
 				return s, &varError{"AF_FIX_LAND", v, "pr, branch or none"}
 			}
 			s.Land = v
-		}
-	}
-	if kind == jobs.KindTriage {
-		s.LandPatch = vars["AF_FIX_LAND"] == landPatch
-		switch v := vars["AF_AUTO_FIX"]; {
-		case v == "" || strings.EqualFold(v, "false"):
-		case strings.EqualFold(v, "true"):
-			s.AutoFix = true
-		default:
-			return s, &varError{"AF_AUTO_FIX", v, "true or false"}
 		}
 	}
 	return s, nil
