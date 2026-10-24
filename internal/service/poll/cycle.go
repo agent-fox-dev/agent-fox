@@ -36,6 +36,9 @@ type listing struct {
 	Before    int64
 	// Source is the source of the job a new request makes: the label's when it is empty.
 	Source jobs.Source
+	// Thread is the issue as the event of hub's stream read it, with its comments, which an answer or a retry takes
+	// rather than reading the issue again; nil for a listing, whose rules read the issue when they need its comments.
+	Thread *issuex.IssueThread
 }
 
 // cycleRun is a cycle that is running: the workspace it is for, and what it needs to act on it.

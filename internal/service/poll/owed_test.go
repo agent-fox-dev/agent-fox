@@ -97,11 +97,14 @@ func TestALabelOnAnIssueWithAnOpenJobOfTheSameKindIsAbsorbedAndLogged_TS_15_29(t
 		}
 	})
 
-	t.Run("a blocked job", func(t *testing.T) {
+	// Spec 19 makes the label on a blocked job's issue an answer from the forge; a blocked job still absorbs it while
+	// its removal is owed (19-REQ-1.4).
+	t.Run("a blocked job with an owed removal", func(t *testing.T) {
 		e := newEnv(t, withRunner(fakerunner.New(needsHuman)))
 		e.issue(42)
 		id := e.startedJob(jobs.KindFix, 42, "af:fix")
 		e.waitState(id, jobs.StateBlocked)
+		e.record(Record{Issue: 42, Label: "af:fix", Owed: true, Seen: SeenEnded})
 		e.Hub.AddLabel(slug, 42, "af:fix")
 
 		e.cycle()

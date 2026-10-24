@@ -4,7 +4,7 @@ spec_name: "agent_fox_forge_followups"
 title: "agent-fox forge follow-ups: answer and retry from the forge, and AF_AUTO_FIX"
 status: "active"
 created_at: "2026-10-23T17:48:40.254014Z"
-updated_at: "2026-10-24T04:31:04Z"
+updated_at: "2026-10-24T04:51:48Z"
 intent_hash: "8dbcec12b5f304ed6aa33ed562b5382525ece2c6a2dfa9e381ec1e9450e02dbd"
 schema_version: 2
 source: "docs/prd/04-drive-the-service-from-the-forge.md"
