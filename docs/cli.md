@@ -1,29 +1,267 @@
-# The af command line
+# Command-line reference
 
-`af` is the command-line binary of agent-fox. `make build` writes it to `bin/af`
-(`go build ./cmd/af` builds it too), beside `bin/agent-fox`, the long-running service, whose own
-command line is [described at the end of this document](#the-agent-fox-command-line). Every command of `af` speaks the same
-contract, which the shell in `internal/toolio` implements once so that the
-commands do not: one JSON envelope on stdout, a fixed table of statuses and
-exit codes, coded warnings, a stop on a question that is resumed with
-`--context`, a `--dry-run` that cannot write to the forge, and a
-git-ignored run directory.
+agent-fox ships two binaries. `af` is the command-line tool: it triages and fixes
+issues on your machine, and it is the client of the agent-fox service. `agent-fox`
+is the long-running service itself.
 
-**This release registers eighteen commands: [`lang detect`](#lang-detect),
-[`gate run`](#gate-run) and [`revert-check`](#revert-check), the two of [triage](#triage): `triage` and
-[`triage run`](#triage-run), the two of [fix](#fix): `fix` and [`fix run`](#fix-run), and the eleven of the
-[client of the agent-fox service](#the-client-of-the-agent-fox-service): the four of
-[`workspace`](#workspace-subscribe-list-get-and-unsubscribe) (`workspace subscribe`, `workspace list`,
-`workspace get` and `workspace unsubscribe`), [`jobs submit`](#jobs-submit) and the six other commands of [`jobs`](#jobs-list-get-watch-cancel-answer-and-retry)
-(`jobs list`, `jobs get`, `jobs watch`, `jobs cancel`, `jobs answer` and `jobs retry`).** The binary also
-answers `--version` and `help`, which does not list `triage run` and `fix run`:
-they are what a box executes, and no commands for a person; `af` with no arguments, or with a
-command it does not know, prints a `usage` envelope and exits 2. The other
-commands of later specs (`impl`, …) register on the shell and get everything
-below.
+## Contents
+
+- [Overview](#overview)
+- [Conventions](#conventions)
+  - [Invoking a command](#invoking-a-command)
+  - [Common flags](#common-flags)
+  - [The input argument](#the-input-argument)
+  - [The envelope](#the-envelope)
+  - [Statuses and exit codes](#statuses-and-exit-codes)
+  - [Questions and --context](#questions-and---context)
+  - [Dry runs](#dry-runs)
+  - [Timeouts and signals](#timeouts-and-signals)
+  - [Help and version](#help-and-version)
+- [Local commands](#local-commands)
+  - [af triage](#af-triage)
+  - [af fix](#af-fix)
+  - [af lang detect](#af-lang-detect)
+  - [af gate run](#af-gate-run)
+  - [af revert-check](#af-revert-check)
+- [Sandboxes and brains](#sandboxes-and-brains)
+- [Service client commands](#service-client-commands)
+  - [Connecting to the service](#connecting-to-the-service)
+  - [af workspace](#af-workspace)
+  - [af jobs submit](#af-jobs-submit)
+  - [af jobs list, get, watch, cancel, answer and retry](#af-jobs-list-get-watch-cancel-answer-and-retry)
+  - [Following a job](#following-a-job)
+  - [How service answers map to statuses](#how-service-answers-map-to-statuses)
+- [Internal commands](#internal-commands)
+- [The agent-fox command](#the-agent-fox-command)
+- [Reference](#reference)
+  - [Error categories](#error-categories)
+  - [Warning codes](#warning-codes)
+  - [The run directory](#the-run-directory)
+  - [Envelope versioning](#envelope-versioning)
+
+## Overview
+
+`make build` writes both binaries to `bin/`. `af` has eighteen commands:
+
+| Command | What it does |
+|---|---|
+| [`af triage`](#af-triage) | Diagnose a report with a model and write the diagnosis to the issue. |
+| [`af fix`](#af-fix) | Fix an issue: a model edits the code, `af` verifies the change and opens a pull request. |
+| [`af lang detect`](#af-lang-detect) | Report the languages of a repository and the checks that verify it. |
+| [`af gate run`](#af-gate-run) | Run those checks and report the result, cached by the content of the tree. |
+| [`af revert-check`](#af-revert-check) | Check that a change's tests fail without the rest of the change. |
+| [`af workspace subscribe`, `list`, `get`, `unsubscribe`](#af-workspace) | Manage the hub workspaces the service works on. |
+| [`af jobs submit`](#af-jobs-submit) | Queue a triage or fix job on the service. |
+| [`af jobs list`, `get`, `watch`, `cancel`, `answer`, `retry`](#af-jobs-list-get-watch-cancel-answer-and-retry) | Read, follow and steer jobs on the service. |
+| [`af triage run`, `af fix run`](#internal-commands) | Run inside a sandbox on behalf of `af triage` and `af fix`. Not for people. |
+
+`af triage` and `af fix` always run on this machine. `af jobs submit triage|fix`
+queues the same work on the agent-fox service instead, which runs it in a sandbox
+that hub leases.
+
+## Conventions
+
+Every `af` command follows the same contract: it prints exactly one JSON
+[envelope](#the-envelope) on stdout, exits with a code that matches its
+[status](#statuses-and-exit-codes), and stops with a question rather than guessing.
+
+### Invoking a command
 
 ```
-$ af --version
+af <command> [flags] [argument]
+af help [command]
+af --version
+```
+
+- A command is one or more words (`triage`, `gate run`). `af` picks the longest
+  command that matches the words before the first flag. The command is the
+  envelope's `tool`.
+- Flags may come before or after the argument, as `--flag value` or `--flag=value`.
+  `--` ends the flags. A flag that takes a value takes the next word, whatever it
+  looks like.
+- A command takes at most one positional argument unless it says otherwise. An
+  extra argument or an unknown flag is a `usage` error.
+- `af` with no arguments, or with an unknown command, prints a `usage` envelope and
+  exits 2.
+
+### Common flags
+
+Each command accepts only the flags that apply to it. These recur:
+
+| Flag | Meaning |
+|---|---|
+| `--dir <path>` | The checkout to work in. Default `.`. |
+| `--context <text>` | An answer to a question an earlier run asked. Repeatable. See [Questions and --context](#questions-and---context). |
+| `--dry-run` | Send no write to the forge. See [Dry runs](#dry-runs). |
+| `--repo <owner/name>` | The repository to work on, when the input does not name one. |
+| `--timeout <duration>` | Stop after this long, such as `90s` or `15m`. `0` means no limit. Each command has its own default. |
+
+### The input argument
+
+`af triage` and `af jobs submit` take an input written `<issue|file|text|->`. `af fix`
+takes an issue. The first rule that matches decides what the argument is:
+
+1. `-` reads stdin until end of file. Kind `stdin`.
+2. A GitHub or GitLab issue, pull request or merge request URL. Kind `issue`. `af`
+   reads the thread (title, author, labels, body, comments) through the forge.
+3. Any other `http://` or `https://` URL is a `usage` error. For a self-hosted
+   forge, set `GITHUB_API_URL` or `GITLAB_API_URL` (see
+   [configuration](configuration.md#forge-access)).
+4. The name of an existing regular file. Kind `file`. A directory, or a file with a
+   NUL byte in its first 8 KiB, is a `usage` error; an unreadable file is
+   `failed`/`io`.
+5. Anything else is kind `text`.
+
+The text is trimmed; an empty input is a `usage` error. Input over 131072 bytes is
+cut at a UTF-8 boundary, ends with `[... input truncated at 131072 bytes ...]`, sets
+`input.truncated` and raises the warning `input_truncated`.
+
+Reading an issue can fail. A 404 without a token is `failed`/`auth`, since the issue
+may be private. A 404 with a token is `failed`/`forge`, not retryable. A rate limit,
+a server error or a lost connection is `failed`/`forge`, retryable.
+
+### The envelope
+
+Every invocation except `--version` and help writes one JSON object to stdout,
+indented by two spaces, and nothing else. Every field is always present, in this
+order. Arrays are `[]`, never null; an object that does not apply is `null`.
+
+```json
+{
+  "schema_version": "5.0.0",
+  "tool": "triage",
+  "run_id": "20261020_072649_a31f9c",
+  "status": "done",
+  "exit_code": 0,
+  "summary": "diagnosed; 2 writes planned",
+  "input": {"kind": "issue", "origin": "https://github.com/acme/shop/issues/12", "truncated": false},
+  "result": { },
+  "needs_human": null,
+  "error": null,
+  "warnings": [],
+  "artifacts": [
+    {"kind": "run_dir", "path": "/work/repo/.agent-fox/run/20261020_072649_a31f9c"}
+  ],
+  "side_effects": [
+    {"kind": "update_issue", "target": "acme/shop#12", "state": "planned"},
+    {"kind": "add_labels", "target": "acme/shop#12", "state": "planned"}
+  ],
+  "next": [],
+  "usage": {
+    "brain": "agentkit",
+    "cost_usd": 0.41,
+    "cost_source": "measured",
+    "input_tokens": 52310,
+    "output_tokens": 2104,
+    "turns": 14
+  },
+  "started_at": "2026-10-20T07:26:48.120Z",
+  "finished_at": "2026-10-20T07:26:55.440Z",
+  "duration_ms": 7320
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `schema_version` | string | `"5.0.0"`. See [Envelope versioning](#envelope-versioning). |
+| `tool` | string | The command, or `"af"` when no command was found. |
+| `run_id` | string or null | The id of the [run directory](#the-run-directory); null for a command without one. |
+| `status` | string | `done`, `failed`, `usage`, `needs_human` or `unverified`. |
+| `exit_code` | integer | The code the process exits with. |
+| `summary` | string | One line saying what happened. |
+| `input` | object | `{kind, origin, truncated}`. `kind` is `issue`, `file`, `text`, `stdin` or `none`. `origin` is the issue URL or the file's absolute path, else `""`. |
+| `result` | any or null | The command's own result, described with each command. Null on failure. |
+| `needs_human` | object or null | The question the command stopped on. Set exactly when `status` is `needs_human`. |
+| `error` | object or null | `{category, message, retryable, fix_hint}`. Set exactly when `status` is `failed` or `usage`. `fix_hint` is null or holds any of `flag`, `env`, `var` and `suggest`. See [Error categories](#error-categories). |
+| `warnings` | array | `[{code, message}]` in the order raised. See [Warning codes](#warning-codes). |
+| `artifacts` | array | `[{kind, path?, url?, name?, number?}]`: files, branches, issues, pull requests and jobs the command made. Paths are absolute. |
+| `side_effects` | array | `[{kind, target, state, detail?}]`: writes to the forge or git. `state` is `done`, `planned` or `failed`. |
+| `next` | array | `[{argv, reason}]`: suggested follow-up commands. |
+| `usage` | object | `{brain, cost_usd, cost_source, input_tokens, output_tokens, turns}`. For a command that runs no model, `brain` is `""`, the numbers are 0 and `cost_source` is `none`. Otherwise `cost_source` is `measured` or `reported`, or `none` when the model has no known price. See [model-usage.md](model-usage.md#how-cost-is-reported). |
+| `started_at`, `finished_at` | string | RFC 3339, UTC, with milliseconds. |
+| `duration_ms` | integer | Wall time of the invocation. |
+
+When the command has a run directory, the same bytes are also written to
+`envelope.json` there. If that copy fails, the envelope carries the warning
+`envelope_unwritable` and its status does not change. `af` writes nothing to stderr
+except the stack trace of a crash; the client's `af jobs watch` also writes job
+events there.
+
+### Statuses and exit codes
+
+| `status` | Exit code | Meaning |
+|---|---|---|
+| `done` | 0 | The command did what it was asked. |
+| `failed` | 1 | It could not; `error` says why. |
+| `usage` | 2 | The invocation was wrong: flags, arguments or the form of the input. |
+| `needs_human` | 3 | It stopped on a question. |
+| `unverified` | 4 | Work exists but could not be verified. A warning says what was not verified. |
+
+An unexpected error or a crash is `failed` with the category `internal`. When there
+is a run directory, a crash's stack trace is saved in `panic.txt` there.
+
+### Questions and --context
+
+When a command cannot go on without a decision, it stops with status
+`needs_human` (exit 3) and says what it needs and how to answer:
+
+```json
+"needs_human": {
+  "question": "Which service is affected?",
+  "options": [
+    { "id": "A", "label": "api" },
+    { "id": "B", "label": "web" }
+  ],
+  "resume": {
+    "argv": ["af", "triage", "the login page crashes"],
+    "flag": "--context"
+  }
+}
+```
+
+To answer, run `resume.argv` with `--context <answer>` appended, for example
+`af triage "the login page crashes" --context B`.
+
+- `options` are lettered `A`, `B`, … (at most 26). No options means a free-text
+  answer is expected.
+- `resume.argv` is normally the original invocation. For a blocked job of the
+  service it is `af jobs answer <id> --wait` instead, since re-running the original
+  command would queue a second job.
+- `--context` may be repeated. Answers accumulate, because earlier `--context` values
+  stay in `argv`. An empty value is a `usage` error.
+- If the original invocation used `--` before an input that starts with a dash, put
+  `--context` before the `--`.
+
+### Dry runs
+
+`--dry-run` lets a command read from the forge but not write to it. Each write it
+would have made (create or update an issue, add a comment or labels, open a pull
+request, …) is sent nowhere and appears in `side_effects` with the state
+`planned`. A dry run still creates the local run directory, and a dry run of
+`af triage` still runs the model and costs what any run costs.
+
+### Timeouts and signals
+
+`--timeout` limits the command, not the reading of its input. When it runs out, the
+envelope is `failed`/`timeout`. SIGINT, SIGTERM and SIGHUP stop the command the same
+way, with `failed`/`cancelled`; a command that had already finished its work keeps
+its result.
+
+A stopped command gets 10 seconds to clean up. After that `af` prints the
+`timeout` or `cancelled` envelope itself and exits 1, and a second signal during
+those 10 seconds is ignored. `af revert-check` asks for up to 10 minutes, so that it
+can put the tree back.
+
+### Help and version
+
+`-h`, `--help`, `af help` and `af help <command>` print plain text on stdout and exit
+0. This is the only output that is not JSON. Help does not list
+[`triage run` and `fix run`](#internal-commands). `af help` with an unknown command is
+a `usage` envelope.
+
+`af --version` prints a JSON document and exits 0:
+
+```json
 {
   "name": "af",
   "version": "v0.1.0",
@@ -33,625 +271,24 @@ $ af --version
 }
 ```
 
-`version`, `commit` and `build_time` are set by `make build` from the
-Makefile's `VERSION`, `COMMIT` and `BUILD_TIME`. A binary built without them
-reports what the Go toolchain recorded (the main module's version,
-`vcs.revision` and `vcs.time`), and `"dev"` with an empty commit and build
-time when it recorded none.
+`make build` sets `version`, `commit` and `build_time`. A binary built another way
+reports what the Go toolchain recorded, or `"dev"` with an empty commit and build
+time.
 
-## Invoking a command
+Help and version are answered wherever they appear before `--`, without reading any
+input or touching the forge. If both are given, help wins.
 
-```
-af <command> [flags] [argument]
-af help [command]
-af --version
-```
+## Local commands
 
-- A command is registered under a **command path** of one or more words
-  (`triage`, `gate run`). The shell picks the longest registered path that
-  matches the words before the first flag. The path is the envelope's `tool`.
-- Flags may come before or after the positional argument (`af fix ./bug.md
-  --dir repo` and `af fix --dir repo ./bug.md` are the same), as `--flag
-  value` or `--flag=value`. `--` ends the flags. A flag that takes a value
-  takes the next word whatever it looks like.
-- A command takes at most one positional argument unless it declares
-  otherwise. Another is a `usage` error. A bad flag is a `usage` error too,
-  and the flag package prints nothing.
-- `-h`, `--help` and `--version` are answered wherever they stand before a
-  `--`, without resolving input, building a forge client, reading stdin or
-  creating a run directory. If both are given, help wins over version. The word after a flag that takes a
-  value is that value: in `--context --help` the answer is `--help`.
+These commands run on this machine, in the checkout given by `--dir`. `af triage`
+and `af fix` call a model; the other three only read files and run the project's own
+checks.
 
-### Flags
+### af triage
 
-A command opts into these, and rejects any it did not opt into as an unknown
-flag:
-
-| Flag | Meaning |
-|---|---|
-| `--dir <path>` | The checkout to work in; default `.`, made absolute. A command that uses a forge or a run directory has it. |
-| `--context <text>` | An answer to a question the command asked; may be repeated. See [needs_human and --context](#needs_human-and---context). |
-| `--dry-run` | Send no write request to the forge. See [--dry-run](#--dry-run). |
-| `--repo <owner/repo>` | The repository to work on. |
-| `--timeout <duration>` | Stop the command after this long, such as `90s` or `15m`; `0` means no limit. The command declares the default. |
-
-## Commands
-
-### lang detect
-
-```
-af lang detect [--dir DIR] [--write] [--timeout DURATION]
-```
-
-Reports what the repository at `--dir` is written in and how it is checked.
-It reads files. In a git work tree it runs `git rev-parse` and `git ls-files`
-to list them and nothing else. It builds no forge client, calls no model, opens
-no network connection and creates no run directory, and without `--write` it
-writes nothing at all. The default `--timeout` is 1 minute.
-
-| Flag | Meaning |
-|---|---|
-| `--write` | Store the freshly detected gate table in `.agent-fox/gate.json` (see [configuration](configuration.md)). Any `gate.json` there now is ignored, one that does not parse included, and replaced. The file is written through a temporary file and a rename, and is an artifact of kind `gate_file`. |
-
-The result holds:
-
-| Field | Meaning |
-|---|---|
-| `languages` | `[{name, files, manifest?}]`: each language with its file count, most files first and the name breaking a tie. The files are the file view (git's tracked and untracked-not-ignored files in a work tree, a directory walk elsewhere, never `.git/` or `.agent-fox/`), classified by extension as `go`, `python`, `javascript`, `typescript`, `rust`, `java`, `kotlin`, `ruby`, `c`, `c++`, `c#`, `php`, `scala`, `lua` or `bash`. `manifest` is the file at the root that marks the project, when there is one. Empty for an empty directory. |
-| `gate` | `{source, checks}`: the effective gate table. `source` is `file` when `.agent-fox/gate.json` gave it and `detected` otherwise. Each check is `{name, argv, kind, source, available}`: `argv` is the command with no shell; `kind` is `lint`, `test` or `check` (both); `source` is where it came from (`Makefile:check`, `go.mod`, `gate.json`); `available` says whether `argv[0]` can be run on this machine. |
-| `suite` | The command forms that count as the full test suite: the gate's checks, `make check` and `make test` where the Makefile has those targets, and the forms of each language. |
-| `programs` | The programs a gate may run: the first word of each check, the toolchain of each language found, and the first word of each check a manifest at the root gives, whether or not there are files of its language (`cargo` for a `Cargo.toml` with no `.rs` file). |
-
-Without a `gate.json` the table is detected from the files at the root only,
-in this order, and the first rule that gives a check decides:
-
-1. A `GNUmakefile`, `makefile` or `Makefile` with a `check` target gives
-   `make check`.
-2. Otherwise a Makefile with a `test` target gives `make lint` (when it has
-   that target too) and `make test`.
-3. Otherwise each manifest present adds its checks, in the order Go, Python,
-   Node, Rust, Java: `go vet ./...` and `go test ./...` for `go.mod`;
-   `pytest` (when `pytest.ini`, a root `conftest.py` or the name `pytest` in
-   `pyproject.toml`, `setup.cfg` or a `requirements*.txt` shows it) or
-   `python -m unittest discover` for a Python manifest, behind `uv run` with
-   `uv.lock` or `poetry run` with `poetry.lock`, and `ruff check .` when ruff
-   is configured; `<pm> test` (unless it is npm's placeholder) and `<pm> run
-   lint` for the scripts of `package.json`, with `pnpm`, `yarn` or `bun` by
-   lockfile and `npm` otherwise; `cargo test` for `Cargo.toml`;
-   `./mvnw test` or `mvn -q test` for `pom.xml` and `./gradlew test` or
-   `gradle test` for `build.gradle(.kts)`, the wrapper when it exists.
-
-Which checks are selected, and their order and argv, depend on the file view
-and on nothing else of the machine: not on which programs are on `PATH`. Only
-`available` does. (The file view is git's list when `git` can be run in a work
-tree and a directory walk when it cannot, so a machine without `git` sees the
-ignored files too, and may select other checks.)
-
-| Outcome | When |
-|---|---|
-| `done` | Always, when the repository could be read. A program that is not available is a warning, `check_unavailable`, once per check. |
-| `failed`/`config` | `.agent-fox/gate.json` cannot be used: it cannot be read, does not parse, has a field that is not described in [configuration](configuration.md#gatejson), is followed by more than the one document, names a version other than 1, or holds a check that cannot run (no `argv`, a repeated `name`, a `kind` that is not `lint`, `test` or `check`). The message names the file, and the Makefile is not used as a fallback. |
-| `failed`/`io` | `--dir` cannot be read or is not a directory, or `gate.json` cannot be written. |
-
-On this repository:
-
-```json
-{
-  "languages": [{"name": "go", "files": 57, "manifest": "go.mod"}],
-  "gate": {
-    "source": "detected",
-    "checks": [
-      {"name": "make check", "argv": ["make", "check"], "kind": "check", "source": "Makefile:check", "available": true}
-    ]
-  },
-  "suite": [["make", "check"], ["make", "test"], ["go", "vet", "./..."], ["go", "test", "./..."]],
-  "programs": ["make", "go", "gofmt"]
-}
-```
-
-(The result is indented and the arrays are spread over lines in the real
-output; the count of Go files is the repository's at the time.)
-
-### gate run
-
-```
-af gate run [--dir DIR] [--timeout DURATION]
-```
-
-Runs the checks of the gate table (the `gate` of [lang detect](#lang-detect))
-on the tree in `--dir` and reports what they said, or returns the result
-stored for that tree. It builds no forge client, calls no model, opens no
-network connection and creates no run directory; it writes only under
-`.agent-fox/` (making the directory and its `.gitignore` first, so that
-nothing it writes shows in `git status`). The default `--timeout` is 30
-minutes.
-
-**How the checks run.** The checks that can be run (`available`) run one
-after the other, in table order, in `--dir`. They run with the credential
-variables of the environment stripped, as the hands' `ReducedEnv` strips them
-(the variables of the model vendors and clouds by prefix, such as `ANTHROPIC_`,
-`OPENAI_`, `AWS_`, `GOOGLE_` and `AGENTKIT_`, and anything that ends in
-`_TOKEN`, `_SECRET`, `_KEY`, `_PASSWORD`, `_PASS`, `_PWD`, `_PAT`, `_AUTH` or
-`_CREDENTIALS`; `PATH`, `HOME`, `LANG`, `TMPDIR`, `TERM`, `AWS_PROFILE`,
-`AWS_REGION`, `AWS_DEFAULT_REGION` and `GOOGLE_CLOUD_PROJECT` stay), because a
-suite is repository code. A check that is not available is skipped, not run, and is
-listed in `skipped` with the reason `unavailable`. Each check has 20 minutes;
-one that takes longer is stopped, with everything it started, and has the
-status `timeout`, and the checks after it still run. The output of each check,
-standard output and standard error together, is written in full to
-`.agent-fox/gate/<id>/NN-<slug>.log`, with `NN` the two-digit position among
-the checks that ran and `<slug>` the check's name. The logs are written when
-the run is complete, just before its result: a run that is stopped writes none,
-and the logs of a stored result that it would have replaced stay as they were.
-
-**The result**:
-
-| Field | Meaning |
-|---|---|
-| `id` | The first 12 hex characters of the cache key (below). The result is stored in `.agent-fox/gate/<id>/`. |
-| `tree` | The hash of the tree the checks ran on: a SHA-256 over the file view in order, each file as its kind, its executable bit, its path and the SHA-256 of its content (a symlink as its target, any other file as its type, an unreadable file as a fixed marker). It depends on the content of the files in the view and on nothing else: not on `HEAD`, not on where the checkout is, not on ignored files. A nested repository or a submodule is one entry, a directory, and what is in it does not count. The view is git's in a work tree and a walk elsewhere (see [lang detect](#lang-detect)), so the same files hash alike only when they are listed the same way: a tree that is hashed in a box without `git` and outside it with `git` is two trees. |
-| `table_source` | `file` or `detected`: where the table came from. |
-| `cached` | True when the result was stored and no check ran. |
-| `passed` | True only when at least one check ran and every check that ran passed. |
-| `checks` | `[{name, status, exit_code, duration_ms, log, tail}]` for the checks that ran. `status` is `pass` (exit code 0), `fail` (another exit code), `error` (the program could not start; `exit_code` is `-1` and the log says why) or `timeout` (`exit_code` is `-1`). `log` is relative to `--dir`. `tail` is the last 40 lines of the output, at most 4096 bytes. |
-| `skipped` | `[{name, reason}]` for the checks that did not run. |
-
-| Outcome | When |
-|---|---|
-| `done`, exit 0, `passed: false` | A check failed, errored or timed out. A red gate is a measured fact, not a failure of `af`. |
-| `done`, exit 0, `passed: false`, warning `no_checks` | No check of the table can be run here, or the table is empty. Nothing ran. |
-| `done`, warning `tree_changed_during_gate` | The tree hash taken after the checks differs from the one taken before. The result is kept under the earlier hash's id, and its `tree` is the earlier hash. |
-| `failed`/`timeout` or `failed`/`cancelled` | `--timeout` ran out, or a signal arrived. The process group of the running check is killed, and neither the logs nor the result are stored. |
-| `failed`/`config` | `.agent-fox/gate.json` cannot be used (see [lang detect](#lang-detect)). |
-| `failed`/`io` | The tree cannot be read, or a log or the result cannot be written. |
-
-**The cache.** The key is the SHA-256 of the tree hash, the canonical JSON of
-the table's checks (`name`, `argv` and `kind` of each, with the keys in order
-and no whitespace, and not `source` or `available`, which are not about what
-is measured) and the runner mode, `reduced`. The same tree and
-the same table give the same key on every machine, and so a gate that ran in
-a box is a hit for the gate that runs outside it. `result.json` is written
-after the logs, through a temporary file and a rename, so that runs that start
-together without a lock leave the last writer's complete file and never half
-of one. Only a run that completed is stored.
-
-- A stored result for the key is returned with `cached: true` and no check
-  runs, unless the result skipped a check that can
-  be run here (it was made where its program was missing), or `result.json` is
-  not a result of this key. Then the checks run and the result is replaced.
-- A change of one byte in a file of the view makes the next run another key. A
-  change confined to ignored files does not.
-
-#### How two gate results are compared
-
-[`af fix`](#fix) compares the gate of the change with the baseline, check by
-check, to say whether the change is a regression of the tree it started from.
-The verdict of each check, matched by name, is in this table; `fail`, `error`
-and `timeout` all count as "not pass":
-
-| Before | After | Verdict of the check |
-|---|---|---|
-| pass | pass | `pass` |
-| not pass | pass | `pass_was_already_failing` |
-| pass | not pass | `regressed` |
-| not pass | not pass | `still_failing` |
-
-The verdict of the comparison is the first of `regressed`, `still_failing`,
-`pass_was_already_failing` and `pass` that any check has, so one check fixed
-and another broken is a regression. When either result has no checks nothing
-was measured and the verdict is `unverified`. `landable` is true for `pass`
-and `pass_was_already_failing` only.
-
-Two results that were not measured by the same checks cannot be compared, and
-the run fails.
-
-### revert-check
-
-```
-af revert-check --since REF [--dir DIR] [--timeout DURATION]
-```
-
-Answers one question: do the tests of a change fail without the rest of the
-change? It lists what differs from `REF`, takes the change of the paths that
-are not tests out of the work tree as a patch, runs the tests, and applies the
-patch again.
-It calls no model and opens no network connection, and it creates no run
-directory. The default `--timeout` is 30 minutes.
-
-| Flag | Meaning |
-|---|---|
-| `--since <ref>` | The commit the change starts from: a ref or a hash. Required. |
-
-`--dir` must be the top level of a git work tree and `--since` must resolve to
-a commit; otherwise the status is `usage` (exit 2), the message names the
-argument, and nothing was touched.
-
-**What it does,** in this order, stopping at the first step that settles the
-outcome:
-
-1. It refuses, as `failed`/`restore`, if `.agent-fox/revert.patch` exists:
-   an earlier check was killed, or another is working on the checkout, and
-   nothing is overwritten. The message names the file.
-2. It lists the changed paths: those that differ from `REF`, staged or not,
-   and the untracked files that are not ignored, byte for byte (a rename is
-   its two paths). Af's own listing does not write the index, not even
-   with git's refresh of its stat data: it runs against a copy of it. Each path is a
-   *test path* or not: Go `_test.go` or `testdata/`; Python `test_*.py`,
-   `*_test.py` or `conftest.py`; JavaScript and TypeScript `*.test.*`,
-   `*.spec.*` or `__tests__/`; Java `src/test/`, `*Test.java`, `*Tests.java`
-   or `*IT.java`; Ruby `*_spec.rb` or `*_test.rb`; and anything below a
-   directory called `test`, `tests` or `spec`.
-3. It returns the outcome of a case with nothing to measure, and changes no
-   file: `no_changes` (nothing differs), `no_code_changes` (only tests do),
-   `no_test_changes` (no test does) or `inconclusive` with the reason
-   `no_test_check` (the gate table has no check of kind `test` or `check`).
-4. It takes the full table's result for the current tree from the gate cache,
-   or runs it and caches it (see [gate run](#gate-run)); `after` is its id.
-   If a `test` or `check` check did not pass, the outcome is `inconclusive`
-   with the reason `after_not_green`; if none could be run here, with
-   `test_check_unavailable`. Nothing is reverted.
-5. It takes the change out, tests and puts it back. The change of the
-   non-test paths is made as a binary patch on a private index read from
-   `REF` (`git read-tree`, `git add --all` of those paths, `git diff --cached
-   --binary`), so the real index is not written; submodules and nested
-   repositories are left out (`--ignore-submodules=all`). An empty patch is
-   `inconclusive` with the reason `nothing_to_revert`. The patch is written to
-   `.agent-fox/revert.patch`, exclusively: the file is the claim on the
-   checkout, and a check that finds it there refuses. Then `git apply
-   --reverse` takes the change out of the work tree, never the index, and
-   changes every path or none; test paths stay as they are. The table of
-   checks is found again on the reverted tree: if its `test` and `check`
-   checks are not the ones that were measured (a Makefile the change added is
-   not there to run), the outcome is `inconclusive` with the reason
-   `table_changed_by_revert`, because a check that cannot run says nothing
-   about the tests. Otherwise only the checks of kind `test` and `check` run
-   on that tree, through the gate engine, cached by the reverted tree's hash.
-6. It applies the patch again with `git apply`, with a context that nothing
-   cancels, so that a signal, `--timeout` or a panic during the tests still
-   puts the change back. A path that something changed while the checks ran
-   makes `git apply` refuse: what the check did is not overwritten, the tree
-   stays without the change, and the command fails with `failed`/`restore`,
-   naming the path and the patch. A check that ran git or a build may have
-   refreshed and rewritten `.git/index` with the same entries and other
-   bytes; the bytes of the index as it was are written back, through
-   `.git/index.lock` as git writes it. The command then checks that the tree
-   hash equals the one taken before the revert and that `.git/index` is byte
-   for byte the same, and removes the patch.
-
-The checks run on the real index, not on a copy: a `git status` or a build in a
-check may rewrite it, and the restore puts it back as it was. A restore is
-given ten minutes after a signal or the deadline (the shell's own grace is 10
-seconds, and this command asks for more), and the signals are SIGINT, SIGTERM
-and SIGHUP. A process that is killed with SIGKILL, or that is abandoned after
-that, leaves the patch, and the next check refuses until someone has looked
-at it: when `git apply --check .agent-fox/revert.patch` passes, the tree is
-without the change, and `git apply .agent-fox/revert.patch` puts it back.
-
-The checks must not leave files of their own in the tree outside the ignored
-paths: a file made while the reverted tree is tested changes the tree hash, and
-is a restore failure although the change is back.
-
-**The result**:
-
-| Field | Meaning |
-|---|---|
-| `outcome` | `proven`, `not_proven`, `inconclusive`, `no_changes`, `no_code_changes` or `no_test_changes`. |
-| `reason` | Why, as a code. For `proven`: `tests_fail_without_the_change`. For `not_proven`: `tests_pass_without_the_change`. For `inconclusive`: `no_test_check`, `after_not_green`, `test_check_unavailable`, `reverted_check_error` (a check could not start on the reverted tree, so it measured nothing), `table_changed_by_revert` (the reverted tree has other test checks than the ones that were measured) or `nothing_to_revert`. For the others: `no_paths_changed`, `only_test_files_changed` or `no_test_files_changed`. |
-| `closes` | True only for `proven`: a check of kind `test` or `check` failed or timed out on the reverted tree. |
-| `since` | The commit `--since` resolved to, in full. |
-| `test_files` | The changed test paths. |
-| `reverted_files` | The paths that were set back to the commit; empty when nothing was reverted. |
-| `after` | The id of the gate result for the current tree; `""` when it was not measured. |
-| `reverted` | `{id, passed, checks}`, the gate result of the reverted tree, as in [gate run](#gate-run); null when nothing was reverted. |
-| `restored` | True when the tree and the index are as they were, which is so for every result: a tree that could not be put back is `failed`/`restore` and has no result. |
-
-| Outcome | When |
-|---|---|
-| `done`, exit 0 | Every outcome above, `not_proven` and `inconclusive` included. Every outcome except `proven` and `no_changes` also raises the warning `fix_not_proven`. |
-| `usage` | `--dir` is not the top level of a work tree, or `--since` is missing or is not a commit. |
-| `failed`/`restore` | The patch of an earlier check is there or another check is working, or the change could not be applied again (a path was changed while the checks ran) or the tree came back as another tree. The patch is kept in `.agent-fox/revert.patch` and the message names it. `af fix` fails the same way when its revert check does. |
-| `failed`/`git` | git could not be run, or failed. |
-| `failed`/`config` | `.agent-fox/gate.json` cannot be used. |
-| `failed`/`timeout`, `failed`/`cancelled` | `--timeout` ran out or a signal arrived. The tree has been put back first, within the ten minutes the command is given for it; if that takes longer the shell abandons the command (see [--timeout and signals](#--timeout-and-signals)) and the patch stays. |
-| `failed`/`io` | A file could not be read or written. |
-
-### The tool policy
-
-There is no command for it: [the tool gate](#the-tool-gate) of a brain decides
-whether the brain may make a tool call, in process (`policy.DecideAt`), by the
-policy of `.agent-fox/guard.json` (see
-[configuration](configuration.md#guardjson)). It reads and decides; it changes
-nothing. A relative path means what it means in the directory the session of the
-brain is in, and in the checkout as well.
-
-**The decision** covers the calls to three kinds of tool:
-
-- *Shell tools* (the hands' `execute`). The command is read as a
-  shell would read it, by the hands' reader (`guard.Commands`), and every
-  command it runs is judged: those joined by
-  `&&`, `||`, `;`, `|`, `&` and newlines, those in groups, in `$(…)`,
-  backticks and `<(…)`, in `$((…))` and `${…}` where they hold
-  substitutions, in heredoc bodies that expand them, and in the script of
-  `sh|bash|zsh -c '…'`
-  (whatever options come before the script, `--rcfile` and `-o` with their
-  values included), `eval`, `trap` and the commands `find` executes with
-  `-exec`. Words are read as the shell passes them: `$'git'`, `$"git"`,
-  `g\it`, `{git,push}` and `git${IFS}push` are `git` and `push`, and the case
-  of a program's name does not matter (`GIT`). The reader removes the quotes
-  before braces, `$IFS` and `$'…'` are read, so they are read in quoted text
-  too (`echo "{a,b}"` is `echo a b`): a word may be read as more than the shell
-  makes of it, which can only deny more. Assignments (`FOO=1 cmd`), the
-  wrappers `env` (and the command line its `-S` splits), `time`, `timeout`,
-  `nice`, `nohup`, `command`, `builtin`, `exec` and `xargs`, `function NAME` and
-  `coproc`, and the keywords that start a command are skipped to find the
-  program. The rules apply in this order to each command, and the first
-  denial wins, except that the hands' guard looks at the whole line before any
-  of them.
-- *Tools that write a file* (the hands' `write_file` and `edit_file`; the path is
-  `path`). A path under a
-  protected path is denied (`protected_path`), and so is one outside the checkout
-  that is not under the system temporary directory (`outside_dir`). A call
-  that names no path is denied (`unparseable`).
-- *Every other tool* is allowed, with no rule: the brief's allowlist decides which
-  tools exist.
-
-| Rule | Denies |
-|---|---|
-| `unparseable` | A command the hands' reader cannot read with certainty (unbalanced quotes, an unterminated `$(` or `${`, an unmatched `)`, a heredoc with no terminating line, a `case` statement, a function definition with `()`, `for ((…))`), nested more than 64 deep, a brace expansion that makes more than 4096 words, longer than 64 KiB (the hands' guard takes time that grows with the square of the length, so a longer line is not read; write long content with a tool that writes files), or a shell call that has no command; and a shell that reads its commands from its input (`echo git push \| sh`, `sh <<< '…'`, `bash -s`, `bash` alone, `source <(…)`), which runs what cannot be read before it runs. |
-| `hands_guard` | What the hands' guard refuses, with its reason: an assignment of a variable that changes which program runs or what is loaded into it (`PATH`, `LD_PRELOAD`, `BASH_ENV`, …), and a line that runs no program. It can only deny. |
-| `git_mutation` | `git` with any subcommand but `status`, `log`, `diff`, `show`, `blame`, `ls-files`, `ls-tree`, `rev-parse`, `rev-list`, `grep`, `describe`, `cat-file`, `shortlog`, `merge-base`, `name-rev`, `for-each-ref` and `show-ref`; `branch` and `remote` only to list; a global `-c`, `--config-env` or `--exec-path=`; configuration from the environment that makes git run a program (`GIT_CONFIG_*`, `GIT_EXTERNAL_DIFF`, `GIT_EXEC_PATH`, `GIT_ASKPASS`, `GIT_SSH`, `GIT_SSH_COMMAND`, `GIT_PROXY_COMMAND`, `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR` and `GIT_TEMPLATE_DIR`, in front of the command, given to `env` or exported by an earlier command of the line); and `git grep` with `-O` or `--open-files-in-pager`. The reason says that af makes every commit, branch and push. |
-| `suite_command` | A command equal to a suite form once every token that starts with `-`, the value of an option that takes one as its next word (`go test -timeout 5m ./...`, `make -j 4 check`, `make -f Makefile check`: the options of `go`, `make`, `cargo` and `pytest` that the code lists) and every `NAME=value` word (`make check V=1`) is removed from both, and `$(go list ./...)` is `./...`: `make check`, `make -j4 check`, `go test ./...` and `go test -count=1 ./...` are the suite, `go test ./internal/x -run TestY` is not. The reason says to run `af gate run`, which caches the result by tree hash so that the landing reuses it, and that targeted runs are allowed. A flag that selects tests without a word of its own (`mvn -q test -Dtest=X`) is not told from the suite. |
-| `af_command` | Any `af` command but `lang detect`, `gate run`, `revert-check` and `--version`: the rest belongs to the loop. |
-| `program_not_allowed` | With `allow_programs` set, a program that is not on it, as it is written (`/usr/bin/ls` is not `ls`); `af` and `git` are always allowed, by their name and by an absolute path (`./git` is a file of the checkout), and so are the builtins that start no program (`cd`, `true`, `[`, `test`, `echo`, `printf`, `read`, `export`, `set`, `for`, `case`, `eval`, `trap` and the like), whose own commands are judged in turn. |
-| `protected_path` | A write into a protected path through an output redirection; through an argument of `rm`, `rmdir`, `unlink`, `shred`, `mv`, `cp`, `install`, `rsync`, `tee`, `touch`, `mkdir`, `mkfifo`, `truncate`, `chmod`, `chown`, `chgrp`, `patch`, `ln` (every operand: a link to a protected path is a way to write there), `sed -i` or `perl -i`, `dd of=`, or `find -delete` and `-fprint`; and through an option that names the file a command writes (`-o`, `--output`, `--out`, `--outfile`, `--output-file`, `-coverprofile` and the other profiles of `go test`), such as `git diff --output=.specs/x`. A path is resolved against the checkout (and against the directory of the session and of any `cd` before it in the command), with its links followed, so that a link to a protected directory and another spelling of the checkout are the protected path; its case does not matter, because the file system of a Mac has `.SPECS` where it has `.specs`; and it may start with `~`, `$HOME` or `$PWD`, or have a glob in a component (`.spe?s`, `.sp*`), which is matched against the protected names as the shell would (a glob does not match a name that starts with a dot unless it starts with one). Entries of `protected_paths` are cleaned before they are matched: `./docs/`, `docs//` and `a/../docs` protect `docs`. `rm`, `mv` and `find -delete` also refuse a directory above a protected path, such as `rm -rf .` and `find . -delete`; a `find` with a test before `-delete` does not count as removing its roots. |
-| `outside_dir` | A write tool call to a path outside the checkout and the system temporary directory. |
-
-The policy is prevention, not a boundary. It reads the command and does not
-run it: a program named by a variable (except `$IFS`, which splits at once), a
-shell function or an alias that is named like a program, a script a command
-writes and then runs, a program that runs others (`ssh`, `sudo`, `watch`), a
-variable that was set earlier in the line and used later in a path, and what
-an interpreter writes (`python -c`, `awk`) are out of its sight, and the tool
-`run_command` (which takes an argument list) is not a shell tool here. A line
-that the hands' reader cannot read is denied (`unparseable`), and so is one
-that runs no program (an assignment on its own, `((i++))`; `hands_guard`), as
-well as one that is dangerous. The value of an assignment in front of a
-program is not read; its name is. The gate and the box are what holds.
-
-Without `.agent-fox/guard.json`, every call detects the repository to find the
-suite (the work of [lang detect](#lang-detect)); a loop writes `guard.json` into
-the box once, before its rounds.
-
-### The repository map
-
-The brief of a triage or a fix carries a map of the repository that fits a
-token budget (estimated as the bytes of the map divided by 4, rounded up): the
-directories, the files in them and, as far as the budget allows, the
-declarations in the files. Making it reads files and runs nothing.
-
-The map is of the file view of the checkout (see [lang detect](#lang-detect)). Each
-directory that has files is a header, `path/` (the root is `./`), in path
-order: the root first, a directory before its subdirectories, and the files of
-each by name. A file is indented two spaces, and its declarations follow it,
-each as `<kind> <name> L<line>` and joined by ` · `:
-
-```
-./
-  README.md
-  main.go: func main L3 · type Server L5
-pkg/
-  util.go: func Helper L3
-  util_test.go: func TestHelper L3
-```
-
-The declarations come from the hands' outline: Go files always, and the other
-languages it knows (Python, JavaScript, TypeScript, Rust, Java, Kotlin, C#, Ruby,
-C, C++, PHP, Scala, Lua and shell) when the binary is built with cgo, as `make
-build` does by default. A kind is `func`, `method`, `type`, `class`,
-`interface`, `enum`, `trait`, `const`, `var`, `module` or `macro`, and a method
-is named with its type (`Server.Close`). A file the outline cannot read is
-listed by name only: a language it does
-not know, a binary file, one it cannot parse, and one over 1 MiB, which is not
-offered to it. A control character in a name is written as `?`, and bytes that
-are not text (not valid UTF-8) as the replacement character U+FFFD, so that the
-map is the same text once it has been encoded in the envelope.
-
-The map is the first level of this ladder whose output fits the budget:
-
-| Level | What the map holds |
-|---|---|
-| 1 | Every file, with every declaration. |
-| 2 | The same, but a test file (see [revert-check](#revert-check)) has no declarations. |
-| 3 | A test file has none, and any other file has its first 20, 10, 5, 2 or 1 declarations, the first of these caps that fits, followed by `· … +N more`. |
-| 4 | Every file by name only. |
-| 5 | Directories only, each as `path/ (N files)`, N being the files directly in it. |
-| 6 | As many of those lines as fit, and then `… N more directories`. |
-
-The outliner is not called at all when the names alone do not fit the budget
-(level 4 is too large) or the view has more than 5000 files. The warning
-`map_outline_skipped` says so, and the map is level 4 or a later one.
-
-The same tree and the same budget give the same bytes, in whatever order the
-files are read: a brief that carries the map can rely on it being the same on
-every attempt.
-
-### Brains and boxes
-
-The agent commands (`af triage` and `af fix` in this release, `af impl` in a later
-one) run a brief through a *brain* in a *box* and take back one submission. The
-pieces they are built from are in `internal/brain`, `internal/box` and
-`internal/submission`, and this is the contract they share. [`af triage`](#triage)
-and [`af fix`](#fix) are the commands that use them so far.
-
-**The shared flags** (`brain.Flags`, registered on a command's flags with the
-defaults that command supplies):
-
-| Flag | Meaning |
-|---|---|
-| `--brain <name>` | `agentkit` (the AgentKit driver; inside the box under `podman`, on the host over the box's tools under `local`) or `scripted` (a replay of a script, with no model; see [development.md](development.md#the-scripted-brain)). An unknown name is a `usage` failure that lists the registered ones. |
-| `--sandbox <provider>` | The box provider: `podman` or `local` (see [The providers](#the-providers)). Without it the provider is the one `AF_SANDBOX` names, and without that `podman`, on every operating system. An unknown name is a `usage` failure that lists them; an unknown `AF_SANDBOX` is a `usage` failure that names the variable. When the default provider cannot open, `af` does not fall back to `local`: the `sandbox` failure carries a `fix_hint` that names `--sandbox` and `AF_SANDBOX` (in place of the hint of the failure itself, so that a missing image is told by the message, which names `AF_SANDBOX_IMAGE`). |
-| `--budget <usd>` | Stop the brain after this much model cost. A finite number above 0. It needs a model whose price the catalog knows: with another, the `agentkit` brain fails as `usage` and names `AF_MODEL`, since no cost could be counted against it. |
-| `--max-turns <n>` | Stop the brain after this many turns. At least 1. |
-| `--script <file>` | The script of `--brain scripted`, and only with it. |
-
-A value that is out of range, `--brain scripted` without `--script` and `--script`
-with another brain are `usage` failures (exit 2) that name the flag.
-`Flags.Validate` and `Registry.New` report them, with a script that cannot be
-used (it is read whole: text after its object is refused) and a missing
-credential for the model, and a command that calls them first finds all of
-these before a box opens.
-
-**The box** holds the tree. The checkout goes in with its `.git` (it must be the
-top level of a git work tree that keeps its own `.git` directory: a path inside
-one, a linked worktree and a submodule are `usage` failures that say so, since a
-commit made in a box that held one would write the repository it was linked to).
-The files that the checkout's ignore rules ignore (a `.env`, build output) stay
-out, except the ones git tracks, which go in all the same so that git in the box
-sees what git on the host sees. The tree comes out again without `.git` into
-`af-export-<run_id>-*` under the temporary directory of the OS, which `Close`
-removes.
-
-Git writes and the credentials stay on the host: a commit made in the box is
-not on the host's branch, and what could carry a credential in the box's
-`.git/config` (the URLs of the remotes, extra headers, credential helpers, URL
-rewrites) is taken out when the box is opened and again after each sync. The
-environment of the box's tools is what the provider gives them, which for
-`local` is the host's `PATH`, `LANG` and `TERM` and a `HOME` and `TMPDIR` of the
-box's own, and the host values of the names the brain asks for where it runs
-(none for a brain on the host, and `ANTHROPIC_API_KEY` for one that runs as a
-process): no forge token is among them, and no key but the model vendor's. The
-`local` provider runs the tools in this process, with its privileges: it has no
-process or network isolation, and every box opened raises the warning
-`box_unconfined` once. A box is closed after a result, a failure, a panic of the
-brain and a cancellation; a close that fails is the warning `box_close_failed`.
-
-#### The providers
-
-| Provider | Isolates | What it is |
-|---|---|---|
-| `podman` | yes | A container of the image `AF_SANDBOX_IMAGE`, or `quay.io/agentfox/tools:latest` without it (see [configuration.md](configuration.md#the-box)); the key of the vendor is on the engine's command line on the host while the box lives. An engine that cannot be reached is `failed`/`sandbox`, not retryable, with the error of the provider (and, off Linux, a pointer to `podman machine start`); an image that is missing and cannot be pulled is `failed`/`sandbox`, retryable, and the message names the image and `AF_SANDBOX_IMAGE`. |
-| `local` | no | The tools run in this process, with its privileges, on a copy of the tree. |
-
-Both obey the rules above (`.git` in and never out, the commit on the host); a box
-on another machine, the `gateway` of a lease, does too. `box_unconfined` is raised
-once for a run on `local`.
-
-#### Where the brain runs
-
-A brain is on the host or in the box:
-
-| Brain | `podman` (or a `gateway`) | `local` |
-|---|---|---|
-| `scripted` | host | host |
-| `agentkit` | box | host |
-
-*Host* is `af`'s process over the box's tools. *Box* is a process that `af` starts
-in the box with one command (below). What reaches the box follows from this, and is
-the same in the ledger entry `box_open {provider, image, network, placement}` and, for `af fix`,
-in the result's `box`:
-
-- **Credentials.** `Spec.Env` is nothing for a brain on the host, and for a process
-  the host's value of `ANTHROPIC_API_KEY`, if it is set. A process also gets the
-  few settings listed [below](#brains-that-run-as-a-process), and nothing else of
-  the host's environment.
-- **Network.** `none` for a brain on the host that has no tool that runs a command
-  (every tool of `af triage` only reads), and `open` otherwise: a process in the box
-  needs its vendor, and a gate that fetches modules needs the network. Podman has
-  all of it or none, so a brain in a box on a developer's machine has the whole
-  network. Under `local` nothing is enforced, and the network is recorded as `host`.
-- **Image and lifetime.** The image is `podman`'s only. The box lives until the
-  deadline of the command and ten minutes more.
-
-#### Brains that run as a process
-
-The `agentkit` driver inside a box that isolates runs as a process: `af <agent> run
---run-id <id> --dir <root> --budget … --max-turns … --timeout …`, with `AF_MODEL`
-given on the command line. `Session.Exec` runs a command in the box, at its root,
-through the box's `execute` tool, and returns the exit code and the last bytes of
-the output; a command that exits with a code is not an error.
-
-- **The probe.** Once for each box, before the first process, `af --version` runs in
-  it, and `HOME` is checked to be set and
-  writable. A failure is `failed`/`sandbox`, not retryable, and the message names
-  the binary, the provider and the image. Each probe is the ledger entry
-  `box_probe {binary, ok, version}`. When the `af` of a `podman` image has another
-  version or commit than the running one, the warning `box_af_version_mismatch` is
-  raised and the run goes on: the host checks every submission again.
-- **The binary.** Under `local`, `af` is the running executable, by its absolute
-  path, and its directory is first on `PATH`. Under `podman` and a `gateway` it is
-  the image's.
-- **The environment.** The command runs under `env -i` with `PATH`, `HOME` (the
-  box's own), the ones of `LANG`, `LC_ALL`, `TZ`, `HTTPS_PROXY`, `HTTP_PROXY` and
-  `NO_PROXY` (in either case), `SSL_CERT_FILE`, `SSL_CERT_DIR` and
-  `NODE_EXTRA_CA_CERTS` that are set on the host, with their values (the shell of a
-  box has not the environment of the host), `TMPDIR` as the box's own when the host
-  has one, and the credentials of `Spec.Env`, which the command refers to by name
-  so that no secret is in its text or in the ledger. A password in the URL of a
-  proxy is not a credential of `Spec.Env`: it is in the text of the command, with
-  the rest of the proxy settings. Every argument and every value is single-quoted.
-- **Output.** Its standard output and error are redirected to `.agent-fox/run/<id>/<brain>.<attempt>.json` and
-  `.stderr` in the box, and copied to the run directory (the output up to 1 MiB, the
-  last 64 KiB of the errors) as the artifacts `brain_output`. Nothing in them decides
-  whether there is a submission. The ledger entry is `brain_process {brain,
-  exit_code, duration_ms}`.
-- **The time.** The command is killed, with its process group, when the time of the
-  brief or the time left on the command runs out.
-
-The host reads the box through its tools: it lists a directory with the list tool
-(at most 500 entries) and takes a file out by exporting that file, so that any
-bytes come out exact, at most 32 MiB of them. A symbolic link is not followed.
-
-**The submission.** A brain hands back one JSON object, which af validates
-against the tree and writes before it exists: `.agent-fox/run/<id>/submission.json`
-in the box, `{kind, run_id, attempt, nonce, submitted_at, payload_sha256,
-payload}`, with the attempt and the nonce of `run.json`, which the loop places
-before each brain run. The brains of this release submit through the submit core
-(`submission.Submit`); a brain that runs commands could write the file by
-other means, so the host decides from the file and trusts nothing about how it
-got there. After the brain, the host reads that file (at most 2 MiB) and decides
-from it, and from nothing the brain said or printed: it must parse, carry this
-run's kind, run id, attempt and nonce, have a `payload_sha256` that is the hash
-of its payload, and the payload must pass what a submission passes (at most 1
-MiB, valid UTF-8, one JSON object, and the kind's own check against the box's
-tree, in which a panic is a problem with the payload). Then the host writes
-`<run dir>/submission.json` from what it checked and nothing else the file held
-(no extra field, no second `payload`). A file left by an earlier attempt (another
-nonce) is not this attempt's, and counts as no submission. The last valid
-submission wins; a refused one never replaces anything. A run directory that has
-no accepted submission has no `submission.json`: the one an earlier attempt
-accepted is removed when the next attempt starts, and one that anything but af
-wrote there is removed (the warning `submission_not_removed` if it cannot be).
-Because the `local` box has no isolation, a process of the brain that outlives
-its run could still rewrite the file; consumers take the payload from the result
-of the run, or check the file's `payload_sha256` against the ledger's
-`submission_accepted`. A valid submission wins over an error of the brain and
-over a panic of it, which is the warning `brain_error` (the stack of a panic is
-kept either way). Without one, the run fails as `timeout`, `brain`, `budget` or
-`no_result` (see the [categories](#error-categories)).
-
-#### The tool gate
-
-Every tool call that the driver of an in-process brain passes
-to its guard is decided before it runs: the tool must be in the brief's
-allowlist (the tool that ends the run always is), and the rules of
-[the tool policy](#the-tool-policy), with the brief's hook as their configuration and
-the suite of the checkout, must allow it. A path that a write names is judged as
-the box's tools will resolve it (quotes, a leading `@`, a `file://` prefix and
-the spaces around it are taken off first). A denied call is not executed, and its
-reason is the brain's next turn. A call to a tool that does not exist, or with
-arguments that do not fit the tool's schema, is answered by the driver and never
-reaches the gate, so it is not in the transcript. The brief's hook always
-protects `.agent-fox/`, where only af places the brief, `run.json` and the
-submission, but the guard is prevention and not a boundary: it reads a command
-and not what a program it allows goes on to write, so a script can write where a
-redirect would be refused. What holds is the host's decision above, which
-accepts only a file that is valid.
-
-### triage
-
-`af triage` diagnoses a report and writes the diagnosis back to the forge. It is
-a read-only brain run: the brain reads the checkout, hands over one diagnosis,
-and `af` checks it, and does every write itself.
+Diagnose a report and write the diagnosis back to the forge. The model reads the
+checkout and hands over one diagnosis; it cannot write anything. `af` checks the
+diagnosis and makes every write itself.
 
 ```
 af triage <issue|file|text|-> [--dir DIR] [--context ANSWER]... [--repo owner/name]
@@ -659,88 +296,43 @@ af triage <issue|file|text|-> [--dir DIR] [--context ANSWER]... [--repo owner/na
           [--brain NAME] [--sandbox NAME] [--budget USD] [--max-turns N] [--timeout 15m]
 ```
 
-The loop, `af triage`, is the four steps below in one process, on this machine. ([`af jobs
-submit triage`](#jobs-submit) queues the same work as a job on the agent-fox service.) Its run
-directory is described [below](#the-files-of-a-triage-run). [`af triage run`](#triage-run) is what a
-box executes, and no command for a person.
-
-| Command | Takes | Default `--timeout` |
-|---|---|---|
-| `triage` | the input; `--dir`, `--context`, `--repo`, `--land`, `--label`, `--dry-run`, `--brain`, `--sandbox`, `--budget`, `--max-turns`, `--script` | 15 minutes |
-| `triage run` | `--run-id`, `--dir`, `--budget`, `--max-turns` | 15 minutes |
-
-Triage does not need a clean working tree. It reads the tree as it is, runs no
-git write, and creates nothing in the checkout outside `.agent-fox/`.
-
 | Flag | Meaning |
 |---|---|
-| `--land issue\|none` | Where the diagnosis goes. `issue` (the default) writes it to the forge: it replaces the body of the issue that was given, or creates one for any other input. `none` writes `diagnosis.md` in the run directory and nothing else. |
-| `--label <label>` | Add this label to the issue; may be repeated. A label is 1 to 50 characters, with no comma and no space at either end; there may be 10 distinct ones, and exact duplicates are collapsed in the order they came. Not with `--land none`. |
-| `--repo <owner/name>` | For an input that is not an issue: the repository the issue is created in. |
-| `--context <answer>` | An answer to the question that an earlier run stopped on; see [Questions](#questions-and-answers). |
-| `--dry-run` | Run the brain as usual and send no write to the forge; the writes are planned, not made. |
-| `--brain`, `--sandbox`, `--budget`, `--max-turns`, `--script` | The [shared flags](#brains-and-boxes). `--brain` defaults to `agentkit`, `--budget` to `2` (dollars) and `--max-turns` to `100`; `--sandbox` has no default of its own (`AF_SANDBOX`, else the platform's). |
+| `--land issue\|none` | Where the diagnosis goes. `issue` (default) writes it to the forge: it replaces the body of the given issue, or creates an issue for any other input. `none` only writes `diagnosis.md` in the run directory. |
+| `--label <label>` | Add this label to the issue. Repeatable, up to 10 distinct labels of 1 to 50 characters, with no comma and no leading or trailing space. Not with `--land none`. |
+| `--repo <owner/name>` | The repository to create the issue in, for an input that is not an issue. |
+| `--context <answer>` | Answer the question an earlier run stopped on. |
+| `--dry-run` | Run the model as usual, but send no write to the forge. |
+| `--brain`, `--sandbox`, `--budget`, `--max-turns`, `--script` | See [Sandboxes and brains](#sandboxes-and-brains). Defaults: `agentkit`, `$AF_SANDBOX` or `podman`, USD 2, 100 turns. |
+| `--timeout` | Default 15 minutes. |
 
-#### The loop
+Triage does not need a clean working tree. It runs no git write and writes nothing
+in the checkout outside `.agent-fox/`.
 
-1. **Preflight.** The checks that need no model run in this order, before a
-   brief is rendered or a brain is made, and the first refusal ends the run
-   with nothing rendered, no request to the model and no write to the forge.
-   1. *The flags*: the brain and the box provider exist, `--script` goes with
-      `--brain scripted`, `--budget` is a finite number of dollars above 0,
-      `--max-turns` is at least 1, `--land` is `issue` or `none`, and the labels
-      are as above. A violation is `usage` and names the flag or the label.
-   2. *The input*: the URL of a pull or merge request is `usage` (triage takes an
-      issue), and so is a text, a file or standard input that is not valid UTF-8
-      (a brain and a forge take text). An issue that is closed raises the warning
-      `issue_closed`, and the run goes on.
-   3. *The landing* (`--land issue`). With an input that is not an issue and no
-      repository to create the issue in, `usage`, naming `--repo` and `--land
-      none`. Without `--dry-run`: an unauthenticated forge is `failed`/`auth`
-      with the message "creating or updating an issue in <repo> needs a
-      credential: set GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN, or pass --dry-run
-      or --land none" and `fix_hint.env` `GITLAB_TOKEN` for a GitLab host,
-      `GITHUB_TOKEN` otherwise; and the repository must be readable: a missing
-      credential for it, or one the forge refuses (a 401 or a 403 that is not a
-      rate limit), is `auth`, a repository that is not found is `forge` and not
-      retryable, a rate limit or a lost connection is `forge` and retryable, and
-      an archived repository is `forge`, "repository is archived: <repo> takes no
-      new issue or edit". Last, a
-      text, file or stdin report that cannot become the body of an issue whole is
-      `usage`: the shell cut it, or its length plus 16896 bytes (the most the
-      diagnosis and the framing can take) is more than the forge allows in a body
-      (65536 bytes on GitHub, 1048576 on GitLab). The message gives both numbers
-      and suggests `--land none`.
-2. **The brief** is rendered, and with it `original.md` and `triage.json`. See
-   [model-usage.md](model-usage.md#triage) for what it holds.
-3. **The brain** runs the brief in a box over the checkout, as
-   [`brain.Execute`](#brains-and-boxes) runs any brief, with these in the
-   `Brief`: the read-only tools `read_file`, `list_files`, `find_files`,
-   `search_files`, `file_outline`, `find_symbol` and `find_references`, and
-   `code_search` when the box offers it (the tool that ends the run,
-   `file_diagnosis`, whose input is the [diagnosis](#the-diagnosis), is not among
-   them: it is the tool of the submission kind, which the brain adds itself); the
-   hook of a read-only run; `--budget` and `--max-turns`; and the time left on
-   `--timeout`. A name the box does not offer is dropped, and no tool that writes
-   or runs is ever offered. A refused call of `file_diagnosis` is the brain's
-   next turn. A path the diagnosis cites in the form the box knows it by (its
-   workspace, as an error of a tool may show it) is made relative to the
-   repository.
-4. **The landing.** When the brain ends, the host reads the submission it accepted and
-   checks it against its own tree once more: a file that is gone, or a line that
-   is past the end of a shorter file, makes it no submission. Then the diagnosis
-   is [landed](#the-landing).
+**What happens.**
 
-A run that ends with no valid submission lands nothing and writes nothing to the
-forge: `failed`/`no_result` when the brain stopped for another reason (retryable),
-and `failed`/`budget` when it spent its cost or its turns, with `fix_hint`
-`{flag: "--budget"` or `"--max-turns", suggest: <twice the value>}`. The other
-failures of a brain are those of [Brains and boxes](#brains-and-boxes).
+1. **Preflight.** Before any model call, `af` checks the flags, the input and the
+   landing. A pull or merge request URL, or text that is not valid UTF-8, is a
+   `usage` error. A closed issue raises `issue_closed` and the run goes on. With
+   `--land issue` (and no `--dry-run`): an input that is not an issue needs
+   `--repo`; writing needs a forge token (`failed`/`auth`, with the variable in
+   `fix_hint.env`); the repository must be readable and not archived; and a text or
+   file report must fit in an issue body together with the diagnosis (65536 bytes on
+   GitHub, 1048576 on GitLab, less 16896 bytes for the diagnosis). Otherwise the
+   message suggests `--land none`.
+2. **Brief.** `af` renders the brief for the model. See
+   [model-usage.md](model-usage.md#what-the-model-is-sent).
+3. **Model.** The model runs in a [sandbox](#sandboxes-and-brains) over a copy of the
+   checkout, with read-only tools only, and submits one diagnosis. A diagnosis that
+   breaks the [rules below](#the-diagnosis) is refused and the model tries again.
+4. **Landing.** `af` checks the diagnosis against its own tree once more and writes
+   it to the forge (see [Landing](#landing)).
 
-The envelope's `usage` is the brain's. The `step` events are `preflight`,
-`brief`, `brain` and `land`, and a run emits them up to the one it ended in.
+A run that ends without a valid diagnosis writes nothing to the forge. It is
+`failed`/`budget` if the model spent its budget or turns (with `fix_hint` naming the
+flag and twice its value), else `failed`/`no_result` (retryable).
 
-**The result**:
+**Result.**
 
 ```json
 {
@@ -757,69 +349,40 @@ The envelope's `usage` is the brain's. The `step` events are `preflight`,
 
 | Field | Meaning |
 |---|---|
-| `issue` | The issue the diagnosis was written to, or would have been in a dry run; `null` when nothing was, and in a dry run of a text or file report, which has no issue to name. |
-| `action` | `replaced_body` (the body of the issue was replaced and the original report kept), `commented` (the body would have been too long, so the diagnosis went in one comment and the body was left), `created_issue`, `planned` (a dry run) or `none` (`--land none`, or a question). |
-| `diagnosis` | The submission as `af` normalized it. |
-| `labels` | The labels added, in the order they came, each once; none in a dry run, where they are planned (a side effect) and not added. |
-| `original_report_sha256` | The SHA-256 of the original report the body holds. |
+| `issue` | The issue the diagnosis was written to (or would have been, in a dry run). `null` when there is none. |
+| `action` | `replaced_body`, `commented` (the body would have been too long, so the diagnosis went into a comment), `created_issue`, `planned` (dry run) or `none` (`--land none`, or a question). |
+| `diagnosis` | The diagnosis as `af` normalised it. |
+| `labels` | The labels added. Empty in a dry run. |
+| `original_report_sha256` | SHA-256 of the original report kept in the body. |
 
-**Statuses.** A landing, `--land none`, a dry run and a diagnosis that is
-`not_reproducible` without a question are `done` (exit 0). A submission that
-carries a question is `needs_human` (exit 3; see
-[Questions](#questions-and-answers)). No valid submission, a spent bound, a
-failure of the brain or the box, and a landing write that failed are `failed`
-(exit 1) with `result` null; a refusal of the preflight is `usage` (exit 2) or
-`failed`/`auth` or `forge` (exit 1), as above. A failed envelope still lists the
-artifacts `{kind: "brief"}`, `{kind: "submission"}` and `{kind: "diagnosis"}` that
-exist (a run refused by the preflight has no brief).
+**Statuses.** A landing, `--land none`, a dry run and a `not_reproducible` diagnosis
+without a question are `done`. A diagnosis with a question is `needs_human`. When
+the diagnosis is `confirmed` or `probable` and names an issue, `next` suggests
+`af fix <issue url> --dir <dir>`.
 
-**`next`.** After a `done` with an `issue` in its result (the issue the diagnosis
-was written to, or would have been in a dry run) whose diagnosis is `confirmed`
-or `probable`: `af fix <issue url> --dir <dir>`.
+#### Landing
 
-**Warnings** the triage commands raise besides the shell's and those of
-[Brains and boxes](#brains-and-boxes): `issue_closed`,
-`report_changed_during_triage`, `body_too_long`, `labels_failed`
-and `original_report_unparsed`
-(see [Warning codes](#warning-codes)); `input_truncated` is the shell's, and is
-raised again when the report is cut in the brief. No failure category is new.
+1. `af` writes the rendered body to `diagnosis.md` in the run directory before
+   anything goes to the forge. With `--land none`, that is all.
+2. **For an issue**, `af` reads the body again and keeps the person's original
+   report as it is now (if it changed since the brief, the warning
+   `report_changed_during_triage` is raised). It replaces the body with the
+   diagnosis followed by that report. If the result would be too long for the forge,
+   the diagnosis goes into one comment instead and the body is left alone
+   (`body_too_long`). Then the labels are added; if that fails, the warning
+   `labels_failed` is raised.
+3. **For any other input**, `af` creates an issue with the diagnosis title, the body
+   and the labels.
 
-#### The landing
+Each write is listed in `side_effects` (`update_issue`, `add_comment`,
+`create_issue`, `add_labels`). A write the forge refuses for lack of a valid
+credential is `failed`/`auth`; after a rate limit or lost connection it is
+`failed`/`forge`, retryable; any other refusal is `failed`/`forge`, not retryable.
 
-The landing writes the submission of the run to the forge.
+#### The issue body
 
-1. A run with no valid submission, or one that no longer passes the diagnosis
-   rules against the files as they are, is `failed`/`no_result`, and nothing is
-   written. A submission that carries a question lands nothing (see
-   [Questions](#questions-and-answers)).
-2. The rendered body is written to `diagnosis.md`, listed as `{kind:
-   "diagnosis", path}`, before any write to the forge. With `--land none` that is
-   all; the action is `none`.
-3. For an **issue** the body is read again. The person's original report is taken
-   from the body as it is now (if it differs from the one the brief had, the
-   warning `report_changed_during_triage` is raised and the current one is kept),
-   and the body is replaced with the diagnosis around it (`replaced_body`). When
-   that body would be longer than the forge allows, the diagnosis alone goes in
-   one comment, the body is left, and the warning `body_too_long` is raised
-   (`commented`). Then the labels are added: a label write that fails raises the
-   warning `labels_failed` and changes nothing else.
-4. For any **other input** an issue is created in the repository the run
-   recorded, with the title of the diagnosis, the body and the labels
-   (`created_issue`).
-5. Each write is a side effect (`update_issue`, `add_comment`, `create_issue` or
-   `add_labels`, with its target and its state `done`, `planned` or `failed`), a
-   landed issue is the artifact `{kind: "issue", url, number}`, and `triage.land`
-   is recorded.
-
-A failure of a write is `failed`/`auth` without a credential or with one the forge
-refuses (a 401 or a 403 that is not a rate limit), `forge` and retryable after a
-rate limit or a lost connection, and `forge` and not retryable otherwise, a server
-error included. With `--dry-run` the writes are planned and not made; the action is
-`planned`.
-
-#### The body of the issue
-
-`af` renders the body from the diagnosis, byte for byte the same every time:
+`af` renders the body the same way every time. `af fix`, and later triages, read it
+back:
 
 ```
 <!-- agent-fox:triage v1 run=<run_id> -->
@@ -861,24 +424,18 @@ A. <option>
 </details>
 ```
 
-A section with nothing in it is left out; `## Diagnosis` and `## Original report`
-are always there. The first line, the headings and the two markers are the
-contract that `af fix` reads. The original report is exactly what stands between
-the begin marker and the newline before the end marker, so triaging an issue that
-was triaged already keeps the first report, byte for byte, and replaces the old
-diagnosis. A body that does not start with the triage marker is wholly the
-original. One that does is read with the original between the markers; a body that
-a browser saved with CRLF line endings is read as if it had LF endings, and its
-original has them. One that starts with the marker and is not what `af` wrote (a
-first line that is not the marker, markers that cannot be paired, a heading that is
-missing, or any text after the original report but the close of its details block)
-is wholly the original, with the warning `original_report_unparsed`: a person's
-words are not thrown away.
+Empty sections are left out; `## Diagnosis` and `## Original report` are always
+there. Triaging an issue again replaces the old diagnosis and keeps the first report
+byte for byte. A body that does not start with the marker line is all original
+report. A body that starts with the marker but was edited so that `af` cannot read it
+back safely (a broken first line, unpaired markers, a missing heading, text after the
+original report) is also treated as all original report, with the warning
+`original_report_unparsed`, so that no one's words are lost. Bodies saved with CRLF
+line endings are read as LF.
 
 #### The diagnosis
 
-One JSON object of at most 65536 bytes, with exactly these fields (an unknown
-field is a problem):
+The model submits one JSON object of at most 65536 bytes with exactly these fields:
 
 | Field | Rule |
 |---|---|
@@ -886,79 +443,44 @@ field is a problem):
 | `severity` | `critical`, `high`, `medium` or `low`. |
 | `confidence` | `confirmed`, `probable`, `suspected` or `not_reproducible`. |
 | `root_cause` | Required; 1 to 6000 bytes. |
-| `affected_files` | 1 to 30 items of `{path, line?, note}`; `note` at most 300 bytes; `line` an integer from 1 to the number of lines of the file. |
+| `affected_files` | 1 to 30 items of `{path, line?, note}`. `note` at most 300 bytes; `line` from 1 to the length of the file. |
 | `suggested_fix` | 1 to 6000 bytes. |
 | `acceptance_criteria` | 1 to 15 strings of 1 to 300 bytes. |
-| `question` | Optional `{text, options}`; `text` 1 to 2000 bytes; `options` none, or 2 to 6 of 1 to 200 bytes. Only with the confidence `suspected` or `not_reproducible`. |
+| `question` | Optional `{text, options}`: `text` 1 to 2000 bytes, `options` none or 2 to 6 of 1 to 200 bytes. Only with confidence `suspected` or `not_reproducible`. |
 
-With the confidence `not_reproducible`, or a `question`, `affected_files`,
-`suggested_fix` and `acceptance_criteria` may be empty. A path names a regular
-file of the checkout as the file view of the repository has it (the tracked files
-and the untracked files that are not ignored, less those deleted from the working
-tree); a leading `./` is taken off, an absolute path under the checkout (or under
-the workspace of the box the brain works in) is made relative, and `path:12` is
-read as the path and the line when no `line` is given. A path that is outside the
-checkout, has `..`, is under `.git/` or `.agent-fox/`, is a directory, is a link
-that leads out of the checkout or to something that is no file, is the directory of
-another repository (a submodule, a nested checkout) or is no file of the view is a
-problem that names the path and up to three files with the same name. A string of
-nothing but white space is empty, and a title is one line (no CR and no LF). No
-string may hold a NUL byte or the text `<!-- agent-fox:`, and the diagnosis as the
-body renders it, without the original report, is at most 16384 bytes. Every
-problem is collected before the answer, each with the JSON pointer of its field
-(`/affected_files/2/path`), up to 50, and a last line says how many were left out.
+With confidence `not_reproducible`, or with a question, `affected_files`,
+`suggested_fix` and `acceptance_criteria` may be empty. Every path must name a file of
+the checkout that git tracks or that is untracked and not ignored. Paths outside the
+checkout, under `.git/` or `.agent-fox/`, directories, and links that lead outside are
+refused, and the message names files with the same name. No string may contain a NUL
+byte or the text `<!-- agent-fox:`, and the rendered diagnosis may be at most 16384
+bytes.
 
-#### Questions and answers
+#### Questions in triage
 
-A diagnosis with a `question` lands nothing: the status is `needs_human` (exit
-3), `needs_human` carries the question and its options lettered in order, the
-result is that of a landing with the action `none`, no comment is posted, and
-`triage.question {text, options}` is recorded. The shell's `resume.argv` with
-`--context <answer>` appended runs the loop again. The new brief has the same
-`prefix_sha256`, since everything that differs is in the task block at its end:
-the question of the earlier run, found by the fingerprint of the input among the
-run directories under `--dir` (when none is found, the answers stand alone), and
-each `--context` value in order, as the answer of a person.
+A diagnosis with a question lands nothing and posts no comment. The status is
+`needs_human` with the question and its options. Re-run with `--context <answer>`:
+the new run finds the earlier question in the run directories under `--dir` and gives
+the model both the question and the answer.
 
-#### The files of a triage run
+#### Files of a triage run
 
-| File in `.agent-fox/run/<id>/` | Written by | What it is |
-|---|---|---|
-| `brief.md` | the loop | The brief that was rendered. |
-| `original.md` | the loop | The original report, exactly. |
-| `triage.json` | the loop | `{format_version: 1, input: {kind, origin, fingerprint}, target: {repo, host}, issue: {repo, host, number, url} or null, original_report_sha256, prefix: {bytes, sha256}}`. The fingerprint is `owner/repo#N` for an issue, else the SHA-256 of the input. |
-| `submission.json` | the brain | The accepted diagnosis (see [Brains and boxes](#brains-and-boxes)). |
-| `diagnosis.md` | the landing | The rendered body. |
+Besides the [usual run files](#the-run-directory), a triage run writes to
+`.agent-fox/run/<id>/`:
 
-The ledger of a run holds `triage.input {kind, origin, fingerprint}` when the
-input is resolved, `triage.brief {brief, prefix_bytes, prefix_sha256,
-document_bytes}` when the brief is written, `triage.submission {submission,
-sha256}` when a diagnosis is accepted, `triage.question {text, options}` when it
-carries a question, and `triage.land {action, issue, labels}` when a landing
-ends, in that order for a full loop, among the entries of the box and the brain.
+| File | Content |
+|---|---|
+| `brief.md` | The brief the model read. |
+| `original.md` | The original report, exactly. |
+| `triage.json` | The facts of the run: input, target repository, issue, hash of the original report, size and hash of the brief's prefix. |
+| `submission.json` | The accepted diagnosis. |
+| `diagnosis.md` | The rendered issue body. |
 
-### triage run
+### af fix
 
-`af triage run --run-id ID` is what a box executes, and no command for a person:
-help does not list it. [A process brain](#brains-that-run-as-a-process) runs it in
-the box, where `brain.Execute` has placed the `brief.md` of the run and a
-`run.json` that holds the attempt, the nonce and `prefix_bytes` (the length of the
-brief's prefix). It runs the `agentkit` brain in its own process over `--dir`, on
-that brief, and `file_diagnosis` submits into the run directory under the attempt
-and the nonce of the host. `--budget` and `--max-turns` are the loop's. The result
-is `{run_id, submitted}`, and the status is `done` when a
-diagnosis was accepted; the envelope's `usage` is the brain's. A run directory with
-no such `run.json` is `usage`, "run <id> has no brief placed in it".
-
-It reads the directory as it is, with no copy of it, and the envelope says so with
-the warning `box_unconfined`: the box keeps out the files that git ignores and the
-credentials of `.git/config`, and a directory that is not a box does neither.
-
-### fix
-
-`af fix` fixes a reported problem: a verified change on a branch of its own, and a
-pull request. The brain edits files in a box and hands over one report; `af`
-does every other effect, and measures the change before it lands.
+Fix an issue. The model edits files in a sandbox and reports what it did. `af`
+measures the change with the project's own checks, and only a change that does not
+make things worse lands, on a branch of its own with a pull request.
 
 ```
 af fix <issue> [--dir DIR] [--base BRANCH] [--context ANSWER]... [--repo owner/name]
@@ -966,272 +488,550 @@ af fix <issue> [--dir DIR] [--base BRANCH] [--context ANSWER]... [--repo owner/n
        [--brain NAME] [--sandbox NAME] [--budget USD] [--max-turns N] [--timeout 45m]
 ```
 
-The loop, `af fix`, is the steps below in one process, on this machine. ([`af jobs submit
-fix`](#jobs-submit) queues the same work as a job on the agent-fox service.) Its run directory is
-described [below](#the-files-of-a-fix-run). [`af fix run`](#fix-run) is what a box executes, and no
-command for a person.
-
-| Command | Takes | Default `--timeout` |
-|---|---|---|
-| `fix` | the issue; `--dir`, `--base`, `--context`, `--repo`, `--land`, `--no-verify`, `--brain`, `--sandbox`, `--budget`, `--max-turns`, `--script` | 45 minutes |
-| `fix run` | `--run-id`, `--dir`, `--brain`, `--sandbox`, `--budget`, `--max-turns`, `--script` | 45 minutes |
-
 | Flag | Meaning |
 |---|---|
-| `--land pr\|branch\|none` | Where the change goes. `pr` pushes the branch and opens a pull request; `branch` pushes it; `none` keeps it on a local branch and sends nothing to the forge or the remote. |
-| `--no-verify` | Land without the gate: no baseline and no check after, a draft pull request that says `Refs`, the status `unverified` and the warning `not_verified`. |
-| `--base <branch>` | The branch to fix on; it must be the one that is checked out, since a fix is made on the base as it stands. |
-| `--context <answer>` | An answer to the question that an earlier run stopped on; see [Questions](#questions-and-answers). |
-| `--repo <owner/name>` | The repository the pull request is opened in, when the checkout's origin does not name it. |
-| `--brain`, `--sandbox`, `--budget`, `--max-turns`, `--script` | The [shared flags](#brains-and-boxes). `--budget` and `--max-turns` bound the run. |
+| `--land pr\|branch\|none` | Where the change goes. `pr` (default) pushes the branch and opens a pull request. `branch` only pushes. `none` keeps the branch local and contacts neither forge nor remote. |
+| `--no-verify` | Land without measuring: no baseline, no checks after, a draft pull request that says `Refs`, status `unverified` and the warning `not_verified`. |
+| `--base <branch>` | The branch to fix. It must be the branch that is checked out. |
+| `--context <answer>` | Answer the question an earlier run stopped on. |
+| `--repo <owner/name>` | The repository to open the pull request in, when `origin` does not name it. |
+| `--brain`, `--sandbox`, `--budget`, `--max-turns`, `--script` | See [Sandboxes and brains](#sandboxes-and-brains). Defaults: `agentkit`, `$AF_SANDBOX` or `podman`, USD 10, 150 turns. |
+| `--timeout` | Default 45 minutes. |
 
-The defaults are `--brain` to `agentkit`, `--sandbox` to the provider that
-`AF_SANDBOX` names, and without it `podman`,
-`--budget` to `10` (dollars), `--max-turns` to `150`,
-`--land` to `pr` and `--timeout` to 45 minutes. A fix takes an issue, by its URL: a text, a
-file, stdin and a pull or merge request are `usage` failures, and a report that is no issue is
-[triaged](#triage) first, which creates one.
+`af fix` takes only an issue URL. Text, files, stdin and pull request URLs are
+`usage` errors; triage a report first to turn it into an issue.
 
-#### The steps of a fix run
+**What happens.**
 
-The checks of the repository (the detection of the gate, the baseline, the gate after
-the change and the revert check) are the repository's code, and the brain writes
-tests: they run in the box of the run, through its `af` (the image's under `podman`
-and a `gateway`, this `af` under `local`), and never on this host. So the checks of
-this host come first, and a run they refuse opens no box; then the box is opened,
-serves the whole run, and the gate and the baseline are made in it (see
-[Measuring in the box](architecture.md#the-brain-interface-as-built)).
+1. **Preflight.** These checks spend nothing, and the first that fails ends the run
+   before any model call, branch or forge write:
+   - flags and input are valid (`usage`);
+   - `--dir` is the top level of a git work tree, on a branch, and `--base` (if
+     given) is that branch (`usage`);
+   - the working tree is clean (`failed`/`preflight`, naming up to 20 dirty paths);
+   - unless `--land none`: there is an `origin` remote (`preflight`), and for `pr` a
+     repository for the pull request (`usage`, hint `--repo`), a forge token
+     (`auth`) and a readable, non-archived repository (`forge`);
+   - the model's credential is set (`auth`).
 
-1. **Preflight.** The checks that need no model run in this order, and the first
-   refusal ends the run with no model call, no branch and no write to the forge;
-   one of the first five also opens no box.
-   1. *The flags and the input*: as above, with the brain and the box provider
-      known. A violation is `usage` and names the flag.
-   2. *The checkout*: `--dir` is the top level of a git work tree on a branch (a
-      detached `HEAD` is `usage`, and so is a `--base` that is not the branch
-      checked out).
-   3. *A clean tree*: every change in the tree must be the run's own. A dirty tree
-      is `failed`/`preflight` and names at most 20 paths.
-   4. *The landing*, unless `--land none`: an `origin` remote to push to
-      (`failed`/`preflight`) and, for `pr`, a
-      repository for the pull request (`usage`, `fix_hint` `--repo`), a
-      credential for it (`failed`/`auth`, `fix_hint.env` `GITHUB_TOKEN` or
-      `GITLAB_TOKEN`; a credential
-      that the forge rejects is `failed`/`auth` too) and a repository that can be read
-      and is not archived (`failed`/`forge`).
-   5. *The brain*: it can be made, which needs the credential of its model
-      (`failed`/`auth`, before a box is opened). The full hash of the base is recorded
-      as `base_head`. Then the box is opened.
-   6. *A gate*, in the box: at least one check that can be run there (see
-      [`lang detect`](#lang-detect)), else `failed`/`preflight` with `fix_hint`
-      `{flag: "--no-verify"}`. The checkout's own `.agent-fox/gate.json` is placed in
-      the box for the detection, and one that cannot be used is `config`.
-   7. *The baseline*, in the box: the gate runs once on the tree as it is. A red
-      baseline raises `baseline_failing` and the run goes on: a check that already
-      fails is not counted against the change. `--no-verify` makes no baseline. A
-      closed issue raises `issue_closed`, and the run goes on.
-2. **The brief.** The prefix is the mandate, the body of the
-   [`af-fix` skill](../skills/af-fix), the report in a fence, the gate with its
-   baseline, the repository map and the schema of the report; it is the same for
-   every round and resume over the same report and tree, whatever the
-   run id, so that a provider can cache it. The task block at the end holds what
-   changes: the run and the round, the answers of a person, why the last
-   round was refused (4 KiB of the end of each failing check), and how to submit. `brief.md`, `original.md`, `run.json` and, last,
-   `fix.json` are written under `.agent-fox/run/<id>/`, and nothing outside
-   `.agent-fox/` is (the baseline gate keeps its result in `.agent-fox/gate/<id>/`).
-3. **The rounds.** One box is held for the whole run. Before each round the box
-   is synced from the host's tree (the first round has it from opening), and
-   `.agent-fox/gate.json` and `.agent-fox/guard.json` are written into it: the
-   table of checks that `af` will measure by, and the policy of the brain's tool
-   gate. The brain edits the box and submits one report with `submit_fix`, or one
-   question. `af` takes the box's
-   tree out and **applies** it to the checkout (see below), then **measures** it.
-4. **Apply.** The export is mirrored onto the checkout, uncommitted: the files
-   it lacks are deleted first, then the new and changed files and links are
-   written; `.git/` and `.agent-fox/` (whatever their case), ignored paths, anything
-   that is not a file or a link, and everything under a submodule are left alone (and
-   counted as `ignored`), and so are the files of the checkout that git tracks and a rule
-   ignores, which the export never has and the brain does not delete. A round with no
-   accepted report applies nothing, and an export with no file that can be applied is
-   `failed`/`sandbox`.
-5. **Measure.** In order: a commit that is not the base's, or a branch that is not
-   the base, is `failed`/`git`; a change under a protected path (`.git/`,
-   `.agent-fox/`, `.specs/`, `.github/workflows/`, `.gitlab-ci.yml`) is put back
-   (`protected_path_reverted`); a tree with nothing left is refused as
-   `no_change`, and the gate is not run; the gate runs again and is compared with the baseline by
-   check; and, only on a verdict that may land, the revert check runs (one
-   that cannot put the tree back is `failed`/`restore`, as for
-   [revert-check](#revert-check)). The
-   verdicts are `pass`, `pass_was_already_failing`, `regressed`, `still_failing`,
-   `unverified` and `no_change`. Only a change whose tests the revert check
-   proves **closes** the issue; any other says `Refs` (`fix_not_proven`). Under
-   `--no-verify` neither the gate nor the revert check runs: the verdict is
-   `unverified`, and the change lands.
-6. **A refusal** (`regressed`, `still_failing`, `no_change`, and `unverified` when no
-   check could be compared) is recorded in the
-   ledger and is the task block of the next round, in the same box and the same
-   tree, with the end of the output of each failing check.
-7. **The bounds.** `--budget` and `--max-turns` hold for the run, which is
-   rounds of one brain in a row. Another round starts only while cost and
-   turns remain and `--timeout` leaves the brain a minute after the time kept for
-   measuring (three times what the baseline took, and a minute). A round that ends
-   without a report ends the run. (Under the service, a job that ends without a
-   change that may land is retried by the jobs layer, as a new run.)
-8. **Land** (below), or **park**.
+   Then the sandbox opens, and inside it:
+   - the repository has at least one check that can run (see
+     [`af lang detect`](#af-lang-detect)), else `failed`/`preflight` with hint
+     `--no-verify`;
+   - the **baseline**: the checks run once on the tree as it is. A failing baseline
+     raises `baseline_failing` and the run goes on; a check that already failed is
+     not held against the change.
+2. **Brief.** `af` renders the brief (see
+   [model-usage.md](model-usage.md#what-the-model-is-sent)).
+3. **Rounds.** The model edits files in the sandbox and submits one report, or one
+   question. `af` copies the changed tree onto the checkout, uncommitted, and
+   measures it:
+   - changes under protected paths (`.git/`, `.agent-fox/`, `.specs/`,
+     `.github/workflows/`, `.gitlab-ci.yml`) are put back, with the warning
+     `protected_path_reverted`;
+   - an empty change is refused as `no_change`;
+   - the checks run again and are compared with the baseline (see
+     [Comparing two gate results](#comparing-two-gate-results));
+   - if the verdict allows landing, [`af revert-check`](#af-revert-check) runs. Only a
+     change whose tests are proven by it **closes** the issue; any other says `Refs`
+     (`fix_not_proven`).
+
+   A refused change (`regressed`, `still_failing`, `no_change`, or `unverified` when
+   nothing could be compared) goes back to the model as the next round, with the end
+   of each failing check's output. A new round starts only while budget, turns and
+   time remain.
+4. **Land** or **park** (below).
+
+All checks of the repository run inside the sandbox, never on this host, because they
+are the repository's code and the model has written tests.
 
 #### How a fix run ends
 
 | The run | `status` | Exit | `outcome` | What is left |
 |---|---|---|---|---|
-| A change that may land | `done` | 0 | `landed` | The branch, one commit, the push and the pull request; the checkout is back on the base with a clean tree. |
-| The same, under `--no-verify` | `unverified` | 4 | `landed` | As above, a draft pull request, and the warning `not_verified`. |
-| The bounds spent, or a last round with no report, and a change in the tree that was refused or never reported | `unverified` | 4 | `parked` | A `wip:` commit on its branch; the branch is pushed unless `--land none`, and under `pr` a draft pull request that says `Refs` is opened. The warning `fix_not_landed`, and `attempt_failed` when the last round came to no report; `next` says how to look at the branch. |
-| A question | `needs_human` | 3 | `needs_human` | The checkout is as the run found it: the question's round applied nothing, and a change that an earlier round applied and was refused is put back (`question_tree_kept` if it cannot be). See [Questions](#questions-and-answers). |
-| The bounds spent, or a last round with no report, and nothing applied | `failed` | 1 | | `result` null, and the category of the last failure of a round (`brain`, `no_result`, `budget`, `timeout`, `sandbox`, …); a last round refused as having changed nothing is `no_result`. |
-| A signal, or `--timeout` that ends the command | `failed` | 1 | | `cancelled` or `timeout`. A change that was applied is parked on a local branch within 10 seconds, also when the stop comes while the change is landing (`park_failed` if parking failed), so that nothing a model paid for is lost. |
-| `--timeout` that ends a round first | as the rows above | | | The brain of a round has the time that is left less the time kept for measuring, so `--timeout` usually ends a round and not the command: the round is a failed one (`timeout`), and the run ends as it does when the bounds are spent, parked or failed. |
+| A change that may land | `done` | 0 | `landed` | A branch, one commit, the push and the pull request. The checkout is back on the base, clean. |
+| The same, with `--no-verify` | `unverified` | 4 | `landed` | As above, as a draft pull request, with `not_verified`. |
+| Budget, turns or rounds used up, with a refused or unreported change in the tree | `unverified` | 4 | `parked` | A `wip:` commit on its own branch, pushed unless `--land none`, and with `pr` a draft pull request that says `Refs`. Warnings `fix_not_landed` and, if the last round produced no report, `attempt_failed`. `next` says how to inspect the branch. |
+| A question | `needs_human` | 3 | `needs_human` | The checkout as the run found it (`question_tree_kept` if a change could not be put back). |
+| Budget, turns or rounds used up, nothing applied | `failed` | 1 | | The category of the last round's failure (`brain`, `no_result`, `budget`, `timeout`, `sandbox`, …). |
+| Signal, or `--timeout` ending the command | `failed` | 1 | | `cancelled` or `timeout`. An applied change is parked on a local branch within 10 seconds (`park_failed` if that fails), so paid-for work is not lost. |
 
-**Landing** is, in order: the
-branch `fix/<N>-<slug>` for issue number `N`, made unique against
-the local and remote branches (`-2`, `-3`) and created from `base_head`; one
-commit, which runs the repository's hooks, with the message `<type>: <subject>`,
-the first 2000 bytes of the change, `Closes <issue URL>` or `Refs <issue URL>` and
-the trailer `Agent-Fox-Run: <run id>`; the push (up to 3 attempts, each retry
-raising `push_retried`); and, under `pr`, the pull request, whose body is the
-comment that names the run, what `af` measured, what the brain reported (quoted,
-and cut first if the body is over the limit of the forge), the files git sees
-changed and the line that closes or refers to the issue. The pull request is a
-draft when `--no-verify` was given or a criterion of the report is `unmet` or
-`partial` (`criteria_unmet`). The body is kept as `report.md`.
+Usually `--timeout` ends a round rather than the whole command: each round gets the
+time left minus the time reserved for measuring, so the run then ends as if its
+bounds were used up.
 
-A commit that a hook of the repository refuses parks the change instead
-(`commit_hook_failed`). A push that still fails after its retries is
-`failed`/`git`, with the branch and the commit kept and `next` naming the push to
-run. A pull request that the forge refuses after the push is the warning
-`pull_request_failed`, and the run still ends `done`: the change landed.
+**Landing** creates the branch `fix/<N>-<slug>` (made unique with `-2`, `-3`, …) from
+the base commit, and one commit with the repository's hooks. The commit message is
+`<type>: <subject>`, the change description, `Closes <issue URL>` or
+`Refs <issue URL>`, and the trailer `Agent-Fox-Run: <run id>`. The push is tried up to
+3 times (`push_retried`). With `pr`, the pull request body says what `af` measured and
+quotes what the model reported; it is a draft when an acceptance criterion is `unmet`
+or `partial` (`criteria_unmet`). The body is saved as `report.md`.
 
-**Parking** commits `wip: <subject>` with the verdict, the failing checks, `Refs`
-and the trailer, without running the hooks, so that a hook cannot lose the work.
-A failed push or pull request after that commit is a warning
-(`push_failed`, `pull_request_failed`).
+- A commit a hook refuses parks the change instead (`commit_hook_failed`).
+- A push that still fails is `failed`/`git`; the branch and commit are kept and
+  `next` names the push to run.
+- A pull request the forge refuses raises `pull_request_failed`; the run is still
+  `done`.
 
-**The result**:
+**Parking** commits `wip: <subject>` with the verdict, the failing checks, `Refs` and
+the trailer, without running hooks. A failed push or pull request afterwards is a
+warning (`push_failed`, `pull_request_failed`).
+
+**Result.**
 
 | Field | Meaning |
 |---|---|
-| `issue` | The URL of the issue the run fixes. |
-| `base`, `base_head` | The branch the fix was made on and goes back to, and the full hash of its commit when the run began. |
-| `rounds` | How many rounds the run made. |
+| `issue` | The issue URL. |
+| `base`, `base_head` | The base branch and the full hash of its commit when the run began. |
+| `rounds` | How many rounds ran. |
 | `outcome` | `landed`, `parked`, `needs_human` or `failed`. |
-| `verdict`, `landable`, `closes` | What `af` measured, whether it lets the change land, and whether the revert check proved it. `verdict` is `null` when nothing was measured. |
-| `baseline`, `after`, `revert_check` | `{gate_id, passed}` of the gate before and after, and `{outcome, reason}` of the revert check, each `null` when it did not run. |
-| `changed_files`, `reverted_paths` | The paths git sees changed, and the protected ones that were put back. |
+| `verdict`, `landable`, `closes` | What `af` measured (`pass`, `pass_was_already_failing`, `regressed`, `still_failing`, `unverified`, `no_change`, or `null`), whether that lets the change land, and whether the revert check proved it. |
+| `baseline`, `after` | `{gate_id, passed}` of the checks before and after, or `null`. |
+| `revert_check` | `{outcome, reason}`, or `null`. |
+| `changed_files`, `reverted_paths` | Paths git sees changed, and protected paths that were put back. |
 | `land` | `pr`, `branch` or `none`. |
-| `branch`, `commit`, `pushed` | The branch and the full hash of the commit, `null` when none was made, and whether the branch is on the remote. |
+| `branch`, `commit`, `pushed` | The branch and full commit hash (or `null`), and whether the branch is on the remote. |
 | `pull_request` | `{number, url, draft}` or `null`. |
-| `box` | `{provider, image, network}` of the box the brain worked in, or `null`. `image` is the image of a `podman` box and `""` for any other provider. `network` is `open` for a provider that isolates (the brief of a fix has a tool that runs a command), and `host` for `local` and `none`, where nothing is enforced. |
+| `box` | `{provider, image, network}` of the sandbox, or `null`. |
 
-The side effects are `branch`, `commit`, `push` and
-`create_pull_request`, each `done` or `failed`; the artifacts are the
-`branch`, the `commit` and the `pull_request`, with
-`brief`, `submission`, `report`, `run_dir` and the `transcript` of a brain that keeps
-one. The envelope's `usage` is the brain's, summed over the rounds.
+Side effects are `branch`, `commit`, `push` and `create_pull_request`. Artifacts
+include the branch, commit and pull request, and the brief, submission, report, run
+directory and transcript. `usage` is summed over all rounds.
 
-**Warnings** the fix commands raise besides the shell's and those of
-[Brains and boxes](#brains-and-boxes): `baseline_failing`, `issue_closed`,
-`question_not_found`, `protected_path_reverted`,
-`fix_not_proven`, `push_retried`, `criteria_unmet`, `pull_request_failed`,
-`fix_not_landed`, `not_verified`, `attempt_failed`, `commit_hook_failed`,
-`park_failed`, `push_failed`, `question_tree_kept` and `report_unwritable` (see
-[Warning codes](#warning-codes)). The new failure category is `preflight`.
+#### Files of a fix run
 
-#### The files of a fix run
+Besides the [usual run files](#the-run-directory), a fix run writes to
+`.agent-fox/run/<id>/`:
 
-| File in `.agent-fox/run/<id>/` | Written by | What it is |
-|---|---|---|
-| `brief.md` | the loop | The brief of the first round: the prefix, then the task block. |
-| `original.md` | the loop | The original report, exactly. |
-| `run.json` | the loop | The attempt and the nonce that the submission protocol reads. |
-| `fix.json` | the loop | The state of the run: `run_id`, `input {kind, origin, key}`, `issue {url, title, number}` or null, `target {repo, host}`, `base`, `base_head`, `table`, `baseline_gate_id`, `baseline_passed`, `baseline_ms`, `no_verify`, `prefix_sha256`, `prefix_bytes`, `suite`, `programs`, `context`, `rounds`, and the `brain`, `cost_usd` and `cost_source` the rounds so far used. It is written last and atomically. |
-| `submission.json` | the brain | The accepted report (see [Brains and boxes](#brains-and-boxes)). |
-| `report.md` | the loop | The body of the pull request, as it was rendered. |
-
-The ledger of a run holds `fix.brief`, `fix.question {text, options}` when a run ends on a question,
-and, for each round, `apply {written, deleted, ignored}`, `measure {verdict,
-closes, changed, reverted, after_gate_id, revert_outcome}` and `refusal {kind}`
-when the change was refused, among the entries of the box and the brain.
-
-### fix run
-
-`af fix run --run-id ID` is what a box executes, and no command for a person:
-help does not list it. [A process brain](#brains-that-run-as-a-process) runs it in
-the box, where `brain.Execute` has placed the `brief.md` of the round and a
-`run.json` that holds the attempt, the nonce and `prefix_bytes`. It runs the brain
-in its own process over the tree it is in, on that brief, and records `fix.run
-{round, submission, submission_path}` in the run directory of the box. The result
-is `{run_id, round, submission, submission_path, question, submitted}`, where
-`submission` is `report` or `question` and `submitted` says that the brain handed
-over a submission that was accepted; the host reads the submission and the tree
-from the box, and applies and measures them itself. A run directory with no such
-`run.json` is `usage`, "run <id> has no brief placed in it".
-
-## The client of the agent-fox service
-
-Eleven commands make `af` the client of the agent-fox service (the long-running `agent-fox`,
-[described at the end of this document](#the-agent-fox-command-line); its routes are in [api.md](api.md), and
-the client adds none): the four `workspace` commands and the seven `jobs` commands. They speak the one-envelope
-contract and the exit codes of every `af` command. None of them builds a forge client, makes a run
-directory or runs a model; the work of a job is done by the service, and its cost is in `result.job.usage`.
-
-### The server, the credential and the order of the checks
-
-**The server.** Every service command takes `--server <url>`; without it the URL is `AF_URL`, and an
-empty `AF_URL` is unset. It must be an absolute `http` or `https` URL with a host and an optional path
-prefix, with no query, no fragment and no user info; one trailing `/` is dropped, and the API is at
-`<url>/api/v1/…`. A URL that breaks a rule is a `usage` error that names `--server` or `AF_URL`, whichever
-gave it, and the rule (the password of a URL with user info is never echoed). No server is a `usage`
-error that names `--server` and `AF_URL`, with the `fix_hint`
-`{flag: "--server", env: "AF_URL"}`. A plain `http` URL whose host is not loopback (`localhost`,
-`127.0.0.0/8`, `::1`) raises the warning `server_insecure`, because the credential crosses the link in
-clear; the command goes on. No server is stored anywhere: `AF_URL` in a shell profile does the job.
-
-**The credential.** Every request carries `Authorization: Bearer <credential>`. The credential is the
-top-level string key `token` of `~/.af/config.toml` (`~` is what `os.UserHomeDir` reports), the file that
-`afc login` writes; every other key is ignored and there is no other source. Before any request:
-
-| The file | Failure |
+| File | Content |
 |---|---|
-| the home directory cannot be found; the file exists and cannot be read | `failed`/`io`, naming the path |
-| the file does not exist; `token` is missing, is not a string or is empty | `failed`/`auth`, naming the file and saying to run `afc login` or to store the credential in it as `token = "…"`; `fix_hint` `{suggest: "afc login, or token = \"<credential>\" in ~/.af/config.toml"}` |
-| the file does not parse as TOML; the token holds a line break or a control character | `failed`/`config`, naming the file (never the token) |
+| `brief.md` | The brief of the first round. |
+| `original.md` | The original report, exactly. |
+| `run.json` | The attempt number and nonce the sandbox reads. |
+| `fix.json` | The state of the run (input, issue, base, pinned checks, baseline, rounds, cost so far). Written last and atomically. |
+| `submission.json` | The accepted report. |
+| `report.md` | The pull request body. Absent for a parked change. |
 
-On Unix a file with any group or other permission bit set raises the warning
-`credential_file_permissions`, naming it; the command goes on.
+### af lang detect
 
-**The order of the local checks.** A service command runs its checks in this order, reports the first
-that fails, and sends a request only when all have passed: (1) the flags (an unknown flag, a malformed
-value); (2) the positional arguments and the input, which includes reading stdin and the token file of `af
-workspace subscribe`; (3) the server; (4) the credential. A usage mistake is
-therefore always reported before an `auth` or `config` failure.
+Report what the repository at `--dir` is written in and which checks verify it. It
+only reads files (and in a git work tree runs `git rev-parse` and `git ls-files`). No
+model, no network, no run directory. Default `--timeout` 1 minute.
 
-**Requests.** Every request carries `User-Agent: af/<version>` and `Accept: application/json` (`text/event-stream`
-for the event stream), and any body is JSON with `Content-Type: application/json`. A request other than the
-event stream lasts at most two minutes, or the time `--timeout` leaves if that is shorter; at most 8 MiB of an
-answer is read; a redirect is not followed and no request is sent to its target, so the credential
-reaches no host but the server's. `--timeout` has no default limit on any client command. The credential
-and the token of a workspace are in no output: not on stdout or stderr, not in
-the events, whatever the service repeats in its answers: the shell takes a registered secret out of the envelope, its
-copy and every event, wherever it stands. A value shorter than 8 bytes is not taken out, since it would be in ordinary
-words, and no credential is that short. The client uses the standard proxy variables of Go (`HTTP_PROXY`,
-`HTTPS_PROXY`, `NO_PROXY`), as the service does for its calls to hub: behind a proxy for a plain `http` server, the
-proxy sees the request.
+```
+af lang detect [--dir DIR] [--write] [--timeout DURATION]
+```
 
-**Answers.** The service's documents are carried into the results as received, so fields that `af` does
-not know survive. A failure is mapped by the status of the answer:
+| Flag | Meaning |
+|---|---|
+| `--write` | Save the freshly detected checks to `.agent-fox/gate.json` (see [configuration](configuration.md#gatejson)), replacing any file there. Listed as the artifact `gate_file`. |
 
-| The service answers | Status (exit code) | `error.category` | `retryable` |
+**Result.**
+
+| Field | Meaning |
+|---|---|
+| `languages` | `[{name, files, manifest?}]`, most files first. Files are those git tracks plus untracked files that are not ignored (a directory walk outside git), never `.git/` or `.agent-fox/`. Languages: `go`, `python`, `javascript`, `typescript`, `rust`, `java`, `kotlin`, `ruby`, `c`, `c++`, `c#`, `php`, `scala`, `lua`, `bash`. `manifest` is the root file that marks the project. |
+| `gate` | `{source, checks}`. `source` is `file` (from `gate.json`) or `detected`. Each check is `{name, argv, kind, source, available}`: `argv` is the command without a shell; `kind` is `lint`, `test` or `check` (both); `source` says where it came from (`Makefile:check`, `go.mod`, `gate.json`); `available` says whether the program exists on this machine. |
+| `suite` | The commands that count as running the full test suite. |
+| `programs` | The programs the checks may run. |
+
+**How checks are detected.** Without `gate.json`, `af` looks at the files at the root
+and the first rule that yields a check wins:
+
+1. A Makefile (`GNUmakefile`, `makefile` or `Makefile`) with a `check` target:
+   `make check`.
+2. Else a Makefile with a `test` target: `make lint` (if that target exists) and
+   `make test`.
+3. Else each manifest adds its checks, in the order Go, Python, Node, Rust, Java:
+   - `go.mod`: `go vet ./...` and `go test ./...`;
+   - Python: `pytest` (when the project shows it uses pytest) or
+     `python -m unittest discover`, behind `uv run` or `poetry run` when their lock
+     file exists, plus `ruff check .` when ruff is configured;
+   - `package.json`: `<pm> test` (unless it is npm's placeholder) and
+     `<pm> run lint`, with `pnpm`, `yarn` or `bun` chosen by lock file, else `npm`;
+   - `Cargo.toml`: `cargo test`;
+   - `pom.xml`: `./mvnw test` or `mvn -q test`; `build.gradle(.kts)`: `./gradlew test`
+     or `gradle test`.
+
+The selected checks depend only on the files, never on which programs are installed;
+only `available` does.
+
+| Outcome | When |
+|---|---|
+| `done` | The repository could be read. A check whose program is missing raises `check_unavailable`. |
+| `failed`/`config` | `.agent-fox/gate.json` cannot be used. There is no fallback to the Makefile. |
+| `failed`/`io` | `--dir` cannot be read, or `gate.json` cannot be written. |
+
+Example, on this repository:
+
+```json
+{
+  "languages": [{"name": "go", "files": 57, "manifest": "go.mod"}],
+  "gate": {
+    "source": "detected",
+    "checks": [
+      {"name": "make check", "argv": ["make", "check"], "kind": "check", "source": "Makefile:check", "available": true}
+    ]
+  },
+  "suite": [["make", "check"], ["make", "test"], ["go", "vet", "./..."], ["go", "test", "./..."]],
+  "programs": ["make", "go", "gofmt"]
+}
+```
+
+### af gate run
+
+Run the checks that [`af lang detect`](#af-lang-detect) reports on the tree in
+`--dir`, or return the stored result for the same tree. No model, no network, no run
+directory. It writes only under `.agent-fox/`. Default `--timeout` 30 minutes.
+
+```
+af gate run [--dir DIR] [--timeout DURATION]
+```
+
+The available checks run one after another, in order. Each has 20 minutes; a check
+that takes longer is stopped and gets the status `timeout`, and the next check still
+runs. Unavailable checks are skipped. Checks run without credential-like environment
+variables (model vendor and cloud keys, and anything ending in `_TOKEN`, `_SECRET`,
+`_KEY`, `_PASSWORD` and similar), because a test suite is repository code. Each
+check's full output is saved to `.agent-fox/gate/<id>/NN-<name>.log`.
+
+**Result.**
+
+| Field | Meaning |
+|---|---|
+| `id` | The cache id. The result is stored in `.agent-fox/gate/<id>/`. |
+| `tree` | A hash of the content of the files in the tree (tracked and untracked-not-ignored). It does not depend on `HEAD`, the checkout's location or ignored files. |
+| `table_source` | `file` or `detected`. |
+| `cached` | True when a stored result was returned and nothing ran. |
+| `passed` | True only when at least one check ran and every check that ran passed. |
+| `checks` | `[{name, status, exit_code, duration_ms, log, tail}]`. `status` is `pass`, `fail`, `error` (could not start; `exit_code` -1) or `timeout` (`exit_code` -1). `tail` is the last 40 lines of output, at most 4096 bytes. |
+| `skipped` | `[{name, reason}]` for checks that did not run. |
+
+| Outcome | When |
+|---|---|
+| `done`, `passed: false` | A check failed, errored or timed out. A red gate is a measurement, not a failure of `af`. |
+| `done`, warning `no_checks` | No check can run here. Nothing ran. |
+| `done`, warning `tree_changed_during_gate` | The checks changed the tree. The result is kept under the hash taken before. |
+| `failed`/`timeout`, `failed`/`cancelled` | `--timeout` ran out or a signal arrived. Nothing is stored. |
+| `failed`/`config` | `.agent-fox/gate.json` cannot be used. |
+| `failed`/`io` | The tree cannot be read, or a log or the result cannot be written. |
+
+**Caching.** The cache key combines the tree hash and the list of checks. The same
+tree and the same checks give the same key on any machine, so checks run inside a
+sandbox count for the same tree outside it. Changing one byte of a file in the tree
+gives a new key; changing only ignored files does not. A stored result is not used
+when it skipped a check that can run here now. `.agent-fox/gate/` is safe to delete.
+
+#### Comparing two gate results
+
+`af fix` compares the checks after a change with the baseline, check by check
+(`fail`, `error` and `timeout` all count as "not pass"):
+
+| Before | After | Verdict |
+|---|---|---|
+| pass | pass | `pass` |
+| not pass | pass | `pass_was_already_failing` |
+| pass | not pass | `regressed` |
+| not pass | not pass | `still_failing` |
+
+The overall verdict is the worst one any check has, in the order `regressed`,
+`still_failing`, `pass_was_already_failing`, `pass`, so fixing one check while
+breaking another is a regression. If either side ran no check, the verdict is
+`unverified`. Only `pass` and `pass_was_already_failing` may land.
+
+### af revert-check
+
+Check that a change's tests actually test it: do they fail when the rest of the
+change is taken out? No model, no network, no run directory. Default `--timeout` 30
+minutes.
+
+```
+af revert-check --since REF [--dir DIR] [--timeout DURATION]
+```
+
+| Flag | Meaning |
+|---|---|
+| `--since <ref>` | Required. The commit the change starts from. |
+
+`--dir` must be the top level of a git work tree and `--since` must name a commit;
+otherwise the status is `usage` and nothing is touched.
+
+**What it does.**
+
+1. Refuse (`failed`/`restore`) if `.agent-fox/revert.patch` exists: an earlier check
+   was interrupted, or another is running.
+2. List the paths that differ from `REF` (staged, unstaged, and untracked files that
+   are not ignored), and sort them into test files and other files.
+3. Stop early, changing nothing, when there is nothing to measure: no changes, only
+   test changes, no test changes, or no test check in the gate.
+4. Run the checks on the current tree (or use the cached result). If a test check
+   fails or cannot run here, the outcome is `inconclusive`.
+5. Save the non-test part of the change to `.agent-fox/revert.patch`, take it out of
+   the working tree (the index is never touched), and run only the test checks.
+6. Put the change back, even after a signal, the timeout or a crash, and check that
+   the tree and `.git/index` are exactly as before. Then remove the patch.
+
+Test files are, for example: Go `_test.go` and `testdata/`; Python `test_*.py`,
+`*_test.py`, `conftest.py`; JavaScript and TypeScript `*.test.*`, `*.spec.*`,
+`__tests__/`; Java `src/test/`, `*Test.java`, `*Tests.java`, `*IT.java`; Ruby
+`*_spec.rb`, `*_test.rb`; and anything under a directory named `test`, `tests` or
+`spec`.
+
+Checks must not leave new files in the tree outside ignored paths: that changes the
+tree and counts as a failed restore even though the change is back.
+
+**Recovering.** If `af revert-check` is killed (SIGKILL) or abandoned, the patch stays
+in `.agent-fox/revert.patch` and the next check refuses to start. When
+`git apply --check .agent-fox/revert.patch` passes, the tree is missing the change:
+run `git apply .agent-fox/revert.patch`, then delete the file.
+
+**Result.**
+
+| Field | Meaning |
+|---|---|
+| `outcome` | `proven`, `not_proven`, `inconclusive`, `no_changes`, `no_code_changes` or `no_test_changes`. |
+| `reason` | `proven`: `tests_fail_without_the_change`. `not_proven`: `tests_pass_without_the_change`. `inconclusive`: `no_test_check`, `after_not_green`, `test_check_unavailable`, `reverted_check_error` (a check could not start on the reverted tree), `table_changed_by_revert` (the reverted tree has different test checks, for example because the change added the Makefile) or `nothing_to_revert`. Others: `no_paths_changed`, `only_test_files_changed`, `no_test_files_changed`. |
+| `closes` | True only for `proven`. |
+| `since` | The full hash `--since` resolved to. |
+| `test_files` | The changed test files. |
+| `reverted_files` | The files that were set back; empty when nothing was. |
+| `after` | The gate id for the current tree, or `""`. |
+| `reverted` | `{id, passed, checks}` of the reverted tree, as in [`af gate run`](#af-gate-run), or `null`. |
+| `restored` | Always true in a result: a tree that could not be restored is a failure. |
+
+| Outcome | When |
+|---|---|
+| `done` | Every outcome above. All except `proven` and `no_changes` raise `fix_not_proven`. |
+| `usage` | `--dir` is not a work tree top level, or `--since` is missing or not a commit. |
+| `failed`/`restore` | A leftover patch is in the way, or the change could not be put back (something changed a path during the checks) or the tree came back different. The patch is kept and the message names it. |
+| `failed`/`git` | git failed. |
+| `failed`/`config` | `.agent-fox/gate.json` cannot be used. |
+| `failed`/`timeout`, `failed`/`cancelled` | `--timeout` ran out or a signal arrived. The tree is restored first. |
+| `failed`/`io` | A file could not be read or written. |
+
+## Sandboxes and brains
+
+`af triage` and `af fix` run a *brain* (the agent that talks to the model) inside a
+*box* (a sandbox that holds a copy of the checkout). The model works on the copy; `af`
+reads back what it submitted and makes every git and forge write on the host.
+
+**Shared flags.**
+
+| Flag | Meaning |
+|---|---|
+| `--brain <name>` | `agentkit` (the AgentKit agent on a real model; the default) or `scripted` (replays a script, no model; see [development.md](development.md#the-scripted-brain)). |
+| `--sandbox <provider>` | `podman` or `local`. Default: the value of `AF_SANDBOX`, else `podman`, on every operating system. If the provider cannot open, `af` fails; it never falls back to `local`. |
+| `--budget <usd>` | Stop after this much model cost. Must be above 0, and the model must have a known price (otherwise a `usage` error naming `AF_MODEL`). |
+| `--max-turns <n>` | Stop after this many turns. At least 1. |
+| `--script <file>` | The script for `--brain scripted`, and only with it. |
+
+Bad values are `usage` errors that name the flag, and they are found before any box
+opens. The model is set with `AF_MODEL` and needs `ANTHROPIC_API_KEY`; see
+[configuration](configuration.md#model-and-credentials).
+
+**Providers.**
+
+| Provider | Isolated | What it is |
+|---|---|---|
+| `podman` | yes | A container of the image `AF_SANDBOX_IMAGE`, default `quay.io/agentfox/tools:latest` (the sandbox image with `af` in it; `make build-tools-container` builds it). The agent runs inside the container. An unreachable engine is `failed`/`sandbox`, not retryable (off Linux, try `podman machine start`). A missing image that cannot be pulled is `failed`/`sandbox`, retryable. |
+| `local` | no | The tools run in the `af` process with its privileges, on a copy of the tree. Every box raises the warning `box_unconfined`. Useful for development, not for untrusted work. |
+
+**What reaches the box.**
+
+- The checkout goes in with its `.git`, so git commands inside see the real history.
+  It must be the top level of a regular work tree (not a subdirectory, linked
+  worktree or submodule). Files the repository ignores (a `.env`, build output) stay
+  out, unless git tracks them.
+- Credentials stay on the host. No forge token ever enters a box, and credentials in
+  `.git/config` (remote URLs, extra headers, credential helpers) are stripped from the
+  box's copy. Under `podman`, the box gets `ANTHROPIC_API_KEY` and nothing else, since
+  the agent runs there. Under `local` the agent runs on the host and the box gets no
+  credential.
+- Network: `podman` gives the box the whole network (the agent needs its vendor, and
+  checks may fetch packages); `af triage` with the agent on the host gets none. Under
+  `local` nothing is enforced.
+- Nothing the model commits in the box reaches the host's branch, and `.git` never
+  comes back out.
+
+**What the model may not do.** Every tool call passes a gate before it runs. The model
+may use only the tools of its brief: read-only tools for triage; for fix also writing
+files and running commands. Commands are further restricted: no git command that
+writes (`af` makes every commit, branch and push), no running the full test suite
+directly (use `af gate run`, whose result `af` reuses; targeted test runs are fine), no
+`af` command other than `lang detect`, `gate run`, `revert-check` and `--version`, and
+no writes under protected paths (by default `.git/`, `.agent-fox/`, `.specs/`,
+`.github/workflows/`, `.gitlab-ci.yml`). A denied call is not run and the model is told
+why. This gate is a safeguard, not a security boundary; the box is. The rules are
+configured with [`guard.json`](configuration.md#guardjson) and described in detail in
+[architecture.md](architecture.md#the-tool-policy).
+
+The model hands back its result as one JSON submission. `af` decides from the
+submission file alone, never from what the model says, and checks it again against
+its own tree. See [architecture.md](architecture.md#the-submission-protocol).
+
+## Service client commands
+
+Eleven commands make `af` the client of the agent-fox service: four `workspace`
+commands and seven `jobs` commands. They follow the [envelope contract](#conventions),
+run no model and make no run directory. The service does the work; its cost is in
+`result.job.usage`. The HTTP API they call is in [api.md](api.md).
+
+```bash
+export AF_URL=http://127.0.0.1:8090
+af workspace subscribe widgets --hub-token-file pat   # hand the service a workspace token
+af jobs submit fix 42 --workspace widgets --wait      # queue a fix and follow it
+af jobs list --workspace widgets --state blocked      # jobs waiting for an answer
+af jobs answer job_5f0c1a9e2b7d4c3a8e10 B --wait      # answer one
+```
+
+### Connecting to the service
+
+**Server.** Every client command takes `--server <url>`; without it, `AF_URL` is
+used (an empty value counts as unset). The URL must be absolute `http` or `https`,
+with an optional path prefix and no query, fragment or user info. A trailing `/` is
+dropped. A plain `http` URL to a host other than loopback raises `server_insecure`,
+because the credential crosses the network in clear. No server at all is a `usage`
+error with the hint `{flag: "--server", env: "AF_URL"}`.
+
+**Credential.** Every request carries your hub credential as
+`Authorization: Bearer <token>`. Its only source is the top-level `token` key of
+`~/.af/config.toml`, which hub's `afc login` writes. `af` never writes this file.
+
+```toml
+# ~/.af/config.toml
+token = "your hub credential"
+```
+
+| Problem | Result |
+|---|---|
+| No home directory; the file exists but cannot be read | `failed`/`io` |
+| The file is missing; `token` is missing, empty or not a string | `failed`/`auth`, suggesting `afc login` |
+| The file is not valid TOML; the token contains a control character | `failed`/`config` |
+
+On Unix, a file readable by group or others raises `credential_file_permissions`.
+
+**Order of checks.** Before sending anything, a client command checks, in order: its
+flags; its arguments and input (including stdin and token files); the server; the
+credential. So a usage mistake is always reported before an `auth` or `config`
+problem.
+
+**Requests.** A request (other than the event stream) may take at most two minutes,
+or less if `--timeout` is shorter; `--timeout` has no default. At most 8 MiB of an
+answer is read. Redirects are not followed, so the credential reaches only the server.
+The standard proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`) apply. The
+credential and any workspace token are removed from all output (values shorter than
+8 bytes excepted).
+
+### af workspace
+
+A workspace is a hub workspace the service works on. Subscribing hands the service a
+token it uses to act on that workspace.
+
+| Command | Request | Result |
+|---|---|---|
+| `af workspace subscribe <slug> --hub-token-file FILE\|-` | `PUT /api/v1/workspaces/<slug>` | The subscription |
+| `af workspace list` | `GET /api/v1/workspaces` | `{workspaces}` |
+| `af workspace get <slug>` | `GET /api/v1/workspaces/<slug>` | The subscription |
+| `af workspace unsubscribe <slug>` | `DELETE /api/v1/workspaces/<slug>` | `{slug}` |
+
+`subscribe` reads the workspace token from a file, or from stdin with `-`, never from
+the command line where it would end up in shell history. After trimming, the token must
+be one non-empty line of valid UTF-8, without control characters, at most 4096 bytes.
+Subscribing again replaces the subscription. Subscribing also creates the agent-fox
+labels on the workspace's repository (see [api.md](api.md#subscribe)).
+
+`unsubscribe` cancels the workspace's open jobs first. It can take up to a minute.
+
+### af jobs submit
+
+Queue a triage or fix job on a subscribed workspace.
+
+```
+af jobs submit triage <issue|file|text|-> --workspace SLUG [--wait] [--context ANSWER]... [--server URL] [--timeout D]
+af jobs submit fix <issue> --workspace SLUG [--wait] [--context ANSWER]... [--server URL] [--timeout D]
+```
+
+The input is read by the first rule that matches:
+
+| Input | Sent as |
+|---|---|
+| `-` | `text`, read from stdin |
+| any `http(s)://` URL | `issue`, as given. The service accepts issue URLs of the forges it knows and refuses pull requests and other URLs (`usage`). |
+| a positive integer, with or without `#` | `issue`, as a number |
+| `owner/repo#N` | `issue`, as a string |
+| an existing regular file | `file: {name, content}` |
+| anything else | `text` |
+
+A fix job takes only the three issue forms. Text and file content must not be empty,
+contain NUL bytes or be invalid UTF-8. Content over 131072 bytes is cut and raises
+`input_truncated`. `--context` values are sent in order.
+
+The job is recorded as an artifact `{kind: "job", name: <id>, url}` as soon as the
+service accepts it. Without `--wait`, the status is `done`, the result is
+`{job, envelope: null}`, and `next` suggests `af jobs watch <id>`. With `--wait`, the
+command [follows the job](#following-a-job). If a job of the same kind is already
+open for the issue, the service refuses with a `conflict` that names it.
+
+### af jobs list, get, watch, cancel, answer and retry
+
+| Command | Request | Result |
+|---|---|---|
+| `af jobs list [--workspace S] [--state S] [--cursor C]` | `GET /api/v1/workspaces/<S>/jobs`, or `GET /api/v1/jobs` without `--workspace` | One page: `{jobs, next_cursor}` |
+| `af jobs get <id>` | `GET /api/v1/jobs/<id>` | `{job, envelope: null}` |
+| `af jobs watch <id> [--since N]` | [Follows the job](#following-a-job) | The job and its last envelope |
+| `af jobs cancel <id>` | `POST /api/v1/jobs/<id>/cancel` | `{job, envelope: null}` |
+| `af jobs answer <id> (<text> \| --context <text> \| --option <id>) [--wait]` | `POST /api/v1/jobs/<id>/answer` | `{job, envelope: null}`, or the followed job with `--wait` |
+| `af jobs retry <id> [--wait]` | `POST /api/v1/jobs/<id>/retry` | `{job, envelope: null}`, or the followed job with `--wait` |
+
+- `list` returns one page. When there is another, `next` repeats the command with
+  `--cursor <next_cursor>`.
+- `answer` takes exactly one answer. `--option` is uppercased and sent as the option
+  id. A text answer that matches an option id of the question (ignoring case) is sent
+  as that option; any other text is sent as a free answer.
+- `cancel` takes no `--wait`. `answer` and `retry` with `--wait` follow the job.
+
+### Following a job
+
+`af jobs watch`, and `--wait` on `submit`, `answer` and `retry`, read the job's event
+stream until the job is *at rest*: `blocked`, `done`, `failed` or `cancelled`, with no
+attempt running. Each event is delivered once, in order, as a `job_event` event of the
+command. `watch` also prints each event to stderr as one line of JSON; `--wait` prints
+nothing to stderr.
+
+**Reconnecting.** If the stream ends early (dropped connection, 60 seconds of
+silence, a server error), `af` reads the job and, if it is not at rest, reconnects
+from the last event it saw. It waits 1 second after a try that delivered events, and
+1, 2, 4 and 8 seconds after consecutive failed tries. The fifth failed try in a row
+ends the command with a retryable `service` (or `hub`) failure; the job may still be
+running, and `next` suggests `af jobs watch <id> --since <last seq>`. A 401, 404 or
+other 4xx ends it at once.
+
+**The result** is `{job, envelope}`, where `envelope` is the envelope of the job's
+latest finished attempt (null if unavailable; `attempt_envelope_unavailable` if
+fetching it failed). That envelope's warnings are added to the command's own. The
+status follows the job:
+
+| Job state | Status (exit code) |
+|---|---|
+| `done` | `done` (0), or `unverified` (4) when the attempt was unverified |
+| `blocked` | `needs_human` (3), with the question and options. `resume` is `af jobs answer <id> --wait` with `--context`. |
+| `failed` | `failed` (1) with the attempt's error, or `unverified` (4) or `usage` (2) when the attempt ended so |
+| `cancelled` | `failed`/`job_cancelled` (1), not retryable |
+
+A failed or cancelled ending has no `result`; the job artifact is still listed, and
+`af jobs get <id>` shows it.
+
+**Stopping `af`.** A signal or `--timeout` while following stops following but never
+cancels the job, which keeps running on the service. The envelope is
+`failed`/`cancelled` or `failed`/`timeout`, and `next` suggests `af jobs watch <id>`
+and `af jobs cancel <id>`.
+
+### How service answers map to statuses
+
+| The service answers | Status (exit) | `error.category` | `retryable` |
 |---|---|---|---|
-| 2xx | the command's | | |
+| 2xx | the command's own | | |
 | 400 | `usage` (2) | `usage` | false |
 | 401 | `failed` (1) | `auth` | false |
 | 404 | `usage` (2) | `usage` | false |
@@ -1239,554 +1039,40 @@ not know survive. A failure is mapped by the status of the answer:
 | 422 | `failed` (1) | `auth` | false |
 | 502 | `failed` (1) | `hub` | true |
 | 500 | `failed` (1) | `service` | false |
-| 503, 504 and any other 5xx | `failed` (1) | `service` | true |
-| a 3xx, or any other 4xx (405, 413 and 415 among them) | `failed` (1) | `service` | false |
-| a transport error, or the two minutes running out | `failed` (1) | `service` | true |
-| a body that is too large or is not the JSON expected | `failed` (1) | `service` | false |
+| 503, 504, other 5xx | `failed` (1) | `service` | true |
+| 3xx, other 4xx | `failed` (1) | `service` | false |
+| transport error, or the two minutes ran out | `failed` (1) | `service` | true |
+| body too large or not the expected JSON | `failed` (1) | `service` | false |
 
-The message is the service's `error.message` followed by its `error.code` in parentheses, or "the service
-answered 500" when the body has neither. A transport error names the server URL and what gave it
-(`--server` or `AF_URL`); a 404 names the job id or the workspace slug that was asked for and says that it
-does not exist or that hub does not let the caller see it. The `fix_hint` is the one of a missing
-credential for a 401; `{suggest: "af workspace subscribe <slug> --hub-token-file FILE"}` for a
-404 on a workspace route and a 409 `not_subscribed` or `token_unreadable` (the slug is the real one on a
-workspace route and `<slug>` on a job route, which does not name it); and `{flag: "--hub-token-file"}` for a 422.
+The message is the service's `error.message` followed by its `error.code`. Hints: a
+401 suggests `afc login`; a 404 on a workspace, or a 409 `not_subscribed` or
+`token_unreadable`, suggests `af workspace subscribe <slug> --hub-token-file FILE`;
+a 422 points at `--hub-token-file`.
 
-### workspace subscribe, list, get and unsubscribe
+## Internal commands
 
-| Command | Request | Result |
+`af triage run --run-id ID` and `af fix run --run-id ID` are what a sandbox runs when
+the agent works inside it. `af triage` and `af fix` start them; people do not, and
+help does not list them. They run the agent on the brief already placed in the run
+directory and record its submission there. A run directory without a placed brief is
+a `usage` error: "run <id> has no brief placed in it".
+
+| Command | Flags | Result |
 |---|---|---|
-| `af workspace subscribe <slug> --hub-token-file FILE\|-` | `PUT /api/v1/workspaces/<slug>` with `{hub_token}` | the subscription view |
-| `af workspace list` | `GET /api/v1/workspaces` | `{workspaces}` |
-| `af workspace get <slug>` | `GET /api/v1/workspaces/<slug>` | the subscription view |
-| `af workspace unsubscribe <slug>` | `DELETE /api/v1/workspaces/<slug>` | `{slug}` on 204 |
-
-`subscribe` reads the token of the workspace from the file, or from stdin for `-`, and never from the command line,
-where it would land in the shell history. Trimmed, it must be non-empty, on one line, valid UTF-8, free of control
-characters and at most 4096 bytes (an unreadable file or stdin is `io` naming it; a content rule that is broken is a
-`usage` error naming `--hub-token-file`), and treats 201 (the summary says subscribed) and 200 (replaced) as
-success. The slug is a required, path-escaped argument whose syntax is the service's to check, so a 400 is a
-`usage` error. `unsubscribe` says that the open jobs of the workspace were cancelled; the service waits up to its
-grace period for the runners, so it can take a minute.
-
-### jobs submit
-
-```
-af jobs submit triage <issue|file|text|-> --workspace SLUG [--wait] [--context ANSWER]... [--server URL] [--timeout D]
-af jobs submit fix <issue> --workspace SLUG [--wait] [--context ANSWER]... [--server URL] [--timeout D]
-```
-
-Queues a triage or a fix job on a workspace of the service. No loop runs on this machine, and no forge
-client or run directory is made. A first argument that is neither `triage` nor `fix`, and a missing
-`--workspace`, are `usage` errors. The command:
-
-- turns the input into the request by the first rule that matches. `-` reads stdin and is sent as `text`.
-  Any `http://` or `https://` URL is sent as the `issue` string, as given after trimming: the client
-  does not classify it and reads no forge variable, and the service accepts the URLs of the forges it
-  knows and refuses a pull or merge request and any other URL with a 400, which is a `usage` error that
-  carries its message. A positive integer, with or without a leading `#`, is the `issue` as a JSON
-  number. `owner/repo#N` (two or more `/`-separated segments of letters, digits, `_`, `.` and `-`) is the
-  `issue` string. The name of an existing regular file is sent as `file: {name, content}`. Anything else is
-  `text`. A fix job takes only the three issue forms, and any other input is a `usage` error that says so;
-- trims text and file content, which must not be empty, hold a NUL byte or be invalid UTF-8 (`usage`);
-  a directory is a `usage` error and an unreadable file `io`. Content longer than 131072 bytes is cut at a
-  UTF-8 boundary so that it and the truncation marker fit in 131072 bytes, `input.truncated` is set and
-  the warning `input_truncated` is raised;
-- reports the input in the envelope: `kind` is `issue`, `file`, `text` or `stdin`, `origin` is the URL or
-  the absolute path of the file (else `""`), and `truncated` says whether it was cut;
-- posts the body to `POST /api/v1/workspaces/<slug>/triage` or `…/fix`, with the slug path-escaped. The
-  `--context` values go in order as `context`, which is absent when there are none;
-- on 202 records the artifact `{kind: "job", name: <id>, url: <server>/api/v1/jobs/<id>}` at once.
-  Without `--wait` the status is `done`, the result `{job, envelope: null}` and `next` is
-  `af jobs watch <id>`, with `--server <url>` when the server came from the flag. With `--wait` the
-  command [follows the job](#following-a-job);
-- fails a 409 `duplicate_job` as a `conflict` with the message of the service, which names the open job.
-
-### jobs list, get, watch, cancel, answer and retry
-
-| Command | Request | Result |
-|---|---|---|
-| `af jobs list [--workspace S] [--state S] [--cursor C]` | `GET /api/v1/workspaces/<S>/jobs` with `--workspace`, else `GET /api/v1/jobs`; `state` and `cursor` only when given | the page `{jobs, next_cursor}` |
-| `af jobs get <id>` | `GET /api/v1/jobs/<id>` | `{job, envelope: null}` |
-| `af jobs watch <id> [--since N]` | [follows the job](#following-a-job) | the job result |
-| `af jobs cancel <id>` | `POST /api/v1/jobs/<id>/cancel` | `{job, envelope: null}` |
-| `af jobs answer <id> (<text> \| --context <text> \| --option <id>) [--wait]` | `POST /api/v1/jobs/<id>/answer` | `{job, envelope: null}`, or the job result with `--wait` |
-| `af jobs retry <id> [--wait]` | `POST /api/v1/jobs/<id>/retry` with `{}` | `{job, envelope: null}`, or the job result with `--wait` |
-
-`list` gives one page, and when `next_cursor` is not null `next` repeats the command with `--cursor <next_cursor>`
-as its last two words; a 400 is a `usage` error. `answer` takes exactly one answer (none, or more than one, is a
-`usage` error and sends nothing). An `--option` value is uppercased and sent as `{option}` without reading the job.
-A text answer, positional or `--context`, must not be empty after trimming; `af` reads the job, and text that equals
-an option id of the blocked question, ignoring case, is sent as that `{option}`, so that the label of the option is
-the answer, and any other text as `{answer}`. A 409 (`invalid_state`, `not_subscribed`, `token_unreadable`) is a
-`conflict`. `--wait` on `answer` and `retry` records the job artifact and follows the job; `cancel` takes no `--wait`.
-
-### Following a job
-
-`af jobs watch`, `--wait` on `af jobs submit`, `af jobs answer` and `af jobs retry` read
-`GET /api/v1/jobs/<id>/events?since=<n>`, a server-sent event stream, from the start (or from `--since`), and
-stop when the job is at rest: its state is `blocked`, `done`, `failed` or `cancelled` and none of its attempts is
-`running`. Each event of the service, `{seq, ts, job_id, attempt, type, data}`, is delivered once and in order
-(an event whose `seq` is not above the last one is dropped) and emitted as the event `job_event`; `watch` also writes
-it to stderr as one line of compact JSON, and `--wait` writes nothing to stderr. A line of the stream may be up to
-1 MiB; comments and unknown fields are ignored.
-
-**Tries.** A try asks for the stream from the last `seq` delivered and, once the stream ends, reads
-`GET /api/v1/jobs/<id>`. A stream ends at its end, on a dropped connection, on a frame that is not an event, and after 60
-seconds without a byte. If the read says the job is at rest, the following is over. Otherwise another try follows: after
-1 second when the try delivered an event, which also clears the count of failed tries, and after 1, 2, 4 and 8 seconds after
-the first four failed tries in a row. A try fails when it ends without the job at rest and delivered no new event, whatever
-ended it, a 5xx or a transport error on either request included (a request for the stream that fails reads no job). The fifth failed try
-in a row ends the following with the category of the last failure (`hub` for a 502, else `service`), retryable, naming the job and saying
-that it may still be running; `next` is `af jobs watch <id> --since <last seq>`, with `--server <url>` when the server came from the flag.
-A 401, a 404, a 3xx or any other 4xx on either request ends it at once, mapped by the table above.
-
-**What it ends with.** The job is read with its attempts, the envelope of the highest-numbered attempt whose state is not
-`queued` or `running` is fetched from `GET /api/v1/jobs/<id>/attempts/<n>/envelope` (a 404 leaves it null; another failure
-leaves it null and raises the warning `attempt_envelope_unavailable`), and the result is `{job, envelope}`. The warnings of that
-envelope are appended to the command's own; its artifacts, side effects, `next` and usage are not copied, and `usage` stays
-the zero usage of a run with no brain. The status follows the `result` of the job, which the service fills from the latest
-finished attempt:
-
-| Job state | Status (exit code) |
-|---|---|
-| `done` | `done` (0), or `unverified` (4) when `result.status` says so |
-| `blocked` | `needs_human` (3) with the question and the labels of the options in order; `resume` is `{argv: ["af", "jobs", "answer", <id>, "--wait"], flag: "--context"}`, with `--server <url>` in `argv` when the server came from the flag |
-| `failed` | the failure of `result.error` (its category, message, `retryable` and `fix_hint`; `internal` when there is none), `unverified` (4) or `usage` (2) when `result.status` says so |
-| `cancelled` | `failed`/`job_cancelled` (1), not retryable, whatever the category of the attempt's envelope |
-
-A failed or cancelled ending has no `result`, because the shell clears the result of a failed envelope; the job is in the
-`artifacts` and `af jobs get <id>` shows it. Answering with `--context B` appended to the resume `argv` sends
-`{option: "B"}` and follows attempt 2.
-
-**When `af` itself is stopped.** A SIGINT, SIGTERM or SIGHUP, or `--timeout` running out, while following ends the
-following and never cancels the job, which is durable on the service: the envelope is the shell's `failed`/`cancelled` (a
-signal sent to `af`, which the category `job_cancelled` is not) or `failed`/`timeout`, the job artifact stays, and `next`
-holds `af jobs watch <id>` and `af jobs cancel <id>` (each with `--server <url>` when the server came from the flag). A
-following that reaches rest has neither entry.
-
-## The envelope
-
-Every invocation other than `--version` and help writes exactly
-one JSON object to stdout, indented by two spaces and followed by one newline,
-and nothing else. Every field is always present and the fields appear in this
-order; arrays are `[]`, never null, and an object that does not apply is
-`null`. A dry run that reads a repository and is refused two writes:
-
-```json
-{
-  "schema_version": "5.0.0",
-  "tool": "example",
-  "run_id": "20261020_072649_a31f9c",
-  "status": "done",
-  "exit_code": 0,
-  "summary": "diagnosed; 2 writes planned",
-  "input": {
-    "kind": "text",
-    "origin": "",
-    "truncated": false
-  },
-  "result": null,
-  "needs_human": null,
-  "error": null,
-  "warnings": [
-    {
-      "code": "label_missing",
-      "message": "the label triaged does not exist yet"
-    }
-  ],
-  "artifacts": [
-    {
-      "kind": "run_dir",
-      "path": "/work/repo/.agent-fox/run/20261020_072649_a31f9c"
-    },
-    {
-      "kind": "report",
-      "path": "/work/repo/.agent-fox/run/20261020_072649_a31f9c/report.md"
-    }
-  ],
-  "side_effects": [
-    {
-      "kind": "add_comment",
-      "target": "acme/shop#12",
-      "state": "planned"
-    },
-    {
-      "kind": "add_labels",
-      "target": "acme/shop#12",
-      "state": "planned"
-    }
-  ],
-  "next": [],
-  "usage": {
-    "brain": "",
-    "cost_usd": 0,
-    "cost_source": "none",
-    "input_tokens": 0,
-    "output_tokens": 0,
-    "turns": 0
-  },
-  "started_at": "2026-10-20T07:26:48.120Z",
-  "finished_at": "2026-10-20T07:26:55.440Z",
-  "duration_ms": 7320
-}
-```
-
-(`example` stands for a command of a later spec; the payload was printed by
-the shell under a test command, with the path of the checkout shortened.)
-
-| Field | Type | Meaning |
-|---|---|---|
-| `schema_version` | string | `"5.0.0"`. |
-| `tool` | string | The command path, or `"af"` when no command was resolved. |
-| `run_id` | string or null | The name of the run directory; null for a command without one. |
-| `status` | string | `done`, `failed`, `usage`, `needs_human` or `unverified`. |
-| `exit_code` | integer | The code the process exits with. |
-| `summary` | string | One line, with no line break. The shell writes it when it sets the status itself. |
-| `input` | object | `{kind, origin, truncated}`: what the positional argument resolved to. `kind` is `issue`, `file`, `text`, `stdin` or `none`; `origin` is the URL of the issue or the absolute path of the file, else `""`. |
-| `result` | any or null | The command's own result, which the section of the command describes. |
-| `needs_human` | object or null | The question the command stopped on. Non-null exactly when `status` is `needs_human`. |
-| `error` | object or null | `{category, message, retryable, fix_hint}`. Non-null exactly when `status` is `failed` or `usage`. `fix_hint` is null, or an object with any of `flag`, `env`, `var` and `suggest`. |
-| `warnings` | array | `[{code, message}]`, in the order they were raised. |
-| `artifacts` | array | `[{kind, path?, url?, name?, number?}]`. Paths are absolute; a relative path a command records is made absolute. |
-| `side_effects` | array | `[{kind, target, state, detail?}]`. `state` is `done`, `planned` or `failed`. |
-| `next` | array | `[{argv, reason}]`: suggested follow-up commands. |
-| `usage` | object | `{brain, cost_usd, cost_source, input_tokens, output_tokens, turns}`. With no brain, `brain` is `""`, the numbers are 0 and `cost_source` is `none`; it is otherwise `measured` or `reported`, and `none` for a brain that used no model (`scripted`) or a model with no price in the catalog. |
-| `started_at`, `finished_at` | string | RFC 3339, UTC, with milliseconds. |
-| `duration_ms` | integer | The wall time of the invocation. |
-
-The same bytes are written to `<run_dir>/envelope.json`, when there is a run
-directory, before they are printed. If that copy cannot be written, the
-envelope on stdout (the one that counts) carries the warning
-`envelope_unwritable`, and its status does not change. If stdout cannot be written, the process still exits with the
-code of the status. The shell writes nothing to stderr except the stack of a
-panic.
-
-## Statuses and exit codes
-
-| `status` | Exit code | When |
-|---|---|---|
-| `done` | 0 | The command did what it was asked. |
-| `failed` | 1 | It could not, for a reason given in `error`. |
-| `usage` | 2 | The invocation was wrong: flags, arguments or the form of the input. |
-| `needs_human` | 3 | It stopped on a question. |
-| `unverified` | 4 | Work exists but could not be verified. A command that returns it raises a warning that says what was not verified. |
-
-A command returns an outcome (`done`, `unverified` or `needs_human`, with a
-summary, a result and, for a question, the question) or an error. An error
-that is a `*toolio.Failure` becomes `error`, with status `usage` for the
-category `usage` and `failed` for any other. Any other error is `failed` with
-the category `internal`, and so is a panic, which the shell recovers: the
-stack goes to stderr and, when there is a run directory, to
-`<run_dir>/panic.txt`. An outcome that contradicts itself (`needs_human` with
-no question, a question with another status, more than 26 options) is a
-command bug and is reported as `failed`/`internal`.
-
-A command registered with `RawStdin` is given the process's stdin, unread, as
-`Run.Stdin`; a command without it gets `nil` and reads nothing.
-
-## Error categories
-
-| `error.category` | Used for |
-|---|---|
-| `usage` | The invocation is wrong. Status `usage`. |
-| `auth` | An issue was not found without a token, so it may be private, or the `agentkit` brain has no credential for its model (in a box, no `ANTHROPIC_API_KEY`). `fix_hint.env` names the variable to set (a forge token, or `ANTHROPIC_API_KEY`). |
-| `forge` | The forge could not be reached, refused, or the client could not be built. `retryable` is true after a rate limit, a server error or a lost connection, and false after a refusal (a write of `triage` that gets a server error is not retryable). |
-| `io` | A file, stdin or the run directory could not be read or written; also the credential file (`~/.af/config.toml`) of a service command when the home directory cannot be found or the file cannot be read. |
-| `cancelled` | The process was sent SIGINT, SIGTERM or SIGHUP. It is a signal sent to the `af` process; a job of the service that was cancelled is `job_cancelled`. |
-| `timeout` | `--timeout` ran out, or the time a brief allows ran out with no submission (it counts from the start of the run, so placing the brief is part of it). Not retryable; `fix_hint` is `{flag: "--timeout", suggest: <twice the value>}`. |
-| `internal` | A bug: a plain error, a panic, an inconsistent outcome, a result that is not JSON. |
-| `config` | A configuration file `af` reads cannot be used, for the service client the credential file that does not parse as TOML or whose token holds a control character; also, for example a `.agent-fox/gate.json` that does not parse, or the `.agent-fox/guard.json` that a brain's tool gate loads. The message names the file. The `agentkit` brain also uses it when the model provider cannot be configured from the environment. |
-| `restore` | A tree that a command changed in order to measure it could not be put back, or a leftover of an earlier measurement stands in the way; `revert-check`, and the revert check of `af fix`. The message names the patch that holds the change. |
-| `git` | git failed in a way the command cannot work around. |
-| `sandbox` | The box could not be opened, synced or exported. The provider could not create it (not retryable: `podman` without a reachable engine, see [the providers](#the-providers)); the image of a `podman` box is missing and cannot be pulled, the checkout could not be synced in, or the tree could not be exported out (retryable); a process brain's binary or `HOME` fails the probe in the box (not retryable); or an export carried a `.git`, which stops the run. When the provider was chosen by default, `fix_hint` names `--sandbox` and `AF_SANDBOX`. |
-| `brain` | A brain failed: it returned an error and left no submission (retryable), or it panicked (not retryable; the stack is in `brain-panic.<attempt>.txt` in the run directory). |
-| `no_result` | A brain ended without a valid submission: it stopped for another reason than the cost or the turns, or the submission file did not count. Retryable. |
-| `budget` | A brain used its cost bound or its turn bound and left no submission. Not retryable; `fix_hint` is `{flag: "--budget"` or `"--max-turns", suggest: <twice the bound>}`. |
-| `submission` | A submission was refused; nothing was written, and the message names every problem. Retryable. No command of this release ends with it: a refusal is the brain's next turn. |
-| `preflight` | A fact about the repository stops `fix` before it spends anything, and it is not an error of the invocation: the working tree is not clean (the message names up to 20 paths), no check of the gate can be run here (`fix_hint` `{flag: "--no-verify"}`), or `--land` needs an `origin` remote and there is none. Not retryable. |
-| `service` | The agent-fox service could not be reached or gave an answer that `af` cannot use: a transport error, a 5xx, a redirect (which is not followed), a 4xx that no command should provoke (405, 413, 415), a body that is too large or is not the JSON expected, or a request that ran past its two minutes. Retryable after a transport error, the bound and a 5xx other than 500. |
-| `conflict` | The service refused a request because of the state of a job or a workspace (409): `invalid_state`, `duplicate_job`, `not_subscribed`, `token_unreadable`. Not the invocation, and not retryable. |
-| `hub` | The service could not get an answer from hub (502). Retryable. The same category the worker of the service uses for hub outages. |
-| `job_cancelled` | A job that `af` followed was cancelled on the service. Not retryable. |
-
-`auth` is also the category of a credential that is missing or that the service refuses (401, with the `fix_hint` of a missing credential) and of a workspace token that hub refuses (422, `fix_hint` `{flag: "--hub-token-file"}`). Later specs add categories of their own to this list.
-
-## Warning codes
-
-A warning never changes the status: a run that is done stays done. A warning
-that repeats another one exactly (same code, same message) is recorded once.
-A code matches `^[a-z][a-z0-9_]*$`; one that does not is reported under
-`invalid_warning_code`.
-
-| Code | Raised when |
-|---|---|
-| `input_truncated` | The body of the input was cut at 131072 bytes, or the thread of an issue has more comments than were read. |
-| `comments_unreadable` | The issue was read and its comments were not; the run goes on with the issue. |
-| `envelope_unwritable` | `<run_dir>/envelope.json` could not be written. |
-| `events_unwritable` | An event could not be written to the run directory. Raised once. |
-| `invalid_warning_code` | A command raised a warning whose code does not match the pattern; the message begins with the code it gave. |
-| `server_insecure` | A service command: the server is a plain `http` URL whose host is not loopback (`localhost`, `127.0.0.0/8`, `::1`), so the credential crosses the link in clear. The command goes on. |
-| `credential_file_permissions` | A service command, on Unix: `~/.af/config.toml` has a group or other permission bit set. The message names the file; the command goes on. |
-| `attempt_envelope_unavailable` | `jobs watch` and `--wait`: the job is at rest and the envelope of its last finished attempt could not be fetched (any failure but a 404, or an envelope that is not JSON), so `result.envelope` is null. |
-| `no_checks` | `gate run`: no check of the gate table can be run here, or the table has none. Nothing ran and `passed` is false. |
-| `tree_changed_during_gate` | `gate run`, `fix`: the checks changed the tree. The result is kept under the hash of the tree they ran on. |
-| `fix_not_proven` | `revert-check`, `fix`: the outcome is not `proven` and not `no_changes`, so the change must not close its issue; the commit says `Refs`. |
-| `map_outline_skipped` | `triage`, `fix`: the declarations were not read, because the names of the files alone do not fit the budget or the view has more than 5000 files. The map has the names only, or less. |
-| `check_unavailable` | `lang detect`: a check of the gate table names a program that cannot be run on this machine. The check stays in the table with `available: false`; the message names the check. |
-| `box_unconfined` | A box was opened with the `local` provider, once for each box: it has no process or network isolation, because the tools run in this process with its privileges. Also `triage run`, which reads the directory in place, with no copy of it: the files git ignores and `.git/config` are within reach of the tools. |
-| `box_af_version_mismatch` | The `af` of a box that a process brain runs (in practice the one of a `podman` image, since the other providers run this very executable) has another version, or another commit when both are known, than the running one. The run goes on, since the host checks every submission again; the message names both. |
-| `brain_usage_unavailable` | The driver in a box left no envelope of `af <agent> run` that could be read, so the run has no cost to report: the cost is 0 and `cost_source` is `none`. |
-| `box_close_failed` | The box could not be closed, also one that could not be synced and was closed for that. The result of the run is what it was; the message carries the error. |
-| `submission_invalid` | The submission file in the box did not count: it did not parse, is not for this run's kind, run, attempt or payload hash, or the kind refused its payload against the box's tree. The message lists the problems, and the run has no submission. |
-| `submission_claim_mismatch` | A brain says it submitted and there is no valid submission file, or says it did not and there is one. The file decides. |
-| `brain_error` | A brain returned an error, or panicked, after it had submitted, which does not change the submission. The message carries the error. |
-| `submission_not_removed` | The run directory held a `submission.json` that af did not accept (one of an earlier attempt, or one that a process of the brain wrote), and it could not be removed. |
-| `brain_output_unreadable` | A process brain's output or errors could not be read out of the box or copied to the run directory; the run goes on, and the file is not among the artifacts. |
-| `model_unpriced` | The `agentkit` brain's model is not in the catalog, so the run has no cost to report (`cost_source` is `none`). With `--budget` the run does not start: it is a `usage` failure. |
-| `transcript_unwritable` | The transcript of an in-process brain could not be written whole. The run goes on and the file is partial. |
-| `ledger_unwritable` | A ledger entry could not be written: at most once for the box and once for the brain run, since each reports its own. |
-| `issue_closed` | `triage`, `fix`: the issue is closed; the run goes on. |
-| `report_changed_during_triage` | `triage`: the body of the issue is not the report the brief had. The report as the issue has it now is the one kept in the body. |
-| `body_too_long` | `triage`: the body with the diagnosis would be longer than the forge allows, so the diagnosis was posted as one comment and the body was left. |
-| `labels_failed` | `triage`: the diagnosis was written and adding the labels failed. The side effect `add_labels` is `failed`. |
-| `original_report_unparsed` | `triage`: a body starts with the triage marker and is not what `af` wrote (the markers of its original report cannot be paired, a heading is missing, or text follows the original report), so the whole body is taken as the report. |
-| `baseline_failing` | `fix`: the gate fails on the tree as it is, before any change. A check that already fails is not counted against the change, and a change that makes it pass is `pass_was_already_failing`. |
-| `question_not_found` | `fix`: no earlier run asked the question that a `--context` answers, so the answer stands alone in the brief. |
-| `protected_path_reverted` | `fix`: the change touched a protected path (`.git/`, `.agent-fox/`, `.specs/`, `.github/workflows/`, `.gitlab-ci.yml`), and `af` put it back to the base's content or deleted it. One for each path. |
-| `criteria_unmet` | `fix`: a criterion of the report is `unmet` or `partial`, so the pull request is a draft that says the work is unfinished. |
-| `not_verified` | `fix`: the change was landed without the gate (`--no-verify`): nothing was measured, and a person has to check it. The status is `unverified`. |
-| `push_retried` | `fix`: a push failed and is tried again, up to 3 attempts in all. |
-| `commit_hook_failed` | `fix`: a hook of the repository refused the commit, so the change was parked as `wip` without the hooks. |
-| `pull_request_failed` | `fix`: the branch is pushed and the forge refused the pull request. The change landed, and the status is not changed. |
-| `fix_not_landed` | `fix`: the change did not land and is parked on a branch of its own; the message names the verdict and the branch. The status is `unverified`, or `failed` with `cancelled` or `timeout` for a run that was stopped and parked. |
-| `push_failed` | `fix`: a parked branch could not be pushed and is kept here; `next` names the push. |
-| `attempt_failed` | `fix`: the last round of the run came to no report, and the change in the tree is parked as it is. The message carries why. |
-| `park_failed` | `fix`: the run was stopped and the change that was applied could not be parked; it is in the working tree. |
-| `question_tree_kept` | `fix`: the run ended on a question and the change that an earlier round applied could not be put back (the checkout is not at the base any more, or git failed), and is left in the working tree. |
-| `report_unwritable` | `fix`: `report.md` could not be written; the pull request has its body all the same. |
-
-## The positional input
-
-A command that takes an input (`<issue|file|text|->`) resolves its first
-positional argument the same way. The first rule that matches wins.
-
-1. `-` reads stdin until EOF: kind `stdin`.
-2. A GitHub or GitLab issue, pull request or merge request URL: kind `issue`.
-   The thread is read with the forge client and rendered as text (title,
-   author, labels, body, comments).
-3. Any other `http://` or `https://` URL is a `usage` error naming the
-   accepted forms; for a self-hosted forge set `GITHUB_API_URL` or
-   `GITLAB_API_URL` (see [configuration](configuration.md)).
-4. The name of an existing regular file, relative to the working directory:
-   kind `file`, `origin` its absolute path. A file with a NUL byte in its
-   first 8 KiB, or a directory, is a `usage` error; a file that cannot be
-   read is `failed`/`io`.
-5. Anything else is kind `text`.
-
-The body is trimmed; an empty one, or no argument for a command that requires
-one, is a `usage` error. A body over 131072 bytes is cut at a UTF-8 boundary,
-ends with `[... input truncated at 131072 bytes ...]`, sets
-`input.truncated` and raises `input_truncated`.
-
-Reading an issue can fail: a 404 without a token is `failed`/`auth`; a 404
-with one is `failed`/`forge`, not retryable; a rate limit, a server error or
-a lost connection is `failed`/`forge`, retryable.
-
-## needs_human and --context
-
-A command that cannot go on without a decision returns status `needs_human`
-and exits 3. The envelope says what it needs and how to answer:
-
-```json
-"needs_human": {
-  "question": "Which service is affected?",
-  "options": [
-    { "id": "A", "label": "api" },
-    { "id": "B", "label": "web" }
-  ],
-  "resume": {
-    "argv": ["af", "example", "the login page crashes"],
-    "flag": "--context"
-  }
-}
-```
-
-`options` are lettered `A`, `B`, … in order (at most 26); none means free
-text is expected. `resume.argv` is the invocation as it was received, with
-`argv[0]` replaced by `af`, unless the command supplies its own: a job of the service that is blocked ends a
-command with `resume.argv` `["af", "jobs", "answer", <id>, "--wait"]` (and `--server <url>` when the server came
-from the flag), because resuming the original command would queue a second job, which the service refuses as a
-`duplicate_job`; `resume.flag` is `--context` all the same, and the answer is appended to it. Run it with
-`--context <answer>` appended to resume. A command that opts into `--context` takes it any number of times;
-the values reach the command verbatim and in order, and answers accumulate
-because the earlier `--context` values stay in `argv`. An empty value is a
-`usage` error. What an answer such as `B` means is up to the command.
-
-One input cannot be resumed this way: if the invocation used `--` to give an
-input that begins with a dash, `resume.argv` ends with that input, and a
-`--context` appended after the `--` is read as part of it. Put the answer
-before the `--` in that case.
-
-## --dry-run
-
-A command that opts into `--dry-run` and is given it gets a forge client that
-reads and does not write. The reads (`Authenticated`, `Close`,
-`GetRepository`, `ReadIssue`, `ListIssues`, `ListComments`,
-`ReadPullRequest`, `ReadChangedFiles`, `GetPRState`, `GetCIChecks` and
-`GetPRReviews`) pass through. Each write (`CreateIssue`, `UpdateIssue`,
-`CloseIssue`, `AddComment`, `AddLabels`, `RemoveLabel`, `CreateLabel`,
-`CreatePullRequest`, `PostReviewComment`, `MergePullRequest` and
-`ClosePullRequest`) sends nothing and returns an error wrapping
-`toolio.ErrDryRun`, and the envelope lists it as a side effect:
-`{kind: <method in snake_case>, target: <owner/repo#number, or owner/repo>,
-state: "planned"}`. Because it is the one client the shell hands out, a test
-at an HTTP server shows that no write request reaches the forge whatever the
-command does.
-
-The run directory is created under `--dry-run` too: it is local, ignored
-state, and the brief that a dry run exists to show is written there. A command
-that opted into `--dry-run` is told so (`Run.DryRun`) even when it uses no
-forge. The shell enforces `--dry-run` for the forge only; a command that
-commits or pushes honours the flag itself.
-
-## --timeout and signals
-
-A command that opts into `--timeout` runs under that deadline; the deadline
-covers the command, not the reading of its input. When it runs out, the
-command's context is cancelled, and the envelope is `failed`/`timeout`
-whatever the command returns after that. SIGINT, SIGTERM and SIGHUP (a closed
-terminal) cancel the command's context in the same way; if the command then
-returns an error the envelope is `failed`/`cancelled`, and a command that
-returns an outcome has finished its job, so its outcome stands. A command that
-has not returned 10 seconds after being cancelled, by a signal or by its
-deadline, is abandoned: the shell prints `failed`/`cancelled` or
-`failed`/`timeout` itself and exits 1. A second signal during those 10 seconds
-is ignored. A command that has something to put back may ask for longer
-(`Command.Grace`): `revert-check` asks for 10 minutes.
-
-## Interface versions
-
-`schema_version` is the version of the envelope's interface: its fields and
-their types. It is separate from the build, which `af --version` reports. A
-caller compares the major number with the one it was written for before it
-reads the rest of the envelope.
-
-Within a major version a change is additive only. These need no new major
-version: a new top-level field; a new field on an existing object; a new value
-in a field documented as an open set (a warning `code`, an error `category`,
-an artifact `kind`, an event `type`). These are breaking, and each
-bumps the major version: removing a field, renaming it, changing its type, or
-narrowing a field documented as a closed set (`status`, `exit_code`,
-`input.kind`, `side_effects[].state`, `usage.cost_source`). A change on purpose changes
-`toolio.SchemaVersion`.
-
-`5.0.0` is the envelope of the `af` binary. The earlier `triage`, `fix` and
-`impl` tools printed an envelope that reached 4.0.0, and this one is not
-compatible with it: it removes `ok`, `version`, `session_id`, `model`,
-`timings`, `untrusted_fields` and `report_file`, renames and retypes fields
-inside `needs_human`, `error`, `side_effects`, `artifacts` and `next`, and
-always prints every field. `docs/errata/05_old_envelope_fields.md` lists the
-differences.
-
-## Help
-
-`-h`, `--help`, `af help` and `af help <command>` print plain text on stdout
-and exit 0: the commands, or one command's synopsis and flags. It is the only
-output that is not JSON. `af help <command>` for a command that does not
-exist is a `usage` envelope, like any unknown command.
-
-## The run directory
-
-A command that declares one gets `<dir>/.agent-fox/run/<id>/` before it runs,
-with `<dir>` the `--dir`. It is created once the command is about to run, so
-an invocation that is refused leaves nothing behind. `<id>` is
-`YYYYMMDD_HHMMSS_<6 lowercase hex>`: the UTC time and three random bytes,
-drawn again if the directory exists, for up to five ids in all. The envelope's `run_id` is
-the id, and its artifacts list `{kind: "run_dir", path}`.
-
-`<dir>/.agent-fox/.gitignore` contains `*`, so Git ignores everything under
-`.agent-fox/`, itself included. It is created, opened exclusively so that runs
-starting together cannot clobber one another, only when it is missing; one
-that is there is left as it is, and the repository's own `.gitignore` is never
-edited.
-
-```
-<dir>/.agent-fox/
-  .gitignore          "*\n", created if it is missing; the repository's own .gitignore is never edited
-  run/<id>/
-    envelope.json     the envelope, byte for byte what stdout got
-    events.jsonl      the event stream
-    ledger.jsonl      what the command recorded (empty or absent unless it records)
-    report.md         if the command wrote a report; listed as {kind: "report", path}
-    panic.txt         if the command panicked
-    brief.<attempt>.md       the brief a brain was given, if the command runs a brain
-    hook.json                the hook configuration placed with it
-    submission.json          the accepted submission, if there is one
-    transcript.<attempt>.jsonl   the tool calls of an in-process brain, listed as {kind: "transcript", path}
-    brain-panic.<attempt>.txt    the stack of a brain that panicked
-    <brain>.<attempt>.json, <brain>.<attempt>.stderr    what a brain that runs as a process printed, listed as {kind: "brain_output", path}
-    brief.md, original.md, triage.json, diagnosis.md                      the files of a triage run
-    brief.md, original.md, run.json, fix.json, report.md    the files of a fix run
-```
-
-The ones from `brief.<attempt>.md` to the process files are written by a command that runs a brain
-([below](#brains-and-boxes)); `af` itself never reads a transcript. The files of
-a triage run are in [the files of a triage run](#the-files-of-a-triage-run), and
-those of a fix run in [the files of a fix run](#the-files-of-a-fix-run).
-
-### Events
-
-`events.jsonl` holds one JSON object per line, written as the event happens:
-
-```
-{"seq": <n>, "ts": <RFC 3339>, "run_id": <id or null>, "type": <type>, "data": <any>}
-```
-
-`seq` counts from 1; `run_id` is null without a run directory. The shell
-emits `run_start` (`{tool, argv, input_kind}`) first, a `warning`
-(`{code, message}`) for each warning, and `run_end` (`{status, exit_code,
-duration_ms}`) last, also for an invocation that was refused before its
-command ran. A command emits its own types through `Run.Emit`. A command that follows a job of the service emits `job_event`
-(`{seq, ts, job_id, attempt, type, data}`, the event document of the service as it was received) for each event it
-delivers. A command that
-runs a brain emits `step` (`{name, brain?}`, for the stages `brief`, `brain` and
-`submission`; `triage` names its own, `preflight`, `brief`, `brain` and `land`), `heartbeat` (`{brain, elapsed_ms}`, every 30 seconds while the
-brain runs) and `tool_call` (`{brain, tool, decision, reason, ok, duration_ms}`,
-once for each call that reached the gate; it carries no argument and no result, because events can go
-to an audit and arguments can hold the content of files).
-
-### The ledger
-
-`ledger.jsonl` is append-only: `{seq, ts, kind, data}` per line, `seq` from 1.
-A command records what it measured with `RunDir.Record(kind, data)` and reads
-it back with `RunDir.Ledger()`; `toolio.OpenRunDir(dir, id)` opens an
-existing run, for the commands that carry one on, and refuses an id that is
-not of the form of a run id. The shell records nothing in the ledger. A command
-that runs a brain records `box_open {provider, image, network, placement}`, `box_sync {head}` (the host's
-short HEAD, or "" for a repository with no commit, also at every later sync), `box_export {path}`, `box_close
-{provider}`, `brief_placed {attempt, bytes, sha256, prefix_sha256}`,
-`brain_start {brain, attempt}`, `brain_end {brain, stop_reason,
-submitted_claim, cost_usd, cost_source, turns, duration_ms, input_tokens,
-output_tokens}`, for a brain that runs
-as a process `box_probe {binary, ok, version}`, `brain_process {brain, exit_code,
-duration_ms}`, and, for what it
-found in the box after the brain, `submission_accepted {attempt, sha256}`,
-`submission_invalid {attempt, problems}`, `submission_stale {attempt,
-file_attempt}` or `submission_absent {attempt}`. `triage` adds `triage.input`,
-`triage.brief`, `triage.submission`, `triage.question` and `triage.land` (see
-[the files of a triage run](#the-files-of-a-triage-run)), and `fix` adds
-`fix.brief`, `fix.run`, `fix.question`, `apply`, `measure` and `refusal` (see
-[the files of a fix run](#the-files-of-a-fix-run)).
-
-## The agent-fox command line
-
-`agent-fox` is the long-running service of agent-fox: one process, started from one configuration
-file, that keeps its state in one SQLite file and asks [hub](https://github.com/agent-fox-dev/hub) who
-is calling. `make build` writes it to `bin/agent-fox` with the same version, commit and build time as
-`bin/af`. It is not a command of the shell above: it has no envelope, and it runs until it is stopped.
-[configuration.md](configuration.md#the-agent-fox-service) describes the file, and [api.md](api.md) what
-it serves.
+| `af triage run` | `--run-id`, `--dir`, `--budget`, `--max-turns` | `{run_id, submitted}` |
+| `af fix run` | `--run-id`, `--dir`, `--brain`, `--sandbox`, `--budget`, `--max-turns`, `--script` | `{run_id, round, submission, submission_path, question, submitted}` |
+
+Both default to the `--timeout` of their loop. `af triage run` reads the directory in
+place, without a copy, and says so with `box_unconfined`. See
+[architecture.md](architecture.md#brains-that-run-as-a-process).
+
+## The agent-fox command
+
+`agent-fox` is the long-running service. It reads one configuration file, keeps its
+state in one SQLite file, and asks [hub](https://github.com/agent-fox-dev/hub) who is
+calling. It does not use the envelope: it runs until stopped and logs JSON to stderr.
+Its file is described in [configuration.md](configuration.md#the-agent-fox-service)
+and its API in [api.md](api.md).
 
 ```
 agent-fox [--config PATH]
@@ -1796,47 +1082,17 @@ agent-fox --help
 
 | Flag | What it does |
 |---|---|
-| `--config PATH` | The configuration file. Without it the file is the first that exists of `./config.toml` and `$XDG_CONFIG_HOME/agent-fox/config.toml` (`$HOME/.config/agent-fox/config.toml` if `XDG_CONFIG_HOME` is unset, empty or not an absolute path). If none exists, start fails and the error lists the paths it tried. |
-| `--version` | Prints the version document, one JSON object, and exits 0. It reads no configuration. |
-| `--help` | Prints the usage on stdout and exits 0. It reads no configuration. |
+| `--config PATH` | The configuration file. Default: the first that exists of `./config.toml` and `$XDG_CONFIG_HOME/agent-fox/config.toml` (`~/.config/agent-fox/config.toml`). If none exists, the start fails and lists the paths tried. |
+| `--version` | Print the version document (as for [`af --version`](#help-and-version), with the name `agent-fox`) and exit 0. `GET /version` returns the same. |
+| `--help` | Print usage and exit 0. |
 
-```
-$ agent-fox --version
-{
-  "name": "agent-fox",
-  "version": "v0.1.0",
-  "commit": "f79e3fe",
-  "build_time": "2026-10-22T08:14:28Z",
-  "go_version": "go1.27.2"
-}
-```
+An unknown flag, a missing flag value or a positional argument prints the error and
+usage on stderr and exits 2.
 
-The document is the one of [`af --version`](#the-af-command-line), with the name `agent-fox`, and it is
-what `GET /version` answers. An unknown flag, a flag without its value, and a positional argument print
-the error and the usage as plain text on stderr and exit 2; it is the one thing on stderr that is not a
-JSON record.
+### Logs
 
-### What it writes
-
-Nothing is written to stdout but the output of `--version` and `--help`. Stderr is a log: **one JSON
-record on each line** (`log/slog`), from the first line the process writes. The records are:
-
-| `msg` | `level` | Attributes | When |
-|---|---|---|---|
-| `start failed` | `ERROR` | `error` | The service could not start. It is the only record such a run writes, and the `error` names the key, file, address or reason (see below). |
-| `hub.url is plain http to a host that is not a loopback address: caller tokens and workspace tokens cross the link in clear` | `WARN` | `hub_host` | `hub.url` is `http` and its host is not `localhost` or a loopback address. The service starts all the same. It is written after the listener is bound and before `listening`. |
-| `listening` | `INFO` | `addr` | The listener is bound. `addr` is the address it is bound to, so that `listen = "127.0.0.1:0"` gives a port to read here. |
-| `request` | `INFO` | `method`, `path`, `status`, `duration`, `user` | One for each request. `path` has no query, `duration` is in nanoseconds, and `user` (the hub user id) is there when the request showed who is calling. The `Authorization` header and the bodies are never logged. |
-| `hub is unavailable` | `WARN` | `error` | A call to hub could not be answered; the request got `502`. |
-| `panic in handler` | `ERROR` | `method`, `path`, `panic`, `stack` | A handler panicked. The request got `500`; the process goes on. |
-| `the subscription could not be stored`, `the subscriptions could not be listed`, `the subscription could not be read`, `the subscription could not be removed` | `ERROR` | `error` | The database failed on a request; the request got `500`. |
-| `an unexpected failure of the check of the caller` | `ERROR` | `error` | Checking the caller with hub failed in a way that is neither a refusal nor hub being unavailable; the request got `500`. |
-| `the listener failed` | `ERROR` | `error` | The listener failed after the start. The service exits 1. |
-| `requests in flight did not finish within the grace period` | `WARN` | `error` | The 30 seconds ran out while the service stopped; it closed what was open and exited 0 all the same. |
-| `the database could not be closed` | `ERROR` | `error` | The database reported an error as it was closed at the end. |
-| `http: …` | `WARN` | none | What Go's HTTP server itself reports (a handler that wrote its status twice, for one), as a record and not as a line of text. |
-
-The key file, a token and the `Authorization` header are in none of them.
+stdout carries only `--version` and `--help`. stderr is a log with one JSON record per
+line:
 
 ```
 {"time":"2026-10-22T10:14:39.492024+02:00","level":"ERROR","msg":"start failed","error":"config file /etc/agent-fox/config.toml: unknown key server.external_url"}
@@ -1844,27 +1100,221 @@ The key file, a token and the `Authorization` header are in none of them.
 {"time":"2026-10-22T10:14:47.728386+02:00","level":"INFO","msg":"request","method":"GET","path":"/healthz","status":200,"duration":66708}
 ```
 
+| `msg` | Level | When |
+|---|---|---|
+| `start failed` | ERROR | The service could not start. The only record of such a run; `error` names the key, file, address or reason. |
+| `hub.url is plain http to a host that is not a loopback address: …` | WARN | `hub.url` uses plain `http` to a remote host. The service starts anyway. |
+| `listening` | INFO | The listener is bound; `addr` is the address (useful with port `0`). |
+| `request` | INFO | One per request: `method`, `path` (no query), `status`, `duration` (ns) and `user` (the hub user id, once known). |
+| `hub is unavailable` | WARN | A call to hub failed; the request got 502. |
+| `panic in handler` | ERROR | A handler crashed; the request got 500 and the service goes on. |
+| `the subscription could not be stored` (and `listed`, `read`, `removed`) | ERROR | A database failure; the request got 500. |
+| `an unexpected failure of the check of the caller` | ERROR | Checking the caller with hub failed unexpectedly; the request got 500. |
+| `the listener failed` | ERROR | The listener failed while serving. Exit 1. |
+| `requests in flight did not finish within the grace period` | WARN | Shutdown waited 30 seconds; the service exits 0 anyway. |
+| `the database could not be closed` | ERROR | Closing the database at exit failed. |
+| `http: …` | WARN | A message from Go's HTTP server. |
+
+The jobs, the worker and the label poll log more records; they are described in
+[api.md](api.md). Tokens, the key file's content and the `Authorization` header are
+never logged.
+
 ### Exit codes
 
-| Exit code | Meaning |
+| Code | Meaning |
 |---|---|
-| `0` | The service was stopped by SIGINT or SIGTERM, or it printed the version or the usage. |
-| `1` | The listener could not be bound (the address is in use, not allowed, does not resolve, or is not this host's), or the listener failed once the service was serving. |
-| `2` | The command line, the configuration, the key file or the database is wrong, or a database was written by a newer `agent-fox` (it records a migration this binary does not know). The operator has to change a file. |
+| 0 | Stopped by SIGINT or SIGTERM, or printed the version or usage. |
+| 1 | The listener could not be bound (address in use, not allowed, unresolvable), or failed while serving. |
+| 2 | The command line, configuration, key file or database is wrong, or the database was written by a newer `agent-fox`. An operator has to fix a file. |
 
-A failed start writes exactly one record (`start failed`) and nothing listens. The `error` names what
-is wrong: the dotted key of the configuration (`unknown key server.external_url`,
-`hub.auth_cache_ttl: 16m is outside 1s to 15m0s`, `the environment variable HUB is not set` with the
-key that holds it), the key file and the reason (it is missing, is not base64, is not 32 bytes, or has a
-group or other permission bit set), the database file, or `server.listen` with the address and the reason.
+A failed start writes one `start failed` record whose `error` names the problem, such
+as `unknown key server.external_url`, `hub.auth_cache_ttl: 16m is outside 1s to 15m0s`,
+`the environment variable HUB is not set`, or a key file that is missing, not base64,
+not 32 bytes, or readable by group or others.
 
 ### Starting and stopping
 
-The service starts in this order: the configuration, the key file, the database (it is created with its
-directory when it is missing, and migrated), and the listener. A configuration or a key that is wrong
-leaves no database behind.
+The service loads, in order, the configuration, the key file and the database (created
+and migrated if needed), then binds the listener. A bad configuration or key leaves no
+database behind.
 
-On SIGINT or SIGTERM the service stops accepting connections, gives the requests in flight up to 30
-seconds to finish, closes the database and exits 0. A second signal while it waits changes nothing (only
-SIGKILL ends it sooner). `GET /healthz` answers while the process serves; `GET /readyz` answers when the database does.
+On SIGINT or SIGTERM it stops accepting connections, gives requests in flight up to 30
+seconds, closes the database and exits 0. A second signal changes nothing; only
+SIGKILL stops it sooner. `GET /healthz` answers while the process runs; `GET /readyz`
+answers once the database does.
 
+## Reference
+
+### Error categories
+
+| `error.category` | Meaning |
+|---|---|
+| `usage` | The invocation is wrong. Status `usage`. |
+| `auth` | A credential is missing or refused: no forge token for a write or a private issue, no model credential (`fix_hint.env` names the variable), a missing or refused service credential (401), or a workspace token hub refuses (422, hint `--hub-token-file`). |
+| `forge` | The forge could not be reached or refused. Retryable after a rate limit, server error or lost connection; not after a refusal. |
+| `io` | A file, stdin or the run directory could not be read or written, including `~/.af/config.toml`. |
+| `config` | A configuration file cannot be used: `.agent-fox/gate.json`, `.agent-fox/guard.json`, `~/.af/config.toml`, or the model provider's settings. The message names the file. |
+| `cancelled` | `af` received SIGINT, SIGTERM or SIGHUP. |
+| `timeout` | `--timeout` ran out, or the model ran out of time without a submission. Not retryable; `fix_hint` suggests twice the value. |
+| `internal` | A bug: an unexpected error or a crash. |
+| `restore` | A tree changed for measuring could not be put back, or a leftover `.agent-fox/revert.patch` is in the way. The message names the patch. |
+| `git` | git failed in a way the command cannot work around. |
+| `sandbox` | The box could not be opened, synced or exported. Not retryable when the engine is unreachable or `af` in the image is missing or broken; retryable when the image cannot be pulled or a sync or export fails. When the provider was the default, `fix_hint` names `--sandbox` and `AF_SANDBOX`. |
+| `brain` | The agent returned an error without a submission (retryable) or crashed (not retryable; the stack is in `brain-panic.<attempt>.txt`). |
+| `no_result` | The agent ended without a valid submission. Retryable. |
+| `budget` | The agent used its cost or turn limit without a submission. Not retryable; `fix_hint` suggests twice the limit. |
+| `submission` | A submission was refused. Retryable. No command ends with it, since a refusal goes back to the model. |
+| `preflight` | A fact about the repository stops `af fix` before it spends anything: a dirty tree, no runnable check (hint `--no-verify`), or no `origin` remote. Not retryable. |
+| `service` | The agent-fox service could not be reached or gave an unusable answer. See [the mapping](#how-service-answers-map-to-statuses). |
+| `conflict` | The service refused because of a job's or workspace's state (409): `invalid_state`, `duplicate_job`, `not_subscribed`, `token_unreadable`. Not retryable. |
+| `hub` | The service could not reach hub (502). Retryable. |
+| `job_cancelled` | A job `af` was following was cancelled on the service. Not retryable. |
+
+### Warning codes
+
+A warning never changes the status. A warning identical to an earlier one is recorded
+once.
+
+**Any command**
+
+| Code | Raised when |
+|---|---|
+| `input_truncated` | The input was cut at 131072 bytes, or an issue has more comments than were read. |
+| `comments_unreadable` | The issue was read but its comments were not. |
+| `envelope_unwritable` | `envelope.json` could not be written to the run directory. |
+| `events_unwritable` | An event could not be written to the run directory. Raised once. |
+| `invalid_warning_code` | A command raised a malformed warning code; the message starts with it. |
+
+**Fact commands**
+
+| Code | Raised when |
+|---|---|
+| `check_unavailable` | `lang detect`: a check's program is not installed. The check stays, with `available: false`. |
+| `no_checks` | `gate run`: no check can run here. Nothing ran. |
+| `tree_changed_during_gate` | `gate run`, `fix`: the checks changed the tree. |
+| `fix_not_proven` | `revert-check`, `fix`: the tests are not proven to test the change, so it must not close its issue. |
+
+**Sandboxes and brains** (`triage`, `fix`)
+
+| Code | Raised when |
+|---|---|
+| `box_unconfined` | A `local` box was opened (no isolation), or `triage run` read a directory in place. |
+| `box_af_version_mismatch` | The `af` inside the box image is another version than the running one. The run goes on; the host re-checks everything. |
+| `box_close_failed` | The box could not be closed. |
+| `brain_usage_unavailable` | The agent in the box left no readable usage, so the cost is reported as 0. |
+| `brain_output_unreadable` | The agent's output could not be copied out of the box. |
+| `brain_error` | The agent failed or crashed after it had submitted. The submission stands. |
+| `model_unpriced` | The model has no known price, so no cost is reported. |
+| `map_outline_skipped` | The repository map lists file names only, because the repository is too large. |
+| `submission_invalid` | The submission file did not count; the message lists the problems. |
+| `submission_claim_mismatch` | The agent says it submitted and there is no valid submission, or the reverse. The file decides. |
+| `submission_not_removed` | A submission file `af` did not accept could not be removed. |
+| `transcript_unwritable` | The transcript could not be written in full. |
+| `ledger_unwritable` | A ledger entry could not be written. |
+
+**af triage**
+
+| Code | Raised when |
+|---|---|
+| `issue_closed` | The issue is closed (also `fix`). The run goes on. |
+| `report_changed_during_triage` | The issue body changed during the run. The current report is kept. |
+| `body_too_long` | The body with the diagnosis would be too long, so the diagnosis was posted as a comment. |
+| `labels_failed` | The diagnosis was written but adding labels failed. |
+| `original_report_unparsed` | The body starts with the triage marker but cannot be read back, so all of it is kept as the report. |
+
+**af fix**
+
+| Code | Raised when |
+|---|---|
+| `baseline_failing` | The checks already fail before any change. |
+| `question_not_found` | No earlier run asked the question a `--context` answers. |
+| `protected_path_reverted` | The change touched a protected path, which was put back. One per path. |
+| `criteria_unmet` | An acceptance criterion is `unmet` or `partial`, so the pull request is a draft. |
+| `not_verified` | The change landed with `--no-verify`. Status `unverified`. |
+| `push_retried` | A push failed and is being retried (up to 3 attempts). |
+| `commit_hook_failed` | A repository hook refused the commit; the change was parked. |
+| `pull_request_failed` | The branch is pushed but the forge refused the pull request. |
+| `fix_not_landed` | The change did not land and is parked on a branch; the message names it. |
+| `push_failed` | A parked branch could not be pushed; `next` names the push. |
+| `attempt_failed` | The last round produced no report; the change is parked as it is. |
+| `park_failed` | The run was stopped and the change could not be parked; it is in the working tree. |
+| `question_tree_kept` | The run ended on a question and an earlier round's change could not be put back. |
+| `report_unwritable` | `report.md` could not be written. |
+
+**Service client**
+
+| Code | Raised when |
+|---|---|
+| `server_insecure` | The server is plain `http` to a non-loopback host. |
+| `credential_file_permissions` | `~/.af/config.toml` is readable by group or others (Unix). |
+| `attempt_envelope_unavailable` | The envelope of the job's last attempt could not be fetched. |
+
+Jobs run on the service add the worker's own warnings to their envelopes; see
+[api.md](api.md#what-the-worker-adds-to-an-attempt).
+
+### The run directory
+
+Commands that run a model (`af triage`, `af fix` and their `run` commands) create
+`<dir>/.agent-fox/run/<id>/` just before they start, also under `--dry-run`. The id is
+`YYYYMMDD_HHMMSS_<6 hex>` in UTC; it is the envelope's `run_id`, and the directory is
+listed as the artifact `run_dir`. An invocation that is refused leaves nothing behind.
+
+`.agent-fox/` holds a `.gitignore` containing `*`, so git ignores all of it. `af`
+creates that file only when it is missing and never edits the repository's own
+`.gitignore`.
+
+```
+<dir>/.agent-fox/
+  .gitignore                  "*"
+  run/<id>/
+    envelope.json             the envelope, exactly as printed
+    events.jsonl              the event stream (below)
+    ledger.jsonl              what the command recorded and measured
+    report.md                 a report, if the command wrote one
+    panic.txt                 the stack trace, if the command crashed
+    brief.<attempt>.md        the brief given to the agent
+    hook.json                 the tool-gate settings placed with it
+    submission.json           the accepted submission, if any
+    transcript.<attempt>.jsonl  the agent's tool calls (in-process agent)
+    brain-panic.<attempt>.txt   the stack trace of a crashed agent
+    agentkit.<attempt>.json, agentkit.<attempt>.stderr   output of an agent that ran inside the box
+    …                         the command's own files: see af triage and af fix
+```
+
+Delete a run directory when you no longer need it. Only a later run of the same input
+with `--context` reads an old one, to find the question it asked. Other files under
+`.agent-fox/` are described in [configuration](configuration.md#repository-files).
+
+**Events.** `events.jsonl` has one JSON object per line, written as things happen:
+
+```
+{"seq": 1, "ts": "<RFC 3339>", "run_id": "<id>", "type": "<type>", "data": { }}
+```
+
+| `type` | `data` |
+|---|---|
+| `run_start` | `{tool, argv, input_kind}`. Always first. |
+| `warning` | `{code, message}`, one per warning. |
+| `step` | `{name, brain?}`: a stage of the run. `triage` uses `preflight`, `brief`, `brain`, `land`. |
+| `heartbeat` | `{brain, elapsed_ms}`, every 30 seconds while the agent runs. |
+| `tool_call` | `{brain, tool, decision, reason, ok, duration_ms}` for each tool call that reached the gate. Arguments and results are left out, since they can hold file content. |
+| `job_event` | A service event, as received, while a client command follows a job. |
+| `run_end` | `{status, exit_code, duration_ms}`. Always last. |
+
+The ledger's entries are described in
+[architecture.md](architecture.md#the-run-directory-and-ledger).
+
+### Envelope versioning
+
+`schema_version` versions the envelope's fields and types, separately from the build
+that `af --version` reports. Check the major number before reading the rest.
+
+Within a major version, changes are additive: new top-level fields, new fields on
+existing objects, and new values in open sets (warning codes, error categories,
+artifact kinds, event types). These need a new major version: removing, renaming or
+retyping a field, or changing a closed set (`status`, `exit_code`, `input.kind`,
+`side_effects[].state`, `usage.cost_source`).
+
+`5.0.0` is not compatible with the envelope of the earlier `triage`, `fix` and `impl`
+tools (up to `4.0.0`). [errata/05_old_envelope_fields.md](errata/05_old_envelope_fields.md)
+lists the differences.

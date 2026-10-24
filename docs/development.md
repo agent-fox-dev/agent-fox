@@ -1,211 +1,191 @@
-# Development
+# Development guide
 
-How to build `af`, how the code is laid out, where it keeps its state, and
-what a change to it has to leave true. The rules for every coding session are in
-[AGENTS.md](../AGENTS.md); the reference of what `af` does is in
-[cli.md](cli.md).
+How to build agent-fox, run its checks, find your way around the code, and
+make a change. For what the binaries do, see the [CLI reference](cli.md) and
+the [HTTP API](api.md); for how they are built inside, see
+[architecture.md](architecture.md). Coding agents also follow the policy in
+[AGENTS.md](../AGENTS.md).
 
-## Building and checking
+## Contents
+
+- [Prerequisites](#prerequisites)
+- [Building](#building)
+- [Checks and tests](#checks-and-tests)
+- [Repository layout](#repository-layout)
+- [Test infrastructure](#test-infrastructure)
+  - [The fake hub](#the-fake-hub)
+  - [The fake forge](#the-fake-forge)
+  - [The fake af](#the-fake-af)
+  - [The scripted brain](#the-scripted-brain)
+  - [Testing a brain](#testing-a-brain)
+  - [Tests and the sandbox](#tests-and-the-sandbox)
+  - [Property and fuzz tests](#property-and-fuzz-tests)
+- [Opt-in tests](#opt-in-tests)
+- [Adding a command](#adding-a-command)
+- [Container images](#container-images)
+- [Skills](#skills)
+- [Documentation](#documentation)
+
+## Prerequisites
+
+| Tool | Why |
+|---|---|
+| Go 1.27 | Every `go.mod` says `go 1.27`. |
+| git | The tests build their own repositories, and the worker clones through hub. The worker needs git 2.31 or later. |
+| A checkout of [agentkit-go](https://github.com/agent-fox-dev/agentkit-go) next to this one | `go.mod` replaces the AgentKit modules with `../agentkit-go`. |
+| golangci-lint (optional) | `make lint` uses it, and skips with a message when it is missing. |
+| podman (optional) | Only for the [opt-in tests](#opt-in-tests) and for [building the images](#container-images). |
+
+Clone AgentKit beside this repository:
 
 ```bash
-make help       # every target, with a line on each
-make check      # gofmt + go vet + golangci-lint + the short tests: the command to run before a commit
-make build      # go build ./..., and bin/af and bin/agent-fox
-make doc        # Go package docs of the public packages, under docs/generated
+git clone https://github.com/agent-fox-dev/agentkit-go ../agentkit-go
 ```
 
-`make check-release` is `make check` with the full tests (`go test` without `-short`). It is
-for a person to run before a release or a merge, and is not part of an agent session.
-`make lint` runs golangci-lint with the configuration in `.golangci.yml`, and is skipped,
-with a message, when golangci-lint is not installed.
-
-`make check` needs no network, no token and no API key. The tests build their
-own git repositories in temporary directories, with an identity and a
-configuration of their own, and skip when `git` is missing; the checks they
-run are small shell scripts, and skip when there is no `sh`. A few start a
-server on the loopback interface, so a sandbox that forbids binding a local
-port fails them. AgentKit is a sibling checkout (see the [README](../README.md)).
-
-Run `make doc` before you update the documentation, and update it in the same
-change as the code: a document that is out of date is a regression.
-
-## Layout
-
-| Package | What it is |
-|---|---|
-| `cmd/agent-fox` | The service binary. `main.go` parses the flags (`--config`, `--version`, `--help`) and `run.go` starts the service: configuration, key, state file, server, listener, and the stop on a signal; the exit codes are 0 (stopped), 1 (the listener) and 2 (configuration, key or database). It is wiring, as `cmd/af` is. |
-| `internal/service/config` | The `config.toml` of the service: lookup, the seven keys, `${NAME}`, defaults, validation; plain errors that name the dotted key. |
-| `internal/service/secrets` | The key file and the sealing of workspace tokens (AES-256-GCM, the slug as additional data). |
-| `internal/service/store` | The SQLite state file: `af_`-prefixed tables, append-only migrations in `af_schema_migrations`, and the subscriptions (`Upsert`, `Get`, `List`, `Delete`, and `Token`, the opened token for code in this process). |
-| `internal/service/ttl` | The bounded cache with expiry that holds hub's answers; it takes its clock as a function. |
-| `internal/service/api` | The HTTP surface: probes, the error envelope, the guards that authenticate a caller and check the workspace against hub, the subscription routes, the jobs routes (make, cancel, answer, retry, list, read, the stored envelope and report, the event stream), and the request log. |
-| `internal/service/jobs` | The jobs layer: the documents and the store (`af_jobs`, `af_attempts`, `af_events`), creating and validating jobs, the adapter over `aflib/jobqueue` (per-workspace order, `[workers].count` slots, transient retries, shutdown and restart, the sweep), the `Runner` seam (the binary wires the worker), ending attempts, cancel, answer, retry and unsubscribe, the event log with its broker and stream, and the retention purge. |
-| `internal/service/jobs/fakerunner`, `internal/service/jobs/fakeclock` | The fake runner that a test scripts (return, error, transient failure, panic, block) and records the inputs of, and the fake clock whose waits and tickers a test advances; exported for the tests of the specs that follow. |
-| `internal/hub` | The client of hub's API, the one place that knows hub's paths, field names and answers: who a token belongs to and whether it sees a workspace, and the calls of an attempt (the record and variables of a workspace, sessions, events, sandbox leases, the push of a branch). |
-| `internal/service/labels` | The one table of the label protocol: the seven labels (suffix, kind, colour, description) in order, and their names under a prefix. Standard library only, so that the subscribe step, the worker, the cancel cleanup and the poll all import it. |
-| `internal/service/labelcleanup` | The hub-backed cancel cleanup, the `jobs.Cleaner` that `cmd/agent-fox` wires: one try reads the token, the workspace record and the issue through hub, removes the status labels the cancelled job accounts for and puts back its request label, and classes every failure into its outcome. The layer's side (the mark, the cleanup columns of `af_jobs`, the background tries, the sweep's retries, the unsubscribe's wait) is in `internal/service/jobs/cleanup.go`. |
-| `internal/service/poll` | The label poll: the `Supervisor` that keeps one loop for each subscribed workspace (`supervisor.go`, `loop.go`), the cycle (`cycle.go`, `interval.go`), the rules for a listed issue (`handler.go`), the reconciliation of the poll's records with their jobs (`reconcile.go`), the classes of failure and the log-once rule (`failure.go`), and the store of the records, the table `af_poll_requests` (`store.go`). |
-| `internal/service/reconcile` | The reconciliation pass: it gives back the sandboxes that attempts left held, when the service starts and every 15 minutes. |
-| `internal/hub/fakehub` | The `httptest` hub of the tests: a table of tokens, users and workspaces, the state an attempt works on (workspaces, issues, pull requests, sessions, leases), a git smart-HTTP server that takes only the Basic PAT, an in-process gateway for the leases, a record of every request, and failures, hang-ups, delays, redirects and oversize answers by route on demand. It serves hub's label route, `POST /api/v1/workspaces/{slug}/labels`, for any slug a token is granted (added or not), keeps each slug's labels (`Labels`, `PutLabel`), and calls a test's `OnRequest` with each request as it arrives. |
-| `cmd/af` | The binary. `main.go` keeps the identity of the build (the ldflags variables), makes the shell with `afcmd.New`, registers the commands of the client of the agent-fox service on it, and hands the process to it. The client is here and in no other package, so that a caller of `afcmd.New` never has it: `client_common.go` (the server, the credential and the failures of the client), `workspace.go`, `jobs.go`, `jobs_submit.go` (`af jobs submit`) and `client_follow.go` (the following of a job and what it ends with). The tests that build the binary and run it are here. |
-| `internal/afclient` | The library of the client: `ParseServer` (the server URL), `LoadCredential` and the editing of the credential file (`ReadExisting`, `ExistingFile.With`, `StoreCredential` behind an `FS`), `ReadSecretFile`, the `Client` (`Do`, which bounds the request, reads at most 8 MiB, refuses redirects and maps every answer to an `*Error`), the event stream (`Follow`, in tries, with an idle cut and a backoff on an injectable `Clock`) and `Envelope`. It returns plain and typed errors, never imports `internal/toolio` and never exits; the commands of `cmd/af` map its errors to the envelope. `fakeclock` is its clock for tests: the pauses of a follower cost nothing and are recorded. |
-| `internal/worker` | The worker: the production `Runner` of the jobs layer, which carries out one attempt of a job against a subscribed hub workspace. It resolves the attempt (the token and label prefix of the subscription, the record and the variables of the workspace from hub, the refusals that need no box and no model, the input as an issue URL on the workspace's repository), opens the hub session, and clones the workspace into `clone/` with a git that holds the PAT only as a scoped header for the commands that reach hub, publishes a pushed branch through hub, leases the sandbox (a gateway box registry of the attempt, the timeout cut to the lease, the release on every path), runs the loop in process with the seams of `internal/afcmd`, and mirrors the outcome to the issue as labels and comments, with the cleanup of a cancel and of a shutdown, and reports the usage, the events and the end of the session to hub. Infrastructure failures are transient errors; everything else is an envelope. |
-| `internal/afcmd` | The commands of `af`, importable so that `agent-fox` can run them in its own process. Each command is a file here (`lang.go`, `gate.go`, `revert_check.go`, `triage.go` for the two of `af triage`, and `fix.go` and `fix_run.go` for the two of `af fix`, with `fix_start.go` for the start of a fix run) that registers it, with its flags and its result. `afcmd.New(&afcmd.Config{…})` makes the shell, which runs a command line (`Main`) or a call from Go (`Invoke` with a `toolio.Call`, whose options for `triage` and `fix` are `afcmd.LoopOptions` in place of their flags). The zero `Config` is `af`; a caller that runs the commands in process supplies, per shell, the forge factory, the box and brain registries, the options of the brains with their lookup of the environment, the git runner, and the questions that the `--context` values answer, and the commands use them in place of the package variables and the process environment. |
-| `internal/toolio` | The command shell: the envelope, exit codes, coded warnings, `--dir` and `--timeout`, the positional input, the run directory. |
-| `internal/agentdir` | The `.agent-fox/` directory and its `.gitignore`, and the atomic write the files the host keeps in it are made with (the submission core's `RootWriter` is the root-confined variant of it). |
-| `internal/gitx` | The git and process invocations, hermetic and issued from Go: the runners, the NUL-separated listings of files and of changed paths. |
-| `internal/project` | What a repository is written in and how it is checked: the languages, the gate table (`gate.json`, the Makefile, the manifests), the suite forms, the programs, and which paths are tests. |
-| `internal/checks` | The file view and the tree hash; the gate engine and its cache (`.agent-fox/gate/`), the labels and the comparison of two results. |
-| `internal/conform` | The revert check: whether the tests of a change fail without it. |
-| `internal/policy` | The guard: the expansion of the words of the commands the hands' reader finds, the rules, the policy files, and the decision for a tool call. |
-| `internal/repomap` | The repository map at a token budget. |
-| `internal/box` | The box that holds a brain's tree: a registry of providers (`podman` and `local`; the `gateway` of a lease is made for one attempt and held only in the registry of that attempt), `Open` and `Sync` (the checkout goes in with its `.git`), a read-only `FS`, `WriteFile` under `.agent-fox/`, `Export` (without `.git`), `Exec` (a command in the box, at its root), `Close`, and `With`, which closes on every path. `Here` is a session in place over a directory, for a process that is in a box already. Every name of the hands' sandbox module that is not a type is in `adapter.go`. |
-| `internal/submission` | The submission protocol: `Kind`, `Submit` (the path to a submission file for a brain that is af's own: it validates before it writes), `Check` (what the host asks of a file it did not write), `RootWriter`, and `Command`, the `af <agent> submit` command of a kind. |
-| `internal/brain` | The `Brain` contract and its registry, the shared flags, `BoxRequest` (the request for a box from the brain, the provider and the tools), `Execute` (place the brief, run the brain, decide from the file), the tool gate and the transcript, the `scripted` brain and the `agentkit` brain, and `Process`, which runs `af` as the process of the driver in a box (probe, environment, output). |
-| `internal/fakeaf` | The fake `af` of the tests: the test binary run under that name (see [the fake af](#the-fake-af)). |
-| `internal/optin` | The gates of the opt-in tests (see [Opt-in tests](#opt-in-tests)). |
-| `containers` | The Containerfiles of the sandbox image (`containers/sandbox/`) and of the tools image (`containers/tools/`: the sandbox image with `af`), built by `make build-containers`. |
-| `internal/triage` | `af triage` without the shell: the diagnosis and its validator, the issue body (`Render`, `Extract`), the brief, the preflight, the landing on a forge, the submission kind and the tool allowlist. `fakeforge` is the GitHub and GitLab server (`httptest`) that its tests and those of `internal/afcmd` run against. |
-| `skills` | The skills of the repository (`skills/af-*`) and the Go package that embeds them (`//go:embed af-*`); `skills.Triage()` is the body of `af-triage` that the brief carries. `make install-skills` and `make uninstall-skills` loop over `skills/af-*` only. |
-
-The five packages from `project` to `repomap` (not the three after them, which are
-the library of the agent commands and use `toolio`'s failures and run directory;
-`internal/triage` imports none of the shell, the box or the brains itself)
-return plain Go results and
-errors. They never import `internal/toolio`, never call `os.Exit` or
-`log.Fatal`, and never panic on bad input; a test reads their sources to see
-that. The commands in `internal/afcmd` map their errors onto the failure categories of
-the envelope. The loops of later specs call the packages in process, without
-the shell.
-
-Two files bind to AgentKit's hands, each in one place so that a change in them
-has one place to follow: `internal/policy/handsguard.go` (the guard, a floor
-under the rules, as a variable a test can replace) and
-`internal/repomap/handsoutline.go` (the outline behind the `Outliner`
-interface).
-
-## What is kept in `.agent-fox/`
-
-Everything `af` keeps for a checkout is under `<dir>/.agent-fox/`, which has a
-`.gitignore` of its own that ignores it all. `.agent-fox/gate/` and
-`.agent-fox/revert.patch` are where the gate and the revert check keep theirs. It is never part of the file view,
-so nothing in it changes a tree hash.
-
-| Path | Written by | Content |
-|---|---|---|
-| `gate.json`, `guard.json` | `lang detect --write`, a person or a loop | The gate table and the guard policy; see [configuration.md](configuration.md). |
-| `gate/<id>/NN-<slug>.log` | `gate run` | The full output of the NNth check that ran. |
-| `gate/<id>/result.json` | `gate run` | The result for the key `<id>`: the SHA-256 of the tree hash, the checks and the runner mode, 12 hex characters. Written after the logs, through a temporary file and a rename. |
-| `revert.patch` | `revert-check` | The change of the non-test paths, as a binary patch, while the check has it out of the tree. Made exclusively, it is the claim on the checkout. It is removed when the change is applied again. One that is left was left by a check that was killed or that could not apply it again, and the next check refuses until someone has looked at it. |
-| `run/<id>/` | the shell | The run directory of a command that has one; see [cli.md](cli.md#the-run-directory). None of the ring-1 commands makes one. A command that runs a brain adds its briefs, hook, accepted submission, transcripts and a panic's stack; the box has a `run/<id>/` of its own with `brief.md`, `run.json`, `hook.json` and `submission.json`. |
-
-## Tests
-
-- A test of a command goes through `newApp().Main` with streams of its own, or
-  through the built binary when it is about signals or the process (`buildBinary`
-  runs `make build` into a temporary directory).
-- A test that needs git makes its repository with a helper that skips when git
-  is not there, and gives it an identity on the command line and an environment
-  with no global git configuration. A test that needs a shell skips when there
-  is none. `TestSuitesPassWithoutGit_TS_06_75` runs the suites of these packages
-  with nothing on `PATH`.
-- A property is tested with a generator seeded by the test (so a failure
-  repeats), and a parser or a decision that takes text has a fuzz target:
-  `go test ./internal/policy -run xxx -fuzz FuzzDecide`.
-
-### Testing the worker end to end
-
-The worker is tested offline, against the fake hub, its in-process gateway over the local provider and the scripted
-brain: no hub, no key of a model vendor and no container engine
-(`TestTheWorkerTestsRunOfflineWithLoopbackListenersTheScriptedBrainAndNoContainerEngine_TS_14_60` guards it). A
-redelivery is the runner called again with the handover count and the session of the first in the request.
-
-- **The fake hub.** `GET /api/v1/workspaces/{slug}/sandboxes` lists the leases of the workspace that are held, with their
-  id, labels, purpose and end; `SeedLease` puts a labelled lease in the hub as if an attempt had taken it, `Deleted` is
-  what was released, a session keeps its status, its usage and its events, and `KillSandbox` destroys the box that a lease
-  holds and leaves the lease held, as a sandbox that is gone is. The gateway can be made to refuse boxes
-  (`RefuseBoxes`) or to go away on a command (`KillOn`, `KillAfter`). `GET /api/v1/workspaces/{slug}/issues` lists the issues
-  of the workspace with the `state`, `labels`, `limit` and `page` of a query, pull requests with their marker, and a `Link`
-  header when a further page remains (`SetPageLinks` with false makes it say nothing, as the real hub does);
-  `SetRemovalLag` and `SetAdditionLag` make an issue stay listed under a label for the next lists after the label was removed,
-  or be left out of the lists of a label after it was added, as a forge whose index lags does; `SetListOrder` sets the
-  order of a list, `AddLabel` and `RemoveLabel` change the labels as a person would, and `ListRequests` are the requests for
-  the list. The tests of `internal/service/poll` drive `Supervisor.Cycle` with the real jobs layer, the fake runner and a fake
-  clock, and put a recording handler or reconciler in the unexported seams of the supervisor where the listing, and not the
-  rules, is what they test.
-- **The fake hub's comments.** Every comment carries its own `created_at`: a comment a request or a test adds is stamped by
-  the fake's clock (`SetClock`, the wall clock by default), and one an issue was added with keeps a fixed time.
-  `AddPersonComment` adds a person's comment, with the login as its author, last in the order of the issue's comments, which
-  the issue read and the comment list keep. A test makes hub cut a thread, or fail to read its comments, by injecting an
-  issue read with `truncated: true` or `comments_err` through `Inject` (`threadBody` in `internal/service/poll`). The forge
-  path's tests in `internal/service/poll` post the worker's question and failure comments with their markers themselves,
-  since the fake runner writes nothing to the issue; the worker's own side (its comments) is tested in
-  `internal/worker` with the fake hub, and end to end with the scripted brain.
-## Opt-in tests
-
-`make check` needs no key and no container engine, so the tests that do are opt-in. Each is gated by a function of `internal/optin` that skips it, with a
-reason that names what is missing, and never fails it:
-
-| Variable | Set to 1 to run | Needs |
-|---|---|---|
-| `AF_TEST_PODMAN` | spec 07's box invariants and `af fix` end to end under `podman` | `podman info` answering, and the image (`AF_SANDBOX_IMAGE`, else `quay.io/agentfox/tools:latest`; `make build-tools-container` builds it) |
+[aflib](https://github.com/agent-fox-dev/aflib) is an ordinary module that
+`go` fetches by its pinned commit. To change aflib and agent-fox together, put
+both in a `go.work` (it is git-ignored):
 
 ```bash
-AF_TEST_PODMAN=1 go test ./internal/brain ./internal/afcmd -run TS_10_63 -v
+git clone https://github.com/agent-fox-dev/aflib ../aflib
+go work init . ../aflib
 ```
 
-The tests are `TestSpec07sBoxInvariantsHoldUnderTheRealBox_TS_10_63` in
-`internal/brain/optin_test.go` and `TestFixUnderTheRealBoxesLandsAllFourChanges_TS_10_63`
-in `internal/afcmd/fix_optin_test.go`. What they run is also run offline, so that
-`make check` proves it: the invariants under `local`, and the scripted `af fix` under
-`local`.
+## Building
 
-## The tests and the box
+```bash
+make build          # go build ./..., then bin/af and bin/agent-fox
+bin/af --version
+bin/agent-fox --version
+```
 
-The default box is `podman`, which a test must not need. A fix measures in its box with the `af`
-of the box, which under `local` is the running executable; a test binary is no `af`, so the
-`TestMain` of a package that runs `af fix` (`internal/afcmd`, `cmd/af`) links itself as `af`
-(`fakeaf.LinkSelf`), points `brain.DefaultAFPath` at the link, and acts as `af` when it is run
-under that name. Every test of `internal/*` (`internal/afcmd` among them) that
-runs `af triage` or `af fix` passes `--sandbox local`: the helpers `triageEnv.loop`,
-`fixEnv.fix` and `fixEnv.fixRun` add it themselves (a later `--sandbox` in the arguments
-of a test, such as `--sandbox isobox`, is the one that counts), and a test that calls
-`run` with the command words passes it. `TestEveryTestThatRunsTriageOrFixSaysWhichBox_TS_10_62`
-reads the sources of the tests with `go/parser` and finds the invocations that do not.
-A test of the default selection names `AF_SANDBOX` (sets it, or clears it to get the default),
-which the scan accepts. The scan finds the calls of `run`, `runCtx`, `Main`, the
-three helpers and the helpers that take the test and a command line (`afJSON(t, bin, "fix", url,
-"--dir", dir)`), and the `[]string` lists of arguments written to be run later; it does not find a
-call whose command word is held in a variable.
+`make build` stamps both binaries with `VERSION` (from `git describe`),
+`COMMIT` and `BUILD_TIME` through `-ldflags`. A binary built another way, such
+as `go build ./cmd/af`, reports what the Go toolchain recorded, or `dev`.
 
-## The fake af
+`make help` lists every target.
 
-A fake `af` is the test binary linked under that name. The `TestMain` of
-`internal/brain` calls `fakeaf.Name()` and, when the binary was run as `af`, hands the
-process to `fakeaf.Run` instead of running the tests; `internal/afcmd` and
-`internal/worker` make `af` the real app instead, so that a box runs the real thing.
-`fakeaf.Install(t)` makes the directory with the link, which a test puts first on
-`PATH`.
+## Checks and tests
 
-What the fake does is told by a JSON script, because a process started with `env -i`
-has none of the test's environment. It reads `.agent-fox/fake.json` in the tree it runs
-in (the cwd, which a test of the box places with `Session.WriteFile`). Every field is
-optional:
+`make check` is the gate. Run it before every commit:
 
-| Field | What the fake does |
+```bash
+make check          # gofmt, go vet, golangci-lint and go test -short ./...
+```
+
+`make test` and `make check-release` run the full suite, including the slow
+tests that `-short` skips. They are for a person to run before a release or a
+merge. Coding agents never run them (see [.specs/steering.md](../.specs/steering.md#quality-gate));
+narrow `go test` runs on the packages you change are fine.
+
+The tests need no network, no API key, no forge token and no container
+engine. Keep it that way:
+
+- Tests start `httptest` servers on the loopback interface. A sandbox that
+  forbids binding a local port makes them fail.
+- A test that needs git creates its own repository in a temporary directory,
+  with its own identity and no global git configuration, and skips when git is
+  missing. A test that needs `sh` skips when there is none.
+  `TestSuitesPassWithoutGit_TS_06_75` runs the suites of these packages with
+  nothing on `PATH` to prove it.
+- Tests that do need a key or a container engine are [opt-in](#opt-in-tests).
+
+## Repository layout
+
+| Path | What it holds |
 |---|---|
-| `af_version`, `af_commit`, `version_exit` | What `--version` prints (the JSON document of `af`), and the exit code of it (`{"af": n}`). |
-| `sleep_ms`, `spawn_child` | Waits, and starts a `sleep 30` child (its pid is noted in `.agent-fox/fake-child.pid`), for the timeout and the process group. |
-| `stderr`, `stderr_bytes`, `exit` | What it prints to stderr (that many bytes, then the text) and how it ends. |
-| `output_json` | What it prints on stdout: the envelope of `af <agent> run`. |
+| `cmd/af/` | The `af` binary, including the service client commands (`af workspace`, `af jobs`). |
+| `cmd/agent-fox/` | The `agent-fox` service binary. |
+| `internal/afcmd/` | The local `af` commands (`triage`, `fix`, `lang detect`, `gate run`, `revert-check`), importable so the service can run them in process. |
+| `internal/toolio/` | The command shell every `af` command runs on: the envelope, exit codes, warnings and the run directory. |
+| `internal/triage/`, `internal/fix/` | The triage and fix loops, without the shell. |
+| `internal/brain/`, `internal/box/`, `internal/submission/` | Brains, sandboxes and the submission protocol. |
+| `internal/project/`, `internal/checks/`, `internal/conform/`, `internal/policy/`, `internal/repomap/` | Language detection, the gate, the revert check, the tool policy and the repository map. |
+| `internal/service/` | The service: configuration, secrets, the state file, the HTTP API, jobs, the label poll. |
+| `internal/worker/` | Runs one job attempt against a hub workspace. |
+| `internal/hub/` | The hub API client and `fakehub`. |
+| `internal/afclient/` | The library behind the service client commands. |
+| `skills/` | The coding-agent [skills](#skills). |
+| `containers/` | Containerfiles for the [images](#container-images). |
+| `docs/` | The [documentation](#documentation). |
+| `.specs/` | `steering.md` and the archived specs. Test names such as `TS_10_63` and `REQ-…` ids refer to them. |
 
-It records each run (argv, environment, cwd and its pid) in `.agent-fox/fake-record.jsonl`.
+[architecture.md](architecture.md#package-map) has the full package map.
 
-## The scripted brain
+## Test infrastructure
 
-`--brain scripted --script <file>` replays a script on the host: no model, no cost,
-and a step can say what it expects, so a script is also a test of what a run
-does. The file is `{"steps": [...]}`, and a step is exactly one of two forms:
+Everything the tests talk to is faked in-process.
+
+### The fake hub
+
+`internal/hub/fakehub` is an `httptest` hub. A test sets up tokens, users and
+workspaces, and the state an attempt works on: issues with comments and
+labels, pull requests, sessions, sandbox leases. It also serves:
+
+- a git smart-HTTP server that accepts only the workspace's token as Basic
+  auth;
+- an in-process sandbox gateway (AgentKit's `gatewayd` over the local
+  provider) for leases;
+- hub's label route, keeping each workspace's labels.
+
+It records every request, and can fail, hang up, delay, redirect or send an
+oversized answer on any route. Helpers a test uses to set up a scenario:
+
+| Helper | Effect |
+|---|---|
+| `SeedLease`, `Deleted`, `KillSandbox` | Seed a held lease, see which leases were released, destroy a leased box. |
+| `RefuseBoxes`, `KillOn`, `KillAfter` | Make the gateway refuse boxes or go away. |
+| `AddLabel`, `RemoveLabel`, `Labels`, `PutLabel` | Change and read issue and workspace labels as a person would. |
+| `SetRemovalLag`, `SetAdditionLag`, `SetListOrder`, `SetPageLinks`, `ListRequests` | Imitate a forge whose label index lags, set list order and paging, and read the list requests. |
+| `AddPersonComment`, `SetClock` | Add a person's comment; set the clock that stamps comments. |
+| `Inject` | Replace an answer, for example an issue read with `truncated: true` or `comments_err`. |
+| `OnRequest` | Call a function with each request as it arrives. |
+
+The worker is tested end to end against the fake hub, its gateway and the
+[scripted brain](#the-scripted-brain), with no hub, no key and no container
+engine (`internal/worker/offline_test.go` guards this). The poll's tests drive
+`Supervisor.Cycle` with the real jobs layer, the fake runner
+(`internal/service/jobs/fakerunner`) and a fake clock
+(`internal/service/jobs/fakeclock`).
+
+### The fake forge
+
+`internal/triage/fakeforge` serves the GitHub or GitLab API of one repository
+over `httptest`, including pull and merge requests. It records requests
+(`Requests`, `Writes`, `Count`), can fail an operation (`Fail`), and hands the
+shell its client (`NewForge(token)`; an empty token is an unauthenticated
+client). The `internal/afcmd` tests set up a git repository, an app and a
+forge in one helper (`newTriageEnv`, and `fixEnv` for fix).
+
+### The fake af
+
+A sandbox runs `af` by name, but a test binary is not `af`. So the `TestMain`
+of packages that run `af fix` (`internal/afcmd`, `cmd/af`) links the test
+binary as `af` (`fakeaf.LinkSelf`), points `brain.DefaultAFPath` at the link,
+and acts as the real `af` when run under that name. `internal/worker` does the
+same.
+
+`internal/brain` instead uses a scripted fake: when its test binary runs as
+`af`, `fakeaf.Run` takes over. `fakeaf.Install(t)` creates the link directory
+to put first on `PATH`. Because a process started with `env -i` sees none of
+the test's environment, the fake reads its instructions from
+`.agent-fox/fake.json` in its working directory. Every field is optional:
+
+| Field | Effect |
+|---|---|
+| `af_version`, `af_commit`, `version_exit` | What `--version` prints, and its exit code. |
+| `sleep_ms`, `spawn_child` | Wait, and start a `sleep 30` child (pid in `.agent-fox/fake-child.pid`), to test timeouts and process groups. |
+| `stderr`, `stderr_bytes`, `exit` | What to print on stderr, and the exit code. |
+| `output_json` | What to print on stdout: the envelope of `af <agent> run`. |
+
+Each run is recorded (argv, environment, working directory, pid) in
+`.agent-fox/fake-record.jsonl`.
+
+### The scripted brain
+
+`--brain scripted --script <file>` replays a script instead of calling a
+model: no key, no cost. Each step can state what it expects, so a script is
+also a test of what a run does.
 
 ```json
 {"steps": [
@@ -215,80 +195,154 @@ does. The file is `{"steps": [...]}`, and a step is exactly one of two forms:
 ]}
 ```
 
-- `{"tool": name, "args": {...}}` calls a tool of the box through the gate, and
-  `expect` is `ok`, `error` (the tool failed) or `denied` (the gate or the guard
-  refused it, and it was not run).
-- `{"submit": payload}` submits against the tree, and `expect` is `accepted` or
-  `refused`.
+A step has exactly one of two forms:
 
-A file that cannot be read, that holds a field that is not described, a step with
-both forms or neither, `args` on a submit, an empty tool name or an `expect` that
-does not fit its step is a `usage` failure that names the file and the step
-(counted from 0), found when the brain is made, before any box opens. Each step is
-a turn: an accepted submission ends the replay, with the steps after it listed as
-skipped in the transcript; `--max-turns` ends it too (`turns`), and so does the
-end of the steps (`ended`). A result that is not the one a step expects stops the
-replay with an error that names the step, what was expected and what came.
+| Step | `expect` |
+|---|---|
+| `{"tool": name, "args": {...}}` calls a sandbox tool through the tool gate. | `ok`, `error` (the tool failed) or `denied` (the gate refused it). |
+| `{"submit": payload}` submits a payload. | `accepted` or `refused`. |
 
-## Writing a test of a brain
+Each step is one turn. An accepted submission ends the replay; so does
+`--max-turns` or the end of the steps. A result that does not match `expect`
+stops the replay with an error naming the step. A script that cannot be read,
+has an unknown field, a step with both forms or neither, or an `expect` that
+does not fit is a `usage` failure naming the file and the step (counted from
+0). It is reported before any sandbox opens.
 
-A test of a brain runs it through `brain.Execute` over a real `local` box on a
-temporary git repository (with an identity of its own, which a commit in the box
-needs, as the box has a private `HOME`), a real run directory, and a `Report`
-that remembers. The `agentkit` brain is driven by the hands' faux provider, which
-plays the turns of a model and records the requests it was sent:
+### Testing a brain
+
+Run a brain through `brain.Execute` over a real `local` box on a temporary git
+repository and a real run directory. Drive the `agentkit` brain with AgentKit's
+`faux` provider, which plays a model's turns and records what it was sent:
 
 ```go
 p := faux.New(
-    faux.ToolCall("c1", "write_file", `{"path":"a.txt","content":"x"}`), // outside the allowlist: denied
+    faux.ToolCall("c1", "write_file", `{"path":"a.txt","content":"x"}`), // not in the allowlist: denied
     faux.ToolCall("c2", "submit_test", `{"summary":"done"}`),            // the terminating tool
 )
 b, _ := brain.Default.New("agentkit", brain.Options{
     Model:       "faux-1",
-    Getenv:      func(string) (string, bool) { return "", false }, // no key is read
+    Getenv:      func(string) (string, bool) { return "", false }, // read no key
     NewProvider: func(string) (core.ProviderClient, error) { return p, nil },
 })
 res, err := brain.Execute(ctx, brain.Request{ /* Session, Name, Brain: b, Brief, RunDir, Report, Tally */ })
 // p.Requests()[1] is what the model saw after its first turn: the denial.
 ```
 
-Give a turn a cost with `faux.Turn.Usage` (`SetField` and `SetCost`) to see the
-cost bound, and a `Brief.MaxTurns` for the turn bound. What a test checks is the
-file and the ledger of the run, never what the brain printed: `res.Payload`, the
-`submission.json` of the run directory, the warnings and artifacts of the
-`Report`, and `RunDir.Ledger()`. A test of a kind gives `submission.Kind` a
-`Validate` that reads the tree it is given. The whole of `internal/brain`,
-`internal/box` and `internal/submission` runs with no key and no network
-(`TestTheBrainsNeedNoKeyAndNoNetwork_TS_07_79` replaces the HTTP transport with
-one that counts the requests).
+Give a turn a cost with `faux.Turn.Usage` to test the cost bound, or set
+`Brief.MaxTurns` for the turn bound. Assert on the run's files and ledger, not
+on what the brain printed: `res.Payload`, the run directory's
+`submission.json`, the report's warnings and artifacts, and
+`RunDir.Ledger()`. `internal/brain`, `internal/box` and `internal/submission`
+run with no key and no network; `TestTheBrainsNeedNoKeyAndNoNetwork_TS_07_79`
+counts HTTP requests to prove it.
 
-### Testing `af triage`
+A triage test can use the scripted brain, the `agentkit` brain on `faux`, or a
+spy brain of its own. `TestOnlyTheAllowedWarningCodesAndCategories_TS_08_64`
+checks that every envelope uses only documented warning codes and failure
+categories.
 
-The triage tests run offline. `internal/triage/fakeforge` serves the GitHub or the
-GitLab API of one repository over `httptest`, keeps every request (`Requests`,
-`Writes`, `Count`), can make an operation fail (`Fail`), and hands the shell its
-client (`NewForge(token)`, which a test gives to `App.NewForge`; an empty token is
-an unauthenticated client). The tests of `internal/afcmd` make a git repository, an app
-and a forge in one helper (`newTriageEnv`) and run commands through `app.Main`.
-A brain is one of four things: the `scripted` brain with a script (its steps
-call the tools of the box, and `submit` steps hand a payload over, with the
-outcome they expect), the `agentkit` brain on the `faux` provider (put its options in
-`testConfig.Brain`), or a spy of the test's own (put it in `testConfig.Brains`).
-`TestOnlyTheAllowedWarningCodesAndCategories_TS_08_64` checks the warning codes
-and failure categories of every envelope that the helper saw.
+### Tests and the sandbox
+
+The default sandbox is `podman`, and no test may need it. Every test in
+`internal/*` that runs `af triage` or `af fix` passes `--sandbox local`. The
+helpers `triageEnv.loop`, `fixEnv.fix` and `fixEnv.fixRun` add it for you; a
+later `--sandbox` in a test's arguments wins. A test of the default selection
+sets or clears `AF_SANDBOX` instead.
+`TestEveryTestThatRunsTriageOrFixSaysWhichBox_TS_10_62` parses the test
+sources and fails on any invocation that does neither. It cannot see a call
+whose command word is held in a variable.
+
+### Property and fuzz tests
+
+Property tests use a generator seeded by the test, so a failure repeats.
+Parsers and decisions that take text have fuzz targets:
+
+```bash
+go test ./internal/policy -run xxx -fuzz FuzzDecide
+go test ./internal/service/jobs -run xxx -fuzz FuzzParseIssue
+```
+
+## Opt-in tests
+
+Tests that need something `make check` must not depend on are gated by
+`internal/optin`. Each skips, never fails, and says what is missing.
+
+| Variable | Set to `1` to run | Needs |
+|---|---|---|
+| `AF_TEST_PODMAN` | The sandbox invariants and `af fix` end to end under `podman` | `podman info` answering, and the image (`AF_SANDBOX_IMAGE`, else `quay.io/agentfox/tools:latest`; `make build-tools-container` builds it). |
+
+```bash
+AF_TEST_PODMAN=1 go test ./internal/brain ./internal/afcmd -run TS_10_63 -v
+```
+
+The same scenarios also run offline under `local`, so `make check` covers them.
 
 ## Adding a command
 
-1. Write its package under `internal/`, returning a plain result and typed
-   errors, with its tests.
-2. Add `internal/afcmd/<name>.go`: a `registerX(app)` that calls `app.Register` with the
-   path, the summary, the usage, the flags, the default timeout and the result
-   schema (`resultSchema("<name>")`), and add the call to `register` in
-   `afcmd.go`. Map the errors of the package onto `toolio.Failure` categories.
-3. Add `internal/afcmd/schemas/<name>.json`, rewrite the golden file (`cmd/af/testdata`), and add the
-   command to the lists in `ring1_test.go` if it is a ring-1 command.
-4. Document it in [cli.md](cli.md), and in [configuration.md](configuration.md)
-   and [model-usage.md](model-usage.md) if it reads a file or a variable or runs
-   a model, and here and in [architecture.md](architecture.md) if it changes the
-   layout.
+1. Write the logic as a package under `internal/` that returns plain results
+   and typed errors, with its tests. It must not import `internal/toolio`,
+   call `os.Exit` or panic on bad input.
+2. Add `internal/afcmd/<name>.go` with a `registerX(app)` that calls
+   `app.Register` with the command path, summary, usage, flags and default
+   timeout, and call it from `register` in `internal/afcmd/afcmd.go`. Map the
+   package's errors onto `toolio.Failure` categories. (Service client commands
+   live in `cmd/af/` instead.)
+3. If it is a fact command (like `lang detect`), add it to the lists in
+   `internal/afcmd/ring1_test.go`.
+4. Document it: [cli.md](cli.md); [configuration.md](configuration.md) if it
+   reads a file or a variable; [model-usage.md](model-usage.md) if it runs a
+   model; [architecture.md](architecture.md) if it changes the layout.
 5. Run `make check`.
+
+## Container images
+
+| Target | Builds |
+|---|---|
+| `make build-sandbox-container` | The sandbox image from `containers/sandbox/Containerfile`. |
+| `make build-tools-container` | The tools image from `containers/tools/Containerfile`: the sandbox image with `af` built in. It is the default image of a `podman` sandbox. |
+| `make build-containers` | Both, in that order. |
+
+Images are tagged `$(CONTAINER_REGISTRY)/<name>:$(VERSION)` and `:latest`;
+`CONTAINER_REGISTRY` defaults to `quay.io/agentfox`. The tools image clones
+agentkit-go at `AGENTKIT_REF` (default `main`). A push to `main` builds the
+sandbox image in CI (`.github/workflows/build-containers.yaml`).
+
+The `af` in an image should match the `af` that uses it. A mismatch raises the
+warning `box_af_version_mismatch`; see [cli.md](cli.md#warning-codes).
+
+## Skills
+
+`skills/af-*` are skills for coding agents: `af-triage`, `af-fix`,
+`af-bug-hunter`, `af-code-quality` and `af-code-simplifier`.
+
+```bash
+make install-skills     # copy each to ~/.claude/skills/<name>/SKILL.md
+make uninstall-skills   # remove them again
+```
+
+The `skills` Go package embeds every `af-*` file. The briefs of `af triage`
+and `af fix` carry the bodies of `af-triage` and `af-fix`, so the brain reads
+exactly the skill a person installs.
+
+## Documentation
+
+Update the documentation in the same change as the code. Run `make doc` first
+to refresh the generated package docs. The style rules are in
+[.specs/steering.md](../.specs/steering.md#documentation-style).
+
+| Document | Owns |
+|---|---|
+| [README.md](../README.md) | What agent-fox is, a short example, where to go next. |
+| [cli.md](cli.md) | The `af` and `agent-fox` command lines. |
+| [api.md](api.md) | The HTTP API of the service. |
+| [configuration.md](configuration.md) | Environment variables, repository files, the service's `config.toml` and hub workspace variables. |
+| [model-usage.md](model-usage.md) | Which commands call a model, what they send and what it costs. |
+| [architecture.md](architecture.md) | How it is built, and why. |
+| development.md | This guide. |
+| [prd/](prd/) | Product requirements. |
+| [errata/](errata/) | Where the code diverges from its spec. |
+| [drafts/](drafts/) | Design drafts, including the archived target architecture. |
+| [generated/](generated/) | Go package docs, written by `make doc`. Never edit by hand. |
+
+[AGENTS.md](../AGENTS.md) is the policy every coding-agent session follows.

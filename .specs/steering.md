@@ -55,6 +55,42 @@ session — not as a follow-up task.
 
 *Important:* Do NOT write tests for testing the presence or the content of the docs or PRDs.
 
+### Documentation Style
+
+Write documentation for a reader who wants to use or understand the project,
+not for the people who built it. Every document — new or updated — follows
+these rules.
+
+1. **The README is the front door.** `README.md` answers, in this order: what
+   the project is; what problem it solves and how it solves it; a short
+   example of using it, when one makes sense; where to find further
+   documentation; how to install it; how to develop it. Keep it short. It holds
+   no implementation detail: no package-by-package tour, no internal type or
+   function names, no edge cases or failure tables. Those belong in `docs/`. A
+   `README.md` in a subdirectory follows the same rule at its own scale.
+2. **Reference docs describe behaviour, not internals.** `docs/cli.md`,
+   `docs/api.md` and `docs/configuration.md` describe what a user or an
+   integrator relies on: commands, flags, routes, fields, settings, statuses,
+   errors. How it is implemented — packages, Go identifiers, internal
+   protocols, design reasons — goes in `docs/architecture.md` (or an ADR);
+   how to build, test and change the code goes in `docs/development.md`.
+3. **Long documents start with an index.** A document that lists many things
+   (commands, routes, keys, codes) or runs longer than a few screens opens with
+   one or two sentences on what it covers, then a `## Contents` list that links
+   to every section, so a reader can jump straight to what they need. Keep the
+   index in step with the headings.
+4. **Lead with the common case.** Open each section with a sentence or two on
+   what it is for and when it matters, then the details. Put rare cases and
+   failure modes after the normal path.
+5. **Plain language.** Short sentences, active voice, everyday words. Use
+   tables for flags, fields and codes, and examples rather than prose for
+   formats and commands.
+6. **One fact, one place.** Link to the section that owns a fact instead of
+   restating it.
+7. **Describe what is.** No "in this release", "a later spec will" or history
+   of how it used to be. Divergences from a spec go in `docs/errata/`,
+   decisions and their history in PRDs and ADRs.
+
 **Instructions:**
 
 1. Review the spec you just implemented and identify every user-facing or
