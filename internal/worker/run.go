@@ -66,14 +66,14 @@ func (r *Runner) loopConfig(a *attempt) *afcmd.Config {
 	}
 	return &afcmd.Config{
 		Version: r.cfg.Version, Commit: r.cfg.Commit, BuildTime: r.cfg.BuildTime,
-		Forge:     r.cfg.Hub.ForgeFactory(a.pat, a.req.Workspace, a.repo),
-		Boxes:     a.boxes,
-		Brain:     brain.Options{Model: a.settings.Model, Getenv: nothing},
-		Git:       a.git,
-		PostPush:  r.publishBranch(a),
-		Earlier:   &afcmd.Earlier{Questions: questions},
-		InBox:     &afcmd.InBox{Profile: a.settings.Profile},
-		BoxLabels: a.boxLabels,
+		Forge:          r.cfg.Hub.ForgeFactory(a.pat, a.req.Workspace, a.repo),
+		Boxes:          a.boxes,
+		Brain:          brain.Options{Model: a.settings.Model, Getenv: nothing},
+		Git:            a.git,
+		PostPush:       r.publishBranch(a),
+		Earlier:        &afcmd.Earlier{Questions: questions},
+		SandboxProfile: a.settings.Profile,
+		BoxLabels:      a.boxLabels,
 	}
 }
 

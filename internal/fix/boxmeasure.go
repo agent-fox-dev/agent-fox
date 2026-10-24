@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentdir"
 	"github.com/agent-fox-dev/agentfox/internal/box"
@@ -25,16 +26,16 @@ import (
 )
 
 // BoxMeasurer measures a fix in the box that holds its tree, with the ring-1 commands of the af
-// that the box's image provides, in place of the host's gate and revert check: in a service the
-// host holds the credentials of every workspace, and the tests of a change are written by a
-// brain. For each of detection, gate and revert check it syncs the host's tree into the box,
+// of the box (its image's, or the running one under local), in place of the host's gate and
+// revert check: the tests of a change are written by a brain, and they run where its tools
+// did, never on the host that holds the credentials. For each of detection, gate and revert check it syncs the host's tree into the box,
 // places the table of the run there, runs the command and reads the answer from the envelope
 // the command wrote. Detect, Gate and RevertCheck are the seams of Preflight, LoopParams and
 // MeasureParams.
 //
 // The first command of a box is preceded by af --version, once for the box whichever runner of
 // processes asks: an af that is missing or fails is a failure that cannot be tried again, naming
-// the profile whose image has to provide it; an af of another version raises
+// the profile or the image that has to provide it; an af of another version raises
 // box_af_version_mismatch and the run goes on. A box that cannot be reached is a failure that
 // can. An envelope of another major version of the schema, one that is not an envelope, and a
 // result that does not decode are the failure of an af that is not the one this run needs.
@@ -44,7 +45,8 @@ type BoxMeasurer struct {
 	// Process runs the commands; the version and commit of its config are those of the af
 	// that is running, for the comparison with the box's.
 	Process *brain.Process
-	// Profile names the sandbox profile whose image provides af; empty is hub's default.
+	// Profile names the sandbox profile whose image provides af in a leased box; empty is
+	// hub's default. Another box is named by its provider and its image.
 	Profile string
 	// RunID names the run directory of the box that the answers of the commands are written in.
 	RunID string
@@ -70,8 +72,19 @@ const (
 
 // Detect is the detection of the checks of the tree, made in the box by af lang detect.
 func (m *BoxMeasurer) Detect(ctx context.Context, dir string, files []string) (project.Detection, error) {
+	// The gate.json of the checkout is in .agent-fox/, which the sync leaves out: it is placed
+	// as it is, so that the box detects what the host would.
+	own, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(gateFilePath)))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		own = nil
+	case err != nil:
+		return project.Detection{}, &toolio.Failure{Category: toolio.CategoryIO, Message: fmt.Sprintf("cannot read %s: %v", gateFilePath, err)}
+	case !utf8.Valid(own):
+		return project.Detection{}, &toolio.Failure{Category: toolio.CategoryConfig, Message: fmt.Sprintf("%s is not text (UTF-8), and cannot be the table of the gate", gateFilePath)}
+	}
 	var detection project.Detection
-	if _, err := m.run(ctx, nil, []string{"lang", "detect"}, &detection); err != nil {
+	if _, err := m.run(ctx, own, []string{"lang", "detect"}, &detection); err != nil {
 		return project.Detection{}, err
 	}
 	return detection, nil
@@ -91,7 +104,11 @@ func (m *BoxMeasurer) Gate(ctx context.Context, dir string, o checks.Options) (c
 		args = append(args, "--label", o.Label)
 	}
 	var res checks.Result
-	env, err := m.run(ctx, &o.Table, args, &res)
+	gate, err := tableFile(o.Table)
+	if err != nil {
+		return checks.Result{}, err
+	}
+	env, err := m.run(ctx, gate, args, &res)
 	if err != nil {
 		return checks.Result{}, err
 	}
@@ -116,7 +133,11 @@ func (m *BoxMeasurer) Gate(ctx context.Context, dir string, o checks.Options) (c
 // af revert-check.
 func (m *BoxMeasurer) RevertCheck(ctx context.Context, dir, since string, o conform.Options) (conform.Result, error) {
 	var res conform.Result
-	if _, err := m.run(ctx, &o.Table, []string{"revert-check", "--since", since}, &res); err != nil {
+	gate, err := tableFile(o.Table)
+	if err != nil {
+		return conform.Result{}, err
+	}
+	if _, err := m.run(ctx, gate, []string{"revert-check", "--since", since}, &res); err != nil {
 		return conform.Result{}, err
 	}
 	return res, nil
@@ -137,9 +158,21 @@ type answer struct {
 	} `json:"error"`
 }
 
-// run runs one ring-1 command in the box, on the host's tree and with the table placed, and
-// decodes the result of its envelope into into.
-func (m *BoxMeasurer) run(ctx context.Context, table *project.Table, args []string, into any) (answer, error) {
+// tableFile is the gate.json of a table, or nil for a table with no check.
+func tableFile(table project.Table) ([]byte, error) {
+	if len(table.Checks) == 0 {
+		return nil, nil
+	}
+	data, err := project.MarshalGateFile(table.Checks)
+	if err != nil {
+		return nil, &toolio.Failure{Category: toolio.CategoryInternal, Message: fmt.Sprintf("cannot make the table of the gate: %v", err)}
+	}
+	return data, nil
+}
+
+// run runs one ring-1 command in the box, on the host's tree and with gate, when it is not
+// nil, placed as the gate.json of the box, and decodes the result of its envelope into into.
+func (m *BoxMeasurer) run(ctx context.Context, gate []byte, args []string, into any) (answer, error) {
 	m.mu.Lock()
 	m.calls++
 	n := m.calls
@@ -148,12 +181,8 @@ func (m *BoxMeasurer) run(ctx context.Context, table *project.Table, args []stri
 	if err := m.Session.Sync(ctx); err != nil {
 		return answer{}, err
 	}
-	if table != nil && len(table.Checks) > 0 {
-		data, err := project.MarshalGateFile(table.Checks)
-		if err != nil {
-			return answer{}, &toolio.Failure{Category: toolio.CategoryInternal, Message: fmt.Sprintf("cannot make the table of the gate: %v", err)}
-		}
-		if err := m.Session.WriteFile(ctx, gateFilePath, data); err != nil {
+	if gate != nil {
+		if err := m.Session.WriteFile(ctx, gateFilePath, gate); err != nil {
 			return answer{}, err
 		}
 	}
@@ -170,8 +199,15 @@ func (m *BoxMeasurer) run(ctx context.Context, table *project.Table, args []stri
 	if err != nil {
 		return answer{}, m.explain(err)
 	}
+	if _, ok := ctx.Deadline(); ok && res.TimedOut {
+		// A measuring has no time of its own: the process was stopped a little before the
+		// deadline of the run, which is what stops the run. The rest of the time is waited
+		// out, so that the run is told of its stop as it is anywhere else.
+		<-ctx.Done()
+		return answer{}, ctx.Err()
+	}
 	env, err := m.decode(res, args, into)
-	if err != nil && !res.TimedOut {
+	if err != nil {
 		// An answer that cannot be read is an af that cannot be used, unless the box is gone: the
 		// command may have run, and the box been lost before its envelope was read.
 		if lost := m.lost(ctx); lost != nil {
@@ -195,7 +231,7 @@ func (m *BoxMeasurer) lost(ctx context.Context) error {
 	// The root of the view is not asked of the box; a path under it is, and a path that is not
 	// there is an answer.
 	if _, err := fs.Stat(m.Session.FS(probe), agentdir.Name); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("the box of %s was lost while af ran in it: %v", m.profile(), err)}
+		return &toolio.Failure{Category: toolio.CategorySandbox, Retryable: true, Message: fmt.Sprintf("%s was lost while af ran in it: %v", m.where(), err)}
 	}
 	return nil
 }
@@ -214,25 +250,44 @@ func (m *BoxMeasurer) explain(err error) error {
 	}
 	return &toolio.Failure{
 		Category: toolio.CategorySandbox,
-		Message:  fmt.Sprintf("af cannot run in the box of %s: its image must provide af (%s)", m.profile(), failure.Message),
-		FixHint:  &toolio.FixHint{Env: "AF_SANDBOX_PROFILE"},
+		Message:  fmt.Sprintf("af cannot run in %s: its image must provide af (%s)", m.where(), failure.Message),
+		FixHint:  m.hint(),
 	}
 }
 
-// profile names the profile in a message.
-func (m *BoxMeasurer) profile() string {
-	if m.Profile == "" {
-		return "hub's default profile"
+// where names the box in a message: a leased box by the profile its image is of, and any
+// other by its provider and its image.
+func (m *BoxMeasurer) where() string {
+	switch provider, image := m.Session.Provider(), m.Session.Image(); {
+	case provider == box.GatewayName && m.Profile == "":
+		return "the box of hub's default profile"
+	case provider == box.GatewayName:
+		return "the box of the profile " + m.Profile
+	case image != "":
+		return fmt.Sprintf("the %s box of the image %s", provider, image)
+	default:
+		return fmt.Sprintf("the %s box", provider)
 	}
-	return "the profile " + m.Profile
+}
+
+// hint is what a failure of the af of the box says to change: the profile of a leased box,
+// the image of another one that has an image, and nothing for a box with none.
+func (m *BoxMeasurer) hint() *toolio.FixHint {
+	switch {
+	case m.Session.Provider() == box.GatewayName:
+		return &toolio.FixHint{Env: "AF_SANDBOX_PROFILE"}
+	case m.Session.Image() != "":
+		return &toolio.FixHint{Env: "AF_SANDBOX_IMAGE"}
+	}
+	return nil
 }
 
 // unusable is the failure of an af whose answer is none this run can use.
 func (m *BoxMeasurer) unusable(args []string, why string) error {
 	return &toolio.Failure{
 		Category: toolio.CategorySandbox,
-		Message:  fmt.Sprintf("the af of the box of %s answered af %s with something this af cannot use (%s): its image must provide an af of this version", m.profile(), strings.Join(args, " "), why),
-		FixHint:  &toolio.FixHint{Env: "AF_SANDBOX_PROFILE"},
+		Message:  fmt.Sprintf("the af of %s answered af %s with something this af cannot use (%s): its image must provide an af of this version", m.where(), strings.Join(args, " "), why),
+		FixHint:  m.hint(),
 	}
 }
 
@@ -243,9 +298,6 @@ func (m *BoxMeasurer) decode(res brain.ProcessResult, args []string, into any) (
 		why := "it left no envelope that can be read"
 		if tail := strings.TrimSpace(string(res.Stderr)); tail != "" {
 			why += ": " + tail
-		}
-		if res.TimedOut {
-			return answer{}, &toolio.Failure{Category: toolio.CategoryTimeout, Message: fmt.Sprintf("af %s in the box ran out of time", strings.Join(args, " "))}
 		}
 		return answer{}, m.unusable(args, why)
 	}

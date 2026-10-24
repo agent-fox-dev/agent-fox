@@ -858,8 +858,8 @@ func TestTheLoopIsMadeOfTheSeamsOfTheAttempt(t *testing.T) {
 	if cfg.Boxes != a.boxes || cfg.Boxes == nil || !slices.Equal(cfg.Boxes.Names(), []string{"gateway"}) {
 		t.Errorf("the boxes are %v, want the registry of the attempt with the gateway alone", cfg.Boxes)
 	}
-	if cfg.InBox == nil || cfg.InBox.Profile != "py" {
-		t.Errorf("InBox = %+v, want measuring in the box of the profile py", cfg.InBox)
+	if cfg.SandboxProfile != "py" {
+		t.Errorf("SandboxProfile = %q, want the profile py, whose image the box measures with", cfg.SandboxProfile)
 	}
 	if cfg.BoxLabels["af.job"] != a.req.JobID || cfg.BoxLabels["af.attempt"] != "1" {
 		t.Errorf("box labels = %v", cfg.BoxLabels)

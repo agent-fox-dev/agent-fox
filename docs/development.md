@@ -170,7 +170,11 @@ in `internal/afcmd/fix_optin_test.go`. What they run is also run offline, so tha
 
 ## The tests and the box
 
-The default box is `podman`, which a test must not need. Every test of `internal/*` (`internal/afcmd` among them) that
+The default box is `podman`, which a test must not need. A fix measures in its box with the `af`
+of the box, which under `local` is the running executable; a test binary is no `af`, so the
+`TestMain` of a package that runs `af fix` (`internal/afcmd`, `cmd/af`) links itself as `af`
+(`fakeaf.LinkSelf`), points `brain.DefaultAFPath` at the link, and acts as `af` when it is run
+under that name. Every test of `internal/*` (`internal/afcmd` among them) that
 runs `af triage` or `af fix` passes `--sandbox local`: the helpers `triageEnv.loop`,
 `fixEnv.fix` and `fixEnv.fixRun` add it themselves (a later `--sandbox` in the arguments
 of a test, such as `--sandbox isobox`, is the one that counts), and a test that calls

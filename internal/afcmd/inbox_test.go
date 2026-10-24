@@ -17,7 +17,6 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/brain"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
-	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/fakeaf"
 	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
@@ -32,14 +31,13 @@ const boxPAT = "pat-for-the-in-box-tests"
 
 // boxFixEnv is a fix environment whose box is a gateway's: a fake hub with a lease, a
 // registry that holds only the gateway provider of the lease, wrapped so that the commands its
-// boxes run are recorded, and a Config that measures in the box and counts the calls of the
-// host's gate and revert check, which it must never get.
+// boxes run are recorded, and a Config that counts the calls of the host's gate, which a run
+// that measures in its box must never make.
 type boxFixEnv struct {
 	*fixEnv
-	hub         *fakehub.Hub
-	cfg         Config
-	hostGates   atomic.Int32
-	hostReverts atomic.Int32
+	hub       *fakehub.Hub
+	cfg       Config
+	hostGates atomic.Int32
 }
 
 // newBoxFixEnv makes the environment over a repository of files. The fake af of the box is the
@@ -70,15 +68,11 @@ func newBoxFixEnv(t *testing.T, files map[string]string) *boxFixEnv {
 	reg := box.NewRegistry()
 	reg.Register(entry)
 	w.cfg = Config{
-		Version: "v-test", Commit: "c-test", Boxes: reg, Brain: brain.Options{Getenv: noEnv}, InBox: &InBox{Profile: "py"},
+		Version: "v-test", Commit: "c-test", Boxes: reg, Brain: brain.Options{Getenv: noEnv}, SandboxProfile: "py",
 		BoxLabels: map[string]string{"af.job": "job_0123456789abcdef0123", "af.attempt": "1"},
 		Gate: func(ctx context.Context, dir string, o checks.Options) (checks.Result, error) {
 			w.hostGates.Add(1)
 			return checks.Run(ctx, dir, o)
-		},
-		Conform: func(ctx context.Context, dir, since string, o conform.Options) (conform.Result, error) {
-			w.hostReverts.Add(1)
-			return conform.Check(ctx, dir, since, o)
 		},
 	}
 	w.app = New(&w.cfg)
@@ -137,8 +131,8 @@ func TestDetectionBaselineGateAndRevertCheckRunInTheBoxAndNeverOnTheHost_TS_13_4
 	if got, want := w.ring1(), []string{"lang detect", "gate run", "gate run", "revert-check"}; !slices.Equal(got, want) {
 		t.Errorf("the box ran %v of the repository's checks, want %v", got, want)
 	}
-	if w.hostGates.Load() != 0 || w.hostReverts.Load() != 0 {
-		t.Errorf("the host's gate was called %d times and its revert check %d, want neither", w.hostGates.Load(), w.hostReverts.Load())
+	if w.hostGates.Load() != 0 {
+		t.Errorf("the host's gate was called %d times, want none", w.hostGates.Load())
 	}
 	// The results of the box are on the host, where the comparison reads them.
 	after, _ := res["after"].(map[string]any)
@@ -247,7 +241,7 @@ func TestABoxImageWithoutAfFailsTheAttemptAsAPermanentSandboxErrorNamingTheProfi
 			t.Run(fmt.Sprintf("%s, profile %q", name, profile), func(t *testing.T) {
 				w := newBoxFixEnv(t, smokeFiles())
 				setup(t, w)
-				w.cfg.InBox.Profile = profile
+				w.cfg.SandboxProfile = profile
 
 				code, env := w.fixInBox("--script", script(t, fixSteps()...))
 
@@ -362,8 +356,8 @@ func TestTheBoxOpensBeforeDetectionAndOneBoxServesTheWholeAttempt_TS_13_54(t *te
 }
 
 // TestVerdictTableGateSectionAndResultFieldsKeepTheirShapeInBothModes_TS_13_55 verifies
-// TS-13-55: the same fix in a gateway box and on the host (the local box, measuring on the host)
-// gives results of the same shape, and the host measures with its own gate.
+// TS-13-55: the same fix in a gateway box and in a local box gives results of the same shape,
+// and neither measures with the gate of the host: both measure in their box.
 // Verifies: 13-REQ-7.7
 func TestVerdictTableGateSectionAndResultFieldsKeepTheirShapeInBothModes_TS_13_55(t *testing.T) {
 	service := newBoxFixEnv(t, smokeFiles())
@@ -410,8 +404,8 @@ func TestVerdictTableGateSectionAndResultFieldsKeepTheirShapeInBothModes_TS_13_5
 	if in, on := reportOf(service.fixEnv, inBox), reportOf(host, onHost); in != on {
 		t.Errorf("the report in the box\n%s\nand on the host\n%s", in, on)
 	}
-	if hostGates.Load() == 0 {
-		t.Error("the host did not measure with its own gate")
+	if n := hostGates.Load(); n != 0 {
+		t.Errorf("the local box measured on the host: its gate ran %d times", n)
 	}
 	briefIn, briefOn := string(readFile(t, filepath.Join(service.dir, ".agent-fox", "run", inBox["run_id"].(string), "brief.md"))), string(readFile(t, filepath.Join(host.dir, ".agent-fox", "run", onHost["run_id"].(string), "brief.md")))
 	section := func(brief string) string {

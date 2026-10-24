@@ -61,8 +61,12 @@ func fixBrief(c *Config, r *toolio.Run, base string) (toolio.Outcome, error) {
 	if err := refusePullRequest(r); err != nil {
 		return toolio.Outcome{}, err
 	}
-	pre, err := fix.Preflight(r.Ctx, fix.PreflightParams{Dir: r.Dir, Base: base, Forge: r.Forge, Target: r.Target, Warn: r.Warn, Gate: c.gate(), GitRunner: c.git()})
+	params := fix.PreflightParams{Dir: r.Dir, Base: base, Forge: r.Forge, Target: r.Target, Warn: r.Warn, Gate: c.gate(), GitRunner: c.git()}
+	pre, err := fix.Preflight(r.Ctx, params)
 	if err != nil {
+		return toolio.Outcome{}, err
+	}
+	if err := pre.Measure(r.Ctx, params); err != nil {
 		return toolio.Outcome{}, err
 	}
 	warnIssueClosed(r)

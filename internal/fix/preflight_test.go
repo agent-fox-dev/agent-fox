@@ -44,8 +44,9 @@ func params(r *testRepo) (PreflightParams, *int) {
 }
 
 // TestPreflightStopsAtTheFirstFailingCheckInOrder_TS_09_9 verifies the order of
-// TS-09-9 at the function: a repository that is detached, dirty, without a gate and
-// without an origin fails at the earliest check, and the brain is made last.
+// TS-09-9 at the function: a repository that is detached, dirty, without an origin and
+// without a gate fails at the earliest check; the brain is made last of the checks of the
+// host, and the gate, which is the repository's and is checked where it runs, after them.
 // Verifies: 09-REQ-2.1
 func TestPreflightStopsAtTheFirstFailingCheckInOrder_TS_09_9(t *testing.T) {
 	r := newTestRepo(t, map[string]string{"README.md": "# x\n"}, false)
@@ -56,34 +57,34 @@ func TestPreflightStopsAtTheFirstFailingCheckInOrder_TS_09_9(t *testing.T) {
 	}
 
 	// Dirty, no gate and no origin: the tree is the first of them.
-	if _, err := Preflight(context.Background(), p); failure(t, err).Category != toolio.CategoryPreflight || !strings.Contains(err.Error(), "dirty.txt") {
+	if _, err := preflightAll(context.Background(), p); failure(t, err).Category != toolio.CategoryPreflight || !strings.Contains(err.Error(), "dirty.txt") {
 		t.Errorf("dirty, no gate, no origin: %v, want the dirty tree", err)
 	}
 	// Detached as well: the branch comes before the tree.
 	gitDo(t, r.Dir, "checkout", "-q", "--detach")
-	if _, err := Preflight(context.Background(), p); failure(t, err).Category != toolio.CategoryUsage {
+	if _, err := preflightAll(context.Background(), p); failure(t, err).Category != toolio.CategoryUsage {
 		t.Errorf("detached and dirty: %v, want the usage failure of the branch", err)
 	}
 	gitDo(t, r.Dir, "checkout", "-q", "main")
 	if err := os.Remove(filepath.Join(r.Dir, "dirty.txt")); err != nil {
 		t.Fatal(err)
 	}
-	// Clean, no gate, no origin: the gate.
-	if _, err := Preflight(context.Background(), p); failure(t, err).FixHint == nil || failure(t, err).FixHint.Flag != "--no-verify" {
-		t.Errorf("no gate, no origin: %v, want the gate", err)
-	}
-	// No gate wanted: the origin.
-	p.NoVerify = true
-	if _, err := Preflight(context.Background(), p); failure(t, err).Category != toolio.CategoryPreflight || !strings.Contains(err.Error(), "origin") {
-		t.Errorf("no origin: %v, want the origin", err)
+	// Clean, no origin, no gate: the origin.
+	if _, err := preflightAll(context.Background(), p); failure(t, err).Category != toolio.CategoryPreflight || !strings.Contains(err.Error(), "origin") {
+		t.Errorf("no origin, no gate: %v, want the origin", err)
 	}
 	if *built != 0 {
 		t.Errorf("the brain was made %d times by runs that were refused before it", *built)
 	}
-
+	// Nothing to land: the gate, after the brain was made.
 	p.Land = LandNone
-	if res, err := Preflight(context.Background(), p); err != nil || res.Base != "main" || res.Git == nil || *built != 1 {
-		t.Errorf("nothing wrong: %+v, %v (brain made %d times), want it to pass and make the brain once", res, err, *built)
+	if _, err := preflightAll(context.Background(), p); failure(t, err).FixHint == nil || failure(t, err).FixHint.Flag != "--no-verify" || *built != 1 {
+		t.Errorf("no gate: %v (brain made %d times), want the gate, checked once the brain was made", err, *built)
+	}
+
+	p.NoVerify = true
+	if res, err := preflightAll(context.Background(), p); err != nil || res.Base != "main" || res.Git == nil || *built != 2 {
+		t.Errorf("nothing wrong: %+v, %v (brain made %d times), want it to pass and make the brain again", res, err, *built)
 	}
 }
 
@@ -104,7 +105,7 @@ func TestADirtyTreeNamesAtMostTwentyPaths_TS_09_11(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := Preflight(context.Background(), p)
+	_, err := preflightAll(context.Background(), p)
 
 	f := failure(t, err)
 	if f.Category != toolio.CategoryPreflight || f.Retryable {
@@ -141,7 +142,7 @@ func TestADirtyTreeNamesAtMostTwentyPaths_TS_09_11(t *testing.T) {
 	}
 	cp, _ := params(clean)
 	requireMake(t)
-	if _, err := Preflight(context.Background(), cp); err != nil {
+	if _, err := preflightAll(context.Background(), cp); err != nil {
 		t.Errorf("an ignored file made the tree dirty: %v", err)
 	}
 }
@@ -177,7 +178,7 @@ func TestThePreflightRecordsTheBaseAndRunsTheBaselineOnce_TS_09_16(t *testing.T)
 	var warned []string
 	p.Warn = func(code, _ string) { warned = append(warned, code) }
 
-	res, err := Preflight(context.Background(), p)
+	res, err := preflightAll(context.Background(), p)
 
 	if err != nil {
 		t.Fatal(err)
@@ -203,7 +204,7 @@ func TestThePreflightRecordsTheBaseAndRunsTheBaselineOnce_TS_09_16(t *testing.T)
 	green := newTestRepo(t, gateFiles, false)
 	gp, _ := params(green)
 	gp.Gate, gp.Warn = spy.run, func(code, _ string) { t.Errorf("warning %s on a green baseline", code) }
-	if res, err := Preflight(context.Background(), gp); err != nil || res.Baseline == nil || !res.Baseline.Passed {
+	if res, err := preflightAll(context.Background(), gp); err != nil || res.Baseline == nil || !res.Baseline.Passed {
 		t.Errorf("green: %+v, %v, want a passed baseline", res.Baseline, err)
 	}
 }
@@ -220,14 +221,14 @@ func TestNoVerifyRunsNoBaselineAndALaterFailureRunsNone(t *testing.T) {
 	p.NewBrain = func() (brain.Brain, error) {
 		return nil, &toolio.Failure{Category: toolio.CategoryAuth, Message: "no key"}
 	}
-	if _, err := Preflight(context.Background(), p); failure(t, err).Category != toolio.CategoryAuth || len(spy.options) != 0 {
+	if _, err := preflightAll(context.Background(), p); failure(t, err).Category != toolio.CategoryAuth || len(spy.options) != 0 {
 		t.Errorf("a brain that cannot be made: %v, %d baseline runs, want the failure and none", err, len(spy.options))
 	}
 
 	p, _ = params(r)
 	p.Gate, p.NoVerify = spy.run, true
 	p.Warn = func(code, _ string) { t.Errorf("warning %s under --no-verify", code) }
-	if res, err := Preflight(context.Background(), p); err != nil || res.Baseline != nil || len(spy.options) != 0 || len(res.BaseHead) != 40 {
+	if res, err := preflightAll(context.Background(), p); err != nil || res.Baseline != nil || len(spy.options) != 0 || len(res.BaseHead) != 40 {
 		t.Errorf("--no-verify: %+v, %v, %d baseline runs, want no baseline and the base recorded", res.Baseline, err, len(spy.options))
 	}
 
@@ -236,13 +237,13 @@ func TestNoVerifyRunsNoBaselineAndALaterFailureRunsNone(t *testing.T) {
 	p.Gate = func(context.Context, string, checks.Options) (checks.Result, error) {
 		return checks.Result{}, errors.New("disk full")
 	}
-	if _, err := Preflight(context.Background(), p); failure(t, err).Category != toolio.CategoryIO || !strings.Contains(err.Error(), "disk full") {
+	if _, err := preflightAll(context.Background(), p); failure(t, err).Category != toolio.CategoryIO || !strings.Contains(err.Error(), "disk full") {
 		t.Errorf("a gate that cannot run: %v, want an io failure", err)
 	}
 	p.Gate = func(context.Context, string, checks.Options) (checks.Result, error) {
 		return checks.Result{}, &checks.UsageError{Message: "label not allowed"}
 	}
-	if _, err := Preflight(context.Background(), p); failure(t, err).Category != toolio.CategoryUsage || !strings.Contains(err.Error(), "label not allowed") {
+	if _, err := preflightAll(context.Background(), p); failure(t, err).Category != toolio.CategoryUsage || !strings.Contains(err.Error(), "label not allowed") {
 		t.Errorf("a gate that is refused its options: %v, want a usage failure", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -251,7 +252,7 @@ func TestNoVerifyRunsNoBaselineAndALaterFailureRunsNone(t *testing.T) {
 		cancel() // the run is stopped while the gate is running
 		return checks.Result{}, errors.New("killed")
 	}
-	if _, err := Preflight(ctx, p); !errors.Is(err, context.Canceled) {
+	if _, err := preflightAll(ctx, p); !errors.Is(err, context.Canceled) {
 		t.Errorf("a cancelled run: %v, want the cancellation", err)
 	}
 }
@@ -265,9 +266,19 @@ func TestACommandThatLandsAndRunsNoBrainSkipsThoseChecks(t *testing.T) {
 	p.Land, p.NewBrain = "", nil
 	p.Gate = (&gateSpy{}).run
 
-	res, err := Preflight(context.Background(), p)
+	res, err := preflightAll(context.Background(), p)
 
 	if err != nil || res.Brain != nil || res.Baseline == nil {
 		t.Errorf("Preflight = %+v, %v, want the baseline and no brain, though there is no origin", res, err)
 	}
+}
+
+// preflightAll is the whole of the checks before a run: those of the host, then the gate and
+// the baseline.
+func preflightAll(ctx context.Context, p PreflightParams) (Preflighted, error) {
+	pre, err := Preflight(ctx, p)
+	if err != nil {
+		return pre, err
+	}
+	return pre, pre.Measure(ctx, p)
 }

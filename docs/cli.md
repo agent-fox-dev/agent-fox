@@ -1176,9 +1176,17 @@ failure, since a fix takes an issue, a file or text. `fix land` takes no
 
 #### The steps of a fix run
 
+The checks of the repository (the detection of the gate, the baseline, the gate after
+the change and the revert check) are the repository's code, and the brain writes
+tests: they run in the box of the run, through its `af` (the image's under `podman`
+and a `gateway`, this `af` under `local`), and never on this host. So the checks of
+this host come first, and a run they refuse opens no box; then the box is opened,
+serves the whole run, and the gate and the baseline are made in it (see
+[Measuring in the box](architecture.md#the-brain-interface-as-built)).
+
 1. **Preflight.** The checks that need no model run in this order, and the first
-   refusal ends the run with no model call, no box, no branch and no write to the
-   forge.
+   refusal ends the run with no model call, no branch and no write to the forge;
+   one of the first five also opens no box.
    1. *The flags and the input*: as above, with the brain and the box provider
       known. A violation is `usage` and names the flag.
    2. *The checkout*: `--dir` is the top level of a git work tree on a branch (a
@@ -1186,24 +1194,24 @@ failure, since a fix takes an issue, a file or text. `fix land` takes no
       checked out).
    3. *A clean tree*: every change in the tree must be the run's own. A dirty tree
       is `failed`/`preflight` and names at most 20 paths.
-   4. *A gate*: at least one check that can be run here (see
-      [`lang detect`](#lang-detect)), else `failed`/`preflight` with `fix_hint`
-      `{flag: "--no-verify"}`. A `.agent-fox/gate.json` that cannot be used is
-      `config`.
-   5. *The landing*, unless `--land none`: an `origin` remote to push to
+   4. *The landing*, unless `--land none`: an `origin` remote to push to
       (`failed`/`preflight`; a dry run does not need one) and, for `pr`, a
       repository for the pull request (`usage`, `fix_hint` `--repo`), a
       credential for it (`failed`/`auth`, `fix_hint.env` `GITHUB_TOKEN` or
       `GITLAB_TOKEN`; under `--dry-run` the warning `no_forge_token`; a credential
       that the forge rejects is `failed`/`auth` too) and a repository that can be read
       and is not archived (`failed`/`forge`).
-   6. *The brain*: it can be made, which needs the credential of its model
-      (`failed`/`auth`, before a box is opened).
-   7. *The baseline*: the full hash of the base is recorded as `base_head`, and
-      the gate runs once on the tree as it is. A red baseline raises
-      `baseline_failing` and the run goes on: a check that already fails is not
-      counted against the change. `--no-verify` makes no baseline. A closed issue
-      raises `issue_closed`, and the run goes on.
+   5. *The brain*: it can be made, which needs the credential of its model
+      (`failed`/`auth`, before a box is opened). The full hash of the base is recorded
+      as `base_head`. Then the box is opened.
+   6. *A gate*, in the box: at least one check that can be run there (see
+      [`lang detect`](#lang-detect)), else `failed`/`preflight` with `fix_hint`
+      `{flag: "--no-verify"}`. The checkout's own `.agent-fox/gate.json` is placed in
+      the box for the detection, and one that cannot be used is `config`.
+   7. *The baseline*, in the box: the gate runs once on the tree as it is. A red
+      baseline raises `baseline_failing` and the run goes on: a check that already
+      fails is not counted against the change. `--no-verify` makes no baseline. A
+      closed issue raises `issue_closed`, and the run goes on.
 2. **The brief.** The prefix is the mandate, the body of the
    [`af-fix` skill](../skills/af-fix), the report in a fence, the gate with its
    baseline, the repository map and the schema of the report; it is the same for
@@ -1335,9 +1343,11 @@ dry run spends model money like any other.
 
 ### fix brief
 
-`af fix brief <input>` makes the checks of steps 1 to 4 and the baseline of step 7
+`af fix brief <input>` makes the checks of steps 1 to 3, the gate of step 6 and the baseline of step 7
 (not the checks of the landing and of the brain, which `fix land` and `fix run`
-make when they need them), renders the brief of a run, and stops. It calls no model and writes
+make when they need them), renders the brief of a run, and stops. Unlike `fix`, it opens no
+box: the detection and the baseline run on this host, at the checkout of the person who runs
+it. It calls no model and writes
 nothing to the forge, to git or outside `.agent-fox/`. It takes `--context`
 and `--repo`, and the forge client of the shell for an issue.
 
@@ -1384,7 +1394,7 @@ and its result is `{run_id, kind, path, sha256}`.
 
 `af fix land --run-id ID` measures the change that is in the checkout, once, and
 lands it or parks it: the steps 5 and 8 above, for a change a person made or a
-round of a brain left, with no brain and no box. It needs a stored report (a
+round of a brain left, with no brain and no box: unlike `fix`, it measures on this host. It needs a stored report (a
 question is refused as `failed`/`submission`, and the message points at
 `fix brief --context`), checks what
 the landing needs before it measures, and its result is that of `fix`, with

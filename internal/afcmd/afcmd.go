@@ -18,7 +18,6 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/brain"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
-	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/fix"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -60,24 +59,15 @@ type Config struct {
 	// Earlier says which questions the --context values answer; nil is to search the run
 	// directories for them, as af does.
 	Earlier *Earlier
-	// Gate runs the checks of the baseline and of the measuring after a change; nil is
-	// checks.Run.
+	// Gate runs the checks of the baseline of af fix brief, which measures on this host; nil
+	// is checks.Run. The loop of af fix measures in its box.
 	Gate func(ctx context.Context, dir string, o checks.Options) (checks.Result, error)
-	// Conform runs the revert check; nil is conform.Check.
-	Conform func(ctx context.Context, dir, since string, o conform.Options) (conform.Result, error)
-	// InBox, when it is set, makes a fix measure in the box it opens: the detection of the
-	// checks, the baseline, the gate after the change and the revert check run there, through
-	// the af of the box's image, and never on this host. Gate and Conform are then not called.
-	InBox *InBox
+	// SandboxProfile names the sandbox profile of a leased box, whose image has to provide the
+	// af that a fix measures with, for the failure that says it does not; empty is hub's
+	// default profile.
+	SandboxProfile string
 	// BoxLabels are put on the box a command opens, beside af.run_id and af.tool.
 	BoxLabels map[string]string
-}
-
-// InBox is how a fix measures in its box.
-type InBox struct {
-	// Profile names the sandbox profile whose image has to provide af, for the failure that
-	// says it does not; empty is hub's default profile.
-	Profile string
 }
 
 // Earlier is what a caller knows of the questions that the --context values answer, in
@@ -201,14 +191,6 @@ func (c *Config) materialFlags(n int) []bool {
 		flags[i] = c.Earlier.question(i) == nil
 	}
 	return flags
-}
-
-// conform is the revert check of the invocation.
-func (c *Config) conform() func(ctx context.Context, dir, since string, o conform.Options) (conform.Result, error) {
-	if c.Conform != nil {
-		return c.Conform
-	}
-	return conform.Check
 }
 
 // brainOptions are the options every brain is made from: the model of AF_MODEL when

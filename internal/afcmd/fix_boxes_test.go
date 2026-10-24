@@ -3,6 +3,7 @@ package afcmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -66,8 +67,18 @@ git add -A && git commit -q -m 'brain: the work, committed in the box'`
 // ledgerEntries are the entries of a run's ledger of the kind.
 func ledgerEntries(t *testing.T, runDir, kind string) []map[string]any {
 	t.Helper()
+	data, err := os.ReadFile(filepath.Join(runDir, "ledger.jsonl"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil // a run that recorded nothing has no ledger
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
 	var out []map[string]any
-	for _, line := range strings.Split(strings.TrimSpace(string(readFile(t, filepath.Join(runDir, "ledger.jsonl")))), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if line == "" {
+			continue
+		}
 		var entry struct {
 			Kind string
 			Data map[string]any

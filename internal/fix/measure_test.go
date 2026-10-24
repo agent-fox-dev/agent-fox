@@ -57,7 +57,7 @@ func newMeasureWorldWith(t *testing.T, files map[string]string, withOrigin bool)
 	r := newTestRepo(t, files, withOrigin)
 	p, _ := params(r)
 	p.Land = ""
-	pre, err := Preflight(context.Background(), p)
+	pre, err := preflightAll(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
