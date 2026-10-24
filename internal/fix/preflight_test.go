@@ -190,8 +190,8 @@ func TestThePreflightRecordsTheBaseAndRunsTheBaselineOnce_TS_09_16(t *testing.T)
 	if len(spy.options) != 1 {
 		t.Fatalf("the baseline ran %d times, want once", len(spy.options))
 	}
-	if o := spy.options[0]; o.Label != "" || o.Hermetic || o.NoCache || !reflect.DeepEqual(o.Table, res.Detection.Gate) || len(o.Table.Checks) == 0 {
-		t.Errorf("options = %+v, want the pinned table in the default mode with no label", o)
+	if o := spy.options[0]; !reflect.DeepEqual(o.Table, res.Detection.Gate) || len(o.Table.Checks) == 0 {
+		t.Errorf("options = %+v, want the pinned table", o)
 	}
 	if res.Baseline == nil || res.Baseline.Passed || res.Baseline.ID == "" {
 		t.Errorf("Baseline = %+v, want a red gate result with an id", res.Baseline)

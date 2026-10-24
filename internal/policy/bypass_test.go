@@ -193,8 +193,8 @@ func TestProtectedPathsInOtherSpellings(t *testing.T) {
 		"git diff --output=.specs/out.md", "git log --output .specs/out.md", "git show --output=.git/x", "find .specs -delete", "find . -delete", "find . -maxdepth 1 -depth -delete", "find .specs -name x -delete",
 		"find .specs -name x -fprint .specs/list", "dd of=.specs/a.md", "dd if=x of=.git/hooks/pre-commit", "install a .specs/b", "install -t .specs a b",
 		"rsync -a a .specs/", "perl -pi -e s/a/b/ .specs/x", "perl -i.bak -pe s/a/b/ .specs/x", "patch .specs/x", "go build -o .github/workflows/ci.yml",
-		"go test -coverprofile=.specs/c.out ./pkg", "go test -coverprofile .specs/c.out ./pkg", "af map --output .specs/a.md", "af map --output=.specs/a.md",
-		"af map --emit-events .specs/a.md", "chown me .specs/a", "chgrp me .specs/a", "rmdir .specs", "unlink .specs/a", "shred .specs/a", "mkfifo .specs/f",
+		"go test -coverprofile=.specs/c.out ./pkg", "go test -coverprofile .specs/c.out ./pkg", "af gate run --output .specs/a.md", "af gate run --output=.specs/a.md",
+		"af gate run --emit-events .specs/a.md", "chown me .specs/a", "chgrp me .specs/a", "rmdir .specs", "unlink .specs/a", "shred .specs/a", "mkfifo .specs/f",
 		"curl -o .specs/a x", "sort -o .specs/a b", "ln -s .specs link", "ln .specs/a b",
 	} {
 		cases = append(cases, expectation{src, Deny, RuleProtectedPath, ""})
@@ -202,7 +202,7 @@ func TestProtectedPathsInOtherSpellings(t *testing.T) {
 	for _, src := range []string{
 		"touch -r .specs/a.md newfile", "touch -d yesterday src/a", "git diff --output=out.txt", "find src -name x -delete", "find . -name '*.tmp' -delete", "find . -type f -delete -print", "find . -name x", "dd if=.specs/a of=out",
 		"rm -rf *", "rm -rf ./*", "rm -rf src/*", "rm -rf src/.git*", "echo x > src/.spe?s", "echo x > src/*.go", "echo $PWD", `echo x > "$PWD/src/a"`, "echo x > ~/other/a", "echo x > ~root/a",
-		"install a src/b", "rsync -a a src/", "perl -ne print .specs/x", "go build -o bin/af ./cmd/af", "af map --output out.json", "sort -o out.txt a",
+		"install a src/b", "rsync -a a src/", "perl -ne print .specs/x", "go build -o bin/af ./cmd/af", "af gate run --output out.json", "sort -o out.txt a",
 		"ln -s src link", "chown me src/a", "rmdir src",
 	} {
 		cases = append(cases, expectation{src, Allow, "", ""})

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/agent-fox-dev/agentkit-go/tools"
 )
 
 // A user's global git configuration is what makes a fixture that calls
@@ -40,7 +42,7 @@ func TestHermeticRunnerIgnoresTheUsersGitConfig(t *testing.T) {
 	}
 
 	clean := t.TempDir()
-	r := HermeticRunner(clean)
+	r := hermeticRunner(clean)
 	for _, key := range []string{"init.defaultBranch", "user.email"} {
 		out, code, err := r(ctx, dir, []string{"git", "config", "--get", key})
 		if err != nil || code != 1 {
@@ -117,7 +119,7 @@ func TestHermeticRunnerNeverAsksForACredential(t *testing.T) {
 	t.Setenv("NO_PROXY", "127.0.0.1,localhost")
 	t.Setenv("no_proxy", "127.0.0.1,localhost")
 
-	out, code, err := HermeticRunner(t.TempDir())(context.Background(), t.TempDir(),
+	out, code, err := hermeticRunner(t.TempDir())(context.Background(), t.TempDir(),
 		[]string{"git", "ls-remote", "--heads", srv.URL + "/acme/widgets.git", "main"})
 	if err != nil {
 		t.Fatalf("git ls-remote did not run: %v", err)
@@ -148,5 +150,13 @@ func TestHermeticEnvDisablesCredentialPrompts(t *testing.T) {
 		if v, ok := got[k]; ok {
 			t.Errorf("%s = %q survived; a clean environment has no one to ask", k, v)
 		}
+	}
+}
+
+// hermeticRunner is ReducedEnvRunner in the environment of HermeticEnv.
+func hermeticRunner(home string) Runner {
+	env := HermeticEnv(tools.ReducedEnv(nil), home)
+	return func(ctx context.Context, dir string, argv []string, stdin ...string) (string, int, error) {
+		return run(ctx, dir, argv, env, stdin...)
 	}
 }

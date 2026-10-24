@@ -9,9 +9,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 )
 
 // fixtureID is the id the tests give their stored results: 12 hex digits made
@@ -63,11 +61,8 @@ func TestCompareVerdictsPerCheck_TS_06_32(t *testing.T) {
 	dir := t.TempDir()
 	before := storeFixture(t, dir, fixtureID(1), StatusPass, StatusFail, StatusPass, StatusFail, StatusError, StatusPass)
 	after := storeFixture(t, dir, fixtureID(2), StatusPass, StatusPass, StatusFail, StatusFail, StatusPass, StatusTimeout)
-	if err := recordLabel(dir, "baseline", before.ID); err != nil {
-		t.Fatal(err)
-	}
 
-	c := mustCompare(t, dir, "baseline", after.ID)
+	c := mustCompare(t, dir, before.ID, after.ID)
 
 	want := []Row{
 		{"a", "pass", "pass", VerdictPass},
@@ -80,103 +75,13 @@ func TestCompareVerdictsPerCheck_TS_06_32(t *testing.T) {
 	if !reflect.DeepEqual(c.Rows, want) {
 		t.Errorf("rows = %+v, want %+v", c.Rows, want)
 	}
-	if c.Before != (Side{ID: before.ID, Label: "baseline", Passed: false}) || c.After != (Side{ID: after.ID, Label: "", Passed: false}) {
+	if c.Before != (Side{ID: before.ID, Passed: false}) || c.After != (Side{ID: after.ID, Passed: false}) {
 		t.Errorf("before = %+v, after = %+v", c.Before, c.After)
 	}
 	if c.Verdict != VerdictRegressed || c.Landable {
 		t.Errorf("verdict %s, landable %v; want regressed and not landable", c.Verdict, c.Landable)
 	}
 
-	// An argument is a label before it is an id: a label that is spelled like
-	// the id of another result names its own.
-	other := storeFixture(t, dir, fixtureID(3), StatusFail, StatusFail, StatusFail, StatusFail, StatusFail, StatusFail)
-	labels := fmt.Sprintf(`{"baseline": %q, %q: %q}`, before.ID, other.ID, after.ID)
-	if err := os.WriteFile(filepath.Join(dir, ".agent-fox", "gate", "labels.json"), []byte(labels), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got := mustCompare(t, dir, "baseline", other.ID); got.After.ID != after.ID {
-		t.Errorf("%s resolved to the result %s; want the label's, %s", other.ID, got.After.ID, after.ID)
-	}
-}
-
-// TestCompareLabelOfAnIDIsALabelThatNamesIt guards 06-REQ-5.4: a result
-// addressed by id reports a label that names it now, and not the label of
-// whichever run happened to store it; none if no label does.
-func TestCompareLabelOfAnIDIsALabelThatNamesIt(t *testing.T) {
-	dir := t.TempDir()
-	res := storeFixture(t, dir, fixtureID(1), StatusPass)
-	res.Label = "stale"
-	storeNamed(t, dir, res)
-	other := storeFixture(t, dir, fixtureID(2), StatusPass)
-
-	if c := mustCompare(t, dir, res.ID, other.ID); c.Before.Label != "" || c.After.Label != "" || c.Verdict != VerdictPass || !c.Landable {
-		t.Errorf("no label names either: %+v", c)
-	}
-	for _, rec := range [][2]string{{"zeta", res.ID}, {"after", res.ID}, {"other", other.ID}} {
-		if err := recordLabel(dir, rec[0], rec[1]); err != nil {
-			t.Fatal(err)
-		}
-	}
-	c := mustCompare(t, dir, res.ID, other.ID)
-	if c.Before.Label != "after" || c.After.Label != "other" {
-		t.Errorf("labels %q and %q, want after (the first that names the result, of after and zeta) and other", c.Before.Label, c.After.Label)
-	}
-	if c := mustCompare(t, dir, "zeta", other.ID); c.Before.Label != "zeta" {
-		t.Errorf("an argument that is a label reports it: %q", c.Before.Label)
-	}
-}
-
-// TestRecordLabelDoesNotLoseLabelsToConcurrentRecords guards 06-REQ-4.6: runs
-// that record labels together each leave theirs.
-func TestRecordLabelDoesNotLoseLabelsToConcurrentRecords(t *testing.T) {
-	dir := t.TempDir()
-	var wg sync.WaitGroup
-	for i := range 20 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := recordLabel(dir, fmt.Sprintf("label%02d", i), fixtureID(i%10)); err != nil {
-				t.Error(err)
-			}
-		}()
-	}
-	wg.Wait()
-
-	labels := readLabels(dir)
-	if len(labels) != 20 {
-		t.Errorf("%d labels survived 20 records: %v", len(labels), labels)
-	}
-	entries, _ := os.ReadDir(filepath.Dir(labelsPath(dir)))
-	for _, e := range entries {
-		if e.Name() != labelsFile {
-			t.Errorf("%s was left beside labels.json", e.Name())
-		}
-	}
-}
-
-// TestRecordLabelStealsAStaleLock: a lock left by a process that was killed
-// does not stop the labels for ever.
-func TestRecordLabelStealsAStaleLock(t *testing.T) {
-	dir := t.TempDir()
-	lock := labelsPath(dir) + ".lock"
-	if err := os.MkdirAll(filepath.Dir(lock), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(lock, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	old := time.Now().Add(-time.Minute)
-	if err := os.Chtimes(lock, old, old); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := recordLabel(dir, "baseline", fixtureID(1)); err != nil {
-		t.Fatal(err)
-	}
-
-	if labels := readLabels(dir); labels["baseline"] != fixtureID(1) {
-		t.Errorf("labels = %v", labels)
-	}
 }
 
 // TestCompareVerdictProperty_TS_06_33 verifies TS-06-33:
@@ -254,19 +159,16 @@ func TestCompareRefusals_TS_06_36_and_37(t *testing.T) {
 	dir := t.TempDir()
 	one := storeNamed(t, dir, Result{ID: fixtureID(1), Tree: strings.Repeat("0", 64), Checks: []CheckResult{{Name: "lint", Status: StatusPass}, {Name: "test", Status: StatusPass}}})
 	two := storeNamed(t, dir, Result{ID: fixtureID(2), Tree: strings.Repeat("0", 64), Checks: []CheckResult{{Name: "test", Status: StatusPass}, {Name: "build", Status: StatusPass}}})
-	if err := recordLabel(dir, "baseline", one.ID); err != nil {
-		t.Fatal(err)
-	}
 
 	for _, tc := range []struct {
 		name          string
 		before, after string
 		contains      []string
 	}{
-		{"an unresolved after", "baseline", "nosuch", []string{"--after", "nosuch"}},
-		{"an unresolved before", "nosuch", "baseline", []string{"--before", "nosuch"}},
-		{"an id that is not stored", fixtureID(9), "baseline", []string{"--before", fixtureID(9)}},
-		{"different checks", "baseline", two.ID, []string{"only in --before: lint", "only in --after: build"}},
+		{"an unresolved after", one.ID, "nosuch", []string{"after", "nosuch"}},
+		{"an unresolved before", "nosuch", one.ID, []string{"before", "nosuch"}},
+		{"an id that is not stored", fixtureID(9), one.ID, []string{"before", fixtureID(9)}},
+		{"different checks", one.ID, two.ID, []string{"only before: lint", "only after: build"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := Compare(dir, tc.before, tc.after)
@@ -283,110 +185,6 @@ func TestCompareRefusals_TS_06_36_and_37(t *testing.T) {
 		})
 	}
 
-	// A label whose result was deleted is unresolved, and says so.
-	if err := os.RemoveAll(Key{ID: one.ID}.Dir(dir)); err != nil {
-		t.Fatal(err)
-	}
-	var usage *UsageError
-	if _, err := Compare(dir, "baseline", two.ID); !errors.As(err, &usage) || !strings.Contains(usage.Message, one.ID) {
-		t.Errorf("Compare with a label whose result is gone = %v, want a usage error naming %s", err, one.ID)
-	}
-}
-
-// TestValidateLabel_TS_06_31 verifies the library's part of TS-06-31:
-// a label is a lower-case word of at most 32 characters that is not an id.
-// Verifies: 06-REQ-4.7
-func TestValidateLabel_TS_06_31(t *testing.T) {
-	for _, label := range []string{"", "baseline", "after", "ok_label-1", "a", strings.Repeat("a", 32), "z9", "abcdef01234x"} {
-		if err := ValidateLabel(label); err != nil {
-			t.Errorf("ValidateLabel(%q) = %v, want it accepted", label, err)
-		}
-	}
-	for _, label := range []string{"Bad", "1abc", strings.Repeat("a", 33), "a b", "0123456789ab", "abcdef012345", "-x", "_x", "a/b", "a.b", "é", "a\n"} {
-		err := ValidateLabel(label)
-		var usage *UsageError
-		if !errors.As(err, &usage) {
-			t.Errorf("ValidateLabel(%q) = %v, want a *UsageError", label, err)
-		}
-	}
-}
-
-// TestRecordLabel guards 06-REQ-4.6: the latest id for a label wins, other
-// labels stay, the file is written atomically, and one that is damaged starts
-// again.
-func TestRecordLabel(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, ".agent-fox", "gate", "labels.json")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	for _, rec := range [][2]string{{"baseline", fixtureID(1)}, {"after", fixtureID(2)}, {"baseline", fixtureID(3)}} {
-		if err := recordLabel(dir, rec[0], rec[1]); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	data, _ := os.ReadFile(path)
-	want := fmt.Sprintf("{\n  \"after\": %q,\n  \"baseline\": %q\n}\n", fixtureID(2), fixtureID(3))
-	if string(data) != want {
-		t.Errorf("labels.json = %q, want %q", data, want)
-	}
-	entries, _ := os.ReadDir(filepath.Dir(path))
-	for _, e := range entries {
-		if strings.Contains(e.Name(), ".tmp-") {
-			t.Errorf("a temporary file was left behind: %s", e.Name())
-		}
-	}
-
-	if err := os.WriteFile(path, []byte("{damaged"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := recordLabel(dir, "again", fixtureID(4)); err != nil {
-		t.Fatalf("a damaged labels.json stops the label: %v", err)
-	}
-	if data, _ := os.ReadFile(path); !strings.Contains(string(data), `"again"`) {
-		t.Errorf("labels.json = %q", data)
-	}
-}
-
-// TestRunRecordsTheLabel_TS_06_30 verifies the engine's part of TS-06-30:
-// the label is recorded on a miss and on a hit, and the latest result for a
-// label wins; an invalid label stops the run before anything runs.
-// Verifies: 06-REQ-4.6, 06-REQ-4.7
-func TestRunRecordsTheLabel_TS_06_30(t *testing.T) {
-	requireSh(t)
-	dir := newRepo(t)
-	counter, check := counterCheck(t, "counted")
-	table := tableOf(check)
-	labels := filepath.Join(dir, ".agent-fox", "gate", "labels.json")
-
-	first := mustRun(t, dir, Options{Table: table, Label: "baseline"})
-	writeFile(t, dir, "README.md", "# changed\n", 0o644)
-	second := mustRun(t, dir, Options{Table: table, Label: "baseline"})
-	third := mustRun(t, dir, Options{Table: table, Label: "after"})
-
-	if first.ID == second.ID || !third.Cached || third.ID != second.ID {
-		t.Fatalf("ids %s, %s, %s; cached %v; want the tree to change between 1 and 2 and the third to be a hit of the second", first.ID, second.ID, third.ID, third.Cached)
-	}
-	data, _ := os.ReadFile(labels)
-	want := fmt.Sprintf("{\n  \"after\": %q,\n  \"baseline\": %q\n}\n", second.ID, second.ID)
-	if string(data) != want {
-		t.Errorf("labels.json = %q, want %q", data, want)
-	}
-	for _, label := range []string{"Bad", "0123456789ab"} {
-		_, err := Run(t.Context(), dir, Options{Table: table, Label: label, NoCache: true})
-		var usage *UsageError
-		if !errors.As(err, &usage) {
-			t.Errorf("Run with the label %q = %v, want a *UsageError", label, err)
-		}
-	}
-	if runs(t, counter) != 2 {
-		t.Errorf("the check ran %d times, want 2: the invalid labels ran nothing", runs(t, counter))
-	}
-	if after, _ := os.ReadFile(labels); string(after) != want {
-		t.Errorf("labels.json changed to %q", after)
-	}
 }
 
 // TestCacheProperty_TS_06_27 verifies TS-06-27:

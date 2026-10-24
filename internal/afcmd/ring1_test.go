@@ -28,7 +28,6 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/project"
-	"github.com/agent-fox-dev/agentfox/internal/repomap"
 )
 
 // ring1Packages are the packages of the ring-1 commands.
@@ -41,33 +40,29 @@ var ring1Commands = []struct {
 	flags   []string
 }{
 	{"lang detect", "1m0s", []string{"--write"}},
-	{"gate run", "30m0s", []string{"--label", "--hermetic", "--no-cache"}},
-	{"gate compare", "30s", []string{"--before", "--after"}},
+	{"gate run", "30m0s", nil},
 	{"revert-check", "30m0s", []string{"--since"}},
-	{"map", "2m0s", []string{"--tokens"}},
 }
 
 // minimalInvocation is a valid use of each command in the repository dir.
 func minimalInvocation(path, dir, base string) []string {
 	switch path {
-	case "gate compare":
-		return []string{"gate", "compare", "--dir", dir, "--before", "first", "--after", "first"}
 	case "revert-check":
 		return []string{"revert-check", "--dir", dir, "--since", base}
 	}
 	return append(strings.Fields(path), "--dir", dir)
 }
 
-// TestSixCommandsAreRegistered_TS_06_69 verifies TS-06-69:
+// TestTheRing1CommandsAreRegistered_TS_06_69 verifies TS-06-69:
 // all ring-1 commands are registered with their default timeouts, flags in --help
 // and tool equal to the command path.
 // Verifies: 06-REQ-10.1
-func TestSixCommandsAreRegistered_TS_06_69(t *testing.T) {
+func TestTheRing1CommandsAreRegistered_TS_06_69(t *testing.T) {
 	requireSh(t)
 	dir := gitRepo(t, map[string]string{"go.mod": "module x\n", "a.go": "package x\n"})
 	writeGate(t, dir, []string{"ok", "sh", "-c", "exit 0"})
 	base := baseOf(t, dir)
-	if code, _ := gateRun(t, dir, "--label", "first"); code != 0 {
+	if code, _ := gateRun(t, dir); code != 0 {
 		t.Fatal("the first gate run failed")
 	}
 
@@ -148,7 +143,7 @@ func TestNoForgeNoNetworkNoRunDirectory_TS_06_70(t *testing.T) {
 		t.Error("a command built a forge client")
 		return nil, fmt.Errorf("no forge")
 	}
-	if code, _ := gateRun(t, dir, "--label", "first"); code != 0 {
+	if code, _ := gateRun(t, dir); code != 0 {
 		t.Fatal("the first gate run failed")
 	}
 
@@ -304,9 +299,7 @@ func TestSchemasMatchTheirTypes_TS_06_72(t *testing.T) {
 	results := map[string]reflect.Type{
 		"lang_detect":  reflect.TypeOf(project.Detection{}),
 		"gate_run":     reflect.TypeOf(checks.Result{}),
-		"gate_compare": reflect.TypeOf(checks.Comparison{}),
 		"revert_check": reflect.TypeOf(conform.Result{}),
-		"map":          reflect.TypeOf(repomap.Result{}),
 	}
 	for name, typ := range results {
 		var schema map[string]any

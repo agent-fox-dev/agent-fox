@@ -3,7 +3,7 @@
 `af` runs no model except in four commands, `af triage` and `af triage run` (see
 [Triage](#triage)) and `af fix` and `af fix run` (see [Fix](#fix)); the two `run`
 commands are what a box executes, and no command for a person. The other commands
-it has (`lang detect`, `gate run`, `gate compare`, `revert-check` and `map`) call
+it has (`lang detect`, `gate run` and `revert-check`) call
 no model: they read files, run
 git and the checks of the project, and answer from what they measured. They
 read no variable of a model vendor, and `gate run` strips from the environment

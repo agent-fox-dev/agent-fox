@@ -85,8 +85,7 @@ and the map read, and its `.gitignore` keeps it out of the repository.
 | `.gitignore` | Ignores the whole directory, without touching the repository's own `.gitignore`. |
 | `gate.json` | The table of checks that the gate runs; see [gate.json](#gatejson). |
 | `guard.json` | The policy of the tool gate of a brain; see [guard.json](#guardjson). |
-| `gate/<id>/` | The logs and the stored result of a gate run (see [cli.md](cli.md#gate-run)). Safe to delete: the next run makes them again, but a label in `labels.json` that names a deleted id makes `gate compare` fail with `usage` until the label is set again. |
-| `gate/labels.json` | Maps labels to those ids. `labels.json.lock` is beside it while a run writes it. |
+| `gate/<id>/` | The logs and the stored result of a gate run (see [cli.md](cli.md#gate-run)). Safe to delete: the next run makes them again. |
 | `revert/<id>/` | The backup that [`revert-check`](cli.md#revert-check) keeps while it works and removes when the tree is back. One that is left means a check was killed, or the tree could not be put back, or something changed a path while the checks ran (what it held is in `changed/`): look at it before checking again. |
 | `run/<id>/` | One directory per invocation of a command that has one: the envelope, the event stream, the ledger, and a report or a panic's stack, and for a command that runs a brain its briefs, hook, accepted submission, transcripts and the stack of a brain's panic, and what a driver that runs as a process in a box printed (`agentkit.<attempt>.json`, `agentkit.<attempt>.stderr`). Delete one when it is no use; nothing refers to one except a later run of the same input with `--context`, which reads the question it asked. The layout is in [cli.md](cli.md#the-run-directory). |
 

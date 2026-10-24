@@ -160,11 +160,10 @@ func TestGateRunRedAndEmpty_TS_06_22(t *testing.T) {
 	})
 }
 
-// TestGateRunCaches_TS_06_26_and_28 verifies TS-06-26 and TS-06-28 through the
-// command: two runs on an unchanged tree execute the check once, and
-// --no-cache executes it again and replaces the stored result.
-// Verifies: 06-REQ-4.2, 06-REQ-4.4
-func TestGateRunCaches_TS_06_26_and_28(t *testing.T) {
+// TestGateRunCaches_TS_06_26 verifies TS-06-26 through the command: two runs on
+// an unchanged tree execute the check once, and a change runs it again.
+// Verifies: 06-REQ-4.2
+func TestGateRunCaches_TS_06_26(t *testing.T) {
 	requireSh(t)
 	dir := gitRepo(t, map[string]string{"a.txt": "a\n"})
 	counter := filepath.Join(t.TempDir(), "counter")
@@ -188,26 +187,13 @@ func TestGateRunCaches_TS_06_26_and_28(t *testing.T) {
 		t.Errorf("the hit changed the result directory: %v, was %v", after, before)
 	}
 
-	_, third := gateRun(t, dir, "--no-cache")
-	if lines(t, counter) != 2 || field(third, "result", "cached") != false || field(third, "result", "id") != id {
-		t.Errorf("--no-cache: %d runs, cached %v, id %v; want 2, false and %s", lines(t, counter), field(third, "result", "cached"), field(third, "result", "id"), id)
-	}
-	stored, err := os.ReadFile(filepath.Join(dir, ".agent-fox", "gate", id, "result.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var result map[string]any
-	if err := json.Unmarshal(stored, &result); err != nil || result["cached"] != false {
-		t.Errorf("result.json = %s (%v), want the new run's, not cached", stored, err)
-	}
-
 	// One byte of a file in the view, and the tree is another.
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("b\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	_, fourth := gateRun(t, dir)
-	if lines(t, counter) != 3 || field(fourth, "result", "cached") != false || field(fourth, "result", "id") == id {
-		t.Errorf("after a change: %d runs, cached %v, id %v; want 3, false and another id", lines(t, counter), field(fourth, "result", "cached"), field(fourth, "result", "id"))
+	if lines(t, counter) != 2 || field(fourth, "result", "cached") != false || field(fourth, "result", "id") == id {
+		t.Errorf("after a change: %d runs, cached %v, id %v; want 2, false and another id", lines(t, counter), field(fourth, "result", "cached"), field(fourth, "result", "id"))
 	}
 }
 
@@ -264,18 +250,17 @@ func TestGateRunTreeChanged_TS_06_23(t *testing.T) {
 	}
 }
 
-// TestGateRunFlagsAndFiles guards the flags of 06-REQ-3 and 06-REQ-10.2:
-// --label is carried into the result, --hermetic is reported, a broken
-// gate.json is failed/config, and no run directory is made.
-func TestGateRunFlagsAndFiles(t *testing.T) {
+// TestGateRunResultAndFiles guards 06-REQ-3 and 06-REQ-10.2: the result of a run,
+// a broken gate.json is failed/config, and no run directory is made.
+func TestGateRunResultAndFiles(t *testing.T) {
 	requireSh(t)
 	dir := gitRepo(t, nil)
 	writeGate(t, dir, []string{"ok", "sh", "-c", "exit 0"})
 
-	code, env := gateRun(t, dir, "--label", "baseline", "--hermetic")
+	code, env := gateRun(t, dir)
 
-	if code != 0 || field(env, "result", "label") != "baseline" || field(env, "result", "hermetic") != true || field(env, "result", "passed") != true {
-		t.Errorf("exit code %d, label %v, hermetic %v, passed %v; want 0, baseline, true, true", code, field(env, "result", "label"), field(env, "result", "hermetic"), field(env, "result", "passed"))
+	if code != 0 || field(env, "result", "passed") != true {
+		t.Errorf("exit code %d, passed %v; want 0, true", code, field(env, "result", "passed"))
 	}
 	if field(env, "result", "table_source") != "file" {
 		t.Errorf("table_source = %v, want file", field(env, "result", "table_source"))

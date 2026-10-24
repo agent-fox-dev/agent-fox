@@ -222,9 +222,7 @@ func resultSchema(name string) json.RawMessage {
 func register(app *toolio.App, c *Config) {
 	registerLang(app)
 	registerGate(app)
-	registerGateCompare(app)
 	registerRevertCheck(app)
-	registerMap(app)
 	registerTriage(app, c)
 	registerFix(app, c)
 	registerFixRun(app, c)

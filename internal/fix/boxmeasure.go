@@ -94,15 +94,6 @@ func (m *BoxMeasurer) Detect(ctx context.Context, dir string, files []string) (p
 // the host, where the comparison with the baseline reads it.
 func (m *BoxMeasurer) Gate(ctx context.Context, dir string, o checks.Options) (checks.Result, error) {
 	args := []string{"gate", "run"}
-	if o.Hermetic {
-		args = append(args, "--hermetic")
-	}
-	if o.NoCache {
-		args = append(args, "--no-cache")
-	}
-	if o.Label != "" {
-		args = append(args, "--label", o.Label)
-	}
 	var res checks.Result
 	gate, err := tableFile(o.Table)
 	if err != nil {

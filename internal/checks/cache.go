@@ -18,17 +18,11 @@ const gateDirName = "gate"
 // resultFile is the stored result of a gate run, in the directory of its id.
 const resultFile = "result.json"
 
-// Mode is how the checks of a gate run are run.
-type Mode string
+// mode is how the checks of a gate run are run, which the key holds: in the
+// reduced environment of gitx.ReducedEnvRunner, the one way there is.
+const mode = "reduced"
 
-// The runner modes.
-const (
-	ModeReduced  Mode = "reduced"
-	ModeHermetic Mode = "hermetic"
-)
-
-// Key identifies a gate run: what was measured, by which checks, in which
-// mode.
+// Key identifies a gate run: what was measured, and by which checks.
 type Key struct {
 	// Sum is the SHA-256 of the key, in hex.
 	Sum string
@@ -42,8 +36,8 @@ type Key struct {
 // in order, and leaves out what is about the machine (availability) or about
 // where the check came from (source), so that the same table is the same key
 // on every machine.
-func KeyOf(tree string, checks []project.Check, mode Mode) Key {
-	sum := sha256.Sum256([]byte(tree + string(canonicalTable(checks)) + string(mode)))
+func KeyOf(tree string, checks []project.Check) Key {
+	sum := sha256.Sum256([]byte(tree + string(canonicalTable(checks)) + mode))
 	hexSum := hex.EncodeToString(sum[:])
 	return Key{Sum: hexSum, ID: hexSum[:12]}
 }

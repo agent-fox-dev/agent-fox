@@ -118,33 +118,3 @@ func TestACheckThatLeavesAChildBehindStillPasses(t *testing.T) {
 		t.Errorf("checks = %+v, passed %v; want a pass", res.Checks, res.Passed)
 	}
 }
-
-// TestACancelledNoCacheRunLeavesTheStoredLogsAlone: the logs a stored result
-// names stay what they were when a run that would replace them is stopped.
-func TestACancelledNoCacheRunLeavesTheStoredLogsAlone(t *testing.T) {
-	requireSh(t)
-	dir := newRepo(t)
-	marker := filepath.Join(t.TempDir(), "second-run")
-	table := tableOf(
-		shCheck("one", fmt.Sprintf("if [ -e '%s' ]; then echo run 2; else echo run 1; fi", marker)),
-		shCheck("two", fmt.Sprintf("if [ -e '%s' ]; then sleep 60; fi", marker)),
-	)
-	first := mustRun(t, dir, Options{Table: table})
-	if err := os.WriteFile(marker, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-	defer cancel()
-
-	_, err := Run(ctx, dir, Options{Table: table, NoCache: true})
-
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Run = %v, want the deadline", err)
-	}
-	if log := readLog(t, dir, first.Checks[0]); !strings.Contains(log, "run 1") {
-		t.Errorf("the log of the stored result says %q after a run that was stopped", log)
-	}
-	if again := mustRun(t, dir, Options{Table: table}); !again.Cached || again.Checks[0].Tail != first.Checks[0].Tail {
-		t.Errorf("the stored result is no longer served as it was: cached %v, tail %q", again.Cached, again.Checks[0].Tail)
-	}
-}

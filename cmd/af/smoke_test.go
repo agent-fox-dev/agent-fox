@@ -192,34 +192,33 @@ func TestSmokeDetectAndWriteTheGate_TS_06_77(t *testing.T) {
 	}
 }
 
-// TestSmokeGateUnderLabels_TS_06_78 verifies TS-06-78:
-// the loop runs the gate under labels, hits the cache and compares to
-// pass_was_already_failing.
-// Verifies: 06-PATH-2, 06-REQ-4.2, 06-REQ-5.1
-func TestSmokeGateUnderLabels_TS_06_78(t *testing.T) {
+// TestSmokeGateRunsAndHitsTheCache_TS_06_78 verifies TS-06-78 as it stands: a red
+// gate, then a green one on the changed tree, and a hit of the green one.
+// Verifies: 06-PATH-2, 06-REQ-4.2
+func TestSmokeGateRunsAndHitsTheCache_TS_06_78(t *testing.T) {
 	requireSh(t)
 	binary := buildBinary(t)
 	dir := gitRepo(t, map[string]string{"src.txt": "content\n"})
 	counter := filepath.Join(t.TempDir(), "counter")
 	writeGate(t, dir, []string{"counted", "sh", "-c", fmt.Sprintf("echo run >> '%s'; test -f marker.txt", counter)})
-	gate := func(label string) map[string]any {
+	gate := func() map[string]any {
 		t.Helper()
-		code, env := afJSON(t, binary, dir, "gate", "run", "--dir", dir, "--label", label)
+		code, env := afJSON(t, binary, dir, "gate", "run", "--dir", dir)
 		if code != 0 || env["status"] != "done" {
-			t.Fatalf("gate run --label %s: exit code %d, status %v", label, code, env["status"])
+			t.Fatalf("gate run: exit code %d, status %v", code, env["status"])
 		}
 		return env
 	}
 
-	baseline := gate("baseline")
+	baseline := gate()
 	if field(baseline, "result", "passed") != false || field(baseline, "result", "cached") != false {
 		t.Errorf("baseline: passed %v, cached %v; want a red gate that ran", field(baseline, "result", "passed"), field(baseline, "result", "cached"))
 	}
 	if err := os.WriteFile(filepath.Join(dir, "marker.txt"), []byte("here\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	after := gate("after")
-	again := gate("after")
+	after := gate()
+	again := gate()
 
 	if field(after, "result", "passed") != true || field(after, "result", "cached") != false {
 		t.Errorf("after: passed %v, cached %v; want a green gate that ran", field(after, "result", "passed"), field(after, "result", "cached"))
@@ -229,16 +228,6 @@ func TestSmokeGateUnderLabels_TS_06_78(t *testing.T) {
 	}
 	if lines(t, counter) != 2 {
 		t.Errorf("the check ran %d times, want 2: the baseline and the first after", lines(t, counter))
-	}
-	labels := labelsBytes(t, dir)
-	var ids map[string]string
-	if err := json.Unmarshal([]byte(labels), &ids); err != nil || ids["baseline"] == "" || ids["after"] == "" || ids["baseline"] == ids["after"] {
-		t.Errorf("labels.json = %s (%v), want two labels with different ids", labels, err)
-	}
-
-	code, compare := afJSON(t, binary, dir, "gate", "compare", "--dir", dir, "--before", "baseline", "--after", "after")
-	if code != 0 || compare["status"] != "done" || field(compare, "result", "verdict") != "pass_was_already_failing" || field(compare, "result", "landable") != true {
-		t.Errorf("compare: exit code %d, status %v, result %v; want pass_was_already_failing and landable", code, compare["status"], compare["result"])
 	}
 }
 
@@ -315,109 +304,4 @@ func slicesContain(list []string, s string) bool {
 		}
 	}
 	return false
-}
-
-// TestSmokeMap_TS_06_81 verifies TS-06-81:
-// a brain fetches a budgeted repository map and gets the same bytes every time.
-// Verifies: 06-PATH-5, 06-REQ-9.4, 06-REQ-9.5
-func TestSmokeMap_TS_06_81(t *testing.T) {
-	binary := buildBinary(t)
-	files := map[string]string{"go.mod": "module example.com/x\n"}
-	for p := range 6 {
-		for f := range 4 {
-			var src, test strings.Builder
-			fmt.Fprintf(&src, "package pkg%d\n\n", p)
-			fmt.Fprintf(&test, "package pkg%d\n\n", p)
-			for _, fn := range []string{"A", "B", "C"} {
-				fmt.Fprintf(&src, "func Pkg%dFile%d%s() {}\n", p, f, fn)
-				fmt.Fprintf(&test, "func TestPkg%dFile%d%s() {}\n", p, f, fn)
-			}
-			files[fmt.Sprintf("pkg%d/file%d.go", p, f)] = src.String()
-			files[fmt.Sprintf("pkg%d/file%d_test.go", p, f)] = test.String()
-		}
-	}
-	dir := gitRepo(t, files)
-
-	code, first := afJSON(t, binary, dir, "map", "--dir", dir, "--tokens", "400")
-	_, second := afJSON(t, binary, dir, "map", "--dir", dir, "--tokens", "400")
-	_, large := afJSON(t, binary, dir, "map", "--dir", dir, "--tokens", "4000")
-
-	if code != 0 || first["status"] != "done" || first["tool"] != "map" {
-		t.Fatalf("exit code %d, status %v, tool %v", code, first["status"], first["tool"])
-	}
-	estimated, _ := field(first, "result", "estimated_tokens").(float64)
-	level, _ := field(first, "result", "level").(float64)
-	if estimated == 0 || estimated > 400 || level <= 1 || field(first, "result", "truncated") != true {
-		t.Errorf("400 tokens: estimated %v, level %v, truncated %v; want a map within the budget that is cut", estimated, level, field(first, "result", "truncated"))
-	}
-	if m, _ := field(first, "result", "map").(string); (len(m)+3)/4 != int(estimated) {
-		t.Errorf("estimated_tokens = %v for a map of %d bytes", estimated, len(m))
-	}
-	if field(first, "result", "map") != field(second, "result", "map") || field(first, "result", "level") != field(second, "result", "level") {
-		t.Error("two runs on one tree gave two maps")
-	}
-
-	m, _ := field(large, "result", "map").(string)
-	if field(large, "result", "level") != float64(1) || field(large, "result", "truncated") != false ||
-		!strings.Contains(m, "  file0.go: func Pkg0File0A L3 · func Pkg0File0B L4 · func Pkg0File0C L5\n") || !strings.Contains(m, "pkg5/\n") {
-		t.Errorf("4000 tokens: level %v; map:\n%.600s", field(large, "result", "level"), m)
-	}
-
-	// The level is the first that fits, which the test works out from the
-	// files it wrote: every level it could be, in order, as it would be laid
-	// out, and the first of them that is within 400 tokens.
-	layout := func(decls func(test bool, p, f int) string) string {
-		var b strings.Builder
-		b.WriteString("./\n  go.mod\n")
-		for p := range 6 {
-			fmt.Fprintf(&b, "pkg%d/\n", p)
-			for f := range 4 {
-				fmt.Fprintf(&b, "  file%d.go%s\n  file%d_test.go%s\n", f, decls(false, p, f), f, decls(true, p, f))
-			}
-		}
-		return b.String()
-	}
-	// showing lists the first k declarations of a file, all of them when k is
-	// negative, and none of those of a test unless tests is set.
-	showing := func(k int, tests bool) func(bool, int, int) string {
-		return func(test bool, p, f int) string {
-			if test && !tests {
-				return ""
-			}
-			var items []string
-			for n := range 3 {
-				if k < 0 || n < k {
-					prefix := map[bool]string{false: "", true: "Test"}[test]
-					items = append(items, fmt.Sprintf("func %sPkg%dFile%d%c L%d", prefix, p, f, 'A'+n, 3+n))
-				}
-			}
-			if k >= 0 && k < 3 {
-				items = append(items, fmt.Sprintf("… +%d more", 3-k))
-			}
-			return ": " + strings.Join(items, " · ")
-		}
-	}
-	candidates := []struct {
-		level int
-		text  string
-	}{
-		{1, layout(showing(-1, true))},
-		{2, layout(showing(-1, false))},
-		{3, layout(showing(2, false))},
-		{3, layout(showing(1, false))},
-		{4, layout(func(bool, int, int) string { return "" })},
-	}
-	wantLevel, want := 0, ""
-	for _, c := range candidates {
-		if len(c.text) <= 400*4 {
-			wantLevel, want = c.level, c.text
-			break
-		}
-	}
-	if wantLevel <= 1 {
-		t.Fatalf("the repository of the test does not make a map that is cut at 400 tokens: level %d", wantLevel)
-	}
-	if got, _ := field(first, "result", "map").(string); level != float64(wantLevel) || got != want {
-		t.Errorf("400 tokens: level %v; want %d, the first that fits:\n%s\nmap:\n%s", level, wantLevel, want, got)
-	}
 }

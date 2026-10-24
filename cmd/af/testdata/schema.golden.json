@@ -822,124 +822,6 @@
         }
       }
     },
-    "gate_compare": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "before",
-        "after",
-        "verdict",
-        "landable",
-        "rows"
-      ],
-      "description": "What two stored gate results say together, check by check.",
-      "properties": {
-        "before": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "id",
-            "label",
-            "passed"
-          ],
-          "description": "The result --before named.",
-          "properties": {
-            "id": {
-              "type": "string",
-              "pattern": "^[0-9a-f]{12}$"
-            },
-            "label": {
-              "type": "string",
-              "description": "The label the argument was, else the label the result was stored under; empty for none."
-            },
-            "passed": {
-              "type": "boolean"
-            }
-          }
-        },
-        "after": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "id",
-            "label",
-            "passed"
-          ],
-          "description": "The result --after named.",
-          "properties": {
-            "id": {
-              "type": "string",
-              "pattern": "^[0-9a-f]{12}$"
-            },
-            "label": {
-              "type": "string",
-              "description": "The label the argument was, else the label the result was stored under; empty for none."
-            },
-            "passed": {
-              "type": "boolean"
-            }
-          }
-        },
-        "verdict": {
-          "enum": [
-            "regressed",
-            "still_failing",
-            "pass_was_already_failing",
-            "pass",
-            "unverified"
-          ],
-          "description": "The first of regressed, still_failing, pass_was_already_failing and pass that a row carries; unverified when either result has no checks."
-        },
-        "landable": {
-          "type": "boolean",
-          "description": "True only for pass and pass_was_already_failing."
-        },
-        "rows": {
-          "type": "array",
-          "description": "One row per check, in the order of the --before result; empty when the verdict is unverified.",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "name",
-              "before",
-              "after",
-              "verdict"
-            ],
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "before": {
-                "enum": [
-                  "pass",
-                  "fail",
-                  "error",
-                  "timeout"
-                ]
-              },
-              "after": {
-                "enum": [
-                  "pass",
-                  "fail",
-                  "error",
-                  "timeout"
-                ]
-              },
-              "verdict": {
-                "enum": [
-                  "regressed",
-                  "still_failing",
-                  "pass_was_already_failing",
-                  "pass"
-                ],
-                "description": "pass: passed before and after; pass_was_already_failing: did not pass before, passes now; regressed: passed before, does not now; still_failing: passes in neither. fail, error and timeout all count as not passing."
-              }
-            }
-          }
-        }
-      }
-    },
     "gate_run": {
       "type": "object",
       "additionalProperties": false,
@@ -947,8 +829,6 @@
         "id",
         "tree",
         "table_source",
-        "hermetic",
-        "label",
         "cached",
         "passed",
         "checks",
@@ -972,14 +852,6 @@
             "detected"
           ],
           "description": "Where the table of checks came from."
-        },
-        "hermetic": {
-          "type": "boolean",
-          "description": "Whether the checks ran with a clean HOME and no git configuration."
-        },
-        "label": {
-          "type": "string",
-          "description": "The label this result was asked for under; empty when there was none."
         },
         "cached": {
           "type": "boolean",
@@ -1366,57 +1238,6 @@
         "server": {
           "type": "string",
           "description": "The URL of the agent-fox service that accepted the credential."
-        }
-      }
-    },
-    "map": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "map",
-        "tokens",
-        "estimated_tokens",
-        "level",
-        "files_total",
-        "files_outlined",
-        "truncated"
-      ],
-      "description": "A map of the repository that fits a token budget.",
-      "properties": {
-        "map": {
-          "type": "string",
-          "description": "The map: each directory as path/ (the root as ./), each file below it indented two spaces, and its declarations after it as <kind> <name> L<line>, joined by ·."
-        },
-        "tokens": {
-          "type": "integer",
-          "minimum": 200,
-          "maximum": 100000,
-          "description": "The budget."
-        },
-        "estimated_tokens": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "The size of the map in tokens, estimated as its bytes divided by 4, rounded up. At most the budget."
-        },
-        "level": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 6,
-          "description": "The first level of the ladder whose output fits the budget: 1 every declaration; 2 none for test files; 3 the declarations of other files capped at 20, 10, 5, 2 or 1, with … +N more; 4 file names only; 5 directories only, as path/ (N files); 6 directories cut off at the budget, then … N more directories."
-        },
-        "files_total": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "The files in the file view."
-        },
-        "files_outlined": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "The files whose declarations were read; 0 when the outliner was skipped."
-        },
-        "truncated": {
-          "type": "boolean",
-          "description": "True for any level above 1."
         }
       }
     },
