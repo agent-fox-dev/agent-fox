@@ -158,7 +158,7 @@ func (m *BoxMeasurer) run(ctx context.Context, table *project.Table, args []stri
 		}
 	}
 	// The file the answer is written to is made first, which makes the directory it is in.
-	spec := brain.ProcessSpec{Brain: ring1Brain, Program: brain.ProgramAF, Args: args, Probes: []string{brain.ProgramAF}}
+	spec := brain.ProcessSpec{Brain: ring1Brain, Args: args}
 	if err := m.Session.WriteFile(ctx, path.Join(".agent-fox", "run", m.RunID, fmt.Sprintf("%s.%d.json", ring1Brain, n)), nil); err != nil {
 		return answer{}, err
 	}

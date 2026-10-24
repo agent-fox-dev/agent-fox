@@ -221,13 +221,11 @@ func (a *fixAttempt) prepare(m measuring) error {
 
 // loop runs the rounds in the session, measuring with m.
 func (a *fixAttempt) loop(sess *box.Session, m measuring) {
-	placement := brain.PlacementOf(a.entry, a.boxEntry, a.o.settings.BorrowedHands)
 	tally := &brain.Tally{}
 	a.ended, a.loopErr = fix.RunLoop(a.r.Ctx, fix.LoopParams{
 		Dir: a.r.Dir, Git: a.pre.Git, Session: sess, Name: a.o.settings.Brain, Brain: a.pre.Brain, Tally: tally, RunDir: a.r.RunDir, Report: a.r, Reporter: a.r,
 		State: &a.state, Prefix: a.start.prefix.Text, Attempts: int(a.o.attempts), Budget: a.o.settings.Budget, MaxTurns: a.o.settings.MaxTurns,
 		Gate: m.gate, Conform: m.conform, Earlier: a.c.suppliedEarlier(a.state.Context),
-		DriverInBox: placement == brain.PlacementBox && !a.entry.OwnHands, CommandOnly: a.entry.CommandRoute,
 	})
 }
 

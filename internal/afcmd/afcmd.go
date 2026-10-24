@@ -254,7 +254,6 @@ func register(app *toolio.App, c *Config) {
 	registerGate(app)
 	registerGateCompare(app)
 	registerRevertCheck(app)
-	registerGuard(app)
 	registerMap(app)
 	registerTriage(app, c)
 	registerFix(app, c)

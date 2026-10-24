@@ -124,14 +124,12 @@ func fixRun(c *Config, r *toolio.Run, runID string, s *brain.Settings) (toolio.O
 	round := state.Rounds + 1
 	tally := &brain.Tally{}
 	var out fix.RoundResult
-	placement := brain.PlacementOf(entry, boxEntry, s.BorrowedHands)
 	err = box.With(r.Ctx, fixBoxRequest(c, r, run, entry, boxEntry, s, opts), func(sess *box.Session) error {
 		var err error
 		out, err = fix.RunRound(r.Ctx, fix.RoundParams{
 			Dir: r.Dir, Git: gitx.New(r.Dir, c.git()), Session: sess, Name: s.Brain, Brain: b, Tally: tally,
 			RunDir: run, Report: r, State: state, Prefix: prefix, Task: task, Round: round,
 			MaxCostUSD: s.Budget, MaxTurns: s.MaxTurns, Timeout: timeLeft(r),
-			DriverInBox: placement == brain.PlacementBox && !entry.OwnHands,
 		})
 		return err
 	})

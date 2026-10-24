@@ -50,7 +50,7 @@ type Request struct {
 	// another.
 	Defaulted bool
 	// ExtraRO are the directories a process started in the box has to read and run
-	// (af, claude), for a provider that confines the box to its workspace.
+	// (af), for a provider that confines the box to its workspace.
 	ExtraRO []string
 	// Record notes what happened in the run's ledger.
 	Record func(kind string, data any) error

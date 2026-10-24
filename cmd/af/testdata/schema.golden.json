@@ -1537,52 +1537,6 @@
         }
       }
     },
-    "guard_check": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "decision",
-        "rule",
-        "reason",
-        "tool",
-        "segment"
-      ],
-      "description": "Whether a brain may make a tool call.",
-      "properties": {
-        "decision": {
-          "enum": [
-            "allow",
-            "deny"
-          ]
-        },
-        "rule": {
-          "enum": [
-            "",
-            "unparseable",
-            "hands_guard",
-            "git_mutation",
-            "suite_command",
-            "af_command",
-            "program_not_allowed",
-            "protected_path",
-            "outside_dir"
-          ],
-          "description": "The rule that denied the call; empty for an allow."
-        },
-        "reason": {
-          "type": "string",
-          "description": "Why, in words a model can act on; empty for an allow."
-        },
-        "tool": {
-          "type": "string",
-          "description": "The tool the call was for."
-        },
-        "segment": {
-          "type": "string",
-          "description": "The part of the call that decided it: the command, or the path; empty for an allow."
-        }
-      }
-    },
     "jobs_answer": {
       "type": "object",
       "required": [

@@ -2,7 +2,6 @@ package brain
 
 import (
 	"context"
-	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -11,15 +10,11 @@ import (
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/box"
-	"github.com/agent-fox-dev/agentfox/internal/fakeclaude"
 	"github.com/agent-fox-dev/agentfox/internal/optin"
-	"github.com/agent-fox-dev/agentfox/internal/submission"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
-	"github.com/agent-fox-dev/agentfox/internal/triage"
 )
 
-// The tests of this file are opt-in: a real box, or the real Claude Code, is more than
-// make check has. Each gate (internal/optin) skips its test with the variable or the
+// The tests of this file are opt-in: a real box is more than make check has. Each gate (internal/optin) skips its test with the variable or the
 // prerequisite it names, except for the local box, which every machine has.
 
 // openBox opens the box that the brain would get on the provider, from the host
@@ -183,114 +178,4 @@ func TestSpec07sBoxInvariantsHoldUnderTheRealBoxes_TS_10_63(t *testing.T) {
 		optin.RequirePodman(t, podmanImage())
 		boxInvariants(t, "podman")
 	})
-}
-
-// realClaudeTask is the task of the contract row for the real model: it is told to try
-// the one thing the hook refuses, and then to submit a diagnosis that is given in full, so
-// that what the run shows is the contract and not the model's skill.
-const realClaudeTask = `## Task
-
-This is run %s.
-
-First try, once, to run ` + "`git commit --allow-empty -m probe`" + `; the run refuses that, which is expected.
-Then submit this diagnosis by running ` + "`af triage submit --run-id %s`" + ` with exactly this JSON on its stdin,
-and stop:
-
-` + "```json\n" + `{"title":"The readme is a stub","severity":"low","confidence":"probable","root_cause":"README.md holds a title and nothing else.","affected_files":[{"path":"README.md","note":"the stub"}],"suggested_fix":"Describe what the project does.","acceptance_criteria":["README.md describes the project"]}` + "\n```\n"
-
-// realClaudeDiagnosis is the diagnosis that the task gives in full.
-const realClaudeDiagnosis = `{"title":"The readme is a stub","severity":"low","confidence":"probable","root_cause":"README.md holds a title and nothing else.","affected_files":[{"path":"README.md","note":"the stub"}],"suggested_fix":"Describe what the project does.","acceptance_criteria":["README.md describes the project"]}`
-
-// stubClaude puts a fake claude first on PATH, told to do what the model is told to do:
-// try a commit, which nothing stops in a box that is a copy, and submit the diagnosis
-// through the real af. It lets the test of the real claude be proven where there is none.
-func stubClaude(t *testing.T) {
-	t.Helper()
-	bin, _, _ := fakeBin(t)
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	fakeclaude.WriteScript(t, bin, fakeScript{
-		Commands:   []string{"git -c user.name=m -c user.email=m@example.com commit -q --allow-empty -m probe", "af triage submit --run-id {run_id} <<'EOF'\n" + realClaudeDiagnosis + "\nEOF"},
-		OutputJSON: claudeResultJSON(0.42, 5),
-	})
-}
-
-// realClaudeContract runs the claude brain over a box of the provider through Execute: the
-// diagnosis is submitted and accepted, the run reports its cost as reported by the
-// vendor, and nothing was committed on the host. With stub, the claude is a fake one
-// (see stubClaude).
-func realClaudeContract(t *testing.T, provider string, stub bool) {
-	t.Helper()
-	dir := newRepo(t)
-	if stub {
-		stubClaude(t)
-		t.Setenv("ANTHROPIC_API_KEY", "sk-stub")
-	}
-	hostHead := strings.TrimSpace(git(t, dir, "rev-parse", "HEAD"))
-	rd := newRunDir(t, dir)
-	tools := []string{"read_file", "list_files", "find_files", "search_files"}
-	s := openBox(t, ClaudeName, provider, tools, dir, rd)
-	opts := Options{Provider: provider, Getenv: os.LookupEnv, Model: os.Getenv("AF_MODEL"), AFPath: realAF(t)}
-	b, err := Default.New(ClaudeName, opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	w := &world{t: t, dir: dir, run: rd, session: s, report: &recorder{}}
-	brief := Brief{
-		RunID: rd.ID, Attempt: 1, Kind: triage.Kind(dir, s.Root()), Prefix: "You are diagnosing a made-up problem in a small repository.\n\n",
-		Task:  strings.ReplaceAll(realClaudeTask, "%s", rd.ID),
-		Tools: tools, Hook: HookConfig{RunID: rd.ID, ProtectedPaths: []string{".agent-fox/", ".specs/"}},
-		MaxCostUSD: 1, MaxTurns: 12, Timeout: 5 * time.Minute,
-	}
-	req := w.request(brief, b)
-	req.Name = ClaudeName
-
-	res, err := Execute(context.Background(), req)
-
-	if err != nil || !res.Outcome.Submitted {
-		// What the process left, so that a run that fails says why: the output of claude and its
-		// errors in the run directory, and the files of a fake in the box.
-		for _, name := range []string{"claude.1.json", "claude.1.stderr"} {
-			data, _ := os.ReadFile(filepath.Join(rd.Path, name))
-			t.Logf("%s: %.2048s", name, data)
-		}
-		for _, rel := range []string{fakeclaude.CommandsPath, fakeclaude.RecordPath} {
-			data, _ := w.boxFile(rel)
-			t.Logf("%s: %s", rel, data)
-		}
-		t.Fatalf("Execute = %+v, %v", res, err)
-	}
-	var file submission.File
-	if data, ok := w.hostSubmission(); !ok || json.Unmarshal([]byte(data), &file) != nil || !strings.Contains(string(file.Payload), "The readme is a stub") {
-		t.Errorf("the submission of the host = %q, want the diagnosis that was given", data)
-	}
-	u := w.report.lastUsage()
-	if u.CostSource != CostReported || u.CostUSD <= 0 || u.Turns < 1 || u.Brain != ClaudeName || (stub && (u.CostUSD != 0.42 || u.Turns != 5)) {
-		t.Errorf("usage = %+v, want the cost the vendor reported, with turns", u)
-	}
-	if got := strings.TrimSpace(git(t, dir, "rev-parse", "HEAD")); got != hostHead {
-		t.Errorf("HEAD of the host moved from %s to %s: the brain's commit got out", hostHead, got)
-	}
-}
-
-// TestTheContractRowOfTheRealClaude_TS_10_63 verifies, for the real Claude Code, what
-// TS-10-63 asks: the contract row passes under the local box, and under podman when both
-// AF_TEST_CLAUDE and AF_TEST_PODMAN are set.
-// Verifies: 10-REQ-10.3
-func TestTheContractRowOfTheRealClaude_TS_10_63(t *testing.T) {
-	t.Run("local", func(t *testing.T) {
-		optin.RequireClaude(t)
-		realClaudeContract(t, "local", false)
-	})
-	t.Run("podman", func(t *testing.T) {
-		optin.RequireClaude(t)
-		optin.RequirePodman(t, podmanImage())
-		realClaudeContract(t, "podman", false)
-	})
-}
-
-// TestTheContractRowOfTheRealClaudeRunsWithAFakeOne runs the test of the real Claude Code
-// with a fake one, so that make check proves what the test asks and asserts: the task, the
-// kind and the tools, the submission through the real af, the usage and the host's HEAD.
-func TestTheContractRowOfTheRealClaudeRunsWithAFakeOne(t *testing.T) {
-	realClaudeContract(t, "local", true)
 }

@@ -74,15 +74,13 @@ func IsProtected(protected []string, rel string) bool {
 	return false
 }
 
-// shellTools are the tools whose input is a line for a shell: Claude Code's
-// Bash and the hands' execute.
-var shellTools = []string{"Bash", "execute"}
+// shellTools are the tools whose input is a line for a shell: the hands' execute.
+var shellTools = []string{"execute"}
 
 // maxCommandBytes is the longest command line that is judged. The hands' guard
 // takes time that grows with the square of the length of the line (a line of
-// 150 KB takes it seconds), and a hook that does not answer in time answers
-// nothing. A command this long is a file written through a shell: use the tool
-// that writes files.
+// 150 KB takes it seconds), and every call of a brain waits for it. A command
+// this long is a file written through a shell: use the tool that writes files.
 const maxCommandBytes = 64 << 10
 
 // deny is a denial.
@@ -92,10 +90,7 @@ func deny(rule, segment, format string, args ...any) Decision {
 
 // writeTools are the tools that write a file, and the field of their input that
 // names it.
-var writeTools = map[string]string{
-	"Write": "file_path", "Edit": "file_path", "MultiEdit": "file_path", "NotebookEdit": "notebook_path",
-	"write_file": "path", "edit_file": "path",
-}
+var writeTools = map[string]string{"write_file": "path", "edit_file": "path"}
 
 // Decide decides the tool call tool with the input input, made in the
 // checkout dir. A shell command is read as the shell would read it, every
@@ -850,7 +845,7 @@ func suiteRule(p Policy, s segment) (Decision, bool) {
 
 // afAllowed are the commands of af that a brain may run.
 var afAllowed = [][]string{
-	{"lang", "detect"}, {"gate", "run"}, {"gate", "compare"}, {"revert-check"}, {"map"}, {"guard", "check"},
+	{"lang", "detect"}, {"gate", "run"}, {"gate", "compare"}, {"revert-check"}, {"map"},
 	{"triage", "brief"}, {"triage", "submit"}, {"fix", "brief"}, {"fix", "submit"},
 }
 
@@ -882,7 +877,7 @@ func afRule(s segment) (Decision, bool) {
 		what = "af with no command it may run"
 	}
 	return deny(RuleAfCommand, s.text,
-		"%s belongs to the loop, which makes the commits, runs the stages and lands the change. A brain may run af lang detect, gate run, gate compare, revert-check, map, guard check, triage brief and submit, and fix brief and submit.", what), true
+		"%s belongs to the loop, which makes the commits, runs the stages and lands the change. A brain may run af lang detect, gate run, gate compare, revert-check, map, triage brief and submit, and fix brief and submit.", what), true
 }
 
 // programRule (rule 6): with an allowlist, only its programs, and af and git.

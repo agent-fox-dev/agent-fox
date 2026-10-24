@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/agent-fox-dev/agentfox/internal/submission"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -48,7 +50,7 @@ func newAgentkitInBox(opts Options) (Brain, error) {
 // agentkitProcess is the process the brain runs in the box: af, probed, with the arguments and the
 // inline settings, and the name of the vendor key as the credential the box has to supply.
 func agentkitProcess(args []string, inline map[string]string) ProcessSpec {
-	return ProcessSpec{Brain: AgentkitName, Program: ProgramAF, Args: args, Inline: inline, Probes: []string{ProgramAF}, Credentials: []string{VendorKeyVar}}
+	return ProcessSpec{Brain: AgentkitName, Args: args, Inline: inline, Credentials: []string{VendorKeyVar}}
 }
 
 // Run runs af <agent> run --run-id <id> --dir <root> with the bounds of the brief, and
@@ -160,4 +162,25 @@ func parseEnvelope(data []byte) (out Outcome, failure string, ok bool) {
 		}
 	}
 	return out, failure, true
+}
+
+// submissionCarriesNonce says whether the box has a submission.json that carries the
+// nonce of this attempt, from the run.json that was placed: the claim of a brain that
+// runs as a process, which makes none of its own. The host decides from the file all the same.
+func submissionCarriesNonce(ctx context.Context, b Brief) bool {
+	fsys := b.Box.FS(ctx)
+	runData, err := fs.ReadFile(fsys, submission.RunPath(b.RunID))
+	if err != nil {
+		return false
+	}
+	var run submission.Run
+	if json.Unmarshal(runData, &run) != nil || run.Nonce == "" {
+		return false
+	}
+	fileData, err := fs.ReadFile(fsys, submission.SubmissionPath(b.RunID))
+	if err != nil {
+		return false
+	}
+	var file submission.File
+	return json.Unmarshal(fileData, &file) == nil && file.Nonce == run.Nonce
 }

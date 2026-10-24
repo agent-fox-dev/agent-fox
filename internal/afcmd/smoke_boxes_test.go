@@ -1,10 +1,8 @@
 package afcmd
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -15,8 +13,7 @@ import (
 
 // The smoke tests of this file run a path of the spec from the command to the files it
 // leaves, with the components of the path real: the commands of cmd/af, the box
-// providers, brain.Execute, the process runner, af guard check and af <agent> submit (the
-// test binary linked as af), real git. Only the model is faked, by a fake claude.
+// providers, brain.Execute, real git. Only the model is faked.
 
 // warningMessages are the messages of the warnings of an envelope with the code.
 func warningMessages(env map[string]any, code string) []string {
@@ -28,142 +25,6 @@ func warningMessages(env map[string]any, code string) []string {
 		}
 	}
 	return out
-}
-
-// allowedEnvironment are the names a process brain may find in its environment: the ones of
-// the allowlist of the process runner, and the key of the vendor.
-var allowedEnvironment = []string{
-	"PATH", "HOME", "ANTHROPIC_API_KEY", "LANG", "LC_ALL", "TZ", "TMPDIR",
-	"HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy",
-	"SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
-}
-
-// TestSmokeADeveloperTriagesAnIssueWithTheClaudeBrainInALocalBox_TS_10_66 verifies TS-10-66
-// (10-PATH-1): af triage on an issue, with the claude brain in the local box, from the
-// command to the diagnosis. The fake claude asks the hook of its settings file about three
-// calls, and submits through af triage submit.
-// Verifies: 10-PATH-1, 10-REQ-9.1
-func TestSmokeADeveloperTriagesAnIssueWithTheClaudeBrainInALocalBox_TS_10_66(t *testing.T) {
-	requireGit(t)
-	requireSh(t)
-	e := newTriageEnv(t, fakeforge.GitHub)
-	for name, value := range map[string]string{"GITHUB_TOKEN": "ghp-host-token", "GH_TOKEN": "gh-host-token", "GITLAB_TOKEN": "gl-host-token"} {
-		t.Setenv(name, value)
-	}
-	hook := func(tool string, input map[string]any) json.RawMessage {
-		data, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": input, "cwd": "{root}"})
-		return data
-	}
-	script := claudeSubmits(diagnosisPayload(nil))
-	script.NotesToStderr = true
-	placedInTheBox := []string{"brief.md", "run.json", "guard.json", "claude-settings.json"}
-	for _, name := range placedInTheBox {
-		script.ShowFiles = append(script.ShowFiles, "{root}/.agent-fox/run/{run_id}/"+name)
-	}
-	script.HookPayloads = []json.RawMessage{
-		hook("Bash", map[string]any{"command": "go test ./..."}),
-		hook("Write", map[string]any{"file_path": "{root}/.agent-fox/run/{run_id}/submission.json", "content": "{}"}),
-		hook("Bash", map[string]any{"command": "git diff"}),
-	}
-	useFakeClaude(t, script)
-
-	code, env := e.loop(e.forge.IssueURL(7), "--dir", e.dir, "--land", "none", "--brain", "claude", "--sandbox", "local")
-
-	if code != 0 || env["status"] != "done" {
-		t.Fatalf("exit code %d, status %v, error %v", code, env["status"], env["error"])
-	}
-	runDir := e.runDir(env)
-
-	// The box: unconfined once, the brain in it, nothing enforced on the network.
-	if n := len(warningMessages(env, "box_unconfined")); n != 1 {
-		t.Errorf("box_unconfined was raised %d times, want once", n)
-	}
-	opened := ledgerEntries(t, runDir, "box_open")
-	if len(opened) != 1 || opened[0]["provider"] != "local" || opened[0]["placement"] != "box" || opened[0]["network"] != "host" || opened[0]["image"] != "" {
-		t.Errorf("box_open = %v, want local, placement box, network host", opened)
-	}
-
-	// What was placed in the box for the brain, as the fake saw it; and what was kept on the host.
-	stderr := string(readFile(t, filepath.Join(runDir, "claude.1.stderr")))
-	var hookLine string
-	names := map[string]string{}
-	seen := map[string]string{}
-	for _, line := range strings.Split(strings.TrimSpace(stderr), "\n") {
-		if rest, ok := strings.CutPrefix(line, "hooks: "); ok {
-			hookLine = rest
-		} else if rest, ok := strings.CutPrefix(line, "file: "); ok {
-			var f struct {
-				Path, Content string
-				Missing       bool
-			}
-			if err := json.Unmarshal([]byte(rest), &f); err != nil || f.Missing {
-				t.Errorf("a file the fake looked for in the box: %q, %v, want it there", rest, err)
-			}
-			seen[filepath.Base(f.Path)] = f.Content
-		} else if name, value, ok := strings.Cut(line, "="); ok {
-			names[name] = value
-		}
-	}
-	for _, name := range placedInTheBox {
-		if seen[name] == "" {
-			t.Errorf("%s was not placed in the box", name)
-		}
-	}
-	var placed struct {
-		PrefixBytes int `json:"prefix_bytes"`
-	}
-	if err := json.Unmarshal([]byte(seen["run.json"]), &placed); err != nil || placed.PrefixBytes <= 0 || placed.PrefixBytes >= len(seen["brief.md"]) {
-		t.Errorf("run.json in the box = %q: prefix_bytes %d, %v, want the length of the prefix of the brief of %d bytes", seen["run.json"], placed.PrefixBytes, err, len(seen["brief.md"]))
-	}
-	for _, name := range []string{"brief.md", "brief.1.md", "guard.json", "claude-settings.json"} {
-		if _, err := os.Stat(filepath.Join(runDir, name)); err != nil {
-			t.Errorf("the run directory lacks %s: %v", name, err)
-		}
-	}
-	if settings := string(readFile(t, filepath.Join(runDir, "claude-settings.json"))); !strings.Contains(settings, "guard check --host claude") || !strings.Contains(settings, "guard.json") {
-		t.Errorf("claude-settings.json = %s, want the hook af guard check --host claude with the policy", settings)
-	}
-	var outputs []string
-	for _, a := range artifactsOf(env, "brain_output") {
-		p, _ := a["path"].(string)
-		outputs = append(outputs, filepath.Base(p))
-	}
-	slices.Sort(outputs)
-	if !slices.Equal(outputs, []string{"claude.1.json", "claude.1.stderr"}) {
-		t.Errorf("brain_output artifacts = %v, want the output and the errors of the process", outputs)
-	}
-
-	// The process: under env -i, with the key and nothing else of the host.
-	for name := range names {
-		if !slices.Contains(allowedEnvironment, name) {
-			t.Errorf("the process found %s in its environment: only %v may be there", name, allowedEnvironment)
-		}
-	}
-	if names["ANTHROPIC_API_KEY"] != "sk-fake-key" || names["PATH"] == "" || names["HOME"] == "" {
-		t.Errorf("the environment of the process = %v, want the key of the vendor, PATH and HOME", names)
-	}
-
-	// The hook answered like af guard check: a deny that names af gate run, a deny for the
-	// submission, and {} for git diff.
-	var answers []struct {
-		Stdout string `json:"stdout"`
-		Exit   int    `json:"exit"`
-	}
-	if err := json.Unmarshal([]byte(hookLine), &answers); err != nil || len(answers) != 3 {
-		t.Fatalf("the answers of the hook = %q, %v, want three", hookLine, err)
-	}
-	if !strings.Contains(answers[0].Stdout, `"permissionDecision":"deny"`) || !strings.Contains(answers[0].Stdout, "af gate run") ||
-		!strings.Contains(answers[1].Stdout, `"permissionDecision":"deny"`) || answers[2].Stdout != "{}" || answers[0].Exit+answers[1].Exit+answers[2].Exit != 0 {
-		t.Errorf("answers of the hook = %+v, want deny (af gate run), deny, {} and exit 0", answers)
-	}
-
-	// The result: the accepted diagnosis, and the cost as the vendor reported it.
-	if sub := submissionOf(t, runDir); !strings.Contains(string(sub.Payload), "Run starts the wrong thing") {
-		t.Errorf("submission.json holds %s, want the diagnosis", sub.Payload)
-	}
-	if u, _ := env["usage"].(map[string]any); u["cost_source"] != "reported" || u["cost_usd"] != 0.42 || u["turns"] != float64(5) {
-		t.Errorf("usage = %v, want the cost and the turns of the fake, as reported", u)
-	}
 }
 
 // TestSmokeADeveloperFixesInPlaceWithNoneAndAForeignCommitIsFolded_TS_10_67 verifies

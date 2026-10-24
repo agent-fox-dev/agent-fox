@@ -6,18 +6,15 @@ import (
 	"testing"
 
 	"github.com/agent-fox-dev/agentfox/internal/afcmd"
-	"github.com/agent-fox-dev/agentfox/internal/fakeclaude"
+	"github.com/agent-fox-dev/agentfox/internal/fakeaf"
 )
 
-// The test binary is also the programs a box runs: linked as af it is the real af, and linked as
-// claude it is the fake Claude Code of internal/fakeclaude. The af of a box has the identity of
-// the af of the worker under test, v-test and c-test, or the worker refuses the image.
+// The test binary is also the af a box runs: linked as af it is the real af. The af of a box has
+// the identity of the af of the worker under test, v-test and c-test, or the worker refuses the
+// image.
 func TestMain(m *testing.M) {
-	switch fakeclaude.Name() {
-	case fakeclaude.AF:
+	if fakeaf.Name() != "" {
 		os.Exit(afcmd.New(&afcmd.Config{Version: "v-test", Commit: "c-test"}).Main(context.Background(), os.Args, os.Stdin, os.Stdout, os.Stderr))
-	case fakeclaude.Claude:
-		os.Exit(fakeclaude.Run(fakeclaude.Claude, os.Args[1:], fakeclaude.Options{}))
 	}
 	os.Exit(m.Run())
 }

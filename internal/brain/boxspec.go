@@ -2,7 +2,6 @@ package brain
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"time"
@@ -13,20 +12,18 @@ import (
 // Placement is where a brain runs for one run.
 type Placement string
 
-// The placements: the host, over the box's tools (af's process); a box, as a
-// process inside it; and the checkout itself, as a process on the host, under a
-// provider that works in place.
+// The placements: the host, over the box's tools (af's process); and a box, as a
+// process inside it.
 const (
-	PlacementHost     Placement = "host"
-	PlacementBox      Placement = "box"
-	PlacementCheckout Placement = "checkout"
+	PlacementHost Placement = "host"
+	PlacementBox  Placement = "box"
 )
 
 // The settings that choose the image of a podman box.
 const (
 	sandboxImageVar = "AF_SANDBOX_IMAGE"
 	// DefaultImage is the image of a podman box without AF_SANDBOX_IMAGE: the
-	// sandbox image with af and Claude Code in it.
+	// sandbox image with af in it.
 	DefaultImage = "quay.io/agentfox/tools:latest"
 )
 
@@ -38,17 +35,10 @@ const ttlMargin = 10 * time.Minute
 // whatever the network offers.
 var shellTools = []string{"execute", "run_command"}
 
-// PlacementOf is where a brain runs on a provider. A brain with hands of its own
-// is a process, in the box or, where the provider works in place, on the checkout.
-// A driver is a process in a box that isolates, unless it borrows the box's hands.
-// Every other brain runs on the host.
+// PlacementOf is where a brain runs on a provider. A driver is a process in a box that
+// isolates, unless it borrows the box's hands. Every other brain runs on the host.
 func PlacementOf(e Entry, provider box.Entry, borrowedHands bool) Placement {
-	switch {
-	case e.OwnHands && provider.InPlace:
-		return PlacementCheckout
-	case e.OwnHands:
-		return PlacementBox
-	case e.DriverInBox && provider.Isolates() && !borrowedHands:
+	if e.DriverInBox && provider.Isolates() && !borrowedHands {
 		return PlacementBox
 	}
 	return PlacementHost
@@ -71,10 +61,8 @@ type BoxParams struct {
 	// Defaulted says the provider was chosen by AF_SANDBOX or by the platform, and not
 	// with --sandbox (Settings.SandboxSource is not SandboxFlag).
 	Defaulted bool
-	// AFPath is the af a process runs (Options.AFPath), and LookPath finds claude on the
-	// host; empty and nil are the running executable and exec.LookPath.
-	AFPath   string
-	LookPath func(string) (string, error)
+	// AFPath is the af a process runs (Options.AFPath); empty is the running executable.
+	AFPath string
 
 	// The rest is passed to the request as it is: the checkout, the run and the
 	// tool that label the box, the ledger and the warnings of the run, and the
@@ -136,41 +124,21 @@ func BoxRequest(p BoxParams) box.Request {
 
 // programDirs are the directories of the programs that a process in a landlock box runs,
 // for the box to let it read and run them: a landlock process runs from the host's file
-// system, where only the system directories are open to it. They are the directories of
-// the af it runs, and of the claude when the brain is claude, and where a program is a
-// link the directory of what it leads to. The directories of a program that cannot be
-// found are left out: the probe of the run says so.
+// system, where only the system directories are open to it. They are the directory of
+// the af it runs, and where it is a link the directory of what it leads to. An af that
+// cannot be found is left out: the probe of the run says so.
 func programDirs(p BoxParams) []string {
-	var programs []string
 	af := p.AFPath
 	if af == "" {
-		if exe, err := os.Executable(); err == nil {
-			af = exe
+		exe, err := os.Executable()
+		if err != nil {
+			return nil
 		}
+		af = exe
 	}
-	if af != "" {
-		programs = append(programs, af)
-	}
-	if p.Brain.OwnHands {
-		look := p.LookPath
-		if look == nil {
-			look = exec.LookPath
-		}
-		if found, err := look(ProgramClaude); err == nil {
-			programs = append(programs, found)
-		}
-	}
-	var dirs []string
-	add := func(dir string) {
-		if dir != "" && !slices.Contains(dirs, dir) {
-			dirs = append(dirs, dir)
-		}
-	}
-	for _, program := range programs {
-		add(filepath.Dir(program))
-		if resolved, err := filepath.EvalSymlinks(program); err == nil {
-			add(filepath.Dir(resolved))
-		}
+	dirs := []string{filepath.Dir(af)}
+	if resolved, err := filepath.EvalSymlinks(af); err == nil && filepath.Dir(resolved) != dirs[0] {
+		dirs = append(dirs, filepath.Dir(resolved))
 	}
 	return dirs
 }

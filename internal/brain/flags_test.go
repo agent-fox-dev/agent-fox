@@ -176,17 +176,15 @@ func TestAnInvalidAFSandboxIsUsageNamingTheVariable_TS_10_4(t *testing.T) {
 }
 
 // TestBorrowedHandsGoesOnlyWithAgentkit_TS_10_7 verifies TS-10-7:
-// --borrowed-hands with scripted or claude is refused as usage naming the flag and
+// --borrowed-hands with scripted is refused as usage naming the flag and
 // agentkit, with agentkit it is carried in the settings, and no box opens.
 // Verifies: 10-REQ-1.7
 func TestBorrowedHandsGoesOnlyWithAgentkit_TS_10_7(t *testing.T) {
 	for _, args := range [][]string{
 		{"--borrowed-hands", "--brain", "scripted", "--script", "x.json"},
-		{"--borrowed-hands", "--brain", "claude"},
-		{"--borrowed-hands", "--brain", "claude", "--sandbox", "local"},
+		{"--borrowed-hands", "--brain", "scripted", "--script", "x.json", "--sandbox", "local"},
 		// The flag is named whatever else is wrong with the invocation.
 		{"--borrowed-hands", "--brain", "scripted"},
-		{"--borrowed-hands", "--brain", "claude", "--script", "x.json"},
 	} {
 		reg, made := recordingRegistry()
 

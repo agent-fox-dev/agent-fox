@@ -83,10 +83,6 @@ type LoopParams struct {
 	Attempts int
 	Budget   float64
 	MaxTurns int
-	// DriverInBox and CommandOnly describe how the brain submits: the driver of AgentKit runs
-	// in the box as a process (no fix.json there), and claude submits with the command alone.
-	DriverInBox bool
-	CommandOnly bool
 	// Earlier is the question each answer of the run answers, when the caller knows them;
 	// nil is to search the run directories for them.
 	Earlier []Earlier
@@ -172,11 +168,11 @@ func RunLoop(ctx context.Context, p LoopParams) (LoopResult, error) {
 			ran++
 			round := st.Rounds + 1
 			res.Rounds++
-			task := TaskBlock(TaskParams{RunID: st.RunID, Attempt: attempt, Round: inAttempt, Earlier: earlier, Refusal: refusal, PreviousAttempt: previous, CommandOnly: p.CommandOnly})
+			task := TaskBlock(TaskParams{RunID: st.RunID, Attempt: attempt, Round: inAttempt, Earlier: earlier, Refusal: refusal, PreviousAttempt: previous})
 			rr, err := RunRound(ctx, RoundParams{
 				Dir: p.Dir, Git: p.Git, Session: p.Session, Name: p.Name, Brain: p.Brain, Tally: p.Tally, RunDir: p.RunDir, Report: p.Report,
 				State: *st, Prefix: p.Prefix, Task: task, Round: round, MaxCostUSD: costLeft, MaxTurns: turnsLeft, Timeout: brainTimeout(ctx, baseline),
-				DriverInBox: p.DriverInBox, Placed: placed,
+				Placed: placed,
 			})
 			after := p.Tally.Usage(p.Name)
 			st.Rounds = round

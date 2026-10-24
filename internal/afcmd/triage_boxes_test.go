@@ -47,13 +47,12 @@ func triageBrainEntry(t *testing.T, entry brain.Entry, name string) *seenByTheBr
 // TestTheTriageBoxIsOpenedWithTheRequestOfTheBrain verifies that the triage loop opens
 // its box with the request that brain.BoxRequest makes (10-REQ-2): where the brain runs,
 // the credentials in the box, the network for the tools of a triage brief (read-only, so
-// that a brain on the host needs none), and the route the brief names for the submission.
+// that a brain on the host needs none), and the tool the brief names for the submission.
 // Verifies: 10-REQ-2.1, 10-REQ-2.2, 10-REQ-2.3
 func TestTheTriageBoxIsOpenedWithTheRequestOfTheBrain(t *testing.T) {
 	isoboxFor(t)
 	const key = "sk-host-key"
 	vendor := map[string]string{"ANTHROPIC_API_KEY": key}
-	claudeLike := brain.Entry{OwnHands: true, CommandRoute: true, Credentials: []string{brain.VendorKeyVar}}
 	driver := brain.Entry{DriverInBox: true, Credentials: []string{brain.VendorKeyVar}}
 	host := brain.Entry{Credentials: []string{brain.VendorKeyVar}}
 
@@ -65,16 +64,12 @@ func TestTheTriageBoxIsOpenedWithTheRequestOfTheBrain(t *testing.T) {
 		wantPlace   string
 		wantNetwork string
 		wantEnv     map[string]string
-		wantCommand bool // whether the brief names the command and not the tool
 	}{
-		{"a brain on the host in the local box", host, "spy", []string{"--sandbox", "local"}, "host", "host", nil, false},
-		{"a brain on the host in a box that isolates", host, "spy", []string{"--sandbox", "isobox"}, "host", "none", nil, false},
-		{"the driver in a box that isolates", driver, brain.AgentkitName, []string{"--sandbox", "isobox"}, "box", "open", vendor, false},
-		{"the driver with borrowed hands", driver, brain.AgentkitName, []string{"--sandbox", "isobox", "--borrowed-hands"}, "host", "none", nil, false},
-		{"the driver in the local box", driver, brain.AgentkitName, []string{"--sandbox", "local"}, "host", "host", nil, false},
-		{"a brain with hands of its own in the local box", claudeLike, "spy", []string{"--sandbox", "local"}, "box", "host", vendor, true},
-		{"a brain with hands of its own in a box that isolates", claudeLike, "spy", []string{"--sandbox", "isobox"}, "box", "open", vendor, true},
-		{"a brain with hands of its own at the checkout", claudeLike, "spy", []string{"--sandbox", "none"}, "checkout", "host", vendor, true},
+		{"a brain on the host in the local box", host, "spy", []string{"--sandbox", "local"}, "host", "host", nil},
+		{"a brain on the host in a box that isolates", host, "spy", []string{"--sandbox", "isobox"}, "host", "none", nil},
+		{"the driver in a box that isolates", driver, brain.AgentkitName, []string{"--sandbox", "isobox"}, "box", "open", vendor},
+		{"the driver with borrowed hands", driver, brain.AgentkitName, []string{"--sandbox", "isobox", "--borrowed-hands"}, "host", "none", nil},
+		{"the driver in the local box", driver, brain.AgentkitName, []string{"--sandbox", "local"}, "host", "host", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newTriageEnv(t, fakeforge.GitHub)
@@ -94,8 +89,8 @@ func TestTheTriageBoxIsOpenedWithTheRequestOfTheBrain(t *testing.T) {
 			if seen.network != tc.wantNetwork || !mapsEqual(seen.env, tc.wantEnv) {
 				t.Errorf("the brain found network %q and env %v, want %q and %v: the key of the vendor for a process, nothing for the host, and never the token of the forge", seen.network, seen.env, tc.wantNetwork, tc.wantEnv)
 			}
-			if got := strings.Contains(seen.task, "af triage submit --run-id"); got != tc.wantCommand || strings.Contains(seen.task, "file_diagnosis") == tc.wantCommand {
-				t.Errorf("the brief names the command: %v, the tool: %v; want the command only: %v\n%s", got, strings.Contains(seen.task, "file_diagnosis"), tc.wantCommand, seen.task)
+			if strings.Contains(seen.task, "af triage submit --run-id") || !strings.Contains(seen.task, "file_diagnosis") {
+				t.Errorf("the brief does not name the tool file_diagnosis alone:\n%s", seen.task)
 			}
 			if slices.Contains(seen.tools, "execute") || slices.Contains(seen.tools, "write_file") || !slices.Contains(seen.tools, "read_file") {
 				t.Errorf("tools = %v, want the read-only tools of a triage brief", seen.tools)

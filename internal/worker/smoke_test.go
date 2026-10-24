@@ -17,7 +17,7 @@ import (
 // The smoke tests follow the six paths of the spec through the real code: the worker, the shell of
 // the af commands and their loops in the process, the fake hub with its git server and its
 // gateway over the local provider, the forge client through hub, the git binary, and the test
-// binary as the af and the claude of the box. Nothing in the pipeline is a stand-in. Only the model
+// binary as the af of the box. Nothing in the pipeline is a stand-in. Only the model
 // is not there: the brain is scripted.
 
 // The third fixture: a triage whose submission asks a question.

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -20,11 +19,8 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
-// The programs a process brain runs.
-const (
-	ProgramAF     = "af"
-	ProgramClaude = "claude"
-)
+// ProgramAF is the program a process brain runs: af <agent> run, inside the box.
+const ProgramAF = "af"
 
 const (
 	// probeTimeout bounds each probe of a binary.
@@ -55,8 +51,6 @@ type ProcessConfig struct {
 	// AFPath is the af that a process runs under local, landlock and none; empty is
 	// the running executable.
 	AFPath string
-	// LookPath finds claude on the host; nil is exec.LookPath.
-	LookPath func(string) (string, error)
 	// Getenv reads the host's environment: its PATH and the variables a process may
 	// have; nil is os.LookupEnv.
 	Getenv Getenv
@@ -75,10 +69,8 @@ type ProcessSpec struct {
 	// Brain names the brain, which the files of the process carry in their names:
 	// <brain>.<attempt>.json for its output and <brain>.<attempt>.stderr.
 	Brain string
-	// Program is the program to run, ProgramAF or ProgramClaude, and Args what it is
-	// given; every one is quoted.
-	Program string
-	Args    []string
+	// Args are what af is given; every one is quoted.
+	Args []string
 	// Inline are settings that are not secret, which go in the command: AF_MODEL.
 	Inline map[string]string
 	// Credentials name the variables the process needs from the box's own environment: they
@@ -86,10 +78,6 @@ type ProcessSpec struct {
 	// that supplies its own credentials; for the others the credentials are the names of the
 	// environment the box was created with.
 	Credentials []string
-	// Probes are the programs to probe, once for a session, before the first run.
-	Probes []string
-	// StdinBrief says the process reads brief.md on its stdin.
-	StdinBrief bool
 }
 
 // ProcessResult is what a process left.
@@ -104,9 +92,8 @@ type ProcessResult struct {
 	Duration time.Duration
 }
 
-// Process runs the processes of the brains that run as one: it finds the programs,
-// probes them once for a session, and runs them in the box under env -i with the few
-// variables they may have.
+// Process runs af as the process of a brain: it finds af, probes it once for a session, and
+// runs it in the box under env -i with the few variables it may have.
 type Process struct {
 	cfg ProcessConfig
 }
@@ -135,36 +122,21 @@ func (b Brief) warn(code, message string) {
 	}
 }
 
-// program is the path of a program as the box has it. In a box whose programs are called by
-// name (podman, a gateway) both are found on the PATH of the image. Elsewhere af is the path
-// it was given or the running executable, and claude the one the host finds: a process there
-// runs from the host's file system.
-func (p *Process) program(byName bool, name string) (string, error) {
+// program is the path of af as the box has it. In a box whose programs are called by name
+// (podman, a gateway) it is found on the PATH of the image. Elsewhere it is the path it was
+// given or the running executable: a process there runs from the host's file system.
+func (p *Process) program(byName bool) (string, error) {
 	if byName {
-		return name, nil
+		return ProgramAF, nil
 	}
-	switch name {
-	case ProgramAF:
-		if p.cfg.AFPath != "" {
-			return p.cfg.AFPath, nil
-		}
-		exe, err := os.Executable()
-		if err != nil {
-			return "", &toolio.Failure{Category: toolio.CategoryInternal, Message: fmt.Sprintf("cannot find the running af: %v", err)}
-		}
-		return exe, nil
-	case ProgramClaude:
-		look := p.cfg.LookPath
-		if look == nil {
-			look = exec.LookPath
-		}
-		found, err := look(ProgramClaude)
-		if err != nil {
-			return "", &toolio.Failure{Category: toolio.CategoryBrain, Message: fmt.Sprintf("claude is not on the PATH of this machine: %v", err)}
-		}
-		return found, nil
+	if p.cfg.AFPath != "" {
+		return p.cfg.AFPath, nil
 	}
-	return "", fmt.Errorf("brain: %q is not a program of a process brain", name)
+	exe, err := os.Executable()
+	if err != nil {
+		return "", &toolio.Failure{Category: toolio.CategoryInternal, Message: fmt.Sprintf("cannot find the running af: %v", err)}
+	}
+	return exe, nil
 }
 
 // quote is s as one word of a shell, in single quotes.
@@ -179,7 +151,7 @@ func (p *Process) environment(byName bool, credentials []string, inline map[stri
 	if byName {
 		parts = append(parts, `PATH="$PATH"`)
 	} else {
-		af, err := p.program(byName, ProgramAF)
+		af, err := p.program(byName)
 		if err != nil {
 			return "", err
 		}
@@ -245,16 +217,15 @@ func files(b Brief, spec ProcessSpec) (outRel, errRel string) {
 }
 
 // command is the command line of a process, as the shell of the box runs it at the
-// root of the tree: the environment, the program with every argument quoted, the brief
-// on its standard input when it reads it, and its output and its errors in files of the
-// run directory. The credentials are named and never given: the shell of the box has
-// them from the spec of the box.
+// root of the tree: the environment, af with every argument quoted, and its output and
+// its errors in files of the run directory. The credentials are named and never given:
+// the shell of the box has them from the spec of the box.
 func (p *Process) command(byName bool, b Brief, spec ProcessSpec, credentials []string) (string, error) {
 	env, err := p.environment(byName, credentials, spec.Inline)
 	if err != nil {
 		return "", err
 	}
-	prog, err := p.program(byName, spec.Program)
+	prog, err := p.program(byName)
 	if err != nil {
 		return "", err
 	}
@@ -263,15 +234,12 @@ func (p *Process) command(byName bool, b Brief, spec ProcessSpec, credentials []
 		words = append(words, quote(arg))
 	}
 	outRel, errRel := files(b, spec)
-	if spec.StdinBrief {
-		words = append(words, "<", quote(path.Join(agentDir, "run", b.RunID, "brief.md")))
-	}
 	words = append(words, ">", quote(outRel), "2>", quote(errRel))
 	return strings.Join(words, " "), nil
 }
 
-// Run runs the process in the box of the brief. Before the first run of a session the
-// programs are probed. The process gets Brief.Timeout, or the time left on the context,
+// Run runs the process in the box of the brief. Before the first run of a session af is
+// probed. The process gets Brief.Timeout, or the time left on the context,
 // and is killed with the processes it started when it is over. Whatever happens a
 // brain_process entry is noted. What the process wrote is read through the box and
 // copied to the host run directory (the output up to 1 MiB, the end of the errors up to
@@ -281,7 +249,7 @@ func (p *Process) Run(ctx context.Context, b Brief, spec ProcessSpec) (ProcessRe
 	if b.Box == nil {
 		return ProcessResult{}, errors.New("brain: a process needs a box")
 	}
-	if err := p.probe(ctx, b, spec.Probes); err != nil {
+	if err := p.probe(ctx, b); err != nil {
 		return ProcessResult{}, err
 	}
 	credentials := slices.Collect(mapKeysOf(b.Box.Spec().Env))
@@ -369,12 +337,12 @@ type afVersion struct {
 	Commit  string `json:"commit"`
 }
 
-// probe runs, once for the session, what a process needs to find in the box: each of
-// the programs says its version, and HOME is set and can be written. A probe that fails
+// probe runs, once for the session, what a process needs to find in the box: af says its
+// version, and HOME is set and can be written. A probe that fails
 // stops the run before any money is spent, and each is a box_probe entry. The af of an
 // image that is not this one is a warning and not a failure: the host checks every
 // submission again.
-func (p *Process) probe(ctx context.Context, b Brief, programs []string) error {
+func (p *Process) probe(ctx context.Context, b Brief) error {
 	sess, provider, byName := b.Box, b.Box.Provider(), b.Box.ByName()
 
 	// fail is the failure of a probe: it is the box's own when the box could not be asked, so
@@ -391,13 +359,10 @@ func (p *Process) probe(ctx context.Context, b Brief, programs []string) error {
 		}
 		return failure
 	}
-	for _, name := range programs {
-		if sess.Probed(name) {
-			continue
-		}
-		prog, err := p.program(byName, name)
+	if !sess.Probed(ProgramAF) {
+		prog, err := p.program(byName)
 		if err != nil {
-			b.note("box_probe", map[string]any{"binary": name, "ok": false, "version": ""})
+			b.note("box_probe", map[string]any{"binary": ProgramAF, "ok": false, "version": ""})
 			return err
 		}
 		env, err := p.environment(byName, nil, nil)
@@ -405,18 +370,18 @@ func (p *Process) probe(ctx context.Context, b Brief, programs []string) error {
 			return err
 		}
 		code, out, err := sess.Exec(ctx, env+" "+quote(prog)+" '--version'", probeTimeout)
-		version, line := parseVersion(name, out)
+		version, line := parseVersion(out)
 		ok := err == nil && code == 0
-		b.note("box_probe", map[string]any{"binary": name, "ok": ok, "version": version.Version})
+		b.note("box_probe", map[string]any{"binary": ProgramAF, "ok": ok, "version": version.Version})
 		if !ok {
 			why := fmt.Sprintf("it exited with code %d: %s", code, strings.TrimSpace(line))
 			if err != nil {
 				why = err.Error()
 			}
-			return fail(name, why, err)
+			return fail(ProgramAF, why, err)
 		}
-		sess.MarkProbed(name)
-		p.compare(b, name, version)
+		sess.MarkProbed(ProgramAF)
+		p.compare(b, version)
 	}
 	if !sess.Probed("HOME") {
 		code, _, err := sess.Exec(ctx, `[ -n "$HOME" ] && [ -w "$HOME" ]`, probeTimeout)
@@ -430,24 +395,22 @@ func (p *Process) probe(ctx context.Context, b Brief, programs []string) error {
 	return nil
 }
 
-// parseVersion reads what a program printed for --version: the JSON document of af, or
-// the first line of anything else, which is the version of that.
-func parseVersion(program, out string) (afVersion, string) {
+// parseVersion reads what af printed for --version: its JSON document, or else the first
+// line, which is taken for the version.
+func parseVersion(out string) (afVersion, string) {
 	out = strings.TrimSpace(out)
 	line, _, _ := strings.Cut(out, "\n")
-	if program == ProgramAF {
-		var v afVersion
-		if json.Unmarshal([]byte(out), &v) == nil && v.Version != "" {
-			return v, line
-		}
+	var v afVersion
+	if json.Unmarshal([]byte(out), &v) == nil && v.Version != "" {
+		return v, line
 	}
 	return afVersion{Version: strings.TrimSpace(line)}, line
 }
 
 // compare warns when the af of the box is not the running one: another version or
 // another commit.
-func (p *Process) compare(b Brief, name string, found afVersion) {
-	if name != ProgramAF || found.Commit == "" && found.Version == "" {
+func (p *Process) compare(b Brief, found afVersion) {
+	if found.Commit == "" && found.Version == "" {
 		return
 	}
 	differs := p.cfg.Version != "" && found.Version != p.cfg.Version || p.cfg.Commit != "" && found.Commit != p.cfg.Commit

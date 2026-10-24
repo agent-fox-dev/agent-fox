@@ -9,10 +9,9 @@ exit codes, coded warnings, a stop on a question that is resumed with
 `--context`, a `--dry-run` that cannot write to the forge, a fetchable
 schema, and a git-ignored run directory.
 
-**This release registers twenty-seven commands: [`lang detect`](#lang-detect),
+**This release registers twenty-six commands: [`lang detect`](#lang-detect),
 [`gate run`](#gate-run), [`gate compare`](#gate-compare),
-[`revert-check`](#revert-check), [`guard check`](#guard-check) and
-[`map`](#map), the five of [triage](#triage): `triage`, `triage brief`,
+[`revert-check`](#revert-check) and [`map`](#map), the five of [triage](#triage): `triage`, `triage brief`,
 `triage run`, `triage submit` and `triage land`, the five of [fix](#fix):
 `fix`, `fix brief`, `fix run`, `fix submit` and `fix land`, and the eleven of the
 [client of the agent-fox service](#the-client-of-the-agent-fox-service): [`login`](#login), the four of
@@ -410,39 +409,18 @@ reverted path is back.
 | `failed`/`timeout`, `failed`/`cancelled` | `--timeout` ran out or a signal arrived. The tree has been put back first, within the ten minutes the command is given for it; if that takes longer the shell abandons the command (see [--timeout and signals](#--timeout-and-signals)) and the backup stays. |
 | `failed`/`io` | A file could not be read or written. |
 
-### guard check
+### The tool policy
 
-```
-af guard check [--dir DIR] [--policy FILE] [--host claude] [--timeout DURATION]  < payload.json
-```
-
-Decides whether a brain may make one tool call, from a JSON payload on stdin.
-The same decision is made for the envelope, for a host's hook and, in
-process, for the loop (`policy.DecideAt`). It reads and decides; it changes
-nothing, calls no model and opens no network connection, and creates no run
-directory. The default `--timeout` is 10 seconds.
-
-| Flag | Meaning |
-|---|---|
-| `--policy <file>` | The policy to use instead of `.agent-fox/guard.json`; see [configuration](configuration.md#guardjson). The file must exist. |
-| `--host claude` | Answer in the format of Claude Code's `PreToolUse` hook instead of the envelope. |
-
-**The payload** is one JSON document of at most 1 MiB. It is read as it is, not
-as the positional input of other commands (`input.kind` is `none`): it is not
-trimmed or cut at 128 KiB. Two shapes are read:
-
-- a Claude Code hook payload, `{"hook_event_name", "tool_name", "tool_input",
-  "cwd", …}`; the other fields are ignored;
-- af's neutral form, `{"tool": "...", "input": {...}}`.
-
-A payload whose `hook_event_name` is there and is not `PreToolUse` is allowed
-with no opinion; an empty or blank name names no other event, and the call is
-judged. `cwd` is the directory the session is in: a relative path
-means what it means there, and in `--dir` (the checkout) as well.
+There is no command for it: [the tool gate](#the-tool-gate) of a brain decides
+whether the brain may make a tool call, in process (`policy.DecideAt`), by the
+policy of `.agent-fox/guard.json` (see
+[configuration](configuration.md#guardjson)). It reads and decides; it changes
+nothing. A relative path means what it means in the directory the session of the
+brain is in, and in the checkout as well.
 
 **The decision** covers the calls to three kinds of tool:
 
-- *Shell tools* (`Bash`, and the hands' `execute`). The command is read as a
+- *Shell tools* (the hands' `execute`). The command is read as a
   shell would read it, and every command it runs is judged: those joined by
   `&&`, `||`, `;`, `|`, `&` and newlines, those in groups, in `$(…)`,
   backticks (whose body is unescaped as the shell does before it is read) and
@@ -459,14 +437,13 @@ means what it means there, and in `--dir` (the checkout) as well.
   program. The rules apply in this order to each command, and the first
   denial wins, except that the hands' guard looks at the whole line before any
   of them.
-- *Tools that write a file* (`Write`, `Edit`, `MultiEdit`, `NotebookEdit`, and
-  the hands' `write_file` and `edit_file`; the path is `file_path`,
-  `notebook_path` or `path`, whichever is the tool's own). A path under a
-  protected path is denied (`protected_path`), and so is one outside `--dir`
+- *Tools that write a file* (the hands' `write_file` and `edit_file`; the path is
+  `path`). A path under a
+  protected path is denied (`protected_path`), and so is one outside the checkout
   that is not under the system temporary directory (`outside_dir`). A call
   that names no path is denied (`unparseable`).
-- *Every other tool* is allowed, with no rule: the host's own tool allowlist
-  decides which tools exist.
+- *Every other tool* is allowed, with no rule: the brief's allowlist decides which
+  tools exist.
 
 | Rule | Denies |
 |---|---|
@@ -474,10 +451,10 @@ means what it means there, and in `--dir` (the checkout) as well.
 | `hands_guard` | What the hands' guard refuses, with its reason: an assignment of a variable that changes which program runs or what is loaded into it (`PATH`, `LD_PRELOAD`, `BASH_ENV`, …), a line it cannot read, and a line that runs no program. It can only deny. |
 | `git_mutation` | `git` with any subcommand but `status`, `log`, `diff`, `show`, `blame`, `ls-files`, `ls-tree`, `rev-parse`, `rev-list`, `grep`, `describe`, `cat-file`, `shortlog`, `merge-base`, `name-rev`, `for-each-ref` and `show-ref`; `branch` and `remote` only to list; a global `-c`, `--config-env` or `--exec-path=`; configuration from the environment that makes git run a program (`GIT_CONFIG_*`, `GIT_EXTERNAL_DIFF`, `GIT_EXEC_PATH`, `GIT_ASKPASS`, `GIT_SSH`, `GIT_SSH_COMMAND`, `GIT_PROXY_COMMAND`, `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR` and `GIT_TEMPLATE_DIR`, in front of the command, given to `env` or exported by an earlier command of the line); and `git grep` with `-O` or `--open-files-in-pager`. The reason says that af makes every commit, branch and push. |
 | `suite_command` | A command equal to a suite form once every token that starts with `-`, the value of an option that takes one as its next word (`go test -timeout 5m ./...`, `make -j 4 check`, `make -f Makefile check`: the options of `go`, `make`, `cargo` and `pytest` that the code lists) and every `NAME=value` word (`make check V=1`) is removed from both, and `$(go list ./...)` is `./...`: `make check`, `make -j4 check`, `go test ./...` and `go test -count=1 ./...` are the suite, `go test ./internal/x -run TestY` is not. The reason says to run `af gate run`, which caches the result by tree hash so that the landing reuses it, and that targeted runs are allowed. A flag that selects tests without a word of its own (`mvn -q test -Dtest=X`) is not told from the suite. |
-| `af_command` | Any `af` command but `lang detect`, `gate run`, `gate compare`, `revert-check`, `map`, `guard check`, `triage brief`, `triage submit`, `fix brief`, `fix submit`, `--version` and `--schema`: the rest belongs to the loop. |
+| `af_command` | Any `af` command but `lang detect`, `gate run`, `gate compare`, `revert-check`, `map`, `triage brief`, `triage submit`, `fix brief`, `fix submit`, `--version` and `--schema`: the rest belongs to the loop. |
 | `program_not_allowed` | With `allow_programs` set, a program that is not on it, as it is written (`/usr/bin/ls` is not `ls`); `af` and `git` are always allowed, by their name and by an absolute path (`./git` is a file of the checkout), and so are the builtins that start no program (`cd`, `true`, `[`, `test`, `echo`, `printf`, `read`, `export`, `set`, `for`, `case`, `eval`, `trap` and the like), whose own commands are judged in turn. |
-| `protected_path` | A write into a protected path through an output redirection; through an argument of `rm`, `rmdir`, `unlink`, `shred`, `mv`, `cp`, `install`, `rsync`, `tee`, `touch`, `mkdir`, `mkfifo`, `truncate`, `chmod`, `chown`, `chgrp`, `patch`, `ln` (every operand: a link to a protected path is a way to write there), `sed -i` or `perl -i`, `dd of=`, or `find -delete` and `-fprint`; and through an option that names the file a command writes (`-o`, `--output`, `--out`, `--outfile`, `--output-file`, `--emit-events`, `-coverprofile` and the other profiles of `go test`), such as `git diff --output=.specs/x` or `af map --output .specs/x`. A path is resolved against `--dir` (and against the directory of the session and of any `cd` before it in the command), with its links followed, so that a link to a protected directory and another spelling of the checkout are the protected path; its case does not matter, because the file system of a Mac has `.SPECS` where it has `.specs`; and it may start with `~`, `$HOME` or `$PWD`, or have a glob in a component (`.spe?s`, `.sp*`), which is matched against the protected names as the shell would (a glob does not match a name that starts with a dot unless it starts with one). Entries of `protected_paths` are cleaned before they are matched: `./docs/`, `docs//` and `a/../docs` protect `docs`. `rm`, `mv` and `find -delete` also refuse a directory above a protected path, such as `rm -rf .` and `find . -delete`; a `find` with a test before `-delete` does not count as removing its roots. |
-| `outside_dir` | A write tool call to a path outside `--dir` and the system temporary directory. |
+| `protected_path` | A write into a protected path through an output redirection; through an argument of `rm`, `rmdir`, `unlink`, `shred`, `mv`, `cp`, `install`, `rsync`, `tee`, `touch`, `mkdir`, `mkfifo`, `truncate`, `chmod`, `chown`, `chgrp`, `patch`, `ln` (every operand: a link to a protected path is a way to write there), `sed -i` or `perl -i`, `dd of=`, or `find -delete` and `-fprint`; and through an option that names the file a command writes (`-o`, `--output`, `--out`, `--outfile`, `--output-file`, `--emit-events`, `-coverprofile` and the other profiles of `go test`), such as `git diff --output=.specs/x` or `af map --output .specs/x`. A path is resolved against the checkout (and against the directory of the session and of any `cd` before it in the command), with its links followed, so that a link to a protected directory and another spelling of the checkout are the protected path; its case does not matter, because the file system of a Mac has `.SPECS` where it has `.specs`; and it may start with `~`, `$HOME` or `$PWD`, or have a glob in a component (`.spe?s`, `.sp*`), which is matched against the protected names as the shell would (a glob does not match a name that starts with a dot unless it starts with one). Entries of `protected_paths` are cleaned before they are matched: `./docs/`, `docs//` and `a/../docs` protect `docs`. `rm`, `mv` and `find -delete` also refuse a directory above a protected path, such as `rm -rf .` and `find . -delete`; a `find` with a test before `-delete` does not count as removing its roots. |
+| `outside_dir` | A write tool call to a path outside the checkout and the system temporary directory. |
 
 The policy is prevention, not a boundary. It reads the command and does not
 run it: a program named by a variable (except `$IFS`, which splits at once), a
@@ -490,37 +467,9 @@ that the hands' guard cannot read (an assignment on its own, a function
 definition, `((i++))`, which run no program) is denied, as well as one that is
 dangerous. The gate and the box are what holds.
 
-**Without `--host`** the answer is the envelope: `done` and exit 0 for an
-allow and for a deny, with the result (its schema is `guard_check` under
-`$defs`) `{decision, rule, reason, tool, segment}`. `rule`, `reason` and
-`segment` are empty for an allow. A payload that is malformed, empty or over 1
-MiB is `usage` (exit 2); a policy file that cannot be used is `failed`/`config`
-(exit 1). Neither emits a decision.
-
-**With `--host claude`** stdout is the document Claude Code reads, and nothing
-else, and the exit code is 0 for every answer:
-
-```json
-{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"…"}}
-```
-
-for a deny, and `{}` for an allow. `{}` is no opinion: the host's own
-permission settings still apply. The hook never prints `permissionDecision:
-"allow"`, which would bypass them. Neither document ends in a newline. Every
-error is answered as a deny that carries it, so that a hook that cannot decide
-does not let the call through: a payload that is malformed, empty or over 1
-MiB, a policy that does not parse, a panic of the policy engine, and a hook
-that does not decide within 80% of `--timeout` (the shell throws away what a
-command returns after its deadline, and reports a failure that the host does
-not act on). Only a wrong invocation (an unknown flag, an unknown `--host`, a
-`--timeout` that is not a duration) is still an envelope with exit 2, which the
-host treats as blocking. A `--timeout` too short for the command to finish in
-(`1ns`) is an envelope with `failed`/`timeout` and exit 1, which the host does
-not act on, so a hook leaves it at the default.
-
-Without `.agent-fox/guard.json` or `--policy`, every call detects the
-repository to find the suite (the work of [lang detect](#lang-detect)); a loop
-that calls the hook often writes `guard.json` once.
+Without `.agent-fox/guard.json`, every call detects the repository to find the
+suite (the work of [lang detect](#lang-detect)); a loop writes `guard.json` into
+the box once, before its rounds.
 
 ### map
 
@@ -603,7 +552,7 @@ defaults that command supplies):
 
 | Flag | Meaning |
 |---|---|
-| `--brain <name>` | `agentkit` (the AgentKit driver; inside the box under `landlock` and `podman`, on the host over the box's tools under `local` and `none`), `scripted` (a replay of a script, with no model; see [development.md](development.md#the-scripted-brain)) or `claude` (headless Claude Code; see [The claude brain](#the-claude-brain)). An unknown name is a `usage` failure that lists the registered ones. |
+| `--brain <name>` | `agentkit` (the AgentKit driver; inside the box under `landlock` and `podman`, on the host over the box's tools under `local` and `none`) or `scripted` (a replay of a script, with no model; see [development.md](development.md#the-scripted-brain)). An unknown name is a `usage` failure that lists the registered ones. |
 | `--sandbox <provider>` | The box provider: `landlock`, `podman`, `local` or `none` (see [The providers](#the-providers)). Without it the provider is the one `AF_SANDBOX` names, and without that `landlock` on Linux and `podman` on any other operating system. An unknown name is a `usage` failure that lists all four; an unknown `AF_SANDBOX` is a `usage` failure that names the variable. When the default provider cannot open, `af` does not fall back to `local` or `none`: the `sandbox` failure carries a `fix_hint` that names `--sandbox` and `AF_SANDBOX` (in place of the hint of the failure itself, so that a missing image is told by the message, which names `AF_SANDBOX_IMAGE`). |
 | `--borrowed-hands` | Only with `--brain agentkit`: run the driver on the host over the box's tools, and not inside the box. It changes something only under `landlock` and `podman`, since `local` and `none` always run the driver on the host. With any other brain it is a `usage` failure. |
 | `--budget <usd>` | Stop the brain after this much model cost. A finite number above 0. It needs a model whose price the catalog knows: with another, the `agentkit` brain fails as `usage` and names `AF_MODEL`, since no cost could be counted against it. |
@@ -646,7 +595,7 @@ brain and a cancellation; a close that fails is the warning `box_close_failed`.
 
 | Provider | Isolates | In place | What it is |
 |---|---|---|---|
-| `landlock` | yes | no | A confined child process on a copy of the tree. Linux only, and only with Landlock ABI 4 or newer, the first with rules for the network. On another operating system the status is `failed`/`sandbox`, not retryable, with the message "landlock needs Linux"; on a Linux with an older ABI, or none, the message names the ABI found and the one needed. Both carry `fix_hint` `{flag: "--sandbox", suggest: "podman"}`. A process started inside runs from the host's file system, where landlock opens only the system directories, so the request carries the directories of the `af` and the `claude` it will run (and of what a link leads to) for the box to let it read and run them; a `claude` that needs a runtime outside the system directories, such as `node` in a version manager's directory, is not covered. The provider also needs `agentkit-sandboxd` beside `af` or on `PATH`. |
+| `landlock` | yes | no | A confined child process on a copy of the tree. Linux only, and only with Landlock ABI 4 or newer, the first with rules for the network. On another operating system the status is `failed`/`sandbox`, not retryable, with the message "landlock needs Linux"; on a Linux with an older ABI, or none, the message names the ABI found and the one needed. Both carry `fix_hint` `{flag: "--sandbox", suggest: "podman"}`. A process started inside runs from the host's file system, where landlock opens only the system directories, so the request carries the directory of the `af` it will run (and of what a link leads to) for the box to let it read and run it. The provider also needs `agentkit-sandboxd` beside `af` or on `PATH`. |
 | `podman` | yes | no | A container of the image `AF_SANDBOX_IMAGE`, or `quay.io/agentfox/tools:latest` without it (see [configuration.md](configuration.md#the-box)); the key of the vendor is on the engine's command line on the host while the box lives. An engine that cannot be reached is `failed`/`sandbox`, not retryable, with the error of the provider (and, off Linux, a pointer to `podman machine start`); an image that is missing and cannot be pulled is `failed`/`sandbox`, retryable, and the message names the image and `AF_SANDBOX_IMAGE`. |
 | `local` | no | no | The tools run in this process, with its privileges, on a copy of the tree. |
 | `none` | no | yes | No box: the brain works on the checkout itself. |
@@ -668,18 +617,16 @@ around it, and that the hook is the only guard.
 
 #### Where the brain runs
 
-A brain is on the host, in the box, or at the checkout:
+A brain is on the host or in the box:
 
 | Brain | `landlock`, `podman` | `local` | `none` |
 |---|---|---|---|
 | `scripted` | host | host | host |
 | `agentkit` | box; with `--borrowed-hands`, host | host | host |
-| `claude` | box | box | checkout |
 
 *Host* is `af`'s process over the box's tools. *Box* is a process that `af` starts
-in the box with one command (below). *Checkout* is such a process on the host, in
-the checkout. What reaches the box follows from this, and is the same in the
-ledger entry `box_open {provider, image, network, placement}` and, for `af fix`,
+in the box with one command (below). What reaches the box follows from this, and is
+the same in the ledger entry `box_open {provider, image, network, placement}` and, for `af fix`,
 in the result's `box`:
 
 - **Credentials.** `Spec.Env` is nothing for a brain on the host, and for a process
@@ -697,23 +644,22 @@ in the result's `box`:
 
 #### Brains that run as a process
 
-`claude` runs as a process, and so does the `agentkit` driver inside `landlock` and
-`podman`: `af <agent> run --run-id <id> --dir <root> --budget … --max-turns …
---timeout …`, with `AF_MODEL` given on the command line. `Session.Exec` runs a
+The `agentkit` driver inside `landlock` and `podman` runs as a process: `af <agent>
+run --run-id <id> --dir <root> --budget … --max-turns … --timeout …`, with `AF_MODEL` given on the command line. `Session.Exec` runs a
 command in the box, at its root, through the box's `execute` tool (and with `sh -c`
 on the host, at the checkout, under `none`), and returns the exit code and the last
 bytes of the output; a command that exits with a code is not an error.
 
 - **The probe.** Once for each box, before the first process, `af --version` runs in
-  it, and `claude --version` for `claude`, and `HOME` is checked to be set and
+  it, and `HOME` is checked to be set and
   writable. A failure is `failed`/`sandbox`, not retryable, and the message names
   the binary, the provider and the image. Each probe is the ledger entry
   `box_probe {binary, ok, version}`. When the `af` of a `podman` image has another
   version or commit than the running one, the warning `box_af_version_mismatch` is
   raised and the run goes on: the host checks every submission again.
-- **The binaries.** Under `local`, `landlock` and `none`, `af` is the running
-  executable, by its absolute path, and its directory is first on `PATH`; `claude` is
-  the one on this machine's `PATH`. Under `podman` both are the image's.
+- **The binary.** Under `local`, `landlock` and `none`, `af` is the running
+  executable, by its absolute path, and its directory is first on `PATH`. Under
+  `podman` it is the image's.
 - **The environment.** The command runs under `env -i` with `PATH`, `HOME` (the
   box's own), the ones of `LANG`, `LC_ALL`, `TZ`, `HTTPS_PROXY`, `HTTP_PROXY` and
   `NO_PROXY` (in either case), `SSL_CERT_FILE`, `SSL_CERT_DIR` and
@@ -723,63 +669,13 @@ bytes of the output; a command that exits with a code is not an error.
   so that no secret is in its text or in the ledger. A password in the URL of a
   proxy is not a credential of `Spec.Env`: it is in the text of the command, with
   the rest of the proxy settings. Every argument and every value is single-quoted.
-- **Input and output.** The brief is on its standard input. Its standard output and
-  error are redirected to `.agent-fox/run/<id>/<brain>.<attempt>.json` and
+- **Output.** Its standard output and error are redirected to `.agent-fox/run/<id>/<brain>.<attempt>.json` and
   `.stderr` in the box, and copied to the run directory (the output up to 1 MiB, the
   last 64 KiB of the errors) as the artifacts `brain_output`. Nothing in them decides
   whether there is a submission. The ledger entry is `brain_process {brain,
   exit_code, duration_ms}`.
 - **The time.** The command is killed, with its process group, when the time of the
   brief or the time left on the command runs out.
-
-#### The claude brain
-
-`--brain claude` runs Claude Code headless in the box (or at the checkout, under
-`none`) on the brief, and takes back one submission, which it makes with `af <agent>
-submit --run-id <id>`: the briefs of such a brain name that command, not the tool.
-
-- **Construction.** Before a box opens: except under `none`, where a person at their
-  own checkout may be logged in, `ANTHROPIC_API_KEY` must be set (`failed`/`auth`,
-  with `fix_hint` `{env: "ANTHROPIC_API_KEY"}`), since a box has a private `HOME`
-  with no login; and, except under `podman`, `claude` must be on this machine's
-  `PATH` (`failed`/`brain`, not retryable).
-- **The files.** For each attempt `af` places `guard.json` (version 1, with the
-  `protected_paths` and `allow_programs` of the brief's hook, and no `suite`, which
-  is then detected) and `claude-settings.json` in `.agent-fox/run/<id>/` of the box,
-  with copies in the run directory. The settings have one `PreToolUse` hook that
-  matches every tool: `af guard check --host claude --dir <root> --policy
-  <root>/.agent-fox/run/<id>/guard.json`, with a timeout of 30 seconds, so that the
-  hook and the in-process gate decide from the same rules.
-- **The command line.** `claude -p --output-format json --max-turns <n>
-  --permission-mode dontAsk --settings <settings> --strict-mcp-config --allowedTools …
-  --disallowedTools … --append-system-prompt <note>`, with `--model` when `AF_MODEL`
-  is set. The note says that the run is headless, that the only deliverable is one
-  submission, that nothing is committed or pushed, and that a refusal is the next
-  turn. The skill is not appended again: the brief, which carries it, is the prompt.
-- **The tools.** The tools of the brief map to those of Claude Code, from one table:
-  `read_file` to `Read`, `list_files` to `LS` and `Glob`, `find_files` to `Glob`,
-  `search_files` to `Grep`, `write_file` to `Write`, `edit_file` to `Edit` and
-  `MultiEdit`, and `execute` to `Bash`. A tool with no equivalent is left out and
-  noted in the ledger (`claude_tool_dropped`). `Bash(af <agent> submit:*)` is always
-  allowed; `WebFetch` and `WebSearch` are always denied, and so are `Write`, `Edit`,
-  `MultiEdit` and `NotebookEdit` for an agent whose brief has no tool that writes.
-- **The outcome.** The cost is `total_cost_usd` (else `cost_usd`) of the output, with
-  `cost_source` `reported`; the turns are `num_turns`; the input tokens are the sum of
-  `input_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens`, and
-  the output tokens `output_tokens`. The stop reason follows `subtype`: `success` is
-  `ended`, `error_max_turns` is `turns`, one that contains `budget` is `budget`, and
-  anything else is `error` (Claude Code prints an API failure, such as a key that is
-  refused, as the subtype `success` with `is_error` true and an exit code of 1). The
-  brain claims a submission when the box's
-  `submission.json` carries this attempt's nonce, and the host decides from the file
-  all the same. The ledger entry is `claude_result`. An output that is missing or does
-  not parse is cost 0, `cost_source` `none` and the warning `brain_usage_unavailable`.
-  A non-zero exit with no submission is an error that carries the last 2 KiB of the
-  errors, or the `result` text of the output when the errors are empty.
-- **The budget.** The cost is known only after the run, so `--budget` is checked then:
-  a cost above it raises the warning `budget_exceeded` (and, when nothing was
-  submitted, the stop reason `budget`). While the run goes on, `--max-turns` and the
-  timeout are the bounds.
 
 The host reads the box through its tools: it lists a directory with the list tool
 (at most 500 entries) and takes a file out by exporting that file, so that any
@@ -790,7 +686,7 @@ against the tree and writes before it exists: `.agent-fox/run/<id>/submission.js
 in the box, `{kind, run_id, attempt, nonce, submitted_at, payload_sha256,
 payload}`, with the attempt and the nonce of `run.json`, which the loop places
 before each brain run. The brains of this release submit through the submit core
-(`submission.Submit`); a brain with hands of its own could write the file by
+(`submission.Submit`); a brain that runs commands could write the file by
 other means, so the host decides from the file and trusts nothing about how it
 got there. After the brain, the host reads that file (at most 2 MiB) and decides
 from it, and from nothing the brain said or printed: it must parse, carry this
@@ -818,10 +714,12 @@ over a panic of it, which is the warning `brain_error` (the stack of a panic is
 kept either way). Without one, the run fails as `timeout`, `brain`, `budget` or
 `no_result` (see the [categories](#error-categories)).
 
-**The tool gate.** Every tool call that the driver of an in-process brain passes
+#### The tool gate
+
+Every tool call that the driver of an in-process brain passes
 to its guard is decided before it runs: the tool must be in the brief's
 allowlist (the tool that ends the run always is), and the rules of
-[`guard check`](#guard-check), with the brief's hook as their configuration and
+[the tool policy](#the-tool-policy), with the brief's hook as their configuration and
 the suite of the checkout, must allow it. A path that a write names is judged as
 the box's tools will resolve it (quotes, a leading `@`, a `file://` prefix and
 the spaces around it are taken off first). A denied call is not executed, and its
@@ -836,8 +734,9 @@ accepts only a file that is valid.
 
 ### The submit command of an agent
 
-`submission.Command(path, kind)` builds the `af <agent> submit` command that a
-brain with its own hands runs inside the box.
+`submission.Command(path, kind)` builds the `af <agent> submit` command that an
+agent outside `af`, given the brief of `af <agent> brief`, runs to hand over its
+submission.
 
 ```
 af <agent> submit --run-id ID [--dir DIR]  < payload.json
@@ -1340,8 +1239,7 @@ failure, since a fix takes an issue, a file or text. `fix land` takes no
    is synced from the host's tree (the first round has it from opening), and
    `.agent-fox/gate.json` and `.agent-fox/guard.json` are written into it: the
    table of checks that `af` will measure by, and the policy of the brain's tool
-   gate. The brain edits the box and submits one report with `submit_fix` (a brain that
-   submits with `af fix submit` alone, like `claude`, is not told of the tool, and the
+   gate. The brain edits the box and submits one report with `submit_fix` (the
    driver that runs in the box finds no `fix.json` in its run directory, which would
    make its `af fix run` the round of the host), or one question. `af` takes the box's
    tree out and **applies** it to the checkout (see below), then **measures** it.
@@ -1924,22 +1822,15 @@ stack goes to stderr and, when there is a run directory, to
 no question, a question with another status, more than 26 options) is a
 command bug and is reported as `failed`/`internal`.
 
-Two things are for the one command whose caller is a host that reads another
-format than the envelope (`af guard check --host claude`), and no other
-command uses them. A command registered with `RawStdin` is given the
-process's stdin, unread, as `Run.Stdin`; a command without it gets `nil` and
-reads nothing. An outcome with a `Document` and the status `done` has the
-document written to stdout in place of the envelope, and the exit code is
-`done`'s, 0; the envelope is still made, and still written to `--output` and
-to the run directory. A document with any other status is an inconsistent
-outcome, and a run that fails after the command returned prints the envelope.
+A command registered with `RawStdin` is given the process's stdin, unread, as
+`Run.Stdin`; a command without it gets `nil` and reads nothing.
 
 ## Error categories
 
 | `error.category` | Used for |
 |---|---|
 | `usage` | The invocation is wrong. Status `usage`. |
-| `auth` | An issue was not found without a token, so it may be private, or the `agentkit` brain has no credential for its model, or the `claude` brain has no `ANTHROPIC_API_KEY` for its box (not under `none`). `fix_hint.env` names the variable to set (a forge token, or `ANTHROPIC_API_KEY`). |
+| `auth` | An issue was not found without a token, so it may be private, or the `agentkit` brain has no credential for its model (in a box, no `ANTHROPIC_API_KEY`). `fix_hint.env` names the variable to set (a forge token, or `ANTHROPIC_API_KEY`). |
 | `forge` | The forge could not be reached, refused, or the client could not be built. `retryable` is true after a rate limit, a server error or a lost connection, and false after a refusal (a write of `triage` that gets a server error is not retryable). |
 | `io` | A file, stdin or the run directory could not be read or written; also the credential file (`~/.af/config.toml`) of a service command when the home directory cannot be found or the file cannot be read, and the writing of it by `af login`. |
 | `cancelled` | The process was sent SIGINT, SIGTERM or SIGHUP. It is a signal sent to the `af` process; a job of the service that was cancelled is `job_cancelled`. |
@@ -1949,7 +1840,7 @@ outcome, and a run that fails after the command returned prints the envelope.
 | `restore` | A tree that a command changed in order to measure it could not be put back, or a leftover of an earlier measurement stands in the way. The message names the directory that holds what is left. |
 | `git` | git failed in a way the command cannot work around; also, under `none`, a checkout that the brain left on another branch, detached, or with its history rewritten (see [the steps of a fix run](#the-steps-of-a-fix-run)). |
 | `sandbox` | The box could not be opened, synced or exported. The provider could not create it (not retryable: `landlock` on a host without Linux or without Landlock ABI 4, `podman` without a reachable engine, see [the providers](#the-providers)); the image of a `podman` box is missing and cannot be pulled, the checkout could not be synced in, or the tree could not be exported out (retryable); a process brain's binary or `HOME` fails the probe in the box (not retryable); or an export carried a `.git`, which stops the run. When the provider was chosen by default, `fix_hint` names `--sandbox` and `AF_SANDBOX`. |
-| `brain` | A brain failed: it returned an error and left no submission (retryable), or it panicked (not retryable; the stack is in `brain-panic.<attempt>.txt` in the run directory); or the `claude` brain cannot find `claude` on the `PATH` of this machine (not retryable). |
+| `brain` | A brain failed: it returned an error and left no submission (retryable), or it panicked (not retryable; the stack is in `brain-panic.<attempt>.txt` in the run directory). |
 | `no_result` | A brain ended without a valid submission: it stopped for another reason than the cost or the turns, or the submission file did not count. Retryable. |
 | `budget` | A brain used its cost bound or its turn bound and left no submission. Not retryable; `fix_hint` is `{flag: "--budget"` or `"--max-turns", suggest: <twice the bound>}`. |
 | `submission` | A submission was refused (the `submit` command, [below](#the-submit-command-of-an-agent)); nothing was written, and the message names every problem. Retryable. Also `fix land` on a run whose submission is a question. |
@@ -1986,8 +1877,7 @@ A code matches `^[a-z][a-z0-9_]*$`; one that does not is reported under
 | `check_unavailable` | `lang detect`: a check of the gate table names a program that cannot be run on this machine. The check stays in the table with `available: false`; the message names the check. |
 | `box_unconfined` | A box was opened with the `local` provider, once for each box: it has no process or network isolation, because the tools run in this process with its privileges. Also with the `none` provider, with a message of its own: the brain works on the checkout itself, with no copy of it and no box around it, and the hook is the only guard. Also `triage run`, which reads the directory in place, with no copy of it: the files git ignores and `.git/config` are within reach of the tools. |
 | `box_af_version_mismatch` | The `af` of a box that a process brain runs (in practice the one of a `podman` image, since the other providers run this very executable) has another version, or another commit when both are known, than the running one. The run goes on, since the host checks every submission again; the message names both. |
-| `brain_usage_unavailable` | A process brain left no output that could be read (the JSON of `claude`, the envelope of `af <agent> run`), so the run has no cost to report: the cost is 0 and `cost_source` is `none`. |
-| `budget_exceeded` | The `claude` brain reported a cost above `--budget`. Its cost is known only after the run, so only its turns and its time held it while it ran; with no submission, the stop reason is `budget`. |
+| `brain_usage_unavailable` | The driver in a box left no envelope of `af <agent> run` that could be read, so the run has no cost to report: the cost is 0 and `cost_source` is `none`. |
 | `foreign_commits_reset` | `fix`, under `none`: the brain made commits on the branch of the checkout, and `af` took them off it with a soft reset to where the branch was. The message has their number; their change is inside the commit of `af`. |
 | `box_close_failed` | The box could not be closed, also one that could not be synced and was closed for that. The result of the run is what it was; the message carries the error. |
 | `submission_invalid` | The submission file in the box did not count: it did not parse, is not for this run's kind, run, attempt or payload hash, or the kind refused its payload against the box's tree. The message lists the problems, and the run has no submission. |
@@ -2210,7 +2100,6 @@ edited.
     submission.json          the accepted submission, if there is one
     transcript.<attempt>.jsonl   the tool calls of an in-process brain, listed as {kind: "transcript", path}
     brain-panic.<attempt>.txt    the stack of a brain that panicked
-    guard.json, claude-settings.json    the policy and the settings the claude brain ran with, copied from the box
     <brain>.<attempt>.json, <brain>.<attempt>.stderr    what a brain that runs as a process printed, listed as {kind: "brain_output", path}
     submission.rejected.<attempt>.json    a file refused as a submission, moved aside under none
     brief.md, original.md, triage.json, rejections.jsonl, diagnosis.md    the files of a triage run
@@ -2258,8 +2147,7 @@ short HEAD, or "" for a repository with no commit, also at every later sync), `b
 submitted_claim, cost_usd, cost_source, turns, duration_ms, input_tokens,
 output_tokens}`, for a brain that runs
 as a process `box_probe {binary, ok, version}`, `brain_process {brain, exit_code,
-duration_ms}` and, for `claude`, `claude_result {subtype, is_error, num_turns,
-total_cost_usd, usage, session_id}` and `claude_tool_dropped {tool}`, and, for what it
+duration_ms}`, and, for what it
 found in the box after the brain, `submission_accepted {attempt, sha256}`,
 `submission_invalid {attempt, problems}`, `submission_stale {attempt,
 file_attempt}` or `submission_absent {attempt}`. `triage` adds `triage.input`,

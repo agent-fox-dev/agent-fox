@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -49,66 +47,6 @@ func TestRawStdin(t *testing.T) {
 	invokeWithStdin(t, app, payload, "bystander")
 	if !gotNil {
 		t.Error("a command that did not ask for stdin was given it")
-	}
-}
-
-// TestDocumentReplacesTheEnvelopeOnStdout guards 06-REQ-10.5: a command that
-// returns a document prints it, and nothing else, to stdout and exits 0; the
-// envelope is still made and still goes to --output.
-func TestDocumentReplacesTheEnvelopeOnStdout(t *testing.T) {
-	app := newTestApp()
-	app.Register(Command{Path: "hook", MaxArgs: NoArgs, Run: func(*Run) (Outcome, error) {
-		return Outcome{Status: StatusDone, Summary: "denied", Result: map[string]string{"decision": "deny"}, Document: []byte("{}\n")}, nil
-	}})
-	copyTo := filepath.Join(t.TempDir(), "envelope.json")
-
-	code, stdout, stderr := invoke(t, app, "hook", "--output", copyTo)
-
-	if code != 0 || stdout != "{}\n" || stderr != "" {
-		t.Errorf("exit code %d, stdout %q, stderr %q; want 0, the document and nothing", code, stdout, stderr)
-	}
-	data, err := os.ReadFile(copyTo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	env := decode(t, string(data))
-	if env["status"] != "done" || env["tool"] != "hook" || at(env, "result", "decision") != "deny" {
-		t.Errorf("the --output copy is %v, want the envelope of the run", env)
-	}
-}
-
-// TestDocumentOnlyWithDone guards 06-REQ-10.5: a document that does not go
-// with the status done is the command's bug, and the envelope says so.
-func TestDocumentOnlyWithDone(t *testing.T) {
-	outcomes := map[Status]Outcome{
-		StatusUnverified: {Status: StatusUnverified, Summary: "x", Document: []byte("{}")},
-		StatusNeedsHuman: {Status: StatusNeedsHuman, Summary: "x", Document: []byte("{}"), NeedsHuman: &Question{Text: "?"}},
-	}
-	for status, outcome := range outcomes {
-		app := newTestApp()
-		app.Register(returning("hook", outcome, nil))
-
-		code, stdout, _ := invoke(t, app, "hook")
-
-		env := decode(t, stdout)
-		if code != 1 || env["status"] != "failed" || at(env, "error", "category") != "internal" {
-			t.Errorf("status %s: exit code %d, envelope %v; want a failed/internal envelope", status, code, env)
-		}
-	}
-}
-
-// TestFailureDropsTheDocument guards 06-REQ-10.5: a command that fails after
-// all prints the envelope, not a document it prepared.
-func TestFailureDropsTheDocument(t *testing.T) {
-	app := newTestApp()
-	app.Register(Command{Path: "hook", Run: func(*Run) (Outcome, error) {
-		return Outcome{Status: StatusDone, Document: []byte("{}")}, &Failure{Category: CategoryIO, Message: "broken"}
-	}})
-
-	code, stdout, _ := invoke(t, app, "hook")
-
-	if env := decode(t, stdout); code != 1 || env["status"] != "failed" {
-		t.Errorf("exit code %d, envelope %v; want a failed envelope", code, env)
 	}
 }
 

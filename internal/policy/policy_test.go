@@ -22,7 +22,7 @@ func defaultPolicy() Policy {
 
 // bash decides a Bash call of command.
 func bash(p Policy, command string) Decision {
-	return Decide(p, dir, "Bash", map[string]any{"command": command})
+	return Decide(p, dir, "execute", map[string]any{"command": command})
 }
 
 // parse reads src as a line of the shell, at the top level.
@@ -426,7 +426,7 @@ func TestSuiteCommandsAreDenied_TS_06_51(t *testing.T) {
 func TestAfCommands_TS_06_52(t *testing.T) {
 	var cases []expectation
 	for _, src := range []string{
-		"af lang detect", "af gate run", "af gate compare", "af revert-check", "af map", "af guard check", "af triage brief", "af triage submit",
+		"af lang detect", "af gate run", "af gate compare", "af revert-check", "af map", "af triage brief", "af triage submit",
 		"af fix brief", "af fix submit", "af --version", "af --schema",
 		"af gate run --label baseline --dir .", "af gate run --hermetic", "af triage brief 123", "af fix submit report.json --dry-run", "af map --tokens 2000",
 		"af gate compare --before a --after b", "af lang detect --write", "/usr/local/bin/af gate run",
@@ -548,15 +548,12 @@ func TestDecisionShape(t *testing.T) {
 // command cannot be read, and is denied like one that cannot be parsed.
 func TestShellCallWithoutACommand(t *testing.T) {
 	for _, input := range []map[string]any{nil, {}, {"command": 7}, {"command": nil}, {"cmd": "ls"}} {
-		d := Decide(defaultPolicy(), dir, "Bash", input)
+		d := Decide(defaultPolicy(), dir, "execute", input)
 		if d.Decision != Deny || d.Rule != RuleUnparseable || d.Segment == "" || d.Reason == "" {
-			t.Errorf("Bash with %v: %+v, want a denial by unparseable", input, d)
+			t.Errorf("execute with %v: %+v, want a denial by unparseable", input, d)
 		}
 	}
-	if d := Decide(defaultPolicy(), dir, "execute", map[string]any{"command": "git push"}); d.Rule != RuleGitMutation {
-		t.Errorf("the hands' execute: %+v, want the same rules as Bash", d)
-	}
-	for _, tool := range []string{"Read", "Grep", "WebFetch", "Task", "mcp__x__y"} {
+	for _, tool := range []string{"Bash", "read_file", "search_files", "mcp__x__y"} {
 		if d := Decide(defaultPolicy(), dir, tool, map[string]any{"command": "git push", "file_path": ".specs/x"}); d.Decision != Allow {
 			t.Errorf("%s: %+v, want an allowance: only shell and write tools are judged", tool, d)
 		}

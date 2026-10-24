@@ -1,6 +1,6 @@
-# The tools image: the sandbox image with af and Claude Code in it. It is what a
-# podman box runs in (AF_SANDBOX_IMAGE, quay.io/agentfox/tools:latest without it),
-# so that a brain that brings its own hands finds both next to the tree.
+# The tools image: the sandbox image with af in it. It is what a podman box runs in
+# (AF_SANDBOX_IMAGE, quay.io/agentfox/tools:latest without it), so that the agentkit
+# driver, which runs in the box as af, finds af next to the tree.
 #
 #   make build-tools-container
 #
@@ -38,17 +38,9 @@ RUN CGO_ENABLED=0 go build \
 # ---------- runtime ----------
 FROM ${BASE_IMAGE}
 
-ARG CLAUDE_CODE_VERSION=latest
-
 USER root
 
 COPY --from=build /out/af /usr/local/bin/af
-
-# Claude Code, at the version the image is built for.
-RUN dnf install -y --setopt=tsflags=nodocs nodejs npm \
- && npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
- && dnf -y clean all \
- && rm -rf /var/cache/dnf
 
 WORKDIR /workspace
 USER 1001:0

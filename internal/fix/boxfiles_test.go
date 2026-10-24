@@ -12,14 +12,14 @@ import (
 
 // boxFilesFor opens a box of the provider over a new checkout, with files in .agent-fox/
 // already, and writes the files of a round.
-func boxFilesFor(t *testing.T, provider string, existing map[string]string, driverInBox bool) (dir string, sess *box.Session) {
+func boxFilesFor(t *testing.T, provider string, existing map[string]string) (dir string, sess *box.Session) {
 	t.Helper()
-	dir, sess, _ = boxFilesPlaced(t, provider, existing, driverInBox)
+	dir, sess, _ = boxFilesPlaced(t, provider, existing)
 	return dir, sess
 }
 
 // boxFilesPlaced is boxFilesFor, and the files that the round put on a checkout that is the box.
-func boxFilesPlaced(t *testing.T, provider string, existing map[string]string, driverInBox bool) (dir string, sess *box.Session, placed *Placed) {
+func boxFilesPlaced(t *testing.T, provider string, existing map[string]string) (dir string, sess *box.Session, placed *Placed) {
 	t.Helper()
 	r := newTestRepo(t, map[string]string{"a.txt": "a\n"}, false)
 	for name, content := range existing {
@@ -38,7 +38,7 @@ func boxFilesPlaced(t *testing.T, provider string, existing map[string]string, d
 	}
 	t.Cleanup(func() { _ = sess.Close() })
 	placed = &Placed{}
-	if err := WriteBoxFiles(context.Background(), sess, state, driverInBox, placed); err != nil {
+	if err := WriteBoxFiles(context.Background(), sess, state, placed); err != nil {
 		t.Fatal(err)
 	}
 	return r.Dir, sess, placed
@@ -50,27 +50,18 @@ func boxHas(t *testing.T, sess *box.Session, rel string) bool {
 	return err == nil
 }
 
-// TestTheBoxIsGivenTheTableTheRulesAndTheStateOfTheRun guards the files of a round in a box
-// of its own: gate.json, guard.json and fix.json are all placed.
-func TestTheBoxIsGivenTheTableTheRulesAndTheStateOfTheRun(t *testing.T) {
-	_, sess := boxFilesFor(t, "local", nil, false)
-	for _, rel := range []string{".agent-fox/gate.json", ".agent-fox/guard.json", ".agent-fox/run/" + sampleState().RunID + "/" + StateFile} {
+// TestTheBoxIsGivenTheTableAndTheRulesAndNotTheStateOfTheRun guards the files of a round in a
+// box of its own: gate.json and guard.json are placed, and fix.json is not, for with it in its
+// run directory the af fix run of a driver in the box would be the round of the host.
+func TestTheBoxIsGivenTheTableAndTheRulesAndNotTheStateOfTheRun(t *testing.T) {
+	_, sess := boxFilesFor(t, "local", nil)
+	for _, rel := range []string{".agent-fox/gate.json", ".agent-fox/guard.json"} {
 		if !boxHas(t, sess, rel) {
 			t.Errorf("%s is not in the box", rel)
 		}
 	}
-}
-
-// TestTheDriverInTheBoxIsNotGivenTheStateOfTheRun guards the line between the round of the
-// host and the driver the box executes: with fix.json in its run directory, af fix run
-// would be the round of the host.
-func TestTheDriverInTheBoxIsNotGivenTheStateOfTheRun(t *testing.T) {
-	_, sess := boxFilesFor(t, "local", nil, true)
 	if boxHas(t, sess, ".agent-fox/run/"+sampleState().RunID+"/"+StateFile) {
-		t.Error("fix.json is in the box of the driver")
-	}
-	if !boxHas(t, sess, ".agent-fox/gate.json") || !boxHas(t, sess, ".agent-fox/guard.json") {
-		t.Error("the table and the rules are still placed")
+		t.Error("fix.json is in the box")
 	}
 }
 
@@ -78,15 +69,15 @@ func TestTheDriverInTheBoxIsNotGivenTheStateOfTheRun(t *testing.T) {
 // for the files of a round: under none the box is the checkout, and its gate.json and
 // guard.json are the person's; where there are none, the run's are placed.
 func TestAGateAndGuardFileOfThePersonOnTheCheckoutAreNotOverwritten(t *testing.T) {
-	dir, _ := boxFilesFor(t, "none", map[string]string{"gate.json": "{\"mine\":1}\n", "guard.json": "{\"mine\":2}\n"}, false)
+	dir, _ := boxFilesFor(t, "none", map[string]string{"gate.json": "{\"mine\":1}\n", "guard.json": "{\"mine\":2}\n"})
 	for name, want := range map[string]string{"gate.json": "{\"mine\":1}\n", "guard.json": "{\"mine\":2}\n"} {
 		if got, _ := os.ReadFile(filepath.Join(dir, ".agent-fox", name)); string(got) != want {
 			t.Errorf("%s = %q, want the person's %q", name, got, want)
 		}
 	}
 
-	fresh, sess := boxFilesFor(t, "none", nil, false)
-	for _, rel := range []string{".agent-fox/gate.json", ".agent-fox/guard.json", ".agent-fox/run/" + sampleState().RunID + "/" + StateFile} {
+	fresh, sess := boxFilesFor(t, "none", nil)
+	for _, rel := range []string{".agent-fox/gate.json", ".agent-fox/guard.json"} {
 		if _, err := os.Stat(filepath.Join(fresh, filepath.FromSlash(rel))); err != nil || !boxHas(t, sess, rel) {
 			t.Errorf("%s is not in the checkout: %v", rel, err)
 		}
@@ -99,10 +90,9 @@ func TestAGateAndGuardFileOfThePersonOnTheCheckoutAreNotOverwritten(t *testing.T
 // a file that is as af wrote it goes, one that someone changed since stays, and the person's
 // own, that af never touched, stays.
 func TestTheFilesThatAfPlacedOnTheCheckoutAreTakenOffItAndTheOnesOfThePersonAreNot(t *testing.T) {
-	dir, _, placed := boxFilesPlaced(t, "none", map[string]string{"guard.json": "{\"mine\":2}\n"}, false)
+	dir, _, placed := boxFilesPlaced(t, "none", map[string]string{"guard.json": "{\"mine\":2}\n"})
 	gate := filepath.Join(dir, ".agent-fox", "gate.json")
 	guard := filepath.Join(dir, ".agent-fox", "guard.json")
-	state := filepath.Join(dir, ".agent-fox", "run", sampleState().RunID, StateFile)
 	if _, err := os.Stat(gate); err != nil {
 		t.Fatalf("af placed no gate.json: %v", err)
 	}
@@ -115,19 +105,16 @@ func TestTheFilesThatAfPlacedOnTheCheckoutAreTakenOffItAndTheOnesOfThePersonAreN
 	if got, _ := os.ReadFile(guard); string(got) != "{\"mine\":2}\n" {
 		t.Errorf("guard.json = %q, want the person's, which af did not place", got)
 	}
-	if _, err := os.Stat(state); err != nil {
-		t.Errorf("fix.json of the run directory is gone: %v; it is the run's, not a file to take off", err)
-	}
 
 	// A file of the person's that is empty is theirs all the same.
-	dirEmpty, _, placedEmpty := boxFilesPlaced(t, "none", map[string]string{"gate.json": ""}, false)
+	dirEmpty, _, placedEmpty := boxFilesPlaced(t, "none", map[string]string{"gate.json": ""})
 	placedEmpty.Remove(dirEmpty)
 	if _, err := os.Stat(filepath.Join(dirEmpty, ".agent-fox", "gate.json")); err != nil {
 		t.Errorf("an empty gate.json of the person's was taken off the checkout: %v", err)
 	}
 
 	// A file that was changed after af placed it is not af's any more.
-	dir2, _, placed2 := boxFilesPlaced(t, "none", nil, false)
+	dir2, _, placed2 := boxFilesPlaced(t, "none", nil)
 	changed := filepath.Join(dir2, ".agent-fox", "gate.json")
 	if err := os.WriteFile(changed, []byte("{\"edited\":true}\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -141,7 +128,7 @@ func TestTheFilesThatAfPlacedOnTheCheckoutAreTakenOffItAndTheOnesOfThePersonAreN
 	}
 
 	// A box of its own has no file to take off a checkout, and a nil list is none.
-	_, _, none := boxFilesPlaced(t, "local", nil, false)
+	_, _, none := boxFilesPlaced(t, "local", nil)
 	none.Remove(t.TempDir())
 	(*Placed)(nil).Remove(t.TempDir())
 }

@@ -773,7 +773,7 @@ func triageLoop(c *Config, r *toolio.Run, s *brain.Settings, land string, labelF
 	r.Emit("step", triageStep{stepBrief})
 	// A brain that submits with the command alone is told the command; every other brain
 	// submits through the tool, in this process or in the box that runs its driver.
-	rendered, err := renderBrief(c, r, report, facts, !entry.CommandRoute, triage.Bounds{MaxTurns: s.MaxTurns, MaxCostUSD: s.Budget, Timeout: timeLeft(r)})
+	rendered, err := renderBrief(c, r, report, facts, true, triage.Bounds{MaxTurns: s.MaxTurns, MaxCostUSD: s.Budget, Timeout: timeLeft(r)})
 	if err != nil {
 		return toolio.Outcome{}, err
 	}

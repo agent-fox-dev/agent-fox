@@ -18,7 +18,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/brain"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/conform"
-	"github.com/agent-fox-dev/agentfox/internal/fakeclaude"
+	"github.com/agent-fox-dev/agentfox/internal/fakeaf"
 	"github.com/agent-fox-dev/agentfox/internal/hub"
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
 	"github.com/agent-fox-dev/agentfox/internal/triage/fakeforge"
@@ -48,7 +48,7 @@ func newBoxFixEnv(t *testing.T, files map[string]string) *boxFixEnv {
 	t.Helper()
 	requireMake(t)
 	e := newFixEnvWith(t, fakeforge.GitHub, files, true)
-	bin, _, _ := fakeclaude.Install(t)
+	bin, _ := fakeaf.Install(t)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	w := &boxFixEnv{fixEnv: e}

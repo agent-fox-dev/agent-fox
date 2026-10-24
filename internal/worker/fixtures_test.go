@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agent-fox-dev/agentfox/internal/fakeclaude"
+	"github.com/agent-fox-dev/agentfox/internal/fakeaf"
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
 )
 
@@ -87,13 +87,13 @@ func requireMake(t *testing.T) {
 }
 
 // loopEnv is an environment for a test that runs the loop: a workspace on a repository of the
-// files with the variables, an issue 42, a lease that outlives the timeouts, and the fake af and
-// claude first on the PATH that the boxes of the gateway are given. steps is what the scripted
-// brain does; the brain of the variables is replaced by it, as no variable may name it.
+// files with the variables, an issue 42, a lease that outlives the timeouts, and the test binary
+// as af first on the PATH that the boxes of the gateway are given. steps is what the scripted
+// brain does; it replaces the agentkit brain of the worker.
 func loopEnv(t *testing.T, files map[string]string, vars map[string]string, mutate func(*fakehub.Workspace), steps ...map[string]any) *env {
 	t.Helper()
 	requireMake(t)
-	bin, _, _ := fakeclaude.Install(t)
+	bin, _ := fakeaf.Install(t)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	w := fakehub.Workspace{Branch: "main", Files: files, Vars: vars}
 	if mutate != nil {

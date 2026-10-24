@@ -45,15 +45,6 @@ func checksOf(env map[string]any) [][]string {
 	return out
 }
 
-// claude is the payload Claude Code gives a PreToolUse hook.
-func claude(t *testing.T, event, tool string, input map[string]any, cwd string) string {
-	t.Helper()
-	return jsonOf(t, map[string]any{
-		"session_id": "abc", "transcript_path": "/x/y.jsonl", "cwd": cwd,
-		"hook_event_name": event, "tool_name": tool, "tool_input": input,
-	})
-}
-
 // codes lists the codes of the warnings of an envelope.
 func codes(env map[string]any) []string {
 	var out []string
@@ -96,36 +87,6 @@ func gitRepo(t *testing.T, files map[string]string) string {
 		}
 	}
 	return dir
-}
-
-// goRepo is a directory that detection says runs go test ./... as its suite.
-func goRepo(t *testing.T) string {
-	t.Helper()
-	return repoWith(t, map[string]string{"go.mod": "module x\n", "a.go": "package x\n"})
-}
-
-// hookDeny parses a --host claude output, which must be a deny.
-func hookDeny(t *testing.T, stdout string) string {
-	t.Helper()
-	var doc struct {
-		Hook struct {
-			Event    string `json:"hookEventName"`
-			Decision string `json:"permissionDecision"`
-			Reason   string `json:"permissionDecisionReason"`
-		} `json:"hookSpecificOutput"`
-	}
-	dec := json.NewDecoder(strings.NewReader(stdout))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&doc); err != nil {
-		t.Fatalf("not a hook document: %v\n%s", err, stdout)
-	}
-	if dec.More() {
-		t.Fatalf("more than one document:\n%s", stdout)
-	}
-	if doc.Hook.Event != "PreToolUse" || doc.Hook.Decision != "deny" || doc.Hook.Reason == "" {
-		t.Fatalf("hook = %+v, want a PreToolUse denial with a reason\n%s", doc.Hook, stdout)
-	}
-	return doc.Hook.Reason
 }
 
 // labelsBytes is labels.json as it is, or nothing.
@@ -270,16 +231,6 @@ func writeGate(t *testing.T, dir string, checks ...[]string) {
 	if err := os.WriteFile(filepath.Join(dir, ".agent-fox", "gate.json"), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-}
-
-// jsonOf is v as JSON.
-func jsonOf(t *testing.T, v any) string {
-	t.Helper()
-	data, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(data)
 }
 
 // repoWith makes a directory holding files (path to content).

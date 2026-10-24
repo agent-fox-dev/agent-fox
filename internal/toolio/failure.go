@@ -65,11 +65,6 @@ type Outcome struct {
 	Summary    string
 	Result     any
 	NeedsHuman *Question
-	// Document, when it is not empty, is what stdout gets in place of the
-	// envelope. It is for the one command whose caller is a host that reads
-	// another format; the status must be done. The envelope is still made,
-	// and is still written to --output and to the run directory.
-	Document []byte
 }
 
 // Question is what a needs_human outcome asks. The shell letters the options

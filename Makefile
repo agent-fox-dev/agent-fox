@@ -20,12 +20,11 @@ CONTAINER_REGISTRY ?= quay.io/agentfox
 SANDBOX_IMAGE ?= sandbox
 SANDBOX_IMAGE_TAG ?= $(VERSION)
 
-# The tools image is the sandbox image with af and Claude Code in it. AGENTKIT_REF is
-# the branch or tag of agentkit-go that af is built against.
+# The tools image is the sandbox image with af in it. AGENTKIT_REF is the branch or tag
+# of agentkit-go that af is built against.
 TOOLS_IMAGE ?= tools
 TOOLS_IMAGE_TAG ?= $(VERSION)
 AGENTKIT_REF ?= main
-CLAUDE_CODE_VERSION ?= latest
 
 .PHONY: help
 help: ## Show this help
@@ -120,7 +119,6 @@ build-tools-container: ## Build the tools image locally, on the sandbox image
 	podman build \
 		--build-arg BASE_IMAGE=$(CONTAINER_REGISTRY)/$(SANDBOX_IMAGE):$(SANDBOX_IMAGE_TAG) \
 		--build-arg AGENTKIT_REF=$(AGENTKIT_REF) \
-		--build-arg CLAUDE_CODE_VERSION=$(CLAUDE_CODE_VERSION) \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg BUILD=$(COMMIT) \
 		--build-arg BUILD_TIME=$(BUILD_TIME) \
