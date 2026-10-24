@@ -371,7 +371,8 @@ func TestAGateThatCannotBeComparedIsARefusalWithTheReason(t *testing.T) {
 }
 
 // TestAGateThatCannotRunIsAFailureOfTheRun guards the errors of the gate: a stopped run is
-// the stop, and anything else is an io failure.
+// the stop, a tree that cannot be put back is a restore failure, as af revert-check has it, and
+// anything else is an io failure.
 func TestAGateThatCannotRunIsAFailureOfTheRun(t *testing.T) {
 	w := newMeasureWorld(t, measuredFiles())
 	w.edit(t, "docs/readme.md", "readme, changed\n")
@@ -387,10 +388,10 @@ func TestAGateThatCannotRunIsAFailureOfTheRun(t *testing.T) {
 		t.Errorf("a gate that cannot run: %v", err)
 	}
 	err = run(nil, func(context.Context, string, string, conform.Options) (conform.Result, error) {
-		return conform.Result{}, &conform.RestoreError{Dir: "/x", Cause: errors.New("busy")}
+		return conform.Result{}, &conform.RestoreError{Patch: "/x", Cause: errors.New("busy")}
 	})
-	if f := failure(t, err); f.Category != toolio.CategoryIO || !strings.Contains(f.Message, "/x") {
-		t.Errorf("a tree that cannot be put back: %v, want the backup named", err)
+	if f := failure(t, err); f.Category != toolio.CategoryRestore || !strings.Contains(f.Message, "/x") {
+		t.Errorf("a tree that cannot be put back: %v, want a restore failure that names the patch", err)
 	}
 	err = run(nil, func(context.Context, string, string, conform.Options) (conform.Result, error) {
 		return conform.Result{}, &conform.GitError{Err: errors.New("bad object")}

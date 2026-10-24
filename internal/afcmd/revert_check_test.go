@@ -53,15 +53,15 @@ func stateOf(t *testing.T, dir string) treeState {
 	return treeState{tree, index}
 }
 
-// requireGiven fails the test unless dir is as it was and has no backup.
+// requireGiven fails the test unless dir is as it was and has no patch left.
 func requireGiven(t *testing.T, dir string, before treeState) {
 	t.Helper()
 	after := stateOf(t, dir)
 	if after.tree != before.tree || !bytes.Equal(after.index, before.index) {
 		t.Errorf("the tree or the index is not as it was (tree %s, was %s)", after.tree, before.tree)
 	}
-	if entries, _ := os.ReadDir(filepath.Join(dir, ".agent-fox", "revert")); len(entries) != 0 {
-		t.Errorf("a backup is left in .agent-fox/revert: %d entries", len(entries))
+	if _, err := os.Lstat(filepath.Join(dir, ".agent-fox", "revert.patch")); err == nil {
+		t.Error("a patch is left in .agent-fox/revert.patch")
 	}
 }
 
@@ -266,16 +266,26 @@ func TestRevertCheckTimeout_TS_06_45(t *testing.T) {
 	}
 }
 
-// TestRevertCheckLeftoverBackup_TS_06_46 verifies TS-06-46 through the
-// command: a leftover backup is failed/restore, names the directory and is left
-// alone.
-// Verifies: 06-REQ-6.8
-func TestRevertCheckLeftoverBackup_TS_06_46(t *testing.T) {
-	dir, base := provenRepo(t, false)
-	old := filepath.Join(dir, ".agent-fox", "revert", "old")
-	if err := os.MkdirAll(old, 0o755); err != nil {
+// leavePatch puts a patch of an earlier check in dir, and returns its path.
+func leavePatch(t *testing.T, dir string) string {
+	t.Helper()
+	old := filepath.Join(dir, ".agent-fox", "revert.patch")
+	if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(old, []byte("old patch"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return old
+}
+
+// TestRevertCheckLeftoverPatch_TS_06_46 verifies TS-06-46 through the
+// command: a leftover patch is failed/restore, names the file and is left
+// alone.
+// Verifies: 06-REQ-6.8
+func TestRevertCheckLeftoverPatch_TS_06_46(t *testing.T) {
+	dir, base := provenRepo(t, false)
+	old := leavePatch(t, dir)
 	before := stateOf(t, dir)
 
 	code, env := revertRun(t, dir, "--since", base)
@@ -286,8 +296,8 @@ func TestRevertCheckLeftoverBackup_TS_06_46(t *testing.T) {
 	if msg, _ := field(env, "error", "message").(string); !strings.Contains(msg, old) {
 		t.Errorf("message %q does not name %s", msg, old)
 	}
-	if _, err := os.Stat(old); err != nil {
-		t.Errorf("the old backup was removed: %v", err)
+	if data, err := os.ReadFile(old); err != nil || string(data) != "old patch" {
+		t.Errorf("the old patch was touched: %q, %v", data, err)
 	}
 	after := stateOf(t, dir)
 	if after.tree != before.tree || !bytes.Equal(after.index, before.index) {
@@ -313,11 +323,9 @@ func TestFailureCategories_TS_06_74(t *testing.T) {
 		expectFailure(t, code, env, "config")
 	})
 
-	t.Run("restore, a backup from an earlier check", func(t *testing.T) {
+	t.Run("restore, a patch from an earlier check", func(t *testing.T) {
 		dir, base := provenRepo(t, false)
-		if err := os.MkdirAll(filepath.Join(dir, ".agent-fox", "revert", "old"), 0o755); err != nil {
-			t.Fatal(err)
-		}
+		leavePatch(t, dir)
 		code, env := revertRun(t, dir, "--since", base)
 		expectFailure(t, code, env, "restore")
 	})

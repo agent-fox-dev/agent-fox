@@ -65,7 +65,7 @@ func revertCheck(r *toolio.Run, since string) (toolio.Outcome, error) {
 
 // conformFailure is the error to return for an error of the conform package:
 // a tree that could not be put back is a restore failure that names its
-// backup, git that failed is a git failure, and the rest is as for the checks.
+// patch, git that failed is a git failure, and the rest is as for the checks.
 func conformFailure(r *toolio.Run, err error) error {
 	var restore *conform.RestoreError
 	var gitErr *conform.GitError

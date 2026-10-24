@@ -252,8 +252,9 @@ af revert-check --since REF [--dir DIR] [--timeout DURATION]
 ```
 
 Answers one question: do the tests of a change fail without the rest of the
-change? It lists what differs from `REF`, sets the paths that are not tests
-back to what `REF` has, runs the tests, and puts every path back as it was.
+change? It lists what differs from `REF`, takes the change of the paths that
+are not tests out of the work tree as a patch, runs the tests, and applies the
+patch again.
 It calls no model and opens no network connection, and it creates no run
 directory. The default `--timeout` is 30 minutes.
 
@@ -268,9 +269,9 @@ argument, and nothing was touched.
 **What it does,** in this order, stopping at the first step that settles the
 outcome:
 
-1. It refuses, as `failed`/`restore`, if a directory exists under
-   `.agent-fox/revert/`: an earlier check was killed, or another is working on
-   the checkout, and nothing is overwritten. The message names the directory.
+1. It refuses, as `failed`/`restore`, if `.agent-fox/revert.patch` exists:
+   an earlier check was killed, or another is working on the checkout, and
+   nothing is overwritten. The message names the file.
 2. It lists the changed paths: those that differ from `REF`, staged or not,
    and the untracked files that are not ignored, byte for byte (a rename is
    its two paths). Af's own listing does not write the index, not even
@@ -289,48 +290,46 @@ outcome:
    If a `test` or `check` check did not pass, the outcome is `inconclusive`
    with the reason `after_not_green`; if none could be run here, with
    `test_check_unavailable`. Nothing is reverted.
-5. It backs up, reverts, tests and restores. The backup is
-   `.agent-fox/revert/<id>/`, a directory this check made and no other did
-   (`<id>` is 12 random hex characters; the directory is the claim on the
-   checkout, and a check that finds another claim beside its own backs off and
-   takes away only its own): `files/` holds a copy of every file it will
-   change, `manifest.json` says what each path was (a file with its mode and
-   modification time, a link with its target, or absent), and `index` is the
-   index as it was. Then, without touching the index, each non-test path that
-   the commit has gets the commit's content and mode (read with `git cat-file`
-   from the blob `git ls-tree` names), and each one it does not have is moved
-   aside; test paths stay as they are. The table of checks is found again on the
-   reverted tree: if its `test` and `check` checks are not the ones that were
-   measured (a Makefile the change added is not there to run), the outcome is
-   `inconclusive` with the reason `table_changed_by_revert`, because a check
-   that cannot run says nothing about the tests. Otherwise only the checks of
-   kind `test` and `check` run on that tree, through the gate engine, cached by
-   the reverted tree's hash.
-6. It restores every path from the backup, with a context that nothing
+5. It takes the change out, tests and puts it back. The change of the
+   non-test paths is made as a binary patch on a private index read from
+   `REF` (`git read-tree`, `git add --all` of those paths, `git diff --cached
+   --binary`), so the real index is not written; submodules and nested
+   repositories are left out (`--ignore-submodules=all`). An empty patch is
+   `inconclusive` with the reason `nothing_to_revert`. The patch is written to
+   `.agent-fox/revert.patch`, exclusively: the file is the claim on the
+   checkout, and a check that finds it there refuses. Then `git apply
+   --reverse` takes the change out of the work tree, never the index, and
+   changes every path or none; test paths stay as they are. The table of
+   checks is found again on the reverted tree: if its `test` and `check`
+   checks are not the ones that were measured (a Makefile the change added is
+   not there to run), the outcome is `inconclusive` with the reason
+   `table_changed_by_revert`, because a check that cannot run says nothing
+   about the tests. Otherwise only the checks of kind `test` and `check` run
+   on that tree, through the gate engine, cached by the reverted tree's hash.
+6. It applies the patch again with `git apply`, with a context that nothing
    cancels, so that a signal, `--timeout` or a panic during the tests still
-   puts the tree back. A path that something changed while the checks ran, and
-   that is not what the revert put there, is not overwritten: what it held is
-   kept in the backup under `changed/` and the command fails with
-   `failed`/`restore`, naming it. A check that ran git or a build may have
+   puts the change back. A path that something changed while the checks ran
+   makes `git apply` refuse: what the check did is not overwritten, the tree
+   stays without the change, and the command fails with `failed`/`restore`,
+   naming the path and the patch. A check that ran git or a build may have
    refreshed and rewritten `.git/index` with the same entries and other
    bytes; the bytes of the index as it was are written back, through
    `.git/index.lock` as git writes it. The command then checks that the tree
    hash equals the one taken before the revert and that `.git/index` is byte
-   for byte the same, and removes the backup.
+   for byte the same, and removes the patch.
 
 The checks run on the real index, not on a copy: a `git status` or a build in a
 check may rewrite it, and the restore puts it back as it was. A restore is
 given ten minutes after a signal or the deadline (the shell's own grace is 10
 seconds, and this command asks for more), and the signals are SIGINT, SIGTERM
 and SIGHUP. A process that is killed with SIGKILL, or that is abandoned after
-that, leaves the backup, and the next check refuses until someone has looked
-at it.
+that, leaves the patch, and the next check refuses until someone has looked
+at it: when `git apply --check .agent-fox/revert.patch` passes, the tree is
+without the change, and `git apply .agent-fox/revert.patch` puts it back.
 
-A directory (a nested repository) or a path where the commit has a directory
-or a submodule is not reverted. The checks must not leave files of their own
-in the tree outside the ignored paths: a file made while the reverted tree is
-tested changes the tree hash, and is a restore failure although every
-reverted path is back.
+The checks must not leave files of their own in the tree outside the ignored
+paths: a file made while the reverted tree is tested changes the tree hash, and
+is a restore failure although the change is back.
 
 **The result**:
 
@@ -350,10 +349,10 @@ reverted path is back.
 |---|---|
 | `done`, exit 0 | Every outcome above, `not_proven` and `inconclusive` included. Every outcome except `proven` and `no_changes` also raises the warning `fix_not_proven`. |
 | `usage` | `--dir` is not the top level of a work tree, or `--since` is missing or is not a commit. |
-| `failed`/`restore` | A backup from an earlier check is there or another check is working, the tree could not be put back or came back as another tree, or a path was changed while the checks ran and its content is kept. The backup is kept in `.agent-fox/revert/<id>/`, the message names it, and nothing further is reverted. |
+| `failed`/`restore` | The patch of an earlier check is there or another check is working, or the change could not be applied again (a path was changed while the checks ran) or the tree came back as another tree. The patch is kept in `.agent-fox/revert.patch` and the message names it. `af fix` fails the same way when its revert check does. |
 | `failed`/`git` | git could not be run, or failed. |
 | `failed`/`config` | `.agent-fox/gate.json` cannot be used. |
-| `failed`/`timeout`, `failed`/`cancelled` | `--timeout` ran out or a signal arrived. The tree has been put back first, within the ten minutes the command is given for it; if that takes longer the shell abandons the command (see [--timeout and signals](#--timeout-and-signals)) and the backup stays. |
+| `failed`/`timeout`, `failed`/`cancelled` | `--timeout` ran out or a signal arrived. The tree has been put back first, within the ten minutes the command is given for it; if that takes longer the shell abandons the command (see [--timeout and signals](#--timeout-and-signals)) and the patch stays. |
 | `failed`/`io` | A file could not be read or written. |
 
 ### The tool policy
@@ -1055,7 +1054,9 @@ serves the whole run, and the gate and the baseline are made in it (see
    `.agent-fox/`, `.specs/`, `.github/workflows/`, `.gitlab-ci.yml`) is put back
    (`protected_path_reverted`); a tree with nothing left is refused as
    `no_change`, and the gate is not run; the gate runs again and is compared with the baseline by
-   check; and, only on a verdict that may land, the revert check runs. The
+   check; and, only on a verdict that may land, the revert check runs (one
+   that cannot put the tree back is `failed`/`restore`, as for
+   [revert-check](#revert-check)). The
    verdicts are `pass`, `pass_was_already_failing`, `regressed`, `still_failing`,
    `unverified` and `no_change`. Only a change whose tests the revert check
    proves **closes** the issue; any other says `Refs` (`fix_not_proven`). Under
@@ -1491,7 +1492,7 @@ A command registered with `RawStdin` is given the process's stdin, unread, as
 | `timeout` | `--timeout` ran out, or the time a brief allows ran out with no submission (it counts from the start of the run, so placing the brief is part of it). Not retryable; `fix_hint` is `{flag: "--timeout", suggest: <twice the value>}`. |
 | `internal` | A bug: a plain error, a panic, an inconsistent outcome, a result that is not JSON. |
 | `config` | A configuration file `af` reads cannot be used, for the service client the credential file that does not parse as TOML or whose token holds a control character; also, for example a `.agent-fox/gate.json` that does not parse, or the `.agent-fox/guard.json` that a brain's tool gate loads. The message names the file. The `agentkit` brain also uses it when the model provider cannot be configured from the environment. |
-| `restore` | A tree that a command changed in order to measure it could not be put back, or a leftover of an earlier measurement stands in the way. The message names the directory that holds what is left. |
+| `restore` | A tree that a command changed in order to measure it could not be put back, or a leftover of an earlier measurement stands in the way; `revert-check`, and the revert check of `af fix`. The message names the patch that holds the change. |
 | `git` | git failed in a way the command cannot work around. |
 | `sandbox` | The box could not be opened, synced or exported. The provider could not create it (not retryable: `podman` without a reachable engine, see [the providers](#the-providers)); the image of a `podman` box is missing and cannot be pulled, the checkout could not be synced in, or the tree could not be exported out (retryable); a process brain's binary or `HOME` fails the probe in the box (not retryable); or an export carried a `.git`, which stops the run. When the provider was chosen by default, `fix_hint` names `--sandbox` and `AF_SANDBOX`. |
 | `brain` | A brain failed: it returned an error and left no submission (retryable), or it panicked (not retryable; the stack is in `brain-panic.<attempt>.txt` in the run directory). |

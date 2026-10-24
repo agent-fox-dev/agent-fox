@@ -161,3 +161,35 @@ are gone.
 **Test:** `TestCompareRefusals_TS_06_36_and_37` (`internal/checks/compare_test.go`),
 `TestKey_TS_06_25` (`internal/checks/gate_test.go`),
 `TestTheRing1CommandsAreRegistered_TS_06_69` (`internal/afcmd/ring1_test.go`).
+
+## 9. The revert check takes the change out as a patch
+
+06-REQ-6.5 to 06-REQ-6.8 describe a revert that reads each path's content at the ref, backs every
+changed file up under `.agent-fox/revert/<id>/` with a manifest, writes the ref's content in, and
+restores each path from the backup. That was 965 lines of copies, modes, mtimes, links,
+directories to make and remove, and edits to keep aside. It is replaced: the change of the
+non-test paths is a binary patch made on a private index read from the ref (`git read-tree`,
+`git add --all`, `git diff --cached --binary --ignore-submodules=all`), written exclusively to
+`.agent-fox/revert.patch`, taken out with `git apply --reverse` and put back with `git apply`. Git
+handles modes, links, deletions, new directories and a directory that became a file, and changes
+every path or none. This supersedes the `git cat-file` part of §6.
+
+What stays: the outcomes and the result, the index never written by the check and its bytes put
+back if a check rewrote them, the tree hash and the index verified after the restore, a restore
+that nothing cancels, the ten minutes of grace, and the refusal while a leftover of an earlier
+check is there. What changes:
+
+- The claim and the leftover are the patch file, not a backup directory. A patch that is left
+  is put back by hand with `git apply .agent-fox/revert.patch` when `git apply --check` passes.
+- A path that a check changed while the change was out is no longer kept aside under
+  `changed/` while the other paths are put back: `git apply` refuses, the tree stays without the
+  change, nothing the check did is overwritten, and the error names the path and the patch.
+- A directory that became a file is reverted and put back, where it was an error before.
+- Modification times of the changed paths are not put back; a build sees them as changed.
+- A tree that `af fix` could not put back after its revert check was `failed`/`io` in process
+  and `failed`/`restore` from `af revert-check` in a box. Both are `failed`/`restore` now.
+
+**Test:** `TestLeftoverPatch_TS_06_46`, `TestAFileEditedDuringTheRunIsNotOverwritten`,
+`TestADirectoryThatBecameAFile`, `TestANestedRepositoryIsNotReverted`
+(`internal/conform/revert_test.go`), and `TestAGateThatCannotRunIsAFailureOfTheRun`
+(`internal/fix/measure_test.go`).
