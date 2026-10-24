@@ -14,7 +14,7 @@ import (
 // The flags that only the loop reads, which service mode refuses: those of both commands, and
 // those of each.
 var (
-	loopFlags    = []string{"dir", "repo", "dry-run", "land", "brain", "sandbox", "borrowed-hands", "budget", "max-turns", "script"}
+	loopFlags    = []string{"dir", "repo", "dry-run", "land", "brain", "sandbox", "budget", "max-turns", "script"}
 	loopFlagsOf  = map[string][]string{"triage": {"label"}, "fix": {"base", "attempts", "no-verify"}}
 	serviceFlags = []string{"server", "wait"}
 )

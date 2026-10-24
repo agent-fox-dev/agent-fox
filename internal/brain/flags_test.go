@@ -13,16 +13,16 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/box"
 )
 
-// providerNames are the four providers of the box, in the order the message lists them.
-var providerNames = []string{"landlock", "local", "none", "podman"}
+// providerNames are the providers of the box, in the order the message lists them.
+var providerNames = []string{"local", "podman"}
 
-// recordingRegistry holds the four providers as entries that are the local provider
+// recordingRegistry holds the providers as entries that are the local provider
 // underneath, and counts how often a provider is made: a box is opened by it.
 func recordingRegistry() (*box.Registry, *atomic.Int32) {
 	made := &atomic.Int32{}
 	r := box.NewRegistry()
 	for _, name := range providerNames {
-		r.Register(box.Entry{Name: name, Unconfined: name == "local" || name == "none", InPlace: name == "none", New: func() sandbox.Provider {
+		r.Register(box.Entry{Name: name, Unconfined: name == "local", New: func() sandbox.Provider {
 			made.Add(1)
 			return local.Unisolated()
 		}})
@@ -31,13 +31,9 @@ func recordingRegistry() (*box.Registry, *atomic.Int32) {
 }
 
 // resolve parses args as a command that pins no default sandbox does, on a host with
-// the operating system and the environment given, and returns the settings with the
-// error of Validate.
-func resolve(t *testing.T, reg *box.Registry, goosName string, env map[string]string, args ...string) (*Settings, error) {
+// the environment given, and returns the settings with the error of Validate.
+func resolve(t *testing.T, reg *box.Registry, env map[string]string, args ...string) (*Settings, error) {
 	t.Helper()
-	old := box.GOOS
-	box.GOOS = goosName
-	t.Cleanup(func() { box.GOOS = old })
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	fs.SetOutput(discard{})
 	s := Flags(fs, Defaults{Budget: 5, MaxTurns: 40})
@@ -58,13 +54,13 @@ func namesAll(t *testing.T, message string) {
 	}
 }
 
-// TestAnUnknownSandboxIsUsageListingAllFour_TS_10_2 verifies TS-10-2:
-// --sandbox docker is refused as usage, with all four names, before any box.
+// TestAnUnknownSandboxIsUsageListingThemAll_TS_10_2 verifies TS-10-2:
+// --sandbox docker is refused as usage, with every name, before any box.
 // Verifies: 10-REQ-1.2
-func TestAnUnknownSandboxIsUsageListingAllFour_TS_10_2(t *testing.T) {
+func TestAnUnknownSandboxIsUsageListingThemAll_TS_10_2(t *testing.T) {
 	reg, made := recordingRegistry()
 
-	_, err := resolve(t, reg, "linux", nil, "--sandbox", "docker")
+	_, err := resolve(t, reg, nil, "--sandbox", "docker")
 
 	if err == nil {
 		t.Fatal("--sandbox docker was accepted")
@@ -79,36 +75,29 @@ func TestAnUnknownSandboxIsUsageListingAllFour_TS_10_2(t *testing.T) {
 	}
 }
 
-// TestWithoutSandboxTheProviderIsAFSandboxElseTheOSDefault_TS_10_3 verifies TS-10-3:
-// --sandbox, then AF_SANDBOX, then landlock on Linux and podman anywhere else; and the
-// name that was selected is the one the box_open entry of the ledger carries.
+// TestWithoutSandboxTheProviderIsAFSandboxElsePodman_TS_10_3 verifies TS-10-3:
+// --sandbox, then AF_SANDBOX, then podman, on every operating system; and the name that
+// was selected is the one the box_open entry of the ledger carries.
 // Verifies: 10-REQ-1.3
-func TestWithoutSandboxTheProviderIsAFSandboxElseTheOSDefault_TS_10_3(t *testing.T) {
+func TestWithoutSandboxTheProviderIsAFSandboxElsePodman_TS_10_3(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		goos string
 		env  map[string]string
 		args []string
 		want string
 		by   string
 	}{
-		{"linux", "linux", nil, nil, "landlock", SandboxDefault},
-		{"darwin", "darwin", nil, nil, "podman", SandboxDefault},
-		{"windows", "windows", nil, nil, "podman", SandboxDefault},
-		{"freebsd", "freebsd", nil, nil, "podman", SandboxDefault},
-		{"AF_SANDBOX local on linux", "linux", map[string]string{"AF_SANDBOX": "local"}, nil, "local", SandboxEnv},
-		{"AF_SANDBOX local on darwin", "darwin", map[string]string{"AF_SANDBOX": "local"}, nil, "local", SandboxEnv},
-		{"AF_SANDBOX local on windows", "windows", map[string]string{"AF_SANDBOX": "local"}, nil, "local", SandboxEnv},
-		{"AF_SANDBOX podman on linux", "linux", map[string]string{"AF_SANDBOX": "podman"}, nil, "podman", SandboxEnv},
-		{"AF_SANDBOX none on darwin", "darwin", map[string]string{"AF_SANDBOX": "none"}, nil, "none", SandboxEnv},
-		{"--sandbox beats AF_SANDBOX", "linux", map[string]string{"AF_SANDBOX": "local"}, []string{"--sandbox", "none"}, "none", SandboxFlag},
-		{"--sandbox beats the default", "linux", nil, []string{"--sandbox", "podman"}, "podman", SandboxFlag},
-		{"an empty AF_SANDBOX is unset", "linux", map[string]string{"AF_SANDBOX": ""}, nil, "landlock", SandboxDefault},
+		{"the default", nil, nil, "podman", SandboxDefault},
+		{"AF_SANDBOX local", map[string]string{"AF_SANDBOX": "local"}, nil, "local", SandboxEnv},
+		{"AF_SANDBOX podman", map[string]string{"AF_SANDBOX": "podman"}, nil, "podman", SandboxEnv},
+		{"--sandbox beats AF_SANDBOX", map[string]string{"AF_SANDBOX": "local"}, []string{"--sandbox", "podman"}, "podman", SandboxFlag},
+		{"--sandbox beats the default", nil, []string{"--sandbox", "local"}, "local", SandboxFlag},
+		{"an empty AF_SANDBOX is unset", map[string]string{"AF_SANDBOX": ""}, nil, "podman", SandboxDefault},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			reg, _ := recordingRegistry()
 
-			s, err := resolve(t, reg, tc.goos, tc.env, tc.args...)
+			s, err := resolve(t, reg, tc.env, tc.args...)
 
 			if err != nil {
 				t.Fatalf("Validate = %v", err)
@@ -146,12 +135,12 @@ func openedProvider(t *testing.T, reg *box.Registry, name string) string {
 
 // TestAnInvalidAFSandboxIsUsageNamingTheVariable_TS_10_4 verifies TS-10-4:
 // AF_SANDBOX=bogus with no --sandbox is refused as usage, naming the variable and
-// all four providers, before any box.
+// every provider, before any box.
 // Verifies: 10-REQ-1.4
 func TestAnInvalidAFSandboxIsUsageNamingTheVariable_TS_10_4(t *testing.T) {
 	reg, made := recordingRegistry()
 
-	_, err := resolve(t, reg, "linux", map[string]string{"AF_SANDBOX": "bogus"})
+	_, err := resolve(t, reg, map[string]string{"AF_SANDBOX": "bogus"})
 
 	if err == nil {
 		t.Fatal("AF_SANDBOX=bogus was accepted")
@@ -167,7 +156,7 @@ func TestAnInvalidAFSandboxIsUsageNamingTheVariable_TS_10_4(t *testing.T) {
 
 	// The criterion has no exception for a run that says --sandbox: a variable that is
 	// wrong is wrong, and is not left to surface on the day the flag is dropped.
-	_, err = resolve(t, reg, "linux", map[string]string{"AF_SANDBOX": "bogus"}, "--sandbox", "local")
+	_, err = resolve(t, reg, map[string]string{"AF_SANDBOX": "bogus"}, "--sandbox", "local")
 	if err == nil {
 		t.Fatal("AF_SANDBOX=bogus was accepted with --sandbox local")
 	}
@@ -175,63 +164,14 @@ func TestAnInvalidAFSandboxIsUsageNamingTheVariable_TS_10_4(t *testing.T) {
 	namesAll(t, err.Error())
 }
 
-// TestBorrowedHandsGoesOnlyWithAgentkit_TS_10_7 verifies TS-10-7:
-// --borrowed-hands with scripted is refused as usage naming the flag and
-// agentkit, with agentkit it is carried in the settings, and no box opens.
-// Verifies: 10-REQ-1.7
-func TestBorrowedHandsGoesOnlyWithAgentkit_TS_10_7(t *testing.T) {
-	for _, args := range [][]string{
-		{"--borrowed-hands", "--brain", "scripted", "--script", "x.json"},
-		{"--borrowed-hands", "--brain", "scripted", "--script", "x.json", "--sandbox", "local"},
-		// The flag is named whatever else is wrong with the invocation.
-		{"--borrowed-hands", "--brain", "scripted"},
-	} {
-		reg, made := recordingRegistry()
-
-		_, err := resolve(t, reg, "linux", nil, args...)
-
-		if err == nil {
-			t.Errorf("%v was accepted", args)
-			continue
-		}
-		usageNaming(t, err, "--borrowed-hands")
-		if !strings.Contains(err.Error(), "agentkit") {
-			t.Errorf("%v: the message %q does not name agentkit", args, err)
-		}
-		if n := made.Load(); n != 0 {
-			t.Errorf("%v: %d providers were made", args, n)
-		}
-	}
-
-	for _, args := range [][]string{
-		{"--borrowed-hands"},
-		{"--borrowed-hands", "--brain", "agentkit", "--sandbox", "landlock"},
-		{"--borrowed-hands", "--sandbox", "local"}, // it changes nothing there, and is accepted
-	} {
-		reg, _ := recordingRegistry()
-		s, err := resolve(t, reg, "linux", nil, args...)
-		if err != nil || !s.BorrowedHands {
-			t.Errorf("%v: BorrowedHands = %v, Validate = %v, want it accepted and carried", args, s.BorrowedHands, err)
-		}
-	}
-	reg, _ := recordingRegistry()
-	if s, err := resolve(t, reg, "linux", nil); err != nil || s.BorrowedHands {
-		t.Errorf("without the flag: BorrowedHands = %v, Validate = %v", s.BorrowedHands, err)
-	}
-}
-
 // TestACommandMayPinItsDefaultSandbox guards the default of a command that names its
-// own: it is used before AF_SANDBOX and the default of the operating system, and
-// --sandbox still wins over it.
+// own: it is used before AF_SANDBOX and the default, and --sandbox still wins over it.
 func TestACommandMayPinItsDefaultSandbox(t *testing.T) {
 	for _, tc := range []struct {
 		args []string
 		want string
-	}{{nil, "local"}, {[]string{"--sandbox", "none"}, "none"}} {
+	}{{nil, "local"}, {[]string{"--sandbox", "podman"}, "podman"}} {
 		reg, _ := recordingRegistry()
-		old := box.GOOS
-		box.GOOS = "linux"
-		t.Cleanup(func() { box.GOOS = old })
 		fs := flag.NewFlagSet("test", flag.ContinueOnError)
 		s := Flags(fs, Defaults{Sandbox: "local", Budget: 5, MaxTurns: 40})
 		if err := fs.Parse(tc.args); err != nil {

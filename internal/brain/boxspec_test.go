@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"math/rand/v2"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -45,54 +43,48 @@ func envOf(m map[string]string) Getenv {
 }
 
 // boxRequest is the request for a box that the matrix computes.
-func boxRequest(t *testing.T, brain Entry, provider string, borrowed bool, tools []string, env map[string]string, deadline time.Time) box.Request {
+func boxRequest(t *testing.T, brain Entry, provider string, tools []string, env map[string]string, deadline time.Time) box.Request {
 	t.Helper()
 	return BoxRequest(BoxParams{
-		Brain: brain, Provider: providerEntry(t, provider), BorrowedHands: borrowed, Tools: tools, Getenv: envOf(env), Deadline: deadline,
+		Brain: brain, Provider: providerEntry(t, provider), Tools: tools, Getenv: envOf(env), Deadline: deadline,
 		HostDir: "/work/checkout", RunID: "20261021_110000_abcdef", Tool: "fix",
 	})
 }
 
 // wantPlacement is the placement the spec gives, by names.
-func wantPlacement(brain, provider string, borrowed bool) Placement {
-	if brain == ScriptedName || borrowed || provider == "local" || provider == "none" {
+func wantPlacement(brain, provider string) Placement {
+	if brain == ScriptedName || provider == "local" {
 		return PlacementHost
 	}
 	return PlacementBox
 }
 
-var providers = []string{"landlock", "podman", "local", "none"}
+var providers = []string{"podman", "local"}
 
-// TestPlacementIsAPureFunctionOfBrainProviderAndBorrowedHands_TS_10_8 verifies TS-10-8:
-// for every brain, provider and borrowed-hands flag that is valid for the brain, the
-// placement is the one the spec gives, and the request carries it.
+// TestPlacementIsAPureFunctionOfBrainAndProvider_TS_10_8 verifies TS-10-8: for every brain
+// and provider, the placement is the one the spec gives, and the request carries it.
 // Verifies: 10-REQ-2.1
-func TestPlacementIsAPureFunctionOfBrainProviderAndBorrowedHands_TS_10_8(t *testing.T) {
+func TestPlacementIsAPureFunctionOfBrainAndProvider_TS_10_8(t *testing.T) {
 	for _, brain := range matrixBrains(t) {
 		for _, provider := range providers {
-			for _, borrowed := range []bool{false, true} {
-				if borrowed && brain.Name != AgentkitName {
-					continue // --borrowed-hands is refused with another brain
-				}
-				name := fmt.Sprintf("%s/%s/borrowed=%v", brain.Name, provider, borrowed)
-				req := boxRequest(t, brain, provider, borrowed, nil, nil, time.Time{})
-				want := wantPlacement(brain.Name, provider, borrowed)
-				if req.Placement != string(want) {
-					t.Errorf("%s: placement %q, want %q", name, req.Placement, want)
-				}
-				if got := PlacementOf(brain, providerEntry(t, provider), borrowed); got != want {
-					t.Errorf("%s: PlacementOf = %q, want %q", name, got, want)
-				}
-				if req.Provider != provider || req.HostDir != "/work/checkout" || req.RunID != "20261021_110000_abcdef" || req.Tool != "fix" {
-					t.Errorf("%s: request = %+v, want the provider, the checkout, the run and the tool of the params", name, req)
-				}
+			name := brain.Name + "/" + provider
+			req := boxRequest(t, brain, provider, nil, nil, time.Time{})
+			want := wantPlacement(brain.Name, provider)
+			if req.Placement != string(want) {
+				t.Errorf("%s: placement %q, want %q", name, req.Placement, want)
+			}
+			if got := PlacementOf(brain, providerEntry(t, provider)); got != want {
+				t.Errorf("%s: PlacementOf = %q, want %q", name, got, want)
+			}
+			if req.Provider != provider || req.HostDir != "/work/checkout" || req.RunID != "20261021_110000_abcdef" || req.Tool != "fix" {
+				t.Errorf("%s: request = %+v, want the provider, the checkout, the run and the tool of the params", name, req)
 			}
 		}
 	}
 }
 
 // TestTheRegisteredBrainsCarryTheFactsOfTheirPlacement guards the entries the matrix
-// reads: scripted has no credential and borrows hands, and agentkit is a driver that may
+// reads: scripted has no credential and runs on the host, and agentkit is a driver that may
 // run inside a box with the vendor's key.
 func TestTheRegisteredBrainsCarryTheFactsOfTheirPlacement(t *testing.T) {
 	scripted, _ := Default.Lookup(ScriptedName)
@@ -125,7 +117,7 @@ func hostEnv(rng *rand.Rand, serial int) map[string]string {
 }
 
 // TestEnvIsExactlyTheCredentialsOfThePlacement_TS_10_9 verifies TS-10-9:
-// for any brain, provider, borrowed-hands flag and host environment, Env is empty for
+// for any brain, provider and host environment, Env is empty for
 // a brain on the host, and exactly the host's vendor key, when it is set, for a brain
 // in a box; and no other host value is in any field of the request.
 // Verifies: 10-REQ-2.2
@@ -135,30 +127,25 @@ func TestEnvIsExactlyTheCredentialsOfThePlacement_TS_10_9(t *testing.T) {
 		env := hostEnv(rng, i)
 		for _, brain := range matrixBrains(t) {
 			for _, provider := range providers {
-				for _, borrowed := range []bool{false, true} {
-					if borrowed && brain.Name != AgentkitName {
-						continue
-					}
-					req := boxRequest(t, brain, provider, borrowed, nil, env, time.Time{})
+				req := boxRequest(t, brain, provider, nil, env, time.Time{})
 
-					want := map[string]string{}
-					if p := wantPlacement(brain.Name, provider, borrowed); p != PlacementHost {
-						if v, ok := env["ANTHROPIC_API_KEY"]; ok {
-							want["ANTHROPIC_API_KEY"] = v
-						}
+				want := map[string]string{}
+				if p := wantPlacement(brain.Name, provider); p != PlacementHost {
+					if v, ok := env["ANTHROPIC_API_KEY"]; ok {
+						want["ANTHROPIC_API_KEY"] = v
 					}
-					if !maps.Equal(req.Env, want) {
-						t.Fatalf("#%d %s/%s/%v: Env = %v, want %v (host %v)", i, brain.Name, provider, borrowed, req.Env, want, env)
+				}
+				if !maps.Equal(req.Env, want) {
+					t.Fatalf("#%d %s/%s: Env = %v, want %v (host %v)", i, brain.Name, provider, req.Env, want, env)
+				}
+				dump := fmt.Sprintf("%#v", req)
+				for name, v := range env {
+					allowed := name == "ANTHROPIC_API_KEY" && len(want) > 0
+					if name == "AF_SANDBOX_IMAGE" && provider == "podman" {
+						continue // the image of a podman box is a setting, not a credential
 					}
-					dump := fmt.Sprintf("%#v", req)
-					for name, v := range env {
-						allowed := name == "ANTHROPIC_API_KEY" && len(want) > 0
-						if name == "AF_SANDBOX_IMAGE" && provider == "podman" {
-							continue // the image of a podman box is a setting, not a credential
-						}
-						if strings.Contains(dump, v) != allowed {
-							t.Fatalf("#%d %s/%s/%v: the request %s holds %s's value: %v, want %v", i, brain.Name, provider, borrowed, dump, name, !allowed, allowed)
-						}
+					if strings.Contains(dump, v) != allowed {
+						t.Fatalf("#%d %s/%s: the request %s holds %s's value: %v, want %v", i, brain.Name, provider, dump, name, !allowed, allowed)
 					}
 				}
 			}
@@ -168,35 +155,33 @@ func TestEnvIsExactlyTheCredentialsOfThePlacement_TS_10_9(t *testing.T) {
 
 // TestWithAllFourSecretsOnlyTheDriverInABoxGetsTheVendorKey_TS_10_10 verifies TS-10-10:
 // with GITHUB_TOKEN, GH_TOKEN, GITLAB_TOKEN and ANTHROPIC_API_KEY on the host, the Env
-// of agentkit in a box that isolates is {ANTHROPIC_API_KEY}, and scripted's and
-// agentkit's with borrowed hands are empty.
+// of agentkit in a box that isolates is {ANTHROPIC_API_KEY}, and scripted's and that of
+// agentkit under local, on the host, are empty.
 // Verifies: 10-REQ-2.2
 func TestWithAllFourSecretsOnlyTheDriverInABoxGetsTheVendorKey_TS_10_10(t *testing.T) {
 	env := map[string]string{"GITHUB_TOKEN": "gh-1", "GH_TOKEN": "gh-2", "GITLAB_TOKEN": "gl-1", "ANTHROPIC_API_KEY": "sk-vendor"}
 	brains := matrixBrains(t)
 	scripted, agentkit := brains[0], brains[1]
 
-	for _, provider := range []string{"landlock", "podman"} {
-		if got := boxRequest(t, agentkit, provider, false, nil, env, time.Time{}).Env; !maps.Equal(got, map[string]string{"ANTHROPIC_API_KEY": "sk-vendor"}) {
-			t.Errorf("agentkit in the %s box: Env = %v, want only the vendor key", provider, got)
-		}
+	if got := boxRequest(t, agentkit, "podman", nil, env, time.Time{}).Env; !maps.Equal(got, map[string]string{"ANTHROPIC_API_KEY": "sk-vendor"}) {
+		t.Errorf("agentkit in the podman box: Env = %v, want only the vendor key", got)
+	}
+	if got := boxRequest(t, agentkit, "local", nil, env, time.Time{}).Env; len(got) != 0 {
+		t.Errorf("agentkit under local: Env = %v, want it empty", got)
 	}
 	for _, provider := range providers {
-		if got := boxRequest(t, scripted, provider, false, nil, env, time.Time{}).Env; len(got) != 0 {
+		if got := boxRequest(t, scripted, provider, nil, env, time.Time{}).Env; len(got) != 0 {
 			t.Errorf("scripted under %s: Env = %v, want it empty", provider, got)
 		}
-		if got := boxRequest(t, agentkit, provider, true, nil, env, time.Time{}).Env; len(got) != 0 {
-			t.Errorf("agentkit with borrowed hands under %s: Env = %v, want it empty", provider, got)
-		}
 	}
-	if got := boxRequest(t, agentkit, "podman", false, nil, map[string]string{"GITHUB_TOKEN": "x"}, time.Time{}).Env; got == nil || len(got) != 0 {
+	if got := boxRequest(t, agentkit, "podman", nil, map[string]string{"GITHUB_TOKEN": "x"}, time.Time{}).Env; got == nil || len(got) != 0 {
 		t.Errorf("agentkit in a box without a key: Env = %#v, want an empty map", got)
 	}
 }
 
 // TestNetworkIsNoneOnlyForAHostBrainWithoutAShell_TS_10_11 verifies TS-10-11:
 // none for a brain on the host whose tools have no shell, open otherwise, and host
-// under local and none whatever the brain and the tools.
+// under local whatever the brain and the tools.
 // Verifies: 10-REQ-2.3
 func TestNetworkIsNoneOnlyForAHostBrainWithoutAShell_TS_10_11(t *testing.T) {
 	brains := matrixBrains(t)
@@ -208,24 +193,20 @@ func TestNetworkIsNoneOnlyForAHostBrainWithoutAShell_TS_10_11(t *testing.T) {
 		name     string
 		brain    Entry
 		provider string
-		borrowed bool
 		tools    []string
 		want     string
 	}{
-		{"scripted, no shell", scripted, "landlock", false, readOnly, "none"},
-		{"scripted, a shell", scripted, "landlock", false, withShell, "open"},
-		{"agentkit borrowing, no shell", agentkit, "podman", true, readOnly, "none"},
-		{"agentkit borrowing, a shell", agentkit, "podman", true, withShell, "open"},
-		{"agentkit in the box, no shell", agentkit, "podman", false, readOnly, "open"},
-		{"agentkit in landlock, a shell", agentkit, "landlock", false, withShell, "open"},
-		{"every tool is a shell too", scripted, "podman", false, nil, "open"},
-		{"run_command is a shell too", scripted, "podman", false, []string{"read_file", "run_command"}, "open"},
-		{"no tools at all", scripted, "podman", false, []string{}, "none"},
-		{"scripted under local", scripted, "local", false, readOnly, "host"},
-		{"agentkit under local", agentkit, "local", false, withShell, "host"},
-		{"agentkit under none", agentkit, "none", false, readOnly, "host"},
+		{"scripted, no shell", scripted, "podman", readOnly, "none"},
+		{"scripted, a shell", scripted, "podman", withShell, "open"},
+		{"agentkit in the box, no shell", agentkit, "podman", readOnly, "open"},
+		{"agentkit in the box, a shell", agentkit, "podman", withShell, "open"},
+		{"every tool is a shell too", scripted, "podman", nil, "open"},
+		{"run_command is a shell too", scripted, "podman", []string{"read_file", "run_command"}, "open"},
+		{"no tools at all", scripted, "podman", []string{}, "none"},
+		{"scripted under local", scripted, "local", readOnly, "host"},
+		{"agentkit under local", agentkit, "local", withShell, "host"},
 	} {
-		if got := boxRequest(t, tc.brain, tc.provider, tc.borrowed, tc.tools, nil, time.Time{}).Network; got != tc.want {
+		if got := boxRequest(t, tc.brain, tc.provider, tc.tools, nil, time.Time{}).Network; got != tc.want {
 			t.Errorf("%s: network %q, want %q", tc.name, got, tc.want)
 		}
 	}
@@ -245,48 +226,39 @@ func TestThePodmanImageIsAFSandboxImageOrTheToolsImage_TS_10_12(t *testing.T) {
 		{map[string]string{"AF_SANDBOX_IMAGE": ""}, "quay.io/agentfox/tools:latest"},
 		{map[string]string{"AF_SANDBOX_IMAGE": "example.test/img:1"}, "example.test/img:1"},
 	} {
-		if got := boxRequest(t, agentkit, "podman", false, nil, tc.env, time.Time{}).Image; got != tc.want {
+		if got := boxRequest(t, agentkit, "podman", nil, tc.env, time.Time{}).Image; got != tc.want {
 			t.Errorf("podman with %v: image %q, want %q", tc.env, got, tc.want)
 		}
-		for _, provider := range []string{"landlock", "local", "none"} {
-			if got := boxRequest(t, agentkit, provider, false, nil, tc.env, time.Time{}).Image; got != "" {
+		for _, provider := range []string{"local"} {
+			if got := boxRequest(t, agentkit, provider, nil, tc.env, time.Time{}).Image; got != "" {
 				t.Errorf("%s with %v: image %q, want none", provider, tc.env, got)
 			}
 		}
 	}
 }
 
-// TestTTLIsTheDeadlinePlusTenMinutesAndLandlockIsRequired_TS_10_13 verifies TS-10-13:
-// the time to live is the time left on the deadline plus ten minutes, Landlock is
-// required of landlock and of nothing else, and the labels are those spec 07 sets.
+// TestTTLIsTheDeadlinePlusTenMinutes_TS_10_13 verifies TS-10-13: the time to live is the
+// time left on the deadline plus ten minutes, and the labels are those spec 07 sets.
 // Verifies: 10-REQ-2.5
-func TestTTLIsTheDeadlinePlusTenMinutesAndLandlockIsRequired_TS_10_13(t *testing.T) {
+func TestTTLIsTheDeadlinePlusTenMinutes_TS_10_13(t *testing.T) {
 	scripted := matrixBrains(t)[0]
 	deadline := time.Now().Add(5 * time.Minute)
 
-	for _, provider := range []string{"landlock", "podman"} {
-		req := boxRequest(t, scripted, provider, false, nil, nil, deadline)
+	for _, provider := range providers {
+		req := boxRequest(t, scripted, provider, nil, nil, deadline)
 		if req.TTL < 14*time.Minute+50*time.Second || req.TTL > 15*time.Minute {
 			t.Errorf("%s: TTL = %v, want about 15 minutes", provider, req.TTL)
 		}
-		if req.RequireLandlock != (provider == "landlock") {
-			t.Errorf("%s: RequireLandlock = %v", provider, req.RequireLandlock)
-		}
 	}
-	for _, provider := range []string{"local", "none"} {
-		if boxRequest(t, scripted, provider, false, nil, nil, deadline).RequireLandlock {
-			t.Errorf("%s requires Landlock", provider)
-		}
-	}
-	if req := boxRequest(t, scripted, "landlock", false, nil, nil, time.Time{}); req.TTL != 0 {
+	if req := boxRequest(t, scripted, "podman", nil, nil, time.Time{}); req.TTL != 0 {
 		t.Errorf("a command with no deadline: TTL = %v, want the provider's default (0)", req.TTL)
 	}
-	if req := boxRequest(t, scripted, "landlock", false, nil, nil, time.Now().Add(-time.Hour)); req.TTL != 10*time.Minute {
+	if req := boxRequest(t, scripted, "podman", nil, nil, time.Now().Add(-time.Hour)); req.TTL != 10*time.Minute {
 		t.Errorf("a deadline that has passed: TTL = %v, want the ten minutes", req.TTL)
 	}
 
 	// The labels are those Open sets from the run and the tool, as in spec 07.
-	req := boxRequest(t, scripted, "local", false, nil, nil, deadline)
+	req := boxRequest(t, scripted, "local", nil, nil, deadline)
 	req.HostDir = newRepo(t)
 	s, err := box.Open(context.Background(), req)
 	if err != nil {
@@ -318,66 +290,5 @@ func TestTheRequestSaysWhetherTheProviderWasChosenByDefault(t *testing.T) {
 		if req.Defaulted != defaulted {
 			t.Errorf("Defaulted = %v, want %v", req.Defaulted, defaulted)
 		}
-	}
-}
-
-// TestALandlockRequestForAProcessCarriesTheDirectoriesOfAf guards 10-REQ-7.4 and 10-REQ-3.4
-// where they meet: a process in a landlock box runs from the host's file system, which
-// landlock lets it read and run only in the system directories, so the request carries the
-// directory of the af it will run, and where it is a link, of what it leads to. A brain on the
-// host, and any other provider, has none.
-func TestALandlockRequestForAProcessCarriesTheDirectoriesOfAf(t *testing.T) {
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, d := range []string{"bin", "local/bin", "versions/2"} {
-		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(filepath.Join(root, "versions/2/af"), []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "bin/af"), []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(root, "versions/2/af"), filepath.Join(root, "local/bin/af")); err != nil {
-		t.Skipf("cannot make a link: %v", err)
-	}
-	entry := func(name string) Entry {
-		e, err := Default.Lookup(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return e
-	}
-	bin, local, versions := filepath.Join(root, "bin"), filepath.Join(root, "local/bin"), filepath.Join(root, "versions/2")
-
-	for _, tc := range []struct {
-		name     string
-		brain    Entry
-		provider string
-		borrowed bool
-		af       string
-		want     []string
-	}{
-		{"the driver in the box: the directory of af", entry(AgentkitName), "landlock", false, filepath.Join(bin, "af"), []string{bin}},
-		{"an af that is a link: and what it leads to", entry(AgentkitName), "landlock", false, filepath.Join(local, "af"), []string{local, versions}},
-		{"an af that does not exist: its directory", entry(AgentkitName), "landlock", false, "/nowhere/bin/af", []string{"/nowhere/bin"}},
-		{"the driver with borrowed hands: on the host", entry(AgentkitName), "landlock", true, filepath.Join(bin, "af"), nil},
-		{"scripted: on the host", entry(ScriptedName), "landlock", false, filepath.Join(bin, "af"), nil},
-		{"the driver under podman", entry(AgentkitName), "podman", false, filepath.Join(bin, "af"), nil},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			req := BoxRequest(BoxParams{
-				Brain: tc.brain, Provider: providerEntry(t, tc.provider), BorrowedHands: tc.borrowed, AFPath: tc.af,
-				Getenv: envOf(nil), HostDir: "/x", RunID: "20261021_090000_abcdef", Tool: "fix",
-			})
-
-			if !slices.Equal(req.ExtraRO, tc.want) {
-				t.Errorf("ExtraRO = %v, want %v", req.ExtraRO, tc.want)
-			}
-		})
 	}
 }

@@ -732,7 +732,7 @@ func registerTriageLoop(app *toolio.App, c *Config) {
 	app.Register(toolio.Command{
 		Path:    "triage",
 		Summary: "Diagnose a report and write the diagnosis back to the forge",
-		Usage:   "af triage <issue|file|text|-> [--dir DIR] [--context ANSWER]... [--repo owner/name] [--land issue|none] [--label L]... [--dry-run] [--brain NAME] [--sandbox NAME] [--borrowed-hands] [--budget USD] [--max-turns N] [--timeout 15m]",
+		Usage:   "af triage <issue|file|text|-> [--dir DIR] [--context ANSWER]... [--repo owner/name] [--land issue|none] [--label L]... [--dry-run] [--brain NAME] [--sandbox NAME] [--budget USD] [--max-turns N] [--timeout 15m]",
 		Flags: func(fs *flag.FlagSet) {
 			settings = brain.Flags(fs, brain.Defaults{Budget: triage.DefaultBudget, MaxTurns: triage.DefaultMaxTurns})
 			labels = nil
@@ -764,7 +764,7 @@ func triageLoop(c *Config, r *toolio.Run, s *brain.Settings, land string, labelF
 		return toolio.Outcome{}, err
 	}
 	opts := c.brainOptions()
-	opts.Script, opts.Provider, opts.BorrowedHands = s.Script, s.Sandbox, s.BorrowedHands
+	opts.Script, opts.Provider = s.Script, s.Sandbox
 	b, err := entry.New(opts)
 	if err != nil {
 		return toolio.Outcome{}, err
@@ -852,15 +852,15 @@ func (l loopReport) Artifact(a toolio.Artifact) {
 
 // runInBox opens the box over the checkout and runs the brain in it, with the
 // tools of the triage allowlist. The request for the box is the one the brain, the
-// provider, borrowed hands and those tools come to (brain.BoxRequest). The
+// provider and those tools come to (brain.BoxRequest). The
 // submission and the refused calls of the box are in the run directory when it
 // returns, whether the run came to a submission or not.
 func runInBox(c *Config, r *toolio.Run, s *brain.Settings, entry brain.Entry, boxEntry box.Entry, b brain.Brain, opts brain.Options, brief triage.Brief, tally *brain.Tally) (brain.Result, error) {
 	var res brain.Result
 	deadline, _ := r.Ctx.Deadline()
 	err := box.With(r.Ctx, brain.BoxRequest(brain.BoxParams{
-		Brain: entry, Provider: boxEntry, BorrowedHands: s.BorrowedHands, Tools: triage.BriefTools(), Getenv: opts.Getenv,
-		Deadline: deadline, Defaulted: s.SandboxSource != brain.SandboxFlag, AFPath: opts.AFPath,
+		Brain: entry, Provider: boxEntry, Tools: triage.BriefTools(), Getenv: opts.Getenv,
+		Deadline: deadline, Defaulted: s.SandboxSource != brain.SandboxFlag,
 		HostDir: r.Dir, RunID: r.RunDir.ID, Tool: "triage", Record: r.RunDir.Record, Warn: r.Warn, Registry: c.boxes(), Labels: c.BoxLabels,
 	}), func(sess *box.Session) error {
 		var offered []string

@@ -1,12 +1,8 @@
 package fix
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/box"
@@ -38,8 +34,6 @@ type RoundParams struct {
 	MaxCostUSD float64
 	MaxTurns   int
 	Timeout    time.Duration
-	// Placed notes the files that the round puts on a checkout that is the box; nil notes none.
-	Placed *Placed
 }
 
 // RoundResult is what a round left.
@@ -67,65 +61,23 @@ func GuardFile(s State) ([]byte, error) {
 	return policy.MarshalGuardFile(policy.Policy{Suite: s.Suite, ProtectedPaths: policy.DefaultProtectedPaths(), AllowPrograms: AllowPrograms(s.Programs)})
 }
 
-// Placed are the files that af put on a checkout that is the box, for a run: the ones to take
-// off it when the run ends, if they are as af wrote them. The checkout of a person is not to
-// keep, as the person's own, a file that af made for the run.
-type Placed struct{ files map[string][]byte }
-
-func (p *Placed) note(rel string, data []byte) {
-	if p == nil {
-		return
-	}
-	if p.files == nil {
-		p.files = map[string][]byte{}
-	}
-	p.files[rel] = data
-}
-
-// Remove takes the files off the checkout at dir, those of them that are as af wrote them: a
-// file that someone has changed since is theirs, and stays.
-func (p *Placed) Remove(dir string) {
-	if p == nil {
-		return
-	}
-	for rel, data := range p.files {
-		path := filepath.Join(dir, filepath.FromSlash(rel))
-		if current, err := os.ReadFile(path); err == nil && bytes.Equal(current, data) {
-			_ = os.Remove(path) // a file that stays is a stale table at the next run, and nothing to stop this one for
-		}
-	}
-	p.files = nil
-}
-
 // WriteBoxFiles places gate.json and guard.json in the box, so that a brain's own gate
 // run and the tool gate of a driver in the box use the host's table and rules, and not
 // what the box would detect. The run directory of the box gets no fix.json: with one, the
 // af fix run that the box executes would take itself for the round of the host.
-//
-// A box that is the checkout (the none provider) has gate.json and guard.json of the
-// person's own, perhaps: the run's are placed only where there are none, and those that
-// are there are left as they are.
-func WriteBoxFiles(ctx context.Context, sess *box.Session, s State, placed *Placed) error {
+func WriteBoxFiles(ctx context.Context, sess *box.Session, s State) error {
 	for _, f := range []struct {
 		rel  string
 		make func(State) ([]byte, error)
 	}{
 		{boxGatePath, GateFile}, {boxGuardPath, GuardFile},
 	} {
-		if sess.InPlace() {
-			if _, err := fs.Stat(sess.FS(ctx), f.rel); err == nil {
-				continue
-			}
-		}
 		data, err := f.make(s)
 		if err != nil {
 			return &toolio.Failure{Category: toolio.CategoryInternal, Message: fmt.Sprintf("cannot make %s: %v", f.rel, err)}
 		}
 		if err := sess.WriteFile(ctx, f.rel, data); err != nil {
 			return err
-		}
-		if sess.InPlace() {
-			placed.note(f.rel, data)
 		}
 	}
 	return nil
@@ -134,26 +86,14 @@ func WriteBoxFiles(ctx context.Context, sess *box.Session, s State, placed *Plac
 // RunRound runs one round: the files of the box are placed, the brain runs on the brief of
 // the run, and the tree of an accepted report is exported and applied to the checkout. A
 // round that ends without an accepted submission applies nothing, and neither does one
-// that asks a question. Where the box is the checkout, nothing is exported or applied:
-// the brain has worked on the tree that is measured next, and the commits it made on the
-// branch are taken off it first (see Checkout.Check), or the run is stopped.
+// that asks a question.
 func RunRound(ctx context.Context, p RoundParams) (RoundResult, error) {
-	if err := WriteBoxFiles(ctx, p.Session, p.State, p.Placed); err != nil {
+	if err := WriteBoxFiles(ctx, p.Session, p.State); err != nil {
 		return RoundResult{}, err
 	}
 	var tools []string
 	for _, tool := range p.Session.Tools() {
 		tools = append(tools, tool.Name)
-	}
-	// The brain of a box that is the checkout works on the checkout itself, so what it
-	// commits is on the branch; where the checkout stands is recorded before it runs.
-	inPlace := p.Session.InPlace()
-	var before Checkout
-	if inPlace {
-		var err error
-		if before, err = RecordCheckout(ctx, p.Git); err != nil {
-			return RoundResult{}, err
-		}
 	}
 	res, err := brain.Execute(ctx, brain.Request{
 		Session: p.Session, Name: p.Name, Brain: p.Brain, RunDir: p.RunDir, Report: p.Report, Tally: p.Tally,
@@ -162,17 +102,6 @@ func RunRound(ctx context.Context, p RoundParams) (RoundResult, error) {
 			MaxCostUSD: p.MaxCostUSD, MaxTurns: p.MaxTurns, Timeout: p.Timeout,
 		}),
 	})
-	if inPlace {
-		// Before anything is measured, and whether or not the brain came to a report. A run
-		// that is stopped still gets its checkout back: what the brain committed is not for the
-		// branch of the person, so this does not wait on the context that the stop has reached.
-		checkCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ParkTimeout)
-		_, cerr := before.Check(checkCtx, ForeignParams{Git: p.Git, Warn: warnOf(p.Report), Record: p.RunDir.Record})
-		cancel()
-		if cerr != nil {
-			return RoundResult{}, cerr
-		}
-	}
 	if err != nil {
 		return RoundResult{}, err
 	}
@@ -180,8 +109,8 @@ func RunRound(ctx context.Context, p RoundParams) (RoundResult, error) {
 	if out.Submission, err = Decode(res.Payload); err != nil {
 		return out, &toolio.Failure{Category: toolio.CategoryInternal, Message: err.Error()}
 	}
-	if out.Submission.Question != nil || inPlace {
-		return out, nil // the tree of a box that is the checkout is the checkout: nothing to export or apply
+	if out.Submission.Question != nil {
+		return out, nil
 	}
 	export, err := p.Session.Export(ctx)
 	if err != nil {

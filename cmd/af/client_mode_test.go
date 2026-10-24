@@ -267,7 +267,7 @@ func TestLocalModeRefusesServerAndWaitNamingTheFlag_TS_16_9(t *testing.T) {
 // Verifies: 16-REQ-2.2
 func TestServiceModeRefusesEveryLoopOnlyFlagNamingItAndSendsNoRequest_TS_16_10(t *testing.T) {
 	e := newModeEnv(t)
-	both := []string{"dir", "repo", "dry-run", "land", "brain", "sandbox", "borrowed-hands", "budget", "max-turns", "script"}
+	both := []string{"dir", "repo", "dry-run", "land", "brain", "sandbox", "budget", "max-turns", "script"}
 	extra := map[string][]string{"triage": {"label"}, "fix": {"base", "attempts", "no-verify"}}
 	for _, cmd := range []string{"triage", "fix"} {
 		for _, name := range append(slices.Clone(both), extra[cmd]...) {

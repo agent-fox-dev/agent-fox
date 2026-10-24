@@ -29,16 +29,13 @@ type Options struct {
 	NewProvider func(model string) (core.ProviderClient, error)
 	// Getenv reads the host's environment; nil is os.LookupEnv.
 	Getenv Getenv
-	// BorrowedHands says the agentkit driver runs on the host over the box's tools, and
-	// not inside the box.
-	BorrowedHands bool
 	// Boxes is where Provider is found; nil is box.Default.
 	Boxes *box.Registry
 	// Provider is the box provider of the run, which decides what a brain needs of the
 	// host before a box is opened.
 	Provider string
-	// AFPath is the af that a process brain runs under local, landlock and none; empty
-	// is the running executable. A test points it at a fake.
+	// AFPath is the af that a process runs in a box whose programs are not called by
+	// name; empty is the running executable. A test points it at a fake.
 	AFPath string
 	// AFVersion and AFCommit say which af is running, so that the af of an image that is
 	// another is a warning.
@@ -74,9 +71,8 @@ type Entry struct {
 	// runs as a process in a box, and no others do. It is empty for a brain that never
 	// runs as one.
 	Credentials []string
-	// DriverInBox says the brain is a driver that borrows the box's hands on the
-	// host, and runs as a process inside an isolating box unless it is told to
-	// borrow them.
+	// DriverInBox says the brain is a driver that runs as a process inside a box that
+	// isolates, and borrows the box's hands on the host under one that does not.
 	DriverInBox bool
 	New         func(Options) (Brain, error)
 }

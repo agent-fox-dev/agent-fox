@@ -22,7 +22,7 @@ import (
 )
 
 // standIn is the local provider under the name of one that isolates: it takes the image,
-// the network and the Landlock requirement of the request, which it cannot honour, and
+// and the network of the request, which it cannot honour, and
 // makes the sandbox without them.
 type standIn struct {
 	sandbox.Provider
@@ -31,13 +31,13 @@ type standIn struct {
 
 func (p standIn) Capabilities() sandbox.Capabilities {
 	return sandbox.Capabilities{
-		Provider: p.name, Isolation: sandbox.IsolationContainer, Image: true, Landlock: true,
+		Provider: p.name, Isolation: sandbox.IsolationContainer, Image: true,
 		Network: []sandbox.NetworkMode{sandbox.NetworkNone, sandbox.NetworkUnrestricted},
 	}
 }
 
 func (p standIn) Create(ctx context.Context, spec sandbox.Spec) (sandbox.Sandbox, error) {
-	spec.Image, spec.RequireLandlock = "", false
+	spec.Image = ""
 	spec.Network = sandbox.Network{Mode: sandbox.NetworkUnrestricted}
 	return p.Provider.Create(ctx, spec)
 }
@@ -58,7 +58,7 @@ func newProcWorld(t *testing.T, provider string, boxEnv map[string]string, geten
 	dir := newRepo(t)
 	rd := newRunDir(t, dir)
 	req := box.Request{Provider: provider, HostDir: dir, RunID: rd.ID, Tool: "fix", Record: rd.Record, Warn: func(string, string) {}, Env: boxEnv}
-	if provider == "podman" || provider == "landlock" {
+	if provider == "podman" {
 		reg := box.NewRegistry()
 		reg.Register(box.Entry{Name: provider, New: func() sandbox.Provider { return standIn{Provider: local.Unisolated(), name: provider} }})
 		req.Registry, req.Network = reg, box.NetworkOpen
@@ -197,10 +197,10 @@ func TestTheProbeRunsOnceForASessionAndRecordsEachBinary_TS_10_39(t *testing.T) 
 	}
 }
 
-// TestAFailedProbeStopsBeforeTheBrainWithASandboxFailure_TS_10_40 verifies TS-10-40:
-// an af that fails on --version, a HOME that is unset and a HOME that cannot be
-// written are failed/sandbox, not retryable, name the binary (or HOME), the provider
-// and the image, record the probe as not ok, and the brain's command is never started.
+// TestAFailedProbeStopsBeforeTheBrainWithASandboxFailure_TS_10_40 verifies TS-10-40 for af:
+// an af that fails on --version is failed/sandbox, not retryable, names the binary, the
+// provider and the image, records the probe as not ok, and the brain's command is never
+// started. (The probe of HOME cannot fail in a local box, which always gives one of its own.)
 // Verifies: 10-REQ-7.3
 func TestAFailedProbeStopsBeforeTheBrainWithASandboxFailure_TS_10_40(t *testing.T) {
 	type tc struct {
@@ -213,17 +213,6 @@ func TestAFailedProbeStopsBeforeTheBrainWithASandboxFailure_TS_10_40(t *testing.
 		}},
 		{"af exits 1", "local", "af", func(t *testing.T, w *procWorld) {
 			w.script(fakeScript{VersionExit: map[string]int{"af": 1}})
-		}},
-		{"HOME is unset", "none", "HOME", func(t *testing.T, w *procWorld) { t.Setenv("HOME", "") }},
-		{"HOME cannot be written", "none", "HOME", func(t *testing.T, w *procWorld) {
-			if os.Geteuid() == 0 {
-				t.Skip("root can write anywhere")
-			}
-			home := filepath.Join(t.TempDir(), "home")
-			if err := os.Mkdir(home, 0o500); err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("HOME", home)
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -340,13 +329,12 @@ func unsetForTheTest(t *testing.T, name string) {
 	t.Cleanup(func() { _ = os.Setenv(name, old) })
 }
 
-// TestProgramsAreResolvedPerProvider_TS_10_41 verifies TS-10-41: under local, landlock
-// and none, af is the path it is given (or the running executable) with its directory
+// TestProgramsAreResolvedPerProvider_TS_10_41 verifies TS-10-41: under local af is the path it is given (or the running executable) with its directory
 // first on PATH; under podman it is called by name with the PATH of the box.
 // Verifies: 10-REQ-7.4
 func TestProgramsAreResolvedPerProvider_TS_10_41(t *testing.T) {
 	cfg := ProcessConfig{AFPath: "/x/bin/af", Getenv: envOf(map[string]string{"PATH": "/usr/local/bin:/usr/bin"})}
-	for _, provider := range []string{"local", "landlock", "none"} {
+	for _, provider := range []string{"local"} {
 		af := commandFor(t, provider, cfg, afSpec(), nil)
 		if !strings.Contains(af, `PATH='/x/bin:/usr/local/bin:/usr/bin'`) || !strings.Contains(af, ` '/x/bin/af' 'triage' 'run'`) {
 			t.Errorf("%s: af command = %s, want the path it is given, its directory first on PATH", provider, af)
@@ -432,7 +420,7 @@ func TestAProcessSeesTheVendorKeyAndNoOtherCredentialOfTheHost_TS_10_42(t *testi
 	}
 	hostTmp := t.TempDir()
 	t.Setenv("TMPDIR", hostTmp)
-	for _, provider := range []string{"local", "none"} {
+	for _, provider := range []string{"local"} {
 		t.Run(provider, func(t *testing.T) {
 			w := newProcWorld(t, provider, map[string]string{"ANTHROPIC_API_KEY": "sk-secret"}, nil)
 			spec := afSpec()
@@ -486,7 +474,7 @@ func pidIsGone(pid int) bool { return errors.Is(syscall.Kill(pid, 0), syscall.ES
 // context cancels the call, so that the result is a timeout, with what the process wrote
 // copied to the host, and not a lost call.
 func TestAProcessEndsAsATimeoutWithItsOutputWhenTheContextHasTheSameDeadline(t *testing.T) {
-	for _, provider := range []string{"local", "none"} {
+	for _, provider := range []string{"local"} {
 		t.Run(provider, func(t *testing.T) {
 			w := newProcWorld(t, provider, nil, nil)
 			w.script(fakeScript{SleepMS: 30000})
@@ -523,7 +511,7 @@ func TestAProcessEndsAsATimeoutWithItsOutputWhenTheContextHasTheSameDeadline(t *
 // is recorded for that run and for one that ends by itself.
 // Verifies: 10-REQ-7.8
 func TestAProcessThatOutlivesItsTimeoutIsKilledWithItsGroup_TS_10_45(t *testing.T) {
-	for _, provider := range []string{"local", "none"} {
+	for _, provider := range []string{"local"} {
 		for _, byContext := range []bool{false, true} {
 			name := provider + "/brief timeout"
 			if byContext {

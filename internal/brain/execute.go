@@ -66,12 +66,6 @@ type run struct {
 	nonce   string
 	started time.Time
 	warned  sync.Once
-
-	// kept are the bytes of the submission.json the host accepted before this
-	// attempt, when the session is in place and there is one: the box-side file and
-	// the host's are then one, and a brain that runs on the checkout can write it.
-	kept    []byte
-	hasKept bool
 }
 
 // Execute runs one brief through one brain in a held box, and returns what the
@@ -94,7 +88,7 @@ func Execute(ctx context.Context, req Request) (Result, error) {
 	req = r.req
 
 	req.Report.Emit("step", stepEvent{Name: "brief"})
-	r.startHostSubmission() // one of an earlier attempt is not this attempt's
+	r.clearHostSubmission() // one of an earlier attempt is not this attempt's
 	if err := r.place(ctx); err != nil {
 		if ctx.Err() != nil {
 			return Result{}, ctx.Err() // a box that could not be written to because the run was cancelled

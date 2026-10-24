@@ -68,7 +68,6 @@ func TestTheTriageBoxIsOpenedWithTheRequestOfTheBrain(t *testing.T) {
 		{"a brain on the host in the local box", host, "spy", []string{"--sandbox", "local"}, "host", "host", nil},
 		{"a brain on the host in a box that isolates", host, "spy", []string{"--sandbox", "isobox"}, "host", "none", nil},
 		{"the driver in a box that isolates", driver, brain.AgentkitName, []string{"--sandbox", "isobox"}, "box", "open", vendor},
-		{"the driver with borrowed hands", driver, brain.AgentkitName, []string{"--sandbox", "isobox", "--borrowed-hands"}, "host", "none", nil},
 		{"the driver in the local box", driver, brain.AgentkitName, []string{"--sandbox", "local"}, "host", "host", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

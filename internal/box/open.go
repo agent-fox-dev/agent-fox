@@ -42,16 +42,10 @@ type Request struct {
 	Network string
 	// Placement is where the brain runs for this run, as the ledger records it.
 	Placement string
-	// RequireLandlock makes the creation fail unless the sandbox confines itself
-	// with Landlock.
-	RequireLandlock bool
 	// Defaulted says the provider was not asked for with --sandbox but chosen by
 	// AF_SANDBOX or by the platform, so that the failure to open it says how to choose
 	// another.
 	Defaulted bool
-	// ExtraRO are the directories a process started in the box has to read and run
-	// (af), for a provider that confines the box to its workspace.
-	ExtraRO []string
 	// Record notes what happened in the run's ledger.
 	Record func(kind string, data any) error
 	// Warn raises a warning of the run.
@@ -128,22 +122,18 @@ func openBox(ctx context.Context, req Request) (*Session, error) {
 		return nil, err
 	}
 
-	if entry.InPlace {
-		return openInPlace(req, entry, hostDir)
-	}
-	provider, err := entry.provider(ProviderConfig{ExtraRO: req.ExtraRO, Ctx: ctx})
+	provider, err := entry.provider(ProviderConfig{Ctx: ctx})
 	if err != nil {
 		return nil, entry.explain(req, "cannot be made", err)
 	}
 	labels := map[string]string{"af.run_id": req.RunID, "af.tool": req.Tool}
 	maps.Copy(labels, req.Labels)
 	spec := sandbox.Spec{
-		Env:             req.Env,
-		Labels:          labels,
-		TTL:             req.TTL,
-		Image:           req.Image,
-		RequireLandlock: req.RequireLandlock,
-		Network:         networkFor(provider.Capabilities(), req.Network),
+		Env:     req.Env,
+		Labels:  labels,
+		TTL:     req.TTL,
+		Image:   req.Image,
+		Network: networkFor(provider.Capabilities(), req.Network),
 	}
 	sb, err := provider.Create(ctx, spec)
 	if err != nil {

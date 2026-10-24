@@ -117,7 +117,7 @@ func TestTheCommandsAreRegisteredWithTheirTimeoutsAndFlags_TS_08_1(t *testing.T)
 		timeout string
 		flags   []string
 	}{
-		{"triage", "15m0s", []string{"--borrowed-hands", "--brain", "--budget", "--context", "--dir", "--dry-run", "--label", "--land", "--max-turns", "--repo", "--sandbox", "--script"}},
+		{"triage", "15m0s", []string{"--brain", "--budget", "--context", "--dir", "--dry-run", "--label", "--land", "--max-turns", "--repo", "--sandbox", "--script"}},
 		{"triage brief", "2m0s", []string{"--context", "--dir", "--repo"}},
 		{"triage run", "15m0s", []string{"--budget", "--dir", "--max-turns", "--run-id"}},
 		{"triage submit", "30s", []string{"--dir", "--run-id"}},

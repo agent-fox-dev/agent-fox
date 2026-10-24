@@ -50,7 +50,7 @@ change as the code: a document that is out of date is a regression.
 | `cmd/af` | The binary. `main.go` keeps the identity of the build (the ldflags variables), makes the shell with `afcmd.New`, registers the commands of the client of the agent-fox service on it and sets its mode hook and its help, and hands the process to it. The client is here and in no other package, so that a caller of `afcmd.New` never has it: `client_common.go` (the server, the credential and the failures of the client), `login.go`, `workspace.go`, `jobs.go`, `client_follow.go` (the following of a job and what it ends with), `serve_queue.go` (`af triage|fix --workspace`) and `mode.go` (the choice between `--local` and `--workspace`), with the JSON Schemas of their results in `schemas/`. The tests that build the binary and run it are here, with the golden file of `af --schema`. |
 | `internal/afclient` | The library of the client: `ParseServer` (the server URL), `LoadCredential` and the editing of the credential file (`ReadExisting`, `ExistingFile.With`, `StoreCredential` behind an `FS`), `ReadSecretFile`, the `Client` (`Do`, which bounds the request, reads at most 8 MiB, refuses redirects and maps every answer to an `*Error`), the event stream (`Follow`, in tries, with an idle cut and a backoff on an injectable `Clock`) and `Envelope`. It returns plain and typed errors, never imports `internal/toolio` and never exits; the commands of `cmd/af` map its errors to the envelope. `fakeclock` is its clock for tests: the pauses of a follower cost nothing and are recorded. |
 | `internal/worker` | The worker: the production `Runner` of the jobs layer, which carries out one attempt of a job against a subscribed hub workspace. It resolves the attempt (the token and label prefix of the subscription, the record and the variables of the workspace from hub, the refusals that need no box and no model, the input as an issue URL on the workspace's repository), opens the hub session, and clones the workspace into `clone/` with a git that holds the PAT only as a scoped header for the commands that reach hub, publishes a pushed branch through hub, leases the sandbox (a gateway box registry of the attempt, the timeout cut to the lease, the release on every path), runs the loop in process with the seams of `internal/afcmd`, and mirrors the outcome to the issue as labels and comments, with the cleanup of a cancel and of a shutdown, and reports the usage, the events and the end of the session to hub. Infrastructure failures are transient errors; everything else is an envelope. |
-| `internal/afcmd` | The commands of `af`, importable so that `agent-fox` can run them in its own process. Each command is a file here (`lang.go`, `gate.go`, `gate_compare.go`, `revert_check.go`, `guard.go`, `map.go`, `triage.go` for the five of `af triage`, and `fix.go`, `fix_brief.go`, `fix_run.go` and `fix_land.go` for the five of `af fix`) that registers it, with its flags, its result and the JSON Schema of the result in `schemas/`. `afcmd.New(&afcmd.Config{…})` makes the shell. The zero `Config` is `af`; a caller that runs the commands in process supplies, per shell, the forge factory, the box and brain registries, the options of the brains with their lookup of the environment, the git runner, the questions that the `--context` values answer and the gate, and the commands use them in place of the package variables and the process environment. |
+| `internal/afcmd` | The commands of `af`, importable so that `agent-fox` can run them in its own process. Each command is a file here (`lang.go`, `gate.go`, `gate_compare.go`, `revert_check.go`, `map.go`, `triage.go` for the five of `af triage`, and `fix.go`, `fix_brief.go`, `fix_run.go` and `fix_land.go` for the five of `af fix`) that registers it, with its flags, its result and the JSON Schema of the result in `schemas/`. `afcmd.New(&afcmd.Config{…})` makes the shell. The zero `Config` is `af`; a caller that runs the commands in process supplies, per shell, the forge factory, the box and brain registries, the options of the brains with their lookup of the environment, the git runner, the questions that the `--context` values answer and the gate, and the commands use them in place of the package variables and the process environment. |
 | `internal/toolio` | The command shell: the envelope, exit codes, coded warnings, `--dir` and `--timeout`, `--schema`, the positional input, the run directory. |
 | `internal/agentdir` | The `.agent-fox/` directory and its `.gitignore`, and the atomic write the files the host keeps in it are made with (the submission core's `RootWriter` is the root-confined variant of it). |
 | `internal/gitx` | The git and process invocations, hermetic and issued from Go: the runners, the NUL-separated listings of files and of changed paths. |
@@ -59,7 +59,7 @@ change as the code: a document that is out of date is a regression.
 | `internal/conform` | The revert check: whether the tests of a change fail without it. |
 | `internal/policy` | The guard: the tokenizer, the rules, the policy files, and the decision for a tool call. |
 | `internal/repomap` | The repository map at a token budget. |
-| `internal/box` | The box that holds a brain's tree: a registry of providers (`landlock`, `podman`, `local` and `none`; the `gateway` of a lease is made for one attempt and held only in the registry of that attempt), `Open` and `Sync` (the checkout goes in with its `.git`), a read-only `FS`, `WriteFile` under `.agent-fox/`, `Export` (without `.git`), `Exec` (a command in the box, at its root), `Close`, and `With`, which closes on every path. `none` is a session in place over the checkout. Every name of the hands' sandbox module that is not a type is in `adapter.go`. |
+| `internal/box` | The box that holds a brain's tree: a registry of providers (`podman` and `local`; the `gateway` of a lease is made for one attempt and held only in the registry of that attempt), `Open` and `Sync` (the checkout goes in with its `.git`), a read-only `FS`, `WriteFile` under `.agent-fox/`, `Export` (without `.git`), `Exec` (a command in the box, at its root), `Close`, and `With`, which closes on every path. `Here` is a session in place over a directory, for a process that is in a box already. Every name of the hands' sandbox module that is not a type is in `adapter.go`. |
 | `internal/submission` | The submission protocol: `Kind`, `Submit` (the path to a submission file for a brain that is af's own: it validates before it writes), `Check` (what the host asks of a file it did not write), `RootWriter`, and `Command`, the `af <agent> submit` command of a kind. |
 | `internal/brain` | The `Brain` contract and its registry, the shared flags, `BoxRequest` (the request for a box from the brain, the provider and the tools), `Execute` (place the brief, run the brain, decide from the file), the tool gate and the transcript, the `scripted` brain and the `agentkit` brain, and `Process`, which runs `af` as the process of the driver in a box (probe, environment, output). |
 | `internal/fakeaf` | The fake `af` of the tests: the test binary run under that name (see [the fake af](#the-fake-af)). |
@@ -151,20 +151,18 @@ redelivery is the runner called again with the handover count and the session of
   `internal/worker` with the fake hub, and end to end with the scripted brain.
 ## Opt-in tests
 
-`make check` needs no key, no container engine and no recent kernel, so the tests that
-do are opt-in. Each is gated by a function of `internal/optin` that skips it, with a
+`make check` needs no key and no container engine, so the tests that do are opt-in. Each is gated by a function of `internal/optin` that skips it, with a
 reason that names what is missing, and never fails it:
 
 | Variable | Set to 1 to run | Needs |
 |---|---|---|
-| `AF_TEST_LANDLOCK` | spec 07's box invariants and `af fix` end to end under `landlock` | Linux with Landlock ABI 4 or newer |
-| `AF_TEST_PODMAN` | the same under `podman` | `podman info` answering, and the image (`AF_SANDBOX_IMAGE`, else `quay.io/agentfox/tools:latest`; `make build-tools-container` builds it) |
+| `AF_TEST_PODMAN` | spec 07's box invariants and `af fix` end to end under `podman` | `podman info` answering, and the image (`AF_SANDBOX_IMAGE`, else `quay.io/agentfox/tools:latest`; `make build-tools-container` builds it) |
 
 ```bash
-AF_TEST_LANDLOCK=1 go test ./internal/brain ./internal/afcmd -run TS_10_63 -v
+AF_TEST_PODMAN=1 go test ./internal/brain ./internal/afcmd -run TS_10_63 -v
 ```
 
-The tests are `TestSpec07sBoxInvariantsHoldUnderTheRealBoxes_TS_10_63` in
+The tests are `TestSpec07sBoxInvariantsHoldUnderTheRealBox_TS_10_63` in
 `internal/brain/optin_test.go` and `TestFixUnderTheRealBoxesLandsAllFourChanges_TS_10_63`
 in `internal/afcmd/fix_optin_test.go`. What they run is also run offline, so that
 `make check` proves it: the invariants under `local`, and the scripted `af fix` under
@@ -172,15 +170,14 @@ in `internal/afcmd/fix_optin_test.go`. What they run is also run offline, so tha
 
 ## The tests and the box
 
-The default box is the isolating provider of the platform (`landlock` on Linux, `podman`
-elsewhere), which a test must not need. Every test of `internal/*` (`internal/afcmd` among them) that
+The default box is `podman`, which a test must not need. Every test of `internal/*` (`internal/afcmd` among them) that
 runs `af triage` or `af fix` passes `--sandbox local`: the helpers `triageEnv.loop`,
 `fixEnv.fix` and `fixEnv.fixRun` add it themselves (a later `--sandbox` in the arguments
-of a test, such as `--sandbox none`, is the one that counts), and a test that calls
+of a test, such as `--sandbox isobox`, is the one that counts), and a test that calls
 `run` with the command words passes it. `TestEveryTestThatRunsTriageOrFixSaysWhichBox_TS_10_62`
 reads the sources of the tests with `go/parser` and finds the invocations that do not.
-A test of the default selection names `AF_SANDBOX` (sets it, or clears it to get the default of
-the platform), which the scan accepts. The scan finds the calls of `run`, `runCtx`, `Main`, the
+A test of the default selection names `AF_SANDBOX` (sets it, or clears it to get the default),
+which the scan accepts. The scan finds the calls of `run`, `runCtx`, `Main`, the
 three helpers and the helpers that take the test and a command line (`afJSON(t, bin, "fix", url,
 "--dir", dir)`), and the `[]string` lists of arguments written to be run later; it does not find a
 call whose command word is held in a variable.

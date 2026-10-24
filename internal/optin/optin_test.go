@@ -27,7 +27,7 @@ func hostWith(t *testing.T, h host) {
 	old := probe
 	probe = h
 	t.Cleanup(func() { probe = old })
-	for _, name := range []string{"AF_TEST_LANDLOCK", "AF_TEST_PODMAN"} {
+	for _, name := range []string{"AF_TEST_PODMAN"} {
 		t.Setenv(name, "")
 	}
 }
@@ -35,9 +35,8 @@ func hostWith(t *testing.T, h host) {
 // capable is a host that has everything the opt-in tests ask of it.
 func capable() host {
 	return host{
-		landlock: func() error { return nil },
-		podman:   func() error { return nil },
-		image:    func(string) error { return nil },
+		podman: func() error { return nil },
+		image:  func(string) error { return nil },
 	}
 }
 
@@ -45,9 +44,8 @@ func capable() host {
 // gate that goes on after it has skipped is seen to: it would skip again, with another reason.
 func broken() host {
 	return host{
-		landlock: func() error { return errors.New("landlock-down") },
-		podman:   func() error { return errors.New("engine-down") },
-		image:    func(string) error { return errors.New("image-gone") },
+		podman: func() error { return errors.New("engine-down") },
+		image:  func(string) error { return errors.New("image-gone") },
 	}
 }
 
@@ -67,9 +65,6 @@ func TestAnOptInTestWithAMissingVariableOrPrerequisiteIsSkippedWithANamedReason_
 		want    []string
 		notWant []string
 	}{
-		{"landlock, variable unset", func(s Skipper) { RequireLandlock(s) }, nil, nil, []string{"AF_TEST_LANDLOCK"}, []string{"landlock-down"}},
-		{"landlock, variable not 1", func(s Skipper) { RequireLandlock(s) }, map[string]string{"AF_TEST_LANDLOCK": "yes"}, nil, []string{"AF_TEST_LANDLOCK"}, []string{"landlock-down"}},
-		{"landlock, no Landlock here", func(s Skipper) { RequireLandlock(s) }, map[string]string{"AF_TEST_LANDLOCK": "1"}, nil, []string{"AF_TEST_LANDLOCK=1", "landlock-down"}, nil},
 		{"podman, variable unset", func(s Skipper) { RequirePodman(s, "img:1") }, nil, nil, []string{"AF_TEST_PODMAN"}, []string{"engine-down", "image-gone"}},
 		{"podman, no engine", func(s Skipper) { RequirePodman(s, "img:1") }, map[string]string{"AF_TEST_PODMAN": "1"}, nil,
 			[]string{"AF_TEST_PODMAN=1", "podman info", "engine-down"}, []string{"image-gone"}},
@@ -107,10 +102,8 @@ func TestAnOptInTestWithAMissingVariableOrPrerequisiteIsSkippedWithANamedReason_
 
 	// With the variable set and the prerequisite there, the test is not skipped.
 	hostWith(t, capable())
-	t.Setenv("AF_TEST_LANDLOCK", "1")
 	t.Setenv("AF_TEST_PODMAN", "1")
 	var r recorder
-	RequireLandlock(&r)
 	RequirePodman(&r, "img:1")
 	if r.skips != 0 {
 		t.Errorf("the gates skipped a test that has everything: %s", r.reason)
@@ -121,12 +114,11 @@ func TestAnOptInTestWithAMissingVariableOrPrerequisiteIsSkippedWithANamedReason_
 // call them: with no variable set they skip a real *testing.T, and that is a skip and
 // not a failure.
 func TestTheGatesOfTheRealHostSkipOnAHostWithNothingSet(t *testing.T) {
-	for _, name := range []string{"AF_TEST_LANDLOCK", "AF_TEST_PODMAN"} {
+	for _, name := range []string{"AF_TEST_PODMAN"} {
 		t.Setenv(name, "")
 	}
 	for name, gate := range map[string]func(*testing.T){
-		"landlock": func(t *testing.T) { RequireLandlock(t) },
-		"podman":   func(t *testing.T) { RequirePodman(t, "img:1") },
+		"podman": func(t *testing.T) { RequirePodman(t, "img:1") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			gate(t)

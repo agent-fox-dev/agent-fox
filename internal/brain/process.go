@@ -48,8 +48,8 @@ var variableName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // ProcessConfig is what the process runner needs of the host.
 type ProcessConfig struct {
-	// AFPath is the af that a process runs under local, landlock and none; empty is
-	// the running executable.
+	// AFPath is the af that a process runs in a box whose programs are not called by
+	// name (local); empty is the running executable.
 	AFPath string
 	// Getenv reads the host's environment: its PATH and the variables a process may
 	// have; nil is os.LookupEnv.

@@ -17,11 +17,11 @@ import (
 const stderrTail = 2 << 10
 
 // driverInBox says the agentkit brain these options make runs inside the box: the
-// provider isolates, and the driver was not asked to borrow the box's hands. A provider
-// that is not named, or that the registry does not know, is the host.
+// provider isolates. A provider that is not named, or that the registry does not know,
+// is the host.
 func driverInBox(opts Options) bool {
 	provider, ok := opts.boxEntry()
-	return ok && PlacementOf(Entry{DriverInBox: true}, provider, opts.BorrowedHands) == PlacementBox
+	return ok && PlacementOf(Entry{DriverInBox: true}, provider) == PlacementBox
 }
 
 // agentkitInBox runs the driver of AgentKit inside the box as af <agent> run, which is the

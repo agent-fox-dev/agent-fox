@@ -41,7 +41,7 @@ func registerFixRun(app *toolio.App, c *Config) {
 	app.Register(toolio.Command{
 		Path:    "fix run",
 		Summary: "Run one round of a brain on the brief of a fix run, and apply its tree to the checkout without measuring it",
-		Usage:   "af fix run --run-id ID [--dir DIR] [--brain NAME] [--sandbox NAME] [--borrowed-hands] [--budget USD] [--max-turns N] [--timeout 45m]",
+		Usage:   "af fix run --run-id ID [--dir DIR] [--brain NAME] [--sandbox NAME] [--budget USD] [--max-turns N] [--timeout 45m]",
 		Flags: func(fs *flag.FlagSet) {
 			runID = ""
 			fs.StringVar(&runID, "run-id", "", "the `id` of the run, made by af fix brief")
@@ -115,7 +115,7 @@ func fixRun(c *Config, r *toolio.Run, runID string, s *brain.Settings) (toolio.O
 		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryUsage, Message: fmt.Sprintf("the brief of run %s is not the one fix.json was made with: %v", runID, err)}
 	}
 	opts := c.brainOptions()
-	opts.Script, opts.Provider, opts.BorrowedHands = s.Script, s.Sandbox, s.BorrowedHands
+	opts.Script, opts.Provider = s.Script, s.Sandbox
 	b, err := entry.New(opts)
 	if err != nil {
 		return toolio.Outcome{}, err
