@@ -48,6 +48,18 @@ type sightingRow struct {
 // sightingRows is the table of TS-19-4.
 func sightingRows() []sightingRow {
 	return []sightingRow{
+		{name: "a pending follow-up", runner: func() *fakerunner.Runner {
+			return fakerunner.New(fakerunner.Done()).Then(fakerunner.Block(fakerunner.Step{}))
+		},
+			outcome: "new request", info: "follow-up", setup: func(e *env) string { return e.askedFix(42, jobs.StateDone) }},
+		{name: "a pending follow-up and an open blocked job", runner: func() *fakerunner.Runner {
+			return fakerunner.New(fakerunner.Done(), blockedStep()).Then(fakerunner.Block(fakerunner.Step{}))
+		}, outcome: "removed", setup: func(e *env) string {
+			e.askedFix(42, jobs.StateDone)
+			id := e.blockFix(42)
+			e.comment(42, "alice", "an answer")
+			return id
+		}},
 		{name: "an open blocked job and a comment", runner: func() *fakerunner.Runner { return answering(1) }, outcome: "answer", info: "answered",
 			setup: func(e *env) string { id := e.blockFix(42); e.comment(42, "alice", "an answer"); return id }},
 		{name: "an open blocked job and no comment", runner: func() *fakerunner.Runner { return answering(1) }, outcome: "no answer", info: "no answer",
@@ -117,9 +129,8 @@ func decide(t *testing.T, row sightingRow, by string) (string, *env, string) {
 }
 
 // TestTheRulesOfASightingApplyInOrderAlikeForThePollAndTheStream_TS_19_4 verifies TS-19-4: each row of the table comes to its
-// outcome for a sighting of the poll and for one of the stream, and answered, retried and no answer found each log one INFO
-// that names the workspace, the kind, the issue, the label and the job. (The row of a pending follow-up is the rule of
-// TS-19-50 and TS-19-51.)
+// outcome for a sighting of the poll and for one of the stream, and answered, retried, no answer found and follow-up made each
+// log one INFO that names the workspace, the kind, the issue, the label and the job.
 // Verifies: 19-REQ-1.1
 func TestTheRulesOfASightingApplyInOrderAlikeForThePollAndTheStream_TS_19_4(t *testing.T) {
 	for _, row := range sightingRows() {
@@ -139,6 +150,9 @@ func TestTheRulesOfASightingApplyInOrderAlikeForThePollAndTheStream_TS_19_4(t *t
 						t.Errorf("the attempt is by %q, want %q", a[len(a)-1].Trigger.By, want)
 					}
 				case "new request":
+					if row.info == "follow-up" {
+						want = id // the linked fix job is by its triage
+					}
 					if j := e.jobList(); j[len(j)-1].SourceBy != want {
 						t.Errorf("the new job is by %q, want %q", j[len(j)-1].SourceBy, want)
 					}
@@ -151,7 +165,14 @@ func TestTheRulesOfASightingApplyInOrderAlikeForThePollAndTheStream_TS_19_4(t *t
 					t.Fatalf("%d INFO records of %q, want 1", len(infos), row.info)
 				}
 				r := infos[0]
-				if r["workspace"] != slug || r["kind"] != "fix" || r["issue"] != float64(42) || r["label"] != "af:fix" || r["job"] != id {
+				job := any(id)
+				if row.info == "follow-up" { // the job is the linked fix job, and the triage the job of the row
+					job = e.fixJobs(42)[0].ID
+					if r["triage"] != id {
+						t.Errorf("the INFO record names the triage %v, want %s", r["triage"], id)
+					}
+				}
+				if r["workspace"] != slug || r["kind"] != "fix" || r["issue"] != float64(42) || r["label"] != "af:fix" || r["job"] != job {
 					t.Errorf("the INFO record is %v", r)
 				}
 			})

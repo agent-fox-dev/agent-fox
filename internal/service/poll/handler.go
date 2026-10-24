@@ -72,6 +72,8 @@ func request(workspace string, l *listing, n int) jobs.CreateRequest {
 // issue applies the rules to issue n of the listing, the sighting of its label, and says whether the cycle goes on. The
 // poll and the event stream apply the same rules. The first rule that applies decides:
 //
+//  0. a fix label on an issue whose pending follow-up a triage recorded becomes the fix job linked to the triage, or is
+//     absorbed by an open fix job (followup.go);
 //  1. an open job of the kind for the issue: a blocked one with no removal of the label owed is answered from the
 //     forge, with the comments since its question, unless a record of the label is newer than the sighting, which
 //     leaves the label to the next cycle; any other absorbs the label, which is removed and no job is made;
@@ -101,6 +103,11 @@ func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
 				row: rowStore, operation: fmt.Sprintf("read how the job of %s on the issue %d stands, so the label stays", l.Label, n), err: err,
 			})
 			return false
+		}
+	}
+	if l.Kind == jobs.KindFix {
+		if decided, more := c.followUp(ctx, l, n, recs); decided {
+			return more
 		}
 	}
 	owed := slices.ContainsFunc(recs, func(r Record) bool { return r.Owed })
