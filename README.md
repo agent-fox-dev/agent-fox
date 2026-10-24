@@ -1,142 +1,124 @@
 # agent-fox
 
-agent-fox is an autonomous spec-first coding agent (golang version).
+agent-fox is an AI coding agent that triages and fixes issues in GitHub and
+GitLab repositories. Point it at an issue and it diagnoses the problem,
+writes a fix, proves the fix with the project's own tests, and opens a pull
+request. You can run it from your terminal, or run it as a service that
+picks up issues your team labels `af:triage` or `af:fix`.
 
-This repository is being rebuilt from a clean state. The previous
-implementation (the `triage`, `fix` and `impl` tools and the packages under
-them) was removed; `1e6458d` is the last commit that has it.
+## Why agent-fox
 
-It depends on
+Letting a language model change a codebase raises two questions: can you
+trust what it did, and can you trust what it can reach? agent-fox answers
+both by splitting the work in two.
 
-- [`agentkit-go`](https://github.com/agent-fox-dev/agentkit-go) — the AgentKit SDK
-  (module `github.com/agent-fox-dev/agentkit-go`)
-- [`aflib`](https://github.com/agent-fox-dev/aflib) — the packages shared by the
-  agent-fox repositories: `issuex`, the forge client (one interface over GitHub
-  and GitLab for issues, labels, and pull or merge requests), and `jobqueue`
-  (module `github.com/agent-fox-dev/aflib`)
+- **The model does the judgment.** It reads the code, works out the root
+  cause, and edits files — inside a sandbox that holds a copy of the
+  repository and no forge or git credentials.
+- **The program does everything else.** `af`, the agent-fox command-line
+  tool, runs the project's checks before and after the change, reverts the
+  fix to confirm the new tests fail without it, and makes every commit, push,
+  comment and pull request itself.
 
-and works with [`hub`](https://github.com/agent-fox-dev/hub) as its backend
-service. The spec format and the `spec` tool that writes specification
-packages live in the [`spec`](https://github.com/agent-fox-dev/spec)
-repository.
+A change lands only when every check passes after it. The pull request says `Closes #N` only when the tests are proven to fail without the
+fix; otherwise it says `Refs #N` and asks a person to look. When the model
+needs a decision, it stops and asks a question instead of guessing.
 
-## What is here
+## What it does
 
-| Path | Purpose |
+| | |
 |---|---|
-| `cmd/af/` | The `af` binary: it makes the shell from `internal/afcmd`, adds the commands of the client of the agent-fox service and hands the process to it. [`internal/afcmd`](internal/afcmd) holds the commands of the loops and of ring 1, so that `agent-fox` can run them in its own process. Eighteen commands: `lang detect`, `gate run` and `revert-check`, the two of `af triage` (`triage`, and `triage run`, which a box executes) and the two of `af fix` (`fix`, and `fix run`, which a box executes), and the eleven of the service client: `workspace subscribe`, `workspace list`, `workspace get` and `workspace unsubscribe`, and `jobs submit`, `jobs list`, `jobs get`, `jobs watch`, `jobs cancel`, `jobs answer` and `jobs retry`. `af triage` and `af fix` run on this machine; `af jobs submit` queues the same work as a job on the service. [`docs/cli.md`](docs/cli.md) describes them. |
-| `internal/afclient/` | The library of the service client: the server URL, the credential file `~/.af/config.toml`, the requests with their bounds and the mapping of the answers, and the following of a job's event stream. |
-| `cmd/agent-fox/` | The `agent-fox` binary, the long-running service: it starts from one `config.toml`, keeps its state in one SQLite file, asks hub who is calling, and lets a caller subscribe a hub workspace by handing over a workspace token, which it keeps sealed and never returns. It runs triage and fix attempts for the jobs it queues: the worker (`internal/worker`) runs the `af` commands in its own process against a hub workspace, with a sandbox that hub leases, and mirrors the outcome to the issue. [`docs/cli.md`](docs/cli.md#the-agent-fox-command-line) describes the command line, [`docs/api.md`](docs/api.md) the routes and [`docs/configuration.md`](docs/configuration.md#the-agent-fox-service) the file. |
-| `internal/service/` | The packages of the service: `config` (the file), `secrets` (the key and the sealing of tokens), `store` (the SQLite file and its migrations), `ttl` (the cache of hub's answers) and `api` (the HTTP surface) and `jobs` (the jobs of triage and fix: the store, the queue, the runner seam, the event log and the retention) and `reconcile` (the pass that gives back the sandboxes that attempts left held) and `poll` (the label poll: a subscribed workspace picks up the issues that carry its request labels). |
-| `internal/hub/` | The client of hub's API (identity, and the calls of an attempt), the forge through hub, and `fakehub`, the `httptest` hub of the tests with its git server and gateway. |
-| `internal/worker/` | The worker: the production `Runner` of the jobs layer. It resolves an attempt (the variables of the workspace, the refusals), opens a hub session, marks the issue, clones through hub's git server, leases a gateway box, runs the triage or the fix loop in process, mirrors the outcome as labels and comments, and reports to hub. Infrastructure failures are transient errors; every other ending is an envelope. An attempt that is handed over again after a crash or a restart begins afresh, in the hub session of the attempt. |
-| `internal/afcmd/` | The commands of `af`, importable: the loops and the ring-1 commands with the seams (forge, boxes, brains, git runner, earlier questions, the sandbox profile) that `agent-fox` fills in. |
-| `internal/toolio/` | The command shell behind `af`: the envelope and its exit codes, `needs_human` and `--context`, `--dry-run`, the positional input, and the run directory with its events and ledger. [`docs/cli.md`](docs/cli.md) describes it. |
-| `internal/gitx/` | The git and shell invocations the tools make, hermetic and issued from Go. |
-| `internal/agentdir/` | The git-ignored `.agent-fox/` directory and the atomic write of its files. |
-| `internal/project/` | What a repository is written in and how it is checked: languages, the gate table, suite forms, programs, test paths. |
-| `internal/checks/` | The file view and the tree hash, the gate engine with its cache by tree hash, labels, and the comparison of two gate results. |
-| `internal/conform/` | The revert check: do the tests of a change fail without it, with the tree and the index given back. |
-| `internal/policy/` | The guard policy: whether a brain may make a tool call. |
-| `internal/repomap/` | The repository map at a token budget. |
-| `internal/box/` | The box that holds a brain's tree: the checkout goes in with its `.git`, run files are placed under `.agent-fox/`, the tree comes out without `.git`. Two providers: `podman`, which isolates and is the default, and `local`, which does not. |
-| `internal/submission/` | The submission protocol: a brain hands back one validated JSON object through the submit core, and the host checks the file again. |
-| `internal/brain/` | The `Brain` interface, its registry and shared flags, `Execute` (run a brief and decide from the file), the tool gate, and two brains: `scripted` and the AgentKit driver (`agentkit`), with `Process`, which runs the driver as a process inside a box. |
-| `internal/triage/` | `af triage` without the shell: the diagnosis and its validator, the issue body and its markers, the brief, the preflight, the landing on a forge, the submission kind and the tool allowlist, with `fakeforge`, the GitHub and GitLab server of its tests. |
-| `internal/fix/` | `af fix` without the shell: the preflight and the baseline, the brief, the `fix_report` submission kind, apply (the box's tree onto the checkout), measure (protected paths, the gate against the baseline, the revert check), land and park (branch, commit, push, pull request), the rounds and bounds of the loop, and the result. |
-| `skills/` | The coding-agent skills (`af-prd`, `af-impl`, `af-fix`, `af-triage`, `af-bug-hunter`, `af-code-quality`, `af-code-simplifier`), and the Go package `skills` that embeds every `af-*` entry, so that the briefs of `af triage` and `af fix` carry the same `af-triage` and `af-fix` that a person installs. `make install-skills` copies each `af-*` file to `~/.claude/skills/<name>/SKILL.md`. |
-| `internal/fakeaf/`, `internal/optin/` | Test support: the fake `af` that the tests run as, and the gate of the tests that need a container engine (`AF_TEST_PODMAN`). |
-| `containers/sandbox/` | The sandbox image. |
-| `containers/tools/` | The tools image, `quay.io/agentfox/tools`: the sandbox image with `af` in it, which a `podman` box runs by default (`AF_SANDBOX_IMAGE` names another). `make build-tools-container` builds it. |
-| `.specs/` | `steering.md` holds the directives every session follows; `archive/` holds the specs that are implemented (01 to 04 are `issuex`'s, which now lives in `aflib`; 05 to 19 are this repository's). The `TS-…` and `REQ-…` ids in the tests refer to them. |
-| `docs/` | `cli.md`, `configuration.md` and `model-usage.md` describe `af` as it is, and [`docs/development.md`](docs/development.md) how to work on it; `architecture.md` describes how it is built, `prd/` holds the product requirements, `drafts/` holds design drafts and the archived target architecture, `errata/` holds the errata of the specs, `generated/` the Go package docs (`make doc`). |
+| **Triage** | Reads an issue (or any bug report), investigates the code, and rewrites the issue with a structured diagnosis: root cause, affected files, suggested fix and acceptance criteria. The reporter's original text is kept. |
+| **Fix** | Takes an issue, makes the smallest change that fixes it, and measures it. A change that passes the checks becomes a branch and a pull request; one that does not is kept on a `wip:` branch for a person to review. |
+| **Service** | `agent-fox` runs triage and fix jobs unattended for a team. It queues requests from its API or from issue labels, runs each in a sandbox, and reports progress back on the issue with status labels and comments. |
 
-[AGENTS.md](AGENTS.md) is the policy for every coding session in this
-repository.
+## Example
 
-## Building
-
-AgentKit is consumed through a `replace` to a sibling checkout (two of its
-modules are used: the root, and `sandbox`, which holds the boxes, and both are
-replaced to the same checkout):
+Triage an issue, then fix it, from a checkout of the repository:
 
 ```bash
-git clone https://github.com/agent-fox-dev/agentkit-go ../agentkit-go
+export ANTHROPIC_API_KEY=...   # the model
+export GITHUB_TOKEN=...        # to read the issue and open the pull request
+
+cd ~/src/shop
+af triage https://github.com/acme/shop/issues/42
+af fix    https://github.com/acme/shop/issues/42
 ```
 
-`aflib` is an ordinary Go module: `go.mod` requires it at a commit (it has no
-tag yet), and `go` fetches it, so no checkout is needed. To change `aflib` and
-agent-fox together, put both in a `go.work` (it is git-ignored):
+Every `af` command prints one JSON document — the *envelope* — with the
+status, the result, any warnings, and suggested next commands. If the agent
+needs an answer, the command exits with code 3 and prints the question;
+re-run it with `--context "<answer>"` to continue.
+
+With the service running, a team member only needs to label an issue
+`af:fix`. From the terminal, with `AF_URL` pointing at the service, the same
+request is:
 
 ```bash
-git clone https://github.com/agent-fox-dev/aflib ../aflib
-go work init . ../aflib
+af jobs submit fix 42 --workspace shop --wait
 ```
 
+## How it fits together
+
+- **`af`** runs triage and fix on your machine, in a local
+  [Podman](https://podman.io) container or, for quick trials, directly on the
+  host. It is also the command-line client of the service.
+- **`agent-fox`** is the long-running service. It does not talk to the forge
+  or run sandboxes itself:
+  [hub](https://github.com/agent-fox-dev/hub) provides identity, workspaces,
+  the git server, sandboxes and the forge connection.
+- The agent is built on [agentkit-go](https://github.com/agent-fox-dev/agentkit-go),
+  and the forge client and job queue come from
+  [aflib](https://github.com/agent-fox-dev/aflib).
+
+## Documentation
+
+| Document | What it covers |
+|---|---|
+| [docs/cli.md](docs/cli.md) | Every `af` command and the `agent-fox` command line: flags, output, statuses and exit codes |
+| [docs/api.md](docs/api.md) | The service's HTTP API, workspaces, jobs, and the issue label protocol |
+| [docs/configuration.md](docs/configuration.md) | Environment variables, the service's `config.toml`, per-workspace settings, and repository files |
+| [docs/model-usage.md](docs/model-usage.md) | Which commands call a model, what the model is sent, and what it costs |
+| [docs/architecture.md](docs/architecture.md) | How agent-fox is built and why |
+| [docs/development.md](docs/development.md) | Building, testing and changing the code |
+
+Product requirements are in [docs/prd/](docs/prd/), and the notes on where
+the code differs from its specifications are in [docs/errata/](docs/errata/).
+
+## Installation
+
+agent-fox is built from source. You need Go 1.27 and git, plus Podman to run
+the default sandbox.
+
 ```bash
-make check          # gofmt + go vet + golangci-lint + the short tests
-make build          # go build ./..., and bin/af and bin/agent-fox
+git clone https://github.com/agent-fox-dev/agentkit-go
+git clone https://github.com/agent-fox-dev/agent-fox
+cd agent-fox
+make build          # writes bin/af and bin/agent-fox
 bin/af --version
-bin/agent-fox --version
 ```
 
-## Running the service
+agentkit-go must sit next to this repository: `go.mod` points at
+`../agentkit-go`.
 
-`agent-fox` needs a configuration file that sets where hub is and where its key is, and a key. A key file
-is 32 random bytes in base64, and the service refuses one that group or others can read:
+`af triage` and `af fix` run the model in a Podman container by default.
+Build its image, `quay.io/agentfox/tools` (the sandbox image with `af` in it),
+with `make build-containers`, or pass `--sandbox local` to run on the host
+without isolation. To run the service, write a `config.toml` and a key file —
+see [the agent-fox service](docs/configuration.md#the-agent-fox-service).
+
+## Development
 
 ```bash
-(umask 077; openssl rand -base64 32 > key)
-cat > config.toml <<'EOF'
-[hub]
-url = "https://hub.example.com"
-
-[secrets]
-key_file = "key"
-EOF
-bin/agent-fox --config config.toml
+make check    # format, vet, lint and the short tests; run before every commit
+make help     # all targets
 ```
 
-It listens on `127.0.0.1:8090` unless `server.listen` says otherwise, answers `GET /healthz`,
-`GET /readyz` and `GET /version` without a token, and stops on SIGINT or SIGTERM. Its log is one JSON
-record per line on stderr. See [`docs/cli.md`](docs/cli.md#the-agent-fox-command-line),
-[`docs/configuration.md`](docs/configuration.md#the-agent-fox-service) and [`docs/api.md`](docs/api.md).
+The tests need no network, API key or container engine. See
+[docs/development.md](docs/development.md) for the layout, the test fakes and
+how to add a command. Coding agents working on this repository follow
+[AGENTS.md](AGENTS.md).
 
-Subscribing a workspace, or subscribing it again, creates on its repository the seven labels a team uses with agent-fox
-(`af:triage` and `af:fix` to ask, and the five status labels the service sets), so a workspace subscribed before this release
-gets them at its next subscribe.
+## License
 
-A subscribed workspace picks up labelled issues by itself, so that a team asks for a triage or a fix just by labelling an
-issue with the workspace's `af:triage` or `af:fix` label. Every `AF_POLL_INTERVAL` (5 minutes by default) the
-service lists, through hub, the open issues that carry the labels; each new request is one job, and the label is removed.
-`AF_POLL_INTERVAL=0` turns label-driven jobs off. See
-[`docs/api.md`](docs/api.md#jobs-that-a-request-label-makes) and
-[`docs/configuration.md`](docs/configuration.md#the-label-poll).
-
-A team also carries a job forward from the issue. A person answers a blocked job, or asks again after a failed one, by
-commenting and putting the request label back: the comments since the service's question or failure comment become the
-answer, or the new attempt's context, and when there are none the service says so on the issue. See
-[`docs/api.md`](docs/api.md#answering-and-retrying-from-the-forge).
-
-The test suite needs no API key, no token, no container engine and no network. It does start
-`httptest` servers on the loopback interface, so a sandbox that forbids
-binding a local port fails it.
-
-## Using the service from af
-
-`af` is the client of the service. With `AF_URL` naming it and the hub credential in `~/.af/config.toml` (as `token = "…"`,
-which `afc login` writes), a person subscribes a hub workspace with its token, and queues jobs:
-
-```bash
-export AF_URL=http://127.0.0.1:8090
-bin/af workspace subscribe widgets --hub-token-file pat   # the workspace token, kept sealed by the service
-bin/af jobs submit fix 42 --workspace widgets --wait      # queue a fix job and follow it until it is at rest
-bin/af jobs list --workspace widgets --state blocked      # one page of jobs; jobs get, watch, answer, retry and cancel
-bin/af fix https://github.com/o/r/issues/1                # the loop on this machine
-```
-
-`af triage` and `af fix` always run the loop on this machine; `af jobs submit triage|fix` queues the same work on a
-workspace of the service. A job that is blocked on a question ends `--wait` with exit 3 and the command that answers it
-(`af jobs answer <id> --wait`, with `--context`). Every command prints the one envelope and uses the exit codes of every `af`
-command. See [`docs/cli.md`](docs/cli.md#the-client-of-the-agent-fox-service) and
-[`docs/configuration.md`](docs/configuration.md#the-client-of-the-agent-fox-service).
+[Apache License 2.0](LICENSE)
