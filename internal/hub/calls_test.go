@@ -201,6 +201,8 @@ func TestNoErrorValueOrMessageHoldsThePAT_TS_13_14(t *testing.T) {
 		"hangup": {Hangup: true}, "timeout": {Delay: 300 * time.Millisecond},
 		"the PAT in a message":  {Status: 422, Body: `{"error":{"code":422,"message":"the token ` + workerPAT + ` is no good","error_type":"bad"}}`},
 		"the PAT in a non-JSON": {Status: 200, Body: "token " + workerPAT},
+		// The transport quotes a Location it cannot parse in its error, before it asks whether to follow it.
+		"the PAT in a Location that does not parse": {Redirect: "%zz/" + workerPAT},
 	}
 	for _, c := range calls() {
 		for name, f := range faults {

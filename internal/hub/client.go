@@ -150,7 +150,7 @@ func (c *Client) get(ctx context.Context, token, target string) (status int, bod
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return 0, nil, &UnavailableError{Err: cause(err)}
+		return 0, nil, &UnavailableError{Err: withoutToken(cause(err), token)}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
