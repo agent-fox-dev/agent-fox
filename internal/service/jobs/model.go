@@ -167,6 +167,7 @@ type AttemptDoc struct {
 	State             AttemptState      `json:"state"`
 	Trigger           Trigger           `json:"trigger"`
 	Answer            *AnswerDoc        `json:"answer"`
+	Context           []string          `json:"context"`
 	Deliveries        int               `json:"deliveries"`
 	TransientFailures int               `json:"transient_failures"`
 	Status            *toolio.Status    `json:"status"`

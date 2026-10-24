@@ -42,7 +42,7 @@ type attemptRow struct {
 	State                          AttemptState
 	QueueSeq                       int64
 	TriggerKind, TriggerBy         string
-	Answer                         sql.NullString
+	Answer, Context                sql.NullString
 	Deliveries, TransientFailures  int
 	MaxAttempts                    int
 	HubSession, HubRun, HubSandbox sql.NullString
@@ -55,12 +55,12 @@ type attemptRow struct {
 	StartedAt, FinishedAt          sql.NullString
 }
 
-const attemptColumns = `job_id, n, state, queue_seq, trigger_kind, trigger_by, answer, deliveries, transient_failures, max_attempts,
+const attemptColumns = `job_id, n, state, queue_seq, trigger_kind, trigger_by, answer, context, deliveries, transient_failures, max_attempts,
 	hub_session, hub_run, hub_sandbox, question, options, status, exit_code, summary, error, artifacts, side_effects, usage,
 	has_envelope, has_report, started_at, finished_at`
 
 func (a *attemptRow) scan(r interface{ Scan(...any) error }) error {
-	return r.Scan(&a.JobID, &a.N, &a.State, &a.QueueSeq, &a.TriggerKind, &a.TriggerBy, &a.Answer, &a.Deliveries, &a.TransientFailures, &a.MaxAttempts,
+	return r.Scan(&a.JobID, &a.N, &a.State, &a.QueueSeq, &a.TriggerKind, &a.TriggerBy, &a.Answer, &a.Context, &a.Deliveries, &a.TransientFailures, &a.MaxAttempts,
 		&a.HubSession, &a.HubRun, &a.HubSandbox, &a.Question, &a.Options, &a.Status, &a.ExitCode, &a.Summary, &a.Error, &a.Artifacts, &a.SideEffects, &a.Usage,
 		&a.HasEnvelope, &a.HasReport, &a.StartedAt, &a.FinishedAt)
 }
@@ -282,6 +282,9 @@ func attemptDoc(a attemptRow) (AttemptDoc, error) {
 			return AttemptDoc{}, err
 		}
 		ad.Answer = &AnswerDoc{Question: answer.Question, Option: answer.Option, Text: answer.Text}
+	}
+	if err := decode("context", a.Context, &ad.Context); err != nil {
+		return AttemptDoc{}, err
 	}
 	if err := decode("error", a.Error, &ad.Error); err != nil {
 		return AttemptDoc{}, err

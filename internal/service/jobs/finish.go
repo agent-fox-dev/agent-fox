@@ -297,7 +297,7 @@ func (s *Store) EndAttempt(ctx context.Context, a endArgs, files func() error) (
 		}
 
 		if a.verdict.auto {
-			next, err = x.requeue(ctx, StateRunning, Trigger{Kind: TriggerAuto, By: autoBy}, nil)
+			next, err = x.requeue(ctx, StateRunning, Trigger{Kind: TriggerAuto, By: autoBy}, nil, nil)
 			return err
 		}
 		changed, err := s.transition(ctx, x.Tx, a.jobID, []State{StateRunning}, a.verdict.job)

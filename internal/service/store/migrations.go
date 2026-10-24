@@ -148,4 +148,21 @@ var migrations = []string{
 	) WITHOUT ROWID;
 	CREATE INDEX af_hub_events_by_taken ON af_hub_events (taken_at);
 	ALTER TABLE af_jobs ADD COLUMN cancel_cause TEXT`,
+
+	// 9: the forge's follow-ups. The context of an attempt: a JSON list of strings, which a retry from the forge gives its
+	// attempt (the comments since the failure), and NULL for an attempt that has none. The parent of a job: the triage job
+	// a fix job follows from, kept when the parent is purged. And the follow-ups: the fix a triage job asked for on an
+	// issue, at most one for each triage job and at most one pending for each workspace and issue.
+	`ALTER TABLE af_attempts ADD COLUMN context TEXT;
+	ALTER TABLE af_jobs ADD COLUMN parent_job_id TEXT;
+	CREATE TABLE af_followups (
+		triage_job_id TEXT PRIMARY KEY,
+		workspace     TEXT NOT NULL,
+		issue         INTEGER NOT NULL,
+		label         TEXT NOT NULL,
+		state         TEXT NOT NULL CHECK (state IN ('pending', 'made', 'absorbed', 'withdrawn')),
+		job_id        TEXT,
+		created_at    TEXT NOT NULL
+	);
+	CREATE UNIQUE INDEX af_followups_one_pending ON af_followups (workspace, issue) WHERE state = 'pending'`,
 }

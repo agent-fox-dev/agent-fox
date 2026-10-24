@@ -319,7 +319,7 @@ func (s *Store) CreateJob(ctx context.Context, in NewJob) (string, error) {
 			}
 			return fmt.Errorf("job %s: %w", id, err)
 		}
-		if err := x.insertAttempt(ctx, 1, Trigger{Kind: TriggerCreate, By: in.Source.By}, nil); err != nil {
+		if err := x.insertAttempt(ctx, 1, Trigger{Kind: TriggerCreate, By: in.Source.By}, nil, nil); err != nil {
 			return err
 		}
 		return x.emit(ctx, 1, EventJobState, jobStateData{State: StateQueued, Attempt: 1})
@@ -331,12 +331,12 @@ func (s *Store) CreateJob(ctx context.Context, in NewJob) (string, error) {
 }
 
 // insertAttempt stores attempt n of the job as queued, last in the order of all
-// attempts.
-func (x *txn) insertAttempt(ctx context.Context, n int, trigger Trigger, answer *Answer) error {
+// attempts, with its answer and its context, if any.
+func (x *txn) insertAttempt(ctx context.Context, n int, trigger Trigger, answer *Answer, notes []string) error {
 	if err := x.s.fails(OpInsertAttempt); err != nil {
 		return err
 	}
-	var stored any
+	var stored, context any
 	if answer != nil {
 		raw, err := json.Marshal(answer)
 		if err != nil {
@@ -344,10 +344,17 @@ func (x *txn) insertAttempt(ctx context.Context, n int, trigger Trigger, answer 
 		}
 		stored = string(raw)
 	}
+	if len(notes) > 0 {
+		raw, err := json.Marshal(notes)
+		if err != nil {
+			return err
+		}
+		context = string(raw)
+	}
 	if _, err := x.ExecContext(ctx,
-		`INSERT INTO af_attempts (job_id, n, state, queue_seq, trigger_kind, trigger_by, answer)
-		 VALUES (?, ?, 'queued', (SELECT COALESCE(MAX(queue_seq), 0) + 1 FROM af_attempts), ?, ?, ?)`,
-		x.jobID, n, string(trigger.Kind), trigger.By, stored); err != nil {
+		`INSERT INTO af_attempts (job_id, n, state, queue_seq, trigger_kind, trigger_by, answer, context)
+		 VALUES (?, ?, 'queued', (SELECT COALESCE(MAX(queue_seq), 0) + 1 FROM af_attempts), ?, ?, ?, ?)`,
+		x.jobID, n, string(trigger.Kind), trigger.By, stored, context); err != nil {
 		return fmt.Errorf("attempt %d of %s: %w", n, x.jobID, err)
 	}
 	return nil
@@ -359,16 +366,22 @@ func (x *txn) insertAttempt(ctx context.Context, n int, trigger Trigger, answer 
 // not exist is ErrNotFound, and a job that would be a second open job for its
 // issue is ErrDuplicate; in each case nothing is changed.
 func (s *Store) Requeue(ctx context.Context, id string, from State, trigger Trigger, answer *Answer) (int, error) {
+	return s.RequeueWith(ctx, id, from, trigger, answer, nil)
+}
+
+// RequeueWith is Requeue with the context of the new attempt: the strings its runner is given after the job's own and
+// those of the attempts before it.
+func (s *Store) RequeueWith(ctx context.Context, id string, from State, trigger Trigger, answer *Answer, notes []string) (int, error) {
 	var n int
 	err := s.run(ctx, id, func(x *txn) (err error) {
-		n, err = x.requeue(ctx, from, trigger, answer)
+		n, err = x.requeue(ctx, from, trigger, answer, notes)
 		return err
 	})
 	return n, err
 }
 
-// requeue is Requeue inside a transaction of the job.
-func (x *txn) requeue(ctx context.Context, from State, trigger Trigger, answer *Answer) (int, error) {
+// requeue is RequeueWith inside a transaction of the job.
+func (x *txn) requeue(ctx context.Context, from State, trigger Trigger, answer *Answer, notes []string) (int, error) {
 	changed, err := x.s.transition(ctx, x.Tx, x.jobID, []State{from}, StateQueued)
 	if err != nil {
 		return 0, err
@@ -380,7 +393,7 @@ func (x *txn) requeue(ctx context.Context, from State, trigger Trigger, answer *
 	if err := x.QueryRowContext(ctx, "SELECT COALESCE(MAX(n), 0) + 1 FROM af_attempts WHERE job_id = ?", x.jobID).Scan(&n); err != nil {
 		return 0, err
 	}
-	if err := x.insertAttempt(ctx, n, trigger, answer); err != nil {
+	if err := x.insertAttempt(ctx, n, trigger, answer, notes); err != nil {
 		return 0, err
 	}
 	return n, x.emit(ctx, n, EventJobState, jobStateData{State: StateQueued, Attempt: n})
@@ -648,6 +661,14 @@ func (s *Store) RunRequest(ctx context.Context, jobID string, attempt int) (Requ
 				return Request{}, fmt.Errorf("attempt %d of %s: answer: %w", a.N, jobID, err)
 			}
 			req.Answers = append(req.Answers, answer)
+		}
+		// The context of a retry from the forge stays with the attempts that follow it, an automatic one included.
+		if a.Context.Valid {
+			var notes []string
+			if err := json.Unmarshal([]byte(a.Context.String), &notes); err != nil {
+				return Request{}, fmt.Errorf("attempt %d of %s: context: %w", a.N, jobID, err)
+			}
+			req.Context = append(req.Context, notes...)
 		}
 	}
 	return req, nil
