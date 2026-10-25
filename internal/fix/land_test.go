@@ -2,17 +2,14 @@ package fix
 
 import (
 	"context"
+	"errors"
 	"os"
-	"path/filepath"
-	"regexp"
-	"slices"
 	"strings"
 	"testing"
-	"time"
 	"unicode/utf8"
 
 	"github.com/agent-fox-dev/agentfox/internal/checks"
-	"github.com/agent-fox-dev/agentfox/internal/gitx"
+	"github.com/agent-fox-dev/agentfox/internal/testutil"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/internal/triage/fakeforge"
 )
@@ -20,24 +17,10 @@ import (
 // proven is what af measured of a change that passes and is proven by its tests.
 func proven() Measurement {
 	return Measurement{
-		Verdict: checks.VerdictPass, Landable: true, Lands: true, Closes: true,
-		After:       &GateRef{GateID: "after", Passed: true},
+		Verdict: checks.VerdictPass, Landable: true, Lands: true, Closes: true, After: &GateRef{GateID: "after", Passed: true},
 		Rows:        []checks.Row{{Name: "make check", Before: "pass", After: "pass", Verdict: checks.VerdictPass}},
-		RevertCheck: &RevertRef{Outcome: "proven", Reason: "tests_fail_without_the_change"},
-		Changed:     []string{"src/greet.sh"},
+		RevertCheck: &RevertRef{Outcome: "proven", Reason: "tests_fail_without_the_change"}, Changed: []string{"src/greet.sh"},
 	}
-}
-
-// notProven is the same without the proof.
-func notProven() Measurement {
-	m := proven()
-	m.Closes, m.RevertCheck = false, &RevertRef{Outcome: "not_proven", Reason: "tests_pass_without_the_change"}
-	return m
-}
-
-// unverified is what af measured under --no-verify: nothing.
-func unverified() Measurement {
-	return Measurement{Verdict: checks.VerdictUnverified, Lands: true, Changed: []string{"src/greet.sh"}}
 }
 
 // addX is a report of a feature.
@@ -49,479 +32,374 @@ func addX() Report {
 	}
 }
 
-// written is the report.md of a landing.
-type written struct{ text string }
-
-func (w *written) write(text string) error { w.text = text; return nil }
-
-// land lands the change of the world with the parameters of a verified, proven run, and
-// those mutate sets.
-func (w *landWorld) land(t *testing.T, input Input, mode string, mutate func(*LandParams)) (LandResult, *written) {
-	t.Helper()
-	got := &written{}
-	p := LandParams{
+// landing is the parameters of a landing of the world's change, verified and proven, with
+// report.md kept in kept.
+func (w *landWorld) landing(input Input, mode string, kept *string) LandParams {
+	return LandParams{
 		Git: w.repo.Git, State: w.state, Input: input, Report: addX(), Mode: mode, Forge: w.client, Target: w.target,
-		Measured: proven(), Brain: "scripted", CostUSD: 0, CostSource: "none", Reporter: w.rep, WriteReport: got.write,
+		Measured: proven(), Brain: "scripted", CostSource: toolio.CostNone, Reporter: w.rep,
+		WriteReport: func(text string) error { *kept = text; return nil },
 	}
-	if mutate != nil {
-		mutate(&p)
+}
+
+// land lands the change with the landing as edit leaves it, and fails the test when it fails.
+func (w *landWorld) land(t *testing.T, input Input, mode string, edit func(*LandParams)) (LandResult, string) {
+	t.Helper()
+	var kept string
+	p := w.landing(input, mode, &kept)
+	if edit != nil {
+		edit(&p)
 	}
 	res, err := Land(context.Background(), p)
 	if err != nil {
 		t.Fatalf("Land: %v", err)
 	}
-	return res, got
+	return res, kept
 }
 
-func (w *landWorld) onBase(t *testing.T) {
-	t.Helper()
-	if branch, _ := w.repo.Git.CurrentBranch(context.Background()); branch != "main" {
-		t.Errorf("checked out %q, want the base", branch)
-	}
-	if dirty, _ := w.repo.Git.DirtyFiles(context.Background()); len(dirty) != 0 {
-		t.Errorf("the tree is dirty: %v", dirty)
+var textInput = Input{Kind: "text", Body: "the greeting says helo"}
+
+func TestBranchName_IsTheIssueAndTheSlugOfTheTitle(t *testing.T) {
+	for _, tc := range []struct {
+		number int
+		title  string
+		want   string
+	}{{42, "Crash on empty input", "fix/42-crash-on-empty-input"}, {0, "Handle nil", "fix/handle-nil"}, {0, "Fix the bug", "fix/issue"}} {
+		if got := BranchName(tc.number, tc.title); got != tc.want {
+			t.Errorf("BranchName(%d, %q) = %q, want %q", tc.number, tc.title, got, tc.want)
+		}
 	}
 }
 
-var fullHash = regexp.MustCompile(`^[0-9a-f]{40}$`)
+func TestMakeBranch_MakesANameNoBranchHasAtTheCommitTheRunBeganAt(t *testing.T) {
+	w := newLandWorld(t, fakeforge.GitHub)
+	ctx := context.Background()
+	testutil.WriteFile(t, w.repo.Dir, "later.txt", "later\n")
+	w.repo.git(t, "add", "later.txt")
+	w.repo.git(t, "commit", "-q", "-m", "later", "later.txt")
+	w.repo.git(t, "branch", "fix/handle-nil")
+	w.repo.git(t, "push", "-q", "origin", "HEAD:refs/heads/fix/handle-nil-2")
 
-// TestTheLandingCommitHasTheSpecifiedLayoutAndOneCommitAboveTheBase_TS_09_55 verifies
-// TS-09-55.
-// Verifies: 09-REQ-8.3
-func TestTheLandingCommitHasTheSpecifiedLayoutAndOneCommitAboveTheBase_TS_09_55(t *testing.T) {
+	branch, err := MakeBranch(ctx, w.repo.Git, w.rep, 0, "Handle nil", w.state.BaseHead)
+
+	if err != nil || branch != "fix/handle-nil-3" {
+		t.Fatalf("MakeBranch = %q, %v, want a name that neither a local nor a remote branch has", branch, err)
+	}
+	if now, _ := w.repo.Git.CurrentBranch(ctx); now != branch || w.repo.git(t, "rev-parse", "HEAD") != w.state.BaseHead || w.repo.read(t, "src/greet.sh") != "echo hello, world\n" {
+		t.Errorf("checked out %q at %s, want the branch at the base with the change carried along", now, w.repo.git(t, "rev-parse", "HEAD"))
+	}
+	if w.rep.artifact("branch").Name != branch || w.rep.effect(EffectBranch) != (toolio.SideEffect{Kind: EffectBranch, Target: branch, State: toolio.StateDone}) {
+		t.Errorf("artifacts %v, effects %v, want the branch", w.rep.artifacts, w.rep.effects)
+	}
+	if _, err := MakeBranch(ctx, w.repo.Git, w.rep, 0, "Other", "no-such-commit"); failure(t, err).Category != toolio.CategoryGit || w.rep.effect(EffectBranch).State != toolio.StateFailed {
+		t.Errorf("a branch from a commit that is not there: %v, effects %v", err, w.rep.effects)
+	}
+}
+
+// The commit af makes is one above the base, made with the hooks of the repository: the
+// subject, the change as far as it goes, the line about the issue and the trailer.
+func TestLand_MakesOneCommitWithTheLayoutOfTheMessage(t *testing.T) {
+	notProven := proven()
+	notProven.Closes = false
 	for name, tc := range map[string]struct {
-		measured Measurement
-		line     string
-	}{"proven": {proven(), "Closes https://github.com/o/r/issues/7"}, "not proven": {notProven(), "Refs https://github.com/o/r/issues/7"}} {
+		issue  bool
+		edit   func(*LandParams)
+		branch string
+		paras  []string
+	}{
+		"proven": {true, nil, "fix/7-greeting-wrong", []string{"feat: Add x", strings.Repeat("c", 2000), "Closes https://github.com/o/r/issues/7", "Agent-Fox-Run: " + runID}},
+		"not proven": {true, func(p *LandParams) { p.Measured = notProven }, "fix/7-greeting-wrong",
+			[]string{"feat: Add x", strings.Repeat("c", 2000), "Refs https://github.com/o/r/issues/7", "Agent-Fox-Run: " + runID}},
+		"no change to say": {true, func(p *LandParams) { p.Report.Change = "  \n" }, "fix/7-greeting-wrong",
+			[]string{"feat: Add x", "Closes https://github.com/o/r/issues/7", "Agent-Fox-Run: " + runID}},
+		"no issue and no type": {false, func(p *LandParams) { p.Report.Type, p.Report.Change = "", "a"+strings.Repeat("é", 1500) }, "fix/x",
+			[]string{"fix: Add x", "a" + strings.Repeat("é", 999), "Agent-Fox-Run: " + runID}},
+	} {
 		t.Run(name, func(t *testing.T) {
 			w := newLandWorld(t, fakeforge.GitHub)
-			w.issueInput()
-			hook := filepath.Join(w.repo.Dir, ".git", "hooks", "pre-commit")
-			if err := os.MkdirAll(filepath.Dir(hook), 0o755); err != nil {
-				t.Fatal(err)
+			input := textInput
+			if tc.issue {
+				input = w.withIssue()
 			}
-			if err := os.WriteFile(hook, []byte("#!/bin/sh\ntouch \"$(git rev-parse --git-dir)/hook-ran\"\n"), 0o755); err != nil {
-				t.Fatal(err)
-			}
+			w.repo.hook(t, "pre-commit", "#!/bin/sh\ntouch \"$(git rev-parse --git-dir)/hook-ran\"\n")
 
-			res, _ := w.land(t, Input{Kind: "issue", Origin: w.state.Issue.URL, Body: "x"}, LandNone, func(p *LandParams) { p.Measured = tc.measured })
+			res, _ := w.land(t, input, LandNone, tc.edit)
 
-			msg := strings.TrimSpace(gitDo(t, w.repo.Dir, "log", "-1", "--format=%B", res.Branch))
-			paras := strings.Split(msg, "\n\n")
-			if len(paras) != 4 || paras[0] != "feat: Add x" || paras[1] != strings.Repeat("c", 2000) || paras[2] != tc.line || paras[3] != "Agent-Fox-Run: 20261020_100000_aaaaaa" {
-				t.Errorf("message paragraphs = %q, want the subject, 2000 bytes of the change, %q and the trailer", paras, tc.line)
+			if paras := strings.Split(w.repo.message(t, res.Branch), "\n\n"); strings.Join(paras, "|") != strings.Join(tc.paras, "|") || !utf8.ValidString(paras[1]) {
+				t.Errorf("the message is %q, want %q", paras, tc.paras)
 			}
-			if n := strings.Count(strings.TrimSpace(gitDo(t, w.repo.Dir, "rev-list", w.state.BaseHead+".."+res.Branch)), "\n") + 1; n != 1 {
-				t.Errorf("%d commits above the base, want one", n)
+			if res.Branch != tc.branch || res.Outcome != OutcomeLanded || res.Status != toolio.StatusDone || res.Commit != w.repo.git(t, "rev-parse", res.Branch) || len(res.Commit) != 40 {
+				t.Errorf("result = %+v, want landed on %s with the full hash of the commit", res, tc.branch)
 			}
-			if !fullHash.MatchString(res.Commit) || res.Commit != strings.TrimSpace(gitDo(t, w.repo.Dir, "rev-parse", res.Branch)) {
-				t.Errorf("commit = %q, want the full hash of the branch", res.Commit)
+			if w.repo.git(t, "rev-list", "--count", w.state.BaseHead+".."+res.Branch) != "1" {
+				t.Error("want one commit above the base")
 			}
-			if _, err := os.Stat(filepath.Join(w.repo.Dir, ".git", "hook-ran")); err != nil {
-				t.Error("the hooks of the repository did not run: a landing commit is made with them")
+			if _, err := os.Stat(w.repo.Dir + "/.git/hook-ran"); err != nil {
+				t.Error("the hooks of the repository did not run")
 			}
-			if res.Branch != "fix/7-greeting-wrong" || res.Outcome != OutcomeLanded {
-				t.Errorf("branch %q, outcome %q", res.Branch, res.Outcome)
+			w.onBase(t)
+		})
+	}
+}
+
+func TestLand_PushesAndOpensWhatTheModeAsksFor(t *testing.T) {
+	for _, tc := range []struct {
+		mode         string
+		pushed, pull bool
+	}{{LandPR, true, true}, {LandBranch, true, false}, {LandNone, false, false}} {
+		t.Run(tc.mode, func(t *testing.T) {
+			w := newLandWorld(t, fakeforge.GitHub)
+
+			res, kept := w.land(t, w.withIssue(), tc.mode, nil)
+
+			if res.Pushed != tc.pushed || w.repo.remoteHas(t, res.Branch) != tc.pushed || (res.PullRequest != nil) != tc.pull || (w.forge.Count(fakeforge.OpPullRequest) == 1) != tc.pull {
+				t.Fatalf("result = %+v, %d requests to the forge", res, len(w.forge.Requests()))
+			}
+			if kept == "" {
+				t.Error("report.md was not written: the body is kept in every mode")
+			}
+			if tc.pull {
+				pr := w.forge.PullRequests()[0]
+				if pr.Draft || pr.Title != "feat: Add x" || pr.Head != res.Branch || pr.Base != "main" || pr.Body != kept || res.PullRequest.Draft || res.PullRequest.URL == "" {
+					t.Errorf("pull request %+v (%+v), want one that is no draft, from the branch to main, whose body is report.md", pr, res.PullRequest)
+				}
+				for _, kind := range []string{EffectBranch, EffectCommit, EffectPush, EffectCreatePullRequest} {
+					if e := w.rep.effect(kind); e.State != toolio.StateDone {
+						t.Errorf("effect %s = %+v, want done", kind, e)
+					}
+				}
+			}
+			if w.rep.effect(EffectPush).Kind != "" != tc.pushed {
+				t.Errorf("effects = %v", w.rep.effects)
+			}
+			w.onBase(t)
+		})
+	}
+}
+
+// A criterion the report says is unmet or partial makes the pull request a draft, and so does
+// a change that was not verified, which lands unverified.
+func TestLand_DraftsThePullRequestOfAChangeThatIsNotAllThere(t *testing.T) {
+	unverified := Measurement{Verdict: checks.VerdictUnverified, Lands: true, Changed: []string{"src/greet.sh"}}
+	for name, tc := range map[string]struct {
+		status   string
+		noVerify bool
+		draft    bool
+		warning  string
+	}{
+		"unmet":          {StatusUnmet, false, true, WarnCriteriaUnmet},
+		"partial":        {StatusPartial, false, true, WarnCriteriaUnmet},
+		"met":            {StatusMet, false, false, ""},
+		"not applicable": {StatusNotApplicable, false, false, ""},
+		"not verified":   {StatusMet, true, true, WarnNotVerified},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newLandWorld(t, fakeforge.GitHub)
+			w.state.NoVerify = tc.noVerify
+
+			res, _ := w.land(t, w.withIssue(), LandPR, func(p *LandParams) {
+				p.Report.Criteria = []Criterion{{Criterion: "second half", Status: tc.status}}
+				if tc.noVerify {
+					p.Measured = unverified
+				}
+			})
+
+			prs := w.forge.PullRequests()
+			if len(prs) != 1 || prs[0].Draft != tc.draft || res.PullRequest.Draft != tc.draft {
+				t.Fatalf("pull requests = %+v, want a draft: %v", prs, tc.draft)
+			}
+			if msg, ok := w.rep.warning(tc.warning); (tc.warning != "") != ok || (tc.warning == WarnCriteriaUnmet && !strings.Contains(msg, "second half ("+tc.status+")")) {
+				t.Errorf("warnings = %v %v, want %q", w.rep.warnings, w.rep.messages, tc.warning)
+			}
+			if wantStatus := map[bool]toolio.Status{false: toolio.StatusDone, true: toolio.StatusUnverified}[tc.noVerify]; res.Status != wantStatus {
+				t.Errorf("status = %q, want %q", res.Status, wantStatus)
+			}
+			if tc.noVerify && (strings.Contains(prs[0].Body, "Closes ") || !strings.Contains(prs[0].Body, "Refs ")) {
+				t.Errorf("an unverified change closes the issue:\n%s", prs[0].Body)
 			}
 		})
 	}
-
-	t.Run("no issue, and a change that is not valid to cut anywhere", func(t *testing.T) {
-		w := newLandWorld(t, fakeforge.GitHub)
-
-		res, _ := w.land(t, fileInput, LandNone, func(p *LandParams) { p.Report.Change = strings.Repeat("é", 1500) })
-
-		paras := strings.Split(strings.TrimSpace(gitDo(t, w.repo.Dir, "log", "-1", "--format=%B", res.Branch)), "\n\n")
-		if len(paras) != 3 || paras[0] != "feat: Add x" || !utf8.ValidString(paras[1]) || len(paras[1]) != 2000 || paras[2] != "Agent-Fox-Run: 20261020_100000_aaaaaa" {
-			t.Errorf("paragraphs = %q, want no line about an issue and a change cut at a character", paras)
-		}
-		if res.Branch != "fix/x" {
-			t.Errorf("branch = %q, want the slug of the subject", res.Branch)
-		}
-	})
 }
 
-// TestAFailingCommitHookParksTheWork_TS_09_56 verifies TS-09-56.
-// Verifies: 09-REQ-8.4
-func TestAFailingCommitHookParksTheWork_TS_09_56(t *testing.T) {
+// A commit a hook of the repository refuses is parked on the branch, without the hooks, with
+// the start of what the hook said on one line.
+func TestLand_ACommitAHookRefusesIsParked(t *testing.T) {
 	w := newLandWorld(t, fakeforge.GitHub)
-	w.issueInput()
-	hook := filepath.Join(w.repo.Dir, ".git", "hooks", "pre-commit")
-	if err := os.MkdirAll(filepath.Dir(hook), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho 'lint says no' >&2\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	w.repo.hook(t, "pre-commit", "#!/bin/sh\necho 'lint says no' >&2\ni=0; while [ $i -lt 400 ]; do echo \"complaint number $i\" >&2; i=$((i+1)); done\nexit 1\n")
 
-	res, _ := w.land(t, Input{Kind: "issue", Origin: w.state.Issue.URL, Body: "x"}, LandPR, nil)
+	res, _ := w.land(t, w.withIssue(), LandPR, nil)
 
-	if res.Outcome != OutcomeParked || res.Status != toolio.StatusUnverified || toolio.ExitCode(res.Status) != 4 {
-		t.Errorf("outcome %q, status %q, want parked and unverified", res.Outcome, res.Status)
+	if res.Outcome != OutcomeParked || res.Status != toolio.StatusUnverified || w.repo.git(t, "rev-list", "--count", "--all", "^main") != "1" {
+		t.Errorf("result = %+v, want the one branch the landing made, parked and unverified", res)
 	}
-	msg := strings.TrimSpace(gitDo(t, w.repo.Dir, "log", "-1", "--format=%B", res.Branch))
-	if !strings.HasPrefix(msg, "wip: Add x\n") || !strings.Contains(msg, "Parked by af fix: verdict pass\n") || !strings.Contains(msg, "Refs https://github.com/o/r/issues/7") || !strings.HasSuffix(msg, "Agent-Fox-Run: 20261020_100000_aaaaaa") {
-		t.Errorf("message = %q, want the commit that parks", msg)
+	msg := w.repo.message(t, res.Branch)
+	inOrder(t, msg, "wip: Add x\n", "Parked by af fix: verdict pass\n", "The commit was refused by a hook of the repository.", "Refs https://github.com/o/r/issues/7", "Agent-Fox-Run: "+runID)
+	if hook, _ := w.rep.warning(WarnCommitHookFailed); !strings.Contains(hook, "lint says no complaint number 0") || len(hook) > 600 || strings.Contains(hook, "\n") {
+		t.Errorf("commit_hook_failed = %q, want the start of what the hook said, on one line", hook)
 	}
-	if i := slices.Index(w.rep.warnings, WarnCommitHookFailed); i < 0 || !strings.Contains(w.rep.messages[i], "lint says no") || !slices.Contains(w.rep.warnings, WarnFixNotLanded) {
-		t.Errorf("warnings = %v %v, want commit_hook_failed with what the hook said, and fix_not_landed", w.rep.warnings, w.rep.messages)
+	if why, _ := w.rep.warning(WarnFixNotLanded); !strings.Contains(why, "refused by a hook") {
+		t.Errorf("fix_not_landed = %q, want it to say a hook refused the commit", why)
 	}
-	if branches := strings.Fields(gitDo(t, w.repo.Dir, "for-each-ref", "--format=%(refname:short)", "refs/heads")); len(branches) != 2 {
-		t.Errorf("branches = %v, want the base and the one branch the landing made", branches)
-	}
-	if prs := w.forge.PullRequests(); len(prs) != 1 || !prs[0].Draft || !strings.Contains(prs[0].Body, "Refs https://github.com/o/r/issues/7") || !strings.HasPrefix(prs[0].Title, "wip: ") {
-		t.Errorf("pull requests = %+v, want a draft that refers to the issue", prs)
-	}
-	// What a reader of the parked work is told is that a hook refused it, and not that the gate did:
-	// the gate said pass.
-	if !strings.Contains(msg, "The commit was refused by a hook of the repository.") {
-		t.Errorf("message = %q, want it to say that a hook refused the commit", msg)
-	}
-	if prs := w.forge.PullRequests(); len(prs) != 1 || !strings.Contains(prs[0].Body, "a hook of the repository refused the commit") || strings.Contains(prs[0].Body, "did not pass the gate") {
-		t.Errorf("pull requests = %+v, want a body that says a hook refused the commit and not that the gate failed", prs)
-	}
-	if i := slices.Index(w.rep.warnings, WarnFixNotLanded); i < 0 || !strings.Contains(w.rep.messages[i], "refused by a hook") {
-		t.Errorf("warnings = %v %v, want fix_not_landed to say a hook refused the commit", w.rep.warnings, w.rep.messages)
+	if prs := w.forge.PullRequests(); len(prs) != 1 || !prs[0].Draft || !strings.HasPrefix(prs[0].Title, "wip: ") || !strings.Contains(prs[0].Body, "a hook of the repository refused the commit") || strings.Contains(prs[0].Body, "did not pass the gate") {
+		t.Errorf("pull requests = %+v, want a draft that says a hook refused the commit", prs)
 	}
 	w.onBase(t)
 }
 
-// TestAPushThatFailsKeepsTheBranchAndFails_TS_09_57 verifies TS-09-57.
-// Verifies: 09-REQ-8.5
-func TestAPushThatFailsKeepsTheBranchAndFails_TS_09_57(t *testing.T) {
+func TestLand_ACommitThatCannotBeMadeLeavesTheChangeInTheTree(t *testing.T) {
+	w := newLandWorld(t, fakeforge.GitHub)
+	var kept string
+	p := w.landing(textInput, LandNone, &kept)
+	p.Git = answering(w.repo.Dir, func(argv []string) (string, int, bool) {
+		return "fatal: the object database is gone", 128, has(argv, "commit")
+	})
+
+	_, err := Land(context.Background(), p)
+
+	if f := failure(t, err); f.Category != toolio.CategoryGit || !strings.Contains(f.Message, "cannot commit") || w.rep.effect(EffectCommit).State != toolio.StateFailed {
+		t.Errorf("Land = %v, effects %v, want git and the commit failed", err, w.rep.effects)
+	}
+	if branches := w.repo.branches(t); len(branches) != 1 || w.repo.read(t, "src/greet.sh") != "echo hello, world\n" {
+		t.Errorf("branches %v, greet.sh %q, want the branch taken away and the change in the tree", branches, w.repo.read(t, "src/greet.sh"))
+	}
+}
+
+// A push that fails after its retries fails the landing, with the branch and its commit kept
+// here and the way to push it again.
+func TestLand_APushThatFailsKeepsTheBranchAndFails(t *testing.T) {
 	w := newLandWorld(t, fakeforge.GitHub)
 	pushes := 0
-	rejecting := gitx.New(w.repo.Dir, func(ctx context.Context, dir string, argv []string, stdin ...string) (string, int, error) {
-		if slices.Contains(argv, "push") {
+	var kept string
+	p := w.landing(textInput, LandPR, &kept)
+	p.Git = answering(w.repo.Dir, func(argv []string) (string, int, bool) {
+		if has(argv, "push") {
 			pushes++
-			return "error: failed to push some refs: the remote hung up", 1, nil
 		}
-		return gitx.ExecRunner(ctx, dir, argv, stdin...)
-	})
-	rejecting.SetSleep(func(time.Duration) {})
-
-	_, err := Land(context.Background(), LandParams{
-		Git: rejecting, State: w.state, Input: Input{Kind: "text", Body: "x"}, Report: addX(), Mode: LandPR, Forge: w.client, Target: w.target,
-		Measured: proven(), Reporter: w.rep,
+		return "error: failed to push some refs: the remote hung up", 1, has(argv, "push")
 	})
 
-	if f := failure(t, err); f.Category != toolio.CategoryGit || toolio.ExitCode(toolio.StatusFailed) != 1 {
-		t.Errorf("failure = %+v, want git", f)
-	}
-	if pushes != 3 || strings.Count(strings.Join(w.rep.warnings, " "), WarnPushRetried) != 2 {
-		t.Errorf("%d pushes and warnings %v, want 3 attempts and push_retried for each of the 2 retries", pushes, w.rep.warnings)
-	}
+	_, err := Land(context.Background(), p)
+
 	branch := w.rep.artifact("branch").Name
-	var hint bool
-	for _, n := range w.rep.next {
-		if slices.Equal(n.Argv, []string{"git", "push", "-u", "origin", branch}) {
-			hint = true
-		}
+	if f := failure(t, err); f.Category != toolio.CategoryGit || !strings.Contains(f.Message, "could not be pushed") || pushes != 3 || countOf(w.rep.warnings, WarnPushRetried) != 2 {
+		t.Errorf("Land = %v after %d pushes, warnings %v, want git after 3 attempts and 2 retries", err, pushes, w.rep.warnings)
 	}
-	if !hint || branch == "" {
-		t.Errorf("next = %v, want git push -u origin %s", w.rep.next, branch)
+	if !w.rep.nextIs("git", "push", "-u", "origin", branch) || w.rep.effect(EffectPush).State != toolio.StateFailed || w.forge.Count(fakeforge.OpPullRequest) != 0 {
+		t.Errorf("next %v, effects %v: want the way to push again, the push failed, and no pull request", w.rep.next, w.rep.effects)
 	}
-	if e := w.rep.effect(EffectPush); e.State != toolio.StateFailed {
-		t.Errorf("effects = %v, want the push failed", w.rep.effects)
-	}
-	if shown := gitDo(t, w.repo.Dir, "log", "-1", "--format=%s", branch); strings.TrimSpace(shown) != "feat: Add x" {
-		t.Errorf("the commit of the branch is %q: it must be kept locally", shown)
-	}
-	if w.forge.Count(fakeforge.OpPullRequest) != 0 {
-		t.Error("a pull request was opened for a branch that is not pushed")
+	if subject := w.repo.git(t, "log", "-1", "--format=%s", branch); subject != "feat: Add x" {
+		t.Errorf("the branch holds %q, want the commit kept here", subject)
 	}
 	w.onBase(t)
 }
 
-// TestThePullRequestIsDraftedForUnmetCriteriaAndNoVerifyAndItsFailureIsAWarning_TS_09_58
-// verifies TS-09-58.
-// Verifies: 09-REQ-8.6
-func TestThePullRequestIsDraftedForUnmetCriteriaAndNoVerifyAndItsFailureIsAWarning_TS_09_58(t *testing.T) {
-	t.Run("a partial criterion", func(t *testing.T) {
-		w := newLandWorld(t, fakeforge.GitHub)
-
-		res, report := w.land(t, w.issue(), LandPR, func(p *LandParams) {
-			p.Report.Criteria = []Criterion{{Criterion: "a", Status: "met"}, {Criterion: "second half", Status: "partial"}, {Criterion: "b", Status: "unmet"}}
-		})
-
-		prs := w.forge.PullRequests()
-		if len(prs) != 1 || !prs[0].Draft || prs[0].Title != "feat: Add x" || prs[0].Head != res.Branch || prs[0].Base != "main" {
-			t.Fatalf("pull requests = %+v, want a draft titled feat: Add x from %s to main", prs, res.Branch)
+func TestLand_AFailureToGoBackIsReportedWithTheFailureBeforeIt(t *testing.T) {
+	w := newLandWorld(t, fakeforge.GitHub)
+	var kept string
+	p := w.landing(textInput, LandBranch, &kept)
+	p.Git = answering(w.repo.Dir, func(argv []string) (string, int, bool) {
+		switch {
+		case has(argv, "push"):
+			return "remote: Permission denied to user", 128, true
+		case has(argv, "checkout") && has(argv, "main"):
+			return "fatal: cannot go back", 128, true
 		}
-		if i := slices.Index(w.rep.warnings, WarnCriteriaUnmet); i < 0 || !strings.Contains(w.rep.messages[i], "second half") || res.PullRequest == nil || !res.PullRequest.Draft {
-			t.Errorf("warnings = %v, result %+v, want criteria_unmet naming the criterion", w.rep.warnings, res)
-		}
-		if prs[0].Body != report.text || report.text == "" {
-			t.Errorf("the body of the pull request is not report.md")
-		}
+		return "", 0, false
 	})
-	t.Run("everything met and verified", func(t *testing.T) {
-		w := newLandWorld(t, fakeforge.GitHub)
 
-		res, _ := w.land(t, w.issue(), LandPR, nil)
+	_, err := Land(context.Background(), p)
 
-		prs := w.forge.PullRequests()
-		if len(prs) != 1 || prs[0].Draft || res.PullRequest == nil || res.PullRequest.Draft || slices.Contains(w.rep.warnings, WarnCriteriaUnmet) {
-			t.Errorf("pull requests = %+v, warnings %v, want one that is ready for review", prs, w.rep.warnings)
-		}
-	})
-	t.Run("not verified", func(t *testing.T) {
-		w := newLandWorld(t, fakeforge.GitHub)
-		w.state.NoVerify = true
-
-		res, _ := w.land(t, w.issue(), LandPR, func(p *LandParams) { p.Measured = unverified() })
-
-		prs := w.forge.PullRequests()
-		if len(prs) != 1 || !prs[0].Draft || !strings.Contains(prs[0].Body, "Refs ") || strings.Contains(prs[0].Body, "Closes ") || res.PullRequest == nil {
-			t.Errorf("pull requests = %+v, want a draft that says Refs", prs)
-		}
-		if slices.Contains(w.rep.warnings, WarnCriteriaUnmet) {
-			t.Errorf("warnings = %v: nothing was unmet", w.rep.warnings)
-		}
-	})
-	t.Run("a forge that refuses it", func(t *testing.T) {
-		w := newLandWorld(t, fakeforge.GitHub)
-		w.forge.Fail(fakeforge.OpPullRequest, fakeforge.Failure{Status: 500, Message: "boom"})
-
-		res, _ := w.land(t, w.issue(), LandPR, nil)
-
-		if res.Outcome != OutcomeLanded || res.Status != toolio.StatusDone || res.PullRequest != nil || !res.Pushed {
-			t.Errorf("result = %+v, want the landing done, pushed, with no pull request", res)
-		}
-		if i := slices.Index(w.rep.warnings, WarnPullRequestFailed); i < 0 || !strings.Contains(w.rep.messages[i], "boom") {
-			t.Errorf("warnings = %v %v, want pull_request_failed with the error of the forge", w.rep.warnings, w.rep.messages)
-		}
-		if e := w.rep.effect(EffectCreatePullRequest); e.State != toolio.StateFailed {
-			t.Errorf("effects = %v", w.rep.effects)
-		}
-		w.onBase(t)
-	})
+	if err == nil || !strings.Contains(err.Error(), "could not be pushed") || !strings.Contains(err.Error(), "cannot go back") {
+		t.Errorf("error = %v, want both failures", err)
+	}
 }
 
-// TestAfterLandingTheCheckoutIsOnTheBaseAndNoVerifyIsUnverified_TS_09_60 verifies TS-09-60.
-// Verifies: 09-REQ-8.8
-func TestAfterLandingTheCheckoutIsOnTheBaseAndNoVerifyIsUnverified_TS_09_60(t *testing.T) {
+// The pull request is a warning: the branch is pushed, and the change has landed.
+func TestLand_APullRequestTheForgeRefusesIsAWarning(t *testing.T) {
 	w := newLandWorld(t, fakeforge.GitHub)
-	w.issueInput()
-	issue := Input{Kind: "issue", Origin: w.state.Issue.URL, Body: "x"}
+	w.forge.Fail(fakeforge.OpPullRequest, fakeforge.Failure{Status: 500, Message: "boom"})
 
-	res, _ := w.land(t, issue, LandPR, nil)
+	res, _ := w.land(t, w.withIssue(), LandPR, nil)
 
-	if res.Outcome != OutcomeLanded || res.Status != toolio.StatusDone || toolio.ExitCode(res.Status) != 0 || !res.Pushed || res.PullRequest == nil {
-		t.Errorf("result = %+v, want landed, done, pushed, with a pull request", res)
+	if res.Outcome != OutcomeLanded || res.Status != toolio.StatusDone || res.PullRequest != nil || !res.Pushed || w.rep.effect(EffectCreatePullRequest).State != toolio.StateFailed {
+		t.Errorf("result = %+v, effects %v, want the landing done and pushed, with no pull request", res, w.rep.effects)
 	}
-	if slices.Contains(w.rep.warnings, WarnNotVerified) {
-		t.Errorf("warnings = %v", w.rep.warnings)
-	}
-	w.onBase(t)
-	if head := strings.TrimSpace(gitDo(t, w.repo.Dir, "rev-parse", "HEAD")); head != w.state.BaseHead {
-		t.Errorf("HEAD = %s, want the base", head)
-	}
-	if data, _ := os.ReadFile(filepath.Join(w.repo.Dir, "src", "greet.sh")); string(data) != "echo hello\n" {
-		t.Errorf("greet.sh = %q on the base, want its own content", data)
-	}
-	for _, kind := range []string{EffectBranch, EffectCommit, EffectPush, EffectCreatePullRequest} {
-		if e := w.rep.effect(kind); e.State != toolio.StateDone {
-			t.Errorf("effect %s = %+v, want done", kind, e)
-		}
-	}
-
-	w2 := newLandWorld(t, fakeforge.GitHub)
-	w2.issueInput()
-	w2.state.NoVerify = true
-	res2, _ := w2.land(t, Input{Kind: "issue", Origin: w2.state.Issue.URL, Body: "x"}, LandPR, func(p *LandParams) { p.Measured = unverified() })
-	if res2.Outcome != OutcomeLanded || res2.Status != toolio.StatusUnverified || toolio.ExitCode(res2.Status) != 4 || !slices.Contains(w2.rep.warnings, WarnNotVerified) {
-		t.Errorf("--no-verify: result %+v, warnings %v, want landed, unverified and not_verified", res2, w2.rep.warnings)
-	}
-	w2.onBase(t)
-}
-
-// TestLandNoneMakesTheLocalBranchAndNothingElse_TS_09_64 verifies TS-09-64.
-// Verifies: 09-REQ-9.4
-func TestLandNoneMakesTheLocalBranchAndNothingElse_TS_09_64(t *testing.T) {
-	w := newLandWorld(t, fakeforge.GitHub)
-	w.issueInput()
-
-	res, report := w.land(t, Input{Kind: "issue", Origin: w.state.Issue.URL, Body: "x"}, LandNone, nil)
-
-	if res.Pushed || res.PullRequest != nil || w.remoteHas(t, res.Branch) || len(w.forge.Requests()) != 0 {
-		t.Errorf("result %+v, %d requests: none mode writes nothing beyond the local branch", res, len(w.forge.Requests()))
-	}
-	if gitDo(t, w.repo.Dir, "rev-parse", "--verify", res.Branch) == "" || !fullHash.MatchString(res.Commit) {
-		t.Errorf("no local branch or commit: %+v", res)
-	}
-	if e := w.rep.effect(EffectPush); e.Kind != "" {
-		t.Errorf("effects = %v, want no push", w.rep.effects)
-	}
-	if report.text == "" {
-		t.Error("report.md was not written: the body is kept in every mode")
+	if msg, ok := w.rep.warning(WarnPullRequestFailed); !ok || !strings.Contains(msg, "boom") {
+		t.Errorf("warnings = %v %v, want pull_request_failed with the error of the forge", w.rep.warnings, w.rep.messages)
 	}
 	w.onBase(t)
 }
 
-// TestAReportThatCannotBeWrittenIsAWarning guards that the body is kept beside the run and
-// that failing to keep it stops nothing.
-func TestAReportThatCannotBeWrittenIsAWarning(t *testing.T) {
+func TestLand_AReportThatCannotBeKeptIsAWarning(t *testing.T) {
 	w := newLandWorld(t, fakeforge.GitHub)
 
-	res, _ := w.land(t, fileInput, LandNone, func(p *LandParams) {
-		p.WriteReport = func(string) error { return os.ErrPermission }
-	})
+	res, _ := w.land(t, textInput, LandNone, func(p *LandParams) { p.WriteReport = func(string) error { return os.ErrPermission } })
 
-	if res.Outcome != OutcomeLanded || !slices.Contains(w.rep.warnings, WarnReportUnwritable) {
+	if _, ok := w.rep.warning(WarnReportUnwritable); res.Outcome != OutcomeLanded || !ok {
 		t.Errorf("result %+v, warnings %v, want a landing and the warning", res, w.rep.warnings)
 	}
 }
 
-// TestEachUnmetStatusDraftsThePullRequestAndNotApplicableDoesNot guards which criteria
-// make a pull request a draft.
-func TestEachUnmetStatusDraftsThePullRequestAndNotApplicableDoesNot(t *testing.T) {
-	for status, want := range map[string]bool{"unmet": true, "partial": true, "met": false, "not_applicable": false} {
-		t.Run(status, func(t *testing.T) {
-			w := newLandWorld(t, fakeforge.GitHub)
-
-			w.land(t, Input{Kind: "text", Body: "x"}, LandPR, func(p *LandParams) { p.Report.Criteria = []Criterion{{Criterion: "c", Status: status}} })
-
-			if prs := w.forge.PullRequests(); len(prs) != 1 || prs[0].Draft != want || slices.Contains(w.rep.warnings, WarnCriteriaUnmet) != want {
-				t.Errorf("pull requests %+v, warnings %v, want a draft: %v", prs, w.rep.warnings, want)
-			}
-		})
-	}
-}
-
-// TestLandingIsAsAskedFor guards what each mode and each kind of change writes: branch mode
-// pushes and opens nothing, a change with no text has no empty paragraph, a landing needs no
-// place to keep the report, and a change with no issue is not given a pull request.
-func TestLandingIsAsAskedFor(t *testing.T) {
-	w := newLandWorld(t, fakeforge.GitHub)
-	w.issueInput()
-
-	res, _ := w.land(t, Input{Kind: "issue", Origin: w.state.Issue.URL, Body: "x"}, LandBranch, func(p *LandParams) {
-		p.WriteReport = nil
-		p.Report.Change = "  \n"
-	})
-
-	if !res.Pushed || res.PullRequest != nil || len(w.forge.Requests()) != 0 || !w.remoteHas(t, res.Branch) {
-		t.Errorf("result %+v, %d requests: branch mode pushes and asks nothing of the forge", res, len(w.forge.Requests()))
-	}
-	paras := strings.Split(strings.TrimSpace(gitDo(t, w.repo.Dir, "log", "-1", "--format=%B", res.Branch)), "\n\n")
-	if len(paras) != 3 || paras[1] != "Closes https://github.com/o/r/issues/7" {
-		t.Errorf("paragraphs = %q, want no paragraph for a change that says nothing", paras)
-	}
-}
-
-// TestACommitThatCannotBeMadeAtAllIsAFailureAndLeavesTheChangeInTheTree guards the end of
-// the road of a landing: when the commit fails with the hooks and without them, the branch is
-// taken away and the change stays in the working tree of the base.
-func TestACommitThatCannotBeMadeAtAllIsAFailureAndLeavesTheChangeInTheTree(t *testing.T) {
-	w := newLandWorld(t, fakeforge.GitHub)
-	broken := gitx.New(w.repo.Dir, func(ctx context.Context, dir string, argv []string, stdin ...string) (string, int, error) {
-		if slices.Contains(argv, "commit") {
-			return "fatal: " + strings.Repeat("the object database is gone ", 40), 128, nil
-		}
-		return gitx.ExecRunner(ctx, dir, argv, stdin...)
-	})
-
-	_, err := Land(context.Background(), LandParams{Git: broken, State: w.state, Input: Input{Kind: "text", Body: "x"}, Report: addX(), Mode: LandNone,
-		Forge: w.client, Target: w.target, Measured: proven(), Reporter: w.rep})
-
-	if f := failure(t, err); f.Category != toolio.CategoryGit || !strings.Contains(f.Message, "cannot commit") {
-		t.Errorf("failure = %v, want git", err)
-	}
-	if e := w.rep.effect(EffectCommit); e.State != toolio.StateFailed {
-		t.Errorf("effects = %v, want the commit failed", w.rep.effects)
-	}
-	if branches := strings.Fields(gitDo(t, w.repo.Dir, "for-each-ref", "--format=%(refname:short)", "refs/heads")); !slices.Equal(branches, []string{"main"}) {
-		t.Errorf("branches = %v, want the branch taken away", branches)
-	}
-	if data, _ := os.ReadFile(filepath.Join(w.repo.Dir, "src", "greet.sh")); string(data) != "echo hello, world\n" {
-		t.Errorf("greet.sh = %q: the change must still be in the working tree", data)
-	}
-}
-
-// TestWhatAHookSaidIsInTheWarningButNotAllOfIt guards the warning of a hook that stopped the
-// commit: it carries the beginning of what the hook said, on one line.
-func TestWhatAHookSaidIsInTheWarningButNotAllOfIt(t *testing.T) {
-	w := newLandWorld(t, fakeforge.GitHub)
-	hook := filepath.Join(w.repo.Dir, ".git", "hooks", "pre-commit")
-	if err := os.MkdirAll(filepath.Dir(hook), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(hook, []byte("#!/bin/sh\ni=0; while [ $i -lt 400 ]; do echo \"complaint number $i\" >&2; i=$((i+1)); done\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	w.land(t, Input{Kind: "text", Body: "x"}, LandNone, nil)
-
-	i := slices.Index(w.rep.warnings, WarnCommitHookFailed)
-	if i < 0 || len(w.rep.messages[i]) > 600 || strings.Contains(w.rep.messages[i], "\n") || !strings.Contains(w.rep.messages[i], "complaint number") {
-		t.Errorf("warning = %q", w.rep.messages[i])
-	}
-}
-
-// TestTheMessageOfACommitLeavesOutWhatIsEmpty guards the layout of the message itself, before
-// git cleans it up: no paragraph for a change or an issue that is not there.
-func TestTheMessageOfACommitLeavesOutWhatIsEmpty(t *testing.T) {
-	if got := landMessage("fix", "s", "  \n", "", false, "id"); got != "fix: s\n\nAgent-Fox-Run: id\n" {
-		t.Errorf("message = %q", got)
-	}
-	if got := landMessage("feat", "s", "why\n", "u", true, "id"); got != "feat: s\n\nwhy\n\nCloses u\n\nAgent-Fox-Run: id\n" {
-		t.Errorf("message = %q", got)
-	}
-	if got := landMessage("fix", "s", "", "u", false, "id"); got != "fix: s\n\nRefs u\n\nAgent-Fox-Run: id\n" {
-		t.Errorf("message = %q", got)
-	}
-}
-
-// TestAReportWithNoTypeIsAFix guards the type a commit gets when the report names none.
-func TestAReportWithNoTypeIsAFix(t *testing.T) {
+// Whatever the brain reported, the body fits what the forge takes, and its footer says what
+// the run used.
+func TestLand_TheBodyFitsTheForgeAndNamesTheRun(t *testing.T) {
 	w := newLandWorld(t, fakeforge.GitHub)
 
-	res, _ := w.land(t, fileInput, LandNone, func(p *LandParams) { p.Report.Type = "" })
-
-	if first, _, _ := strings.Cut(gitDo(t, w.repo.Dir, "log", "-1", "--format=%B", res.Branch), "\n"); first != "fix: Add x" {
-		t.Errorf("subject line = %q", first)
-	}
-}
-
-// TestThePullRequestBodyIsWithinWhatTheForgeTakesAndNamesTheRun guards the body that is sent:
-// it fits the limit of the forge, whatever the brain reported, and its footer says what the run
-// used.
-func TestThePullRequestBodyIsWithinWhatTheForgeTakesAndNamesTheRun(t *testing.T) {
-	w := newLandWorld(t, fakeforge.GitHub)
-
-	w.land(t, Input{Kind: "text", Body: "x"}, LandPR, func(p *LandParams) {
+	w.land(t, textInput, LandPR, func(p *LandParams) {
 		p.Report.RootCause = strings.Repeat("root cause words ", 8000)
-		p.Brain, p.CostUSD, p.CostSource = "agentkit", 1.5, "measured"
+		p.Brain, p.CostUSD, p.CostSource = "agentkit", 1.5, toolio.CostMeasured
 	})
 
 	prs := w.forge.PullRequests()
-	if len(prs) != 1 || len(prs[0].Body) > 65536 || !strings.Contains(prs[0].Body, BodyCutMarker) {
-		t.Fatalf("pull requests = %d, body of %d bytes, want one that fits and says it was cut", len(prs), len(prs[0].Body))
-	}
-	if !strings.Contains(prs[0].Body, "brain `agentkit` · cost $1.5000 (measured)") || !strings.Contains(prs[0].Body, w.state.RunID) {
-		t.Errorf("the footer of the body = %q", prs[0].Body[max(0, len(prs[0].Body)-160):])
+	if len(prs) != 1 || len(prs[0].Body) > 65536 || !strings.Contains(prs[0].Body, BodyCutMarker) || !strings.Contains(prs[0].Body, "Run `"+runID+"` · brain `agentkit` · cost $1.5000 (measured)") {
+		t.Errorf("pull requests = %d, want one whose body fits, says it was cut and names the run", len(prs))
 	}
 }
 
-// TestTwoFailuresAreBothReported guards a push that fails when the checkout cannot go back
-// either: the person is told of both.
-func TestTwoFailuresAreBothReported(t *testing.T) {
+// The post-push hook is how a caller passes the branch on from where it was pushed: it is told
+// the branch once it is pushed, before any pull request, and a branch it does not take fails
+// the landing with the branch kept where it is.
+func TestLand_ThePostPushHookComesBetweenThePushAndThePullRequest(t *testing.T) {
 	w := newLandWorld(t, fakeforge.GitHub)
-	doomed := gitx.New(w.repo.Dir, func(ctx context.Context, dir string, argv []string, stdin ...string) (string, int, error) {
-		if slices.Contains(argv, "push") {
-			return "remote: Permission denied to user", 128, nil
-		}
-		if slices.Contains(argv, "checkout") && slices.Contains(argv, "main") {
-			return "fatal: cannot go back", 128, nil
-		}
-		return gitx.ExecRunner(ctx, dir, argv, stdin...)
-	})
+	h := &postPush{w: w, t: t}
 
-	_, err := Land(context.Background(), LandParams{Git: doomed, State: w.state, Input: Input{Kind: "text", Body: "x"}, Report: addX(), Mode: LandBranch,
-		Forge: w.client, Target: w.target, Measured: proven(), Reporter: w.rep})
+	res, _ := w.land(t, textInput, LandPR, func(p *LandParams) { p.PostPush = h.hook })
 
-	if err == nil || !strings.Contains(err.Error(), "could not be pushed") || !strings.Contains(err.Error(), "cannot go back") {
-		t.Errorf("error = %v, want both failures", err)
+	if len(h.branches) != 1 || h.branches[0] != res.Branch || !h.onRemote[0] || h.pulls[0] != 0 || res.PullRequest == nil {
+		t.Errorf("the hook saw %v (on origin %v, %v pull requests), result %+v, want once with the pushed branch and no pull request yet", h.branches, h.onRemote, h.pulls, res)
+	}
+
+	w = newLandWorld(t, fakeforge.GitHub)
+	h = &postPush{w: w, t: t, err: errors.New("hub is unavailable: it answered 503")}
+	var kept string
+	p := w.landing(textInput, LandPR, &kept)
+	p.PostPush = h.hook
+
+	_, err := Land(context.Background(), p)
+
+	branch := w.rep.artifact("branch").Name
+	if f := failure(t, err); f.Category != toolio.CategoryGit || f.Retryable || !strings.Contains(f.Message, branch+" is pushed, and could not be published") || !strings.Contains(f.Message, "503") {
+		t.Errorf("failure = %+v, want git saying the branch is pushed and was not published", f)
+	}
+	if !w.rep.nextIs("git", "show", "--stat", branch) || !w.repo.remoteHas(t, branch) || !strings.Contains(w.rep.effect(EffectPush).Detail, "503") || w.forge.Count(fakeforge.OpPullRequest) != 0 {
+		t.Errorf("next %v, effects %v: want the branch to look at, kept on origin, the push failed, and no pull request", w.rep.next, w.rep.effects)
+	}
+	w.onBase(t)
+}
+
+func TestLand_NoPostPushHookIsCalledWhenNothingIsPushed(t *testing.T) {
+	w := newLandWorld(t, fakeforge.GitHub)
+	h := &postPush{w: w, t: t}
+	w.land(t, textInput, LandNone, func(p *LandParams) { p.PostPush = h.hook })
+
+	w2 := newLandWorld(t, fakeforge.GitHub)
+	w2.repo.git(t, "remote", "set-url", "origin", t.TempDir()+"/missing.git")
+	var kept string
+	p := w2.landing(textInput, LandBranch, &kept)
+	p.PostPush = h.hook
+	_, err := Land(context.Background(), p)
+
+	if err == nil || len(h.branches) != 0 {
+		t.Errorf("Land = %v, the hook was called with %v, want a failed push and no call", err, h.branches)
 	}
 }

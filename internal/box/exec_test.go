@@ -3,129 +3,130 @@ package box
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/agent-fox-dev/agentkit-go/core"
-
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentkit-go/core"
 )
 
-// execStub replaces the execute tool of a session with one that notes what it was
-// asked and answers with the result.
-func execStub(s *Session, answer func(args map[string]any) core.ToolResult) *[]map[string]any {
-	var asked []map[string]any
-	for i, tool := range s.tools {
-		if tool.Name == "execute" {
-			tool.Execute = func(_ context.Context, in json.RawMessage) core.ToolResult {
-				var args map[string]any
-				_ = json.Unmarshal(in, &args)
-				asked = append(asked, args)
-				return answer(args)
-			}
-			s.tools[i] = tool
+func TestExec_RunsTheCommandAtTheRootAndANonZeroExitIsACode(t *testing.T) {
+	s := openLocal(t, hostRepo(t, nil), &ledger{})
+	for _, tc := range []struct {
+		command string
+		code    int
+		output  func(string) bool
+	}{
+		{"exit 3", 3, func(out string) bool { return out == "" }},
+		{"echo hi; echo oops >&2", 0, func(out string) bool { return strings.HasPrefix(out, "hi\n") && strings.Contains(out, "oops") }},
+		{"pwd", 0, func(out string) bool { return strings.TrimSpace(out) == s.Root() }},
+	} {
+		if code, out, err := s.Exec(context.Background(), tc.command, 0); code != tc.code || err != nil || !tc.output(out) {
+			t.Errorf("%s = %d, %q, %v; want the code %d", tc.command, code, out, err, tc.code)
 		}
-	}
-	return &asked
-}
-
-// TestExecReturnsTheExitCodeAndCappedOutputAndANonZeroExitIsNotAnError_TS_10_38 verifies
-// TS-10-38 for a box provider: the command runs through the execute tool, whose
-// working directory is the root of the workspace, the exit code is a code and not an
-// error, and the output is the last ExecOutputCap bytes of it.
-// Verifies: 10-REQ-7.1
-func TestExecReturnsTheExitCodeAndCappedOutputAndANonZeroExitIsNotAnError_TS_10_38(t *testing.T) {
-	s := open(t, Default, "local", newRepo(t, 1, "main"), &ledger{})
-
-	code, out, err := s.Exec(context.Background(), "exit 3", 0)
-	if code != 3 || err != nil || out != "" {
-		t.Errorf("exit 3 = %d, %q, %v; want the code 3, no output and no error", code, out, err)
-	}
-	code, out, err = s.Exec(context.Background(), "echo hi; echo oops >&2", 0)
-	if code != 0 || err != nil || !strings.HasPrefix(out, "hi\n") || !strings.Contains(out, "oops") {
-		t.Errorf("echo = %d, %q, %v; want the output of both streams", code, out, err)
-	}
-	code, out, err = s.Exec(context.Background(), "pwd", 0)
-	if code != 0 || err != nil || strings.TrimSpace(out) != s.Root() {
-		t.Errorf("pwd = %d, %q, %v; want the root of the workspace %q", code, out, err, s.Root())
-	}
-
-	// A command that prints more than the cap: the tail is what is kept.
-	execStub(s, func(map[string]any) core.ToolResult {
-		big := strings.Repeat("a", 3*ExecOutputCap) + "THE-END\n"
-		return core.ToolResult{OK: true, Data: map[string]any{"output": big, "exit_code": float64(0), "outcome": "ok"}}
-	})
-	code, out, err = s.Exec(context.Background(), "print a lot", 0)
-	if code != 0 || err != nil || len(out) != ExecOutputCap || !strings.HasSuffix(out, "THE-END\n") {
-		t.Errorf("a long output = %d, %d bytes ending %q, %v; want the last %d bytes", code, len(out), out[max(0, len(out)-10):], err, ExecOutputCap)
 	}
 }
 
-// TestExecPassesTheCommandAndTheTimeoutToTheExecuteTool guards how a box provider runs
-// the command: as given, with the timeout in whole seconds rounded down and at least
-// one, none for a command with no timeout, and a command that the tool says it killed
-// for its time is the code of a timeout.
-func TestExecPassesTheCommandAndTheTimeoutToTheExecuteTool(t *testing.T) {
-	s := open(t, Default, "local", newRepo(t, 1, "main"), &ledger{})
-	asked := execStub(s, func(args map[string]any) core.ToolResult {
-		if args["command"] == "slow" {
-			return core.ToolResult{OK: false, Error: "command_timeout", Data: map[string]any{"output": "partial", "exit_code": float64(-1), "outcome": "timeout"}}
-		}
-		return core.ToolResult{OK: false, Error: "command_signal", Data: map[string]any{"output": "", "exit_code": float64(137), "outcome": "signal"}}
-	})
-
-	code, out, err := s.Exec(context.Background(), "slow", 1500*time.Millisecond)
-	if code != ExitTimeout || out != "partial" || err != nil {
-		t.Errorf("a timeout = %d, %q, %v; want %d, the output so far and no error", code, out, err, ExitTimeout)
-	}
-	for _, timeout := range []time.Duration{0, 100 * time.Millisecond, 2500 * time.Millisecond, 3 * time.Minute} {
-		if code, _, err := s.Exec(context.Background(), "killed", timeout); code != 137 || err != nil {
-			t.Errorf("a command killed by a signal = %d, %v, want its 137", code, err)
-		}
-	}
-
-	want := []any{float64(1), nil, float64(1), float64(2), float64(180)}
-	if len(*asked) != len(want) {
-		t.Fatalf("the execute tool was asked %d times, want %d", len(*asked), len(want))
-	}
-	for i, got := range *asked {
-		if got["timeout_s"] != want[i] {
-			t.Errorf("ask %d: %v, want timeout_s %v", i, got, want[i])
-		}
-	}
-	if (*asked)[0]["command"] != "slow" {
-		t.Errorf("the execute tool was asked %v, want the command as it is", (*asked)[0])
-	}
-}
-
-// TestExecOfATimeoutKillsTheCommandInTheBox runs a real command that outlives its time.
-func TestExecOfATimeoutKillsTheCommandInTheBox(t *testing.T) {
-	s := open(t, Default, "local", newRepo(t, 1, "main"), &ledger{})
+func TestExec_ACommandThatOutlivesItsTimeIsKilledAsATimeout(t *testing.T) {
+	s := openLocal(t, hostRepo(t, nil), &ledger{})
 	start := time.Now()
 
 	code, _, err := s.Exec(context.Background(), "sleep 30", time.Second)
 
-	if code != ExitTimeout || err != nil {
-		t.Errorf("sleep 30 with a second = %d, %v, want the code of a timeout", code, err)
-	}
-	if d := time.Since(start); d > 20*time.Second {
-		t.Errorf("Exec took %s for a second", d)
+	if code != ExitTimeout || err != nil || time.Since(start) > 20*time.Second {
+		t.Errorf("sleep 30 with a second = %d, %v after %s, want %d soon", code, err, time.Since(start), ExitTimeout)
 	}
 }
 
-// TestExecFailsAsASandboxFailureWhenTheToolCannotRun guards a result with no exit code:
-// the box could not run the command, which is an error and not a code.
-func TestExecFailsAsASandboxFailureWhenTheToolCannotRun(t *testing.T) {
-	s := open(t, Default, "local", newRepo(t, 1, "main"), &ledger{})
-	execStub(s, func(map[string]any) core.ToolResult {
-		return core.ErrResult("sandbox_unavailable", "the box is gone")
-	})
+func TestExec_GivesTheToolTheTimeoutInWholeSecondsAndAtLeastOne(t *testing.T) {
+	s := openLocal(t, hostRepo(t, nil), &ledger{})
+	asked := stubTool(s, "execute", answer(core.ToolResult{OK: true, Data: map[string]any{"exit_code": 0}}))
+	timeouts := map[time.Duration]any{0: nil, 100 * time.Millisecond: float64(1), 2500 * time.Millisecond: float64(2), 3 * time.Minute: float64(180)}
+
+	for timeout, want := range timeouts {
+		if _, _, err := s.Exec(context.Background(), "make test", timeout); err != nil {
+			t.Fatal(err)
+		}
+		if got := (*asked)[len(*asked)-1]; got["timeout_s"] != want || got["command"] != "make test" {
+			t.Errorf("a timeout of %s asked %v, want timeout_s %v and the command as given", timeout, got, want)
+		}
+	}
+}
+
+func TestExec_ReadsWhatTheToolAnswers(t *testing.T) {
+	s := openLocal(t, hostRepo(t, nil), &ledger{})
+	long := strings.Repeat("a", 3*ExecOutputCap) + "THE-END\n"
+	for _, tc := range []struct {
+		name   string
+		result core.ToolResult
+		code   int
+		output string
+	}{
+		{"a timeout", core.ToolResult{Error: "command_timeout", Data: map[string]any{"output": "partial", "exit_code": -1, "outcome": "timeout"}}, ExitTimeout, "partial"},
+		{"a signal", core.ToolResult{Error: "command_signal", Data: map[string]any{"output": "", "exit_code": float64(137), "outcome": "signal"}}, 137, ""},
+		{"an output over the cap", core.ToolResult{OK: true, Data: map[string]any{"output": long, "exit_code": 0, "outcome": "ok"}}, 0, long[len(long)-ExecOutputCap:]},
+	} {
+		stubTool(s, "execute", answer(tc.result))
+		if code, out, err := s.Exec(context.Background(), "x", 0); code != tc.code || out != tc.output || err != nil {
+			t.Errorf("%s = %d, %d bytes, %v; want %d and %d bytes", tc.name, code, len(out), err, tc.code, len(tc.output))
+		}
+	}
+}
+
+func TestExec_ACommandThatCannotBeRunIsASandboxFailure(t *testing.T) {
+	s := openLocal(t, hostRepo(t, nil), &ledger{})
+	stubTool(s, "execute", answer(core.ErrResult("spawn_failed", "no shell")))
 
 	_, _, err := s.Exec(context.Background(), "true", 0)
+	if f := asFailure(t, err); f.Category != toolio.CategorySandbox || f.Retryable || f.Message != "the local box could not run the command: spawn_failed no shell" {
+		t.Errorf("no exit code: %+v, want a sandbox failure with the reason", f)
+	}
 
-	f := asFailure(t, err)
-	if f.Category != toolio.CategorySandbox || !strings.Contains(f.Message, "the box is gone") {
-		t.Errorf("failure = %+v, want a sandbox failure with the reason", f)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	stubTool(s, "execute", answer(core.ToolResult{OK: true, Data: map[string]any{"exit_code": 0}}))
+	if _, _, err := s.Exec(ctx, "true", 0); !errors.Is(err, context.Canceled) {
+		t.Errorf("an ended context: %v, want its error", err)
+	}
+
+	s.tools = nil
+	_, _, err = s.Exec(context.Background(), "true", 0)
+	if f := asFailure(t, err); !strings.Contains(f.Message, "cannot run a command: the box has no execute tool") {
+		t.Errorf("no execute tool: %+v", f)
+	}
+}
+
+func TestTail_IsTheLastBytesCutAtTheStartOfACharacter(t *testing.T) {
+	for _, tc := range []struct {
+		s    string
+		n    int
+		want string
+	}{
+		{"short", 10, "short"},
+		{"abcdef", 3, "def"},
+		{"aé", 1, ""},
+		{"xéz", 3, "éz"},
+		{"xéz", 2, "z"},
+	} {
+		if got := tail(tc.s, tc.n); got != tc.want {
+			t.Errorf("tail(%q, %d) = %q, want %q", tc.s, tc.n, got, tc.want)
+		}
+	}
+}
+
+func TestIntOf_ReadsANumberAsTheProcessOrJSONHasIt(t *testing.T) {
+	for _, tc := range []struct {
+		v    any
+		want int
+		ok   bool
+	}{
+		{3, 3, true}, {int64(4), 4, true}, {float64(5), 5, true}, {json.Number("6"), 6, true},
+		{json.Number("6.5"), 0, false}, {"7", 0, false}, {nil, 0, false},
+	} {
+		if got, ok := intOf(tc.v); got != tc.want || ok != tc.ok {
+			t.Errorf("intOf(%#v) = %d, %v; want %d, %v", tc.v, got, ok, tc.want, tc.ok)
+		}
 	}
 }

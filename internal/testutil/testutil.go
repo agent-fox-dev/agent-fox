@@ -67,6 +67,23 @@ func GitErr(t testing.TB, dir string, args ...string) (string, error) {
 	return string(out), err
 }
 
+// IsolateGit makes the git that the code under test runs itself, outside Git,
+// read none of the user's or the system's configuration for the rest of the
+// test, with a home of its own, no prompt, and an identity to commit with. It
+// sets the environment with t.Setenv, so the test must not be parallel.
+func IsolateGit(t testing.TB) {
+	t.Helper()
+	home := t.TempDir()
+	for name, value := range map[string]string{
+		"HOME": home, "XDG_CONFIG_HOME": home, "GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_NOSYSTEM": "1",
+		"GIT_TERMINAL_PROMPT": "0",
+		"GIT_AUTHOR_NAME":     "Test", "GIT_AUTHOR_EMAIL": "test@example.com",
+		"GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@example.com",
+	} {
+		t.Setenv(name, value)
+	}
+}
+
 // Repo makes a git repository on the branch main whose first commit holds
 // files (path to content), and returns its directory. It skips the test when
 // git is not installed. With no files the commit holds a README.md.

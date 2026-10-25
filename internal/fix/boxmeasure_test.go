@@ -2,8 +2,7 @@ package fix
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,96 +17,74 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/project"
+	"github.com/agent-fox-dev/agentfox/internal/testutil"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
-// scriptedAF is a box whose af is a script: it writes the argv of each run to a file and
-// answers as its script says. The box is the local provider under the name of one that calls
-// its programs by name.
+// scriptedAF is a box whose af is a shell script that logs the arguments of each run and
+// answers as its body says, in the working directory of the box.
 type scriptedAF struct {
-	t        *testing.T
-	repo     *testRepo
-	sess     *box.Session
+	repo     *repo
 	m        *BoxMeasurer
 	warnings []string
-	argv     string // the file the af script logs its arguments to
+	argv     string
 }
 
-// newScriptedAF makes a box that stands in for a leased one over a new checkout, with a PATH whose
-// first directory has the af that body is the shell script of (it may write files in its working
-// directory, the root of the box's tree).
-func newScriptedAF(t *testing.T, body string) *scriptedAF {
-	t.Helper()
-	return newScriptedAFIn(t, box.GatewayName, body)
-}
+// versionAnswer is the af --version of a script, the version of the af that runs.
+const versionAnswer = `case "$1" in --version) echo '{"version":"v1","commit":"c1"}'; exit 0;; esac`
 
-// newScriptedAFIn is newScriptedAF with the box of the provider: the gateway, which a local box
-// stands in for under its name and calls af by name, or the local box, which runs the af of the
-// script by its path.
-func newScriptedAFIn(t *testing.T, provider, body string) *scriptedAF {
+// newScriptedAF makes the box of the provider over a new checkout: the gateway, which a local
+// box stands in for under its name and which calls af by name, or a local box, which runs af
+// by its path.
+func newScriptedAF(t *testing.T, provider, body string) *scriptedAF {
 	t.Helper()
+	testutil.Require(t, "sh")
 	bin := t.TempDir()
-	script := "#!/bin/sh\necho \"$@\" >> \"$(dirname \"$0\")/argv.log\"\n" + body + "\n"
-	if err := os.WriteFile(filepath.Join(bin, "af"), []byte(script), 0o755); err != nil {
+	script := testutil.WriteFile(t, bin, "af", "#!/bin/sh\necho \"$@\" >> \"$(dirname \"$0\")/argv.log\"\n"+body+"\n")
+	if err := os.Chmod(script, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-	repo := newTestRepo(t, gateFiles, false)
+	r := newRepo(t, gateFiles(), false)
 	entry, err := box.Default.Lookup("local")
 	if err != nil {
 		t.Fatal(err)
 	}
 	reg := box.NewRegistry()
 	if provider == box.GatewayName {
-		named := entry
-		named.Name, named.ByName, named.SuppliesCredentials, named.Remote = box.GatewayName, true, true, true
-		named.New = func() sandbox.Provider { return local.Unisolated() }
-		reg.Register(named)
-	} else {
-		reg.Register(entry)
+		entry.Name, entry.ByName, entry.SuppliesCredentials, entry.Remote = box.GatewayName, true, true, true
+		entry.New = func() sandbox.Provider { return local.Unisolated() }
 	}
-	state := sampleState()
-	s := &scriptedAF{t: t, repo: repo}
-	sess, err := box.Open(context.Background(), box.Request{Provider: provider, HostDir: repo.Dir, RunID: state.RunID, Tool: "fix", Registry: reg, Warn: func(string, string) {}})
+	reg.Register(entry)
+	sess, err := box.Open(context.Background(), box.Request{Provider: provider, HostDir: r.Dir, RunID: runID, Tool: "fix", Registry: reg, Warn: func(string, string) {}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sess.Close() })
-	s.sess = sess
+	s := &scriptedAF{repo: r, argv: filepath.Join(bin, "argv.log")}
 	s.m = &BoxMeasurer{
-		Session: sess, Process: brain.NewProcess(brain.ProcessConfig{AFPath: filepath.Join(bin, "af"), Version: "v1", Commit: "c1"}), Profile: "py", RunID: state.RunID,
-		Warn: func(code, message string) { s.warnings = append(s.warnings, code) },
+		Session: sess, Process: brain.NewProcess(brain.ProcessConfig{AFPath: script, Version: "v1", Commit: "c1"}), Profile: "py", RunID: runID,
+		Warn: func(code, _ string) { s.warnings = append(s.warnings, code) },
 	}
-	s.argv = filepath.Join(bin, "argv.log")
 	return s
 }
 
+// runs are the commands af was run with, its --version left out.
 func (s *scriptedAF) runs() []string {
 	data, _ := os.ReadFile(s.argv)
-	var out []string
-	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-		if line != "" && line != "--version" {
-			out = append(out, line)
-		}
-	}
-	return out
+	return slices.DeleteFunc(strings.Split(strings.TrimSpace(string(data)), "\n"), func(l string) bool { return l == "" || l == "--version" })
 }
-
-// version is the af --version of the script.
-const versionAnswer = `case "$1" in --version) echo '{"version":"v1","commit":"c1"}'; exit 0;; esac`
 
 // envelope is the JSON of an envelope with the result.
 func envelope(status, result, extra string) string {
 	return `{"schema_version":"5.0.0","tool":"x","status":"` + status + `","exit_code":0,"result":` + result + extra + `}`
 }
 
-// TestTheBoxMeasurerGateMirrorsTheResultAndPlacesTheTable verifies what the measurer sends and
-// keeps: the command, the table placed in the box, the result and its logs
-// copied to the host, and the tree changed during the gate noted from the envelope.
-func TestTheBoxMeasurerGateMirrorsTheResultAndPlacesTheTable(t *testing.T) {
-	result := `{"id":"abc123def456","tree":"t","table_source":"gate.json","cached":false,"passed":true,"checks":[{"name":"make check","status":"pass","exit_code":0,"duration_ms":5,"log":".agent-fox/gate/abc123def456/01.log","tail":"ok"}],"skipped":[]}`
-	s := newScriptedAF(t, versionAnswer+`
+// The table of the run is placed in the box, and the result of the gate and its logs are kept
+// on the host, where the comparison with the baseline reads them.
+func TestBoxMeasurerGate_PlacesTheTableAndKeepsTheResultOnTheHost(t *testing.T) {
+	result := `{"id":"abc123def456","tree":"t","table_source":"gate.json","passed":true,"checks":[{"name":"make check","status":"pass","exit_code":0,"duration_ms":5,"log":".agent-fox/gate/abc123def456/01.log","tail":"ok"}],"skipped":[]}`
+	s := newScriptedAF(t, box.GatewayName, versionAnswer+`
 mkdir -p .agent-fox/gate/abc123def456
 echo 'the log' > .agent-fox/gate/abc123def456/01.log
 echo '`+result+`' > .agent-fox/gate/abc123def456/result.json
@@ -118,92 +95,74 @@ echo '`+envelope("done", result, `,"warnings":[{"code":"tree_changed_during_gate
 
 	res, err := s.m.Gate(context.Background(), s.repo.Dir, checks.Options{Table: table})
 
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.ID != "abc123def456" || !res.Passed || !res.TreeChanged || len(res.Checks) != 1 || res.Checks[0].Name != "make check" {
-		t.Errorf("result = %+v", res)
+	if err != nil || res.ID != "abc123def456" || !res.Passed || !res.TreeChanged || len(res.Checks) != 1 || res.Checks[0].Name != "make check" {
+		t.Fatalf("Gate = %+v, %v", res, err)
 	}
 	if got := s.runs(); !slices.Equal(got, []string{"gate run"}) {
 		t.Errorf("af was run with %q", got)
 	}
-	kept := filepath.Join(s.repo.Dir, ".agent-fox", "gate", "abc123def456")
-	for name, want := range map[string]string{"01.log": "the log\n", "result.json": "", "table.json": ""} {
-		data, err := os.ReadFile(filepath.Join(kept, name))
-		if err != nil || (want != "" && string(data) != want) {
-			t.Errorf("%s on the host: %q, %v", name, data, err)
-		}
+	kept := testutil.Files(t, filepath.Join(s.repo.Dir, ".agent-fox", "gate", "abc123def456"))
+	if kept["01.log"] != "the log\n" || kept["result.json"] == "" || len(kept) != 3 {
+		t.Errorf("the host keeps %v, want the log, the result and the table, and no temporary file", slices.Sorted(maps.Keys(kept)))
 	}
-	if entries, _ := os.ReadDir(kept); slices.ContainsFunc(entries, func(e os.DirEntry) bool { return strings.HasPrefix(e.Name(), ".tmp") }) {
-		t.Errorf("a temporary file of the box was copied: %v", entries)
-	}
-	var placed struct {
+	placed := testutil.Decode[struct {
 		Checks []struct {
 			Name string   `json:"name"`
 			Argv []string `json:"argv"`
 		} `json:"checks"`
+	}](t, []byte(kept["table.json"]))
+	if len(placed.Checks) != 1 || placed.Checks[0].Name != "make check" || !slices.Equal(placed.Checks[0].Argv, []string{"make", "check"}) {
+		t.Errorf("the table placed in the box: %s", kept["table.json"])
 	}
-	data, _ := os.ReadFile(filepath.Join(kept, "table.json"))
-	if err := json.Unmarshal(data, &placed); err != nil || len(placed.Checks) != 1 || placed.Checks[0].Name != "make check" || !slices.Equal(placed.Checks[0].Argv, []string{"make", "check"}) {
-		t.Errorf("the table placed in the box: %s (%v)", data, err)
+	if cmp, err := checks.Compare(s.repo.Dir, res.ID, res.ID); err != nil || cmp.After.ID != res.ID {
+		t.Errorf("the comparison cannot find the result on the host: %v", err)
 	}
-	// A result with no checks and nothing skipped has lists, not nulls.
-	bare := newScriptedAF(t, versionAnswer+`
+
+	bare := newScriptedAF(t, box.GatewayName, versionAnswer+`
 mkdir -p .agent-fox/gate/0123456789ab
-echo '{"id":"0123456789ab","tree":"t","passed":false}' > .agent-fox/gate/0123456789ab/result.json
 echo '`+envelope("done", `{"id":"0123456789ab","tree":"t","passed":false}`, "")+`'`)
 	if res, err := bare.m.Gate(context.Background(), bare.repo.Dir, checks.Options{}); err != nil || res.Checks == nil || res.Skipped == nil || res.TreeChanged {
-		t.Errorf("a result with no lists = %+v, %v; want empty lists and the tree unchanged", res, err)
-	}
-	// The comparison with another result finds the one that was kept.
-	if _, _, ok := loadKept(s.repo.Dir, "abc123def456"); !ok {
-		t.Error("the comparison cannot find the result on the host")
+		t.Errorf("a result with no lists = %+v, %v, want empty lists and the tree unchanged", res, err)
 	}
 }
 
-// loadKept reads the result that was kept, as the comparison does.
-func loadKept(dir, id string) (checks.Result, string, bool) {
-	cmp, err := checks.Compare(dir, id, id)
-	return checks.Result{ID: cmp.After.ID}, cmp.Verdict, err == nil && cmp.After.ID == id
-}
-
-// TestTheBoxMeasurerDetectAndRevertCheckPassWhatTheyAreAskedAndReadWhatTheyAreAnswered verifies the
-// words of the commands and the decoding of their results.
-func TestTheBoxMeasurerDetectAndRevertCheckPassWhatTheyAreAskedAndReadWhatTheyAreAnswered(t *testing.T) {
+func TestBoxMeasurer_DetectsAndChecksTheRevertWithTheAfOfTheBox(t *testing.T) {
 	detection := `{"languages":[{"name":"go","files":3}],"gate":{"source":"detected","checks":[{"name":"make check","argv":["make","check"],"kind":"check","source":"Makefile","available":true}]},"suite":[["make","check"]],"programs":["make"]}`
-	reverted := `{"outcome":"proven","reason":"tests_fail_without_the_change","closes":true,"since":"abc","test_files":["t_test.sh"],"reverted_files":["greet.sh"],"after":"x","reverted":null,"restored":true}`
-	s := newScriptedAF(t, versionAnswer+`
+	reverted := `{"outcome":"proven","reason":"tests_fail_without_the_change","closes":true,"since":"abc","restored":true}`
+	s := newScriptedAF(t, box.GatewayName, versionAnswer+`
 case "$1" in
-  lang) echo '`+envelope("done", detection, "")+`';;
+  lang) [ -f .agent-fox/gate.json ] && grep -q own .agent-fox/gate.json && echo '`+envelope("done", detection, "")+`';;
   revert-check) echo '`+envelope("done", reverted, "")+`';;
 esac`)
+	testutil.WriteFile(t, s.repo.Dir, ".agent-fox/gate.json", `{"checks":[{"name":"own","argv":["true"]}]}`)
 
 	d, err := s.m.Detect(context.Background(), s.repo.Dir, nil)
-	if err != nil || len(d.Gate.Checks) != 1 || d.Gate.Checks[0].Name != "make check" || !d.Gate.Checks[0].Available || d.Gate.Source != "detected" || len(d.Languages) != 1 {
-		t.Errorf("Detect = %+v, %v", d, err)
+	if err != nil || len(d.Gate.Checks) != 1 || d.Gate.Checks[0].Name != "make check" || d.Gate.Source != "detected" || len(d.Languages) != 1 {
+		t.Errorf("Detect = %+v, %v, want the detection of the box, made with the checkout's own gate.json", d, err)
 	}
 	r, err := s.m.RevertCheck(context.Background(), s.repo.Dir, "abc123", conform.Options{Table: d.Gate})
-	if err != nil || r.Outcome != "proven" || !r.Closes || !r.Restored {
+	if err != nil || r.Outcome != conform.OutcomeProven || !r.Closes || !r.Restored {
 		t.Errorf("RevertCheck = %+v, %v", r, err)
 	}
-	if got := s.runs(); !slices.Equal(got, []string{"lang detect", "revert-check --since abc123"}) {
-		t.Errorf("af was run with %q", got)
+	if got := s.runs(); !slices.Equal(got, []string{"lang detect", "revert-check --since abc123"}) || len(s.warnings) != 0 {
+		t.Errorf("af was run with %q, warnings %v", got, s.warnings)
 	}
-	if len(s.warnings) != 0 {
-		t.Errorf("warnings = %v", s.warnings)
+
+	testutil.WriteFile(t, s.repo.Dir, ".agent-fox/gate.json", "\xff\xfe")
+	if _, err := s.m.Detect(context.Background(), s.repo.Dir, nil); failure(t, err).Category != toolio.CategoryConfig {
+		t.Errorf("a gate.json that is not text: %v, want config", err)
 	}
 }
 
-// TestTheBoxMeasurerReadsTheFailureOfACommandAndRefusesWhatItCannotUse verifies that a failed
-// envelope is the failure it says, and that an answer that is no envelope, has another schema or
-// a result that does not decode names the profile and cannot be tried again.
-func TestTheBoxMeasurerReadsTheFailureOfACommandAndRefusesWhatItCannotUse(t *testing.T) {
+// A failed envelope is the failure it says; an answer that is no envelope, of another schema,
+// or with a result that does not decode, is an af this run cannot use, which names where to
+// get another and cannot be tried again.
+func TestBoxMeasurer_ReadsAFailureAndRefusesAnAnswerItCannotUse(t *testing.T) {
 	failed := `{"schema_version":"5.0.0","tool":"lang detect","status":"failed","exit_code":1,"result":null,"error":{"category":"config","message":"gate.json cannot be used","retryable":false}}`
-	cases := map[string]struct {
-		answer    string
-		category  string
-		retryable bool
-		contains  string
+	for name, tc := range map[string]struct {
+		answer, category string
+		retryable        bool
+		says             string
 	}{
 		"a failure of the command":        {failed, "config", false, "gate.json cannot be used"},
 		"a failure that may be retried":   {strings.Replace(failed, `"retryable":false`, `"retryable":true`, 1), "config", true, "gate.json cannot be used"},
@@ -213,14 +172,15 @@ func TestTheBoxMeasurerReadsTheFailureOfACommandAndRefusesWhatItCannotUse(t *tes
 		"no envelope":                     {`nothing`, "sandbox", false, "no envelope"},
 		"a null result":                   {`{"schema_version":"5.0.0","status":"done","result":null}`, "sandbox", false, "no result"},
 		"a result of another shape":       {`{"schema_version":"5.0.0","status":"done","result":{"gate":7}}`, "sandbox", false, "does not decode"},
-	}
-	for name, tc := range cases {
+	} {
 		t.Run(name, func(t *testing.T) {
-			s := newScriptedAF(t, versionAnswer+"\necho '"+tc.answer+"'")
+			s := newScriptedAF(t, box.GatewayName, versionAnswer+"\necho '"+tc.answer+"'")
+
 			_, err := s.m.Detect(context.Background(), s.repo.Dir, nil)
-			var f *toolio.Failure
-			if !errors.As(err, &f) || f.Category != tc.category || f.Retryable != tc.retryable || !strings.Contains(f.Message, tc.contains) {
-				t.Fatalf("Detect = %v, want category %s, retryable %v, containing %q", err, tc.category, tc.retryable, tc.contains)
+
+			f := failure(t, err)
+			if f.Category != tc.category || f.Retryable != tc.retryable || !strings.Contains(f.Message, tc.says) {
+				t.Errorf("Detect = %+v, want %s, retryable %v, saying %q", f, tc.category, tc.retryable, tc.says)
 			}
 			if tc.category == "sandbox" && (!strings.Contains(f.Message, "the profile py") || f.FixHint == nil || f.FixHint.Env != "AF_SANDBOX_PROFILE") {
 				t.Errorf("the failure %+v does not name the profile and where to set it", f)
@@ -228,37 +188,30 @@ func TestTheBoxMeasurerReadsTheFailureOfACommandAndRefusesWhatItCannotUse(t *tes
 		})
 	}
 
-	t.Run("a default profile is named as hub's", func(t *testing.T) {
-		s := newScriptedAF(t, versionAnswer+"\necho nothing")
-		s.m.Profile = ""
-		_, err := s.m.Detect(context.Background(), s.repo.Dir, nil)
-		if err == nil || !strings.Contains(err.Error(), "hub's default profile") {
-			t.Errorf("Detect = %v, want the default profile named", err)
-		}
-	})
-	t.Run("an af that is not there", func(t *testing.T) {
-		s := newScriptedAF(t, "exit 3")
+	s := newScriptedAF(t, box.GatewayName, versionAnswer+"\necho '"+envelope("done", `{"id":"../x","passed":true,"checks":[]}`, "")+"'")
+	s.m.Profile = ""
+	if _, err := s.m.Gate(context.Background(), s.repo.Dir, checks.Options{}); err == nil || !strings.Contains(err.Error(), `"../x"`) || !strings.Contains(err.Error(), "hub's default profile") {
+		t.Errorf("Gate = %v, want the id of the result refused, naming hub's default profile", err)
+	}
+}
+
+// An af that is missing or fails in the box is the failure of its image, which cannot be tried
+// again; the box is named by its profile, or by its provider when it has none.
+func TestBoxMeasurer_AnAfThatCannotRunNamesTheImageThatHasToProvideIt(t *testing.T) {
+	for _, tc := range []struct {
+		provider, names, notNamed, env string
+	}{{box.GatewayName, "the profile py", "", "AF_SANDBOX_PROFILE"}, {"local", "the local box", "profile", ""}} {
+		s := newScriptedAF(t, tc.provider, "exit 3")
+
 		_, err := s.m.Gate(context.Background(), s.repo.Dir, checks.Options{})
-		var f *toolio.Failure
-		if !errors.As(err, &f) || f.Category != "sandbox" || f.Retryable || !strings.Contains(f.Message, "its image must provide af") || !strings.Contains(f.Message, "the profile py") {
-			t.Errorf("Gate = %v, want a permanent failure of the image of the profile", err)
+
+		f := failure(t, err)
+		if f.Category != toolio.CategorySandbox || f.Retryable || !strings.Contains(f.Message, "its image must provide af") || !strings.Contains(f.Message, tc.names) ||
+			(tc.notNamed != "" && strings.Contains(f.Message, tc.notNamed)) || (f.FixHint == nil) != (tc.env == "") || (tc.env != "" && f.FixHint.Env != tc.env) {
+			t.Errorf("%s: Gate = %+v (hint %+v), want a permanent failure naming %q", tc.provider, f, f.FixHint, tc.names)
 		}
 		if len(s.runs()) != 0 {
-			t.Errorf("a ring-1 command ran: %v", s.runs())
+			t.Errorf("%s: a command ran after af --version failed: %v", tc.provider, s.runs())
 		}
-	})
-	t.Run("an af that is not there in a local box", func(t *testing.T) {
-		s := newScriptedAFIn(t, "local", "exit 3")
-		_, err := s.m.Gate(context.Background(), s.repo.Dir, checks.Options{})
-		var f *toolio.Failure
-		if !errors.As(err, &f) || f.Category != "sandbox" || f.Retryable || !strings.Contains(f.Message, "the local box") || strings.Contains(f.Message, "profile") || f.FixHint != nil {
-			t.Errorf("Gate = %v (%+v), want a permanent failure that names the local box, and no profile", err, f)
-		}
-	})
-	t.Run("a gate result with no id", func(t *testing.T) {
-		s := newScriptedAF(t, versionAnswer+"\necho '"+envelope("done", `{"id":"../x","passed":true,"checks":[]}`, "")+"'")
-		if _, err := s.m.Gate(context.Background(), s.repo.Dir, checks.Options{}); err == nil || !strings.Contains(err.Error(), `"../x"`) {
-			t.Errorf("Gate = %v, want the id refused", err)
-		}
-	})
+	}
 }

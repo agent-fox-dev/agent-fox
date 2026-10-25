@@ -3,338 +3,168 @@ package toolio
 import (
 	"bytes"
 	"context"
-	"math/rand/v2"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
+	"reflect"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/agent-fox-dev/agentfox/internal/testutil"
 )
 
-// inputRecorder is a test command that takes an input and records it.
-type inputRecorder struct {
-	ran   int
-	input Input
-	args  []string
-}
-
-func (r *inputRecorder) command(mode InputMode) Command {
-	return Command{Path: "X", Input: mode, Run: func(run *Run) (Outcome, error) {
-		r.ran++
-		r.input = run.Input
-		r.args = run.Args
-		return Outcome{Status: StatusDone, Summary: "ok"}, nil
-	}}
-}
-
-// invokeStdin is invoke with the given stdin.
-func invokeStdin(t *testing.T, app *App, stdin string, args ...string) (code int, stdout, stderr string) {
+// inputDir is a working directory with a text file, a file with a NUL past
+// the part that is looked at, a binary file and a directory, and the
+// absolute path it resolves its names against.
+func inputDir(t *testing.T) string {
 	t.Helper()
-	var out, errb bytes.Buffer
-	code = app.Main(context.Background(), append([]string{"af"}, args...), strings.NewReader(stdin), &out, &errb)
-	return code, out.String(), errb.String()
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, "bug.md", "the login fails\n")
+	testutil.WriteFile(t, dir, "late-nul.txt", strings.Repeat("a", 8192)+"\x00x")
+	testutil.WriteFile(t, dir, "early-nul.bin", "text\x00x")
+	testutil.WriteFile(t, dir, "adir/keep", "")
+	t.Chdir(dir)
+	abs, _ := filepath.Abs(".")
+	return abs
 }
 
-// warningCodes lists the codes of an envelope's warnings.
-func warningCodes(env map[string]any) []string {
-	var codes []string
-	list, _ := env["warnings"].([]any)
-	for _, w := range list {
-		codes = append(codes, w.(map[string]any)["code"].(string))
+func TestInput_IsClassifiedAndRead(t *testing.T) {
+	dir := inputDir(t)
+	big := strings.Repeat("a", MaxInputBytes)
+	for _, tc := range []struct {
+		arg, stdin string
+		kind       InputKind
+		origin     string
+		body       string
+		truncated  bool
+	}{
+		{"-", "multi\nline problem\n", KindStdin, "", "multi\nline problem", false},
+		{"bug.md", "", KindFile, filepath.Join(dir, "bug.md"), "the login fails", false},
+		{"late-nul.txt", "", KindFile, filepath.Join(dir, "late-nul.txt"), strings.Repeat("a", 8192) + "\x00x", false},
+		{"  fix the login bug  ", "", KindText, "", "fix the login bug", false},
+		{"missing.md", "", KindText, "", "missing.md", false},
+		{big, "", KindText, "", big, false},
+		{big + "bcd", "", KindText, "", big + TruncationMarker, true},
+	} {
+		var rec recorder
+		app := newApp()
+		app.Register(rec.command(Command{Path: "X", Input: InputRequired}))
+
+		r := runWith(t, context.Background(), app, strings.NewReader(tc.stdin), "X", tc.arg)
+
+		name := tc.arg[:min(len(tc.arg), 20)]
+		if r.code != 0 {
+			t.Errorf("%q: exit %d, envelope %s", name, r.code, r.stdout)
+			continue
+		}
+		env := r.env(t)
+		in := rec.last.Input
+		if in.Kind != tc.kind || in.Origin != tc.origin || in.Body != tc.body || in.Truncated != tc.truncated {
+			t.Errorf("%q: input kind %s, origin %q, %d bytes, truncated %v; want %s, %q, %d bytes, %v", name, in.Kind, in.Origin, len(in.Body), in.Truncated, tc.kind, tc.origin, len(tc.body), tc.truncated)
+		}
+		want := map[string]any{"kind": string(tc.kind), "origin": tc.origin, "truncated": tc.truncated}
+		if got := env["input"]; !reflect.DeepEqual(got, want) || slices.Contains(warningCodes(env), WarnInputTruncated) != tc.truncated {
+			t.Errorf("%q: envelope input %v, warnings %v; want %v", name, got, warningCodes(env), want)
+		}
 	}
-	return codes
 }
 
-// TestStdinIsReadUntilEOF_TS_05_34 verifies TS-05-34:
-// The argument - reads stdin until EOF.
-// Verifies: 05-REQ-6.1
-func TestStdinIsReadUntilEOF_TS_05_34(t *testing.T) {
-	var r inputRecorder
-	app := newTestApp()
-	app.Register(r.command(InputRequired))
+func TestInput_IsRefusedBeforeTheCommandRuns(t *testing.T) {
+	inputDir(t)
+	for _, tc := range []struct {
+		name     string
+		mode     InputMode
+		args     []string
+		stdin    io.Reader
+		code     int
+		category string
+		want     string
+	}{
+		{"no input", InputRequired, nil, nil, 2, CategoryUsage, "no input given"},
+		{"blank text", InputRequired, []string{"   "}, nil, 2, CategoryUsage, "empty"},
+		{"a blank optional input", InputOptional, []string{"  "}, nil, 2, CategoryUsage, "empty"},
+		{"an empty stdin", InputRequired, []string{"-"}, strings.NewReader(""), 2, CategoryUsage, "empty"},
+		{"a blank stdin", InputRequired, []string{"-"}, strings.NewReader(" \n\t\n"), 2, CategoryUsage, "empty"},
+		{"a stdin that cannot be read", InputRequired, []string{"-"}, &countingReader{}, 1, CategoryIO, "cannot read stdin"},
+		{"a binary file", InputRequired, []string{"early-nul.bin"}, nil, 2, CategoryUsage, "not a text file"},
+		{"a directory", InputRequired, []string{"adir"}, nil, 2, CategoryUsage, "is a directory"},
+		{"an issue for a command without a forge", InputRequired, []string{"https://github.com/o/r/issues/7"}, nil, 2, CategoryUsage, "does not read issues"},
+	} {
+		var rec recorder
+		app := newApp()
+		app.Register(rec.command(Command{Path: "X", Input: tc.mode}))
+		stdin := tc.stdin
+		if stdin == nil {
+			stdin = strings.NewReader("")
+		}
 
-	code, stdout, _ := invokeStdin(t, app, "multi\nline problem\n", "X", "-")
-	env := decode(t, stdout)
+		r := runWith(t, context.Background(), app, stdin, append([]string{"X"}, tc.args...)...)
+		env := r.env(t)
 
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0\n%s", code, stdout)
-	}
-	if at(env, "input", "kind") != "stdin" || at(env, "input", "origin") != "" {
-		t.Errorf("input = %v, want kind stdin and origin \"\"", env["input"])
-	}
-	if r.input.Body != "multi\nline problem" || r.input.Kind != KindStdin {
-		t.Errorf("recorded input = %+v, want the trimmed stdin", r.input)
+		if r.code != tc.code || at(env, "error", "category") != tc.category || !strings.Contains(at(env, "error", "message").(string), tc.want) || rec.ran != 0 {
+			t.Errorf("%s: exit %d, ran %d, envelope %s; want %s naming %q", tc.name, r.code, rec.ran, r.stdout, tc.category, tc.want)
+		}
 	}
 }
 
-// TestHTTPURLThatIsNotAnIssue_TS_05_36 verifies TS-05-36:
-// An http(s) URL that is not an issue URL is a usage error with a
-// self-hosting hint.
-// Verifies: 05-REQ-6.3
-func TestHTTPURLThatIsNotAnIssue_TS_05_36(t *testing.T) {
+func TestInput_AWebURLThatIsNoIssueIsUsageNamingTheAcceptedForms(t *testing.T) {
 	var requests atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests.Add(1) }))
 	defer srv.Close()
 	t.Setenv("GITHUB_API_URL", srv.URL)
 	t.Setenv("GITLAB_API_URL", srv.URL)
+	for _, arg := range []string{"https://example.com/some/page", "HTTP://github.com/o/r"} {
+		var rec recorder
+		app := newApp() // a real forge client, whose forge is the counting server
+		app.Register(rec.command(Command{Path: "X", Input: InputRequired, UsesForge: true}))
 
-	for _, arg := range []string{"https://example.com/some/page", "http://github.com/o/r"} {
-		t.Run(arg, func(t *testing.T) {
-			var r inputRecorder
-			app := newTestApp()
-			// A command that uses a forge, with a real client whose forge is
-			// the counting server: a request is possible, and none is made.
-			command := r.command(InputRequired)
-			command.UsesForge = true
-			app.Register(command)
+		r := run(t, app, "X", arg)
+		env := r.env(t)
 
-			code, stdout, _ := invoke(t, app, "X", arg)
-			env := decode(t, stdout)
-
-			if code != 2 || env["status"] != "usage" || r.ran != 0 {
-				t.Errorf("exit code %d, status %v, ran %d; want 2, usage, 0", code, env["status"], r.ran)
+		msg := at(env, "error", "message").(string)
+		hint := at(env, "error", "fix_hint", "env").(string) + " " + at(env, "error", "fix_hint", "suggest").(string)
+		if r.code != 2 || rec.ran != 0 || !strings.Contains(hint, "GITHUB_API_URL") || !strings.Contains(hint, "GITLAB_API_URL") {
+			t.Errorf("%s: exit %d, ran %d, envelope %s", arg, r.code, rec.ran, r.stdout)
+		}
+		for _, form := range []string{"github.com/<owner>/<repo>/issues/<number>", "/pull/<number>", "/-/issues/<number>", "/-/merge_requests/<number>"} {
+			if !strings.Contains(msg, form) {
+				t.Errorf("%s: message %q does not name %s", arg, msg, form)
 			}
-			msg, _ := at(env, "error", "message").(string)
-			for _, want := range []string{"github.com/<owner>/<repo>/issues/<number>", "/pull/<number>", "/-/issues/<number>", "/-/merge_requests/<number>"} {
-				if !strings.Contains(msg, want) {
-					t.Errorf("error.message = %q, want it to name the form %s", msg, want)
-				}
-			}
-			hint, _ := at(env, "error", "fix_hint").(map[string]any)
-			text := ""
-			for _, v := range hint {
-				text += v.(string) + " "
-			}
-			if !strings.Contains(text, "GITHUB_API_URL") || !strings.Contains(text, "GITLAB_API_URL") {
-				t.Errorf("fix_hint = %v, want it to name GITHUB_API_URL and GITLAB_API_URL", hint)
-			}
-		})
+		}
 	}
 	if n := requests.Load(); n != 0 {
 		t.Errorf("the forge saw %d requests, want none", n)
 	}
 }
 
-// TestFileIsReadWithAbsoluteOrigin_TS_05_37 verifies TS-05-37:
-// An existing file is read with kind file and an absolute origin.
-// Verifies: 05-REQ-6.4
-func TestFileIsReadWithAbsoluteOrigin_TS_05_37(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "bug.md"), []byte("the login fails\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Chdir(dir)
-	var r inputRecorder
-	app := newTestApp()
-	app.Register(r.command(InputRequired))
+func TestInput_AnOptionalOneMayBeLeftOut(t *testing.T) {
+	var rec recorder
+	app := newApp()
+	app.Register(rec.command(Command{Path: "X", Input: InputOptional}))
 
-	code, stdout, _ := invoke(t, app, "X", "bug.md")
-	env := decode(t, stdout)
+	r := run(t, app, "X")
 
-	if code != 0 || at(env, "input", "kind") != "file" {
-		t.Fatalf("exit code %d, input %v; want 0 and kind file", code, env["input"])
-	}
-	origin, _ := at(env, "input", "origin").(string)
-	want, _ := filepath.EvalSymlinks(filepath.Join(dir, "bug.md"))
-	got, _ := filepath.EvalSymlinks(origin)
-	if !filepath.IsAbs(origin) || got != want {
-		t.Errorf("origin = %q, want the absolute path of %q", origin, want)
-	}
-	if r.input.Body != "the login fails" {
-		t.Errorf("Body = %q, want the file's content", r.input.Body)
+	if r.code != 0 || rec.last.Input.Kind != KindNone || at(r.env(t), "input", "kind") != "none" {
+		t.Errorf("exit %d, input %+v", r.code, rec.last.Input)
 	}
 }
 
-// TestBinaryFileOrDirectoryIsUsage_TS_05_38 verifies TS-05-38:
-// A binary file or a directory is refused as usage.
-// Verifies: 05-REQ-6.5
-func TestBinaryFileOrDirectoryIsUsage_TS_05_38(t *testing.T) {
-	dir := t.TempDir()
-	binary := filepath.Join(dir, "early-nul.bin")
-	late := filepath.Join(dir, "late-nul.txt")
-	if err := os.WriteFile(binary, append([]byte("text"), 0, 'x'), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// The NUL is past the first 8 KiB, which is all that is looked at.
-	if err := os.WriteFile(late, append(bytes.Repeat([]byte("a"), 8192), 0, 'x'), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cases := []struct {
-		name string
-		arg  string
-		code int
-		want string
-	}{
-		{"a NUL in the first 8 KiB", binary, 2, "not a text file"},
-		{"a directory", dir, 2, "directory"},
-		{"a NUL after the first 8 KiB", late, 0, ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			var r inputRecorder
-			app := newTestApp()
-			app.Register(r.command(InputRequired))
-
-			code, stdout, _ := invoke(t, app, "X", tc.arg)
-			env := decode(t, stdout)
-
-			if code != tc.code {
-				t.Errorf("exit code = %d, want %d\n%s", code, tc.code, stdout)
-			}
-			if tc.code == 2 {
-				if env["status"] != "usage" || r.ran != 0 {
-					t.Errorf("status %v, ran %d; want usage, 0", env["status"], r.ran)
-				}
-				if msg, _ := at(env, "error", "message").(string); !strings.Contains(msg, tc.want) {
-					t.Errorf("error.message = %q, want it to contain %q", msg, tc.want)
-				}
-			}
-		})
-	}
-}
-
-// TestUnreadableFileIsIOFailure_TS_05_39 verifies TS-05-39:
-// An existing but unreadable file is failed/io.
-// Verifies: 05-REQ-6.5
-func TestUnreadableFileIsIOFailure_TS_05_39(t *testing.T) {
-	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
-		t.Skip("file permissions do not stop this user")
-	}
-	path := filepath.Join(t.TempDir(), "secret.md")
-	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(path, 0); err != nil {
-		t.Fatal(err)
-	}
-	var r inputRecorder
-	app := newTestApp()
-	app.Register(r.command(InputRequired))
-
-	code, stdout, _ := invoke(t, app, "X", path)
-	env := decode(t, stdout)
-
-	if code != 1 || env["status"] != "failed" || at(env, "error", "category") != CategoryIO || r.ran != 0 {
-		t.Errorf("exit code %d, status %v, category %v, ran %d; want 1, failed, io, 0", code, env["status"], at(env, "error", "category"), r.ran)
-	}
-}
-
-// TestAnythingElseIsTrimmedText_TS_05_40 verifies TS-05-40:
-// Anything else is text, trimmed.
-// Verifies: 05-REQ-6.6
-func TestAnythingElseIsTrimmedText_TS_05_40(t *testing.T) {
-	t.Chdir(t.TempDir())
-	var r inputRecorder
-	app := newTestApp()
-	app.Register(r.command(InputRequired))
-
-	code, stdout, _ := invoke(t, app, "X", "  fix the login bug  ")
-	env := decode(t, stdout)
-
-	if code != 0 || at(env, "input", "kind") != "text" || at(env, "input", "origin") != "" {
-		t.Errorf("exit code %d, input %v; want 0, kind text, origin \"\"", code, env["input"])
-	}
-	if r.input.Body != "fix the login bug" {
-		t.Errorf("Body = %q, want the trimmed text", r.input.Body)
-	}
-}
-
-// TestMissingOrBlankInputRefused_TS_05_41 verifies TS-05-41:
-// A missing or blank input is refused before the command runs.
-// Verifies: 05-REQ-6.7
-func TestMissingOrBlankInputRefused_TS_05_41(t *testing.T) {
-	t.Chdir(t.TempDir())
-	cases := []struct {
-		name  string
-		args  []string
-		stdin string
-	}{
-		{"no positional", []string{"X"}, ""},
-		{"blank text", []string{"X", "   "}, ""},
-		{"empty stdin", []string{"X", "-"}, ""},
-		{"blank stdin", []string{"X", "-"}, " \n\t\n"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			var r inputRecorder
-			app := newTestApp()
-			app.Register(r.command(InputRequired))
-
-			code, stdout, _ := invokeStdin(t, app, tc.stdin, tc.args...)
-
-			if code != 2 || decode(t, stdout)["status"] != "usage" || r.ran != 0 {
-				t.Errorf("exit code %d, status %v, ran %d; want 2, usage, 0", code, decode(t, stdout)["status"], r.ran)
-			}
-		})
-	}
-
-	// An optional input may be left out, but not left blank.
-	var r inputRecorder
-	app := newTestApp()
-	app.Register(r.command(InputOptional))
-	if code, _, _ := invoke(t, app, "X"); code != 0 || r.input.Kind != KindNone {
-		t.Errorf("optional input left out: exit code %d, kind %q; want 0, none", code, r.input.Kind)
-	}
-	if code, _, _ := invoke(t, app, "X", "  "); code != 2 {
-		t.Errorf("optional input left blank: exit code %d, want 2", code)
-	}
-}
-
-// TestEnvelopeInputReflectsResolvedInput_TS_05_42 verifies TS-05-42:
-// The envelope input object reflects the resolved input or none.
-// Verifies: 05-REQ-6.8
-func TestEnvelopeInputReflectsResolvedInput_TS_05_42(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "bug.md")
-	if err := os.WriteFile(path, []byte("broken"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var r inputRecorder
-	app := newTestApp()
-	app.Register(r.command(InputRequired))
-	app.Register(Command{Path: "bare", Run: func(*Run) (Outcome, error) { return Outcome{Status: StatusDone}, nil }})
-
-	t.Chdir(dir)
-	_, stdout, _ := invoke(t, app, "X", "bug.md")
-	input, _ := decode(t, stdout)["input"].(map[string]any)
-	origin, _ := input["origin"].(string)
-	wantOrigin, _ := filepath.EvalSymlinks(path)
-	gotOrigin, _ := filepath.EvalSymlinks(origin)
-	if input["kind"] != "file" || !filepath.IsAbs(origin) || gotOrigin != wantOrigin || input["truncated"] != false {
-		t.Errorf("input = %v, want kind file, the absolute path of %s as origin, truncated false", input, path)
-	}
-
-	_, stdout, _ = invoke(t, app, "bare")
-	input, _ = decode(t, stdout)["input"].(map[string]any)
-	if input["kind"] != "none" || input["origin"] != "" || input["truncated"] != false {
-		t.Errorf("input = %v, want kind none, origin \"\", truncated false", input)
-	}
-}
-
-// TestNoInputCommandReadsNothing guards the rule behind TS-05-34 and
-// TS-05-37: a command that declares no input never has its positional
-// argument read, from stdin or from the file system.
-func TestNoInputCommandReadsNothing(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
-	if err := os.WriteFile(filepath.Join(dir, "notes.bin"), []byte{0, 1, 2}, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var r recorder
-	app := newTestApp()
-	app.Register(r.command("X"))
+func TestInput_ACommandWithoutOneReadsNoArgument(t *testing.T) {
+	inputDir(t)
+	var rec recorder
+	app := newApp()
+	app.Register(rec.command(Command{Path: "X"}))
 	stdin := &countingReader{}
-
-	for _, arg := range []string{"-", "notes.bin", "https://example.com/page"} {
+	for _, arg := range []string{"-", "early-nul.bin", "https://example.com/page"} {
 		var out bytes.Buffer
-		code := app.Main(context.Background(), []string{"af", "X", arg}, stdin, &out, &bytes.Buffer{})
-		if code != 0 || len(r.args) != 1 || r.args[0] != arg {
-			t.Errorf("%q: exit code %d, args %q; want 0 and the argument as given\n%s", arg, code, r.args, out.String())
+		code := app.Main(context.Background(), []string{"af", "X", arg}, stdin, &out, io.Discard)
+		if code != 0 || !slices.Equal(rec.last.Args, []string{arg}) || rec.last.Input.Kind != KindNone {
+			t.Errorf("%q: exit %d, args %q, input %v", arg, code, rec.last.Args, rec.last.Input.Kind)
 		}
 	}
 	if stdin.reads != 0 {
@@ -342,118 +172,62 @@ func TestNoInputCommandReadsNothing(t *testing.T) {
 	}
 }
 
-type countingReader struct{ reads int }
+func TestInput_ReadingStdinGivesUpWhenTheRunIsCancelled(t *testing.T) {
+	stdin, w := io.Pipe() // a terminal nobody types into
+	defer w.Close()
+	var rec recorder
+	app := newApp()
+	app.Register(rec.command(Command{Path: "X", Input: InputRequired}))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 
-func (c *countingReader) Read([]byte) (int, error) {
-	c.reads++
-	return 0, os.ErrClosed
-}
+	r := runWith(t, ctx, app, stdin, "X", "-")
 
-// TestOversizedBodyIsCut_TS_05_44 verifies TS-05-44:
-// An oversized body is cut with the marker and a warning.
-// Verifies: 05-REQ-7.2
-func TestOversizedBodyIsCut_TS_05_44(t *testing.T) {
-	const marker = "\n[... input truncated at 131072 bytes ...]\n"
-	t.Chdir(t.TempDir())
-
-	t.Run("ascii", func(t *testing.T) {
-		var r inputRecorder
-		app := newTestApp()
-		app.Register(r.command(InputRequired))
-		body := strings.Repeat("a", 131072) + "bcd"
-
-		code, stdout, _ := invoke(t, app, "X", body)
-		env := decode(t, stdout)
-
-		if code != 0 {
-			t.Fatalf("exit code = %d\n%s", code, stdout)
-		}
-		if want := strings.Repeat("a", 131072) + marker; r.input.Body != want {
-			t.Errorf("Body is %d bytes and ends %q, want the first 131072 bytes and the marker", len(r.input.Body), tail(r.input.Body, 60))
-		}
-		if at(env, "input", "truncated") != true || !contains(warningCodes(env), "input_truncated") {
-			t.Errorf("input.truncated = %v, warnings = %v; want true and input_truncated", at(env, "input", "truncated"), warningCodes(env))
-		}
-	})
-
-	t.Run("a rune on the limit is dropped whole", func(t *testing.T) {
-		var r inputRecorder
-		app := newTestApp()
-		app.Register(r.command(InputRequired))
-		// "é" takes bytes 131071 and 131072.
-		body := strings.Repeat("a", 131071) + "é" + "tail"
-
-		invoke(t, app, "X", body)
-
-		if want := strings.Repeat("a", 131071) + marker; r.input.Body != want {
-			t.Errorf("Body is %d bytes, want 131071 bytes and the marker", len(r.input.Body))
-		}
-	})
-
-	t.Run("a body at the limit is whole", func(t *testing.T) {
-		var r inputRecorder
-		app := newTestApp()
-		app.Register(r.command(InputRequired))
-
-		_, stdout, _ := invoke(t, app, "X", strings.Repeat("a", 131072))
-
-		if r.input.Truncated || len(r.input.Body) != 131072 || at(decode(t, stdout), "input", "truncated") != false {
-			t.Errorf("a body of exactly 131072 bytes was cut (truncated %v, %d bytes)", r.input.Truncated, len(r.input.Body))
-		}
-	})
-}
-
-// tail is the last n bytes of s, or all of it.
-func tail(s string, n int) string {
-	if len(s) <= n {
-		return s
+	if r.code != 1 || at(r.env(t), "error", "category") != CategoryCancelled || rec.ran != 0 {
+		t.Errorf("exit %d, ran %d, envelope %s; want cancelled", r.code, rec.ran, r.stdout)
 	}
-	return s[len(s)-n:]
 }
 
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
+func TestInput_AFileThatCannotBeReadIsAnIOFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("file permissions do not stop root")
+	}
+	path := testutil.WriteFile(t, t.TempDir(), "secret.md", "x")
+	if err := os.Chmod(path, 0); err != nil {
+		t.Fatal(err)
+	}
+	var rec recorder
+	app := newApp()
+	app.Register(rec.command(Command{Path: "X", Input: InputRequired}))
+
+	if r := run(t, app, "X", path); r.code != 1 || at(r.env(t), "error", "category") != CategoryIO || rec.ran != 0 {
+		t.Errorf("exit %d, ran %d, envelope %s; want an io failure", r.code, rec.ran, r.stdout)
+	}
+}
+
+func TestTruncate_CutsAtTheLastRuneBoundaryAndMarksTheCut(t *testing.T) {
+	a := func(n int) string { return strings.Repeat("a", n) }
+	for _, tc := range []struct {
+		name, in, want string
+		cut            bool
+	}{
+		{"a body below the limit", "short", "short", false},
+		{"a body at the limit", a(MaxInputBytes), a(MaxInputBytes), false},
+		{"a body over the limit", a(MaxInputBytes) + "bcd", a(MaxInputBytes) + TruncationMarker, true},
+		{"a rune across the limit", a(MaxInputBytes-1) + "é" + "tail", a(MaxInputBytes-1) + TruncationMarker, true},
+	} {
+		if got, cut := Truncate(tc.in); got != tc.want || cut != tc.cut {
+			t.Errorf("%s: %d bytes, cut %v; want %d bytes, cut %v", tc.name, len(got), cut, len(tc.want), tc.cut)
 		}
 	}
-	return false
-}
-
-// TestTruncateProperty_TS_05_45 verifies TS-05-45:
-// Truncation always yields valid UTF-8 within the bound and is the identity
-// below it.
-// Verifies: 05-REQ-7.3
-func TestTruncateProperty_TS_05_45(t *testing.T) {
-	const marker = "\n[... input truncated at 131072 bytes ...]\n"
-	runes := []rune{'a', 'é', '€', '😀'} // 1, 2, 3 and 4 bytes
-	rng := rand.New(rand.NewPCG(45, 7))
-
-	for i := range 120 {
-		// Sizes cluster around the limit, where the cut falls inside a rune.
-		target := rng.IntN(300001)
-		if i%3 == 0 {
-			target = 131072 - 4 + rng.IntN(9)
-		}
-		var b strings.Builder
-		for b.Len() < target {
-			b.WriteRune(runes[rng.IntN(len(runes))])
-		}
-		s := b.String()
-
-		got, cut := Truncate(s)
-
-		if !utf8.ValidString(got) {
-			t.Fatalf("#%d: Truncate of %d bytes is not valid UTF-8", i, len(s))
-		}
-		if len(got) > 131072+len(marker) {
-			t.Fatalf("#%d: Truncate of %d bytes is %d bytes", i, len(s), len(got))
-		}
-		if len(s) <= 131072 && (got != s || cut) {
-			t.Fatalf("#%d: Truncate changed a body of %d bytes", i, len(s))
-		}
-		if len(s) > 131072 && (!cut || !strings.HasSuffix(got, marker) || !strings.HasPrefix(s, strings.TrimSuffix(got, marker))) {
-			t.Fatalf("#%d: Truncate of %d bytes did not cut the body at a prefix and mark it", i, len(s))
+	for _, r := range []string{"é", "€", "😀"} {
+		for pad := range 4 {
+			in := a(MaxInputBytes-4+pad) + strings.Repeat(r, 3)
+			got, cut := Truncate(in)
+			body := strings.TrimSuffix(got, TruncationMarker)
+			if !cut || !utf8.ValidString(got) || len(body) > MaxInputBytes || !strings.HasPrefix(in, body) || len(body) < MaxInputBytes-len(r)+1 {
+				t.Errorf("%q after %d bytes: cut %v, a body of %d bytes", r, MaxInputBytes-4+pad, cut, len(body))
+			}
 		}
 	}
 }

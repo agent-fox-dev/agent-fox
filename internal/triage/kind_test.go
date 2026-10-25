@@ -1,77 +1,63 @@
 package triage
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/agent-fox-dev/agentkit-go/schema"
 
 	"github.com/agent-fox-dev/agentfox/internal/submission"
+	"github.com/agent-fox-dev/agentfox/internal/testutil"
 )
 
-var nineNames = []string{"read_file", "list_files", "find_files", "search_files", "file_outline", "find_symbol", "find_references", "code_search", "file_diagnosis"}
-
-// TestTheAllowlistIsReadOnlyAndHoldsTheTerminatingTool_TS_08_26 verifies TS-08-26:
-// a subset of the nine names, file_diagnosis always, code_search and the rest
-// only when the hands offer them, and never a tool that writes or runs.
-// Verifies: 08-REQ-4.3
-func TestTheAllowlistIsReadOnlyAndHoldsTheTerminatingTool_TS_08_26(t *testing.T) {
-	all := []string{"read_file", "write_file", "edit_file", "list_files", "find_files", "search_files", "file_outline", "find_symbol", "find_references", "execute", "run_command", "code_search"}
-	got := Allowlist(all)
-	for _, name := range got {
-		if !slices.Contains(nineNames, name) {
-			t.Errorf("%s is on the allowlist, which has only the nine names", name)
+// The allowlist is the read-only tools the hands offer and file_diagnosis,
+// never a tool that writes or runs; the tools of a box are the same without
+// file_diagnosis.
+func TestAllowlist_IsTheReadOnlyToolsOfferedAndTheTerminatingTool(t *testing.T) {
+	readOnly := []string{"read_file", "list_files", "find_files", "search_files", "file_outline", "find_symbol", "find_references", "code_search"}
+	for _, tc := range []struct {
+		offered, want []string
+	}{
+		{append([]string{"write_file", "edit_file", "execute", "run_command"}, readOnly...), append(slices.Clone(readOnly), ToolName)},
+		{[]string{"find_symbol", "read_file", "write_file", "unheard_of"}, []string{"read_file", "find_symbol", ToolName}},
+		{nil, []string{ToolName}},
+	} {
+		if got := Allowlist(tc.offered); !slices.Equal(got, tc.want) {
+			t.Errorf("Allowlist(%v) = %v, want %v", tc.offered, got, tc.want)
 		}
-	}
-	for _, name := range nineNames {
-		if !slices.Contains(got, name) {
-			t.Errorf("%s is missing from the allowlist of a toolset that offers everything: %v", name, got)
+		if got := BoxTools(tc.offered); !slices.Equal(got, tc.want[:len(tc.want)-1]) {
+			t.Errorf("BoxTools(%v) = %v, want the allowlist without %s", tc.offered, got, ToolName)
 		}
-	}
-	for _, name := range []string{"write_file", "edit_file", "execute", "run_command"} {
-		if slices.Contains(got, name) {
-			t.Errorf("%s is on the allowlist", name)
-		}
-	}
-
-	fewer := Allowlist([]string{"read_file", "list_files", "find_files", "search_files", "file_outline", "find_symbol", "write_file", "run_command", "unheard_of"})
-	for _, absent := range []string{"find_references", "code_search", "write_file", "run_command", "unheard_of"} {
-		if slices.Contains(fewer, absent) {
-			t.Errorf("%s is on the allowlist of a toolset without it: %v", absent, fewer)
-		}
-	}
-	if !slices.Contains(fewer, "file_diagnosis") || !slices.Contains(fewer, "read_file") {
-		t.Errorf("allowlist = %v, want file_diagnosis and read_file", fewer)
-	}
-	if only := Allowlist(nil); !slices.Equal(only, []string{"file_diagnosis"}) {
-		t.Errorf("a toolset that offers nothing: %v, want the terminating tool alone", only)
-	}
-
-	box := BoxTools(all)
-	if slices.Contains(box, "file_diagnosis") || len(box) != len(got)-1 {
-		t.Errorf("BoxTools = %v, want the allowlist without file_diagnosis", box)
 	}
 }
 
-// inProcessTree is a tree with a.go and a run.json for kind triage, and the
-// target of an in-process submit over it.
+// The tools a brief allows before a box says what it offers are the read-only
+// ones, in a list the caller may change.
+func TestBriefTools_AreTheReadOnlyToolsAndACopy(t *testing.T) {
+	tools := BriefTools()
+	if got := BoxTools(tools); !slices.Equal(got, tools) || slices.Contains(tools, ToolName) || slices.Contains(tools, "write_file") {
+		t.Errorf("BriefTools = %v, want every read-only tool and nothing else", tools)
+	}
+	tools[0] = "changed"
+	if BriefTools()[0] == "changed" {
+		t.Error("BriefTools returned the list it keeps, not a copy")
+	}
+}
+
+// inProcessTree is a checkout with a.go, whose last line has no newline, and a
+// run.json for kind triage, and the target of an in-process submit over it.
 func inProcessTree(t *testing.T) (dir string, target submission.Target) {
 	t.Helper()
-	dir = plainTree(t, map[string]string{"a.go": "package a\n\nfunc A() {}\n\nfunc B() {}\n"})
-	runDir := filepath.Join(dir, ".agent-fox", "run", testRun)
-	if err := os.MkdirAll(runDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	run, _ := json.Marshal(submission.Run{RunID: testRun, Kind: KindName, Attempt: 1, Nonce: "0123456789abcdef"})
-	if err := os.WriteFile(filepath.Join(runDir, "run.json"), run, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	dir = plainTree(t, map[string]string{"a.go": "package a\n\nfunc A() {}\n\nfunc B() {}"})
+	run := testutil.JSON(t, submission.Run{RunID: testRun, Kind: KindName, Attempt: 1, Nonce: "0123456789abcdef"})
+	testutil.WriteFile(t, dir, ".agent-fox/run/"+testRun+"/run.json", string(run))
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -80,155 +66,146 @@ func inProcessTree(t *testing.T) (dir string, target submission.Target) {
 	return dir, submission.Target{Tree: root.FS(), Write: submission.RootWriter(root), RunID: testRun}
 }
 
-func diagnosisFor(path string, mutate func(map[string]any)) []byte {
-	m := map[string]any{
-		"title": "A fails", "severity": "high", "confidence": "probable", "root_cause": "A does the wrong thing.",
-		"affected_files": []any{map[string]any{"path": path, "note": "the function"}},
-		"suggested_fix":  "Do the right thing.", "acceptance_criteria": []any{"A does the right thing"},
-	}
-	if mutate != nil {
-		mutate(m)
-	}
-	data, _ := json.Marshal(m)
-	return data
-}
-
-// TestBriefToolsAreTheReadOnlyToolsOfTheHandsAndACopy guards the list that the request
-// for a triage box is computed from, before any box is open to say what it offers: the
-// read-only tools, none that writes or runs a command (so a brain on the host needs no
-// network), and a list that the caller may change.
-func TestBriefToolsAreTheReadOnlyToolsOfTheHandsAndACopy(t *testing.T) {
-	tools := BriefTools()
-
-	for _, want := range []string{"read_file", "list_files", "find_files", "search_files"} {
-		if !slices.Contains(tools, want) {
-			t.Errorf("BriefTools = %v, want %s", tools, want)
-		}
-	}
-	for _, never := range []string{"write_file", "edit_file", "execute", "run_command", ToolName} {
-		if slices.Contains(tools, never) {
-			t.Errorf("BriefTools = %v, want no %s: the tool of the box ends the run in the brain, and the rest write or run", tools, never)
-		}
-	}
-	if allowed := BoxTools(tools); !slices.Equal(allowed, tools) {
-		t.Errorf("BoxTools(BriefTools()) = %v, want all of %v: the allowlist keeps every one", allowed, tools)
-	}
-	tools[0] = "changed"
-	if again := BriefTools(); again[0] == "changed" {
-		t.Error("BriefTools returned the list it keeps, not a copy")
-	}
-}
-
-// TestTheKindMakesFileDiagnosisWriteTheSubmission_TS_08_27 verifies TS-08-27:
-// the kind has the tool name and the schema of a diagnosis, and a call with a
-// valid diagnosis writes submission.json in the brain's tree, normalized.
-// Verifies: 08-REQ-4.4
-func TestTheKindMakesFileDiagnosisWriteTheSubmission_TS_08_27(t *testing.T) {
+// A call of file_diagnosis with a valid diagnosis writes submission.json in
+// the brain's tree, in the normalized form.
+func TestKind_FileDiagnosisWritesTheNormalizedSubmission(t *testing.T) {
 	dir, target := inProcessTree(t)
 	kind := Kind(dir)
-
-	if kind.Name != KindName || kind.ToolName != "file_diagnosis" || !bytes.Equal(kind.Schema, Schema()) || kind.Validate == nil || kind.Description == "" {
+	if kind.Name != KindName || kind.ToolName != ToolName || kind.Description == "" {
 		t.Fatalf("kind = %+v", kind)
 	}
 	if _, err := schema.Parse(kind.Schema); err != nil {
-		t.Fatalf("the schema of the tool cannot be used by the driver: %v", err)
+		t.Fatalf("the driver cannot use the schema of the tool: %v", err)
 	}
 
-	receipt, err := submission.Submit(context.Background(), target, kind, diagnosisFor("./a.go:3", nil), time.Now())
+	receipt, err := submission.Submit(context.Background(), target, kind, citing(t, "./a.go:5"), time.Now())
 
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, ".agent-fox", "run", testRun, "submission.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var file struct {
+	file := testutil.Decode[struct {
 		Kind    string
 		Payload Diagnosis
-	}
-	if err := json.Unmarshal(data, &file); err != nil {
-		t.Fatal(err)
-	}
-	if file.Kind != KindName || file.Payload.AffectedFiles[0] != (AffectedFile{Path: "a.go", Line: 3, Note: "the function"}) {
-		t.Errorf("submission = %+v, want the normalized path a.go and line 3", file)
+	}](t, []byte(testutil.ReadFile(t, filepath.Join(dir, ".agent-fox", "run", testRun, "submission.json"))))
+	if file.Kind != KindName || file.Payload.AffectedFiles[0] != (AffectedFile{Path: "a.go", Line: 5, Note: "the function"}) {
+		t.Errorf("submission = %+v, want the normalized path a.go and line 5", file)
 	}
 	if receipt.Path != ".agent-fox/run/"+testRun+"/submission.json" {
 		t.Errorf("receipt = %+v", receipt)
 	}
 }
 
-// TestADiagnosisSchemaHasTheFieldsOfTheType guards 08-REQ-4.4: the schema that
-// the driver shows the model names the fields that Validate reads.
-func TestADiagnosisSchemaHasTheFieldsOfTheType(t *testing.T) {
-	var s struct {
-		Required   []string
-		Properties map[string]json.RawMessage
-	}
-	if err := json.Unmarshal(Schema(), &s); err != nil {
-		t.Fatal(err)
-	}
-	var have []string
-	for name := range s.Properties {
-		have = append(have, name)
-	}
-	slices.Sort(have)
-	want := slices.Clone(fieldNames)
-	slices.Sort(want)
-	if !slices.Equal(have, want) {
-		t.Errorf("the schema has %v, want %v", have, want)
-	}
-	if want := []string{"title", "severity", "confidence", "root_cause", "affected_files", "suggested_fix", "acceptance_criteria"}; !slices.Equal(s.Required, want) {
-		t.Errorf("required = %v, want %v", s.Required, want)
-	}
-	// What the schema calls valid, Validate accepts.
-	if _, problems := Validate(diagnosisFor("main.go", nil), testTree()); len(problems) != 0 {
-		t.Errorf("a diagnosis of the shape of the schema: %v", problems)
+// The kind refuses a diagnosis with the problems of the validator, the lines
+// counted in the tree the submission is made in, and refuses all when the
+// checkout cannot be listed.
+func TestKind_RefusesWhatDoesNotHoldInTheTree(t *testing.T) {
+	dir, target := inProcessTree(t)
+	for name, tc := range map[string]struct {
+		kind          submission.Kind
+		tree          fstest.MapFS
+		payload       []byte
+		pointer, text string
+	}{
+		"a line past the end":       {Kind(dir), nil, citing(t, "a.go:6"), "/affected_files/0/line", "is 6, and a.go has 5 lines"},
+		"a file the box has not":    {Kind(dir), fstest.MapFS{}, citing(t, "a.go:1"), "/affected_files/0/line", "cannot be checked"},
+		"a payload that is no JSON": {Kind(dir), nil, []byte("{"), "", "the payload is not valid JSON"},
+		"no checkout":               {Kind(filepath.Join(dir, "missing")), nil, citing(t, "a.go"), "", "the files of the repository could not be listed"},
+	} {
+		tree := target.Tree
+		if tc.tree != nil {
+			tree = tc.tree
+		}
+
+		normalized, problems := tc.kind.Validate(context.Background(), tree, tc.payload)
+
+		if normalized != nil || len(problems) != 1 || problems[0].Path != tc.pointer || !strings.HasPrefix(problems[0].Message, tc.text) {
+			t.Errorf("%s: %s, %+v, want the problem %s: %s", name, normalized, problems, tc.pointer, tc.text)
+		}
 	}
 }
 
-// TestTheTaskBlockIsAdaptedToTheBoundsOfTheRun guards 08-REQ-4.7: the task block that was
-// placed in a box gets the bounds of the run that is about to start, and keeps the rest.
-func TestTheTaskBlockIsAdaptedToTheBoundsOfTheRun(t *testing.T) {
-	dir := goTree(t)
-	p := params(dir, issueReport("body"))
+// A call of file_diagnosis that is refused writes nothing and answers with
+// every problem at its pointer, which the brain reads on its next turn; the
+// call that corrects them is accepted.
+func TestKind_ARefusedCallAnswersWithEveryProblem(t *testing.T) {
+	dir, target := inProcessTree(t)
+	kind := Kind(dir)
+	bad := payloadOf(t, with(func(m map[string]any) {
+		m["severity"] = "urgent"
+		m["affected_files"] = []any{map[string]any{"path": "missing.go", "note": "n"}}
+	}))
+
+	_, err := submission.Submit(context.Background(), target, kind, bad, time.Now())
+
+	var refused *submission.Refused
+	if !errors.As(err, &refused) || len(refused.Problems) != 2 || refused.Problems[0].Path != "/affected_files/0/path" || refused.Problems[1].Path != "/severity" ||
+		!strings.Contains(err.Error(), `unresolved path "missing.go"`) {
+		t.Fatalf("err = %v, want both problems, at their pointers", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".agent-fox", "run", testRun, "submission.json")); err == nil {
+		t.Error("a refused call wrote submission.json")
+	}
+	if _, err := submission.Submit(context.Background(), target, kind, citing(t, "a.go"), time.Now()); err != nil {
+		t.Errorf("the corrected call: %v", err)
+	}
+}
+
+// A cited link is a file of the repository only when it leads to one inside
+// the checkout.
+func TestKind_ACitedLinkMustLeadToAFileInsideTheCheckout(t *testing.T) {
+	dir, target := inProcessTree(t)
+	outside := testutil.WriteFile(t, t.TempDir(), "outside.go", "package x\n")
+	for name, to := range map[string]string{"inside.go": "a.go", "outside.go": outside, "dir": "."} {
+		if err := os.Symlink(to, filepath.Join(dir, name)); err != nil {
+			t.Skipf("no symbolic links here: %v", err)
+		}
+	}
+	for cited, ok := range map[string]bool{"inside.go": true, "outside.go": false, "dir": false, dir + "/inside.go": true, outside: false} {
+		_, problems := Kind(dir).Validate(context.Background(), target.Tree, citing(t, cited))
+		if ok != (len(problems) == 0) || (!ok && (len(problems) != 1 || problems[0].Path != "/affected_files/0/path")) {
+			t.Errorf("%s: problems = %+v, want accepted %v", cited, problems, ok)
+		}
+	}
+}
+
+// The workspace of a box is another root of the tree, as is the checkout under
+// the name a link gives it; a path under no root is refused.
+func TestKind_APathUnderAnyRootOfTheTreeIsAPathOfTheRepository(t *testing.T) {
+	dir, target := inProcessTree(t)
+	links := t.TempDir()
+	workspace := t.TempDir()
+	for name, to := range map[string]string{"checkout": dir, "workspace": workspace} {
+		if err := os.Symlink(to, filepath.Join(links, name)); err != nil {
+			t.Skipf("no symbolic links here: %v", err)
+		}
+	}
+	kind := Kind(filepath.Join(links, "checkout"), filepath.Join(links, "workspace"))
+
+	for _, root := range []string{dir, filepath.Join(links, "checkout"), workspace, filepath.Join(links, "workspace")} {
+		if _, problems := kind.Validate(context.Background(), target.Tree, citing(t, root+"/a.go")); len(problems) != 0 {
+			t.Errorf("%s/a.go: problems = %v, want the path taken as a.go", root, problems)
+		}
+	}
+	if _, problems := kind.Validate(context.Background(), target.Tree, citing(t, filepath.Join(t.TempDir(), "a.go"))); len(problems) != 1 {
+		t.Errorf("a path under no root: problems = %v, want one", problems)
+	}
+}
+
+// The task block placed in a box gets the bounds of the run about to start,
+// and keeps the rest.
+func TestAdaptTask_GivesTheTaskBlockTheBoundsOfTheRun(t *testing.T) {
+	p := params(goTree(t), issueReport("body"))
 	p.Context = []string{"B"}
 	p.PreviousQuestion = &Question{Text: "Which?", Options: []string{"x", "y"}}
 	task := build(t, p).Task
-	bounds := Bounds{MaxTurns: 7, MaxCostUSD: 0.5, Timeout: 90 * time.Second}
+	p.Bounds = Bounds{MaxTurns: 7, MaxCostUSD: 0.5, Timeout: 90 * time.Second}
 
-	adapted := AdaptTask(task, bounds)
+	adapted := AdaptTask(task, p.Bounds)
 
-	p.Bounds = bounds
 	if want := build(t, p).Task; adapted != want {
 		t.Errorf("adapted task block:\n%s\nwant the block rendered with the bounds:\n%s", adapted, want)
 	}
-	if again := AdaptTask(adapted, bounds); again != adapted {
-		t.Error("adapting a block that is adapted already changes it")
-	}
-}
-
-// TestAPathInTheWorkspaceOfTheBoxIsAPathOfTheRepository guards 08-REQ-5.4 for the
-// kind of a box: the workspace is another root of the tree, also under the name a
-// link gives it, and a path under neither is refused.
-func TestAPathInTheWorkspaceOfTheBoxIsAPathOfTheRepository(t *testing.T) {
-	dir, target := inProcessTree(t)
-	workspace, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	link := filepath.Join(t.TempDir(), "workspace-link")
-	if err := os.Symlink(workspace, link); err != nil {
-		t.Skipf("no symbolic links here: %v", err)
-	}
-	kind := Kind(dir, link)
-
-	for _, cited := range []string{workspace + "/a.go", link + "/a.go", dir + "/a.go"} {
-		if _, problems := kind.Validate(context.Background(), target.Tree, diagnosisFor(cited, nil)); len(problems) != 0 {
-			t.Errorf("%s: problems = %v, want the path taken as a.go", cited, problems)
-		}
-	}
-	if _, problems := kind.Validate(context.Background(), target.Tree, diagnosisFor(filepath.Join(t.TempDir(), "a.go"), nil)); len(problems) != 1 {
-		t.Errorf("a path under no root: problems = %v, want one", problems)
+	if AdaptTask(adapted, p.Bounds) != adapted || AdaptTask("no bounds here", p.Bounds) != "no bounds here" {
+		t.Error("adapting a block that is adapted already, or that has no bounds, changes it")
 	}
 }

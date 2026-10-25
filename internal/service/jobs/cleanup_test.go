@@ -2,803 +2,391 @@ package jobs_test
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
-	"net/http"
 	"slices"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/agent-fox-dev/agentfox/internal/hub"
-	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
-	"github.com/agent-fox-dev/agentfox/internal/service/jobs/fakeclock"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs/fakerunner"
-	"github.com/agent-fox-dev/agentfox/internal/service/labelcleanup"
+	"github.com/agent-fox-dev/agentfox/internal/testutil"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
-// fakeCleaner is a cleaner of the cancel cleanup that a test scripts: it records every try and answers what result says,
-// done with nothing written when result is nil. A try waits for hold to be closed when hold is set.
-type fakeCleaner struct {
-	mu     sync.Mutex
-	tries  []jobs.CleanupRequest
-	result func(jobs.CleanupRequest) jobs.CleanupResult
-	hold   chan struct{}
-	active int
-	most   int
-}
-
-func (c *fakeCleaner) Clean(ctx context.Context, req jobs.CleanupRequest) jobs.CleanupResult {
-	c.mu.Lock()
-	c.tries = append(c.tries, req)
-	c.active++
-	c.most = max(c.most, c.active)
-	hold, result := c.hold, c.result
-	c.mu.Unlock()
-	defer func() {
-		c.mu.Lock()
-		c.active--
-		c.mu.Unlock()
-	}()
-	if hold != nil {
-		select {
-		case <-hold:
-		case <-ctx.Done():
-			return jobs.CleanupResult{Outcome: jobs.CleanupPending}
-		}
-	}
-	if result == nil {
-		return jobs.CleanupResult{Outcome: jobs.CleanupDone, RequestLabelOn: req.RequestLabel != ""}
-	}
-	return result(req)
-}
-
-// Tries are the tries made so far.
-func (c *fakeCleaner) Tries() []jobs.CleanupRequest {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return slices.Clone(c.tries)
-}
-
-// withCleaner is a configuration that gives the service the cleaner.
-func withCleaner(c jobs.Cleaner) func(*jobs.Config) {
-	return func(cfg *jobs.Config) { cfg.Cleaner = c }
-}
-
-// cleanupOf is the job's labels.cleanup, "" when it is null.
-func cleanupOf(d jobs.Doc) string {
-	if d.Labels == nil || d.Labels.Cleanup == nil {
-		return ""
-	}
-	return *d.Labels.Cleanup
-}
-
-// blockedJob makes a job of the label for the issue that ends blocked with needs-human set, and returns it.
-func (e *env) blockedJob(r *fakerunner.Runner, workspace string, issue int) jobs.Doc {
-	e.t.Helper()
-	r.Then(fakerunner.Return(jobs.Result{
-		Envelope:  fakerunner.Env(toolio.StatusNeedsHuman, fakerunner.WithQuestion("Which?", "a")),
-		LabelsSet: []string{"af:needs-human"}, LabelsRemoved: []string{"af:in-progress"},
-	}))
-	doc := e.createFromLabel(workspace, issue, "af:fix")
-	return e.waitState(doc.ID, jobs.StateBlocked)
-}
-
-// TestAJobWithoutAnIssueOrCancelledForAnotherCauseIsMarkedNoCleanup_TS_17_32 verifies TS-17-32.
-// Verifies: 17-REQ-5.4
-func TestAJobWithoutAnIssueOrCancelledForAnotherCauseIsMarkedNoCleanup_TS_17_32(t *testing.T) {
-	c := &fakeCleaner{}
-	e := newEnv(t, withCleaner(c), withoutEnqueue())
-	r := e.call("POST", "/api/v1/workspaces/widgets/triage", map[string]any{"text": "the build is red", "title": "red"})
-	if r.Status != http.StatusAccepted {
-		t.Fatalf("create a text triage: %d %s", r.Status, r.Body)
-	}
-	text := r.Doc(t)
-	if d := e.cancel(text.ID).Doc(t); d.State != jobs.StateCancelled || cleanupOf(d) != "" {
-		t.Errorf("a text triage: state %s, labels %+v; want cancelled and no cleanup", d.State, d.Labels)
-	}
-	other := e.createFromLabel("widgets", 42, "af:fix")
-	if err := e.Svc.CancelFor(ctx, other.ID, errors.New("the issue was closed")); err != nil {
-		t.Fatal(err)
-	}
-	if d := e.get(other.ID); d.State != jobs.StateCancelled || cleanupOf(d) != "" {
-		t.Errorf("another cause: state %s, labels %+v; want cancelled and no cleanup", d.State, d.Labels)
-	}
-	time.Sleep(50 * time.Millisecond)
-	if n := len(c.Tries()); n != 0 {
-		t.Errorf("%d tries, want none", n)
-	}
-}
-
-// TestOnlyOneTryOfAJobsCleanupRunsAtATime_TS_17_33 verifies TS-17-33: while a try is in flight, a further start of a try of
-// the same job starts none; once it has ended, a later start does.
-// Verifies: 17-REQ-5.5
-func TestOnlyOneTryOfAJobsCleanupRunsAtATime_TS_17_33(t *testing.T) {
-	c := &fakeCleaner{hold: make(chan struct{}), result: func(jobs.CleanupRequest) jobs.CleanupResult {
-		return jobs.CleanupResult{Outcome: jobs.CleanupPending, Level: slog.LevelWarn, Message: "hub is unavailable"}
-	}}
-	clk := fakeclock.New(epoch)
-	e := newEnv(t, withCleaner(c), withoutEnqueue(), withClock(clk))
-	e.Start()
-	job := e.createFromLabel("widgets", 42, "af:fix")
-	clk.Advance(30 * time.Second) // so that the try's minute holds one sweep and ends between two
-	if d := e.cancel(job.ID).Doc(t); cleanupOf(d) != "pending" {
-		t.Fatalf("labels = %+v, want cleanup pending", d.Labels)
-	}
-	waitFor(t, "the first try", func() bool { return len(c.Tries()) == 1 })
-	clk.Advance(40 * time.Second) // a sweep, which would start a try of the pending cleanup
-	for range 3 {                 // and starts asked for directly
-		e.Svc.TryCleanup(job.ID)
-	}
-	time.Sleep(50 * time.Millisecond)
-	if n := len(c.Tries()); n != 1 {
-		t.Fatalf("%d tries while the first was in flight, want 1", n)
-	}
-	close(c.hold)
-	waitFor(t, "the first try to end", func() bool { return e.Svc.CleanupsInFlight() == 0 })
-	clk.Advance(time.Minute)
-	waitFor(t, "the next sweep's try", func() bool { return len(c.Tries()) == 2 })
-}
-
-// TestACancelOfARunWhoseRunnerWasNotYetCalledMarksTheCleanupAtOnce_TS_17_29 verifies the part of TS-17-29 that needs a run
-// of this process: an attempt that was claimed and whose run is registered, but whose runner was not yet called, gets its
-// cleanup marked with the cancel, and the answer shows it pending.
-// Verifies: 17-REQ-5.1
-func TestACancelOfARunWhoseRunnerWasNotYetCalledMarksTheCleanupAtOnce_TS_17_29(t *testing.T) {
-	c := &fakeCleaner{}
-	e := newEnv(t, withCleaner(c), withoutEnqueue())
-	job := e.createFromLabel("widgets", 42, "af:fix")
-	e.exec("UPDATE af_attempts SET state = 'running' WHERE job_id = ?", job.ID)
-	e.exec("UPDATE af_jobs SET state = 'running' WHERE id = ?", job.ID)
-	forget := e.Svc.RegisterRun(job.ID, 1) // claimed, its run known, its runner not called
-	defer forget()
-	if d := e.cancel(job.ID).Doc(t); cleanupOf(d) != "pending" {
-		t.Errorf("labels = %+v, want cleanup pending in the cancel's answer", d.Labels)
-	}
-	waitFor(t, "the try", func() bool { return len(c.Tries()) == 1 })
-}
-
-// TestAWantedCleanupWhoseAttemptIsNotRecordedReadsPending_TS_17_61 verifies the read that the poll's holds rest on: a job
-// cancelled with its cleanup wanted (its cancel found the attempt running) reads as having a cleanup pending until the
-// attempt is recorded, so that the poll neither ends its hold nor starts its release clock in that moment.
-// Verifies: 17-REQ-10.4, 17-REQ-10.1
-func TestAWantedCleanupWhoseAttemptIsNotRecordedReadsPending_TS_17_61(t *testing.T) {
-	e := newEnv(t, withCleaner(&fakeCleaner{}), withoutEnqueue())
-	job := e.createFromLabel("widgets", 42, "af:fix")
-	e.exec("UPDATE af_attempts SET state = 'running' WHERE job_id = ?", job.ID)
-	e.exec("UPDATE af_jobs SET state = 'cancelled', finished_at = '2026-10-22T08:00:00.000Z', cleanup_wanted = 1 WHERE id = ?", job.ID)
-	st, err := e.Svc.Standing(ctx, job.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !st.CleanupPending || st.CancelledInRunner || st.CleanupPutBack {
-		t.Errorf("standing %+v, want the cleanup pending while the attempt is not recorded", st)
-	}
-	e.exec("UPDATE af_attempts SET state = 'cancelled' WHERE job_id = ?", job.ID)
-	if st, _ := e.Svc.Standing(ctx, job.ID); st.CleanupPending {
-		t.Errorf("standing %+v after the attempt was recorded with no cleanup marked, want none pending", st)
-	}
-}
-
-// TestALayerWithoutACleanerMarksNoCleanup_TS_17_34 verifies TS-17-34.
-// Verifies: 17-REQ-5.6
-func TestALayerWithoutACleanerMarksNoCleanup_TS_17_34(t *testing.T) {
-	r := fakerunner.New(fakerunner.Block(fakerunner.Done()))
-	e := newEnv(t, withRunner(r))
-	e.addWorkspace("gadgets")
-	e.Start()
-	running := e.create("widgets", jobs.KindFix, 6)
-	waitCalls(t, r, 1)
-	queued := e.createFromLabel("widgets", 8, "af:fix") // behind the running job of widgets
-	blocked := e.blockedJob(r, "gadgets", 7)
-	if d := e.get(queued.ID); d.State != jobs.StateQueued {
-		t.Fatalf("the queued job is %s", d.State)
-	}
-	defer e.cancel(running.ID)
-	for _, id := range []string{blocked.ID, queued.ID} {
-		d := e.cancel(id).Doc(t)
-		if d.Labels == nil || d.Labels.Cleanup != nil {
-			t.Errorf("labels = %+v, want today's labels with cleanup null", d.Labels)
-		}
-		raw, err := json.Marshal(d.Labels)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var keys map[string]any
-		if err := json.Unmarshal(raw, &keys); err != nil || len(keys) != 4 || keys["cleanup"] != nil {
-			t.Errorf("labels is %s, want set, removed, restore and a null cleanup", raw)
-		}
-	}
-	if n := e.count("SELECT count(*) FROM af_jobs WHERE cleanup IS NOT NULL OR cleanup_wanted = 1"); n != 0 {
-		t.Errorf("%d jobs have a cleanup marked, want none", n)
-	}
-}
-
-// TestTheLabelsMemberCleanupTakesFourValuesAndMakesLabelsNonNull_TS_17_35 verifies TS-17-35.
-// Verifies: 17-REQ-5.7
-func TestTheLabelsMemberCleanupTakesFourValuesAndMakesLabelsNonNull_TS_17_35(t *testing.T) {
-	e := newEnv(t, withoutEnqueue())
-	ids := map[string]string{}
-	for i, value := range []string{"", "pending", "done", "label_not_set"} {
-		r := e.call("POST", "/api/v1/workspaces/widgets/fix", map[string]any{"issue": 100 + i})
-		if r.Status != http.StatusAccepted {
-			t.Fatalf("create: %d %s", r.Status, r.Body)
-		}
-		id := r.Doc(t).ID
-		ids[value] = id
-		if value != "" {
-			if _, err := e.DB.ExecContext(ctx, "UPDATE af_jobs SET cleanup = ? WHERE id = ?", value, id); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	if d := e.get(ids[""]); d.Labels != nil {
-		t.Errorf("no cleanup and no labels: labels = %+v, want null", d.Labels)
-	}
-	for _, value := range []string{"pending", "done", "label_not_set"} {
-		r := e.call("GET", "/api/v1/jobs/"+ids[value], nil)
-		var doc struct {
-			Labels map[string]any `json:"labels"`
-		}
-		if err := json.Unmarshal(r.Body, &doc); err != nil {
-			t.Fatal(err)
-		}
-		keys := make([]string, 0, len(doc.Labels))
-		for k := range doc.Labels {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		if !slices.Equal(keys, []string{"cleanup", "removed", "restore", "set"}) || doc.Labels["cleanup"] != value {
-			t.Errorf("%s: labels = %v, want the members set, removed, restore, cleanup with cleanup %q", value, doc.Labels, value)
-		}
-	}
-	// A value outside the four is refused by the database.
-	if _, err := e.DB.ExecContext(ctx, "UPDATE af_jobs SET cleanup = 'maybe' WHERE id = ?", ids[""]); err == nil {
-		t.Error("the database took a cleanup of 'maybe'")
-	}
-}
-
-// cleanService serves the workspace widgets from the fake hub, with issue 42 carrying af:needs-human, and builds a service
-// on the env's state file with the hub-backed cleaner, the runner and the clock, as cmd/agent-fox builds it.
-func (e *env) cleanService(r jobs.Runner, clk jobs.Clock, configure ...func(*jobs.Config)) *jobs.Service {
-	e.t.Helper()
-	e.Hub.AddWorkspace(e.t, fakehub.Workspace{Slug: "widgets", PAT: "pat-of-widgets"})
-	e.Hub.AddIssue("widgets", fakehub.Issue{Number: 42, Labels: []string{"af:needs-human"}})
-	return e.newService(r, clk, append([]func(*jobs.Config){
-		withCleaner(&labelcleanup.Cleaner{Subscriptions: e.Store, Hub: hub.New(e.Hub.URL, "test")}),
-	}, configure...)...)
-}
-
-// blockedOn makes a fix job of the label for issue n on the service that ends blocked with needs-human set.
-func blockedOn(t *testing.T, svc *jobs.Service, n int) jobs.Doc {
-	t.Helper()
-	doc, err := svc.Create(ctx, jobs.CreateRequest{
-		Workspace: "widgets", Kind: jobs.KindFix, Body: jobs.Body{Issue: json.RawMessage(fmt.Sprint(n))},
-		Source: jobs.Source{Kind: "label", By: "poll"}, RequestLabel: "af:fix",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, "the job to be blocked", func() bool { d, _ := svc.Get(ctx, doc.ID); return d.State == jobs.StateBlocked })
-	return doc
-}
-
-// needsHumanStep ends an attempt blocked with needs-human set.
-func needsHumanStep() fakerunner.Step {
+// needsHuman ends an attempt blocked, with the status label it set.
+func needsHuman() fakerunner.Step {
 	return fakerunner.Return(jobs.Result{
 		Envelope:  fakerunner.Env(toolio.StatusNeedsHuman, fakerunner.WithQuestion("Which?", "a")),
-		LabelsSet: []string{"af:needs-human"},
+		LabelsSet: []string{"af:needs-human"}, LabelsRemoved: []string{"af:in-progress"},
 	})
 }
 
-// cleanupIn is the job's cleanup as the database holds it.
-func (e *env) cleanupIn(id string) string {
-	e.t.Helper()
-	var c sql.NullString
-	if err := e.DB.QueryRowContext(ctx, "SELECT cleanup FROM af_jobs WHERE id = ?", id).Scan(&c); err != nil {
-		e.t.Fatal(err)
-	}
-	return c.String
-}
-
-// issueLabels are the labels of issue 42.
-func (e *env) issueLabels() []string {
-	i, _ := e.Hub.IssueOf("widgets", 42)
-	return slices.Sorted(slices.Values(i.Labels))
-}
-
-// TestAnUnavailableHubKeepsTheCleanupPendingWithOneWarnAndTheSweepCompletesIt_TS_17_43 verifies TS-17-43.
-// Verifies: 17-REQ-7.2, 17-REQ-8.1
-func TestAnUnavailableHubKeepsTheCleanupPendingWithOneWarnAndTheSweepCompletesIt_TS_17_43(t *testing.T) {
-	clk := fakeclock.New(epoch)
-	e := newEnv(t)
-	svc := e.cleanService(fakerunner.New().Then(needsHumanStep()), clk)
-	if err := svc.Start(); err != nil {
-		t.Fatal(err)
-	}
-	job := blockedOn(t, svc, 42)
-	e.Hub.Fail("/api/v1/workspaces/widgets/issues/42/labels", 503)
-	if _, err := svc.Cancel(ctx, job.ID); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, "the first warning", func() bool { return len(e.warnsFor(job.ID)) == 1 })
-	clk.Advance(time.Minute) // a sweep, which fails again
-	waitFor(t, "the second try", func() bool { return len(e.Hub.RequestsTo("POST", "/api/v1/workspaces/widgets/issues/42/labels")) >= 2 })
-	waitFor(t, "the second try to end", func() bool { return svc.CleanupsInFlight() == 0 })
-	d, _ := svc.Get(ctx, job.ID)
-	if cleanupOf(d) != "pending" || d.Labels.Restore == nil || *d.Labels.Restore != "af:fix" {
-		t.Errorf("labels %+v, want cleanup pending and restore af:fix", d.Labels)
-	}
-	if n := len(e.warnsFor(job.ID)); n != 1 {
-		t.Errorf("%d WARN records across the failures, want 1", n)
-	}
-
-	e.Hub.Clear()
-	clk.Advance(time.Minute)
-	waitFor(t, "the sweep to complete the cleanup", func() bool { return e.cleanupIn(job.ID) == "done" })
-	if got := e.issueLabels(); !slices.Equal(got, []string{"af:fix"}) {
-		t.Errorf("issue 42 carries %v", got)
-	}
-
-	// An unreadable token, a store that fails and a record without a forge URL keep a cleanup pending too.
-	for name, c := range map[string]struct{ fail, mend func() }{
-		"an unreadable token": {
-			func() {
-				e.exec("UPDATE af_subscriptions SET sealed_token = x'00' WHERE slug = 'widgets'")
-			},
-			func() { e.subscribe("widgets") },
-		},
-		"a store that fails": {
-			func() { e.exec("ALTER TABLE af_subscriptions RENAME TO af_subscriptions_away") },
-			func() { e.exec("ALTER TABLE af_subscriptions_away RENAME TO af_subscriptions") },
-		},
-		"no forge URL": {
-			func() { e.Hub.UpdateWorkspace("widgets", func(w *fakehub.Workspace) { w.ForgeURL = "" }) },
-			func() {
-				e.Hub.UpdateWorkspace("widgets", func(w *fakehub.Workspace) { w.ForgeURL = "https://github.example.com/acme/widgets" })
-			},
-		},
-	} {
-		e.Hub.AddIssue("widgets", fakehub.Issue{Number: 42, Labels: []string{"af:needs-human"}})
-		other := blockedOn(t, svc, 42)
-		c.fail()
-		if _, err := svc.Cancel(ctx, other.ID); err != nil {
-			t.Fatal(err)
-		}
-		waitFor(t, name+": the warning", func() bool { return len(e.warnsFor(other.ID)) == 1 })
-		waitFor(t, name+": the try", func() bool { return svc.CleanupsInFlight() == 0 })
-		if got := e.cleanupIn(other.ID); got != "pending" {
-			t.Errorf("%s: cleanup %s, want pending", name, got)
-		}
-		c.mend()
-		clk.Advance(time.Minute)
-		waitFor(t, name+": the sweep to complete it", func() bool { return e.cleanupIn(other.ID) == "done" })
+// pendingWith is a result that leaves the cleanup pending, as a hub that is unavailable does.
+func pendingWith(message string) func(jobs.CleanupRequest) jobs.CleanupResult {
+	return func(jobs.CleanupRequest) jobs.CleanupResult {
+		return jobs.CleanupResult{Outcome: jobs.CleanupPending, Level: slog.LevelWarn, Message: message}
 	}
 }
 
-// exec runs a statement on the state file.
-func (e *env) exec(query string, args ...any) {
-	e.t.Helper()
-	if _, err := e.DB.ExecContext(ctx, query, args...); err != nil {
-		e.t.Fatal(err)
-	}
-}
-
-// warnsFor are the WARN records of the cancel cleanup of the job.
-func (e *env) warnsFor(id string) []map[string]any {
-	var out []map[string]any
-	for _, rec := range e.Logs.find("WARN", "cancel cleanup") {
-		if rec["job"] == id {
-			out = append(out, rec)
-		}
-	}
-	return out
-}
-
-// TestACleanupPendingAnHourAfterItsCancelEndsLabelNotSetWithOneError_TS_17_50 verifies TS-17-50.
-// Verifies: 17-REQ-8.2
-func TestACleanupPendingAnHourAfterItsCancelEndsLabelNotSetWithOneError_TS_17_50(t *testing.T) {
-	clk := fakeclock.New(epoch)
-	e := newEnv(t)
-	svc := e.cleanService(fakerunner.New(needsHumanStep()), clk)
-	if err := svc.Start(); err != nil {
-		t.Fatal(err)
-	}
-	job := blockedOn(t, svc, 42)
-	e.Hub.Fail("/api/v1/workspaces/widgets/issues/42/labels", 503)
-	if _, err := svc.Cancel(ctx, job.ID); err != nil {
-		t.Fatal(err)
-	}
-	for range 61 {
-		waitFor(t, "the tries to end", func() bool { return svc.CleanupsInFlight() == 0 })
-		clk.Advance(time.Minute)
-	}
-	waitFor(t, "the abandonment", func() bool { return e.cleanupIn(job.ID) == "label_not_set" })
-	waitFor(t, "the ERROR record of the abandonment", func() bool { return len(e.Logs.find("ERROR", "an hour")) > 0 })
-	waitFor(t, "the tries to end", func() bool { return svc.CleanupsInFlight() == 0 })
-	requests := e.Hub.Total()
-	for range 3 {
-		clk.Advance(time.Minute)
-	}
-	time.Sleep(50 * time.Millisecond)
-	if e.Hub.Total() != requests {
-		t.Error("a try was made after the cleanup was abandoned")
-	}
-	if n := len(e.Logs.find("ERROR", "an hour")); n != 1 {
-		t.Errorf("%d ERROR records of the abandonment after more sweeps, want 1", n)
-	}
-}
-
-// TestStartAndTheSweepsDoNotWaitForATry_TS_17_51 verifies TS-17-51.
-// Verifies: 17-REQ-8.3
-func TestStartAndTheSweepsDoNotWaitForATry_TS_17_51(t *testing.T) {
-	clk := fakeclock.New(epoch)
-	e := newEnv(t)
-	first := e.cleanService(fakerunner.New(), clk, withoutEnqueue())
-	pending := e.createFromLabel("widgets", 42, "af:fix")
-	e.createFromLabel("widgets", 43, "af:fix") // queued, to be handed over by the first sweep
-	if _, err := first.Cancel(ctx, pending.ID); err != nil {
-		t.Fatal(err)
-	}
-	if err := first.Close(); err != nil {
-		t.Fatal(err)
-	}
-	e.exec("UPDATE af_jobs SET cleanup = 'pending' WHERE id = ?", pending.ID) // as a stop during its try leaves it
-	e.Hub.Delay("/api/v1/workspaces/widgets/issues/42", 30*time.Second)
-
-	r := fakerunner.New(fakerunner.Done())
-	svc := e.newService(r, clk, withCleaner(&labelcleanup.Cleaner{Subscriptions: e.Store, Hub: hub.New(e.Hub.URL, "test")}))
-	start := time.Now()
-	if err := svc.Start(); err != nil {
-		t.Fatal(err)
-	}
-	if took := time.Since(start); took > 5*time.Second {
-		t.Errorf("Start took %v with a try held for 30 seconds", took)
-	}
-	waitFor(t, "the queued attempt to be handed over", func() bool { return len(r.Calls()) == 1 })
-	if e.cleanupIn(pending.ID) != "pending" || svc.CleanupsInFlight() != 1 {
-		t.Errorf("cleanup %s with %d tries in flight, want the try still running", e.cleanupIn(pending.ID), svc.CleanupsInFlight())
-	}
-}
-
-// TestATryIsBoundedToOneMinuteAndTheTriesInFlightAreCapped_TS_17_52 verifies TS-17-52.
-// Verifies: 17-REQ-8.4
-func TestATryIsBoundedToOneMinuteAndTheTriesInFlightAreCapped_TS_17_52(t *testing.T) {
-	clk := fakeclock.New(epoch)
-	e := newEnv(t)
-	svc := e.cleanService(fakerunner.New(), clk, withoutEnqueue())
-	e.Hub.Inject("GET", "/api/v1/workspaces/widgets/issues/*", fakehub.Fault{Delay: time.Hour})
-	var ids []string
-	for n := range 7 {
-		e.Hub.AddIssue("widgets", fakehub.Issue{Number: 50 + n})
-		job := e.createFromLabel("widgets", 50+n, "af:fix")
-		if _, err := svc.Cancel(ctx, job.ID); err != nil {
-			t.Fatal(err)
-		}
-		ids = append(ids, job.ID)
-	}
-	waitFor(t, "the cap to fill", func() bool { return countIssueReads(e) >= jobs.MaxCleanupTries })
-	time.Sleep(100 * time.Millisecond)
-	if n := countIssueReads(e); n != jobs.MaxCleanupTries {
-		t.Errorf("%d tries reached hub at once, want the cap of %d", n, jobs.MaxCleanupTries)
-	}
-	clk.Advance(time.Minute)
-	waitFor(t, "the tries past their minute to end", func() bool { return countIssueReads(e) > jobs.MaxCleanupTries })
-	for _, id := range ids {
-		if got := e.cleanupIn(id); got != "pending" {
-			t.Errorf("%s: cleanup %s, want pending after a try ran out of its minute", id, got)
-		}
-	}
-	// Each hub call of a try is bounded by the client's own bound (10 s, scaled here), well inside the try's minute.
-	short := hub.New(e.Hub.URL, "test")
-	short.HTTP.Timeout = 100 * time.Millisecond
-	start := time.Now()
-	res := (&labelcleanup.Cleaner{Subscriptions: e.Store, Hub: short}).Clean(ctx, jobs.CleanupRequest{Workspace: "widgets", JobID: ids[0], Issue: 50, RequestLabel: "af:fix"})
-	if res.Outcome != jobs.CleanupPending || time.Since(start) > 2*time.Second {
-		t.Errorf("a try against a hub that does not answer came to %+v after %v, want pending at the client's bound", res, time.Since(start))
-	}
-}
-
-// countIssueReads is how many issue reads hub received.
-func countIssueReads(e *env) int {
+// cleanupWarnings are the WARN records of the cancel cleanup of the job.
+func (e *env) cleanupWarnings(id string) int {
 	n := 0
-	for _, r := range e.Hub.Requests() {
-		if r.Method == "GET" && strings.HasPrefix(r.Path, "/api/v1/workspaces/widgets/issues/") {
+	for _, rec := range e.Log.Find("WARN", "cancel cleanup") {
+		if rec["job"] == id {
 			n++
 		}
 	}
 	return n
 }
 
-// TestARestartedServiceCompletesAPendingCleanupOrEndsOnePastItsHour_TS_17_53 verifies TS-17-53.
-// Verifies: 17-REQ-8.5
-func TestARestartedServiceCompletesAPendingCleanupOrEndsOnePastItsHour_TS_17_53(t *testing.T) {
-	clk := fakeclock.New(epoch)
-	e := newEnv(t)
-	first := e.cleanService(fakerunner.New(), clk, withoutEnqueue())
-	e.Hub.Inject("", "/api/v1/workspaces/widgets/issues/*", fakehub.Fault{Status: 503})
-	recent := e.createFromLabel("widgets", 42, "af:fix")
-	e.Hub.AddIssue("widgets", fakehub.Issue{Number: 43})
-	old := e.createFromLabel("widgets", 43, "af:fix")
+// idle waits until no try of a cleanup is in flight.
+func (e *env) idle() {
+	e.t.Helper()
+	testutil.Eventually(e.t, "the tries to end", func() bool { return e.Svc.CleanupsInFlight() == 0 })
+}
+
+func TestCleanup_ACancelOfAJobThatWaitedIsCleanedUpInTheBackground(t *testing.T) {
+	c := &fakeCleaner{hold: make(chan struct{})}
+	e := newEnv(t, withRunner(fakerunner.New(needsHuman())), withCleaner(c))
+	e.start()
+	job := e.waitState(e.create("widgets", 42, "af:fix").ID, jobs.StateBlocked)
+	doc, err := e.Svc.Cancel(ctx, job.ID)
+	if err != nil || doc.Labels.Cleanup == nil || *doc.Labels.Cleanup != "pending" || *doc.Labels.Restore != "af:fix" {
+		t.Fatalf("the cancel's answer: %+v, %v, want the cleanup pending and af:fix to be put back", doc.Labels, err)
+	}
+	testutil.Eventually(t, "the try", func() bool { return len(c.Tries()) == 1 })
+	req := c.Tries()[0]
+	if req.Workspace != "widgets" || req.JobID != job.ID || req.Issue != 42 || req.RequestLabel != "af:fix" || !slices.Equal(req.LabelsSet, []string{"af:needs-human"}) {
+		t.Errorf("the try is about %+v", req)
+	}
+	close(c.hold)
+	testutil.Eventually(t, "the cleanup to be done", func() bool { return e.cleanup(job.ID) == "done" })
+	e.idle()
+	d := e.get(job.ID)
+	if d.Labels.Restore != nil || *d.Labels.Cleanup != "done" {
+		t.Errorf("labels = %+v, want the request label put back and the cleanup done", d.Labels)
+	}
+	if done := e.Log.Find("INFO", "back in line"); len(done) != 1 || done[0]["job"] != job.ID || done[0]["issue"] != float64(42) {
+		t.Errorf("INFO records = %v, want one naming the job and the issue", e.Log.Find("INFO", ""))
+	}
+	if st, _ := e.Svc.Standing(ctx, job.ID); st.CleanupPending || !st.CleanupPutBack || st.CancelCause != "cancelled" {
+		t.Errorf("standing = %+v, want the cleanup over with the label put back", st)
+	}
+}
+
+func TestCleanup_ATryIsToldWhatTheOtherOpenJobsOfTheIssueShow(t *testing.T) {
+	c := &fakeCleaner{}
+	e := newEnv(t, withCleaner(c), withoutEnqueue())
+	job := e.create("widgets", 42, "af:fix")
+	other, err := e.Svc.Create(ctx, jobs.CreateRequest{Workspace: "widgets", Kind: jobs.KindTriage, Body: jobs.Body{Issue: []byte("42")}, Source: jobs.Source{Kind: "api", By: "u"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.Exec(t, e.DB, `UPDATE af_jobs SET state = 'running', labels_set = '["af:triaging"]' WHERE id = ?`, other.ID)
+	if _, err := e.Svc.Cancel(ctx, job.ID); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Eventually(t, "the try", func() bool { return len(c.Tries()) == 1 })
+	if req := c.Tries()[0]; !slices.Equal(req.OthersSet, []string{"af:triaging"}) || !req.OtherRunning {
+		t.Errorf("the try is told others set %v, running %v, want the triage's", req.OthersSet, req.OtherRunning)
+	}
+}
+
+func TestCleanup_NoneIsOwedWithoutACleanerAnIssueOrAPersonsCancel(t *testing.T) {
+	c := &fakeCleaner{}
+	e := newEnv(t, withCleaner(c), withoutEnqueue())
+	text, err := e.Svc.Create(ctx, jobs.CreateRequest{Workspace: "widgets", Kind: jobs.KindTriage, Body: jobs.Body{Text: ptr("red")}, Source: jobs.Source{Kind: "api", By: "u"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := e.create("widgets", 42, "af:fix")
+	if d, err := e.Svc.Cancel(ctx, text.ID); err != nil || d.Labels != nil {
+		t.Errorf("a text triage: labels %+v, %v, want none", d.Labels, err)
+	}
+	if err := e.Svc.CancelFor(ctx, closed.ID, errors.New("the issue was closed")); err != nil {
+		t.Fatal(err)
+	}
+	without := newEnv(t, withoutEnqueue())
+	queued := without.create("widgets", 7, "af:fix")
+	if d, err := without.Svc.Cancel(ctx, queued.ID); err != nil || d.Labels.Cleanup != nil || *d.Labels.Restore != "af:fix" {
+		t.Errorf("a layer without a cleaner: labels %+v, %v, want the label to be put back and no cleanup", d.Labels, err)
+	}
+	if n := testutil.Count(t, e.DB, "af_jobs", "cleanup IS NOT NULL OR cleanup_wanted = 1") + testutil.Count(t, without.DB, "af_jobs", "cleanup IS NOT NULL"); n != 0 {
+		t.Errorf("%d jobs have a cleanup marked, want none", n)
+	}
+	e.Svc.TryCleanup(closed.ID) // a try of a cleanup that is not pending writes nothing
+	e.idle()
+	if len(c.Tries()) != 0 {
+		t.Errorf("%d tries, want none", len(c.Tries()))
+	}
+}
+
+func TestCleanup_OnlyOneTryOfAJobIsInFlightAndAtMostFourInAll(t *testing.T) {
+	c := &fakeCleaner{hold: make(chan struct{}), result: pendingWith("hub is unavailable")}
+	e := newEnv(t, withCleaner(c), withoutEnqueue())
+	var ids []string
+	for n := range 7 {
+		job := e.create("widgets", 50+n, "af:fix")
+		if _, err := e.Svc.Cancel(ctx, job.ID); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, job.ID)
+	}
+	testutil.Eventually(t, "the cap to fill", func() bool { return len(c.Tries()) == jobs.MaxCleanupTries })
+	for range 3 {
+		e.Svc.TryCleanup(ids[0])
+	}
+	if e.Svc.CleanupsInFlight() != 7 {
+		t.Errorf("%d tries in flight, want one for each of the 7 jobs", e.Svc.CleanupsInFlight())
+	}
+	close(c.hold)
+	e.idle()
+	if len(c.Tries()) != 7 || c.Most() != jobs.MaxCleanupTries {
+		t.Errorf("%d tries with %d at most at once, want 7 with %d", len(c.Tries()), c.Most(), jobs.MaxCleanupTries)
+	}
+	<-e.Svc.TryCleanup(ids[0]) // once the try has ended, another starts
+	if len(c.Tries()) != 8 {
+		t.Errorf("%d tries, want another once the first ended", len(c.Tries()))
+	}
+}
+
+func TestCleanup_ATryThatRunsOutOfItsMinuteLeavesItPending(t *testing.T) {
+	c := &fakeCleaner{hold: make(chan struct{})}
+	e := newEnv(t, withCleaner(c), withoutEnqueue())
+	job := e.create("widgets", 42, "af:fix")
+	if _, err := e.Svc.Cancel(ctx, job.ID); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Eventually(t, "the try", func() bool { return len(c.Tries()) == 1 })
+	e.Clock.Advance(time.Minute)
+	e.idle()
+	if e.cleanup(job.ID) != "pending" || e.cleanupWarnings(job.ID) != 1 {
+		t.Errorf("cleanup %s with %d warnings, want pending with one", e.cleanup(job.ID), e.cleanupWarnings(job.ID))
+	}
+}
+
+func TestCleanup_APendingCleanupIsTriedAtEverySweepWithOneWarningUntilItIsDone(t *testing.T) {
+	c := &fakeCleaner{result: pendingWith("hub is unavailable")}
+	e := newEnv(t, withCleaner(c), withoutEnqueue())
+	e.start()
+	job := e.create("widgets", 42, "af:fix")
+	if _, err := e.Svc.Cancel(ctx, job.ID); err != nil {
+		t.Fatal(err)
+	}
+	for tries := 1; tries <= 3; tries++ { // each sweep makes one try
+		if tries > 1 {
+			e.Clock.Advance(time.Minute)
+		}
+		testutil.Eventually(t, "a try", func() bool { return len(c.Tries()) == tries })
+		e.idle()
+	}
+	if e.cleanup(job.ID) != "pending" || e.cleanupWarnings(job.ID) != 1 {
+		t.Errorf("cleanup %s with %d warnings, want pending with the first failure's", e.cleanup(job.ID), e.cleanupWarnings(job.ID))
+	}
+	c.mu.Lock()
+	c.result = nil
+	c.mu.Unlock()
+	e.Clock.Advance(time.Minute)
+	testutil.Eventually(t, "the sweep to complete it", func() bool { return e.cleanup(job.ID) == "done" })
+}
+
+func TestCleanup_AnEndWithoutTheLabelsIsLoggedAtItsLevelWithWhatItWrote(t *testing.T) {
+	c := &fakeCleaner{result: func(jobs.CleanupRequest) jobs.CleanupResult {
+		return jobs.CleanupResult{Outcome: jobs.CleanupLabelNotSet, Set: []string{"af:x"}, Level: slog.LevelError, Message: "the forge refused"}
+	}}
+	e := newEnv(t, withCleaner(c), withoutEnqueue())
+	job := e.create("widgets", 42, "af:fix")
+	if _, err := e.Svc.Cancel(ctx, job.ID); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Eventually(t, "the end", func() bool { return e.cleanup(job.ID) == "label_not_set" })
+	e.idle()
+	if logged := e.Log.Find("ERROR", "the forge refused"); len(logged) != 1 || logged[0]["job"] != job.ID {
+		t.Errorf("ERROR records = %v", e.Log.Records())
+	}
+	if l := e.get(job.ID).Labels; !slices.Equal(l.Set, []string{"af:x"}) || len(l.Removed) != 0 || *l.Restore != "af:fix" {
+		t.Errorf("labels = %+v, want what the try wrote, and the request label still to be put back", l)
+	}
+	if st, _ := e.Svc.Standing(ctx, job.ID); st.CleanupPending || st.CleanupPutBack {
+		t.Errorf("standing = %+v, want the cleanup over without the label", st)
+	}
+}
+
+func TestCleanup_WhatATryCameToThatCannotBeRecordedIsWarnedOfOnce(t *testing.T) {
+	c := &fakeCleaner{}
+	e := newEnv(t, withCleaner(c), withoutEnqueue())
+	job := e.create("widgets", 42, "af:fix")
+	testutil.Exec(t, e.DB, "CREATE TRIGGER no_record BEFORE UPDATE OF cleanup_warned ON af_jobs BEGIN SELECT RAISE(ABORT, 'refused'); END")
+	if _, err := e.Svc.Cancel(ctx, job.ID); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		testutil.Eventually(t, "a try", func() bool { return e.Svc.CleanupsInFlight() == 0 && len(c.Tries()) > 0 })
+		<-e.Svc.TryCleanup(job.ID)
+	}
+	if n := len(e.Log.Find("WARN", "could not be recorded")); n != 1 || e.cleanup(job.ID) != "pending" {
+		t.Errorf("%d warnings, cleanup %s, want one warning and the cleanup pending", n, e.cleanup(job.ID))
+	}
+}
+
+func TestCleanup_IsGivenUpAnHourAfterTheCancelWithOneError(t *testing.T) {
+	c := &fakeCleaner{result: pendingWith("hub is unavailable")}
+	e := newEnv(t, withCleaner(c), withoutEnqueue())
+	e.start()
+	job := e.create("widgets", 42, "af:fix")
+	if _, err := e.Svc.Cancel(ctx, job.ID); err != nil {
+		t.Fatal(err)
+	}
+	for range 60 {
+		e.idle()
+		e.Clock.Advance(time.Minute)
+	}
+	testutil.Eventually(t, "the cleanup to be given up with an ERROR", func() bool {
+		return e.cleanup(job.ID) == "label_not_set" && len(e.Log.Find("ERROR", "an hour after the cancel")) == 1
+	})
+	e.idle()
+	tries := len(c.Tries())
+	for range 3 {
+		e.Clock.Advance(time.Minute)
+	}
+	e.idle()
+	if len(c.Tries()) != tries || len(e.Log.Find("ERROR", "an hour after the cancel")) != 1 {
+		t.Errorf("%d tries after it was given up and %d ERROR records, want none and one", len(c.Tries())-tries, len(e.Log.Find("ERROR", "an hour")))
+	}
+}
+
+func TestCleanup_ARestartTriesThePendingCleanupsAndGivesUpThosePastTheirHour(t *testing.T) {
+	c := &fakeCleaner{result: pendingWith("hub is unavailable")}
+	e := newEnv(t, withCleaner(c), withoutEnqueue())
+	recent, old := e.create("widgets", 42, "af:fix"), e.create("widgets", 43, "af:fix")
 	for _, id := range []string{recent.ID, old.ID} {
-		if _, err := first.Cancel(ctx, id); err != nil {
+		if _, err := e.Svc.Cancel(ctx, id); err != nil {
 			t.Fatal(err)
 		}
 	}
-	waitFor(t, "the first tries", func() bool { return first.CleanupsInFlight() == 0 })
-	if err := first.Close(); err != nil {
-		t.Fatal(err)
-	}
-	e.exec("UPDATE af_jobs SET finished_at = ?, cleanup = 'pending' WHERE id = ?", epoch.Add(-2*time.Hour).Format("2006-01-02T15:04:05.000Z"), old.ID)
-	e.Hub.Clear()
-	reads, before := countIssueReads(e), e.Hub.Total()
-
-	svc := e.newService(fakerunner.New(), clk, withCleaner(&labelcleanup.Cleaner{Subscriptions: e.Store, Hub: hub.New(e.Hub.URL, "test")}))
-	if err := svc.Start(); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, "the recent cleanup", func() bool { return e.cleanupIn(recent.ID) == "done" })
-	if got := e.cleanupIn(old.ID); got != "label_not_set" {
-		t.Errorf("the old cleanup is %s, want label_not_set", got)
-	}
-	for _, r := range e.Hub.Requests()[before:] {
-		if r.Path == "/api/v1/workspaces/widgets/issues/43" {
-			t.Error("the cleanup past its hour was tried")
-		}
-	}
-	if countIssueReads(e) != reads+1 {
-		t.Errorf("%d issue reads at the start, want the recent one only", countIssueReads(e)-reads)
+	e.idle()
+	testutil.Exec(t, e.DB, "UPDATE af_jobs SET finished_at = ? WHERE id = ?", stamp(epoch.Add(-2*time.Hour)), old.ID)
+	done := &fakeCleaner{}
+	e.restart(fakerunner.New(), withCleaner(done))
+	testutil.Eventually(t, "the recent cleanup", func() bool { return e.cleanup(recent.ID) == "done" })
+	e.idle()
+	if e.cleanup(old.ID) != "label_not_set" || len(done.Tries()) != 1 {
+		t.Errorf("the old cleanup is %s after %d tries, want label_not_set without a try", e.cleanup(old.ID), len(done.Tries()))
 	}
 }
 
-// TestShutdownCancelsATryInFlightAndLeavesTheCleanupPending_TS_17_54 verifies TS-17-54.
-// Verifies: 17-REQ-8.6
-func TestShutdownCancelsATryInFlightAndLeavesTheCleanupPending_TS_17_54(t *testing.T) {
-	clk := fakeclock.New(epoch)
-	e := newEnv(t)
-	svc := e.cleanService(fakerunner.New(), clk, withoutEnqueue())
-	e.Hub.Delay("/api/v1/workspaces/widgets/issues/42", time.Hour)
-	job := e.createFromLabel("widgets", 42, "af:fix")
-	if _, err := svc.Cancel(ctx, job.ID); err != nil {
-		t.Fatal(err)
+func TestCleanup_StartDoesNotWaitForATryAndAShutdownCutsItShort(t *testing.T) {
+	c := &fakeCleaner{hold: make(chan struct{})}
+	e := newEnv(t, withCleaner(c), withoutEnqueue())
+	job := e.create("widgets", 42, "af:fix")
+	testutil.Exec(t, e.DB, "UPDATE af_jobs SET state = 'cancelled', finished_at = ?, cleanup = 'pending' WHERE id = ?", stamp(epoch), job.ID)
+	waiting := e.create("widgets", 43, "") // queued, to be handed over by the first sweep
+	e.start()
+	e.waitState(waiting.ID, jobs.StateDone)
+	testutil.Eventually(t, "the try to be held", func() bool { return len(c.Tries()) == 1 && e.Svc.CleanupsInFlight() == 1 })
+	e.close()
+	if e.Svc.CleanupsInFlight() != 0 || e.cleanup(job.ID) != "pending" || e.cleanupWarnings(job.ID) != 0 {
+		t.Errorf("after the shutdown: %d tries, cleanup %s, %d warnings, want none in flight and the cleanup pending", e.Svc.CleanupsInFlight(), e.cleanup(job.ID), e.cleanupWarnings(job.ID))
 	}
-	waitFor(t, "the try to reach hub", func() bool { return countIssueReads(e) == 1 })
-	closed := make(chan error, 1)
-	go func() { closed <- svc.Close() }()
-	select {
-	case err := <-closed:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("Close did not return while a try was in flight")
-	}
-	if svc.CleanupsInFlight() != 0 {
-		t.Error("Close returned with a try in flight")
-	}
-	if got := e.cleanupIn(job.ID); got != "pending" {
-		t.Errorf("cleanup %s, want pending", got)
+	<-e.Svc.TryCleanup(job.ID) // a stopped layer starts none
+	if len(c.Tries()) != 1 {
+		t.Errorf("%d tries, want no more after the stop", len(c.Tries()))
 	}
 }
 
-// TestThePurgeNeverRemovesAJobWhoseCleanupIsPending_TS_17_55 verifies TS-17-55.
-// Verifies: 17-REQ-8.7
-func TestThePurgeNeverRemovesAJobWhoseCleanupIsPending_TS_17_55(t *testing.T) {
-	clk := fakeclock.New(epoch)
-	e := newEnv(t, withClock(clk), withRetain(time.Hour), withoutEnqueue())
-	pending := e.createFromLabel("widgets", 42, "af:fix")
-	done := e.createFromLabel("widgets", 43, "af:fix")
-	for id, cleanup := range map[string]string{pending.ID: "pending", done.ID: "done"} {
-		e.cancel(id)
-		if _, err := e.DB.ExecContext(ctx, "UPDATE af_jobs SET cleanup = ? WHERE id = ?", cleanup, id); err != nil {
-			t.Fatal(err)
-		}
+func TestCleanup_ACancelOfAClaimedAttemptWhoseRunnerWasNotCalledIsMarkedAtOnce(t *testing.T) {
+	c := &fakeCleaner{hold: make(chan struct{})}
+	e := newEnv(t, withCleaner(c), withoutEnqueue())
+	job := e.create("widgets", 42, "af:fix")
+	testutil.Exec(t, e.DB, "UPDATE af_attempts SET state = 'running' WHERE job_id = ?", job.ID)
+	testutil.Exec(t, e.DB, "UPDATE af_jobs SET state = 'running' WHERE id = ?", job.ID)
+	forget := e.Svc.RegisterRun(job.ID, 1)
+	defer forget()
+	if st, _ := e.Svc.Standing(ctx, job.ID); !st.RunnerInProgress || !e.Svc.Running(job.ID, 1) {
+		t.Errorf("standing = %+v, want the run known", st)
 	}
-	clk.Advance(2 * time.Hour)
-	if _, err := e.Svc.Purge(ctx); err != nil {
-		t.Fatal(err)
+	if d, err := e.Svc.Cancel(ctx, job.ID); err != nil || d.Labels.Cleanup == nil || *d.Labels.Cleanup != "pending" {
+		t.Fatalf("the cancel's answer: %+v, %v, want the cleanup pending", d.Labels, err)
 	}
-	if n := e.count("SELECT count(*) FROM af_jobs WHERE id = ?", pending.ID); n != 1 {
-		t.Error("the job whose cleanup is pending was purged")
-	}
-	if n := e.count("SELECT count(*) FROM af_jobs WHERE id = ?", done.ID); n != 0 {
-		t.Error("the job whose cleanup is done was kept")
-	}
+	testutil.Eventually(t, "the try", func() bool { return len(c.Tries()) == 1 })
+	close(c.hold)
 }
 
-// answer answers the blocked job with its first option.
-func answer(t *testing.T, svc *jobs.Service, id string) {
-	t.Helper()
-	option := "A"
-	if _, err := svc.Answer(ctx, id, callerID, jobs.AnswerRequest{Option: &option}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// issueRequests are the requests hub received for issue 42 of widgets.
-func (e *env) issueRequests() []string {
-	var out []string
-	for _, r := range e.Hub.Requests() {
-		if strings.HasPrefix(r.Path, "/api/v1/workspaces/widgets/issues/42") {
-			out = append(out, r.Method+" "+r.Path)
-		}
-	}
-	return out
-}
-
-// TestARunnerCancelledBeforeItsHubSessionGetsTheCleanupAfterItReturns_TS_17_30 verifies TS-17-30.
-// Verifies: 17-REQ-5.2
-func TestARunnerCancelledBeforeItsHubSessionGetsTheCleanupAfterItReturns_TS_17_30(t *testing.T) {
-	t.Run("the runner returns", func(t *testing.T) {
-		clk := fakeclock.New(epoch)
-		e := newEnv(t)
-		release := make(chan struct{})
-		started, cancelled := make(chan struct{}), make(chan struct{})
-		second := fakerunner.Do(func(ctx context.Context, req jobs.Request) (jobs.Result, error) {
-			close(started)
-			<-ctx.Done() // cancelled before it reports a hub session
-			close(cancelled)
-			<-release
-			return jobs.Result{}, ctx.Err()
-		})
-		svc := e.cleanService(fakerunner.New(needsHumanStep(), second), clk)
-		if err := svc.Start(); err != nil {
-			t.Fatal(err)
-		}
-		job := blockedOn(t, svc, 42)
-		answer(t, svc, job.ID)
-		<-started
-		if _, err := svc.Cancel(ctx, job.ID); err != nil {
-			t.Fatal(err)
-		}
-		<-cancelled
-		time.Sleep(50 * time.Millisecond)
-		if r := e.issueRequests(); len(r) != 0 || svc.CleanupsInFlight() != 0 {
-			t.Fatalf("a try ran while the runner was in progress: %v", r)
-		}
-		close(release)
-		waitFor(t, "the cleanup", func() bool { return e.cleanupIn(job.ID) == "done" })
-		if got := e.issueLabels(); !slices.Equal(got, []string{"af:fix"}) {
-			t.Errorf("issue 42 carries %v, want af:fix and no af:needs-human", got)
-		}
-	})
-	t.Run("the runner overruns its grace", func(t *testing.T) {
-		clk := fakeclock.New(epoch)
-		e := newEnv(t)
-		release, started := make(chan struct{}), make(chan struct{})
-		second := fakerunner.Do(func(ctx context.Context, req jobs.Request) (jobs.Result, error) {
-			close(started)
-			<-release // ignores the cancel
-			return jobs.Result{}, errors.New("late")
-		})
-		svc := e.cleanService(fakerunner.New(needsHumanStep(), second), clk)
-		if err := svc.Start(); err != nil {
-			t.Fatal(err)
-		}
-		job := blockedOn(t, svc, 42)
-		answer(t, svc, job.ID)
-		<-started
-		waits := len(clk.Waits())
-		if _, err := svc.Cancel(ctx, job.ID); err != nil {
-			t.Fatal(err)
-		}
-		clk.WaitForWaits(waits+1, 10*time.Second)
-		clk.Advance(60 * time.Second)
-		waitFor(t, "the attempt to be recorded cancelled", func() bool {
-			d, _ := svc.Get(ctx, job.ID)
-			return len(d.Attempts) == 2 && d.Attempts[1].State == jobs.AttemptCancelled
-		})
-		if got := e.cleanupIn(job.ID); got != "pending" {
-			t.Errorf("cleanup %q once the overrun attempt is recorded, want pending", got)
-		}
-		time.Sleep(50 * time.Millisecond)
-		if r := e.issueRequests(); len(r) != 0 {
-			t.Fatalf("a try ran while the runner was in progress: %v", r)
-		}
-		close(release)
-		waitFor(t, "the cleanup", func() bool { return e.cleanupIn(job.ID) == "done" })
-		if got := e.issueLabels(); !slices.Equal(got, []string{"af:fix"}) {
-			t.Errorf("issue 42 carries %v", got)
-		}
-	})
-}
-
-// TestACancelThatReachesARunnerWithAHubSessionGetsNoCleanup_TS_17_31 verifies TS-17-31, for a person's cancel and for an
-// unsubscribe.
-// Verifies: 17-REQ-5.3, 17-REQ-9.5
-func TestACancelThatReachesARunnerWithAHubSessionGetsNoCleanup_TS_17_31(t *testing.T) {
-	for _, how := range []string{"a person", "an unsubscribe"} {
-		t.Run(how, func(t *testing.T) {
-			clk := fakeclock.New(epoch)
-			e := newEnv(t)
-			reported := make(chan struct{})
-			second := fakerunner.Do(func(ctx context.Context, req jobs.Request) (jobs.Result, error) {
-				req.Recorder.Hub("ses_1", "run_1", "sbx_1")
-				close(reported)
-				<-ctx.Done()
-				return jobs.Result{LabelsSet: []string{"af:fix"}, LabelsRemoved: []string{"af:in-progress"}}, ctx.Err()
-			})
-			svc := e.cleanService(fakerunner.New(needsHumanStep(), second), clk)
-			if err := svc.Start(); err != nil {
+func TestCleanup_ARunnerCancelledBeforeItOpenedAHubSessionIsCleanedUpOnceItReturns(t *testing.T) {
+	for _, overrun := range []bool{false, true} {
+		t.Run(map[bool]string{false: "it returns", true: "it overruns its grace"}[overrun], func(t *testing.T) {
+			c := &fakeCleaner{}
+			release := make(chan struct{})
+			r := fakerunner.New(needsHuman(), fakerunner.Do(func(ctx context.Context, _ jobs.Request) (jobs.Result, error) {
+				if !overrun {
+					<-ctx.Done()
+				}
+				<-release
+				return jobs.Result{}, context.Cause(ctx)
+			}))
+			e := newEnv(t, withRunner(r), withCleaner(c))
+			e.openAtEnd(release)
+			e.start()
+			job := e.waitState(e.create("widgets", 42, "af:fix").ID, jobs.StateBlocked)
+			if _, err := e.Svc.Answer(ctx, job.ID, "u", jobs.AnswerRequest{Option: ptr("A")}); err != nil {
 				t.Fatal(err)
 			}
-			job := blockedOn(t, svc, 42)
-			answer(t, svc, job.ID)
-			<-reported
-			before := len(e.issueRequests())
-			switch how {
-			case "a person":
-				if _, err := svc.Cancel(ctx, job.ID); err != nil {
-					t.Fatal(err)
+			e.waitCalls(2)
+			if _, err := e.Svc.Cancel(ctx, job.ID); err != nil {
+				t.Fatal(err)
+			}
+			if st, _ := e.Svc.Standing(ctx, job.ID); !st.CleanupPending || !st.CancelledInRunner || !st.RunnerInProgress {
+				t.Errorf("standing = %+v, want the cleanup owed while the runner is in progress", st)
+			}
+			if overrun {
+				e.waitWaits(1)
+				e.Clock.Advance(cancelGrace)
+				testutil.Eventually(t, "the attempt to be recorded", func() bool { return e.get(job.ID).Attempts[1].State == jobs.AttemptCancelled })
+				if e.cleanup(job.ID) != "pending" {
+					t.Errorf("cleanup %q once the overrun is recorded, want pending", e.cleanup(job.ID))
 				}
-			default:
-				if err := svc.Unsubscribe(ctx, "widgets", func() error { return nil }); err != nil {
-					t.Fatal(err)
-				}
+				e.Clock.Advance(time.Minute) // a sweep does not try it while the runner is in progress
 			}
-			waitFor(t, "the attempt to end", func() bool {
-				d, _ := svc.Get(ctx, job.ID)
-				return len(d.Attempts) == 2 && d.Attempts[1].State == jobs.AttemptCancelled
-			})
-			time.Sleep(50 * time.Millisecond)
-			if d, _ := svc.Get(ctx, job.ID); cleanupOf(d) != "" {
-				t.Errorf("labels.cleanup = %q, want null", cleanupOf(d))
+			if len(c.Tries()) != 0 {
+				t.Fatalf("a try ran while the runner was in progress")
 			}
-			if r := e.issueRequests()[before:]; len(r) != 0 {
-				t.Errorf("the jobs layer sent %v", r)
-			}
+			close(release)
+			testutil.Eventually(t, "the cleanup", func() bool { return e.cleanup(job.ID) == "done" })
 		})
 	}
 }
 
-// TestWithHubUnavailableTheUnsubscribeStopsWaitingAfterTheGraceAndTheNextTryEndsLabelNotSet_TS_17_57 verifies TS-17-57.
-// Verifies: 17-REQ-9.3, 17-REQ-9.4
-func TestWithHubUnavailableTheUnsubscribeStopsWaitingAfterTheGraceAndTheNextTryEndsLabelNotSet_TS_17_57(t *testing.T) {
-	clk := fakeclock.New(epoch)
-	e := newEnv(t)
-	svc := e.cleanService(fakerunner.New(needsHumanStep()), clk)
-	if err := svc.Start(); err != nil {
-		t.Fatal(err)
-	}
-	job := blockedOn(t, svc, 42)
-	e.Hub.Inject("", "/api/v1/workspaces/widgets/*", fakehub.Fault{Delay: time.Hour}) // hub does not answer
-	waits := len(clk.Waits())
-	returned := make(chan error, 1)
-	go func() {
-		returned <- svc.Unsubscribe(ctx, "widgets", func() error { _, err := e.Store.Delete(ctx, "widgets"); return err })
-	}()
-	waitFor(t, "the first try", func() bool { return svc.CleanupsInFlight() == 1 })
-	clk.WaitForWaits(waits+2, 10*time.Second) // the try's bound and the unsubscribe's wait
-	select {
-	case err := <-returned:
-		t.Fatalf("the unsubscribe returned before the grace was over (%v)", err)
-	case <-time.After(50 * time.Millisecond):
-	}
-	clk.Advance(60 * time.Second)
-	select {
-	case err := <-returned:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("the unsubscribe did not return once the grace was over")
-	}
-	if _, err := e.Store.Get(ctx, "widgets"); err == nil {
-		t.Error("the subscription is still there")
-	}
-	// The first try ran out of its minute with the grace; the minute's sweep, or the next, tries again.
-	waitFor(t, "the first try to end", func() bool { return svc.CleanupsInFlight() == 0 })
-	e.Hub.Clear()
-	before := len(e.issueRequests())
-	clk.Advance(time.Minute)
-	waitFor(t, "the next try", func() bool { return e.cleanupIn(job.ID) == "label_not_set" })
-	if w := e.issueRequests()[before:]; len(w) != 0 {
-		t.Errorf("the next try sent %v, want nothing for a workspace no longer subscribed", w)
+func TestCleanup_ACancelThatReachesARunnerWithAHubSessionOwesNone(t *testing.T) {
+	for _, how := range []string{"a person", "an unsubscribe"} {
+		t.Run(how, func(t *testing.T) {
+			c := &fakeCleaner{}
+			r := fakerunner.New(needsHuman(), fakerunner.Do(func(ctx context.Context, req jobs.Request) (jobs.Result, error) {
+				req.Recorder.Hub("ses_1", "run_1", "sbx_1")
+				<-ctx.Done()
+				return jobs.Result{LabelsSet: []string{"af:fix"}}, context.Cause(ctx)
+			}))
+			e := newEnv(t, withRunner(r), withCleaner(c))
+			e.start()
+			job := e.waitState(e.create("widgets", 42, "af:fix").ID, jobs.StateBlocked)
+			if _, err := e.Svc.Answer(ctx, job.ID, "u", jobs.AnswerRequest{Option: ptr("A")}); err != nil {
+				t.Fatal(err)
+			}
+			testutil.Eventually(t, "the hub session", func() bool { return e.get(job.ID).Hub != nil })
+			if how == "a person" {
+				if _, err := e.Svc.Cancel(ctx, job.ID); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := e.Svc.Unsubscribe(ctx, "widgets", func() error { return nil }); err != nil {
+				t.Fatal(err)
+			}
+			d := e.waitRest(job.ID)
+			if d.Labels.Cleanup != nil || len(c.Tries()) != 0 || d.Labels.Restore != nil {
+				t.Errorf("labels %+v and %d tries, want no cleanup: the runner put the label back", d.Labels, len(c.Tries()))
+			}
+			if st, _ := e.Svc.Standing(ctx, job.ID); st.CleanupPending || !st.CancelledInRunner {
+				t.Errorf("standing = %+v", st)
+			}
+		})
 	}
 }

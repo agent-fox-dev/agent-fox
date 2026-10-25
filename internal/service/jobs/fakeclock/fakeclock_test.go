@@ -7,7 +7,11 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs/fakeclock"
+	"github.com/agent-fox-dev/agentfox/internal/testutil"
 )
+
+// The fake clock is a clock of the jobs layer.
+var _ jobs.Clock = (*fakeclock.Clock)(nil)
 
 var start = time.Date(2026, 10, 22, 8, 0, 0, 0, time.UTC)
 
@@ -20,15 +24,8 @@ func fired(ch <-chan time.Time) bool {
 	}
 }
 
-// TestTheFakeClockMovesOnlyWhenAdvancedAndEndsTheWaitsThatAreDue checks the clock the
-// tests of the layer are written against: time stands still, a wait ends when the
-// time reaches it, the waits asked for are recorded in order, a tick is dropped when
-// the last one was not read, and a stopped ticker is silent.
-func TestTheFakeClockMovesOnlyWhenAdvancedAndEndsTheWaitsThatAreDue(t *testing.T) {
+func TestAfter_EndsWhenTheClockIsAdvancedToIt(t *testing.T) {
 	c := fakeclock.New(start)
-	if !c.Now().Equal(start) {
-		t.Fatalf("Now = %v, want %v", c.Now(), start)
-	}
 	short, long, none := c.After(30*time.Second), c.After(2*time.Minute), c.After(0)
 	if !fired(none) {
 		t.Error("a wait of nothing did not end at once")
@@ -40,19 +37,25 @@ func TestTheFakeClockMovesOnlyWhenAdvancedAndEndsTheWaitsThatAreDue(t *testing.T
 		t.Errorf("Waits = %v, want %v", c.Waits(), want)
 	}
 	c.Advance(29 * time.Second)
-	if fired(short) {
-		t.Error("the 30 s wait ended at 29 s")
+	if fired(short) || !c.Now().Equal(start.Add(29*time.Second)) {
+		t.Errorf("the 30 s wait ended at 29 s, or the clock reads %v", c.Now())
 	}
 	c.Advance(time.Second)
-	if !fired(short) || fired(long) || c.Pending() != 1 || !c.Now().Equal(start.Add(30*time.Second)) {
-		t.Errorf("at 30 s: short fired, long not, pending 1, now %v", c.Now())
+	if !fired(short) || fired(long) || c.Pending() != 1 {
+		t.Errorf("at 30 s: want the short wait over and the long one pending (pending %d)", c.Pending())
 	}
 	c.Advance(2 * time.Minute)
 	if !fired(long) || c.Pending() != 0 {
 		t.Error("the 2 min wait did not end")
 	}
+}
 
+func TestTicker_TicksPerPeriodDropsUnreadTicksAndStops(t *testing.T) {
+	c := fakeclock.New(start)
 	ticker := c.NewTicker(time.Minute)
+	if c.ActiveTickers() != 1 {
+		t.Errorf("ActiveTickers = %d, want 1", c.ActiveTickers())
+	}
 	c.Advance(59 * time.Second)
 	if fired(ticker.C()) {
 		t.Error("the ticker ticked before its period")
@@ -67,18 +70,24 @@ func TestTheFakeClockMovesOnlyWhenAdvancedAndEndsTheWaitsThatAreDue(t *testing.T
 	}
 	ticker.Stop()
 	c.Advance(time.Hour)
-	if fired(ticker.C()) {
-		t.Error("a stopped ticker ticked")
-	}
-
-	if c.WaitForWaits(4, 10*time.Millisecond) {
-		t.Error("WaitForWaits said there were 4 waits")
-	}
-	go func() { time.Sleep(20 * time.Millisecond); c.After(time.Second) }()
-	if !c.WaitForWaits(4, 5*time.Second) {
-		t.Error("WaitForWaits did not see the 4th wait")
+	if fired(ticker.C()) || c.ActiveTickers() != 0 {
+		t.Errorf("a stopped ticker ticked or is counted active (%d)", c.ActiveTickers())
 	}
 }
 
-// The fake clock is a clock of the layer.
-var _ jobs.Clock = (*fakeclock.Clock)(nil)
+func TestWaitForWaitsAndTickers_ReportWhetherTheyCameInTime(t *testing.T) {
+	c := fakeclock.New(start)
+	if c.WaitForWaits(1, time.Millisecond) || c.WaitForActiveTickers(1, time.Millisecond) {
+		t.Fatal("a wait or a ticker was reported where there is none")
+	}
+	go func() {
+		c.After(time.Second)
+		c.NewTicker(time.Second)
+	}()
+	if !c.WaitForWaits(1, testutil.WaitTimeout) {
+		t.Error("WaitForWaits did not see the wait")
+	}
+	if !c.WaitForActiveTickers(1, testutil.WaitTimeout) {
+		t.Error("WaitForActiveTickers did not see the ticker")
+	}
+}

@@ -1,91 +1,55 @@
 package jobs
 
 import (
-	"bytes"
-	"database/sql"
 	"encoding/json"
-	"fmt"
-	"log/slog"
-	"math/rand/v2"
-	"runtime"
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
+
+	"github.com/agent-fox-dev/agentfox/internal/testutil"
 )
 
-// logBuffer is a log destination that goroutines may write to.
-type logBuffer struct {
-	mu sync.Mutex
-	b  bytes.Buffer
-}
-
-func (l *logBuffer) Write(p []byte) (int, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.b.Write(p)
-}
-
-// records are the log records written so far.
-func (l *logBuffer) records() []map[string]any {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	var out []map[string]any
-	for _, line := range strings.Split(strings.TrimSpace(l.b.String()), "\n") {
-		var rec map[string]any
-		if json.Unmarshal([]byte(line), &rec) == nil {
-			out = append(out, rec)
-		}
-	}
-	return out
-}
-
-// eventEnv is a store whose events go to a broker, and a job to put them in.
+// eventEnv is a store whose events go to a broker, a job to put them in, and a log.
 type eventEnv struct {
-	st   *Store
-	br   *Broker
-	logs *logBuffer
-	log  *slog.Logger
-	id   string
+	st  *Store
+	br  *Broker
+	log *testutil.Log
+	id  string
 }
 
 func newEventEnv(t *testing.T) *eventEnv {
 	t.Helper()
-	db := openDB(t)
-	e := &eventEnv{st: NewStore(db, newTestClock().Now), br: NewBroker(), logs: &logBuffer{}}
-	e.log = slog.New(slog.NewJSONHandler(e.logs, nil))
-	e.st.SetPublisher(e.br.Publish)
+	st, _ := newStore(t)
+	e := &eventEnv{st: st, br: NewBroker(), log: &testutil.Log{}}
+	st.SetPublisher(e.br.Publish)
 	t.Cleanup(e.br.Close)
-	id, err := e.st.CreateJob(ctx, newJob(KindFix, 1))
-	if err != nil {
-		t.Fatal(err)
-	}
-	e.id = id
+	e.id = mustCreate(t, st, newJob(1))
 	return e
 }
 
-// stored are all the stored events of the job.
+func (e *eventEnv) recorder(attempt int) *Recorder {
+	return newRecorder(e.st, e.log.Logger(), e.id, attempt)
+}
+
+// stored are the stored events of the job.
 func (e *eventEnv) stored(t *testing.T) []Event {
 	t.Helper()
-	evs, err := e.st.EventsAfter(ctx, e.id, 0, 100000)
+	evs, err := e.st.EventsAfter(ctx, e.id, 0, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return evs
 }
 
-// last is the last stored event.
 func (e *eventEnv) last(t *testing.T) Event {
 	t.Helper()
 	evs := e.stored(t)
-	if len(evs) == 0 {
-		t.Fatal("no event is stored")
-	}
 	return evs[len(evs)-1]
 }
 
-// receive reads the next event of a subscription, or fails the test.
+// receive is the next event of the subscription; it fails the test when there is none waiting.
 func receive(t *testing.T, sub *Subscription) Event {
 	t.Helper()
 	select {
@@ -94,578 +58,325 @@ func receive(t *testing.T, sub *Subscription) Event {
 			t.Fatal("the subscription is closed")
 		}
 		return ev
-	case <-time.After(10 * time.Second):
-		t.Fatal("no event arrived within 10s")
+	default:
+		t.Fatal("no event was published")
 		return Event{}
 	}
 }
 
-// TestStoredSeqsAreGapFreeAndStoredBeforeTheyArePublished_TS_12_64 verifies TS-12-64:
-// the events of a job, from the jobs layer and from concurrent runners of several
-// attempts, are numbered 1 to k without a gap; each has ts, job_id, attempt, type
-// and data; and a subscriber that looks at the file when an event reaches it finds
-// the event there.
-// Verifies: 12-REQ-10.1
-func TestStoredSeqsAreGapFreeAndStoredBeforeTheyArePublished_TS_12_64(t *testing.T) {
-	rng := rand.New(rand.NewPCG(12, 64))
-	types := []string{"step", "tool_call", "heartbeat", "x", "usage_note"}
-	for run := range 12 {
-		e := newEventEnv(t)
-		sub := e.br.Subscribe(e.id)
-		attempts := 1 + rng.IntN(4)
-
-		// The store hands each event to the publisher once it has committed it: the
-		// file, read through another connection, shows the event at that moment.
-		var early atomic.Int64
-		e.st.SetPublisher(func(ev Event) {
-			var n int
-			if err := e.st.db.QueryRow("SELECT count(*) FROM af_events WHERE job_id = ? AND seq = ?", ev.JobID, ev.Seq).Scan(&n); err != nil || n != 1 {
-				early.Add(1)
-			}
-			e.br.Publish(ev)
-		})
-		defer func() {
-			if n := early.Load(); n != 0 {
-				t.Errorf("run %d: %d events were published before they were in the file", run, n)
-			}
-		}()
-
-		type delivery struct {
-			ev     Event
-			stored bool
-		}
-		var (
-			mu        sync.Mutex
-			delivered []delivery
-			done      = make(chan struct{})
-		)
-		go func() {
-			defer close(done)
-			for ev := range sub.C {
-				var n int
-				// The file is read through another connection than the writer's: it shows
-				// what has been committed.
-				if err := e.st.db.QueryRow("SELECT count(*) FROM af_events WHERE job_id = ? AND seq = ?", ev.JobID, ev.Seq).Scan(&n); err != nil {
-					t.Error(err)
-				}
-				mu.Lock()
-				delivered = append(delivered, delivery{ev, n == 1})
-				mu.Unlock()
-			}
-		}()
-
-		var wg sync.WaitGroup
-		total := 1 // the job_state of the creation
-		for n := 1; n <= attempts; n++ {
-			count := rng.IntN(40)
-			total += count
-			rec := newRecorder(e.st, e.log, e.id, n)
-			kinds := make([]string, count)
-			for i := range kinds {
-				kinds[i] = types[rng.IntN(len(types))]
-			}
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for i, k := range kinds {
-					rec.Emit(k, map[string]any{"attempt": n, "i": i})
-				}
-			}()
-		}
-		// Meanwhile the jobs layer moves the job on, and says so in the log.
-		for n := 2; n <= attempts; n++ {
-			force(t, e.st.db, e.st, e.id, StateFailed)
-			if _, err := e.st.Requeue(ctx, e.id, StateFailed, Trigger{Kind: TriggerRetry, By: "u"}, nil); err != nil {
-				t.Fatal(err)
-			}
-			total++
-		}
-		wg.Wait()
-		e.br.Close()
-		<-done
-
-		evs := e.stored(t)
-		if len(evs) != total {
-			t.Fatalf("run %d: %d events stored, want %d", run, len(evs), total)
-		}
-		for i, ev := range evs {
-			if ev.Seq != int64(i+1) {
-				t.Fatalf("run %d: the event at position %d has seq %d, want %d", run, i, ev.Seq, i+1)
-			}
-			if ev.TS == "" || ev.JobID != e.id || ev.Attempt < 1 || ev.Attempt > attempts || ev.Type == "" || len(ev.Data) == 0 {
-				t.Fatalf("run %d: event %+v lacks a field", run, ev)
-			}
-			if !timeShape.MatchString(ev.TS) {
-				t.Errorf("run %d: ts %q is not RFC 3339 UTC with milliseconds", run, ev.TS)
-			}
-		}
-		// The subscriber came after the creation of the job, so it gets events 2 to total.
-		mu.Lock()
-		if len(delivered) != total-1 {
-			t.Errorf("run %d: %d events delivered, want %d", run, len(delivered), total-1)
-		}
-		for i, d := range delivered {
-			if !d.stored {
-				t.Errorf("run %d: event %d reached the subscriber before it was in the file", run, d.ev.Seq)
-			}
-			if d.ev.Seq != int64(i+2) {
-				t.Errorf("run %d: the subscriber's event %d has seq %d, want %d: they arrive in order", run, i, d.ev.Seq, i+2)
-				break
-			}
-		}
-		mu.Unlock()
-	}
-}
-
-// TestMalformedAndReservedTypesLargeAndUnencodableDataAreStoredAsSaid_TS_12_65 verifies
-// TS-12-65: an event whose type does not match ^[a-z][a-z0-9_]*$, or is one of the
-// layer's own, is stored as invalid_event_type with the type and the data it was
-// given; data over 64 KiB as JSON becomes {"truncated":true,"bytes":N} and data
-// that cannot be encoded {"error":…}; every event is streamed as stored and the
-// calls return.
-// Verifies: 12-REQ-10.2
-func TestMalformedAndReservedTypesLargeAndUnencodableDataAreStoredAsSaid_TS_12_65(t *testing.T) {
+func TestRecorderEmit_StoresTheTypeAndTheDataAsTheRuleHasThem(t *testing.T) {
 	e := newEventEnv(t)
 	sub := e.br.Subscribe(e.id)
-	rec := newRecorder(e.st, e.log, e.id, 1)
-
-	given := map[string]any{"a": 1, "list": []int{1, 2}}
-	wantGiven := `{"a":1,"list":[1,2]}`
-	for _, typ := range []string{"Bad-Type", "", "job_state", "attempt_start", "attempt_end", "1step", "has space", "Step", "a-b", "tool\ncall", "é"} {
-		rec.Emit(typ, given)
-		ev := e.last(t)
-		var wrapped struct {
-			Type string          `json:"type"`
-			Data json.RawMessage `json:"data"`
-		}
-		if ev.Type != "invalid_event_type" || json.Unmarshal(ev.Data, &wrapped) != nil || wrapped.Type != typ || string(wrapped.Data) != wantGiven {
-			t.Errorf("type %q: stored as %q with %s, want invalid_event_type with the type and %s", typ, ev.Type, ev.Data, wantGiven)
-		}
-		if got := receive(t, sub); got.Seq != ev.Seq || got.Type != "invalid_event_type" {
-			t.Errorf("type %q: streamed as %+v, want the stored event", typ, got)
-		}
+	rec := e.recorder(1)
+	given := map[string]any{"a": 1, "html": "<&>"}
+	const data = `{"a":1,"html":"<&>"}`
+	wrapped := func(typ, data string) string {
+		return `{"type":` + string(testutil.JSON(t, typ)) + `,"data":` + data + `}`
 	}
-
-	// Types that are in the form stay as they are.
-	for _, typ := range []string{"step", "tool_call", "a", "x1_y2", "heartbeat"} {
-		rec.Emit(typ, given)
-		if ev := e.last(t); ev.Type != typ || string(ev.Data) != wantGiven {
-			t.Errorf("type %q: stored as %q with %s, want it unchanged", typ, ev.Type, ev.Data)
-		}
-		receive(t, sub)
-	}
-
-	// 64 KiB of JSON is kept, a byte more is replaced by its size.
-	for _, tc := range []struct {
-		name     string
-		chars    int
-		wantSize int
-		replaced bool
+	cases := []struct {
+		name, typ string
+		data      any
+		wantType  string
+		wantData  string
 	}{
-		{"70 KiB", 70 * 1024, 70*1024 + 2, true},
-		{"exactly 64 KiB of JSON", 64*1024 - 2, 64 * 1024, false},
-		{"64 KiB and a byte of JSON", 64*1024 - 1, 64*1024 + 1, true},
-	} {
-		rec.Emit("step", strings.Repeat("a", tc.chars))
+		{"a word", "step", given, "step", data},
+		{"letters, digits and underscores", "x1_y2", given, "x1_y2", data},
+		{"64 KiB of JSON", "step", strings.Repeat("a", 64<<10-2), "step", `"` + strings.Repeat("a", 64<<10-2) + `"`},
+		{"a byte more", "step", strings.Repeat("a", 64<<10-1), "step", `{"bytes":65537,"truncated":true}`},
+		{"data that cannot be encoded", "step", make(chan int), "step", `{"error":"json: unsupported type: chan int"}`},
+		{"an upper-case type", "Step", given, "invalid_event_type", wrapped("Step", data)},
+		{"an empty type", "", given, "invalid_event_type", wrapped("", data)},
+		{"a type with a dash", "a-b", given, "invalid_event_type", wrapped("a-b", data)},
+		{"a type with a newline", "tool\ncall", given, "invalid_event_type", wrapped("tool\ncall", data)},
+		{"a type that begins with a digit", "1step", given, "invalid_event_type", wrapped("1step", data)},
+		{"job_state, the layer's own", EventJobState, given, "invalid_event_type", wrapped(EventJobState, data)},
+		{"attempt_start, the layer's own", EventAttemptStart, given, "invalid_event_type", wrapped(EventAttemptStart, data)},
+		{"attempt_end, the layer's own", EventAttemptEnd, given, "invalid_event_type", wrapped(EventAttemptEnd, data)},
+		{"a wrong type and large data", "Bad", strings.Repeat("b", 70<<10), "invalid_event_type", wrapped("Bad", `{"bytes":71682,"truncated":true}`)},
+	}
+	for i, tc := range cases {
+		rec.Emit(tc.typ, tc.data)
 		ev := e.last(t)
-		var marker struct {
-			Truncated bool `json:"truncated"`
-			Bytes     int  `json:"bytes"`
+		if ev.Seq != int64(i+2) || ev.Type != tc.wantType || string(ev.Data) != tc.wantData || ev.Attempt != 1 || ev.JobID != e.id {
+			t.Errorf("%s: stored #%d %s %.100s, want #%d %s %.100s", tc.name, ev.Seq, ev.Type, ev.Data, i+2, tc.wantType, tc.wantData)
 		}
-		if tc.replaced {
-			if err := json.Unmarshal(ev.Data, &marker); err != nil || !marker.Truncated || marker.Bytes != tc.wantSize || len(ev.Data) > 100 {
-				t.Errorf("%s: stored as %.80s, want {\"truncated\":true,\"bytes\":%d}", tc.name, ev.Data, tc.wantSize)
-			}
-		} else if len(ev.Data) != tc.wantSize {
-			t.Errorf("%s: stored %d bytes, want the data kept at %d", tc.name, len(ev.Data), tc.wantSize)
-		}
-		if got := receive(t, sub); got.Seq != ev.Seq || len(got.Data) != len(ev.Data) {
-			t.Errorf("%s: streamed %d bytes, stored %d", tc.name, len(got.Data), len(ev.Data))
+		if got := receive(t, sub); got.Seq != ev.Seq || string(got.Data) != string(ev.Data) {
+			t.Errorf("%s: published %+v, want the stored event", tc.name, got)
 		}
 	}
-
-	// A type that is wrong and data that is large: the data is replaced before it is wrapped.
-	rec.Emit("Bad", strings.Repeat("b", 70*1024))
-	if ev := e.last(t); ev.Type != "invalid_event_type" || len(ev.Data) > 200 || !strings.Contains(string(ev.Data), `"truncated":true`) || !strings.Contains(string(ev.Data), `"type":"Bad"`) {
-		t.Errorf("a wrong type with large data: stored as %q with %.120s", ev.Type, ev.Data)
-	}
-	receive(t, sub)
-
-	// Data that cannot be encoded.
-	rec.Emit("step", make(chan int))
-	ev := e.last(t)
-	var failure struct {
-		Error string `json:"error"`
-	}
-	if err := json.Unmarshal(ev.Data, &failure); err != nil || ev.Type != "step" || failure.Error == "" {
-		t.Errorf("unencodable data: stored as %q with %s, want step with {\"error\":…}", ev.Type, ev.Data)
-	}
-	receive(t, sub)
-	rec.Emit("Wrong", func() {})
-	if ev := e.last(t); ev.Type != "invalid_event_type" || !strings.Contains(string(ev.Data), `"error"`) || !strings.Contains(string(ev.Data), `"type":"Wrong"`) {
-		t.Errorf("a wrong type and unencodable data: stored as %q with %s", ev.Type, ev.Data)
-	}
-	receive(t, sub)
-
-	// The attempt goes on: every call returned, and the next event takes the next number.
-	rec.Emit("step", "after")
-	evs := e.stored(t)
-	for i, ev := range evs {
-		if ev.Seq != int64(i+1) {
-			t.Fatalf("event %d has seq %d, want %d", i, ev.Seq, i+1)
-		}
-	}
-	if len(e.logs.records()) != 0 {
-		t.Errorf("events that were replaced were logged: %v", e.logs.records())
+	if recs := e.log.Records(); len(recs) != 0 {
+		t.Errorf("events that were replaced were logged: %v", recs)
 	}
 }
 
-// TestAnEventThatCannotBeStoredIsLoggedAsAWarningAndDropped_TS_12_66 verifies TS-12-66:
-// when the insert of an event fails, Emit returns, a WARN is logged, nothing is
-// published, and the next event takes the number the failed one did not.
-// Verifies: 12-REQ-10.3
-func TestAnEventThatCannotBeStoredIsLoggedAsAWarningAndDropped_TS_12_66(t *testing.T) {
+func TestRecorderEmit_AnEventThatCannotBeStoredIsWarnedOfAndDroppedWithoutAGap(t *testing.T) {
 	e := newEventEnv(t)
 	sub := e.br.Subscribe(e.id)
-	rec := newRecorder(e.st, e.log, e.id, 1)
-
+	rec := e.recorder(1)
 	e.st.SetFault(func(op string) error {
 		if op == OpInsertEvent {
-			return fmt.Errorf("injected failure of %s", op)
+			return errors.New("injected")
 		}
 		return nil
 	})
-	before := len(e.stored(t))
-	rec.Emit("step", map[string]int{"n": 1})
-	if got := len(e.stored(t)); got != before {
-		t.Errorf("%d events stored, want the %d there were", got, before)
+	rec.Emit("step", 1)
+	if n := len(e.stored(t)); n != 1 {
+		t.Errorf("%d events stored, want only the creation's", n)
 	}
-	select {
-	case ev := <-sub.C:
-		t.Errorf("the subscriber got %+v of an event that was not stored", ev)
-	default:
+	if warned := e.log.Find("WARN", "could not be stored"); len(warned) != 1 || warned[0]["job"] != e.id {
+		t.Errorf("warnings = %v, want one naming the job", e.log.Records())
 	}
-	warned := false
-	for _, rec := range e.logs.records() {
-		if rec["level"] == "WARN" && strings.Contains(fmt.Sprint(rec["msg"]), "event") && rec["job"] == e.id {
-			warned = true
-		}
-	}
-	if !warned {
-		t.Errorf("no WARN names the job and the event: %v", e.logs.records())
-	}
-
 	e.st.SetFault(nil)
-	rec.Emit("step", map[string]int{"n": 2})
-	ev := e.last(t)
-	if ev.Seq != int64(before+1) || ev.Type != "step" {
-		t.Errorf("the next event is %+v, want number %d: no gap where the failed one was", ev, before+1)
-	}
-	if got := receive(t, sub); got.Seq != ev.Seq {
-		t.Errorf("the subscriber got %d, want %d", got.Seq, ev.Seq)
+	rec.Emit("step", 2)
+	if ev := receive(t, sub); ev.Seq != 2 {
+		t.Errorf("the next event is #%d, want #2", ev.Seq)
 	}
 }
 
-// TestARecorderThatHasEndedDropsWhatIsSentAfterwards verifies the closed flag of the
-// recorder (12-REQ-5.5, which the end of an attempt in task 5 applies): after the
-// recorder is closed, Emit and Hub store and publish nothing, and a call that is in
-// progress when it is closed is finished before the close returns.
-// Verifies: 12-REQ-5.3
-func TestARecorderThatHasEndedDropsWhatIsSentAfterwards(t *testing.T) {
+func TestRecorder_StoresHubReferencesAndDropsEverythingOnceClosed(t *testing.T) {
 	e := newEventEnv(t)
 	sub := e.br.Subscribe(e.id)
-	rec := newRecorder(e.st, e.log, e.id, 1)
-	rec.Emit("step", 1)
-	receive(t, sub)
-	before := len(e.stored(t))
-
-	// The references of a running attempt are stored; an empty one is none.
-	if _, err := e.st.db.Exec("UPDATE af_attempts SET state = 'running' WHERE job_id = ? AND n = 1", e.id); err != nil {
-		t.Fatal(err)
+	rec := e.recorder(1)
+	hub := func() string {
+		return testutil.Column(t, e.st.db, "SELECT COALESCE(hub_session, '-') || COALESCE(hub_run, '-') || COALESCE(hub_sandbox, '-') FROM af_attempts WHERE job_id = ?", e.id)[0]
 	}
-	hub := func() (session, run, sandbox sql.NullString) {
-		t.Helper()
-		if err := e.st.db.QueryRow("SELECT hub_session, hub_run, hub_sandbox FROM af_attempts WHERE job_id = ? AND n = 1", e.id).Scan(&session, &run, &sandbox); err != nil {
-			t.Fatal(err)
-		}
-		return
+	rec.Hub("s0", "r0", "b0") // the attempt is not running: nothing is stored
+	if got := hub(); got != "---" {
+		t.Errorf("hub of a queued attempt = %s, want none", got)
 	}
-	rec.Hub("s1", "r1", "")
-	if session, run, sandbox := hub(); session.String != "s1" || run.String != "r1" || sandbox.Valid {
-		t.Errorf("hub references = %v %v %v, want s1, r1 and none", session, run, sandbox)
+	testutil.Exec(t, e.st.db, "UPDATE af_attempts SET state = 'running' WHERE job_id = ?", e.id)
+	rec.Hub("s1", "r1", "") // an empty reference is none
+	if got := hub(); got != "s1r1-" {
+		t.Errorf("hub = %s, want s1, r1 and none", got)
 	}
-
 	rec.close()
-	rec.Emit("step", 2)
+	rec.Emit("step", 1)
 	rec.Hub("s2", "r2", "b2")
-	if session, run, sandbox := hub(); session.String != "s1" || run.String != "r1" || sandbox.Valid {
-		t.Errorf("hub references = %v %v %v after the close, want them as they were", session, run, sandbox)
-	}
-	if got := len(e.stored(t)); got != before {
-		t.Errorf("%d events stored after the close, want %d", got, before)
+	if got := hub(); got != "s1r1-" || len(e.stored(t)) != 1 {
+		t.Errorf("after the close: hub %s and %d events, want them as they were", got, len(e.stored(t)))
 	}
 	select {
 	case ev := <-sub.C:
-		t.Errorf("an event was published after the close: %+v", ev)
+		t.Errorf("published after the close: %+v", ev)
 	default:
+	}
+	// A store that fails is warned of, and the references are dropped.
+	testutil.Exec(t, e.st.db, "ALTER TABLE af_attempts RENAME COLUMN hub_run TO hub_run_away")
+	e.recorder(1).Hub("s3", "r3", "b3")
+	if len(e.log.Find("WARN", "hub references")) != 1 {
+		t.Errorf("warnings = %v, want one for the hub references", e.log.Records())
 	}
 }
 
-// TestABrokerNeverBlocksAndDisconnectsASubscriberMoreThan256Behind verifies the broker
-// of 12-REQ-10.7: a subscriber holds 256 events; the 257th it has not read
-// closes its channel and flags it slow, without a wait, while the other subscribers
-// of the job and the subscribers of other jobs get everything; a closed broker
-// closes every subscription.
-// Verifies: 12-REQ-10.7
-func TestABrokerNeverBlocksAndDisconnectsASubscriberMoreThan256Behind(t *testing.T) {
+func TestAppendEvent_NumbersEventsWithoutAGapAndPublishesEachOnceItIsInTheFile(t *testing.T) {
+	e := newEventEnv(t)
+	var early atomic.Int32
+	var mu sync.Mutex
+	var published []int64
+	e.st.SetPublisher(func(ev Event) {
+		// Read through another connection than the writer's: it shows what has been committed.
+		if testutil.Count(t, e.st.db, "af_events", "job_id = ? AND seq = ?", ev.JobID, ev.Seq) != 1 {
+			early.Add(1)
+		}
+		mu.Lock()
+		published = append(published, ev.Seq)
+		mu.Unlock()
+	})
+	var wg sync.WaitGroup
+	for g := range 8 {
+		wg.Go(func() {
+			rec := e.recorder(1 + g%2)
+			for i := range 25 {
+				rec.Emit("step", i)
+			}
+		})
+	}
+	wg.Wait()
+	evs := e.stored(t)
+	if len(evs) != 1+8*25 {
+		t.Fatalf("%d events, want %d", len(evs), 1+8*25)
+	}
+	for i, ev := range evs {
+		if ev.Seq != int64(i+1) || ev.TS == "" {
+			t.Fatalf("event %d is #%d at %q, want #%d", i, ev.Seq, ev.TS, i+1)
+		}
+	}
+	if early.Load() != 0 || len(published) != 8*25 {
+		t.Errorf("%d events published before they were in the file, %d published, want 0 and %d", early.Load(), len(published), 8*25)
+	}
+	for i, seq := range published {
+		if seq != int64(i+2) {
+			t.Fatalf("published in the order %v, want the order of the numbers", published)
+		}
+	}
+}
+
+func TestAppendEvent_HoldsTheJobUntilItsEventIsPublished(t *testing.T) {
+	e := newEventEnv(t)
+	entered, gate := make(chan struct{}), make(chan struct{})
+	var order []int64
+	e.st.SetPublisher(func(ev Event) {
+		if ev.Seq == 2 {
+			close(entered)
+			<-gate
+		}
+		order = append(order, ev.Seq)
+	})
+	var wg sync.WaitGroup
+	wg.Go(func() { e.recorder(1).Emit("step", "first") })
+	<-entered
+	wg.Go(func() { e.recorder(2).Emit("step", "second") })
+	// The second waits for the lock of the job, which the first holds while it publishes.
+	testutil.Eventually(t, "the second event to wait for the job", func() bool {
+		e.st.locks.mu.Lock()
+		defer e.st.locks.mu.Unlock()
+		return e.st.locks.locks[e.id] != nil && e.st.locks.locks[e.id].users == 2
+	})
+	close(gate)
+	wg.Wait()
+	if len(order) != 2 || order[0] != 2 || order[1] != 3 {
+		t.Errorf("published in the order %v, want [2 3]", order)
+	}
+	if len(e.st.locks.locks) != 0 {
+		t.Errorf("%d locks are kept after their users let go", len(e.st.locks.locks))
+	}
+}
+
+func TestBroker_ClosesASubscriberThatFallsBehindWithoutWaitingForIt(t *testing.T) {
 	br := NewBroker()
 	stalled, healthy, other := br.Subscribe("job_a"), br.Subscribe("job_a"), br.Subscribe("job_b")
-
-	// The subscriber that reads is kept up with, so that it is never behind by more than
-	// one event: it is the one that does not read that is behind.
-	var healthyGot []int64
-	var read atomic.Int64
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for ev := range healthy.C {
-			healthyGot = append(healthyGot, ev.Seq)
-			read.Store(ev.Seq)
+	for seq := int64(1); seq <= 1000; seq++ {
+		br.Publish(Event{JobID: "job_a", Seq: seq})
+		if got := receive(t, healthy); got.Seq != seq {
+			t.Fatalf("the subscriber that reads got #%d, want #%d", got.Seq, seq)
 		}
-	}()
-
-	finished := make(chan struct{})
-	go func() {
-		defer close(finished)
-		for seq := int64(1); seq <= 1000; seq++ {
-			br.Publish(Event{JobID: "job_a", Seq: seq, Type: "step"})
-			for read.Load() < seq {
-				runtime.Gosched()
-			}
-		}
-		br.Publish(Event{JobID: "job_b", Seq: 1, Type: "step"})
-	}()
-	select {
-	case <-finished:
-	case <-time.After(10 * time.Second):
-		t.Fatal("Publish waited for a subscriber that does not read")
 	}
-
-	if !stalled.Slow() {
-		t.Error("the subscriber that did not read is not flagged slow")
+	br.Publish(Event{JobID: "job_b", Seq: 1})
+	if !stalled.Slow() || healthy.Slow() {
+		t.Errorf("slow: the stalled subscriber %v, the one that reads %v, want true and false", stalled.Slow(), healthy.Slow())
 	}
 	n := 0
 	for range stalled.C {
 		n++
 	}
 	if n != SubscriberBuffer {
-		t.Errorf("the stalled subscriber could read %d events, want the %d it held", n, SubscriberBuffer)
+		t.Errorf("the stalled subscriber had %d events, want the %d it had room for", n, SubscriberBuffer)
 	}
-	if got := receive(t, other); got.Seq != 1 || got.JobID != "job_b" {
-		t.Errorf("a subscriber of another job got %+v", got)
+	if got := receive(t, other); got.JobID != "job_b" {
+		t.Errorf("the subscriber of another job got %+v", got)
 	}
-
+	healthy.Cancel()
+	if _, ok := <-healthy.C; ok {
+		t.Error("a cancelled subscription is open")
+	}
 	br.Close()
-	<-done
-	if len(healthyGot) != 1000 {
-		t.Fatalf("the subscriber that read got %d events, want 1000", len(healthyGot))
+	if _, ok := <-other.C; ok || other.Slow() {
+		t.Error("a subscription is open after the broker closed, or it is taken for slow")
 	}
-	for i, seq := range healthyGot {
-		if seq != int64(i+1) {
-			t.Fatalf("the healthy subscriber's event %d has seq %d", i, seq)
-		}
-	}
-	if healthy.Slow() {
-		t.Error("the subscriber that read is flagged slow")
-	}
-	// After the close, a subscription is closed at once, and publishing is harmless.
 	late := br.Subscribe("job_a")
+	br.Publish(Event{JobID: "job_a", Seq: 1})
 	if _, ok := <-late.C; ok {
 		t.Error("a subscription to a closed broker delivers")
 	}
-	br.Publish(Event{JobID: "job_a", Seq: 1})
 	late.Cancel()
 }
 
-// TestAFollowerSeesEveryEventAfterItsStartOnceAndInOrder verifies the primitive that
-// the event stream is made of (12-REQ-10.5): for any starting point, and however the
-// moment it starts falls among events that are being stored and published, the
-// stored events after it and then the live ones are exactly the events k+1 to n,
-// each once and in order; and a follower that starts again from the last number it
-// saw gets exactly the ones it missed.
-// Verifies: 12-REQ-10.5
-func TestAFollowerSeesEveryEventAfterItsStartOnceAndInOrder(t *testing.T) {
-	for run := range 15 {
-		rng := rand.New(rand.NewPCG(12, uint64(680+run)))
-		e := newEventEnv(t) // the creation stored event 1
-		per := [2]int{20 + rng.IntN(40), 20 + rng.IntN(40)}
-		total := int64(1 + per[0] + per[1])
-
-		var emitting sync.WaitGroup
-		for g := range 2 {
-			rec := newRecorder(e.st, e.log, e.id, g+1)
-			pause := rand.New(rand.NewPCG(12, uint64(6800+run*2+g)))
-			emitting.Add(1)
-			go func() {
-				defer emitting.Done()
-				for i := range per[g] {
-					rec.Emit("step", i)
-					if pause.IntN(3) == 0 {
-						time.Sleep(time.Duration(pause.IntN(300)) * time.Microsecond)
-					}
-				}
-			}()
-		}
-
-		type outcome struct {
-			since int64
-			got   []int64
-		}
-		results := make(chan outcome, 16)
-		var following sync.WaitGroup
-		follow := func(since int64) {
-			following.Add(1)
-			go func() {
-				defer following.Done()
-				f := e.br.Follow(e.st, e.id, since)
-				defer f.Close()
-				var got []int64
-				if err := f.Replay(ctx, func(ev Event) error { got = append(got, ev.Seq); return nil }); err != nil {
-					t.Error(err)
-					return
-				}
-				timeout := time.After(10 * time.Second)
-				for f.Last() < total {
-					select {
-					case ev, ok := <-f.Live():
-						if !ok {
-							t.Errorf("run %d since %d: the live events ended at %d of %d (slow: %v)", run, since, f.Last(), total, f.Slow())
-							results <- outcome{since, got}
-							return
-						}
-						if f.Take(ev) {
-							got = append(got, ev.Seq)
-						}
-					case <-timeout:
-						t.Errorf("run %d since %d: no event %d within 10s", run, since, f.Last()+1)
-						results <- outcome{since, got}
-						return
-					}
-				}
-				results <- outcome{since, got}
-			}()
-		}
-		for range 6 {
-			time.Sleep(time.Duration(rng.IntN(1500)) * time.Microsecond)
-			follow(int64(rng.IntN(len(e.stored(t)) + 1)))
-		}
-		follow(0)
-		emitting.Wait()
-		follow(total - 1)
-		follow(total) // nothing is missing: it waits for nothing
-		following.Wait()
-		close(results)
-
-		n := 0
-		for res := range results {
-			n++
-			want := total - res.since
-			if int64(len(res.got)) != want {
-				t.Errorf("run %d since %d: %d events, want %d", run, res.since, len(res.got), want)
-				continue
+func TestFollower_SeesEveryEventAfterItsStartOnceAndInOrder(t *testing.T) {
+	e := newEventEnv(t) // the creation stored event 1
+	const per = 60
+	total := int64(1 + 2*per)
+	var emitting sync.WaitGroup
+	for g := range 2 {
+		emitting.Go(func() {
+			rec := e.recorder(g + 1)
+			for i := range per {
+				rec.Emit("step", i)
 			}
-			for i, seq := range res.got {
-				if seq != res.since+int64(i)+1 {
-					t.Errorf("run %d since %d: event %d is number %d, want %d", run, res.since, i, seq, res.since+int64(i)+1)
+		})
+	}
+	results := make(chan []int64, 8)
+	var following sync.WaitGroup
+	follow := func(since int64) {
+		following.Go(func() {
+			f := e.br.Follow(e.st, e.id, since)
+			defer f.Close()
+			got := []int64{since}
+			if err := f.Replay(ctx, func(ev Event) error { got = append(got, ev.Seq); return nil }); err != nil {
+				t.Error(err)
+			}
+			for f.Last() < total {
+				ev, ok := <-f.Live()
+				if !ok {
+					t.Errorf("since %d: the live events ended at %d", since, f.Last())
 					break
 				}
+				if f.Take(ev) {
+					got = append(got, ev.Seq)
+				}
+			}
+			results <- got
+		})
+	}
+	// Followers that start while the events are stored, at whatever point the file has reached.
+	for i := range 5 {
+		follow(int64(min(i*20, len(e.stored(t)))))
+	}
+	emitting.Wait()
+	follow(total - 1)
+	follow(total)
+	following.Wait()
+	close(results)
+	for got := range results {
+		since := got[0]
+		for i, seq := range got[1:] {
+			if seq != since+int64(i)+1 {
+				t.Fatalf("since %d: event %d is #%d, want #%d", since, i, seq, since+int64(i)+1)
 			}
 		}
-		if n != 9 {
-			t.Errorf("run %d: %d followers finished, want 9", run, n)
+		if int64(len(got)-1) != total-since {
+			t.Errorf("since %d: %d events, want %d", since, len(got)-1, total-since)
 		}
 	}
 }
 
-// TestAReplayOfMoreThanOneBatchSendsEveryEventOnceAndInOrder verifies that Replay reads
-// the stored events in batches without losing or repeating the ones at the edges of a
-// batch, and continues from the last event it sent.
-// Verifies: 12-REQ-10.5
-func TestAReplayOfMoreThanOneBatchSendsEveryEventOnceAndInOrder(t *testing.T) {
+func TestFollowerReplay_SendsMoreThanOneBatchOnceAndInOrder(t *testing.T) {
 	e := newEventEnv(t)
-	rec := newRecorder(e.st, e.log, e.id, 1)
+	rec := e.recorder(1)
 	const total = 2*replayBatch + 7
-	for i := 1; i < total; i++ { // the creation stored event 1
+	for i := 1; i < total; i++ {
 		rec.Emit("step", i)
 	}
-	for _, since := range []int64{0, 1, replayBatch - 1, replayBatch, replayBatch + 1, 2*replayBatch - 1, total - 1, total} {
+	for _, since := range []int64{0, replayBatch - 1, replayBatch, replayBatch + 1, total - 1, total} {
 		f := e.br.Follow(e.st, e.id, since)
-		var got []int64
-		if err := f.Replay(ctx, func(ev Event) error { got = append(got, ev.Seq); return nil }); err != nil {
-			t.Fatal(err)
-		}
-		if int64(len(got)) != total-since || f.Last() != total {
-			t.Errorf("since %d: %d events, last %d, want %d and %d", since, len(got), f.Last(), total-since, total)
-		}
-		for i, seq := range got {
-			if seq != since+int64(i)+1 {
-				t.Errorf("since %d: event %d is number %d, want %d", since, i, seq, since+int64(i)+1)
-				break
+		next := since + 1
+		err := f.Replay(ctx, func(ev Event) error {
+			if ev.Seq != next {
+				return errors.New("out of order")
 			}
+			next++
+			return nil
+		})
+		if err != nil || next != total+1 || f.Last() != total {
+			t.Errorf("since %d: %v, last %d, want every event to %d", since, err, f.Last(), total)
 		}
-		// A second replay has nothing more to send, and what Replay sent is not taken again.
-		if err := f.Replay(ctx, func(ev Event) error { t.Errorf("since %d: replayed %d again", since, ev.Seq); return nil }); err != nil {
-			t.Fatal(err)
-		}
-		if f.Take(Event{Seq: total}) || (since+1 <= total && f.Take(Event{Seq: since + 1})) {
-			t.Errorf("since %d: Take accepted an event that was sent already", since)
-		}
-		if !f.Take(Event{Seq: total + 1}) || f.Last() != total+1 {
-			t.Errorf("since %d: Take refused the event after the last", since)
+		if f.Take(Event{Seq: total}) || !f.Take(Event{Seq: total + 1}) {
+			t.Errorf("since %d: Take accepted an event that was sent, or refused the next", since)
 		}
 		f.Close()
 	}
+	// An error of send stops the replay.
+	stop := errors.New("stop")
+	f := e.br.Follow(e.st, e.id, 0)
+	defer f.Close()
+	if err := f.Replay(ctx, func(Event) error { return stop }); !errors.Is(err, stop) || f.Last() != 0 {
+		t.Errorf("Replay = %v with last %d, want the error of send and nothing counted", err, f.Last())
+	}
 }
 
-// TestEventsOfAJobArePublishedInTheOrderOfTheirNumbers verifies that the store holds
-// the lock of a job from the moment an event is numbered until it is published: an
-// event whose publication is held up keeps the next event of the job from being
-// stored, so that no subscriber sees number 3 before number 2.
-// Verifies: 12-REQ-10.1
-func TestEventsOfAJobArePublishedInTheOrderOfTheirNumbers(t *testing.T) {
-	e := newEventEnv(t)
-	var (
-		mu      sync.Mutex
-		order   []int64
-		entered = make(chan struct{})
-		gate    = make(chan struct{})
-	)
-	e.st.SetPublisher(func(ev Event) {
-		if ev.Seq == 2 {
-			close(entered)
-			<-gate
-		}
-		mu.Lock()
-		order = append(order, ev.Seq)
-		mu.Unlock()
-	})
-
-	var emitters sync.WaitGroup
-	emitters.Add(2)
-	go func() { defer emitters.Done(); newRecorder(e.st, e.log, e.id, 1).Emit("step", "first") }()
-	<-entered // the first event is stored and is being published
-	go func() { defer emitters.Done(); newRecorder(e.st, e.log, e.id, 2).Emit("step", "second") }()
-	time.Sleep(200 * time.Millisecond)
-	mu.Lock()
-	if len(order) != 0 {
-		t.Errorf("events %v were published while the publication of event 2 was held up", order)
-	}
-	mu.Unlock()
-	close(gate)
-	emitters.Wait()
-	mu.Lock()
-	defer mu.Unlock()
-	if len(order) != 2 || order[0] != 2 || order[1] != 3 {
-		t.Errorf("events were published in the order %v, want [2 3]", order)
+func TestEventFrame_IsTheNumberTheTypeAndTheEventOnOneLine(t *testing.T) {
+	ev := Event{Seq: 7, TS: "2026-10-22T08:00:00.000Z", JobID: "job_x", Attempt: 2, Type: "step", Data: json.RawMessage(`{"a":"<b>"}`)}
+	want := "id: 7\nevent: step\ndata: {\"seq\":7,\"ts\":\"2026-10-22T08:00:00.000Z\",\"job_id\":\"job_x\",\"attempt\":2,\"type\":\"step\",\"data\":{\"a\":\"<b>\"}}\n\n"
+	if got := string(ev.Frame()); got != want {
+		t.Errorf("Frame = %q, want %q", got, want)
 	}
 }

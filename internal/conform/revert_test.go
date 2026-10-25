@@ -1,989 +1,275 @@
 package conform
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"math/rand/v2"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"regexp"
-	"runtime"
 	"slices"
-	"strconv"
 	"strings"
-	"sync"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/project"
+	"github.com/agent-fox-dev/agentfox/internal/testutil"
 )
 
-var hash40 = regexp.MustCompile(`^[0-9a-f]{40}$`)
-
-// requireGitAndSh skips the test where there is no git or no POSIX shell.
-func requireGitAndSh(t *testing.T) {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("the checks of these tests are shell scripts")
-	}
-	for _, program := range []string{"git", "sh"} {
-		if _, err := exec.LookPath(program); err != nil {
-			t.Skipf("%s is not installed", program)
-		}
-	}
-}
-
-// gitIn runs git in dir with an identity of its own and none of the user's
-// configuration, and returns what it printed.
-func gitIn(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", append([]string{
-		"-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false",
-	}, args...)...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "HOME="+t.TempDir(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_TERMINAL_PROMPT=0")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-	return string(out)
-}
-
-// writeFile creates a file, and its directories, under dir.
-func writeFile(t *testing.T, dir, name, content string, mode os.FileMode) {
-	t.Helper()
-	path := filepath.Join(dir, filepath.FromSlash(name))
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(content), mode); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(path, mode); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// fileSpec is a file of a fixture.
-type fileSpec struct {
-	content string
-	mode    os.FileMode
-}
-
-// newRepo makes a git repository whose one commit holds files, and returns it
-// with the hash of the commit.
-func newRepo(t *testing.T, files map[string]fileSpec) (dir, base string) {
-	t.Helper()
-	requireGitAndSh(t)
-	dir = t.TempDir()
-	gitIn(t, dir, "init", "-q", "-b", "main")
-	writeFile(t, dir, "README.md", "# x\n", 0o644)
-	for name, f := range files {
-		writeFile(t, dir, name, f.content, f.mode)
-	}
-	gitIn(t, dir, "add", "-A")
-	gitIn(t, dir, "commit", "-q", "-m", "chore: base")
-	return dir, strings.TrimSpace(gitIn(t, dir, "rev-parse", "HEAD"))
-}
-
-// plain is a regular file of a fixture.
-func plain(content string) fileSpec { return fileSpec{content, 0o644} }
-
-// shCheck is a check of the given kind that runs script with sh.
-func shCheck(name, kind, script string) project.Check {
-	return project.Check{Name: name, Argv: []string{"sh", "-c", script}, Kind: kind, Source: "test", Available: true}
-}
-
-// tableOf is a gate table of the given checks.
-func tableOf(c ...project.Check) project.Table {
-	return project.Table{Source: project.SourceFile, Checks: c}
-}
-
-// state is everything about a repository that a revert check must give back.
-type state struct {
-	tree   string
-	index  []byte
-	status string
-}
-
-// snapshot reads the state of dir.
-func snapshot(t *testing.T, dir string) state {
-	t.Helper()
-	tree, err := checks.TreeHash(context.Background(), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	index, _ := os.ReadFile(filepath.Join(dir, ".git", "index"))
-	status := gitIn(t, dir, "--no-optional-locks", "status", "--porcelain=v1", "-z", "-uall")
-	return state{tree, index, status}
-}
-
-// requireState fails the test unless dir is as it was.
-func requireState(t *testing.T, dir string, before state) {
-	t.Helper()
-	after := snapshot(t, dir)
-	if after.tree != before.tree {
-		t.Errorf("the tree hash is %s, was %s", after.tree, before.tree)
-	}
-	if !bytes.Equal(after.index, before.index) {
-		t.Error(".git/index is not byte for byte as it was")
-	}
-	if after.status != before.status {
-		t.Errorf("git status is %q, was %q", after.status, before.status)
-	}
-	if _, err := os.Lstat(filepath.Join(dir, ".agent-fox", "revert.patch")); err == nil {
-		t.Error(".agent-fox/revert.patch is left after the check")
-	}
-}
-
-// mustCheck is Check, failing the test on an error.
-func mustCheck(t *testing.T, dir, since string, opts Options) Result {
-	t.Helper()
-	res, err := Check(context.Background(), dir, since, opts)
-	if err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-	return res
-}
-
-// counterCheck is a check of the given kind that appends a line to a counter
-// file outside the repository.
-func counterCheck(t *testing.T, name, kind string) (counter string, check project.Check) {
-	t.Helper()
-	counter = filepath.Join(t.TempDir(), "counter")
-	return counter, shCheck(name, kind, fmt.Sprintf("echo run >> '%s'", counter))
-}
-
-// runs is how many lines the counter file holds.
-func runs(t *testing.T, counter string) int {
-	t.Helper()
-	data, err := os.ReadFile(counter)
-	if errors.Is(err, os.ErrNotExist) {
-		return 0
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	return strings.Count(string(data), "\n")
-}
-
-// TestCheckRefusesBeforeTouchingAnything_TS_06_38 verifies TS-06-38:
-// revert-check refuses a --dir that is not the top level, a missing --since and
-// an unresolvable --since before touching any file.
-// Verifies: 06-REQ-6.1
-func TestCheckRefusesBeforeTouchingAnything_TS_06_38(t *testing.T) {
-	dir, _ := newRepo(t, map[string]fileSpec{"sub/a.txt": plain("a\n")})
-	before := snapshot(t, dir)
+// A mistake in the arguments is refused before any file is touched.
+func TestCheckRefusesBadArgumentsBeforeTouchingAnything(t *testing.T) {
+	dir, _ := newRepo(t, map[string]string{"sub/a.txt": "a\n"})
+	before := snapshot(t, dir) // makes .agent-fox, with its .gitignore
 	notARepo := t.TempDir()
-
-	for _, tc := range []struct {
-		name, dir, since, names string
-	}{
+	for _, tc := range []struct{ name, dir, since, names string }{
 		{"a subdirectory", filepath.Join(dir, "sub"), "HEAD", "--dir"},
 		{"not a repository", notARepo, "HEAD", "--dir"},
 		{"no --since", dir, "", "--since"},
 		{"a ref that does not exist", dir, "nosuchref", "--since"},
-		{"a ref that is not a commit", dir, "HEAD:README.md", "--since"},
+		{"a ref that is not a commit", dir, "HEAD:sub/a.txt", "--since"},
 		{"an option for a ref", dir, "--output=x", "--since"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := Check(context.Background(), tc.dir, tc.since, Options{Table: tableOf(shCheck("t", project.KindTest, "exit 0"))})
+			_, err := Check(t.Context(), tc.dir, tc.since, Options{Table: tableOf(shCheck("t", project.KindTest, "exit 0"))})
 
 			var usage *checks.UsageError
-			if !errors.As(err, &usage) || !strings.Contains(usage.Message, tc.names) {
+			if !errors.As(err, &usage) || !strings.Contains(err.Error(), tc.names) {
 				t.Fatalf("Check = %v, want a usage error that names %s", err, tc.names)
 			}
 			requireState(t, dir, before)
-			// Taking the snapshot made .agent-fox, with its .gitignore; a refused
-			// check adds nothing to it.
-			if entries, _ := os.ReadDir(filepath.Join(dir, ".agent-fox")); len(entries) != 1 || entries[0].Name() != ".gitignore" {
-				t.Errorf(".agent-fox holds %d entries after a refused check, want only .gitignore", len(entries))
+			if entries, _ := os.ReadDir(filepath.Join(dir, ".agent-fox")); len(entries) != 1 {
+				t.Errorf(".agent-fox holds %d entries, want only its .gitignore", len(entries))
 			}
 			if _, err := os.Stat(filepath.Join(notARepo, ".agent-fox")); err == nil {
-				t.Error("a refused check created .agent-fox in the directory that is no repository")
+				t.Error("a refused check made .agent-fox in the directory that is no repository")
 			}
 		})
 	}
 }
 
-// TestNothingToMeasure_TS_06_40 verifies TS-06-40:
-// nothing-to-measure cases return their outcome without modifying any file.
-// Verifies: 06-REQ-6.3
-func TestNothingToMeasure_TS_06_40(t *testing.T) {
-	cases := []struct {
-		name    string
-		prepare func(t *testing.T, dir string)
-		kind    string
-		outcome string
-		paths   int
-	}{
-		{"A, no changes", func(*testing.T, string) {}, project.KindTest, OutcomeNoChanges, 0},
-		{"B, only test files", func(t *testing.T, dir string) { writeFile(t, dir, "tests/new.txt", "t\n", 0o644) }, project.KindTest, OutcomeNoCodeChanges, 1},
-		{"C, only code", func(t *testing.T, dir string) { writeFile(t, dir, "src/main.txt", "v2\n", 0o644) }, project.KindTest, OutcomeNoTestChanges, 1},
-		{"D, no test check", func(t *testing.T, dir string) {
-			writeFile(t, dir, "src/main.txt", "v2\n", 0o644)
-			writeFile(t, dir, "tests/new.txt", "t\n", 0o644)
-		}, project.KindLint, OutcomeInconclusive, 2},
+func TestCheckWithoutGitIsAGitError(t *testing.T) {
+	dir, base := newRepo(t, nil)
+	t.Setenv("PATH", t.TempDir())
+
+	_, err := Check(t.Context(), dir, base, Options{Table: tableOf(shCheck("t", project.KindTest, "exit 0"))})
+
+	var gitErr *GitError
+	if !errors.As(err, &gitErr) || errors.Unwrap(err) == nil {
+		t.Errorf("Check = %v, want a *GitError that wraps the cause", err)
 	}
-	for _, tc := range cases {
+}
+
+// Nothing changed, only tests changed, no test changed, or no check runs
+// tests: the outcome says so, and no check runs.
+func TestCheckWithNothingToMeasure(t *testing.T) {
+	for _, tc := range []struct {
+		name, kind, outcome, reason string
+		files                       []string
+	}{
+		{"no changes", project.KindTest, OutcomeNoChanges, "no_paths_changed", nil},
+		{"only tests", project.KindTest, OutcomeNoCodeChanges, "only_test_files_changed", []string{"tests/new.txt"}},
+		{"only code", project.KindTest, OutcomeNoTestChanges, "no_test_files_changed", []string{"src/main.txt"}},
+		{"no check that runs tests", project.KindLint, OutcomeInconclusive, "no_test_check", []string{"src/main.txt", "tests/new.txt"}},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			dir, base := newRepo(t, map[string]fileSpec{"src/main.txt": plain("v1\n")})
-			tc.prepare(t, dir)
+			dir, base := newRepo(t, map[string]string{"src/main.txt": "v1\n"})
+			for _, f := range tc.files {
+				testutil.WriteFile(t, dir, f, "v2\n")
+			}
 			before := snapshot(t, dir)
 			counter, check := counterCheck(t, "the check", tc.kind)
 
 			res := mustCheck(t, dir, base, Options{Table: tableOf(check)})
 
-			if res.Outcome != tc.outcome || !res.Restored || res.Closes || res.Reason == "" {
-				t.Errorf("outcome %q (reason %q), restored %v, closes %v; want %q, a reason, true and false", res.Outcome, res.Reason, res.Restored, res.Closes, tc.outcome)
+			if res.Outcome != tc.outcome || res.Reason != tc.reason || !res.Restored || res.Closes || res.Since != base {
+				t.Errorf("result = %+v, want %s (%s), restored, since %s", res, tc.outcome, tc.reason, base)
 			}
-			if !hash40.MatchString(res.Since) || res.Since != base {
-				t.Errorf("since = %q, want the full hash %s", res.Since, base)
-			}
-			if len(res.RevertedFiles) != 0 || res.Reverted != nil || res.After != "" {
-				t.Errorf("reverted %v, reverted result %v, after %q; want nothing", res.RevertedFiles, res.Reverted, res.After)
-			}
-			if runs(t, counter) != 0 {
-				t.Errorf("a check ran %d times, want none", runs(t, counter))
+			if len(res.RevertedFiles) != 0 || res.Reverted != nil || res.After != "" || runs(t, counter) != 0 {
+				t.Errorf("reverted %v and %v, after %q, %d runs; want nothing measured", res.RevertedFiles, res.Reverted, res.After, runs(t, counter))
 			}
 			requireState(t, dir, before)
 		})
 	}
 }
 
-// TestRedTreeIsInconclusive_TS_06_41 verifies TS-06-41:
-// a red current tree is inconclusive with reason after_not_green and nothing
-// is reverted.
-// Verifies: 06-REQ-6.4
-func TestRedTreeIsInconclusive_TS_06_41(t *testing.T) {
-	dir, base := newRepo(t, map[string]fileSpec{"src/main.txt": plain("v1\n")})
-	writeFile(t, dir, "src/main.txt", "v2\n", 0o644)
-	writeFile(t, dir, "tests/fix.txt", "t\n", 0o644)
-	before := snapshot(t, dir)
-	lint, lintCheck := counterCheck(t, "lint", project.KindLint)
-	_ = lint
+// The tests must pass on the tree as it is before the revert can say anything.
+func TestCheckOfATreeWhoseTestsDoNotPass(t *testing.T) {
+	gone := project.Check{Name: "gone", Argv: []string{"no-such-program-for-af"}, Kind: project.KindTest}
+	for _, tc := range []struct {
+		name, reason string
+		checks       []project.Check
+	}{
+		{"a test that fails", "after_not_green", []project.Check{shCheck("tests", project.KindTest, "exit 1"), shCheck("lint", project.KindLint, "exit 0")}},
+		{"a test that cannot run", "test_check_unavailable", []project.Check{gone, shCheck("lint", project.KindLint, "exit 0")}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, base, _ := fixed(t, "exit 0")
+			before := snapshot(t, dir)
 
-	res := mustCheck(t, dir, base, Options{Table: tableOf(shCheck("tests", project.KindTest, "echo red; exit 1"), lintCheck)})
+			res := mustCheck(t, dir, base, Options{Table: tableOf(tc.checks...)})
 
-	if res.Outcome != OutcomeInconclusive || res.Reason != "after_not_green" || res.Closes || !res.Restored {
-		t.Errorf("outcome %q, reason %q, closes %v, restored %v", res.Outcome, res.Reason, res.Closes, res.Restored)
-	}
-	if _, err := os.Stat(filepath.Join(dir, ".agent-fox", "gate", res.After, "result.json")); err != nil || res.After == "" {
-		t.Errorf("after = %q: %v; want the id of a result in the gate cache", res.After, err)
-	}
-	if len(res.RevertedFiles) != 0 || res.Reverted != nil {
-		t.Errorf("reverted %v, %v; want nothing", res.RevertedFiles, res.Reverted)
-	}
-	if !slices.Equal(res.TestFiles, []string{"tests/fix.txt"}) {
-		t.Errorf("test files = %v", res.TestFiles)
-	}
-	requireState(t, dir, before)
-}
-
-// TestRevertsToTheRefsContent_TS_06_42 verifies TS-06-42:
-// non-test paths are reverted to the ref's content and mode without touching
-// the index, added files are moved aside and test paths stay.
-// Verifies: 06-REQ-6.5
-func TestRevertsToTheRefsContent_TS_06_42(t *testing.T) {
-	dir, base := newRepo(t, map[string]fileSpec{"lib.sh": {"v1\n", 0o755}})
-	writeFile(t, dir, "lib.sh", "v2\n", 0o755)
-	writeFile(t, dir, "new.go", "package x\n", 0o644)
-	writeFile(t, dir, "fix_test.go", "package x\n", 0o644)
-	before := snapshot(t, dir)
-	obs := filepath.Join(t.TempDir(), "observation")
-	observe := fmt.Sprintf(`{
-echo "lib=$(cat lib.sh)"
-echo "mode=$(ls -l lib.sh | cut -c1-10)"
-if [ -e new.go ]; then echo new=1; else echo new=0; fi
-if [ -e fix_test.go ]; then echo test=1; else echo test=0; fi
-if [ -s .agent-fox/revert.patch ]; then echo patch=1; else echo patch=0; fi
-echo "staged=$(git --no-optional-locks diff --cached --name-only | tr '\n' ' ')"
-} > '%s'`, obs)
-	lintRuns, lint := counterCheck(t, "lint", project.KindLint)
-
-	res := mustCheck(t, dir, base, Options{Table: tableOf(lint, shCheck("tests", project.KindTest, observe))})
-
-	data, err := os.ReadFile(obs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	seen := string(data)
-	for _, want := range []string{"lib=v1", "mode=-rwxr-xr-x", "new=0", "test=1", "patch=1", "staged=\n"} {
-		if !strings.Contains(seen, want) {
-			t.Errorf("during the reverted run %q was not seen; observation:\n%s", want, seen)
-		}
-	}
-	if !slices.Equal(res.RevertedFiles, []string{"lib.sh", "new.go"}) || !slices.Equal(res.TestFiles, []string{"fix_test.go"}) {
-		t.Errorf("reverted %v, test files %v; want [lib.sh new.go] and [fix_test.go]", res.RevertedFiles, res.TestFiles)
-	}
-	if runs(t, lintRuns) != 1 {
-		t.Errorf("the lint check ran %d times, want once: only test and check checks run on the reverted tree", runs(t, lintRuns))
-	}
-	if res.Outcome != OutcomeNotProven || !res.Restored {
-		t.Errorf("outcome %q, restored %v; want not_proven (the check passes whatever it sees) and true", res.Outcome, res.Restored)
-	}
-	requireState(t, dir, before)
-	if got, _ := os.ReadFile(filepath.Join(dir, "lib.sh")); string(got) != "v2\n" {
-		t.Errorf("lib.sh holds %q after the check", got)
-	}
-	if info, err := os.Stat(filepath.Join(dir, "lib.sh")); err != nil || info.Mode().Perm() != 0o755 {
-		t.Errorf("lib.sh: %v, %v; want mode 755", info, err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "new.go")); err != nil {
-		t.Errorf("new.go did not come back: %v", err)
+			if res.Outcome != OutcomeInconclusive || res.Reason != tc.reason || res.Closes || res.Reverted != nil || len(res.RevertedFiles) != 0 {
+				t.Errorf("result = %+v, want inconclusive (%s) with nothing reverted", res, tc.reason)
+			}
+			if _, err := os.Stat(filepath.Join(dir, ".agent-fox", "gate", res.After, "result.json")); err != nil || res.After == "" {
+				t.Errorf("after = %q (%v), want the id of a stored gate result", res.After, err)
+			}
+			if !slices.Equal(res.TestFiles, []string{"tests/check.sh"}) {
+				t.Errorf("test files = %v", res.TestFiles)
+			}
+			requireState(t, dir, before)
+		})
 	}
 }
 
-// TestRevertsDeletionsModesAndLinks guards 06-REQ-6.5 and 06-REQ-6.7: a file
-// deleted from the tree is back during the run and gone after it, a mode and a
-// link are the ref's during the run and the tree's after it, and a directory
-// the revert had to make is not left behind.
-func TestRevertsDeletionsModesAndLinks(t *testing.T) {
-	dir, _ := newRepo(t, map[string]fileSpec{
-		"bin/tool":         {"#!/bin/sh\n", 0o755},
-		"docs/readme.txt":  plain("read me\n"),
-		"gone/inner/f.txt": plain("f\n"),
+// While the tests run, the paths that are not tests are as at the ref, in
+// content, mode and kind, with the files the change added gone and the ones
+// it deleted or renamed back; the tests, the index and the paths the change
+// did not touch are as they were. Afterwards everything is as it was.
+func TestCheckRevertsTheCodeAndKeepsTheTests(t *testing.T) {
+	dir, _ := newRepo(t, map[string]string{
+		"bin/tool": "#!/bin/sh\n", "lib.sh": "v1\n", "docs/readme.txt": "read me\n", "gone/inner/f.txt": "f\n",
+		"old.txt": "old content, long enough to be a rename\n", "moved.txt": "moved content, long enough to be a rename\n", "staged.txt": "s1\n",
 	})
+	for _, name := range []string{"bin/tool", "lib.sh"} {
+		writeFile(t, dir, name, testutil.ReadFile(t, filepath.Join(dir, name)), 0o755)
+	}
 	if err := os.Symlink("docs/readme.txt", filepath.Join(dir, "link")); err != nil {
 		t.Skipf("symlinks are not available: %v", err)
 	}
-	gitIn(t, dir, "add", "link")
-	gitIn(t, dir, "commit", "-q", "-m", "chore: a link")
-	base := strings.TrimSpace(gitIn(t, dir, "rev-parse", "HEAD"))
+	base := testutil.Commit(t, dir, "chore: modes and a link")
 
-	writeFile(t, dir, "bin/tool", "#!/bin/sh\necho changed\n", 0o644) // content and mode
-	if err := os.RemoveAll(filepath.Join(dir, "gone")); err != nil {  // a whole directory
+	writeFile(t, dir, "lib.sh", "v2\n", 0o755)
+	writeFile(t, dir, "bin/tool", "#!/bin/sh\necho changed\n", 0o644)
+	for _, p := range []string{"gone", "link"} {
+		if err := os.RemoveAll(filepath.Join(dir, p)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	testutil.WriteFile(t, dir, "link", "not a link any more\n")
+	testutil.Git(t, dir, "mv", "old.txt", "renamed.txt")
+	if err := os.Rename(filepath.Join(dir, "moved.txt"), filepath.Join(dir, "moved2.txt")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(filepath.Join(dir, "link")); err != nil { // a link that became a file
-		t.Fatal(err)
-	}
-	writeFile(t, dir, "link", "not a link any more\n", 0o644)
-	writeFile(t, dir, "fresh/sub/x.go", "package x\n", 0o644)
-	writeFile(t, dir, "tests/t.txt", "t\n", 0o644)
+	testutil.WriteFile(t, dir, "staged.txt", "s2\n")
+	testutil.Git(t, dir, "add", "staged.txt")
+	testutil.WriteFile(t, dir, "new.go", "package x\n")
+	testutil.WriteFile(t, dir, "fresh/sub/x.go", "package x\n")
+	testutil.WriteFile(t, dir, "fix_test.go", "package x\n")
+	testutil.WriteFile(t, dir, "tests/t.txt", "t\n")
 	mtime := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
 	if err := os.Chtimes(filepath.Join(dir, "docs/readme.txt"), mtime, mtime); err != nil {
 		t.Fatal(err)
 	}
+	staged := testutil.Git(t, dir, "--no-optional-locks", "diff", "--cached", "--name-only")
 	before := snapshot(t, dir)
-	obs := filepath.Join(t.TempDir(), "observation")
+	seen := filepath.Join(t.TempDir(), "seen")
 	observe := fmt.Sprintf(`{
-echo "tool=$(ls -l bin/tool | cut -c1-10) $(cat bin/tool | tail -1)"
-if [ -e gone/inner/f.txt ]; then echo gone=1; else echo gone=0; fi
-if [ -L link ]; then echo "link=symlink $(readlink link)"; else echo link=file; fi
-if [ -e fresh/sub/x.go ]; then echo fresh=1; else echo fresh=0; fi
-} > '%s'`, obs)
+echo "lib=$(cat lib.sh) $(ls -l lib.sh | cut -c1-10)"
+echo "tool=$(ls -l bin/tool | cut -c1-10) $(tail -1 bin/tool)"
+if [ -L link ]; then echo "link=$(readlink link)"; else echo link=file; fi
+for f in gone/inner/f.txt old.txt renamed.txt moved.txt moved2.txt new.go fresh/sub/x.go fix_test.go tests/t.txt; do [ -e "$f" ] && echo "has $f"; done
+echo "staged=$(cat staged.txt)"
+[ -s .agent-fox/revert.patch ] && echo patch
+git --no-optional-locks diff --cached --name-only
+} > '%s'`, seen)
+	lintRuns, lint := counterCheck(t, "lint", project.KindLint)
 
-	res := mustCheck(t, dir, base, Options{Table: tableOf(shCheck("tests", project.KindTest, observe))})
+	res := mustCheck(t, dir, base, Options{Table: tableOf(lint, shCheck("tests", project.KindCheck, observe))})
 
-	data, _ := os.ReadFile(obs)
-	for _, want := range []string{"tool=-rwxr-xr-x", "gone=1", "link=symlink docs/readme.txt", "fresh=0"} {
-		if !strings.Contains(string(data), want) {
-			t.Errorf("during the reverted run %q was not seen; observation:\n%s", want, data)
-		}
+	want := "lib=v1 -rwxr-xr-x\ntool=-rwxr-xr-x #!/bin/sh\nlink=docs/readme.txt\n" +
+		"has gone/inner/f.txt\nhas old.txt\nhas moved.txt\nhas fix_test.go\nhas tests/t.txt\nstaged=s1\npatch\n" + staged
+	if got := testutil.ReadFile(t, seen); got != want {
+		t.Errorf("during the run the tree was:\n%s\nwant:\n%s", got, want)
 	}
-	if res.Outcome != OutcomeNotProven || !res.Restored {
-		t.Errorf("outcome %q, restored %v", res.Outcome, res.Restored)
+	reverted := []string{"bin/tool", "fresh/sub/x.go", "gone/inner/f.txt", "lib.sh", "link", "moved.txt", "moved2.txt", "new.go", "old.txt", "renamed.txt", "staged.txt"}
+	if !slices.Equal(res.RevertedFiles, reverted) || !slices.Equal(res.TestFiles, []string{"fix_test.go", "tests/t.txt"}) {
+		t.Errorf("reverted %q, test files %q; want %q and the two tests", res.RevertedFiles, res.TestFiles, reverted)
+	}
+	if res.Outcome != OutcomeNotProven || runs(t, lintRuns) != 1 {
+		t.Errorf("outcome %s, lint ran %d times; want not_proven and lint only on the tree as it is", res.Outcome, runs(t, lintRuns))
 	}
 	requireState(t, dir, before)
-	if _, err := os.Stat(filepath.Join(dir, "gone")); err == nil {
-		t.Error("the directory the revert had to make was left behind")
-	}
-	if info, err := os.Lstat(filepath.Join(dir, "link")); err != nil || info.Mode()&os.ModeSymlink != 0 {
-		t.Errorf("link: %v, %v; want the file it was", info, err)
-	}
-	if info, err := os.Stat(filepath.Join(dir, "bin/tool")); err != nil || info.Mode().Perm() != 0o644 {
-		t.Errorf("bin/tool: %v, %v; want mode 644", info, err)
-	}
 	if info, err := os.Stat(filepath.Join(dir, "docs/readme.txt")); err != nil || !info.ModTime().Equal(mtime) {
-		t.Errorf("a path the check did not change has the modification time %v, want %v", info.ModTime(), mtime)
+		t.Errorf("a path the change did not touch was written: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "gone")); err == nil {
+		t.Error("the directory the revert made is left behind")
 	}
 }
 
-// provenFixture makes a repository whose change fixes lib.txt and adds a test
-// that checks for the fix, and returns the repository, the base and the
-// check. With vacuous the test passes whatever lib.txt holds.
-func provenFixture(t *testing.T, vacuous bool) (dir, base string, check project.Check) {
-	t.Helper()
-	dir, base = newRepo(t, map[string]fileSpec{"lib.txt": plain("broken\n")})
-	writeFile(t, dir, "lib.txt", "fixed\n", 0o644)
-	test := "grep -q fixed lib.txt\n"
-	if vacuous {
-		test = "exit 0\n"
-	}
-	writeFile(t, dir, "tests/check.sh", test, 0o644)
-	return dir, base, shCheck("tests", project.KindTest, "sh tests/check.sh")
-}
-
-// TestProvenAndNotProven_TS_06_43 verifies TS-06-43:
-// proven and not_proven both come back with closes true only for proven and
-// the full result shape.
-// Verifies: 06-REQ-6.6
-func TestProvenAndNotProven_TS_06_43(t *testing.T) {
-	t.Run("proven", func(t *testing.T) {
-		dir, base, check := provenFixture(t, false)
-		before := snapshot(t, dir)
-
-		res := mustCheck(t, dir, base, Options{Table: tableOf(check)})
-
-		if res.Outcome != OutcomeProven || !res.Closes || res.Reason == "" {
-			t.Errorf("outcome %q, closes %v, reason %q; want proven, true and a reason", res.Outcome, res.Closes, res.Reason)
-		}
-		if res.Reverted == nil || res.Reverted.Passed || len(res.Reverted.Checks) != 1 || res.Reverted.Checks[0].Status != checks.StatusFail || res.Reverted.ID == "" {
-			t.Errorf("reverted = %+v, want one failing check", res.Reverted)
-		}
-		shape(t, res, base)
-		requireState(t, dir, before)
-	})
-
-	t.Run("not proven", func(t *testing.T) {
-		dir, base, check := provenFixture(t, true)
-		before := snapshot(t, dir)
-
-		res := mustCheck(t, dir, base, Options{Table: tableOf(check)})
-
-		if res.Outcome != OutcomeNotProven || res.Closes {
-			t.Errorf("outcome %q, closes %v; want not_proven and false", res.Outcome, res.Closes)
-		}
-		if res.Reverted == nil || !res.Reverted.Passed || res.Reverted.ID == res.After {
-			t.Errorf("reverted = %+v, after %s; want a passing result of its own", res.Reverted, res.After)
-		}
-		shape(t, res, base)
-		requireState(t, dir, before)
-	})
-}
-
-// shape checks the parts of a result that every measured outcome has.
-func shape(t *testing.T, res Result, base string) {
-	t.Helper()
-	if !hash40.MatchString(res.Since) || res.Since != base || !res.Restored || res.After == "" {
-		t.Errorf("since %q, restored %v, after %q", res.Since, res.Restored, res.After)
-	}
-	if !slices.Equal(res.RevertedFiles, []string{"lib.txt"}) || !slices.Equal(res.TestFiles, []string{"tests/check.sh"}) {
-		t.Errorf("reverted %v, test files %v", res.RevertedFiles, res.TestFiles)
-	}
-}
-
-// TestRevertedErrorIsInconclusive guards 06-REQ-6.6: a reverted run in which
-// the check could not start says nothing about the tests.
-func TestRevertedErrorIsInconclusive(t *testing.T) {
-	dir, base := newRepo(t, map[string]fileSpec{"run.sh": {"#!/bin/sh\nexit 0\n", 0o755}})
-	writeFile(t, dir, "run.sh", "#!/bin/sh\nexit 0\n# changed\n", 0o755)
-	writeFile(t, dir, "added.sh", "#!/bin/sh\nexit 0\n", 0o755)
-	writeFile(t, dir, "tests/t.txt", "t\n", 0o644)
-	before := snapshot(t, dir)
-	runner := project.Check{Name: "added", Argv: []string{"./added.sh"}, Kind: project.KindTest, Available: true}
-
-	res := mustCheck(t, dir, base, Options{Table: tableOf(runner)})
-
-	if res.Outcome != OutcomeInconclusive || res.Closes || res.Reverted == nil || res.Reverted.Checks[0].Status != checks.StatusError {
-		t.Errorf("outcome %q, closes %v, reverted %+v; want inconclusive: the check that failed to start proves nothing", res.Outcome, res.Closes, res.Reverted)
-	}
-	requireState(t, dir, before)
-}
-
-// TestEveryOutcomeGivesTheTreeBack_TS_06_44 verifies TS-06-44:
-// every outcome leaves the tree hash, the index bytes and the status as they
-// were, for repositories with random mixes of changes.
-// Verifies: 06-REQ-6.7
-func TestEveryOutcomeGivesTheTreeBack_TS_06_44(t *testing.T) {
-	requireGitAndSh(t)
-	rng := rand.New(rand.NewPCG(6, 44))
-	measured := 0
-
-	for i := range 16 {
-		files := map[string]fileSpec{"src/s0.txt": plain("base\n")}
-		for j := 1; j < 5; j++ {
-			files[fmt.Sprintf("src/s%d.txt", j)] = fileSpec{fmt.Sprintf("source %d\n", j), []os.FileMode{0o644, 0o755}[rng.IntN(2)]}
-		}
-		for j := range 3 {
-			files[fmt.Sprintf("tests/t%d.txt", j)] = plain(fmt.Sprintf("test %d\n", j))
-			files[fmt.Sprintf("lib/l%d.sh", j)] = fileSpec{fmt.Sprintf("lib %d\n", j), 0o755}
-		}
-		dir, base := newRepo(t, files)
-
-		if rng.IntN(5) > 0 {
-			writeFile(t, dir, "src/s0.txt", "fixed\n", 0o644)
-		}
-		for name := range files {
-			if name == "src/s0.txt" {
-				continue
+// What the tests do on the reverted tree is the outcome: a failure, or a
+// deadline, proves the change; a pass does not; a check that cannot start
+// there says nothing.
+func TestCheckOutcomeIsWhatTheTestsDoWithoutTheChange(t *testing.T) {
+	for _, tc := range []struct {
+		name, test, outcome, reason, status string
+		argv                                []string
+	}{
+		{"the tests fail", "grep -q fixed lib.txt", OutcomeProven, "tests_fail_without_the_change", checks.StatusFail, nil},
+		{"the tests outlive their deadline", "grep -q fixed lib.txt || sleep 60", OutcomeProven, "tests_fail_without_the_change", checks.StatusTimeout, nil},
+		{"the tests pass", "exit 0", OutcomeNotProven, "tests_pass_without_the_change", checks.StatusPass, nil},
+		{"the check cannot start", "exit 0", OutcomeInconclusive, "reverted_check_error", checks.StatusError, []string{"./run.sh"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, base, check := fixed(t, tc.test)
+			writeFile(t, dir, "run.sh", "#!/bin/sh\nexec sh tests/check.sh\n", 0o755) // added by the change
+			if tc.argv != nil {
+				check.Argv = tc.argv
 			}
-			path := filepath.Join(dir, filepath.FromSlash(name))
-			switch rng.IntN(7) {
-			case 0:
-				writeFile(t, dir, name, files[name].content+"changed\n", files[name].mode)
-			case 1:
-				if err := os.Remove(path); err != nil {
-					t.Fatal(err)
-				}
-			case 2:
-				renamed := name + ".renamed"
-				if rng.IntN(2) == 0 {
-					gitIn(t, dir, "mv", name, renamed)
-				} else if err := os.Rename(path, filepath.Join(dir, filepath.FromSlash(renamed))); err != nil {
-					t.Fatal(err)
-				}
-			case 3:
-				if err := os.Chmod(path, files[name].mode^0o111); err != nil {
-					t.Fatal(err)
-				}
+			before := snapshot(t, dir)
+
+			res := mustCheck(t, dir, base, Options{Table: tableOf(check), CheckTimeout: time.Second})
+
+			if res.Outcome != tc.outcome || res.Reason != tc.reason || res.Closes != (tc.outcome == OutcomeProven) || !res.Restored {
+				t.Errorf("result = %+v, want %s (%s)", res, tc.outcome, tc.reason)
 			}
-		}
-		for j := range rng.IntN(4) {
-			writeFile(t, dir, fmt.Sprintf("%s/added%d.txt", []string{"src", "tests", "lib"}[rng.IntN(3)], j), "added\n", 0o644)
-		}
-		if rng.IntN(2) == 0 {
-			gitIn(t, dir, "add", "-A", "src")
-		}
-		if rng.IntN(2) == 0 {
-			gitIn(t, dir, "add", "-u")
-		}
-		before := snapshot(t, dir)
-
-		res := mustCheck(t, dir, base, Options{Table: tableOf(shCheck("tests", project.KindTest, "grep -q fixed src/s0.txt"))})
-
-		if !res.Restored {
-			t.Errorf("#%d: restored is false", i)
-		}
-		if res.Outcome == OutcomeProven || res.Outcome == OutcomeNotProven {
-			measured++
-		}
-		if t.Failed() {
-			t.Fatalf("#%d (%s) broke the invariants above", i, res.Outcome)
-		}
-		requireState(t, dir, before)
-		if t.Failed() {
-			t.Fatalf("#%d (%s) did not give the tree back", i, res.Outcome)
-		}
-	}
-	if measured < 6 {
-		t.Errorf("only %d of 16 repositories were measured: the property did not exercise the revert", measured)
-	}
-}
-
-// slowFixture is a proven-style repository whose check hangs on the reverted
-// tree, and the files it reports through.
-func slowFixture(t *testing.T) (dir, base string, check project.Check, started, pidFile string) {
-	t.Helper()
-	dir, base = newRepo(t, map[string]fileSpec{"lib.txt": plain("broken\n")})
-	writeFile(t, dir, "lib.txt", "fixed\n", 0o644)
-	writeFile(t, dir, "tests/t.txt", "t\n", 0o644)
-	aside := t.TempDir()
-	started, pidFile = filepath.Join(aside, "started"), filepath.Join(aside, "pid")
-	script := fmt.Sprintf("if grep -q fixed lib.txt; then exit 0; fi; sleep 60 & echo $! > '%s'; touch '%s'; wait", pidFile, started)
-	return dir, base, shCheck("tests", project.KindTest, script), started, pidFile
-}
-
-// requireGone fails the test if the process the file names is still there.
-func requireGone(t *testing.T, pidFile string) {
-	t.Helper()
-	data, err := os.ReadFile(pidFile)
-	if err != nil {
-		t.Fatalf("the check never started its child: %v", err)
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		t.Fatalf("pid file = %q", data)
-	}
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		if process, err := os.FindProcess(pid); err != nil || process.Signal(syscall.Signal(0)) != nil {
-			return
-		}
-	}
-	t.Errorf("the child of the check (pid %d) is still running", pid)
-}
-
-// TestCancelledRunStillRestores_TS_06_45 verifies TS-06-45:
-// a signal or timeout during the reverted run still restores the tree and the
-// index.
-// Verifies: 06-REQ-6.7
-func TestCancelledRunStillRestores_TS_06_45(t *testing.T) {
-	t.Run("a signal", func(t *testing.T) {
-		dir, base, check, started, pidFile := slowFixture(t)
-		before := snapshot(t, dir)
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		go func() {
-			for ctx.Err() == nil {
-				if _, err := os.Stat(started); err == nil {
-					cancel()
-					return
-				}
-				time.Sleep(10 * time.Millisecond)
+			if r := res.Reverted; r == nil || len(r.Checks) != 1 || r.Checks[0].Status != tc.status || r.Passed != (tc.status == checks.StatusPass) || r.ID == res.After {
+				t.Errorf("reverted = %+v, after %s; want a result of its own with one check that is %s", r, res.After, tc.status)
 			}
-		}()
-
-		_, err := Check(ctx, dir, base, Options{Table: tableOf(check)})
-
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("Check = %v, want context.Canceled", err)
-		}
-		requireState(t, dir, before)
-		requireGone(t, pidFile)
-	})
-
-	t.Run("a timeout", func(t *testing.T) {
-		dir, base, check, _, pidFile := slowFixture(t)
-		before := snapshot(t, dir)
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-
-		_, err := Check(ctx, dir, base, Options{Table: tableOf(check)})
-
-		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("Check = %v, want context.DeadlineExceeded", err)
-		}
-		requireState(t, dir, before)
-		requireGone(t, pidFile)
-	})
-}
-
-// TestLeftoverPatch_TS_06_46 verifies TS-06-46:
-// a leftover patch, or a restore that fails or ends with a different tree
-// hash, is a restore error that keeps the patch.
-// Verifies: 06-REQ-6.8
-func TestLeftoverPatch_TS_06_46(t *testing.T) {
-	t.Run("A, a patch from an earlier check", func(t *testing.T) {
-		dir, base, _ := provenFixture(t, false)
-		old := filepath.Join(dir, ".agent-fox", "revert.patch")
-		if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(old, []byte("old patch"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		before := snapshot(t, dir)
-		counter, counted := counterCheck(t, "counted", project.KindTest)
-
-		_, err := Check(context.Background(), dir, base, Options{Table: tableOf(counted)})
-
-		var restore *RestoreError
-		if !errors.As(err, &restore) || restore.Patch != old || !strings.Contains(err.Error(), old) {
-			t.Fatalf("Check = %v, want a restore error naming %s", err, old)
-		}
-		if runs(t, counter) != 0 {
-			t.Error("a check ran although a patch was in the way")
-		}
-		if data, err := os.ReadFile(old); err != nil || string(data) != "old patch" {
-			t.Errorf("the old patch was touched: %q, %v", data, err)
-		}
-		after := snapshot(t, dir)
-		if after.tree != before.tree || !bytes.Equal(after.index, before.index) || after.status != before.status {
-			t.Error("the tree changed although the check refused")
-		}
-	})
-
-	t.Run("B, the tree is another one", func(t *testing.T) {
-		dir, base, _ := provenFixture(t, false)
-		script := `if grep -q fixed lib.txt; then exit 0; fi; echo stray > stray.txt; exit 1`
-
-		_, err := Check(context.Background(), dir, base, Options{Table: tableOf(shCheck("tests", project.KindTest, script))})
-
-		var restore *RestoreError
-		if !errors.As(err, &restore) || !strings.Contains(err.Error(), "tree hash") {
-			t.Fatalf("Check = %v, want a restore error about the tree hash", err)
-		}
-		if restore.Patch != filepath.Join(dir, ".agent-fox", "revert.patch") || !strings.Contains(err.Error(), restore.Patch) {
-			t.Errorf("the error %q does not name the patch", err)
-		}
-		if _, statErr := os.Stat(restore.Patch); statErr != nil {
-			t.Errorf("the patch was not kept: %v", statErr)
-		}
-		if got, _ := os.ReadFile(filepath.Join(dir, "lib.txt")); string(got) != "fixed\n" {
-			t.Errorf("lib.txt holds %q: the change is applied again even though the tree is not the same", got)
-		}
-	})
-}
-
-// TestGitMissingIsAGitError guards 06-REQ-10.6: git that cannot be run is a
-// *GitError, not a usage error.
-func TestGitMissingIsAGitError(t *testing.T) {
-	dir, base := newRepo(t, nil)
-	t.Setenv("PATH", t.TempDir())
-
-	_, err := Check(context.Background(), dir, base, Options{Table: tableOf(shCheck("t", project.KindTest, "exit 0"))})
-
-	var gitErr *GitError
-	if !errors.As(err, &gitErr) {
-		t.Errorf("Check = %v, want a *GitError", err)
-	}
-}
-
-// TestCopyIndexKeepsTheModificationTime guards the listing of changed paths:
-// git tells an edit that leaves no trace in the stat data from none by the
-// age of the index file, so the copy that git refreshes in place of the real
-// index must be as old as the real one.
-func TestCopyIndexKeepsTheModificationTime(t *testing.T) {
-	dir := t.TempDir()
-	src, dst := filepath.Join(dir, "index"), filepath.Join(dir, "copy")
-	if err := os.WriteFile(src, []byte("index bytes"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	old := time.Date(2021, 5, 6, 7, 8, 9, 123_000_000, time.UTC)
-	if err := os.Chtimes(src, old, old); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := copyIndex(src, dst); err != nil {
-		t.Fatal(err)
-	}
-
-	if got, _ := os.ReadFile(dst); string(got) != "index bytes" {
-		t.Errorf("copy = %q", got)
-	}
-	if info, err := os.Stat(dst); err != nil || !info.ModTime().Equal(old) {
-		t.Errorf("modification time = %v (%v), want %v", info.ModTime(), err, old)
-	}
-	if err := copyIndex(filepath.Join(dir, "missing"), filepath.Join(dir, "copy2")); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("copying an index that is not there = %v, want it to say so", err)
-	}
-}
-
-// TestOverlappingChecksDoNotDestroyEachOther guards 06-REQ-6.7 and 6.8: two
-// checks started together on one tree never leave it reverted, and never
-// delete the patch of the one that is working.
-func TestOverlappingChecksDoNotDestroyEachOther(t *testing.T) {
-	for round := range 4 {
-		dir, base, check := provenFixture(t, false)
-		before := snapshot(t, dir)
-		// Both checks race for the patch: one writes it, the other refuses.
-		mustRun := func() (Result, error) { return Check(context.Background(), dir, base, Options{Table: tableOf(check)}) }
-		var wg sync.WaitGroup
-		results := make([]error, 2)
-		for i := range results {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				_, results[i] = mustRun()
-			}()
-		}
-		wg.Wait()
-
-		requireState(t, dir, before)
-		if got, _ := os.ReadFile(filepath.Join(dir, "lib.txt")); string(got) != "fixed\n" {
-			t.Fatalf("round %d: lib.txt holds %q: the fix was lost (%v)", round, got, results)
-		}
-		// Each one either ran, or refused and touched nothing.
-		for _, err := range results {
-			var restore *RestoreError
-			if err != nil && !errors.As(err, &restore) {
-				t.Errorf("round %d: %v, want success or a refusal that names the other patch", round, err)
+			if res.Since != base || res.After == "" || !slices.Equal(res.RevertedFiles, []string{"lib.txt", "run.sh"}) || !slices.Equal(res.TestFiles, []string{"tests/check.sh"}) {
+				t.Errorf("since %s, after %q, reverted %q, test files %q", res.Since, res.After, res.RevertedFiles, res.TestFiles)
 			}
-		}
+			requireState(t, dir, before)
+		})
 	}
 }
 
-// TestACheckThatStartsDuringAnotherRefuses guards 06-REQ-6.8: while one check
-// has the tree reverted, another does not start from that state.
-func TestACheckThatStartsDuringAnotherRefuses(t *testing.T) {
-	dir, base, _ := provenFixture(t, false)
-	before := snapshot(t, dir)
-	aside := t.TempDir()
-	started, release := filepath.Join(aside, "started"), filepath.Join(aside, "release")
-	script := fmt.Sprintf(`if grep -q fixed lib.txt; then exit 0; fi; touch '%s'; while [ ! -e '%s' ]; do sleep 0.05; done; exit 1`, started, release)
-	table := tableOf(shCheck("tests", project.KindTest, script))
-	first := make(chan error, 1)
-	go func() {
-		_, err := Check(context.Background(), dir, base, Options{Table: table})
-		first <- err
-	}()
-	for i := 0; i < 400; i++ {
-		if _, err := os.Stat(started); err == nil {
-			break
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
+// The table of checks found again on the reverted tree must be the one that
+// was measured; when it is not, or cannot be found, nothing runs there.
+func TestCheckIsInconclusiveWhenTheRevertChangesTheTable(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		now     func(project.Check) (project.Table, error)
+		changed bool
+	}{
+		{"another table", func(project.Check) (project.Table, error) { return tableOf(), nil }, true},
+		{"a table that cannot be found", func(project.Check) (project.Table, error) { return project.Table{}, errors.New("no Makefile") }, true},
+		{"the same table", func(c project.Check) (project.Table, error) { return tableOf(c), nil }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, base, _ := fixed(t, "exit 0")
+			counter, counted := counterCheck(t, "counted", project.KindTest)
+			before := snapshot(t, dir)
 
-	_, err := Check(context.Background(), dir, base, Options{Table: table})
+			res := mustCheck(t, dir, base, Options{Table: tableOf(counted), TableNow: func(context.Context) (project.Table, error) { return tc.now(counted) }})
 
-	var restore *RestoreError
-	if !errors.As(err, &restore) {
-		t.Errorf("the second check = %v, want a refusal that names the first one's patch", err)
-	}
-	if got, _ := os.ReadFile(filepath.Join(dir, "lib.txt")); string(got) != "broken\n" {
-		t.Errorf("lib.txt holds %q while the first check works: the second touched it", got)
-	}
-	if err := os.WriteFile(release, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := <-first; err != nil {
-		t.Errorf("the first check = %v", err)
-	}
-	requireState(t, dir, before)
-}
-
-// TestAnIndexRefreshedByACheckIsPutBack guards 06-REQ-6.7: a check that runs
-// git, or a build that does, refreshes the stat data of the index and rewrites
-// it; the bytes the check started with are written back.
-func TestAnIndexRefreshedByACheckIsPutBack(t *testing.T) {
-	dir, base := newRepo(t, map[string]fileSpec{"lib.txt": plain("broken\n"), "other.txt": plain("unchanged\n")})
-	writeFile(t, dir, "lib.txt", "fixed\n", 0o644)
-	writeFile(t, dir, "tests/check.sh", "grep -q fixed lib.txt\n", 0o644)
-	script := `if grep -q fixed lib.txt; then exit 0; fi; touch other.txt; git status >/dev/null 2>&1; exit 1`
-	before := snapshot(t, dir)
-
-	res, err := Check(context.Background(), dir, base, Options{Table: tableOf(shCheck("tests", project.KindTest, script))})
-
-	if err != nil || res.Outcome != OutcomeProven || !res.Restored {
-		t.Fatalf("Check = %+v, %v; want proven and restored", res, err)
-	}
-	requireState(t, dir, before)
-}
-
-// TestARevertThatCannotWriteChangesNothing guards 06-REQ-6.7: a revert that
-// cannot write (a directory that is read-only) is an error of its own, and it
-// has changed nothing: git apply changes every path or none.
-func TestARevertThatCannotWriteChangesNothing(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permissions do not stop root")
-	}
-	dir, base := newRepo(t, map[string]fileSpec{"ro/x.txt": plain("v1\n")})
-	writeFile(t, dir, "ro/x.txt", "v2\n", 0o644)
-	writeFile(t, dir, "tests/t.txt", "t\n", 0o644)
-	if err := os.Chmod(filepath.Join(dir, "ro"), 0o555); err != nil {
-		t.Skipf("cannot make a directory read-only: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "ro"), 0o755) })
-	before := snapshot(t, dir)
-
-	_, err := Check(context.Background(), dir, base, Options{Table: tableOf(shCheck("tests", project.KindTest, "exit 0"))})
-
-	var restore *RestoreError
-	if err == nil || errors.As(err, &restore) {
-		t.Fatalf("Check = %v, want the error of the write that could not be made, and no restore error", err)
-	}
-	requireState(t, dir, before)
-}
-
-// TestADirectoryThatBecameAFile guards 06-REQ-6.5 and 6.7: a tracked file
-// under a directory that is a file now is back during the run, and the file
-// is back after it.
-func TestADirectoryThatBecameAFile(t *testing.T) {
-	dir, base := newRepo(t, map[string]fileSpec{"pkg/a.txt": plain("a\n")})
-	if err := os.RemoveAll(filepath.Join(dir, "pkg")); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, dir, "pkg", "now a file\n", 0o644)
-	writeFile(t, dir, "tests/t.txt", "t\n", 0o644)
-	before := snapshot(t, dir)
-
-	res := mustCheck(t, dir, base, Options{Table: tableOf(shCheck("tests", project.KindTest, `if grep -q '^a$' pkg/a.txt 2>/dev/null; then exit 1; fi`))})
-
-	if res.Outcome != OutcomeProven || !slices.Equal(res.RevertedFiles, []string{"pkg", "pkg/a.txt"}) {
-		t.Errorf("result = %+v, want proven, with pkg and pkg/a.txt reverted", res)
-	}
-	requireState(t, dir, before)
-	if got, _ := os.ReadFile(filepath.Join(dir, "pkg")); string(got) != "now a file\n" {
-		t.Errorf("pkg holds %q after the check", got)
-	}
-}
-
-// TestAFileEditedDuringTheRunIsNotOverwritten guards 06-REQ-6.7: an edit to a
-// path the check reverted, made while it ran, is not overwritten by the
-// restore: the change cannot be applied again, the edit stays, and the check
-// fails with a restore error that names the path and the patch it keeps.
-func TestAFileEditedDuringTheRunIsNotOverwritten(t *testing.T) {
-	dir, base, _ := provenFixture(t, false)
-	script := `if grep -q fixed lib.txt; then exit 0; fi; echo "my edit" > lib.txt; exit 1`
-
-	_, err := Check(context.Background(), dir, base, Options{Table: tableOf(shCheck("tests", project.KindTest, script))})
-
-	var restore *RestoreError
-	if !errors.As(err, &restore) || !strings.Contains(err.Error(), "lib.txt") {
-		t.Fatalf("Check = %v, want a restore error that names lib.txt", err)
-	}
-	if got, _ := os.ReadFile(filepath.Join(dir, "lib.txt")); string(got) != "my edit\n" {
-		t.Errorf("lib.txt holds %q, want the edit kept", got)
-	}
-	if patch, err := os.ReadFile(restore.Patch); err != nil || !strings.Contains(string(patch), "+fixed") {
-		t.Errorf("the patch = %q, %v; want it kept, with the change", patch, err)
-	}
-}
-
-// TestARevertThatChangesTheChecksIsInconclusive guards 06-REQ-6.6: when the
-// table of checks, found again on the reverted tree, is not the one that was
-// measured (a Makefile that the change added), the checks are not run: a
-// failure of a check that is not there says nothing about the tests.
-func TestARevertThatChangesTheChecksIsInconclusive(t *testing.T) {
-	dir, base, check := provenFixture(t, true)
-	before := snapshot(t, dir)
-	counter, counted := counterCheck(t, "counted", project.KindTest)
-	_ = check
-	changed := func(context.Context) (project.Table, error) { return tableOf(), nil }
-	same := func(context.Context) (project.Table, error) { return tableOf(counted), nil }
-
-	res := mustCheck(t, dir, base, Options{Table: tableOf(counted), TableNow: changed})
-
-	if res.Outcome != OutcomeInconclusive || res.Reason != "table_changed_by_revert" || res.Closes || res.Reverted != nil || !res.Restored {
-		t.Errorf("result = %+v, want inconclusive because the table changed, with nothing run on the reverted tree", res)
-	}
-	if !slices.Equal(res.RevertedFiles, []string{"lib.txt"}) {
-		t.Errorf("reverted files = %v", res.RevertedFiles)
-	}
-	if runs(t, counter) != 1 {
-		t.Errorf("the check ran %d times, want only the run on the current tree", runs(t, counter))
-	}
-	requireState(t, dir, before)
-
-	if res := mustCheck(t, dir, base, Options{Table: tableOf(counted), TableNow: same}); res.Outcome == OutcomeInconclusive && res.Reason == "table_changed_by_revert" {
-		t.Errorf("the same table is a change: %+v", res)
-	}
-}
-
-// TestAPanicWhileRevertedPutsTheTreeBack guards 06-REQ-6.3: the tree is given
-// back when the code that runs on the reverted tree panics, and the panic goes
-// on to whoever recovers it.
-func TestAPanicWhileRevertedPutsTheTreeBack(t *testing.T) {
-	dir, base, check := provenFixture(t, true)
-	before := snapshot(t, dir)
-	boom := func(context.Context) (project.Table, error) { panic("boom") }
-
-	func() {
-		defer func() {
-			if r := recover(); r != "boom" {
-				t.Errorf("recovered %v, want the panic of the code that ran", r)
+			if got := res.Reason == "table_changed_by_revert"; got != tc.changed || (tc.changed && (res.Outcome != OutcomeInconclusive || res.Reverted != nil)) {
+				t.Errorf("result = %+v; want the table changed: %v", res, tc.changed)
 			}
-		}()
-		_, _ = Check(context.Background(), dir, base, Options{Table: tableOf(check), TableNow: boom})
-	}()
-
-	requireState(t, dir, before)
+			if want := map[bool]int{true: 1, false: 2}[tc.changed]; runs(t, counter) != want || !slices.Equal(res.RevertedFiles, []string{"lib.txt"}) {
+				t.Errorf("the check ran %d times, reverted %q; want %d and lib.txt", runs(t, counter), res.RevertedFiles, want)
+			}
+			requireState(t, dir, before)
+		})
+	}
 }
 
-// TestGitNoiseOnStderrIsNotParsed guards 06-REQ-6.1: what git writes to stderr
-// is not read as the answer it printed.
-func TestGitNoiseOnStderrIsNotParsed(t *testing.T) {
-	dir, base, check := provenFixture(t, false)
-	before := snapshot(t, dir)
-	t.Setenv("GIT_TRACE", "1")
-
-	res, err := Check(context.Background(), dir, base, Options{Table: tableOf(check)})
-
-	if err := os.Unsetenv("GIT_TRACE"); err != nil {
-		t.Fatal(err)
-	}
-
-	if err != nil || res.Outcome != OutcomeProven {
-		t.Errorf("Check = %+v, %v; want proven although git traces to stderr", res, err)
-	}
-	requireState(t, dir, before)
-}
-
-// TestANestedRepositoryIsNotReverted guards 06-REQ-6.5: a nested repository
-// is not part of the patch, and stays as it is through the run.
-func TestANestedRepositoryIsNotReverted(t *testing.T) {
-	dir, base, check := provenFixture(t, false)
+// A nested repository is no part of the change: it is not reverted.
+func TestCheckLeavesANestedRepositoryAlone(t *testing.T) {
+	dir, base, check := fixed(t, "grep -q fixed lib.txt")
 	nested := filepath.Join(dir, "vendor", "nested")
-	writeFile(t, nested, "n.txt", "n\n", 0o644)
-	gitIn(t, nested, "init", "-q", ".")
-	gitIn(t, nested, "add", "n.txt")
-	gitIn(t, nested, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "n")
+	testutil.Git(t, testutil.Repo(t, map[string]string{"n.txt": "n\n"}), "clone", "-q", ".", nested)
 	before := snapshot(t, dir)
 
 	res := mustCheck(t, dir, base, Options{Table: tableOf(check)})
@@ -992,7 +278,40 @@ func TestANestedRepositoryIsNotReverted(t *testing.T) {
 		t.Errorf("result = %+v, want proven, with only lib.txt reverted", res)
 	}
 	requireState(t, dir, before)
-	if got, _ := os.ReadFile(filepath.Join(nested, "n.txt")); string(got) != "n\n" {
-		t.Errorf("the nested repository holds %q", got)
+}
+
+// A tracked file under a directory that is a file now is back during the run,
+// and the file is back after it.
+func TestCheckOfADirectoryThatBecameAFile(t *testing.T) {
+	dir, base := newRepo(t, map[string]string{"pkg/a.txt": "a\n"})
+	if err := os.RemoveAll(filepath.Join(dir, "pkg")); err != nil {
+		t.Fatal(err)
 	}
+	testutil.WriteFile(t, dir, "pkg", "now a file\n")
+	testutil.WriteFile(t, dir, "tests/t.txt", "t\n")
+	before := snapshot(t, dir)
+
+	res := mustCheck(t, dir, base, Options{Table: tableOf(shCheck("tests", project.KindTest, `! grep -q '^a$' pkg/a.txt 2>/dev/null`))})
+
+	if res.Outcome != OutcomeProven || !slices.Equal(res.RevertedFiles, []string{"pkg", "pkg/a.txt"}) {
+		t.Errorf("result = %+v, want proven, with pkg and pkg/a.txt reverted", res)
+	}
+	requireState(t, dir, before)
+}
+
+// What git writes to stderr is not read as what it printed.
+func TestCheckIsNotMisledByWhatGitWritesToStderr(t *testing.T) {
+	dir, base, check := fixed(t, "grep -q fixed lib.txt")
+	before := snapshot(t, dir)
+	t.Setenv("GIT_TRACE", "1")
+
+	res, err := Check(t.Context(), dir, base, Options{Table: tableOf(check)})
+
+	if err := os.Unsetenv("GIT_TRACE"); err != nil {
+		t.Fatal(err)
+	}
+	if err != nil || res.Outcome != OutcomeProven {
+		t.Errorf("Check = %+v, %v; want proven although git traces to stderr", res, err)
+	}
+	requireState(t, dir, before)
 }

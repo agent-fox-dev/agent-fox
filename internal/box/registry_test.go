@@ -2,32 +2,39 @@ package box
 
 import (
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
-// TestTheRegistryHoldsTwoProviders_TS_10_1 verifies TS-10-1 as it stands: podman and local
-// are registered, and only podman isolates.
-// Verifies: 10-REQ-1.1
-func TestTheRegistryHoldsTwoProviders_TS_10_1(t *testing.T) {
-	want := map[string]bool{"podman": true, "local": false}
-	for name, isolates := range want {
+func TestDefault_OffersPodmanThatIsolatesAndLocalThatDoesNot(t *testing.T) {
+	if got := Default.Names(); !slices.Equal(got, []string{"local", "podman"}) {
+		t.Errorf("Default.Names() = %v, want local and podman", got)
+	}
+	for name, isolates := range map[string]bool{"podman": true, "local": false} {
 		e, err := Default.Lookup(name)
-		if err != nil {
-			t.Errorf("Lookup(%s): %v", name, err)
-			continue
-		}
-		if e.Name != name {
-			t.Errorf("Lookup(%s) is the entry %q", name, e.Name)
-		}
-		if got := e.Isolates(); got != isolates {
-			t.Errorf("%s: Isolates() = %v, want %v", name, got, isolates)
-		}
-		// A provider that does not isolate raises box_unconfined, and one that does not.
-		if e.Unconfined == isolates {
-			t.Errorf("%s: Unconfined = %v, but Isolates() = %v", name, e.Unconfined, e.Isolates())
+		if err != nil || e.Name != name || e.Isolates() != isolates {
+			t.Errorf("Lookup(%s) = %q, isolates %v, %v; want isolates %v", name, e.Name, e.Isolates(), err, isolates)
 		}
 	}
-	if got := Default.Names(); !slices.Equal(got, []string{"local", "podman"}) {
-		t.Errorf("the default registry holds %v, want the two providers", got)
+}
+
+func TestLookup_AnUnknownNameIsAUsageFailureThatListsTheProviders(t *testing.T) {
+	_, err := Default.Lookup("docker")
+
+	f := asFailure(t, err)
+	if f.Category != toolio.CategoryUsage || !strings.Contains(f.Message, `"docker"`) || !strings.Contains(f.Message, "local, podman") {
+		t.Errorf("failure = %+v, want usage naming docker and listing local, podman", f)
+	}
+}
+
+func TestRegister_ReplacesAProviderOfTheSameName(t *testing.T) {
+	r := registry(Entry{Name: "x"}, Entry{Name: "x", Unconfined: true})
+
+	e, err := r.Lookup("x")
+
+	if err != nil || !e.Unconfined || !slices.Equal(r.Names(), []string{"x"}) {
+		t.Errorf("Lookup(x) = %+v, %v with names %v, want the second entry alone", e, err, r.Names())
 	}
 }

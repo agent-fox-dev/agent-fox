@@ -10,121 +10,82 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agent-fox-dev/agentfox/internal/checks"
-	"github.com/agent-fox-dev/agentfox/internal/project"
+	"github.com/agent-fox-dev/agentfox/internal/testutil"
 )
 
-// writeFile writes a file, and its directories, under root.
-func writeFile(t *testing.T, root, name, content string) string {
-	t.Helper()
-	path := filepath.Join(root, filepath.FromSlash(name))
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
-// TestLoadPolicy_TS_06_55 verifies TS-06-55:
-// the policy comes from --policy, then guard.json, then detection defaults,
-// with missing keys defaulted.
-// Verifies: 06-REQ-8.1
-func TestLoadPolicy_TS_06_55(t *testing.T) {
+// TestLoadPolicy_TakesTheFirstSourceThatExists: the file named, then
+// guard.json, then the defaults with the suite detection finds; a key a file
+// does not have takes its default.
+func TestLoadPolicy_TakesTheFirstSourceThatExists(t *testing.T) {
+	ctx := context.Background()
 	dir := t.TempDir()
-	writeFile(t, dir, "Makefile", "check:\n\ttrue\n")
-	files, err := checks.FileView(context.Background(), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	detected, err := project.Detect(dir, files)
-	if err != nil {
-		t.Fatal(err)
-	}
-	other := t.TempDir()
-	file := writeFile(t, other, "policy.json", `{"version":1,"suite":[["foo"]]}`)
-	writeFile(t, dir, ".agent-fox/guard.json", `{"version":1,"protected_paths":["docs/"]}`)
+	testutil.WriteFile(t, dir, "Makefile", "check:\n\ttrue\n")
+	named := testutil.WriteFile(t, t.TempDir(), "policy.json", `{"version":1,"suite":[["foo"]]}`)
+	guard := testutil.WriteFile(t, dir, ".agent-fox/guard.json", `{"version":1,"protected_paths":["docs/"]}`)
+	detected := [][]string{{"make", "check"}}
 
-	viaFlag, err := LoadPolicy(context.Background(), dir, file)
-	if err != nil {
+	if p, err := LoadPolicy(ctx, dir, named); err != nil || !reflect.DeepEqual(p.Suite, [][]string{{"foo"}}) || !slices.Equal(p.ProtectedPaths, DefaultProtectedPaths()) || len(p.AllowPrograms) != 0 {
+		t.Errorf("the named file gave %+v, %v: want its suite, the default protected paths and no allowlist, although guard.json exists", p, err)
+	}
+	if p, err := LoadPolicy(ctx, dir, ""); err != nil || !slices.Equal(p.ProtectedPaths, []string{"docs/"}) || !reflect.DeepEqual(p.Suite, detected) {
+		t.Errorf("guard.json gave %+v, %v: want docs/ and the detected suite", p, err)
+	}
+	if err := os.Remove(guard); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(viaFlag.Suite, [][]string{{"foo"}}) || !slices.Equal(viaFlag.ProtectedPaths, DefaultProtectedPaths()) || len(viaFlag.AllowPrograms) != 0 {
-		t.Errorf("--policy gave %+v: want its suite, the default protected paths and no allowlist, although guard.json exists", viaFlag)
-	}
-
-	viaFile, err := LoadPolicy(context.Background(), dir, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(viaFile.ProtectedPaths, []string{"docs/"}) || !reflect.DeepEqual(viaFile.Suite, detected.Suite) || len(viaFile.AllowPrograms) != 0 {
-		t.Errorf("guard.json gave %+v: want docs/, the detected suite %v and no allowlist", viaFile, detected.Suite)
-	}
-
-	if err := os.Remove(filepath.Join(dir, ".agent-fox", "guard.json")); err != nil {
-		t.Fatal(err)
-	}
-	defaults, err := LoadPolicy(context.Background(), dir, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(defaults.ProtectedPaths, []string{".git/", ".agent-fox/", ".specs/", ".github/workflows/", ".gitlab-ci.yml"}) ||
-		!reflect.DeepEqual(defaults.Suite, detected.Suite) || len(defaults.AllowPrograms) != 0 {
-		t.Errorf("the defaults are %+v", defaults)
-	}
-	if !slices.ContainsFunc(defaults.Suite, func(f []string) bool { return slices.Equal(f, []string{"make", "check"}) }) {
-		t.Errorf("the suite %v lacks make check", defaults.Suite)
+	if p, err := LoadPolicy(ctx, dir, ""); err != nil || !slices.Equal(p.ProtectedPaths, []string{".git/", ".agent-fox/", ".specs/", ".github/workflows/", ".gitlab-ci.yml"}) || !reflect.DeepEqual(p.Suite, detected) || len(p.AllowPrograms) != 0 {
+		t.Errorf("the defaults are %+v, %v", p, err)
 	}
 }
 
-// TestLoadPolicyKeys guards 06-REQ-8.1: every key of a file is taken as it is
-// when it is there, an empty list included, and defaulted when it is not.
-func TestLoadPolicyKeys(t *testing.T) {
+// TestLoadPolicy_TakesAKeyThatIsThereAsItIs: an empty list included, and with
+// no keys at all every one takes its default.
+func TestLoadPolicy_TakesAKeyThatIsThereAsItIs(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "Makefile", "check:\n\ttrue\n")
-	writeFile(t, dir, ".agent-fox/guard.json", `{"version":1,"suite":[["a","b"],["c"]],"protected_paths":[],"allow_programs":["go","ls"]}`)
+	testutil.WriteFile(t, dir, "Makefile", "check:\n\ttrue\n")
+	testutil.WriteFile(t, dir, ".agent-fox/guard.json", `{"version":1,"suite":[["a","b"],["c"]],"protected_paths":[],"allow_programs":["go","ls"]}`)
 
 	p, err := LoadPolicy(context.Background(), dir, "")
-
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(p.Suite, [][]string{{"a", "b"}, {"c"}}) || len(p.ProtectedPaths) != 0 || !slices.Equal(p.AllowPrograms, []string{"go", "ls"}) {
-		t.Errorf("policy = %+v, want the file's keys, and no protected paths because the file says none", p)
+	if err != nil || !reflect.DeepEqual(p.Suite, [][]string{{"a", "b"}, {"c"}}) || len(p.ProtectedPaths) != 0 || !slices.Equal(p.AllowPrograms, []string{"go", "ls"}) {
+		t.Errorf("policy = %+v, %v; want the file's keys, and no protected paths because the file says none", p, err)
 	}
 
-	// With no key, nothing is detected that is not needed: the suite of the file
-	// is not read from the repository.
-	writeFile(t, dir, ".agent-fox/guard.json", `{"version":1}`)
-	if p, err = LoadPolicy(context.Background(), dir, ""); err != nil || !slices.Equal(p.ProtectedPaths, DefaultProtectedPaths()) || len(p.Suite) == 0 {
+	testutil.WriteFile(t, dir, ".agent-fox/guard.json", `{"version":1}`)
+	if p, err = LoadPolicy(context.Background(), dir, ""); err != nil || !slices.Equal(p.ProtectedPaths, DefaultProtectedPaths()) || !reflect.DeepEqual(p.Suite, [][]string{{"make", "check"}}) {
 		t.Errorf("a file with no keys gave %+v, %v", p, err)
 	}
 }
 
-// TestLoadPolicyRefusesWhatCannotBeUsed guards 06-REQ-8.6: a policy file that
-// does not parse is a *ConfigError that names it, and nothing is decided with a
-// policy that was half read.
-func TestLoadPolicyRefusesWhatCannotBeUsed(t *testing.T) {
-	cases := map[string]string{
-		"not JSON":              `{not json`,
-		"no version":            `{"suite":[["a"]]}`,
-		"another version":       `{"version":2}`,
-		"an unknown key":        `{"version":1,"protected_path":[".git/"]}`,
-		"a suite of strings":    `{"version":1,"suite":["make check"]}`,
-		"an empty form":         `{"version":1,"suite":[[]]}`,
-		"a path above":          `{"version":1,"protected_paths":["../x"]}`,
-		"an absolute path":      `{"version":1,"protected_paths":["/etc"]}`,
-		"an empty path":         `{"version":1,"protected_paths":[""]}`,
-		"programs of the wrong": `{"version":1,"allow_programs":"go"}`,
-		"two documents":         `{"version":1} {"version":1}`,
-		"an empty file":         ``,
-	}
-	for name, content := range cases {
+// TestLoadPolicy_RefusesAFileThatCannotBeUsed: it is a *ConfigError that
+// names the file, and nothing is decided with a policy half read.
+func TestLoadPolicy_RefusesAFileThatCannotBeUsed(t *testing.T) {
+	for name, content := range map[string]string{
+		"not JSON":                `{not json`,
+		"no version":              `{"suite":[["a"]]}`,
+		"another version":         `{"version":2}`,
+		"an unknown key":          `{"version":1,"protected_path":[".git/"]}`,
+		"a suite of strings":      `{"version":1,"suite":["make check"]}`,
+		"an empty form":           `{"version":1,"suite":[[]]}`,
+		"a path above":            `{"version":1,"protected_paths":["../x"]}`,
+		"the checkout":            `{"version":1,"protected_paths":["."]}`,
+		"an absolute path":        `{"version":1,"protected_paths":["/etc"]}`,
+		"an empty path":           `{"version":1,"protected_paths":[""]}`,
+		"programs of a string":    `{"version":1,"allow_programs":"go"}`,
+		"an empty program":        `{"version":1,"allow_programs":[""]}`,
+		"two documents":           `{"version":1} {"version":1}`,
+		"an empty file":           ``,
+		"a directory, not a file": "",
+	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			writeFile(t, dir, ".agent-fox/guard.json", content)
 			path := filepath.Join(dir, ".agent-fox", "guard.json")
+			if name == "a directory, not a file" {
+				if err := os.MkdirAll(path, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				testutil.WriteFile(t, dir, ".agent-fox/guard.json", content)
+			}
 
 			_, err := LoadPolicy(context.Background(), dir, "")
 
@@ -134,196 +95,44 @@ func TestLoadPolicyRefusesWhatCannotBeUsed(t *testing.T) {
 			}
 		})
 	}
+}
 
+// TestLoadPolicy_ReadsOnlyTheSourceItTakes: a broken guard.json beside a
+// named file is not read, a named file that is not there is an error, and the
+// detection of the defaults fails with a gate.json that cannot be used, and
+// with a checkout that is not there.
+func TestLoadPolicy_ReadsOnlyTheSourceItTakes(t *testing.T) {
+	ctx := context.Background()
 	dir := t.TempDir()
-	broken := writeFile(t, dir, ".agent-fox/guard.json", `{broken`)
-	good := writeFile(t, t.TempDir(), "p.json", `{"version":1,"suite":[["x"]]}`)
-	if _, err := LoadPolicy(context.Background(), dir, good); err != nil {
-		t.Errorf("--policy with a broken guard.json beside it: %v, want guard.json not to be read", err)
-	}
+	testutil.WriteFile(t, dir, ".agent-fox/guard.json", `{broken`)
+	good := testutil.WriteFile(t, t.TempDir(), "p.json", `{"version":1,"suite":[["x"]]}`)
 	var config *ConfigError
-	if _, err := LoadPolicy(context.Background(), dir, filepath.Join(dir, "missing.json")); !errors.As(err, &config) || !strings.Contains(err.Error(), "missing.json") {
-		t.Errorf("--policy with a file that is not there: %v, want a *ConfigError naming it", err)
+
+	if _, err := LoadPolicy(ctx, dir, good); err != nil {
+		t.Errorf("a named file with a broken guard.json beside it: %v", err)
 	}
-	if _, err := LoadPolicy(context.Background(), dir, ""); !errors.As(err, &config) || config.Path != broken {
-		t.Errorf("a broken guard.json: %v", err)
+	if _, err := LoadPolicy(ctx, dir, filepath.Join(dir, "missing.json")); !errors.As(err, &config) || !strings.Contains(err.Error(), "missing.json") {
+		t.Errorf("a named file that is not there: %v, want a *ConfigError naming it", err)
 	}
-	// A directory where there should be a file.
-	if err := os.Remove(broken); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(broken, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := LoadPolicy(context.Background(), dir, ""); !errors.As(err, &config) {
-		t.Errorf("guard.json that is a directory: %v", err)
-	}
-	// Detection fails when gate.json cannot be used, and so do the defaults.
+
 	bad := t.TempDir()
-	writeFile(t, bad, ".agent-fox/gate.json", `{broken`)
-	if _, err := LoadPolicy(context.Background(), bad, ""); !errors.As(err, &config) || !strings.Contains(err.Error(), "gate.json") {
+	testutil.WriteFile(t, bad, ".agent-fox/gate.json", `{broken`)
+	if _, err := LoadPolicy(ctx, bad, ""); !errors.As(err, &config) || !strings.Contains(err.Error(), "gate.json") || strings.Contains(config.Message, "invalid gate configuration") {
 		t.Errorf("defaults with a broken gate.json: %v, want a config error naming it", err)
 	}
-	if _, err := LoadPolicy(context.Background(), bad, good); err != nil {
+	if _, err := LoadPolicy(ctx, bad, good); err != nil {
 		t.Errorf("a policy file that does not need detection: %v", err)
 	}
-}
-
-// TestWriteTools_TS_06_56 verifies TS-06-56:
-// write tools are denied under protected paths and outside --dir except under
-// the temp directory.
-// Verifies: 06-REQ-8.2
-func TestWriteTools_TS_06_56(t *testing.T) {
-	tmp := filepath.Join(os.TempDir(), "af-policy-test", "x.txt")
-	tools := map[string]string{"write_file": "path", "edit_file": "path"}
-	for tool, field := range tools {
-		for _, tc := range []struct {
-			path, decision, rule string
-		}{
-			{".specs/x.md", Deny, RuleProtectedPath},
-			{dir + "/.git/config", Deny, RuleProtectedPath},
-			{"./.github/workflows/ci.yml", Deny, RuleProtectedPath},
-			{".gitlab-ci.yml", Deny, RuleProtectedPath},
-			{".agent-fox/gate/labels.json", Deny, RuleProtectedPath},
-			{"src/../.specs/x", Deny, RuleProtectedPath},
-			{"/etc/x", Deny, RuleOutsideDir},
-			{"../outside.txt", Deny, RuleOutsideDir},
-			{"/work/repo2/a.go", Deny, RuleOutsideDir},
-			{"/work/repo/../repo2/a.go", Deny, RuleOutsideDir},
-			{"src/a.go", Allow, ""},
-			{"a.go", Allow, ""},
-			{dir + "/src/a.go", Allow, ""},
-			{"docs/guide.md", Allow, ""},
-			{".specsx/a", Allow, ""},
-			{tmp, Allow, ""},
-			{".github/CODEOWNERS", Allow, ""},
-		} {
-			d := Decide(defaultPolicy(), dir, tool, input(field, tc.path))
-
-			if d.Decision != tc.decision || d.Rule != tc.rule {
-				t.Errorf("%s %s: %+v, want %s by %q", tool, tc.path, d, tc.decision, tc.rule)
-			}
-			if d.Decision == Deny && (d.Segment == "" || d.Reason == "" || !strings.Contains(d.Reason, tc.path)) {
-				t.Errorf("%s %s: a denial that does not say what it is about: %+v", tool, tc.path, d)
-			}
-			if d.Decision == Allow && (d.Rule != "" || d.Segment != "" || d.Reason != "") {
-				t.Errorf("%s %s: an allowance that carries %+v", tool, tc.path, d)
-			}
-		}
-	}
-
-	// A tool reads the field that is its own.
-	if d := Decide(defaultPolicy(), dir, "write_file", map[string]any{"file_path": ".specs/x"}); d.Decision != Deny {
-		t.Errorf("a write_file with a file_path: %+v, want a denial: a write call that names no path in its own field cannot be judged", d)
-	}
-	for _, in := range []map[string]any{nil, {}, {"path": 7}, {"path": ""}} {
-		d := Decide(defaultPolicy(), dir, "write_file", in)
-		if d.Decision != Deny || d.Rule != RuleUnparseable || d.Segment == "" || d.Reason == "" {
-			t.Errorf("a write_file with %v: %+v, want a denial by unparseable: there is no path to judge", in, d)
-		}
-	}
-	// A policy with no protected paths protects none, and still keeps the
-	// checkout.
-	open := Policy{}
-	if d := Decide(open, dir, "write_file", input("path", ".specs/x")); d.Decision != Allow {
-		t.Errorf("no protected paths: %+v", d)
-	}
-	if d := Decide(open, dir, "write_file", input("path", "/etc/x")); d.Rule != RuleOutsideDir {
-		t.Errorf("no protected paths, outside the checkout: %+v", d)
+	if _, err := LoadPolicy(ctx, filepath.Join(bad, "missing"), ""); err == nil || errors.As(err, &config) {
+		t.Errorf("defaults for a checkout that is not there: %v, want the error of the file view", err)
 	}
 }
 
-// input is the input of a write call.
-func input(field, path string) map[string]any {
-	return map[string]any{field: path, "content": "x"}
-}
-
-// TestWriteToolsInTheDirectoryOfASession guards 06-REQ-8.2: a relative path is
-// judged where the session is, which may be below the checkout, and against the
-// checkout as well.
-func TestWriteToolsInTheDirectoryOfASession(t *testing.T) {
-	cwd := dir + "/sub"
-	for _, tc := range []struct {
-		path, decision, rule string
-	}{
-		{"../.specs/x", Deny, RuleProtectedPath},
-		{"a.go", Allow, ""},
-		{"../src/a.go", Allow, ""},
-		{".specs/x", Deny, RuleProtectedPath},
-		{"../../outside", Deny, RuleOutsideDir},
-	} {
-		d := DecideAt(defaultPolicy(), dir, cwd, "write_file", input("path", tc.path))
-		if d.Decision != tc.decision || d.Rule != tc.rule {
-			t.Errorf("write_file %s from %s: %+v, want %s by %q", tc.path, cwd, d, tc.decision, tc.rule)
-		}
-	}
-	// And for a shell, which sees the .specs of the checkout from below it.
-	d := DecideAt(defaultPolicy(), dir, cwd, "execute", map[string]any{"command": "echo x > ../.specs/a"})
-	if d.Rule != RuleProtectedPath {
-		t.Errorf("a redirection from a subdirectory: %+v", d)
-	}
-	// A directory outside the checkout is not a place to judge from.
-	d = DecideAt(defaultPolicy(), dir, "/elsewhere", "write_file", input("path", "a.go"))
-	if d.Decision != Allow {
-		t.Errorf("a cwd outside the checkout is ignored: %+v", d)
-	}
-}
-
-// TestUnknownToolsAreAllowed_TS_06_57 verifies TS-06-57:
-// unknown tools are allowed with an empty rule, and every denial carries a
-// rule from the closed set, a segment and a reason.
-// Verifies: 06-REQ-8.3
-func TestUnknownToolsAreAllowed_TS_06_57(t *testing.T) {
-	for _, tool := range []string{"Bash", "Write", "read_file", "search_files", "mcp__x", "run_command", "list_files", ""} {
-		d := Decide(defaultPolicy(), dir, tool, map[string]any{"command": "git push", "file_path": ".specs/x", "path": "/etc/x", "argv": []any{"git", "push"}})
-		if d != (Decision{Decision: Allow}) {
-			t.Errorf("%q: %+v, want an allowance with nothing else", tool, d)
-		}
-	}
-
-	rules := []string{RuleUnparseable, RuleHandsGuard, RuleGitMutation, RuleSuiteCommand, RuleAfCommand, RuleProgramNotAllowed, RuleProtectedPath, RuleOutsideDir}
-	p := defaultPolicy()
-	p.AllowPrograms = []string{"ls"}
-	seen := map[string]bool{}
-	for _, call := range []struct {
-		tool  string
-		input map[string]any
-	}{
-		{"execute", map[string]any{"command": `echo "x`}},
-		{"execute", map[string]any{"command": "PATH=/x ls"}},
-		{"execute", map[string]any{"command": "git push"}},
-		{"execute", map[string]any{"command": "make check"}},
-		{"execute", map[string]any{"command": "af fix land"}},
-		{"execute", map[string]any{"command": "curl x"}},
-		{"execute", map[string]any{"command": "ls > .specs/a"}},
-		{"write_file", map[string]any{"path": "/etc/x"}},
-		{"write_file", map[string]any{"path": ".specs/x"}},
-		{"edit_file", nil},
-	} {
-		d := Decide(p, dir, call.tool, call.input)
-		if d.Decision != Deny || !slices.Contains(rules, d.Rule) || d.Segment == "" || d.Reason == "" {
-			t.Errorf("%s %v: %+v", call.tool, call.input, d)
-		}
-		seen[d.Rule] = true
-	}
-	for _, rule := range rules {
-		if !seen[rule] {
-			t.Errorf("no case of the test is denied by %s", rule)
-		}
-	}
-}
-
-// TestMarshalGuardFileIsAPolicyLoadPolicyTakes guards the guard.json that a loop places
-// in a box: read from a file by LoadPolicy it is the policy it was made of, an empty list
-// included, which a file takes as it is.
-func TestMarshalGuardFileIsAPolicyLoadPolicyTakes(t *testing.T) {
-	want := Policy{
-		Suite:          [][]string{{"make", "check"}, {"go", "test", "./..."}},
-		ProtectedPaths: DefaultProtectedPaths(),
-		AllowPrograms:  []string{"git", "make"},
-	}
+// TestMarshalGuardFile_IsThePolicyLoadPolicyReadsBack: every key is written,
+// an empty list as an empty list, with the version and no null.
+func TestMarshalGuardFile_IsThePolicyLoadPolicyReadsBack(t *testing.T) {
 	for name, p := range map[string]Policy{
-		"a full policy": want,
+		"a full policy": {Suite: [][]string{{"make", "check"}, {"go", "test", "./..."}}, ProtectedPaths: DefaultProtectedPaths(), AllowPrograms: []string{"git", "make"}},
 		"empty lists":   {Suite: [][]string{{"make", "test"}}, ProtectedPaths: []string{}, AllowPrograms: []string{}},
 		"no lists":      {},
 	} {
@@ -333,7 +142,7 @@ func TestMarshalGuardFileIsAPolicyLoadPolicyTakes(t *testing.T) {
 				t.Fatal(err)
 			}
 			dir := t.TempDir()
-			writeFile(t, dir, ".agent-fox/guard.json", string(doc))
+			testutil.WriteFile(t, dir, ".agent-fox/guard.json", string(doc))
 
 			got, err := LoadPolicy(context.Background(), dir, "")
 

@@ -1,372 +1,384 @@
 package toolio
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"reflect"
-	"regexp"
+	"slices"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/agent-fox-dev/aflib/issuex"
+	"github.com/agent-fox-dev/agentfox/internal/testutil"
 )
 
-// newTestApp returns an app with a fixed identity.
-func newTestApp() *App {
-	return &App{Version: "v0.0.0-test"}
-}
+func TestDispatch_TheLongestRegisteredPathWins(t *testing.T) {
+	var gate, gateRun recorder
+	app := newApp()
+	app.Register(gate.command(Command{Path: "gate"}))
+	app.Register(gateRun.command(Command{Path: "gate run", Dir: true}))
+	dir := t.TempDir()
 
-// invoke runs the app with "af" as argv[0] followed by args, and returns the
-// exit code and what the app wrote to stdout and stderr.
-func invoke(t *testing.T, app *App, args ...string) (code int, stdout, stderr string) {
-	t.Helper()
-	var out, errb bytes.Buffer
-	code = app.Main(context.Background(), append([]string{"af"}, args...), strings.NewReader(""), &out, &errb)
-	return code, out.String(), errb.String()
-}
-
-// returning is a test command that ends with out and err.
-func returning(path string, out Outcome, err error) Command {
-	return Command{Path: path, Run: func(*Run) (Outcome, error) { return out, err }}
-}
-
-// decode parses stdout as exactly one JSON object.
-func decode(t *testing.T, stdout string) map[string]any {
-	t.Helper()
-	var env map[string]any
-	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
-		t.Fatalf("stdout is not one JSON object: %v\n%s", err, stdout)
+	r := run(t, app, "gate", "run", "--dir", dir)
+	if r.code != 0 || r.env(t)["tool"] != "gate run" || gateRun.ran != 1 || gate.ran != 0 || gateRun.last.Dir != dir {
+		t.Errorf("gate run: exit %d, envelope %s, gate run ran %d, gate %d", r.code, r.stdout, gateRun.ran, gate.ran)
 	}
-	return env
-}
-
-// at follows path through nested JSON objects and returns what is there, or
-// nil.
-func at(m map[string]any, path ...string) any {
-	var v any = m
-	for _, p := range path {
-		obj, ok := v.(map[string]any)
-		if !ok {
-			return nil
-		}
-		v = obj[p]
-	}
-	return v
-}
-
-// TestTimestampsAndDefaultUsage_TS_05_12 verifies TS-05-12:
-// Timestamps are RFC 3339 UTC with milliseconds and usage defaults to the
-// no-brain value.
-// Verifies: 05-REQ-2.4
-func TestTimestampsAndDefaultUsage_TS_05_12(t *testing.T) {
-	// A zone other than UTC proves the shell converts.
-	start := time.Date(2026, 10, 20, 8, 26, 48, 123_000_000, time.FixedZone("plus1", 3600))
-	calls := 0
-	app := newTestApp()
-	app.Now = func() time.Time {
-		calls++
-		if calls == 1 {
-			return start
-		}
-		return start.Add(250 * time.Millisecond)
-	}
-	app.Register(returning("X", Outcome{Status: StatusDone, Summary: "ok"}, nil))
-
-	_, stdout, _ := invoke(t, app, "X")
-	env := decode(t, stdout)
-
-	shape := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`)
-	for _, key := range []string{"started_at", "finished_at"} {
-		if s, _ := env[key].(string); !shape.MatchString(s) {
-			t.Errorf("%s = %q, want RFC 3339 UTC with milliseconds", key, env[key])
-		}
-	}
-	if got := env["started_at"]; got != "2026-10-20T07:26:48.123Z" {
-		t.Errorf("started_at = %v, want 2026-10-20T07:26:48.123Z", got)
-	}
-	if got := env["finished_at"]; got != "2026-10-20T07:26:48.373Z" {
-		t.Errorf("finished_at = %v, want 2026-10-20T07:26:48.373Z", got)
-	}
-	if !strings.Contains(stdout, "\"duration_ms\": 250\n") {
-		t.Errorf("duration_ms is not the integer 250:\n%s", stdout)
-	}
-
-	want := map[string]any{
-		"brain": "", "cost_usd": float64(0), "cost_source": "none",
-		"input_tokens": float64(0), "output_tokens": float64(0), "turns": float64(0),
-	}
-	if got := env["usage"]; !reflect.DeepEqual(got, want) {
-		t.Errorf("usage = %v, want %v", got, want)
+	if r := run(t, app, "gate"); r.env(t)["tool"] != "gate" || gate.ran != 1 {
+		t.Errorf("gate: envelope %s, gate ran %d", r.stdout, gate.ran)
 	}
 }
 
-// failingWriter is a stdout that always fails.
-type failingWriter struct{}
-
-func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("broken pipe") }
-
-// TestFailingStdoutKeepsExitCode_TS_05_15 verifies TS-05-15:
-// A failing stdout write does not change the exit code.
-// Verifies: 05-REQ-2.7
-func TestFailingStdoutKeepsExitCode_TS_05_15(t *testing.T) {
-	cases := []struct {
-		name string
-		out  Outcome
-		err  error
-		want int
+func TestDispatch_NoOrAnUnknownCommandIsUsageListingTheCommands(t *testing.T) {
+	var rec recorder
+	app := newApp()
+	app.Register(rec.command(Command{Path: "alpha"}))
+	app.Register(rec.command(Command{Path: "beta gamma"}))
+	for _, tc := range []struct {
+		app  *App
+		args []string
+		want []string
 	}{
-		{"done", Outcome{Status: StatusDone}, nil, 0},
-		{"needs_human", Outcome{Status: StatusNeedsHuman, NeedsHuman: &Question{Text: "which?"}}, nil, 3},
-		{"failed", Outcome{}, &Failure{Category: CategoryForge, Message: "m"}, 1},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			app := newTestApp()
-			app.Register(returning("X", tc.out, tc.err))
-			code := app.Main(context.Background(), []string{"af", "X"}, strings.NewReader(""), failingWriter{}, io.Discard)
-			if code != tc.want {
-				t.Errorf("exit code = %d, want %d", code, tc.want)
+		{app, nil, []string{"no command given", "alpha", "beta gamma"}},
+		{app, []string{"nosuch", "--flag"}, []string{`unknown command "nosuch"`, "alpha", "beta gamma"}},
+		{newApp(), []string{"nosuch"}, []string{"the commands are: none"}},
+	} {
+		r := run(t, tc.app, tc.args...)
+		env := r.env(t)
+		msg := fmt.Sprint(at(env, "error", "message"))
+		if r.code != 2 || env["status"] != "usage" || env["tool"] != "af" || at(env, "error", "category") != CategoryUsage || r.stderr != "" {
+			t.Errorf("%q: exit %d, envelope %s, stderr %q", tc.args, r.code, r.stdout, r.stderr)
+		}
+		for _, w := range tc.want {
+			if !strings.Contains(msg, w) {
+				t.Errorf("%q: message %q, want it to contain %q", tc.args, msg, w)
 			}
-		})
+		}
+	}
+	if rec.ran != 0 {
+		t.Errorf("a command ran %d times", rec.ran)
 	}
 }
 
-// TestOutcomeIsCopiedIntoEnvelope_TS_05_16 verifies TS-05-16:
-// An outcome's status, summary and result are copied into the envelope.
-// Verifies: 05-REQ-3.1
-func TestOutcomeIsCopiedIntoEnvelope_TS_05_16(t *testing.T) {
-	cases := []struct {
-		name   string
-		out    Outcome
-		warn   bool
-		status string
-		code   int
+func TestOutcome_IsCopiedIntoTheEnvelope(t *testing.T) {
+	for _, tc := range []struct {
+		status   Status
+		question *Question
+		code     int
 	}{
-		{"done", Outcome{Status: StatusDone}, false, "done", 0},
-		{"unverified", Outcome{Status: StatusUnverified}, true, "unverified", 4},
-		{"needs_human", Outcome{Status: StatusNeedsHuman, NeedsHuman: &Question{Text: "which?"}}, false, "needs_human", 3},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			out := tc.out
-			out.Summary = "ok"
-			out.Result = map[string]any{"n": 1}
-			app := newTestApp()
-			app.Register(Command{Path: "X", Run: func(r *Run) (Outcome, error) {
-				if tc.warn {
-					r.Warn("not_verified", "the tests were not run")
-				}
-				return out, nil
-			}})
+		{StatusDone, nil, 0},
+		{StatusUnverified, nil, 4},
+		{StatusNeedsHuman, &Question{Text: "which?"}, 3},
+	} {
+		app := newApp()
+		app.Register(returning("X", Outcome{Status: tc.status, Summary: "ok", Result: map[string]int{"n": 1}, NeedsHuman: tc.question}, nil))
 
-			code, stdout, _ := invoke(t, app, "X")
-			env := decode(t, stdout)
+		r := run(t, app, "X")
+		env := r.env(t)
 
-			if code != tc.code {
-				t.Errorf("exit code = %d, want %d", code, tc.code)
-			}
-			if env["status"] != tc.status {
-				t.Errorf("status = %v, want %s", env["status"], tc.status)
-			}
-			if env["summary"] != "ok" {
-				t.Errorf("summary = %v, want ok", env["summary"])
-			}
-			if got, want := env["result"], map[string]any{"n": float64(1)}; !reflect.DeepEqual(got, want) {
-				t.Errorf("result = %v, want %v", got, want)
-			}
-			if env["error"] != nil {
-				t.Errorf("error = %v, want null", env["error"])
-			}
-			if tc.warn {
-				want := []any{map[string]any{"code": "not_verified", "message": "the tests were not run"}}
-				if got := env["warnings"]; !reflect.DeepEqual(got, want) {
-					t.Errorf("warnings = %v, want %v", got, want)
-				}
-			}
-		})
+		if r.code != tc.code || env["status"] != string(tc.status) || env["exit_code"] != float64(tc.code) || env["summary"] != "ok" ||
+			!reflect.DeepEqual(env["result"], map[string]any{"n": 1.0}) || env["error"] != nil || (env["needs_human"] != nil) != (tc.question != nil) {
+			t.Errorf("%s: exit %d, envelope %s", tc.status, r.code, r.stdout)
+		}
 	}
 }
 
-// TestFailureBecomesErrorObject_TS_05_17 verifies TS-05-17:
-// A *Failure becomes the error object, with status by category.
-// Verifies: 05-REQ-3.2
-func TestFailureBecomesErrorObject_TS_05_17(t *testing.T) {
+func TestOutcome_AnErrorBecomesTheErrorObject(t *testing.T) {
 	forge := &Failure{Category: CategoryForge, Message: "m", Retryable: true, FixHint: &FixHint{Env: "X"}}
-	cases := []struct {
+	hint := map[string]any{"env": "X"}
+	for _, tc := range []struct {
 		name   string
 		err    error
 		status string
-		code   int
 		want   map[string]any
 	}{
-		{
-			"forge", forge, "failed", 1,
-			map[string]any{"category": "forge", "message": "m", "retryable": true, "fix_hint": map[string]any{"env": "X"}},
-		},
-		{
-			"wrapped", fmt.Errorf("while reading: %w", forge), "failed", 1,
-			map[string]any{"category": "forge", "message": "while reading: m", "retryable": true, "fix_hint": map[string]any{"env": "X"}},
-		},
-		{
-			"usage", &Failure{Category: CategoryUsage, Message: "bad flag"}, "usage", 2,
-			map[string]any{"category": "usage", "message": "bad flag", "retryable": false, "fix_hint": nil},
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			app := newTestApp()
-			app.Register(returning("X", Outcome{}, tc.err))
+		{"a failure", forge, "failed", map[string]any{"category": "forge", "message": "m", "retryable": true, "fix_hint": hint}},
+		{"a wrapped failure", fmt.Errorf("while reading: %w", forge), "failed",
+			map[string]any{"category": "forge", "message": "while reading: m", "retryable": true, "fix_hint": hint}},
+		{"a usage failure", &Failure{Category: CategoryUsage, Message: "bad"}, "usage",
+			map[string]any{"category": "usage", "message": "bad", "retryable": false, "fix_hint": nil}},
+		{"a category of a later command", &Failure{Category: CategoryGit, Message: "it broke"}, "failed",
+			map[string]any{"category": "git", "message": "it broke", "retryable": false, "fix_hint": nil}},
+		{"a failure without a category", &Failure{Message: "m"}, "failed",
+			map[string]any{"category": "internal", "message": "m", "retryable": false, "fix_hint": nil}},
+		{"a plain error", errors.New("disk on fire"), "failed",
+			map[string]any{"category": "internal", "message": "disk on fire", "retryable": false, "fix_hint": nil}},
+	} {
+		app := newApp()
+		app.Register(returning("X", Outcome{Status: StatusDone, Result: "dropped"}, tc.err))
 
-			code, stdout, _ := invoke(t, app, "X")
-			env := decode(t, stdout)
+		r := run(t, app, "X")
+		env := r.env(t)
 
-			if code != tc.code || env["status"] != tc.status {
-				t.Errorf("exit code, status = %d, %v; want %d, %s", code, env["status"], tc.code, tc.status)
-			}
-			if got := env["error"]; !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("error = %v, want %v", got, tc.want)
-			}
-		})
+		if r.code != ExitCode(Status(tc.status)) || env["status"] != tc.status || env["result"] != nil || !reflect.DeepEqual(env["error"], tc.want) {
+			t.Errorf("%s: exit %d, status %v, result %v, error %v; want %s and %v", tc.name, r.code, env["status"], env["result"], env["error"], tc.status, tc.want)
+		}
 	}
 }
 
-// TestPlainErrorBecomesInternal_TS_05_18 verifies TS-05-18:
-// A plain error becomes failed/internal with the error text.
-// Verifies: 05-REQ-3.3
-func TestPlainErrorBecomesInternal_TS_05_18(t *testing.T) {
-	app := newTestApp()
-	app.Register(returning("X", Outcome{}, errors.New("disk on fire")))
+func TestOutcome_APanicIsAnInternalFailureWithItsStack(t *testing.T) {
+	app := newApp()
+	app.Register(Command{Path: "X", UsesRunDir: true, Run: func(*Run) (Outcome, error) { panic("boom") }})
+	app.Register(Command{Path: "bare", Dir: true, Run: func(*Run) (Outcome, error) { panic("boom") }})
+	app.Register(Command{Path: "norun"})
 
-	code, stdout, _ := invoke(t, app, "X")
-	env := decode(t, stdout)
+	dir := t.TempDir()
+	r := run(t, app, "X", "--dir", dir)
+	env := r.env(t)
+	if r.code != 1 || at(env, "error", "category") != CategoryInternal || !strings.Contains(r.stderr, "boom") || !strings.Contains(r.stderr, "goroutine") {
+		t.Errorf("exit %d, envelope %s, stderr %q; want an internal failure and the stack on stderr", r.code, r.stdout, r.stderr)
+	}
+	panicTxt := testutil.ReadFile(t, filepath.Join(agentFoxDir(dir), "run", fmt.Sprint(env["run_id"]), "panic.txt"))
+	if !strings.Contains(panicTxt, "boom") || !strings.Contains(panicTxt, "goroutine") {
+		t.Errorf("panic.txt = %q, want the panic and its stack", panicTxt)
+	}
 
-	if code != 1 || env["status"] != "failed" {
-		t.Errorf("exit code, status = %d, %v; want 1, failed", code, env["status"])
+	other := t.TempDir()
+	if r := run(t, app, "bare", "--dir", other); r.code != 1 {
+		t.Errorf("a panic without a run directory: exit %d", r.code)
 	}
-	if got := at(env, "error", "category"); got != CategoryInternal {
-		t.Errorf("error.category = %v, want internal", got)
+	if _, err := os.Stat(agentFoxDir(other)); err == nil {
+		t.Error("a panic without a run directory created one")
 	}
-	if got, _ := at(env, "error", "message").(string); !strings.Contains(got, "disk on fire") {
-		t.Errorf("error.message = %q, want it to contain the error text", got)
-	}
-	if got := at(env, "error", "retryable"); got != false {
-		t.Errorf("error.retryable = %v, want false", got)
+	if r := run(t, app, "norun"); r.code != 1 || at(r.env(t), "error", "category") != CategoryInternal {
+		t.Errorf("a command with no Run: %s", r.stdout)
 	}
 }
 
-// TestPanicIsRecovered_TS_05_19 verifies TS-05-19:
-// A panic is recovered, its stack written to stderr, and one envelope
-// printed.
-// Verifies: 05-REQ-3.4
-func TestPanicIsRecovered_TS_05_19(t *testing.T) {
-	app := newTestApp()
-	app.Register(Command{Path: "X", Run: func(*Run) (Outcome, error) { panic("boom") }})
+func TestOutcome_AnInconsistentOneIsAnInternalFailure(t *testing.T) {
+	for name, out := range map[string]Outcome{
+		"needs_human without a question": {Status: StatusNeedsHuman},
+		"needs_human with a blank text":  {Status: StatusNeedsHuman, NeedsHuman: &Question{Text: "  "}},
+		"done with a question":           {Status: StatusDone, NeedsHuman: &Question{Text: "which?"}},
+		"unverified with a question":     {Status: StatusUnverified, NeedsHuman: &Question{Text: "which?"}},
+		"27 options":                     {Status: StatusNeedsHuman, NeedsHuman: &Question{Text: "which?", Options: make([]string, 27)}},
+		"no status":                      {},
+		"failed as an outcome":           {Status: StatusFailed},
+	} {
+		app := newApp()
+		app.Register(returning("X", out, nil))
 
-	code, stdout, stderr := invoke(t, app, "X")
-	env := decode(t, stdout) // exactly one envelope
+		r := run(t, app, "X")
+		env := r.env(t)
 
-	if code != 1 || env["status"] != "failed" {
-		t.Errorf("exit code, status = %d, %v; want 1, failed", code, env["status"])
-	}
-	if got := at(env, "error", "category"); got != CategoryInternal {
-		t.Errorf("error.category = %v, want internal", got)
-	}
-	if !strings.Contains(stderr, "boom") || !strings.Contains(stderr, "goroutine") {
-		t.Errorf("stderr should hold the panic and its stack, got:\n%s", stderr)
+		if r.code != 1 || at(env, "error", "category") != CategoryInternal || env["needs_human"] != nil {
+			t.Errorf("%s: exit %d, envelope %s; want an internal failure", name, r.code, r.stdout)
+		}
 	}
 }
 
-// TestCategoryConstants_TS_05_22 verifies TS-05-22:
-// The seven failure categories are exported constants with the documented
-// strings, and the failures the shell sets report one of them.
-// Verifies: 05-REQ-3.7
-func TestCategoryConstants_TS_05_22(t *testing.T) {
-	got := []string{CategoryUsage, CategoryAuth, CategoryForge, CategoryIO, CategoryCancelled, CategoryTimeout, CategoryInternal}
-	want := []string{"usage", "auth", "forge", "io", "cancelled", "timeout", "internal"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("categories = %v, want %v", got, want)
-	}
+func TestOutcome_TheSummaryIsOneLineAndNeverEmptyWhenTheShellSetsTheStatus(t *testing.T) {
+	multi := "first\nsecond\r\nthird\rfourth"
+	for _, tc := range []struct {
+		name string
+		run  func(*Run) (Outcome, error)
+	}{
+		{"done", func(*Run) (Outcome, error) { return Outcome{Status: StatusDone, Summary: multi}, nil }},
+		{"needs_human", func(*Run) (Outcome, error) {
+			return Outcome{Status: StatusNeedsHuman, Summary: multi, NeedsHuman: &Question{Text: "which?"}}, nil
+		}},
+		{"a failure", func(*Run) (Outcome, error) { return Outcome{}, &Failure{Category: CategoryForge, Message: multi} }},
+		{"a plain error", func(*Run) (Outcome, error) { return Outcome{}, errors.New(multi) }},
+		{"a panic", func(*Run) (Outcome, error) { panic("boom\nwith two lines") }},
+		{"an inconsistent outcome", func(*Run) (Outcome, error) { return Outcome{Status: StatusNeedsHuman}, nil }},
+		{"usage without a message", func(*Run) (Outcome, error) { return Outcome{}, &Failure{Category: CategoryUsage} }},
+		{"internal without a message", func(*Run) (Outcome, error) { return Outcome{}, &Failure{Category: CategoryInternal} }},
+		{"cancelled without a message", func(*Run) (Outcome, error) { return Outcome{}, &Failure{Category: CategoryCancelled} }},
+		{"timeout without a message", func(*Run) (Outcome, error) { return Outcome{}, &Failure{Category: CategoryTimeout} }},
+		{"another category without a message", func(*Run) (Outcome, error) { return Outcome{}, &Failure{Category: CategoryBudget} }},
+	} {
+		app := newApp()
+		app.Register(Command{Path: "X", Run: tc.run})
 
-	app := newTestApp()
-	app.Register(Command{Path: "panics", Run: func(*Run) (Outcome, error) { panic("boom") }})
-	_, stdout, _ := invoke(t, app, "panics")
-	if c := at(decode(t, stdout), "error", "category"); c != CategoryInternal {
-		t.Errorf("panic category = %v, want %s", c, CategoryInternal)
-	}
-	_, stdout, _ = invoke(t, app, "nosuch")
-	if c := at(decode(t, stdout), "error", "category"); c != CategoryUsage {
-		t.Errorf("unknown command category = %v, want %s", c, CategoryUsage)
+		summary := fmt.Sprint(run(t, app, "X").env(t)["summary"])
+
+		if strings.ContainsAny(summary, "\r\n") || strings.TrimSpace(summary) == "" {
+			t.Errorf("%s: summary %q, want one line that is not empty", tc.name, summary)
+		}
 	}
 }
 
-// TestArtifactPathsAreAbsolute guards the envelope's rule that artifact paths
-// are absolute: a relative path a command records is made absolute.
-func TestArtifactPathsAreAbsolute(t *testing.T) {
-	app := newTestApp()
+func TestNeedsHuman_TheOptionsAreLetteredInOrder(t *testing.T) {
+	app := newApp()
+	app.Register(returning("lettered", Outcome{Status: StatusNeedsHuman, NeedsHuman: &Question{Text: "Which?", Options: []string{"x", "y"}}}, nil))
+	app.Register(returning("free", Outcome{Status: StatusNeedsHuman, NeedsHuman: &Question{Text: "Why?"}}, nil))
+
+	r := run(t, app, "lettered")
+	want := []any{map[string]any{"id": "A", "label": "x"}, map[string]any{"id": "B", "label": "y"}}
+	if env := r.env(t); r.code != 3 || at(env, "needs_human", "question") != "Which?" || !reflect.DeepEqual(at(env, "needs_human", "options"), want) {
+		t.Errorf("exit %d, needs_human %v; want the question and the options %v", r.code, env["needs_human"], want)
+	}
+	if options := at(run(t, app, "free").env(t), "needs_human", "options"); !reflect.DeepEqual(options, []any{}) {
+		t.Errorf("a question for free text has the options %v, want []", options)
+	}
+}
+
+func TestNeedsHuman_ResumeIsTheInvocationWithEveryAnswerSoFar(t *testing.T) {
+	var contexts [][]string
+	app := newApp()
+	app.Register(Command{Path: "X", Context: true, Run: func(r *Run) (Outcome, error) {
+		contexts = append(contexts, r.Context)
+		return Outcome{Status: StatusNeedsHuman, NeedsHuman: &Question{Text: "which?", Options: []string{"x", "y"}}}, nil
+	}})
+	var out strings.Builder
+	app.Main(context.Background(), []string{"/tmp/bin/whatever", "X", "text", "--context", "A"}, strings.NewReader(""), &out, io.Discard)
+	env := testutil.Decode[map[string]any](t, []byte(out.String()))
+
+	argv := strs(at(env, "needs_human", "resume", "argv"))
+	if !slices.Equal(argv, []string{"af", "X", "text", "--context", "A"}) || at(env, "needs_human", "resume", "flag") != "--context" {
+		t.Fatalf("resume = %v, want the invocation with af as argv[0] and the flag --context", at(env, "needs_human", "resume"))
+	}
+	app.Main(context.Background(), append(argv, "--context", "B"), strings.NewReader(""), io.Discard, io.Discard)
+	if !reflect.DeepEqual(contexts, [][]string{{"A"}, {"A", "B"}}) {
+		t.Errorf("the contexts of the two runs are %q, want [A] then [A B]", contexts)
+	}
+}
+
+func TestNeedsHuman_AQuestionMayNameTheCommandThatAnswersIt(t *testing.T) {
+	app := newApp()
+	app.Register(returning("ask", Outcome{Status: StatusNeedsHuman, NeedsHuman: &Question{
+		Text: "Which?", ResumeArgv: []string{"af", "jobs", "answer", "j", "--wait"},
+	}}, nil))
+
+	resume := at(run(t, app, "ask").env(t), "needs_human", "resume")
+
+	if !slices.Equal(strs(at(resume, "argv")), []string{"af", "jobs", "answer", "j", "--wait"}) || at(resume, "flag") != "--context" {
+		t.Errorf("resume = %v, want the question's argv and the flag --context", resume)
+	}
+}
+
+func TestRun_WarningsAreRecordedOnceInTheOrderRaisedAndNeverChangeTheStatus(t *testing.T) {
+	var seen []Warning
+	app := newApp()
 	app.Register(Command{Path: "X", Run: func(r *Run) (Outcome, error) {
-		r.Artifact(Artifact{Kind: "file", Path: filepath.Join("out", "result.txt")})
-		r.Artifact(Artifact{Kind: "issue", URL: "https://example.com/o/r/issues/1", Number: 1})
-		return Outcome{Status: StatusDone}, nil
+		for _, w := range []string{"alpha:one", "beta_2:two", "alpha:one", "alpha:two", "Bad Code!:a message", "beta_2:two"} {
+			code, msg, _ := strings.Cut(w, ":")
+			r.Warn(code, msg)
+		}
+		seen = r.Warnings()
+		return Outcome{Status: StatusDone, Summary: "ok"}, nil
 	}})
 
-	_, stdout, _ := invoke(t, app, "X")
-	artifacts, _ := decode(t, stdout)["artifacts"].([]any)
+	r := run(t, app, "X")
 
-	want, _ := filepath.Abs(filepath.Join("out", "result.txt"))
-	if len(artifacts) != 2 || artifacts[0].(map[string]any)["path"] != want {
-		t.Errorf("artifacts = %v, want the first with the path %s", artifacts, want)
+	want := []Warning{{"alpha", "one"}, {"beta_2", "two"}, {"alpha", "two"}, {WarnInvalidCode, `"Bad Code!": a message`}}
+	if !reflect.DeepEqual(seen, want) {
+		t.Errorf("Run.Warnings = %v, want %v", seen, want)
 	}
-	if _, has := artifacts[1].(map[string]any)["path"]; has {
-		t.Errorf("an artifact without a path got one: %v", artifacts[1])
+	if got := testutil.Decode[Envelope](t, []byte(r.stdout)); r.code != 0 || got.Status != StatusDone || !reflect.DeepEqual(got.Warnings, want) {
+		t.Errorf("exit %d, status %s, warnings %v; want done and %v", r.code, got.Status, got.Warnings, want)
 	}
 }
 
-// TestShortCircuitsDoNoWork_TS_05_8 verifies TS-05-8:
-// --version and --help short-circuit input, forge and run directory work.
-// Verifies: 05-REQ-1.8
-func TestShortCircuitsDoNoWork_TS_05_8(t *testing.T) {
-	dir := t.TempDir()
-	url := "https://github.com/o/r/issues/1"
-	cases := []struct {
-		name string
-		args []string
+func TestRun_WhatTheCommandRecordsIsInTheEnvelope(t *testing.T) {
+	app := newApp()
+	app.Register(Command{Path: "X", MaxArgs: NoArgs, Run: func(r *Run) (Outcome, error) {
+		r.Artifact(Artifact{Kind: "file", Path: filepath.Join("out", "result.txt")})
+		r.Artifact(Artifact{Kind: "issue", URL: "https://example.com/o/r/issues/1", Number: 1})
+		r.SideEffect(SideEffect{Kind: "push", Target: "origin/main", State: StateDone})
+		r.Next(Next{Reason: "look"})
+		r.SetUsage(Usage{Brain: "scripted", CostUSD: 0.5, CostSource: CostReported, Turns: 2})
+		r.SetInput(KindFile, "/abs/notes.txt", true)
+		return Outcome{Status: StatusDone, Summary: "ok"}, nil
+	}})
+
+	env := run(t, app, "X").env(t)
+
+	abs, _ := filepath.Abs(filepath.Join("out", "result.txt"))
+	for _, c := range []struct {
+		field string
+		want  any
 	}{
-		{"--version first", []string{"X", "--version", "-", "--dir", dir}},
-		{"--version after the input", []string{"X", url, "--version"}},
-		{"--help among the flags", []string{"X", url, "--help", "--dir", dir}},
-		{"-h", []string{"X", "-h", "--dry-run"}},
+		{"artifacts", []any{
+			map[string]any{"kind": "file", "path": abs},
+			map[string]any{"kind": "issue", "url": "https://example.com/o/r/issues/1", "number": 1.0},
+		}},
+		{"side_effects", []any{map[string]any{"kind": "push", "target": "origin/main", "state": "done"}}},
+		{"next", []any{map[string]any{"argv": []any{}, "reason": "look"}}},
+		{"usage", map[string]any{"brain": "scripted", "cost_usd": 0.5, "cost_source": "reported", "input_tokens": 0.0, "output_tokens": 0.0, "turns": 2.0}},
+		{"input", map[string]any{"kind": "file", "origin": "/abs/notes.txt", "truncated": true}},
+	} {
+		if !reflect.DeepEqual(env[c.field], c.want) {
+			t.Errorf("%s = %v, want %v", c.field, env[c.field], c.want)
+		}
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			ran, forges := 0, 0
-			stdin := &countingReader{}
-			app := newTestApp()
-			app.NewForge = func(issuex.Options) (issuex.Client, error) {
-				forges++
-				return issuex.NewNoOp(), nil
-			}
-			app.Register(Command{Path: "X", Input: InputRequired, UsesForge: true, UsesRunDir: true, DryRun: true, Run: func(*Run) (Outcome, error) {
-				ran++
-				return Outcome{Status: StatusDone}, nil
-			}})
-			var out, errb bytes.Buffer
+}
 
-			code := app.Main(context.Background(), append([]string{"af"}, tc.args...), stdin, &out, &errb)
+func TestRun_ARedactedValueIsInNoOutputOfTheInvocation(t *testing.T) {
+	const secret = `sup"er\secret-value<&>`
+	for name, fail := range map[string]bool{"done": false, "failed": true} {
+		app := newApp()
+		app.Register(Command{Path: "leak", MaxArgs: NoArgs, UsesRunDir: true, Run: func(r *Run) (Outcome, error) {
+			r.Redact(secret, "short")
+			r.Emit("note", map[string]string{"said": "the secret is " + secret})
+			r.Warn("leaked", "a warning with "+secret)
+			if fail {
+				return Outcome{}, &Failure{Category: CategoryInternal, Message: "it failed with " + secret}
+			}
+			return Outcome{Status: StatusDone, Summary: "ok " + secret, Result: map[string]string{"echo": secret, "short": "short"}}, nil
+		}})
+		var sunk strings.Builder
+		app.EventSink = func(line []byte) { sunk.Write(line) }
+		dir := t.TempDir()
 
-			if code != 0 || ran != 0 || forges != 0 || stdin.reads != 0 || errb.Len() != 0 || out.Len() == 0 {
-				t.Errorf("exit code %d, ran %d, forges %d, stdin reads %d, stderr %q, stdout %d bytes; want 0, 0, 0, 0, \"\", something",
-					code, ran, forges, stdin.reads, errb.String(), out.Len())
+		r := run(t, app, "leak", "--dir", dir)
+
+		outputs := map[string]string{"stdout": r.stdout, "stderr": r.stderr, "the sink": sunk.String()}
+		for path, content := range testutil.Files(t, agentFoxDir(dir)) {
+			outputs[path] = content
+		}
+		for where, text := range outputs {
+			if strings.Contains(text, "secret-value") {
+				t.Errorf("%s: %s holds the secret:\n%s", name, where, text)
 			}
-			if _, err := os.Stat(agentFoxDir(dir)); err == nil {
-				t.Error("a run directory was created")
-			}
-		})
+		}
+		if !fail && at(r.env(t), "result", "short") != "short" {
+			t.Errorf("a value too short to be a secret was redacted: %s", r.stdout)
+		}
+	}
+}
+
+// brokenWriter is a stdout that cannot be written to.
+type brokenWriter struct{}
+
+func (brokenWriter) Write([]byte) (int, error) { return 0, errors.New("broken pipe") }
+
+func TestPublish_ABrokenStdoutKeepsTheExitCode(t *testing.T) {
+	for want, end := range map[int]func(*Run) (Outcome, error){
+		0: func(*Run) (Outcome, error) { return Outcome{Status: StatusDone}, nil },
+		3: func(*Run) (Outcome, error) {
+			return Outcome{Status: StatusNeedsHuman, NeedsHuman: &Question{Text: "which?"}}, nil
+		},
+		1: func(*Run) (Outcome, error) { return Outcome{}, &Failure{Category: CategoryForge, Message: "m"} },
+	} {
+		app := newApp()
+		app.Register(Command{Path: "X", Run: end})
+		if code := app.Main(context.Background(), []string{"af", "X"}, strings.NewReader(""), brokenWriter{}, io.Discard); code != want {
+			t.Errorf("exit %d, want %d", code, want)
+		}
+	}
+}
+
+func TestRun_RawStdinIsGivenAsItIsToTheCommandThatAsksForIt(t *testing.T) {
+	var got []byte
+	var rec recorder
+	app := newApp()
+	app.Register(Command{Path: "reader", MaxArgs: NoArgs, RawStdin: true, Run: func(r *Run) (Outcome, error) {
+		var err error
+		got, err = io.ReadAll(r.Stdin)
+		return Outcome{Status: StatusDone, Summary: "read"}, err
+	}})
+	app.Register(rec.command(Command{Path: "bystander", MaxArgs: NoArgs}))
+	payload := "  {\"tool\": \"Bash\"}\n\n\x00 tail  \n"
+
+	r := runWith(t, context.Background(), app, strings.NewReader(payload), "reader")
+	if r.code != 0 || string(got) != payload || at(r.env(t), "input", "kind") != "none" {
+		t.Errorf("exit %d, read %q, input %v; want the bytes as they came and no input", r.code, got, at(r.env(t), "input"))
+	}
+	runWith(t, context.Background(), app, strings.NewReader(payload), "bystander")
+	if rec.last.Stdin != nil {
+		t.Error("a command that did not ask for stdin was given it")
 	}
 }

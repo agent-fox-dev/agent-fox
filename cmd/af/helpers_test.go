@@ -3,61 +3,235 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
-	"strconv"
+	"slices"
 	"strings"
-	"syscall"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/afclient/fakeclock"
+	"github.com/agent-fox-dev/agentfox/internal/testutil"
 )
 
-var _ = testing.Short
+// request is a request the fake service saw.
+type request struct {
+	Method, Path, URI string
+	Header            http.Header
+	Body              []byte
+}
 
-// baseOf is the hash of HEAD.
-func baseOf(t *testing.T, dir string) string {
+// body is the request's JSON body, or nil when it has none.
+func (r request) body(t *testing.T) any {
 	t.Helper()
-	out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
-	if err != nil {
-		t.Fatal(err)
+	if len(r.Body) == 0 {
+		return nil
 	}
-	return strings.TrimSpace(string(out))
+	return testutil.Decode[any](t, r.Body)
 }
 
-// checksOf lists the argv of the checks of a lang detect result.
-func checksOf(env map[string]any) [][]string {
-	var out [][]string
-	list, _ := field(env, "result", "gate", "checks").([]any)
-	for _, c := range list {
-		var argv []string
-		for _, a := range field(c.(map[string]any), "argv").([]any) {
-			argv = append(argv, a.(string))
-		}
-		out = append(out, argv)
-	}
-	return out
+// service is a stand-in for the agent-fox service that records the requests it answers.
+type service struct {
+	*httptest.Server
+	mu   sync.Mutex
+	seen []request
 }
 
-// codes lists the codes of the warnings of an envelope.
-func codes(env map[string]any) []string {
+// newService starts a service that answers with handler, or with an empty list of workspaces.
+func newService(t *testing.T, handler http.HandlerFunc) *service {
+	t.Helper()
+	if handler == nil {
+		handler = answer(200, `{"workspaces":[]}`)
+	}
+	s := &service{}
+	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data, _ := io.ReadAll(r.Body)
+		s.mu.Lock()
+		s.seen = append(s.seen, request{r.Method, r.URL.Path, r.RequestURI, r.Header.Clone(), data})
+		s.mu.Unlock()
+		handler(w, r)
+	}))
+	t.Cleanup(s.Close)
+	return s
+}
+
+// requests are the requests seen so far, in order.
+func (s *service) requests() []request {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.seen)
+}
+
+// lines are the requests seen so far as "METHOD request-URI".
+func (s *service) lines() []string {
 	var out []string
-	warnings, _ := env["warnings"].([]any)
-	for _, w := range warnings {
-		out = append(out, field(w.(map[string]any), "code").(string))
+	for _, r := range s.requests() {
+		out = append(out, r.Method+" "+r.URI)
 	}
 	return out
+}
+
+// last is the last request seen.
+func (s *service) last(t *testing.T) request {
+	t.Helper()
+	reqs := s.requests()
+	if len(reqs) == 0 {
+		t.Fatal("the service saw no request")
+	}
+	return reqs[len(reqs)-1]
+}
+
+// serve starts a service with handler, and logs the test in to it: a home whose credential is T,
+// AF_URL naming the service, and a clock on which the pauses of a following cost nothing.
+func serve(t *testing.T, handler http.HandlerFunc) *service {
+	t.Helper()
+	s := newService(t, handler)
+	home(t, "token = \"T\"\n")
+	t.Setenv("AF_URL", s.URL)
+	useClock(t)
+	return s
+}
+
+// home makes a home directory for the test, with the credential file holding content unless it
+// is empty, and returns the path of the credential file.
+func home(t *testing.T, content string) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	path := filepath.Join(dir, ".af", "config.toml")
+	if content != "" {
+		testutil.WriteFile(t, dir, ".af/config.toml", content)
+		if err := os.Chmod(path, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return path
+}
+
+// useClock makes the requests of the commands take their timers from a fake clock.
+func useClock(t *testing.T) {
+	old := clientClock
+	clientClock = fakeclock.New(time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC))
+	t.Cleanup(func() { clientClock = old })
+}
+
+// answer is a handler that answers every request with status and a JSON body.
+func answer(status int, body string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, body)
+	}
+}
+
+// stream is a handler that sends the frames of an event stream.
+func stream(frames ...string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, strings.Join(frames, ""))
+	}
+}
+
+// routes is a handler that answers "METHOD /escaped/path" with the handler of that key, and any
+// other request with a 404.
+func routes(m map[string]http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h, ok := m[r.Method+" "+r.URL.EscapedPath()]; ok {
+			h(w, r)
+			return
+		}
+		answer(404, `{"error":{"code":"not_found","message":"no such route"}}`)(w, r)
+	}
+}
+
+// eventDoc is the document of the event seq of the job j.
+func eventDoc(seq int) string {
+	return fmt.Sprintf(`{"seq":%d,"ts":"2026-10-23T12:00:00.000Z","job_id":"j","attempt":1,"type":"step","data":{"n":%d}}`, seq, seq)
+}
+
+// frame is the event seq of the job j as a frame of the stream.
+func frame(seq int) string {
+	return fmt.Sprintf("id: %d\nevent: step\ndata: %s\n\n", seq, eventDoc(seq))
+}
+
+// jobJSON is the document of the job j in state, with its result and blocked objects ("" is
+// null) and an attempt in each of the states.
+func jobJSON(state, result, blocked string, attempts ...string) string {
+	null := func(s string) string {
+		if s == "" {
+			return "null"
+		}
+		return s
+	}
+	var list []string
+	for i, s := range attempts {
+		list = append(list, fmt.Sprintf(`{"n":%d,"state":%q}`, i+1, s))
+	}
+	return fmt.Sprintf(`{"id":"j","workspace":"widgets","state":%q,"future":{"kept":true},"result":%s,"blocked":%s,"attempts":[%s]}`,
+		state, null(result), null(blocked), strings.Join(list, ","))
+}
+
+// doneJob is the job j done, with one attempt.
+var doneJob = jobJSON("done", `{"status":"done","exit_code":0,"summary":"fixed","error":null}`, "", "done")
+
+// atRest is a handler for the job j: its stream sends event 1, the envelope of its attempt 1 is
+// answered by envelope (a 404 when it is nil), and any other request reads job.
+func atRest(job string, envelope http.HandlerFunc) http.HandlerFunc {
+	if envelope == nil {
+		envelope = answer(404, `{"error":{"code":"not_found","message":"no such envelope"}}`)
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/events"):
+			stream(frame(1))(w, r)
+		case r.URL.Path == "/api/v1/jobs/j/attempts/1/envelope":
+			envelope(w, r)
+		default:
+			answer(200, job)(w, r)
+		}
+	}
+}
+
+// afResult is what one invocation of the binary's shell wrote.
+type afResult struct {
+	code                   int
+	env                    map[string]any
+	stdout, stderr, events string
+}
+
+// af runs the binary's shell with args and an empty stdin.
+func af(t *testing.T, args ...string) afResult {
+	t.Helper()
+	return afWith(t, context.Background(), strings.NewReader(""), args...)
+}
+
+// afWith runs the binary's shell with args, stdin and ctx, and collects its events.
+func afWith(t *testing.T, ctx context.Context, stdin io.Reader, args ...string) afResult {
+	t.Helper()
+	var out, errb, events bytes.Buffer
+	var mu sync.Mutex
+	app := newApp()
+	app.EventSink = func(line []byte) {
+		mu.Lock()
+		defer mu.Unlock()
+		events.Write(line)
+		events.WriteByte('\n')
+	}
+	code := app.Main(ctx, append([]string{"af"}, args...), stdin, &out, &errb)
+	res := afResult{code: code, stdout: out.String(), stderr: errb.String(), events: events.String()}
+	if out.Len() > 0 {
+		res.env = testutil.Decode[map[string]any](t, out.Bytes())
+	}
+	return res
 }
 
 // field follows keys through nested objects.
-func field(doc map[string]any, keys ...string) any {
-	var v any = doc
+func field(v any, keys ...string) any {
 	for _, k := range keys {
 		obj, ok := v.(map[string]any)
 		if !ok {
@@ -68,209 +242,52 @@ func field(doc map[string]any, keys ...string) any {
 	return v
 }
 
-// gitRepo makes a git repository holding files, committed, built so that
-// nothing of the machine's git configuration matters.
-func gitRepo(t *testing.T, files map[string]string) string {
+func (r afResult) status() any    { return r.env["status"] }
+func (r afResult) category() any  { return field(r.env, "error", "category") }
+func (r afResult) retryable() any { return field(r.env, "error", "retryable") }
+func (r afResult) hint() any      { return field(r.env, "error", "fix_hint") }
+func (r afResult) result() any    { return r.env["result"] }
+func (r afResult) output() string { return r.stdout + r.stderr + r.events }
+
+func (r afResult) message() string { return str(field(r.env, "error", "message")) }
+func (r afResult) summary() string { return str(r.env["summary"]) }
+
+// warnings are the codes of the warnings of the envelope.
+func (r afResult) warnings() []string {
+	return each(r.env["warnings"], func(w any) string { return str(field(w, "code")) })
+}
+
+// next are the argv of the next entries of the envelope, each joined with spaces.
+func (r afResult) next() []string {
+	return each(r.env["next"], func(n any) string { return joined(field(n, "argv")) })
+}
+
+// artifacts are the names of the artifacts of the envelope.
+func (r afResult) artifacts() []string {
+	return each(r.env["artifacts"], func(a any) string { return str(field(a, "name")) })
+}
+
+// joined is a JSON array of strings joined with spaces.
+func joined(v any) string { return strings.Join(each(v, str), " ") }
+
+// each is f of each element of the JSON array v.
+func each(v any, f func(any) string) []string {
+	var out []string
+	list, _ := v.([]any)
+	for _, x := range list {
+		out = append(out, f(x))
+	}
+	return out
+}
+
+// str is v if it is a string, else "".
+func str(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+// value is a JSON text decoded, for comparing with what the envelope holds.
+func value(t *testing.T, s string) any {
 	t.Helper()
-	requireGit(t)
-	dir := repoWith(t, files)
-	for _, args := range [][]string{
-		{"init", "-q", "-b", "main"},
-		{"add", "-A"},
-		{"-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "chore: initial commit"},
-	} {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), "HOME="+t.TempDir(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_TERMINAL_PROMPT=0")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-	return dir
-}
-
-// lines is how many lines a counter file holds.
-func lines(t *testing.T, counter string) int {
-	t.Helper()
-	data, err := os.ReadFile(counter)
-	if errors.Is(err, os.ErrNotExist) {
-		return 0
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	return strings.Count(string(data), "\n")
-}
-
-// pidOf reads the pid a check wrote.
-func pidOf(t *testing.T, path string) int {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		t.Fatalf("pid file = %q", data)
-	}
-	return pid
-}
-
-// requireGiven fails the test unless dir is as it was and has no backup.
-func requireGiven(t *testing.T, dir string, before treeState) {
-	t.Helper()
-	after := stateOf(t, dir)
-	if after.tree != before.tree || !bytes.Equal(after.index, before.index) {
-		t.Errorf("the tree or the index is not as it was (tree %s, was %s)", after.tree, before.tree)
-	}
-	if entries, _ := os.ReadDir(filepath.Join(dir, ".agent-fox", "revert")); len(entries) != 0 {
-		t.Errorf("a backup is left in .agent-fox/revert: %d entries", len(entries))
-	}
-}
-
-// requireSh skips the test where checks cannot be shell scripts.
-func requireSh(t *testing.T) {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("the checks of these tests are shell scripts")
-	}
-	if _, err := exec.LookPath("sh"); err != nil {
-		t.Skip("sh is not installed")
-	}
-}
-
-func revertCheckSignal(t *testing.T, signal os.Signal) {
-	binary := buildBinary(t)
-	dir, base, started, pidFile := slowRepo(t)
-	before := stateOf(t, dir)
-
-	cmd := exec.Command(binary, "revert-check", "--dir", dir, "--since", base)
-	var stdout strings.Builder
-	cmd.Stdout = &stdout
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		if _, err := os.Stat(started); err == nil {
-			break
-		}
-	}
-	if err := cmd.Process.Signal(signal); err != nil {
-		t.Fatal(err)
-	}
-	err := cmd.Wait()
-
-	var exit *exec.ExitError
-	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
-		t.Fatalf("af ended with %v, want exit code 1", err)
-	}
-	env := oneDocument(t, stdout.String())
-	if env["status"] != "failed" || field(env, "error", "category") != "cancelled" {
-		t.Errorf("status %v, category %v; want failed and cancelled", env["status"], field(env, "error", "category"))
-	}
-	requireGiven(t, dir, before)
-	if !waitGone(pidOf(t, pidFile)) {
-		t.Error("the child of the check is still running")
-	}
-}
-
-// spawningGate writes a gate.json whose check starts a child that sleeps and
-// waits for it, and returns the file the child's pid is written to.
-func spawningGate(t *testing.T, dir string) string {
-	t.Helper()
-	pidFile := filepath.Join(t.TempDir(), "pid")
-	writeGate(t, dir, []string{"spawns", "sh", "-c", fmt.Sprintf("sleep 60 & echo $! > '%s'; wait", pidFile)})
-	return pidFile
-}
-
-// stateOf reads the tree hash and the index of dir.
-func stateOf(t *testing.T, dir string) treeState {
-	t.Helper()
-	tree, err := checks.TreeHash(context.Background(), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	index, _ := os.ReadFile(filepath.Join(dir, ".git", "index"))
-	return treeState{tree, index}
-}
-
-// waitGone waits for the process to end.
-func waitGone(pid int) bool {
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		if process, err := os.FindProcess(pid); err != nil || process.Signal(syscall.Signal(0)) != nil {
-			return true
-		}
-	}
-	return false
-}
-
-// writeGate writes dir's gate.json with checks, each a name and a command.
-func writeGate(t *testing.T, dir string, checks ...[]string) {
-	t.Helper()
-	var list []map[string]any
-	for _, c := range checks {
-		list = append(list, map[string]any{"name": c[0], "argv": c[1:]})
-	}
-	data, err := json.Marshal(map[string]any{"version": 1, "checks": list})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(dir, ".agent-fox"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, ".agent-fox", "gate.json"), data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// repoWith makes a directory holding files (path to content).
-func repoWith(t *testing.T, files map[string]string) string {
-	t.Helper()
-	dir := t.TempDir()
-	for name, content := range files {
-		path := filepath.Join(dir, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return dir
-}
-
-// requireGit skips the test where git is missing.
-func requireGit(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is not installed")
-	}
-}
-
-// slowRepo is provenRepo whose check hangs on the reverted tree, and the files
-// it reports through.
-func slowRepo(t *testing.T) (dir, base, started, pidFile string) {
-	t.Helper()
-	requireSh(t)
-	dir = gitRepo(t, map[string]string{"lib.txt": "broken\n"})
-	base = baseOf(t, dir)
-	if err := os.WriteFile(filepath.Join(dir, "lib.txt"), []byte("fixed\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(dir, "tests"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "tests", "t.txt"), []byte("t\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	aside := t.TempDir()
-	started, pidFile = filepath.Join(aside, "started"), filepath.Join(aside, "pid")
-	writeGate(t, dir, []string{"tests", "sh", "-c", fmt.Sprintf("if grep -q fixed lib.txt; then exit 0; fi; sleep 60 & echo $! > '%s'; touch '%s'; wait", pidFile, started)})
-	return dir, base, started, pidFile
-}
-
-// treeState is what a revert check has to give back.
-type treeState struct {
-	tree  string
-	index []byte
+	return testutil.Decode[any](t, []byte(s))
 }

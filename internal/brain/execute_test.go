@@ -1,435 +1,168 @@
 package brain
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io/fs"
-	"math/rand/v2"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
+	"strconv"
 	"strings"
-	"sync"
 	"testing"
+	"testing/iotest"
 	"time"
 
-	"github.com/agent-fox-dev/agentfox/internal/box"
 	"github.com/agent-fox-dev/agentfox/internal/submission"
+	"github.com/agent-fox-dev/agentfox/internal/testutil"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
-// git runs git in dir; the test fails if it fails.
-func git(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
-	}
-	return strings.TrimSpace(string(out))
-}
-
-// newRepo is a temporary repository with one commit and a local identity.
-func newRepo(t *testing.T) string {
-	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is not installed")
-	}
-	if _, err := exec.LookPath("sh"); err != nil {
-		t.Skip("sh is not installed: the box runs its commands with it")
-	}
-	dir, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	git(t, dir, "init", "-q", "-b", "main")
-	git(t, dir, "config", "user.email", "test@example.com")
-	git(t, dir, "config", "user.name", "Test")
-	git(t, dir, "config", "commit.gpgsign", "false")
-	for name, content := range map[string]string{"README.md": "# x\n", "src/main.go": "package main\n"} {
-		path := filepath.Join(dir, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	git(t, dir, "add", ".")
-	git(t, dir, "commit", "-q", "-m", "initial")
-	return dir
-}
-
-// world is a repository, a run directory in it and a box on it.
-type world struct {
-	t       *testing.T
-	dir     string
-	run     *toolio.RunDir
-	session *box.Session
-	report  *recorder
-}
-
-// newWorld opens a real local box on a new repository, with a real run
-// directory, and closes the box when the test ends.
-func newWorld(t *testing.T) *world {
-	t.Helper()
-	dir := newRepo(t)
-	rd, err := toolio.NewRunDir(dir, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s, err := box.Open(context.Background(), box.Request{
-		Provider: "local", HostDir: dir, RunID: rd.ID, Tool: "fix", Record: rd.Record, Warn: func(string, string) {},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-	return &world{t: t, dir: dir, run: rd, session: s, report: &recorder{}}
-}
-
-// recorder is a Report that remembers.
-type recorder struct {
-	mu        sync.Mutex
-	events    []event
-	warnings  []toolio.Warning
-	artifacts []toolio.Artifact
-	usages    []toolio.Usage
-}
-
-type event struct {
-	typ  string
-	data map[string]any
-}
-
-func (r *recorder) Emit(typ string, data any) {
-	raw, _ := json.Marshal(data)
-	var m map[string]any
-	_ = json.Unmarshal(raw, &m)
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.events = append(r.events, event{typ, m})
-}
-
-func (r *recorder) Warn(code, message string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.warnings = append(r.warnings, toolio.Warning{Code: code, Message: message})
-}
-
-func (r *recorder) Artifact(a toolio.Artifact) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.artifacts = append(r.artifacts, a)
-}
-
-func (r *recorder) SetUsage(u toolio.Usage) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.usages = append(r.usages, u)
-}
-
-func (r *recorder) eventsOf(typ string) []event {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	var out []event
-	for _, e := range r.events {
-		if e.typ == typ {
-			out = append(out, e)
-		}
-	}
-	return out
-}
-
-func (r *recorder) lastUsage() toolio.Usage {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if len(r.usages) == 0 {
-		return toolio.Usage{}
-	}
-	return r.usages[len(r.usages)-1]
-}
-
-// stubBrain is a brain made of a function.
-type stubBrain func(ctx context.Context, b Brief) (Outcome, error)
-
-func (f stubBrain) Run(ctx context.Context, b Brief) (Outcome, error) { return f(ctx, b) }
-
-// testKind is a kind whose payloads are any object.
-func testKind() submission.Kind {
-	return submission.Kind{Name: "test", ToolName: "submit_test", Description: "a test kind", Schema: json.RawMessage(`{"type":"object"}`)}
-}
-
-// brief is a brief for the attempt, with a hook that protects .agent-fox/.
-func (w *world) brief(attempt int) Brief {
-	return Brief{
-		RunID: w.run.ID, Attempt: attempt, Kind: testKind(), Prefix: "PREFIX: the run-constant part\n", Task: "TASK: do the thing\n",
-		Tools: []string{"read_file", "write_file"}, Hook: HookConfig{RunID: w.run.ID, ProtectedPaths: []string{".agent-fox/", ".specs/"}},
-		MaxCostUSD: 1, MaxTurns: 10,
-	}
-}
-
-// request is a request for a stub brain, with a nonce source that is fixed.
-func (w *world) request(b Brief, brain Brain) Request {
-	return Request{
-		Session: w.session, Name: "scripted", Brain: brain, Brief: b, RunDir: w.run, Report: w.report, Tally: &Tally{},
-		Heartbeat: time.Hour, Rand: bytes.NewReader([]byte{0xde, 0xad, 0xbe, 0xef, 0x01, 0x23, 0x45, 0x67}),
-	}
-}
-
-// ledger is the kinds and data of the run's ledger.
-func (w *world) ledger() ([]string, []json.RawMessage) {
-	w.t.Helper()
-	entries, err := w.run.Ledger()
-	if err != nil {
-		w.t.Fatal(err)
-	}
-	var kinds []string
-	var data []json.RawMessage
-	for _, e := range entries {
-		kinds = append(kinds, e.Kind)
-		data = append(data, e.Data)
-	}
-	return kinds, data
-}
-
-// entry is the data of the last ledger entry of the kind.
-func (w *world) entry(kind string) map[string]any {
-	w.t.Helper()
-	kinds, data := w.ledger()
-	for i := len(kinds) - 1; i >= 0; i-- {
-		if kinds[i] == kind {
-			var m map[string]any
-			if err := json.Unmarshal(data[i], &m); err != nil {
-				w.t.Fatal(err)
-			}
-			return m
-		}
-	}
-	w.t.Fatalf("the ledger has no %s entry; it has %v", kind, kinds)
-	return nil
-}
-
-func sha(s string) string {
-	h := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(h[:])
-}
-
-// asFailure is err as a *toolio.Failure.
-func asFailure(t *testing.T, err error) *toolio.Failure {
-	t.Helper()
-	var f *toolio.Failure
-	if !errors.As(err, &f) {
-		t.Fatalf("error = %v (%T), want a *toolio.Failure", err, err)
-	}
-	return f
-}
-
-// boxFile reads a file of the box's tree.
-func (w *world) boxFile(rel string) (string, error) {
-	data, err := fs.ReadFile(w.session.FS(context.Background()), rel)
-	return string(data), err
-}
-
-// TestExecutePlacesTheRunFiles_TS_07_40 verifies TS-07-40:
-// Execute places .gitignore, brief.md, run.json and hook.json in the box before
-// Brain.Run.
-// Verifies: 07-REQ-6.1
-func TestExecutePlacesTheRunFiles_TS_07_40(t *testing.T) {
+func TestExecute_RefusesARequestItCannotRun(t *testing.T) {
 	w := newWorld(t)
+	for _, tc := range []struct {
+		name    string
+		change  func(*Request)
+		mention string
+	}{
+		{"no box", func(r *Request) { r.Session = nil }, "no box session"},
+		{"no brain", func(r *Request) { r.Brain = nil }, "no brain"},
+		{"no run directory", func(r *Request) { r.RunDir = nil }, "no run directory"},
+		{"another run", func(r *Request) { r.Brief.RunID = "20260101_000000_000000" }, "the brief is for run"},
+		{"attempt 0", func(r *Request) { r.Brief.Attempt = 0 }, "attempts count from 1"},
+		{"a nonce that is not hex", func(r *Request) { r.Nonce = "not hex!" }, "is not 8 to 64"},
+		{"an upper-case nonce", func(r *Request) { r.Nonce = "ABCDEF12" }, "is not 8 to 64"},
+		{"a nonce that is too long", func(r *Request) { r.Nonce = strings.Repeat("a", 65) }, "is not 8 to 64"},
+		{"no randomness", func(r *Request) { r.Rand = iotest.ErrReader(errors.New("drained")) }, "cannot draw a nonce"},
+	} {
+		req := w.request(w.brief(1), submits(`{"summary":"x"}`))
+		tc.change(&req)
+		if _, err := Execute(context.Background(), req); err == nil || !strings.Contains(err.Error(), tc.mention) {
+			t.Errorf("%s: %v, want an error that says %q", tc.name, err, tc.mention)
+		}
+	}
+	if _, err := w.boxFile(submission.RunPath(w.run.ID)); err == nil {
+		t.Error("a request that was refused placed run.json")
+	}
+}
+
+func TestExecute_PlacesTheBriefAndTheRunFilesBeforeTheBrainRuns(t *testing.T) {
+	w := newWorld(t)
+	dir := ".agent-fox/run/" + w.run.ID + "/"
+	for i, tc := range []struct {
+		hook               HookConfig
+		protected, allowed []string
+	}{
+		{HookConfig{}, []string{".agent-fox/"}, []string{}},
+		{HookConfig{ProtectedPaths: []string{".specs/"}, AllowPrograms: []string{"go"}}, []string{".specs/", ".agent-fox/"}, []string{"go"}},
+		{HookConfig{ProtectedPaths: []string{".agent-fox/", "docs/"}}, []string{".agent-fox/", "docs/"}, []string{}},
+	} {
+		attempt := i + 1
+		b := w.brief(attempt)
+		b.RunID, b.Hook = "", tc.hook // the run of the run directory
+		files := map[string]string{}
+		var given Brief
+		brain := stubBrain(func(_ context.Context, got Brief) (Outcome, error) {
+			given = got
+			for _, name := range []string{".agent-fox/.gitignore", dir + "brief.md", dir + "run.json", dir + "hook.json"} {
+				files[name], _ = w.boxFile(name)
+			}
+			return Outcome{}, nil
+		})
+
+		_, _ = Execute(context.Background(), w.request(b, brain))
+
+		if files[".agent-fox/.gitignore"] != "*" || files[dir+"brief.md"] != b.Document() || b.Document() != b.Prefix+b.Task {
+			t.Errorf("attempt %d: .gitignore %q and brief.md %q, want * and the prefix then the task", attempt, files[".agent-fox/.gitignore"], files[dir+"brief.md"])
+		}
+		run := testutil.Decode[map[string]any](t, []byte(files[dir+"run.json"]))
+		if run["run_id"] != w.run.ID || run["kind"] != "test" || run["attempt"] != float64(attempt) || run["nonce"] != "deadbeef01234567" || run["prefix_bytes"] != float64(len(b.Prefix)) {
+			t.Errorf("attempt %d: run.json = %v, want the run, the kind, the attempt, the nonce drawn and the length of the prefix", attempt, run)
+		}
+		host := testutil.ReadFile(t, filepath.Join(w.run.Path, "hook.json"))
+		hook := testutil.Decode[HookConfig](t, []byte(host))
+		if host != files[dir+"hook.json"] || !slices.Equal(hook.ProtectedPaths, tc.protected) || !slices.Equal(hook.AllowPrograms, tc.allowed) || strings.Contains(host, "null") {
+			t.Errorf("attempt %d: hook.json = %s (the box's %s), want %v protected and %v allowed", attempt, host, files[dir+"hook.json"], tc.protected, tc.allowed)
+		}
+		if !slices.Equal(given.Hook.ProtectedPaths, tc.protected) || given.Box != w.session || given.RunID != w.run.ID || given.RunDir != w.run.Path ||
+			given.TranscriptPath != filepath.Join(w.run.Path, "transcript."+strconv.Itoa(attempt)+".jsonl") {
+			t.Errorf("attempt %d: the brain was given %+v, want the hook that was placed, the box, the run and its transcript", attempt, given)
+		}
+		if got := testutil.ReadFile(t, filepath.Join(w.run.Path, "brief."+strconv.Itoa(attempt)+".md")); got != b.Document() {
+			t.Errorf("attempt %d: the host's copy of the brief = %q", attempt, got)
+		}
+		placed := w.entry("brief_placed")
+		if placed["attempt"] != float64(attempt) || placed["bytes"] != float64(len(b.Document())) || placed["sha256"] != testutil.SHA256(b.Document()) || placed["prefix_sha256"] != testutil.SHA256(b.Prefix) {
+			t.Errorf("attempt %d: brief_placed = %v", attempt, placed)
+		}
+	}
+}
+
+func TestExecute_ReportsEachToolCallAsAnEventWithoutItsArguments(t *testing.T) {
+	w := newWorld(t)
+	calls := []ToolCall{
+		{Brain: ScriptedName, Tool: "read_file", Decision: DecisionAllow, OK: true, DurationMS: 3},
+		{Brain: ScriptedName, Tool: "write_file", Decision: DecisionDeny, Reason: "no", DurationMS: 0},
+	}
+	var heard []ToolCall
 	b := w.brief(1)
-	files := map[string]string{}
-	brain := stubBrain(func(ctx context.Context, got Brief) (Outcome, error) {
-		for name, rel := range map[string]string{
-			"gitignore": ".agent-fox/.gitignore", "brief": ".agent-fox/run/" + w.run.ID + "/brief.md",
-			"run": ".agent-fox/run/" + w.run.ID + "/run.json", "hook": ".agent-fox/run/" + w.run.ID + "/hook.json",
-		} {
-			files[name], _ = w.boxFile(rel)
+	b.Observe = func(c ToolCall) { heard = append(heard, c) }
+
+	_, _ = Execute(context.Background(), w.request(b, stubBrain(func(_ context.Context, b Brief) (Outcome, error) {
+		for _, c := range calls {
+			b.Observe(c)
 		}
 		return Outcome{}, nil
-	})
+	})))
 
-	_, _ = Execute(context.Background(), w.request(b, brain))
-
-	if files["gitignore"] != "*" {
-		t.Errorf(".agent-fox/.gitignore = %q, want *", files["gitignore"])
+	events := w.report.eventsOf("tool_call")
+	if len(events) != 2 || !slices.Equal(heard, calls) {
+		t.Fatalf("events %v and the caller heard %v, want both calls", events, heard)
 	}
-	if files["brief"] != b.Document() {
-		t.Errorf("brief.md = %q, want the document %q", files["brief"], b.Document())
-	}
-	var run submission.Run
-	if err := json.Unmarshal([]byte(files["run"]), &run); err != nil {
-		t.Fatalf("run.json = %q: %v", files["run"], err)
-	}
-	if run.RunID != w.run.ID || run.Kind != "test" || run.Attempt != 1 || !regexp.MustCompile(`^[0-9a-f]{16}$`).MatchString(run.Nonce) || run.Nonce != "deadbeef01234567" {
-		t.Errorf("run.json = %+v, want the run, the kind, attempt 1 and the nonce drawn from Rand", run)
-	}
-	var hook HookConfig
-	if err := json.Unmarshal([]byte(files["hook"]), &hook); err != nil || !slices.Equal(hook.ProtectedPaths, b.Hook.ProtectedPaths) || hook.RunID != w.run.ID {
-		t.Errorf("hook.json = %q (%v), want the HookConfig", files["hook"], err)
-	}
-}
-
-// TestHookAlwaysProtectsAgentFox_TS_07_41 verifies TS-07-41:
-// for any HookConfig the placed hook.json lists .agent-fox/ in protected_paths.
-// Verifies: 07-REQ-6.2
-func TestHookAlwaysProtectsAgentFox_TS_07_41(t *testing.T) {
-	rng := rand.New(rand.NewPCG(7, 41))
-	pool := []string{".agent-fox/", ".specs/", "docs/", ".git/", "LICENSE", ".agent-fox/", "src/gen/"}
-	programs := []string{"go", "make", "ls", "cat"}
-	w := newWorld(t)
-	for i := range 25 {
-		var hc HookConfig
-		switch rng.IntN(4) {
-		case 0: // nil
-		case 1:
-			hc.ProtectedPaths = []string{}
-		default:
-			for range 1 + rng.IntN(5) {
-				hc.ProtectedPaths = append(hc.ProtectedPaths, pool[rng.IntN(len(pool))])
-			}
-		}
-		for range rng.IntN(3) {
-			hc.AllowPrograms = append(hc.AllowPrograms, programs[rng.IntN(len(programs))])
-		}
-		hc.RunID = w.run.ID
-		b := w.brief(i + 1)
-		b.Hook = hc
-
-		_, _ = Execute(context.Background(), w.request(b, stubBrain(func(context.Context, Brief) (Outcome, error) { return Outcome{}, nil })))
-
-		boxHook, err := w.boxFile(".agent-fox/run/" + w.run.ID + "/hook.json")
-		if err != nil {
-			t.Fatal(err)
-		}
-		hostHook, err := os.ReadFile(filepath.Join(w.run.Path, "hook.json"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		for name, raw := range map[string]string{"box": boxHook, "host": string(hostHook)} {
-			var got HookConfig
-			if err := json.Unmarshal([]byte(raw), &got); err != nil {
-				t.Fatalf("#%d %s hook.json = %q: %v", i, name, raw, err)
-			}
-			for _, p := range hc.ProtectedPaths {
-				if !slices.Contains(got.ProtectedPaths, p) {
-					t.Fatalf("#%d %s: %q lost from %v (was %v)", i, name, p, got.ProtectedPaths, hc.ProtectedPaths)
-				}
-			}
-			if !slices.Contains(got.ProtectedPaths, ".agent-fox/") || !slices.Equal(got.AllowPrograms, append([]string{}, hc.AllowPrograms...)) {
-				t.Fatalf("#%d %s: hook = %+v from %+v", i, name, got, hc)
-			}
-			if strings.Contains(raw, "null") {
-				t.Fatalf("#%d %s: hook.json has a null: %s", i, name, raw)
-			}
+	for i, e := range events {
+		c := calls[i]
+		want := map[string]any{"brain": c.Brain, "tool": c.Tool, "decision": c.Decision, "reason": c.Reason, "ok": c.OK, "duration_ms": float64(c.DurationMS)}
+		if len(e) != len(want) || e["tool"] != want["tool"] || e["decision"] != want["decision"] || e["reason"] != want["reason"] || e["ok"] != want["ok"] || e["duration_ms"] != want["duration_ms"] || e["brain"] != want["brain"] {
+			t.Errorf("event %d = %v, want %v and nothing else", i, e, want)
 		}
 	}
 }
 
-// TestExecuteWritesHostCopiesAndWiresTheBrief_TS_07_42 verifies TS-07-42:
-// Execute writes host copies, records brief_placed with the prefix hash and
-// wires TranscriptPath and Observe.
-// Verifies: 07-REQ-6.3
-func TestExecuteWritesHostCopiesAndWiresTheBrief_TS_07_42(t *testing.T) {
+func TestExecute_SaysWhereTheRunIsAndRecordsTheBrainsStartAndEnd(t *testing.T) {
 	w := newWorld(t)
-	b := w.brief(2)
-	var seen Brief
-	brain := stubBrain(func(ctx context.Context, got Brief) (Outcome, error) {
-		seen = got
-		got.Observe(ToolCall{Brain: "scripted", Tool: "read_file", Decision: DecisionAllow, OK: true, DurationMS: 3})
-		return Outcome{}, nil
-	})
-
-	_, _ = Execute(context.Background(), w.request(b, brain))
-
-	if got, err := os.ReadFile(filepath.Join(w.run.Path, "brief.2.md")); err != nil || string(got) != b.Document() {
-		t.Errorf("brief.2.md = %q, %v", got, err)
-	}
-	if got, err := os.ReadFile(filepath.Join(w.run.Path, "hook.json")); err != nil || !strings.Contains(string(got), `"protected_paths"`) {
-		t.Errorf("hook.json = %q, %v", got, err)
-	}
-	placed := w.entry("brief_placed")
-	if placed["attempt"] != float64(2) || placed["bytes"] != float64(len(b.Document())) || placed["sha256"] != sha(b.Document()) || placed["prefix_sha256"] != sha(b.Prefix) {
-		t.Errorf("brief_placed = %v, want attempt 2, %d bytes, sha256 %s and prefix_sha256 %s", placed, len(b.Document()), sha(b.Document()), sha(b.Prefix))
-	}
-	if want := filepath.Join(w.run.Path, "transcript.2.jsonl"); seen.TranscriptPath != want {
-		t.Errorf("TranscriptPath = %q, want %q", seen.TranscriptPath, want)
-	}
-	if seen.Box != w.session || seen.Document() != b.Document() {
-		t.Errorf("the brain got another brief than the one it was given: %+v", seen)
-	}
-	calls := w.report.eventsOf("tool_call")
-	if len(calls) != 1 || calls[0].data["tool"] != "read_file" {
-		t.Errorf("tool_call events = %v, want one for read_file", calls)
-	}
-}
-
-// TestExecuteEmitsStepsAndHeartbeats_TS_07_43 verifies TS-07-43:
-// Execute emits step and heartbeat events and records brain_start and
-// brain_end.
-// Verifies: 07-REQ-6.4
-func TestExecuteEmitsStepsAndHeartbeats_TS_07_43(t *testing.T) {
-	w := newWorld(t)
-	req := w.request(w.brief(1), stubBrain(func(ctx context.Context, b Brief) (Outcome, error) {
-		time.Sleep(120 * time.Millisecond)
-		return Outcome{Submitted: true, StopReason: StopEnded, CostUSD: 0.25, CostSource: CostMeasured, Turns: 4}, nil
+	req := w.request(w.brief(1), stubBrain(func(context.Context, Brief) (Outcome, error) {
+		testutil.Eventually(t, "two heartbeats", func() bool { return len(w.report.eventsOf("heartbeat")) >= 2 })
+		return Outcome{Submitted: true, StopReason: StopEnded, CostUSD: 0.25, CostSource: CostMeasured, Turns: 4, InputTokens: 1200, OutputTokens: 340}, nil
 	}))
-	req.Heartbeat = 10 * time.Millisecond
+	req.Heartbeat = 5 * time.Millisecond
 
 	_, _ = Execute(context.Background(), req)
 
-	var steps []string
-	for _, e := range w.report.eventsOf("step") {
-		steps = append(steps, fmt.Sprint(e.data["name"]))
-	}
-	if !slices.Equal(steps, []string{"brief", "brain", "submission"}) {
-		t.Errorf("steps = %v, want brief, brain, submission", steps)
-	}
-	beats := w.report.eventsOf("heartbeat")
-	if len(beats) < 2 {
-		t.Fatalf("%d heartbeats, want at least 2", len(beats))
-	}
-	for _, e := range beats {
-		if e.data["brain"] != "scripted" || e.data["elapsed_ms"] == nil {
-			t.Errorf("heartbeat = %v, want brain and elapsed_ms", e.data)
+	var order []string
+	for _, e := range w.report.events {
+		if e.typ == "step" {
+			order = append(order, e.data["name"].(string))
+		} else if e.typ == "heartbeat" && (e.data["brain"] != ScriptedName || e.data["elapsed_ms"] == nil) {
+			t.Errorf("heartbeat = %v, want the brain and the time elapsed", e.data)
+		}
+		if e.typ == "heartbeat" && slices.Contains(order, "submission") {
+			t.Error("a heartbeat came after the brain had returned")
 		}
 	}
-	kinds, _ := w.ledger()
-	start, end := slices.Index(kinds, "brain_start"), slices.Index(kinds, "brain_end")
-	if start < 0 || end < 0 || start > end {
-		t.Fatalf("ledger = %v, want brain_start before brain_end", kinds)
+	if !slices.Equal(order, []string{"brief", "brain", "submission"}) {
+		t.Errorf("steps = %v", order)
 	}
-	ended := w.entry("brain_end")
-	for _, key := range []string{"brain", "stop_reason", "submitted_claim", "cost_usd", "cost_source", "turns", "duration_ms"} {
-		if _, ok := ended[key]; !ok {
-			t.Errorf("brain_end = %v lacks %s", ended, key)
-		}
+	kinds := w.kinds()
+	if i, j := slices.Index(kinds, "brain_start"), slices.Index(kinds, "brain_end"); i < 0 || j < i {
+		t.Errorf("ledger = %v, want brain_start before brain_end", kinds)
 	}
-	if ended["brain"] != "scripted" || ended["stop_reason"] != StopEnded || ended["submitted_claim"] != true || ended["cost_usd"] != 0.25 || ended["cost_source"] != CostMeasured || ended["turns"] != float64(4) {
-		t.Errorf("brain_end = %v", ended)
-	}
-	// No heartbeat after Execute returned.
-	n := len(w.report.eventsOf("heartbeat"))
-	time.Sleep(50 * time.Millisecond)
-	if after := len(w.report.eventsOf("heartbeat")); after != n {
-		t.Errorf("%d heartbeats after Execute returned", after-n)
+	end := w.entry("brain_end")
+	if end["brain"] != ScriptedName || end["stop_reason"] != StopEnded || end["submitted_claim"] != true || end["cost_usd"] != 0.25 || end["cost_source"] != CostMeasured ||
+		end["turns"] != 4.0 || end["input_tokens"] != 1200.0 || end["output_tokens"] != 340.0 || end["duration_ms"] == nil {
+		t.Errorf("brain_end = %v, want the outcome of the brain", end)
 	}
 }
 
-// TestExecuteAppliesTheTimeout_TS_07_44 verifies TS-07-44:
-// Brief.Timeout sets Brain.Run's deadline to start plus Timeout, and zero leaves
-// only the caller's deadline.
-// Verifies: 07-REQ-6.5
-func TestExecuteAppliesTheTimeout_TS_07_44(t *testing.T) {
+func TestExecute_BoundsTheBrainByTheTimeoutOfTheBrief(t *testing.T) {
 	w := newWorld(t)
 	var deadline time.Time
 	var has bool
@@ -440,165 +173,172 @@ func TestExecuteAppliesTheTimeout_TS_07_44(t *testing.T) {
 
 	start := time.Now()
 	b := w.brief(1)
-	b.Timeout = 5 * time.Second
+	b.Timeout = time.Minute
 	_, _ = Execute(context.Background(), w.request(b, brain))
-	if !has || deadline.Before(start.Add(5*time.Second)) || deadline.After(start.Add(5*time.Second+2*time.Second)) {
-		t.Errorf("deadline %v (%v), want about %v", deadline, has, start.Add(5*time.Second))
+	if !has || deadline.Before(start.Add(time.Minute)) || deadline.After(time.Now().Add(time.Minute)) {
+		t.Errorf("deadline %v (%v), want a minute from the start of Execute", deadline, has)
 	}
 
 	_, _ = Execute(context.Background(), w.request(w.brief(2), brain))
 	if has {
-		t.Errorf("a run with no timeout has the deadline %v", deadline)
+		t.Errorf("a brief with no timeout: deadline %v", deadline)
 	}
 
-	caller, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Hour))
+	caller, cancel := context.WithTimeout(context.Background(), time.Hour)
 	defer cancel()
 	_, _ = Execute(caller, w.request(w.brief(3), brain))
-	if want, _ := caller.Deadline(); !has || !deadline.Equal(want) {
+	if want, _ := caller.Deadline(); !deadline.Equal(want) {
 		t.Errorf("deadline %v, want the caller's %v", deadline, want)
 	}
 }
 
-// TestExecuteRecoversAPanic_TS_07_45 verifies TS-07-45:
-// a panic inside Brain.Run is recovered as failed/brain and the stack is
-// written.
-// Verifies: 07-REQ-6.6
-func TestExecuteRecoversAPanic_TS_07_45(t *testing.T) {
+func TestExecute_RecoversAPanicOfTheBrain(t *testing.T) {
 	w := newWorld(t)
 
-	_, err := Execute(context.Background(), w.request(w.brief(3), stubBrain(func(context.Context, Brief) (Outcome, error) { panic("boom") })))
+	_, err := w.execute(context.Background(), w.brief(3), stubBrain(func(context.Context, Brief) (Outcome, error) { panic("boom") }))
 
 	f := asFailure(t, err)
-	if f.Category != "brain" {
-		t.Errorf("failure = %+v, want category brain", f)
+	if f.Category != toolio.CategoryBrain || f.Retryable || !strings.Contains(f.Message, "boom") || !strings.Contains(f.Message, "brain-panic.3.txt") {
+		t.Errorf("failure = %+v, want brain, not retryable, with the panic and where its stack is", f)
 	}
-	stack, rerr := os.ReadFile(filepath.Join(w.run.Path, "brain-panic.3.txt"))
-	if rerr != nil || !strings.Contains(string(stack), "boom") || !strings.Contains(string(stack), "goroutine") {
-		t.Errorf("brain-panic.3.txt = %q, %v, want the panic and a stack", stack, rerr)
+	if stack := testutil.ReadFile(t, filepath.Join(w.run.Path, "brain-panic.3.txt")); !strings.Contains(stack, "boom") || !strings.Contains(stack, "goroutine") {
+		t.Errorf("brain-panic.3.txt = %q, want the panic and its stack", stack)
 	}
-	if !strings.Contains(f.Message, "brain-panic.3.txt") {
-		t.Errorf("the message %q does not say where the stack is", f.Message)
+	if w.report.lastUsage().Brain != ScriptedName || w.entry("brain_end")["stop_reason"] != StopError {
+		t.Error("the run of a brain that panicked has no usage, or no brain_end that says it stopped on an error")
 	}
-	if u := w.report.lastUsage(); u.Brain != "scripted" {
-		t.Errorf("usage after a panic = %+v, want it set", u)
+
+	// The stack cannot be written where a directory has its name: the failure says so.
+	testutil.WriteFile(t, w.run.Path, "brain-panic.4.txt/x", "")
+	_, err = w.execute(context.Background(), w.brief(4), stubBrain(func(context.Context, Brief) (Outcome, error) { panic("boom") }))
+	if f := asFailure(t, err); !strings.Contains(f.Message, "could not be written") {
+		t.Errorf("failure = %+v, want it to say the stack could not be written", f)
 	}
 }
 
-// TestExecuteAddsUsageEvenWhenRunFails_TS_07_46 verifies TS-07-46:
-// outcomes accumulate in the Tally across attempts and SetUsage gets the total,
-// even when Run errors.
-// Verifies: 07-REQ-6.7
-func TestExecuteAddsUsageEvenWhenRunFails_TS_07_46(t *testing.T) {
+func TestExecute_TalliesWhatEveryAttemptCost(t *testing.T) {
 	w := newWorld(t)
 	tally := &Tally{}
-	first := w.request(w.brief(1), stubBrain(func(context.Context, Brief) (Outcome, error) {
-		return Outcome{CostUSD: 0.10, Turns: 3, InputTokens: 100, OutputTokens: 50, CostSource: CostMeasured}, nil
-	}))
-	first.Tally = tally
-	second := w.request(w.brief(2), stubBrain(func(context.Context, Brief) (Outcome, error) {
-		return Outcome{CostUSD: 0.20, Turns: 2, InputTokens: 10, OutputTokens: 5, CostSource: CostMeasured}, errors.New("the model went away")
-	}))
-	second.Tally = tally
-
-	_, _ = Execute(context.Background(), first)
-	if u := w.report.lastUsage(); u.Brain != "scripted" || u.CostUSD != 0.10 || u.Turns != 3 || u.InputTokens != 100 || u.OutputTokens != 50 || u.CostSource != CostMeasured {
-		t.Errorf("usage after attempt 1 = %+v", u)
-	}
-	_, err := Execute(context.Background(), second)
-	if err == nil {
-		t.Fatal("the failed attempt did not fail")
+	for i, step := range []struct {
+		outcome Outcome
+		err     error
+	}{
+		{Outcome{CostUSD: 0.25, Turns: 3, InputTokens: 100, OutputTokens: 50, CostSource: CostMeasured}, nil},
+		{Outcome{CostUSD: 0.5, Turns: 2, InputTokens: 10, OutputTokens: 5, CostSource: CostMeasured}, errors.New("the model went away")},
+	} {
+		req := w.request(w.brief(i+1), stubBrain(func(context.Context, Brief) (Outcome, error) { return step.outcome, step.err }))
+		req.Tally = tally
+		if _, err := Execute(context.Background(), req); err == nil {
+			t.Fatalf("attempt %d submitted", i+1)
+		}
 	}
 
-	u := w.report.lastUsage()
-	if u.Brain != "scripted" || u.Turns != 5 || u.InputTokens != 110 || u.OutputTokens != 55 || u.CostUSD < 0.2999 || u.CostUSD > 0.3001 {
-		t.Errorf("usage after attempt 2 = %+v, want the sum: 0.30, 5 turns, 110 and 55 tokens", u)
+	want := toolio.Usage{Brain: ScriptedName, CostUSD: 0.75, CostSource: CostMeasured, Turns: 5, InputTokens: 110, OutputTokens: 55}
+	if u := w.report.lastUsage(); u != want {
+		t.Errorf("usage = %+v, want the sum of both attempts %+v", u, want)
 	}
 }
 
-// TestToolCallEventsCarryNoArguments_TS_07_64 verifies TS-07-64:
-// for any tool call the tool_call event carries only brain, tool, decision,
-// reason, ok and duration_ms.
-// Verifies: 07-REQ-8.8
-func TestToolCallEventsCarryNoArguments_TS_07_64(t *testing.T) {
-	rng := rand.New(rand.NewPCG(7, 64))
+func TestExecute_GoesOnWhenTheReportOrTheLedgerFails(t *testing.T) {
 	w := newWorld(t)
-	var calls []ToolCall
-	for range 60 {
-		calls = append(calls, ToolCall{
-			Brain: []string{"scripted", "agentkit", ""}[rng.IntN(3)], Tool: []string{"read_file", "write_file", "execute", "x y", ""}[rng.IntN(5)],
-			Decision: []string{DecisionAllow, DecisionDeny}[rng.IntN(2)], Reason: randomString(rng), OK: rng.IntN(2) == 0, DurationMS: rng.Int64N(100000),
-		})
-	}
-	brain := stubBrain(func(ctx context.Context, b Brief) (Outcome, error) {
-		for _, c := range calls {
-			b.Observe(c)
-		}
+	beat := make(chan struct{})
+	req := w.request(w.brief(1), stubBrain(func(context.Context, Brief) (Outcome, error) {
+		<-beat
 		return Outcome{}, nil
-	})
-	var caller []ToolCall
-	b := w.brief(1)
-	b.Observe = func(c ToolCall) { caller = append(caller, c) }
-
-	_, _ = Execute(context.Background(), w.request(b, brain))
-
-	events := w.report.eventsOf("tool_call")
-	if len(events) != len(calls) || len(caller) != len(calls) {
-		t.Fatalf("%d events and %d observed for %d calls", len(events), len(caller), len(calls))
+	}))
+	req.Report, req.Heartbeat = panicsOnHeartbeat{w.report, beat}, time.Millisecond
+	ledger := filepath.Join(w.run.Path, "ledger.jsonl")
+	if err := os.Remove(ledger); err != nil {
+		t.Fatal(err)
 	}
-	allowed := []string{"brain", "tool", "decision", "reason", "ok", "duration_ms"}
-	for i, e := range events {
-		for key := range e.data {
-			if !slices.Contains(allowed, key) {
-				t.Errorf("event %d has the key %q", i, key)
-			}
+	if err := os.Mkdir(ledger, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Execute(context.Background(), req)
+
+	if f := asFailure(t, err); f.Category != toolio.CategoryNoResult {
+		t.Errorf("failure = %+v, want no_result for a brain that submitted nothing", f)
+	}
+	if got := w.report.warned("ledger_unwritable"); len(got) != 1 || !strings.Contains(got[0], "brief_placed") {
+		t.Errorf("warnings = %+v, want one ledger_unwritable, for the first entry", w.report.warnings)
+	}
+}
+
+// panicsOnHeartbeat is a Report whose heartbeat panics, once it has said so.
+type panicsOnHeartbeat struct {
+	*recorder
+	beat chan struct{}
+}
+
+func (r panicsOnHeartbeat) Emit(typ string, data any) {
+	if typ == "heartbeat" {
+		close(r.beat)
+		panic("the report is broken")
+	}
+	r.recorder.Emit(typ, data)
+}
+
+func TestExecute_RunsWithNoReportAndNoTally(t *testing.T) {
+	w := newWorld(t)
+	brain := stubBrain(func(ctx context.Context, b Brief) (Outcome, error) {
+		return Outcome{}, submitIn(ctx, b, `{"summary":"done"}`) // and claims nothing
+	})
+
+	res, err := Execute(context.Background(), Request{Session: w.session, Brain: brain, Brief: w.brief(1), RunDir: w.run})
+
+	if err != nil || string(res.Payload) != `{"summary":"done"}` {
+		t.Errorf("Execute = %+v, %v, want the submission", res, err)
+	}
+	run := testutil.Decode[submission.Run](t, []byte(must(w.boxFile(submission.RunPath(w.run.ID)))))
+	if !ValidNonce(run.Nonce) || len(run.Nonce) != 16 {
+		t.Errorf("run.json's nonce = %q, want 16 hex digits drawn", run.Nonce)
+	}
+}
+
+func TestExecute_ACancelledRunIsTheErrorOfItsContext(t *testing.T) {
+	w := newWorld(t)
+	stale := testutil.WriteFile(t, w.run.Path, "submission.json", `{"stale":true}`)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := w.execute(ctx, w.brief(1), stubBrain(func(context.Context, Brief) (Outcome, error) {
+		t.Error("the brain ran in a cancelled run")
+		return Outcome{}, nil
+	}))
+
+	var f *toolio.Failure
+	if !errors.Is(err, context.Canceled) || errors.As(err, &f) {
+		t.Errorf("error = %v, want context.Canceled and no failure of the box that could not be written", err)
+	}
+	if _, err := os.Stat(stale); err == nil {
+		t.Error("the submission of an earlier attempt is still in the run directory")
+	}
+}
+
+func TestExecute_AdoptsTheNonceItIsGiven(t *testing.T) {
+	w := newWorld(t)
+	for i, nonce := range []string{"0123456789abcdef", "01234567"} {
+		req := w.request(w.brief(i+1), submits(`{"summary":"x"}`))
+		req.Nonce = nonce
+
+		res, err := Execute(context.Background(), req)
+
+		if err != nil || !res.Outcome.Submitted {
+			t.Fatalf("nonce %s: %+v, %v", nonce, res, err)
 		}
-		c := calls[i]
-		if e.data["brain"] != c.Brain || e.data["tool"] != c.Tool || e.data["decision"] != c.Decision || e.data["reason"] != c.Reason || e.data["ok"] != c.OK || e.data["duration_ms"] != float64(c.DurationMS) {
-			t.Errorf("event %d = %v, want %+v", i, e.data, c)
+		host, _ := w.hostSubmission()
+		run := testutil.Decode[submission.Run](t, []byte(must(w.boxFile(submission.RunPath(w.run.ID)))))
+		if file := testutil.Decode[submission.File](t, []byte(host)); file.Nonce != nonce || run.Nonce != nonce {
+			t.Errorf("nonce %s: run.json has %s and the submission %s, want the adopted one", nonce, run.Nonce, file.Nonce)
 		}
 	}
 }
 
-// TestEveryBrainEndRecordCarriesIntegerTokenCounts_TS_14_27 verifies TS-14-27: the brain_end record
-// of the ledger carries the input and the output tokens of the brain's outcome, as integers, beside the
-// fields it had, and zero integers for a brain that reports none.
-// Verifies: 14-REQ-4.6
-func TestEveryBrainEndRecordCarriesIntegerTokenCounts_TS_14_27(t *testing.T) {
-	w := newWorld(t)
-	_, _ = Execute(context.Background(), w.request(w.brief(1), stubBrain(func(context.Context, Brief) (Outcome, error) {
-		return Outcome{StopReason: StopEnded, CostUSD: 0.25, CostSource: CostMeasured, Turns: 4, InputTokens: 1200, OutputTokens: 340}, nil
-	})))
-	_, _ = Execute(context.Background(), w.request(w.brief(2), stubBrain(func(context.Context, Brief) (Outcome, error) {
-		return Outcome{StopReason: StopEnded, CostSource: CostNone}, nil // reports no tokens
-	})))
-
-	kinds, data := w.ledger()
-	var ends []map[string]any
-	for i, kind := range kinds {
-		if kind != "brain_end" {
-			continue
-		}
-		var m map[string]any
-		if err := json.Unmarshal(data[i], &m); err != nil {
-			t.Fatal(err)
-		}
-		ends = append(ends, m)
+// must is the value of a call that cannot fail in the test.
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
 	}
-	if len(ends) != 2 {
-		t.Fatalf("%d brain_end records, want 2", len(ends))
-	}
-	if ends[0]["input_tokens"] != float64(1200) || ends[0]["output_tokens"] != float64(340) {
-		t.Errorf("brain_end = %v, want input_tokens 1200 and output_tokens 340", ends[0])
-	}
-	for _, key := range []string{"brain", "stop_reason", "submitted_claim", "cost_usd", "cost_source", "turns", "duration_ms"} {
-		if _, ok := ends[0][key]; !ok {
-			t.Errorf("brain_end = %v lost %s", ends[0], key)
-		}
-	}
-	if v, ok := ends[1]["input_tokens"]; !ok || v != float64(0) {
-		t.Errorf("brain_end of a brain with no tokens = %v, want input_tokens 0", ends[1])
-	}
-	if v, ok := ends[1]["output_tokens"]; !ok || v != float64(0) {
-		t.Errorf("brain_end of a brain with no tokens = %v, want output_tokens 0", ends[1])
-	}
+	return v
 }

@@ -1,162 +1,124 @@
 package gitx
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/agent-fox-dev/agentfox/internal/testutil"
 	"github.com/agent-fox-dev/agentkit-go/tools"
 )
 
-// A user's global git configuration is what makes a fixture that calls
-// `git init` without -b pass on the author's machine and fail on a clean
-// image. Under the hermetic runner the configuration is not read at all.
-func TestHermeticRunnerIgnoresTheUsersGitConfig(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is not installed")
-	}
-	userHome := t.TempDir()
-	if err := os.WriteFile(filepath.Join(userHome, ".gitconfig"),
-		[]byte("[init]\n\tdefaultBranch = trunk\n[user]\n\temail = me@example.com\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", userHome)
-	for _, k := range []string{"XDG_CONFIG_HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM"} {
-		t.Setenv(k, "") // restored after the test
-		if err := os.Unsetenv(k); err != nil {
-			t.Fatal(err)
-		}
-	}
-	t.Setenv("GIT_AUTHOR_NAME", "Leaky Author")
-	ctx := context.Background()
-	dir := t.TempDir()
-
-	out, code, err := ExecRunner(ctx, dir, []string{"git", "config", "--get", "init.defaultBranch"})
-	if err != nil || code != 0 || strings.TrimSpace(out) != "trunk" {
-		t.Fatalf("the fixture's own HOME is not read by plain git: %q (%d) %v", out, code, err)
-	}
-
-	clean := t.TempDir()
-	r := hermeticRunner(clean)
-	for _, key := range []string{"init.defaultBranch", "user.email"} {
-		out, code, err := r(ctx, dir, []string{"git", "config", "--get", key})
-		if err != nil || code != 1 {
-			t.Errorf("hermetic git config --get %s = %q (exit %d, %v); want unset (exit 1)", key, out, code, err)
-		}
-	}
-	out, _, err = r(ctx, dir, []string{"sh", "-c", "echo $HOME:$GIT_AUTHOR_NAME"})
-	if err != nil || strings.TrimSpace(out) != clean+":" {
-		t.Errorf("hermetic HOME and identity = %q, want %q", strings.TrimSpace(out), clean+":")
-	}
-}
-
-func TestHermeticEnvKeepsToolchainCachesWhereTheyAre(t *testing.T) {
+func TestHermeticEnv(t *testing.T) {
 	realHome := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(realHome, "go", "pkg", "mod"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	env := HermeticEnv([]string{"HOME=" + realHome, "PATH=/bin", "GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=init.defaultBranch", "GIT_CONFIG_VALUE_0=main", "CARGO_HOME=/opt/cargo"}, "/clean")
+	base := []string{
+		"HOME=" + realHome, "PATH=/bin", "CARGO_HOME=/opt/cargo", "XDG_CONFIG_HOME=/home/me/.config",
+		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=init.defaultBranch", "GIT_CONFIG_VALUE_0=main", "GIT_CONFIG_PARAMETERS='a.b=c'",
+		"GIT_DIR=/elsewhere/.git", "GIT_INDEX_FILE=/tmp/index", "GIT_AUTHOR_NAME=Leaky", "GIT_COMMITTER_EMAIL=leak@example.com", "EMAIL=me@example.com",
+		"GIT_TERMINAL_PROMPT=1", "GIT_ASKPASS=/opt/editor/askpass.sh", "SSH_ASKPASS=/usr/libexec/ssh-askpass", "SSH_ASKPASS_REQUIRE=force",
+	}
+
+	env := HermeticEnv(base, "/clean")
+
 	got := map[string]string{}
 	for _, kv := range env {
 		k, v, _ := strings.Cut(kv, "=")
-		if _, dup := got[k]; dup {
+		if _, twice := got[k]; twice {
 			t.Errorf("%s is set twice", k)
 		}
 		got[k] = v
 	}
 	want := map[string]string{
-		"HOME": "/clean", "PATH": "/bin", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.DevNull,
-		"GOPATH": filepath.Join(realHome, "go"), "GOMODCACHE": filepath.Join(realHome, "go", "pkg", "mod"),
-		"CARGO_HOME": "/opt/cargo",
+		"HOME": "/clean", "XDG_CONFIG_HOME": filepath.Join("/clean", ".config"), "PATH": "/bin",
+		"GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0",
+		// The download caches stay where they are: one that is set is kept, and
+		// a default that exists is pinned.
+		"CARGO_HOME": "/opt/cargo", "GOPATH": filepath.Join(realHome, "go"), "GOMODCACHE": filepath.Join(realHome, "go", "pkg", "mod"),
 	}
 	for k, v := range want {
 		if got[k] != v {
 			t.Errorf("%s = %q, want %q", k, got[k], v)
 		}
 	}
-	for _, k := range []string{"GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "RUSTUP_HOME"} {
+	for _, k := range []string{
+		"GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "GIT_CONFIG_PARAMETERS", "GIT_DIR", "GIT_INDEX_FILE",
+		"GIT_AUTHOR_NAME", "GIT_COMMITTER_EMAIL", "EMAIL", "GIT_ASKPASS", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE",
+		"RUSTUP_HOME", // its default directory does not exist, and is not invented
+	} {
 		if v, ok := got[k]; ok {
-			t.Errorf("%s = %q survived; a clean environment does not have it", k, v)
+			t.Errorf("%s = %q, want it gone", k, v)
 		}
 	}
 }
 
-// A test that reaches a forge over https with no credential helper makes git
-// ask for a username: the askpass program first, then the terminal. On a clean
-// CI image there is neither and the command fails at once. Started from an
-// editor's terminal, git asked the editor's askpass, which showed a dialog and
-// waited until the gate's timeout. Under the hermetic runner neither is asked.
-func TestHermeticRunnerNeverAsksForACredential(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is not installed")
+// hermetic is the runner of a worker's git: the reduced environment, made
+// hermetic around home.
+func hermetic(home string) Runner {
+	return ExplicitEnvRunner(HermeticEnv(tools.ReducedEnv(nil), home))
+}
+
+// A fixture that relies on the author's ~/.gitconfig (init.defaultBranch, an
+// email) passes on the author's machine and fails on a clean image; under the
+// hermetic environment it fails everywhere.
+func TestHermeticGitReadsNoConfigurationOfTheUser(t *testing.T) {
+	testutil.Require(t, "git", "sh")
+	userHome := t.TempDir()
+	config := testutil.WriteFile(t, userHome, ".gitconfig", "[init]\n\tdefaultBranch = trunk\n[user]\n\temail = me@example.com\n")
+	t.Setenv("HOME", userHome)
+	t.Setenv("GIT_CONFIG_GLOBAL", config)
+	t.Setenv("GIT_AUTHOR_NAME", "Leaky Author")
+	dir, clean := t.TempDir(), t.TempDir()
+	if out, _, _ := ExecRunner(t.Context(), dir, []string{"git", "config", "--get", "init.defaultBranch"}); strings.TrimSpace(out) != "trunk" {
+		t.Fatalf("plain git does not read the fixture's configuration: %q", out)
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+	for _, key := range []string{"init.defaultBranch", "user.email"} {
+		if out, code, err := hermetic(clean)(t.Context(), dir, []string{"git", "config", "--get", key}); err != nil || code != 1 {
+			t.Errorf("git config --get %s = %q, exit code %d, %v; want it unset", key, out, code, err)
+		}
+	}
+	if out, _, _ := hermetic(clean)(t.Context(), dir, []string{"sh", "-c", "echo $HOME:$GIT_AUTHOR_NAME"}); strings.TrimSpace(out) != clean+":" {
+		t.Errorf("HOME and identity = %q, want %q", strings.TrimSpace(out), clean+":")
+	}
+}
+
+// A forge that wants a credential makes git ask the askpass program, then the
+// terminal, and an editor's askpass waits for an answer until the gate times
+// out. Under the hermetic environment git asks neither and fails at once.
+func TestHermeticGitNeverAsksForACredential(t *testing.T) {
+	testutil.Require(t, "git")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("WWW-Authenticate", `Basic realm="forge"`)
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer srv.Close()
-
 	asked := filepath.Join(t.TempDir(), "asked")
-	askpass := filepath.Join(t.TempDir(), "askpass.sh")
-	if err := os.WriteFile(askpass, []byte("#!/bin/sh\necho \"$1\" >> '"+asked+"'\necho someone\n"), 0o755); err != nil {
+	askpass := testutil.WriteFile(t, t.TempDir(), "askpass.sh", "#!/bin/sh\necho \"$1\" >> '"+asked+"'\necho someone\n")
+	if err := os.Chmod(askpass, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("GIT_ASKPASS", askpass)
 	t.Setenv("SSH_ASKPASS", askpass)
 	t.Setenv("GIT_TERMINAL_PROMPT", "1")
-	// The test needs git to reach the server; a test binary that runs this
-	// suite may have barred every transport but file (envtest.NoGitNetwork).
-	t.Setenv("GIT_ALLOW_PROTOCOL", "")
-	if err := os.Unsetenv("GIT_ALLOW_PROTOCOL"); err != nil {
-		t.Fatal(err)
-	}
+	t.Setenv("GIT_ALLOW_PROTOCOL", "http") // a test binary may bar every transport but file
 	t.Setenv("NO_PROXY", "127.0.0.1,localhost")
 	t.Setenv("no_proxy", "127.0.0.1,localhost")
 
-	out, code, err := hermeticRunner(t.TempDir())(context.Background(), t.TempDir(),
-		[]string{"git", "ls-remote", "--heads", srv.URL + "/acme/widgets.git", "main"})
-	if err != nil {
-		t.Fatalf("git ls-remote did not run: %v", err)
+	out, code, err := hermetic(t.TempDir())(t.Context(), t.TempDir(), []string{"git", "ls-remote", "--heads", srv.URL + "/acme/widgets.git", "main"})
+
+	if err != nil || code == 0 {
+		t.Fatalf("git ls-remote = %q, exit code %d, %v; want git to run and fail", out, code, err)
 	}
-	if code == 0 {
-		t.Fatalf("git ls-remote against a server that wants a credential succeeded: %q", out)
-	}
-	if b, err := os.ReadFile(asked); err == nil {
-		t.Errorf("the askpass program was asked for %q; a clean environment has none", strings.TrimSpace(string(b)))
+	if _, err := os.Stat(asked); err == nil {
+		t.Errorf("the askpass program was asked: %q", testutil.ReadFile(t, asked))
 	}
 	if !strings.Contains(out, "terminal prompts disabled") {
-		t.Errorf("git ls-remote output = %q, want git to refuse to prompt (terminal prompts disabled)", out)
-	}
-}
-
-func TestHermeticEnvDisablesCredentialPrompts(t *testing.T) {
-	env := HermeticEnv([]string{"HOME=/home/me", "PATH=/bin", "GIT_TERMINAL_PROMPT=1",
-		"GIT_ASKPASS=/opt/editor/askpass.sh", "SSH_ASKPASS=/usr/libexec/ssh-askpass", "SSH_ASKPASS_REQUIRE=force"}, "/clean")
-	got := map[string][]string{}
-	for _, kv := range env {
-		k, v, _ := strings.Cut(kv, "=")
-		got[k] = append(got[k], v)
-	}
-	if v := got["GIT_TERMINAL_PROMPT"]; len(v) != 1 || v[0] != "0" {
-		t.Errorf("GIT_TERMINAL_PROMPT = %q, want exactly one value, 0", v)
-	}
-	for _, k := range []string{"GIT_ASKPASS", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE"} {
-		if v, ok := got[k]; ok {
-			t.Errorf("%s = %q survived; a clean environment has no one to ask", k, v)
-		}
-	}
-}
-
-// hermeticRunner is ReducedEnvRunner in the environment of HermeticEnv.
-func hermeticRunner(home string) Runner {
-	env := HermeticEnv(tools.ReducedEnv(nil), home)
-	return func(ctx context.Context, dir string, argv []string, stdin ...string) (string, int, error) {
-		return run(ctx, dir, argv, env, stdin...)
+		t.Errorf("git ls-remote = %q, want it to refuse to prompt", out)
 	}
 }

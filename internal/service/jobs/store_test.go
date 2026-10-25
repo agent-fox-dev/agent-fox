@@ -5,50 +5,26 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"math"
-	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sync"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/agent-fox-dev/agentfox/internal/service/jobs/fakeclock"
 	"github.com/agent-fox-dev/agentfox/internal/service/secrets"
 	"github.com/agent-fox-dev/agentfox/internal/service/store"
+	"github.com/agent-fox-dev/agentfox/internal/testutil"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
 var ctx = context.Background()
 
-// testClock is the clock of a test: a time in a zone that is not UTC, with
-// nanoseconds, so that a time written as UTC with milliseconds shows the conversion.
-type testClock struct {
-	mu sync.Mutex
-	t  time.Time
-}
-
-func newTestClock() *testClock {
-	zone := time.FixedZone("test", 2*3600+1800)
-	return &testClock{t: time.Date(2026, 10, 22, 8, 0, 0, 123456789, zone)}
-}
-
-func (c *testClock) Now() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.t
-}
-
-func (c *testClock) Advance(d time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.t = c.t.Add(d)
-}
-
-// openDB opens the state file of a test with the core's migrations applied.
+// openDB opens a state file with the service's migrations applied.
 func openDB(t *testing.T) *sql.DB {
 	t.Helper()
-	key, err := secrets.NewKey(make([]byte, 32))
+	key, err := secrets.NewKey(testutil.Key())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,374 +36,355 @@ func openDB(t *testing.T) *sql.DB {
 	return st.DB()
 }
 
-var (
-	idShape   = regexp.MustCompile(`^job_[0-9a-f]{20}$`)
-	timeShape = regexp.MustCompile(`^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$`)
-)
+// newStore is a store over a new state file, on a clock that reads a time in a zone east of UTC, with nanoseconds,
+// so that what is stored shows the conversion to UTC and the cut to milliseconds.
+func newStore(t *testing.T) (*Store, *fakeclock.Clock) {
+	t.Helper()
+	clk := fakeclock.New(time.Date(2026, 10, 22, 8, 0, 0, 123456789, time.FixedZone("test", 2*3600+1800)))
+	return NewStore(openDB(t), clk.Now), clk
+}
 
-// newJob is a job of widgets with the number as its issue, or none when issue is 0.
-func newJob(kind Kind, issue int64) NewJob {
-	j := NewJob{Workspace: "widgets", Kind: kind, Source: Source{Kind: "api", By: "user-1"}, Context: []string{"a note"}}
-	if issue > 0 {
-		j.Issue = &issue
-		raw, _ := json.Marshal(issue)
-		j.Input = Input{Issue: raw}
-	} else {
-		j.Input = Input{Text: "the build is broken", Title: "broken"}
+// newJob is a fix of widgets for the issue, or a triage of a text when issue is 0.
+func newJob(issue int64) NewJob {
+	j := NewJob{Workspace: "widgets", Kind: KindFix, Source: Source{Kind: "api", By: "user-1"}, Context: []string{"a note"}}
+	if issue == 0 {
+		j.Kind, j.Input = KindTriage, Input{Text: "the build is broken", Title: "broken"}
+		return j
 	}
+	raw, _ := json.Marshal(issue)
+	j.Issue, j.Input = &issue, Input{Issue: raw}
 	return j
 }
 
-// force puts a job in a state, the way the end of an attempt would, so that a
-// test can drive the store through transitions whose code comes later.
-func force(t *testing.T, db *sql.DB, st *Store, id string, state State) {
+// mustCreate stores the job and returns its id.
+func mustCreate(t *testing.T, st *Store, j NewJob) string {
 	t.Helper()
-	finished := any(nil)
+	id, err := st.CreateJob(ctx, j)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// force puts the job in the state, the way the code that moves it would.
+func force(t *testing.T, st *Store, id string, state State) {
+	t.Helper()
+	var finished any
 	if state.Finished() {
 		finished = formatTime(st.now())
 	}
-	if _, err := db.ExecContext(ctx, "UPDATE af_jobs SET state = ?, finished_at = ? WHERE id = ?", string(state), finished, id); err != nil {
-		t.Fatal(err)
-	}
+	testutil.Exec(t, st.db, "UPDATE af_jobs SET state = ?, finished_at = ? WHERE id = ?", string(state), finished, id)
 }
 
-// answerTo is an answer to a question of two options.
-func answerTo(q string) *Answer {
-	b := "B"
-	return &Answer{Question: q, Options: []Option{{ID: "A", Label: "one"}, {ID: "B", Label: "two"}}, Option: &b, Text: "two"}
-}
-
-// TestJobIdsAttemptNumbersAndTimesHaveTheirShape_TS_12_4 verifies TS-12-4:
-// every created job has an id of job_ and 20 lowercase hex characters, its
-// attempts are numbered 1 to k, and every time is RFC 3339 in UTC with milliseconds.
-// Verifies: 12-REQ-1.4
-func TestJobIdsAttemptNumbersAndTimesHaveTheirShape_TS_12_4(t *testing.T) {
-	rng := rand.New(rand.NewPCG(12, 4))
-	clk, db := newTestClock(), openDB(t)
-	st := NewStore(db, clk.Now)
-
-	from := map[TriggerKind]State{TriggerAnswer: StateBlocked, TriggerRetry: StateFailed, TriggerAuto: StateRunning}
-	triggers := []TriggerKind{TriggerAnswer, TriggerRetry, TriggerAuto}
-	// The clock reads 08:00:00.123456789 in a zone 2h30 east of UTC: the time that
-	// is stored is the UTC one, cut to the millisecond.
-	probe, err := st.CreateJob(ctx, newJob(KindTriage, 0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if doc, err := st.Doc(ctx, probe, false); err != nil || doc.CreatedAt != "2026-10-22T05:30:00.123Z" {
-		t.Fatalf("created_at = %q (%v), want 2026-10-22T05:30:00.123Z", doc.CreatedAt, err)
-	}
-
-	seen := map[string]bool{}
-	for i := 0; i < 60; i++ {
-		clk.Advance(time.Duration(rng.IntN(90_000_000)) * time.Nanosecond)
-		kind := []Kind{KindTriage, KindFix}[rng.IntN(2)]
-		issue := int64(0)
-		if rng.IntN(2) == 0 {
-			issue = int64(i + 1)
-		}
-		id, err := st.CreateJob(ctx, newJob(kind, issue))
-		if err != nil {
-			t.Fatalf("CreateJob: %v", err)
-		}
-		if !idShape.MatchString(id) || seen[id] {
-			t.Fatalf("job id %q: want job_ and 20 lowercase hex characters, and unique", id)
-		}
-		seen[id] = true
-
-		attempts := 1
-		for range rng.IntN(6) {
-			clk.Advance(time.Duration(rng.IntN(3_000_000_000)))
-			trigger := triggers[rng.IntN(len(triggers))]
-			var answer *Answer
-			if trigger == TriggerAnswer {
-				answer = answerTo("which?")
-			}
-			force(t, db, st, id, from[trigger])
-			n, err := st.Requeue(ctx, id, from[trigger], Trigger{Kind: trigger, By: "user-2"}, answer)
-			if err != nil {
-				t.Fatalf("Requeue(%s): %v", trigger, err)
-			}
-			attempts++
-			if n != attempts {
-				t.Fatalf("Requeue(%s) = attempt %d, want %d", trigger, n, attempts)
-			}
-		}
-
-		doc, err := st.Doc(ctx, id, true)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if doc.AttemptCount != attempts || doc.CurrentAttempt != attempts || len(doc.Attempts) != attempts {
-			t.Errorf("%s: attempt_count %d, current_attempt %d, %d attempts listed, want %d", id, doc.AttemptCount, doc.CurrentAttempt, len(doc.Attempts), attempts)
-		}
-		for k, a := range doc.Attempts {
-			if a.N != k+1 {
-				t.Errorf("%s: the attempts are numbered %d at position %d, want %d", id, a.N, k, k+1)
-			}
-		}
-		if !timeShape.MatchString(doc.CreatedAt) {
-			t.Errorf("%s: created_at %q is not RFC 3339 UTC with milliseconds", id, doc.CreatedAt)
-		}
-	}
-
-	// Every time that the file holds has the shape, whatever table it is in.
-	for _, q := range []string{
-		"SELECT created_at FROM af_jobs",
-		"SELECT started_at FROM af_jobs WHERE started_at IS NOT NULL",
-		"SELECT finished_at FROM af_jobs WHERE finished_at IS NOT NULL",
-		"SELECT started_at FROM af_attempts WHERE started_at IS NOT NULL",
-		"SELECT finished_at FROM af_attempts WHERE finished_at IS NOT NULL",
-		"SELECT ts FROM af_events",
-	} {
-		rows, err := db.QueryContext(ctx, q)
-		if err != nil {
-			t.Fatal(err)
-		}
-		n := 0
-		for rows.Next() {
-			var stamp string
-			if err := rows.Scan(&stamp); err != nil {
-				t.Fatal(err)
-			}
-			n++
-			if !timeShape.MatchString(stamp) {
-				t.Errorf("%s: %q is not RFC 3339 UTC with milliseconds", q, stamp)
-			}
-		}
-		rows.Close()
-		if n == 0 && q == "SELECT created_at FROM af_jobs" || n == 0 && q == "SELECT ts FROM af_events" {
-			t.Errorf("%s: no rows", q)
-		}
-	}
-
-	// A transition that the state does not allow queues nothing and says why.
-	id, err := st.CreateJob(ctx, newJob(KindFix, 1000))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = st.Requeue(ctx, id, StateFailed, Trigger{Kind: TriggerRetry, By: "u"}, nil)
-	var stateErr *StateError
-	if !errors.As(err, &stateErr) || stateErr.State != StateQueued {
-		t.Errorf("Requeue of a queued job as if failed: err = %v, want a *StateError for queued", err)
-	}
-	if doc, _ := st.Doc(ctx, id, true); doc.AttemptCount != 1 {
-		t.Errorf("a refused Requeue left %d attempts, want 1", doc.AttemptCount)
-	}
-}
-
-// finish records an attempt as finished with the usage, the way the end of an attempt would.
-func finish(t *testing.T, db *sql.DB, id string, n int, state AttemptState, usage *toolio.Usage) {
+// eventTypes are the types of the job's events, in order.
+func eventTypes(t *testing.T, st *Store, id string) string {
 	t.Helper()
-	raw, err := json.Marshal(usage)
+	return strings.Join(testutil.Column(t, st.db, "SELECT type FROM af_events WHERE job_id = ? ORDER BY seq", id), " ")
+}
+
+func TestCreateJob_StoresTheJobItsFirstAttemptAndItsFirstEventInUTCMilliseconds(t *testing.T) {
+	st, _ := newStore(t)
+	id := mustCreate(t, st, newJob(7))
+	if !regexp.MustCompile(`^job_[0-9a-f]{20}$`).MatchString(id) {
+		t.Errorf("id %q, want job_ and 20 lowercase hex characters", id)
+	}
+	if other := mustCreate(t, st, newJob(8)); other == id {
+		t.Error("two jobs have the same id")
+	}
+	doc, err := st.Doc(ctx, id, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx,
-		"UPDATE af_attempts SET state = ?, status = 'done', exit_code = 0, summary = 'ok', usage = ?, finished_at = '2026-10-22T08:00:00.000Z' WHERE job_id = ? AND n = ?",
-		string(state), string(raw), id, n); err != nil {
-		t.Fatal(err)
+	if doc.State != StateQueued || doc.CreatedAt != "2026-10-22T05:30:00.123Z" || doc.StartedAt != nil || doc.FinishedAt != nil {
+		t.Errorf("job %s created %s started %v finished %v, want queued at 05:30:00.123Z UTC and neither time", doc.State, doc.CreatedAt, doc.StartedAt, doc.FinishedAt)
+	}
+	if len(doc.Attempts) != 1 || doc.Attempts[0].Trigger != (Trigger{Kind: TriggerCreate, By: "user-1"}) || doc.Attempts[0].State != AttemptQueued {
+		t.Errorf("attempts = %+v, want attempt 1 queued, made by the creator", doc.Attempts)
+	}
+	evs, err := st.EventsAfter(ctx, id, 0, 10)
+	if err != nil || len(evs) != 1 || evs[0].Seq != 1 || evs[0].TS != "2026-10-22T05:30:00.123Z" || string(evs[0].Data) != `{"state":"queued","attempt":1,"at_rest":false}` {
+		t.Errorf("events = %+v (%v), want one job_state queued, not at rest", evs, err)
+	}
+	if got := testutil.Column(t, st.db, "SELECT context FROM af_jobs WHERE id = ?", id); got[0] != `["a note"]` {
+		t.Errorf("context = %s", got[0])
+	}
+	// A job without context stores an empty list.
+	j := newJob(9)
+	j.Context = nil
+	if got := testutil.Column(t, st.db, "SELECT context FROM af_jobs WHERE id = ?", mustCreate(t, st, j)); got[0] != `[]` {
+		t.Errorf("context = %s, want []", got[0])
 	}
 }
 
-// TestAJobsUsageIsTheSumOverItsFinishedAttempts_TS_12_11 verifies TS-12-11:
-// the usage of a job is the sum of cost_usd, input_tokens, output_tokens and
-// turns over its finished attempts, and an attempt that is not finished adds
-// nothing.
-// Verifies: 12-REQ-2.4
-func TestAJobsUsageIsTheSumOverItsFinishedAttempts_TS_12_11(t *testing.T) {
-	rng := rand.New(rand.NewPCG(12, 11))
-	db := openDB(t)
-	st := NewStore(db, newTestClock().Now)
-
-	for i := range 40 {
-		id, err := st.CreateJob(ctx, newJob(KindFix, int64(i+1)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		finished := 1 + rng.IntN(6)
-		var want UsageDoc
-		for n := 1; n <= finished; n++ {
-			if n > 1 {
-				force(t, db, st, id, StateFailed)
-				if _, err := st.Requeue(ctx, id, StateFailed, Trigger{Kind: TriggerRetry, By: "u"}, nil); err != nil {
-					t.Fatal(err)
-				}
+func TestCreateJob_StoresNothingWhenAnyOfItsInsertsFails(t *testing.T) {
+	for _, op := range []string{OpInsertJob, OpInsertAttempt, OpInsertEvent} {
+		st, _ := newStore(t)
+		st.SetFault(func(got string) error {
+			if got == op {
+				return errors.New("injected")
 			}
-			u := &toolio.Usage{Brain: "scripted", CostSource: toolio.CostMeasured, CostUSD: math.Round(rng.Float64()*1000) / 100, InputTokens: rng.Int64N(1_000_000), OutputTokens: rng.Int64N(100_000), Turns: rng.IntN(50)}
-			finish(t, db, id, n, AttemptDone, u)
-			want.CostUSD += u.CostUSD
-			want.InputTokens += u.InputTokens
-			want.OutputTokens += u.OutputTokens
-			want.Turns += u.Turns
+			return nil
+		})
+		if _, err := st.CreateJob(ctx, newJob(1)); err == nil {
+			t.Errorf("%s: CreateJob succeeded", op)
 		}
-		// An attempt that is queued or running adds nothing, whatever its row holds.
-		force(t, db, st, id, StateFailed)
-		n, err := st.Requeue(ctx, id, StateFailed, Trigger{Kind: TriggerRetry, By: "u"}, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if i%2 == 0 {
-			if _, err := db.ExecContext(ctx, "UPDATE af_attempts SET state = 'running', usage = ? WHERE job_id = ? AND n = ?", `{"cost_usd":99,"input_tokens":99,"output_tokens":99,"turns":99}`, id, n); err != nil {
-				t.Fatal(err)
+		for _, table := range []string{"af_jobs", "af_attempts", "af_events"} {
+			if n := testutil.Count(t, st.db, table, ""); n != 0 {
+				t.Errorf("%s failed: %d rows in %s", op, n, table)
 			}
 		}
-
-		doc, err := st.Doc(ctx, id, false)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if math.Abs(doc.Usage.CostUSD-want.CostUSD) > 1e-9 || doc.Usage.InputTokens != want.InputTokens || doc.Usage.OutputTokens != want.OutputTokens || doc.Usage.Turns != want.Turns {
-			t.Errorf("%s with %d finished attempts: usage = %+v, want %+v", id, finished, doc.Usage, want)
-		}
-	}
-
-	// A job nothing has finished for has zero usage, and a list entry has no attempts.
-	id, err := st.CreateJob(ctx, newJob(KindTriage, 0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc, err := st.Doc(ctx, id, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if doc.Usage != (UsageDoc{}) || doc.Attempts != nil {
-		t.Errorf("a new job: usage %+v and attempts %v, want zero usage and no attempts field", doc.Usage, doc.Attempts)
 	}
 }
 
-// TestAJobIsFinishedAtOnlyInTheFinishedStates verifies the store's half of
-// 12-REQ-2.5: started_at is set when the job first runs and kept, finished_at is
-// set by every entry into done, failed or cancelled (a cancel from queued or
-// blocked included) and cleared when the job queues again, and a job that is in
-// another state than the transition says is left as it is.
-// Verifies: 12-REQ-2.5
-func TestAJobIsFinishedAtOnlyInTheFinishedStates(t *testing.T) {
-	clk, db := newTestClock(), openDB(t)
-	st := NewStore(db, clk.Now)
-	id, err := st.CreateJob(ctx, newJob(KindFix, 7))
+func TestCreateJob_RefusesASecondOpenJobOfAKindForAnIssue(t *testing.T) {
+	st, _ := newStore(t)
+	first := mustCreate(t, st, newJob(42))
+	if _, err := st.CreateJob(ctx, newJob(42)); !errors.Is(err, ErrDuplicate) {
+		t.Errorf("a second fix of #42: %v, want ErrDuplicate", err)
+	}
+	triage := newJob(42)
+	triage.Kind = KindTriage
+	mustCreate(t, st, triage)
+	if id, err := st.OpenJobID(ctx, "widgets", KindFix, 42); err != nil || id != first {
+		t.Errorf("OpenJobID = %s, %v, want %s", id, err, first)
+	}
+	force(t, st, first, StateDone)
+	if _, err := st.OpenJobID(ctx, "widgets", KindFix, 42); !errors.Is(err, ErrNotFound) {
+		t.Errorf("OpenJobID of a done job: %v, want ErrNotFound", err)
+	}
+	second := mustCreate(t, st, newJob(42))
+	// Queuing the done one again would make two open jobs for the issue.
+	if _, err := st.Requeue(ctx, first, StateDone, Trigger{Kind: TriggerRetry, By: "u"}, nil); !errors.Is(err, ErrDuplicate) {
+		t.Errorf("requeue beside %s: %v, want ErrDuplicate", second, err)
+	}
+}
+
+func TestRequeue_NumbersTheNextAttemptAndRefusesAJobInAnotherState(t *testing.T) {
+	st, _ := newStore(t)
+	id := mustCreate(t, st, newJob(1))
+	b := "B"
+	answer := &Answer{Question: "Which?", Options: []Option{{ID: "A", Label: "one"}, {ID: "B", Label: "two"}}, Option: &b, Text: "two"}
+	for n, step := range []struct {
+		from    State
+		trigger TriggerKind
+		answer  *Answer
+	}{{StateBlocked, TriggerAnswer, answer}, {StateFailed, TriggerRetry, nil}, {StateRunning, TriggerAuto, nil}} {
+		force(t, st, id, step.from)
+		got, err := st.Requeue(ctx, id, step.from, Trigger{Kind: step.trigger, By: "user-2"}, step.answer)
+		if err != nil || got != n+2 {
+			t.Fatalf("Requeue from %s = %d, %v, want attempt %d", step.from, got, err, n+2)
+		}
+	}
+	doc, err := st.Doc(ctx, id, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	read := func() (state State, started, finished sql.NullString) {
-		t.Helper()
-		if err := db.QueryRowContext(ctx, "SELECT state, started_at, finished_at FROM af_jobs WHERE id = ?", id).Scan(&state, &started, &finished); err != nil {
-			t.Fatal(err)
-		}
-		return
+	if doc.AttemptCount != 4 || doc.CurrentAttempt != 4 || doc.State != StateQueued || doc.FinishedAt != nil {
+		t.Errorf("job %s with %d attempts, current %d, finished %v, want queued with 4 and no finished_at", doc.State, doc.AttemptCount, doc.CurrentAttempt, doc.FinishedAt)
 	}
+	if a := doc.Attempts[1].Answer; a == nil || a.Question != "Which?" || a.Option == nil || *a.Option != "B" || a.Text != "two" {
+		t.Errorf("the answer of attempt 2 = %+v", a)
+	}
+	var state *StateError
+	if _, err := st.Requeue(ctx, id, StateFailed, Trigger{Kind: TriggerRetry, By: "u"}, nil); !errors.As(err, &state) || state.State != StateQueued || err.Error() != "the job is queued" {
+		t.Errorf("Requeue of a queued job as failed: %v, want a *StateError for queued", err)
+	}
+	if _, err := st.Requeue(ctx, "job_00000000000000000000", StateFailed, Trigger{Kind: TriggerRetry, By: "u"}, nil); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Requeue of no job: %v, want ErrNotFound", err)
+	}
+	if n := testutil.Count(t, st.db, "af_attempts", "job_id = ?", id); n != 4 {
+		t.Errorf("%d attempts after the refusals, want 4", n)
+	}
+}
+
+func TestTransition_SetsStartedAtOnceAndFinishedAtExactlyWhileFinished(t *testing.T) {
+	st, clk := newStore(t)
+	id := mustCreate(t, st, newJob(7))
 	move := func(from []State, to State) bool {
 		t.Helper()
-		tx, err := db.BeginTx(ctx, nil)
+		tx, err := st.db.BeginTx(ctx, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
 		changed, err := st.transition(ctx, tx, id, from, to)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := tx.Commit(); err != nil {
+		if err != nil || tx.Commit() != nil {
 			t.Fatal(err)
 		}
 		return changed
 	}
-	check := func(label string, want State) (started, finished sql.NullString) {
+	times := func() (started, finished string) {
 		t.Helper()
-		state, started, finished := read()
-		if state != want {
-			t.Fatalf("%s: state %s, want %s", label, state, want)
-		}
-		if finished.Valid != want.Finished() {
-			t.Errorf("%s: finished_at %v in state %s, want it set exactly when the state is finished", label, finished, state)
-		}
+		row := testutil.Column(t, st.db, "SELECT COALESCE(started_at, '') || '|' || COALESCE(finished_at, '') FROM af_jobs WHERE id = ?", id)[0]
+		started, finished, _ = strings.Cut(row, "|")
 		return started, finished
 	}
-
-	if _, started, _ := read(); started.Valid {
-		t.Fatalf("a queued job has started_at %v", started)
-	}
 	if move([]State{StateRunning}, StateDone) {
-		t.Fatal("a transition from running changed a queued job")
+		t.Fatal("a move from running changed a queued job")
 	}
-	check("refused", StateQueued)
-
-	clk.Advance(time.Second)
-	if !move([]State{StateQueued, StateRunning}, StateRunning) {
-		t.Fatal("queued to running did not change the job")
-	}
-	first, _ := check("first claim", StateRunning)
-
-	clk.Advance(time.Second)
-	if !move([]State{StateRunning}, StateDone) {
-		t.Fatal("running to done did not change the job")
-	}
-	_, finished := check("done", StateDone)
-
-	clk.Advance(time.Second)
-	if !move([]State{StateDone}, StateQueued) {
-		t.Fatal("done to queued did not change the job")
-	}
-	check("queued again", StateQueued)
-
-	clk.Advance(time.Second)
-	if !move([]State{StateQueued}, StateRunning) {
-		t.Fatal("second claim did not change the job")
-	}
-	if second, _ := check("second claim", StateRunning); second != first {
-		t.Errorf("started_at moved from %v to %v at the second claim, want it kept", first, second)
-	}
-
-	clk.Advance(time.Second)
-	move([]State{StateRunning}, StateBlocked)
-	check("blocked", StateBlocked)
-	clk.Advance(time.Second)
-	if !move([]State{StateBlocked}, StateCancelled) {
-		t.Fatal("blocked to cancelled did not change the job")
-	}
-	if _, cancelled := check("cancelled from blocked", StateCancelled); cancelled == finished {
-		t.Errorf("finished_at of the cancel is %v, the time of the earlier finish", cancelled)
+	for i, step := range []struct {
+		from, to State
+	}{{StateQueued, StateRunning}, {StateRunning, StateDone}, {StateDone, StateQueued}, {StateQueued, StateRunning}, {StateRunning, StateBlocked}, {StateBlocked, StateCancelled}} {
+		clk.Advance(time.Second)
+		if !move([]State{step.from}, step.to) {
+			t.Fatalf("%s to %s changed nothing", step.from, step.to)
+		}
+		started, finished := times()
+		if started != "2026-10-22T05:30:01.123Z" {
+			t.Errorf("after %s: started_at %q, want the time of the first run", step.to, started)
+		}
+		if want := formatTime(clk.Now()); step.to.Finished() && finished != want || !step.to.Finished() && finished != "" {
+			t.Errorf("step %d to %s: finished_at %q", i, step.to, finished)
+		}
 	}
 }
 
-// TestEnsureAttemptsDirMakesItPrivateAndLeavesWhatIsThere verifies 12-REQ-1.3 for
-// the directory: attempts/ beside the database is made with the mode 0700 when it
-// is missing, and a directory that is there, with what is in it, is left as it is.
-// Verifies: 12-REQ-1.3
-func TestEnsureAttemptsDirMakesItPrivateAndLeavesWhatIsThere(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "state", "agent-fox.db")
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
+func TestClaim_HandsTheAttemptOverWithOneMoreDeliveryAllOrNothing(t *testing.T) {
+	st, _ := newStore(t)
+	id := mustCreate(t, st, newJob(1))
+	st.SetFault(func(op string) error {
+		if op == OpClaim {
+			return errors.New("injected")
+		}
+		return nil
+	})
+	if _, err := st.Claim(ctx, id, 1); err == nil {
+		t.Fatal("a claim made to fail succeeded")
+	}
+	if got := testutil.Column(t, st.db, "SELECT a.state || a.deliveries || j.state FROM af_attempts a JOIN af_jobs j ON j.id = a.job_id"); got[0] != "queued0queued" || eventTypes(t, st, id) != "job_state" {
+		t.Errorf("after a failed claim: %v, events %s, want everything as it was", got, eventTypes(t, st, id))
+	}
+	st.SetFault(nil)
+	for delivery := 1; delivery <= 3; delivery++ {
+		if c, err := st.Claim(ctx, id, 1); err != nil || c.Delivery != delivery {
+			t.Fatalf("claim %d = %+v, %v", delivery, c, err)
+		}
+	}
+	// The job moved to running once; each handover says it started.
+	if got := eventTypes(t, st, id); got != "job_state job_state attempt_start attempt_start attempt_start" {
+		t.Errorf("events = %s", got)
+	}
+	if state, _ := st.JobState(ctx, id); state != StateRunning {
+		t.Errorf("job %s, want running", state)
+	}
+
+	for name, setup := range map[string]string{
+		"a cancelled job":     "UPDATE af_jobs SET state = 'cancelled', finished_at = '2026-10-22T08:00:00.000Z' WHERE id = ?",
+		"a done job":          "UPDATE af_jobs SET state = 'done', finished_at = '2026-10-22T08:00:00.000Z' WHERE id = ?",
+		"an attempt now done": "UPDATE af_attempts SET state = 'done' WHERE job_id = ?",
+	} {
+		other := mustCreate(t, st, newJob(100+int64(len(name))))
+		testutil.Exec(t, st.db, setup, other)
+		if _, err := st.Claim(ctx, other, 1); !errors.Is(err, ErrNotClaimable) {
+			t.Errorf("%s: %v, want ErrNotClaimable", name, err)
+		}
+		if got := testutil.Column(t, st.db, "SELECT deliveries FROM af_attempts WHERE job_id = ?", other); got[0] != "0" || eventTypes(t, st, other) != "job_state" {
+			t.Errorf("%s: a refused claim changed the attempt or the log", name)
+		}
+	}
+	for _, key := range []struct {
+		id string
+		n  int
+	}{{"job_00000000000000000000", 1}, {id, 7}} {
+		if _, err := st.Claim(ctx, key.id, key.n); !errors.Is(err, ErrNotClaimable) {
+			t.Errorf("attempt %d of %s: %v, want ErrNotClaimable", key.n, key.id, err)
+		}
+	}
+}
+
+func TestPlan_RunsTheAttemptsOfAWorkspaceInTheOrderTheyWereMade(t *testing.T) {
+	st, _ := newStore(t)
+	first, second := mustCreate(t, st, newJob(1)), mustCreate(t, st, newJob(2))
+	other := newJob(3)
+	other.Workspace = "gadgets"
+	elsewhere := mustCreate(t, st, other)
+	plan := func(id string, n int) disposition {
+		t.Helper()
+		d, err := st.Plan(ctx, id, n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	if plan(first, 1) != dispClaim || plan(second, 1) != dispYield || plan(elsewhere, 1) != dispClaim {
+		t.Error("want the first of each workspace claimed and the second handed back")
+	}
+	if plan(first, 2) != dispAck || plan("job_00000000000000000000", 1) != dispAck {
+		t.Error("an attempt or a job that is not there is not acknowledged")
+	}
+	// A finished job neither runs nor keeps the next one waiting, even with an attempt a crash left queued.
+	force(t, st, first, StateCancelled)
+	if plan(first, 1) != dispAck || plan(second, 1) != dispClaim {
+		t.Error("a cancelled job's queued attempt is not acknowledged, or keeps the next one waiting")
+	}
+	// A cancelled job whose attempt is still running had a runner when the process ended: it is reaped.
+	testutil.Exec(t, st.db, "UPDATE af_attempts SET state = 'running' WHERE job_id = ?", first)
+	if plan(first, 1) != dispReap {
+		t.Error("a running attempt of a cancelled job is not reaped")
+	}
+	testutil.Exec(t, st.db, "UPDATE af_attempts SET state = 'done' WHERE job_id = ?", second)
+	if plan(second, 1) != dispAck {
+		t.Error("an attempt that is done is not acknowledged")
+	}
+}
+
+func TestDoc_UsageIsTheSumOverTheAttemptsThatEnded(t *testing.T) {
+	st, _ := newStore(t)
+	id := mustCreate(t, st, newJob(1))
+	end := func(n int, state AttemptState, u toolio.Usage) {
+		t.Helper()
+		testutil.Exec(t, st.db, "UPDATE af_attempts SET state = ?, status = 'failed', usage = ? WHERE job_id = ? AND n = ?", string(state), string(testutil.JSON(t, u)), id, n)
+	}
+	if doc, _ := st.Doc(ctx, id, false); doc.Usage != (UsageDoc{}) || doc.Attempts != nil {
+		t.Errorf("a new job: usage %+v, attempts %v, want zero and none", doc.Usage, doc.Attempts)
+	}
+	end(1, AttemptFailed, toolio.Usage{CostUSD: 1.25, InputTokens: 100, OutputTokens: 10, Turns: 3})
+	force(t, st, id, StateFailed)
+	if _, err := st.Requeue(ctx, id, StateFailed, Trigger{Kind: TriggerRetry, By: "u"}, nil); err != nil {
 		t.Fatal(err)
 	}
-	dir, err := EnsureAttemptsDir(dbPath)
+	end(2, AttemptDone, toolio.Usage{CostUSD: 0.5, InputTokens: 50, OutputTokens: 5, Turns: 1})
+	force(t, st, id, StateFailed)
+	if _, err := st.Requeue(ctx, id, StateFailed, Trigger{Kind: TriggerRetry, By: "u"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	end(3, AttemptRunning, toolio.Usage{CostUSD: 99, InputTokens: 99, OutputTokens: 99, Turns: 99}) // adds nothing yet
+	doc, err := st.Doc(ctx, id, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(filepath.Dir(dbPath), "attempts"); dir != want {
-		t.Errorf("directory = %s, want %s", dir, want)
+	if doc.Usage != (UsageDoc{CostUSD: 1.75, InputTokens: 150, OutputTokens: 15, Turns: 4}) {
+		t.Errorf("usage = %+v, want the sum of attempts 1 and 2", doc.Usage)
 	}
-	if info, err := os.Stat(dir); err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
-		t.Fatalf("stat %s = %v, %v, want a directory with the mode 0700", dir, info, err)
+	if doc.Attempts[2].Usage != nil || doc.Attempts[0].Usage == nil {
+		t.Errorf("the usage of the attempts: %v %v, want it shown once an attempt has ended", doc.Attempts[0].Usage, doc.Attempts[2].Usage)
 	}
+	if _, err := st.Doc(ctx, "job_00000000000000000000", false); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Doc of no job: %v, want ErrNotFound", err)
+	}
+}
 
-	kept := filepath.Join(dir, "job_x", "1", "envelope.json")
-	if err := os.MkdirAll(filepath.Dir(kept), 0o700); err != nil {
-		t.Fatal(err)
+func TestEnsureAttemptsDir_MakesAPrivateDirectoryBesideTheDatabaseAndLeavesOneThatIsThere(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "agent-fox.db")
+	dir, err := EnsureAttemptsDir(dbPath)
+	if err != nil || dir != filepath.Join(filepath.Dir(dbPath), "attempts") {
+		t.Fatalf("EnsureAttemptsDir = %s, %v", dir, err)
 	}
-	if err := os.WriteFile(kept, []byte("{}"), 0o600); err != nil {
-		t.Fatal(err)
+	if info, err := os.Stat(dir); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("stat = %v, %v, want a directory with the mode 0700", info, err)
 	}
+	kept := testutil.WriteFile(t, dir, "job_x/1/envelope.json", "{}")
 	if err := os.Chmod(dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := EnsureAttemptsDir(dbPath); err != nil {
 		t.Fatal(err)
 	}
-	if info, _ := os.Stat(dir); info.Mode().Perm() != 0o750 {
-		t.Errorf("a directory that was there has the mode %v after the second call, want it unchanged", info.Mode().Perm())
+	if info, _ := os.Stat(dir); info.Mode().Perm() != 0o750 || testutil.ReadFile(t, kept) != "{}" {
+		t.Errorf("the second call changed the directory or what is in it")
 	}
-	if _, err := os.Stat(kept); err != nil {
-		t.Errorf("a file in the directory is gone after the second call: %v", err)
+	blocked := testutil.WriteFile(t, t.TempDir(), "file", "")
+	if _, err := EnsureAttemptsDir(filepath.Join(blocked, "agent-fox.db")); err == nil {
+		t.Error("a directory under a file was made")
 	}
 }

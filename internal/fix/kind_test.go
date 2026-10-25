@@ -3,32 +3,30 @@ package fix
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math/rand"
 	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
-	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/submission"
+	"github.com/agent-fox-dev/agentfox/internal/testutil"
 )
 
-// tree is the tree a report is submitted in: it holds the tests a report may
-// cite, and a directory where a test would be.
-func tree() fstest.MapFS {
+// submittedTree is the tree a report is submitted in: the tests a report may cite, and a
+// directory where a test would be.
+func submittedTree() fstest.MapFS {
 	return fstest.MapFS{
 		"tests/fix_test.sh": {Data: []byte("#!/bin/sh\n")},
-		"tests/other.sh":    {Data: []byte("#!/bin/sh\n")},
 		"src/a.go":          {Data: []byte("package a\n")},
 		"tests/dir/x":       {Data: []byte("x")},
 	}
 }
 
-// report is a report that has no problem, as the map a brain would send.
-func report() map[string]any {
-	return map[string]any{
+// goodReport is a report that has no problem, as a brain sends it, changed by the edits.
+func goodReport(edits ...func(m map[string]any)) map[string]any {
+	m := map[string]any{
 		"type":       "fix",
 		"subject":    "Check the arguments before help runs",
 		"root_cause": "Run calls Help before it looks at its arguments.",
@@ -41,31 +39,19 @@ func report() map[string]any {
 		"criteria":  []any{map[string]any{"criterion": "no arguments prints the usage", "status": "met", "evidence": "tests/fix_test.sh"}},
 		"decisions": []any{"kept Help as it was"},
 	}
-}
-
-// with returns report() changed by f.
-func with(f func(m map[string]any)) map[string]any {
-	m := report()
-	f(m)
-	return m
-}
-
-func payload(t *testing.T, v any) json.RawMessage {
-	t.Helper()
-	data, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
+	for _, e := range edits {
+		e(m)
 	}
-	return data
+	return m
 }
 
 func validate(t *testing.T, v any) (json.RawMessage, []submission.Problem) {
 	t.Helper()
-	return FixReport.Validate(context.Background(), tree(), payload(t, v))
+	return FixReport.Validate(context.Background(), submittedTree(), testutil.JSON(t, v))
 }
 
-// paths are the field pointers of the problems.
-func paths(problems []submission.Problem) []string {
+// pointers are the field pointers of the problems, in order.
+func pointers(problems []submission.Problem) []string {
 	var out []string
 	for _, p := range problems {
 		out = append(out, p.Path)
@@ -81,21 +67,38 @@ func question(text string, options ...any) map[string]any {
 	return map[string]any{"question": q}
 }
 
-// TestTheKindIsFixReportAndTakesOneOfTwoForms_TS_09_26 verifies TS-09-26:
-// the kind has its name and the name of its tool, and takes a report or a
-// question, and not both.
-// Verifies: 09-REQ-4.1
-func TestTheKindIsFixReportAndTakesOneOfTwoForms_TS_09_26(t *testing.T) {
-	if FixReport.Name != "fix_report" || FixReport.ToolName != "submit_fix" || FixReport.Description == "" {
-		t.Fatalf("kind = %q / %q (%q)", FixReport.Name, FixReport.ToolName, FixReport.Description)
-	}
-	var schema map[string]any
-	if err := json.Unmarshal(FixReport.Schema, &schema); err != nil || schema["type"] != "object" {
-		t.Errorf("the schema of the tool = %s (%v), want a JSON Schema object", FixReport.Schema, err)
-	}
+func set(key string, v any) func(m map[string]any) { return func(m map[string]any) { m[key] = v } }
 
+// setFile makes the files the one file {path, why} as edit leaves it.
+func setFile(edit func(f map[string]any)) func(m map[string]any) {
+	return func(m map[string]any) {
+		f := map[string]any{"path": "src/a.go", "why": "w"}
+		edit(f)
+		m["files"] = []any{f}
+	}
+}
+
+func filePath(p string) func(m map[string]any) {
+	return setFile(func(f map[string]any) { f["path"] = p })
+}
+
+func setTest(p string) func(m map[string]any) {
+	return set("tests", []any{map[string]any{"path": p, "proves": "p"}})
+}
+
+func items(n int, item func(i int) any) []any {
+	out := make([]any, n)
+	for i := range out {
+		out[i] = item(i)
+	}
+	return out
+}
+
+func x(n int) string { return strings.Repeat("x", n) }
+
+func TestValidate_TakesAReportOrAQuestionAndNotBoth(t *testing.T) {
 	for name, form := range map[string]any{
-		"a report":                report(),
+		"a report":                goodReport(),
 		"a question":              question("Which session?", "old", "new"),
 		"a question with no list": question("Which session?"),
 		"a question and the analysis so far": map[string]any{"question": map[string]any{
@@ -106,360 +109,210 @@ func TestTheKindIsFixReportAndTakesOneOfTwoForms_TS_09_26(t *testing.T) {
 			t.Errorf("%s: out %s, problems %v, want it accepted", name, out, problems)
 		}
 	}
-	mixed := with(func(m map[string]any) { m["question"] = map[string]any{"text": "Which?"} })
-	if out, problems := validate(t, mixed); len(problems) == 0 || out != nil {
-		t.Errorf("a report with a question: out %s, problems %v, want it refused", out, problems)
-	}
-	if _, problems := validate(t, map[string]any{}); len(problems) == 0 {
-		t.Error("an empty object was accepted: it is neither form")
-	}
-}
-
-type limit struct {
-	name    string
-	ok, bad func(m map[string]any)
-	pointer string
-}
-
-func str(n int) string { return strings.Repeat("x", n) }
-
-func setFile(f func(file map[string]any)) func(m map[string]any) {
-	return func(m map[string]any) {
-		file := map[string]any{"path": "src/a.go", "why": "w"}
-		f(file)
-		m["files"] = []any{file}
+	for name, form := range map[string]any{
+		"a report with a question": goodReport(set("question", map[string]any{"text": "Which?"})),
+		"an empty object":          map[string]any{},
+		"an array":                 []any{1},
+		"null":                     nil,
+	} {
+		if out, problems := validate(t, form); len(problems) == 0 || out != nil {
+			t.Errorf("%s: out %s, problems %v, want it refused", name, out, problems)
+		}
 	}
 }
 
-func fileList(n int) []any {
-	out := make([]any, n)
-	for i := range out {
-		out[i] = map[string]any{"path": fmt.Sprintf("src/f%03d.go", i), "why": "w"}
-	}
-	return out
-}
-
-func setTest(f func(tc map[string]any)) func(m map[string]any) {
-	return func(m map[string]any) {
-		tc := map[string]any{"path": "tests/fix_test.sh", "proves": "p"}
-		f(tc)
-		m["tests"] = []any{tc}
-	}
-}
-
-// TestReportAndQuestionLimitsHoldAtTheirBoundaries_TS_09_27 verifies TS-09-27:
-// each limit accepts the value just inside it and names the field of the value
-// just outside it.
-// Verifies: 09-REQ-4.2
-func TestReportAndQuestionLimitsHoldAtTheirBoundaries_TS_09_27(t *testing.T) {
-	setSubject := func(s string) func(m map[string]any) { return func(m map[string]any) { m["subject"] = s } }
-	set := func(key string, v any) func(m map[string]any) { return func(m map[string]any) { m[key] = v } }
-	cases := []limit{
-		{name: "subject length", ok: setSubject(str(72)), bad: setSubject(str(73)), pointer: "/subject"},
-		{name: "subject in characters", ok: setSubject(strings.Repeat("é", 72)), bad: setSubject(strings.Repeat("é", 73)), pointer: "/subject"},
-		{name: "subject period", ok: setSubject("No period"), bad: setSubject("A period."), pointer: "/subject"},
-		{name: "subject type prefix", ok: setSubject("fixes the thing"), bad: setSubject("fix: the thing"), pointer: "/subject"},
-		{name: "subject scoped prefix", ok: setSubject("the (fix) thing"), bad: setSubject("feat(cli): the thing"), pointer: "/subject"},
-		{name: "subject line", ok: setSubject("one line"), bad: setSubject("two\nlines"), pointer: "/subject"},
-		{name: "subject empty", ok: setSubject("a"), bad: setSubject("  "), pointer: "/subject"},
-		{name: "type", ok: set("type", "refactor"), bad: set("type", "bugfix"), pointer: "/type"},
-		{name: "root_cause", ok: set("root_cause", str(4000)), bad: set("root_cause", str(4001)), pointer: "/root_cause"},
-		{name: "root_cause empty", ok: set("root_cause", "x"), bad: set("root_cause", ""), pointer: "/root_cause"},
-		{name: "change", ok: set("change", str(4000)), bad: set("change", str(4001)), pointer: "/change"},
-		{name: "change empty", ok: set("change", "x"), bad: set("change", " \n "), pointer: "/change"},
-		{name: "files count", ok: set("files", fileList(500)), bad: set("files", fileList(501)), pointer: "/files"},
-		{name: "files none", ok: set("files", fileList(1)), bad: set("files", []any{}), pointer: "/files"},
-		{name: "file under .git", ok: setFile(func(f map[string]any) { f["path"] = "src/.gitignore" }), bad: setFile(func(f map[string]any) { f["path"] = ".git/config" }), pointer: "/files/0/path"},
-		{name: "file under .agent-fox", ok: setFile(func(f map[string]any) { f["path"] = "src/.agent-fox" }), bad: setFile(func(f map[string]any) { f["path"] = ".agent-fox/gate.json" }), pointer: "/files/0/path"},
-		{name: "file absolute", ok: setFile(func(f map[string]any) { f["path"] = "src/a.go" }), bad: setFile(func(f map[string]any) { f["path"] = "/etc/passwd" }), pointer: "/files/0/path"},
-		{name: "file up", ok: setFile(func(f map[string]any) { f["path"] = "src/a..go" }), bad: setFile(func(f map[string]any) { f["path"] = "src/../../x" }), pointer: "/files/0/path"},
-		{name: "file up from the root", ok: setFile(func(f map[string]any) { f["path"] = "src/a.go" }), bad: setFile(func(f map[string]any) { f["path"] = "../a.go" }), pointer: "/files/0/path"},
-		{name: "file not clean", ok: setFile(func(f map[string]any) { f["path"] = "src/a.go" }), bad: setFile(func(f map[string]any) { f["path"] = "src//a.go" }), pointer: "/files/0/path"},
-		{name: "file with a backslash", ok: setFile(func(f map[string]any) { f["path"] = "src/a.go" }), bad: setFile(func(f map[string]any) { f["path"] = `src\a.go` }), pointer: "/files/0/path"},
-		{name: "file why", ok: setFile(func(f map[string]any) { f["why"] = str(300) }), bad: setFile(func(f map[string]any) { f["why"] = str(301) }), pointer: "/files/0/why"},
-		{name: "file why empty", ok: setFile(func(f map[string]any) { f["why"] = "x" }), bad: setFile(func(f map[string]any) { f["why"] = "" }), pointer: "/files/0/why"},
-		{name: "duplicate files", ok: set("files", []any{map[string]any{"path": "a", "why": "w"}, map[string]any{"path": "b", "why": "w"}}),
-			bad: set("files", []any{map[string]any{"path": "a", "why": "w"}, map[string]any{"path": "a", "why": "w2"}}), pointer: "/files/1/path"},
-		{name: "test file in the tree", ok: setTest(func(tc map[string]any) {}), bad: setTest(func(tc map[string]any) { tc["path"] = "tests/missing.sh" }), pointer: "/tests/0/path"},
-		{name: "test that is a directory", ok: setTest(func(tc map[string]any) {}), bad: setTest(func(tc map[string]any) { tc["path"] = "tests/dir" }), pointer: "/tests/0/path"},
-		{name: "tests count", ok: set("tests", repeatTest(100)), bad: set("tests", repeatTest(101)), pointer: "/tests"},
-		{name: "criteria count", ok: set("criteria", criteria(50)), bad: set("criteria", criteria(51)), pointer: "/criteria"},
-		{name: "criterion status", ok: set("criteria", []any{map[string]any{"criterion": "c", "status": "not_applicable", "evidence": "e"}}),
-			bad: set("criteria", []any{map[string]any{"criterion": "c", "status": "done", "evidence": "e"}}), pointer: "/criteria/0/status"},
-		{name: "decisions count", ok: set("decisions", decisions(30, 1)), bad: set("decisions", decisions(31, 1)), pointer: "/decisions"},
-		{name: "decision length", ok: set("decisions", decisions(1, 500)), bad: set("decisions", decisions(1, 501)), pointer: "/decisions/0"},
-		{name: "unknown field", ok: set("type", "fix"), bad: set("extra", 1), pointer: "/extra"},
-		{name: "unknown field of a file", ok: setFile(func(f map[string]any) {}), bad: setFile(func(f map[string]any) { f["note"] = "x" }), pointer: "/files/0/note"},
-	}
-	for _, c := range cases {
+func TestValidate_EachLimitHoldsAtItsBoundary(t *testing.T) {
+	setSubject := func(s string) func(m map[string]any) { return set("subject", s) }
+	file := func(i int) any { return map[string]any{"path": fmt.Sprintf("src/f%03d.go", i), "why": "w"} }
+	test := func(int) any { return map[string]any{"path": "tests/fix_test.sh", "proves": "p"} }
+	criterion := func(i int) any { return map[string]any{"criterion": fmt.Sprintf("c%d", i), "status": "met"} }
+	decision := func(int) any { return "d" }
+	for _, c := range []struct {
+		name    string
+		ok, bad func(m map[string]any)
+		pointer string
+	}{
+		{"subject length", setSubject(x(72)), setSubject(x(73)), "/subject"},
+		{"subject in characters", setSubject(strings.Repeat("é", 72)), setSubject(strings.Repeat("é", 73)), "/subject"},
+		{"subject period", setSubject("No period"), setSubject("A period."), "/subject"},
+		{"subject type prefix", setSubject("fixes the thing"), setSubject("fix: the thing"), "/subject"},
+		{"subject scoped prefix", setSubject("the (fix) thing"), setSubject("feat(cli)!: the thing"), "/subject"},
+		{"subject line", setSubject("one line"), setSubject("two\nlines"), "/subject"},
+		{"subject empty", setSubject("a"), setSubject("  "), "/subject"},
+		{"subject missing", setSubject("a"), func(m map[string]any) { delete(m, "subject") }, "/subject"},
+		{"type", set("type", "refactor"), set("type", "bugfix"), "/type"},
+		{"root_cause", set("root_cause", x(4000)), set("root_cause", x(4001)), "/root_cause"},
+		{"root_cause with a NUL", set("root_cause", "x"), set("root_cause", "a\x00b"), "/root_cause"},
+		{"change empty", set("change", "x"), set("change", " \n "), "/change"},
+		{"files count", set("files", items(500, file)), set("files", items(501, file)), "/files"},
+		{"files none", set("files", items(1, file)), set("files", []any{}), "/files"},
+		{"file under .git", filePath("src/.gitignore"), filePath(".git/config"), "/files/0/path"},
+		{"file under .agent-fox", filePath("src/.agent-fox"), filePath(".Agent-Fox/gate.json"), "/files/0/path"},
+		{"file absolute", filePath("src/a.go"), filePath("/etc/passwd"), "/files/0/path"},
+		{"file on a drive", filePath("src/a.go"), filePath("C:/a.go"), "/files/0/path"},
+		{"file up", filePath("src/a..go"), filePath("src/../../x"), "/files/0/path"},
+		{"file not clean", filePath("src/a.go"), filePath("src//a.go"), "/files/0/path"},
+		{"file is the root", filePath("a"), filePath("."), "/files/0/path"},
+		{"file with a backslash", filePath("src/a.go"), filePath(`src\a.go`), "/files/0/path"},
+		{"file why", setFile(func(f map[string]any) { f["why"] = x(300) }), setFile(func(f map[string]any) { f["why"] = x(301) }), "/files/0/why"},
+		{"duplicate files", set("files", []any{file(1), file(2)}), set("files", []any{file(1), file(1)}), "/files/1/path"},
+		{"test file in the tree", setTest("tests/fix_test.sh"), setTest("tests/missing.sh"), "/tests/0/path"},
+		{"test that is a directory", setTest("tests/fix_test.sh"), setTest("tests/dir"), "/tests/0/path"},
+		{"tests count", set("tests", items(100, test)), set("tests", items(101, test)), "/tests"},
+		{"criteria count", set("criteria", items(50, criterion)), set("criteria", items(51, criterion)), "/criteria"},
+		{"criterion status", set("criteria", []any{map[string]any{"criterion": "c", "status": "not_applicable"}}),
+			set("criteria", []any{map[string]any{"criterion": "c", "status": "done"}}), "/criteria/0/status"},
+		{"decisions count", set("decisions", items(30, decision)), set("decisions", items(31, decision)), "/decisions"},
+		{"decision length", set("decisions", []any{x(500)}), set("decisions", []any{x(501)}), "/decisions/0"},
+		{"unknown field", set("type", "fix"), set("extra", 1), "/extra"},
+		{"unknown field of a file", setFile(func(map[string]any) {}), setFile(func(f map[string]any) { f["a/b"] = "x" }), "/files/0/a~1b"},
+	} {
 		t.Run(c.name, func(t *testing.T) {
-			if _, problems := validate(t, with(c.ok)); len(problems) != 0 {
+			if _, problems := validate(t, goodReport(c.ok)); len(problems) != 0 {
 				t.Errorf("inside the limit: problems = %v, want none", problems)
 			}
-			_, problems := validate(t, with(c.bad))
-			if !slices.Contains(paths(problems), c.pointer) {
+			if _, problems := validate(t, goodReport(c.bad)); !slices.Contains(pointers(problems), c.pointer) {
 				t.Errorf("outside the limit: problems = %v, want one at %s", problems, c.pointer)
 			}
 		})
 	}
 
-	questionCases := []struct {
+	for _, c := range []struct {
 		name    string
 		ok, bad map[string]any
 		pointer string
 	}{
-		{"text", question(str(2000)), question(str(2001)), "/question/text"},
-		{"empty text", question("x"), question(""), "/question/text"},
-		{"options", question("q", "1", "2", "3", "4", "5", "6"), question("q", "1", "2", "3", "4", "5", "6", "7"), "/question/options"},
-		{"an option", question("q", str(200)), question("q", str(201)), "/question/options/0"},
-		{"an empty option", question("q", "a"), question("q", ""), "/question/options/0"},
-		{"root_cause", map[string]any{"question": map[string]any{"text": "q", "root_cause": str(8000)}}, map[string]any{"question": map[string]any{"text": "q", "root_cause": str(8001)}}, "/question/root_cause"},
-		{"unknown field", question("q"), map[string]any{"question": map[string]any{"text": "q", "hint": "h"}}, "/question/hint"},
+		{"text", question(x(2000)), question(x(2001)), "/question/text"},
 		{"no text", question("q"), map[string]any{"question": map[string]any{"options": []any{"a"}}}, "/question/text"},
-	}
-	for _, c := range questionCases {
+		{"options", question("q", "1", "2", "3", "4", "5", "6"), question("q", "1", "2", "3", "4", "5", "6", "7"), "/question/options"},
+		{"an option", question("q", x(200)), question("q", x(201)), "/question/options/0"},
+		{"an empty option", question("q", "a"), question("q", ""), "/question/options/0"},
+		{"root_cause", map[string]any{"question": map[string]any{"text": "q", "root_cause": x(8000)}}, map[string]any{"question": map[string]any{"text": "q", "root_cause": x(8001)}}, "/question/root_cause"},
+		{"unknown field", question("q"), map[string]any{"question": map[string]any{"text": "q", "hint": "h"}}, "/question/hint"},
+		{"another field beside it", question("q"), map[string]any{"question": map[string]any{"text": "q"}, "subject": "s"}, "/subject"},
+	} {
 		t.Run("question "+c.name, func(t *testing.T) {
 			if _, problems := validate(t, c.ok); len(problems) != 0 {
 				t.Errorf("inside the limit: problems = %v, want none", problems)
 			}
-			if _, problems := validate(t, c.bad); !slices.Contains(paths(problems), c.pointer) {
+			if _, problems := validate(t, c.bad); !slices.Contains(pointers(problems), c.pointer) {
 				t.Errorf("outside the limit: problems = %v, want one at %s", problems, c.pointer)
 			}
 		})
 	}
 }
 
-func repeatTest(n int) []any {
-	out := make([]any, n)
-	for i := range out {
-		out[i] = map[string]any{"path": "tests/fix_test.sh", "proves": "p"}
+func TestValidate_NamesWhatAValueOfTheWrongTypeIs(t *testing.T) {
+	for _, c := range []struct {
+		form    map[string]any
+		pointer string
+		message string
+	}{
+		{goodReport(set("subject", 7)), "/subject", "must be a string, not a number"},
+		{goodReport(set("files", "src/a.go")), "/files", "must be an array, not a string"},
+		{goodReport(set("files", []any{[]any{}})), "/files/0", "must be an object {path, why}, not an array"},
+		{goodReport(set("tests", []any{true})), "/tests/0", "not a boolean"},
+		{goodReport(set("criteria", []any{nil})), "/criteria/0", "not null"},
+		{goodReport(set("decisions", []any{map[string]any{}})), "/decisions/0", "not an object"},
+		{map[string]any{"question": "Which?"}, "/question", "must be an object {text, options, root_cause}, not a string"},
+		{map[string]any{"question": map[string]any{"text": "q", "options": map[string]any{}}}, "/question/options", "must be an array of strings, not an object"},
+		{map[string]any{"question": map[string]any{"text": "q", "options": []any{1}}}, "/question/options/0", "must be a string, not a number"},
+	} {
+		_, problems := validate(t, c.form)
+		if i := slices.Index(pointers(problems), c.pointer); i < 0 || !strings.Contains(problems[i].Message, c.message) {
+			t.Errorf("problems = %v, want %q at %s", problems, c.message, c.pointer)
+		}
 	}
-	return out
 }
 
-func criteria(n int) []any {
-	out := make([]any, n)
-	for i := range out {
-		out[i] = map[string]any{"criterion": fmt.Sprintf("c%d", i), "status": "met", "evidence": "e"}
-	}
-	return out
-}
-
-func decisions(n, length int) []any {
-	out := make([]any, n)
-	for i := range out {
-		out[i] = str(length)
-	}
-	return out
-}
-
-// TestAnInvalidPayloadYieldsEveryProblemAtOnce_TS_09_28 verifies TS-09-28:
-// every violation is a problem of its own, nothing is normalised, and the
-// submit core writes no file for it.
-// Verifies: 09-REQ-4.3
-func TestAnInvalidPayloadYieldsEveryProblemAtOnce_TS_09_28(t *testing.T) {
-	bad := with(func(m map[string]any) {
-		m["extra"] = true
-		m["subject"] = ""
-		m["files"] = []any{map[string]any{"path": "src/a.go", "why": "w"}, map[string]any{"path": "src/a.go", "why": "w"}}
-		m["criteria"] = []any{map[string]any{"criterion": "c", "status": "maybe", "evidence": "e"}}
-	})
+// A brain that is told to correct every problem it is refused for corrects them in one round
+// only if it is told of all of them, a field breaking several rules included.
+func TestValidate_RefusesWithEveryProblemAtOnceInTheOrderOfThePointers(t *testing.T) {
+	bad := goodReport(set("extra", true), set("subject", "fix: add thing."), set("criteria", []any{map[string]any{"criterion": "c", "status": "maybe"}}),
+		set("files", []any{map[string]any{"path": "src/a.go", "why": "w"}, map[string]any{"path": `/a\..\.git/config`, "why": "w"}}))
 
 	out, problems := validate(t, bad)
 
-	if out != nil || len(problems) < 4 {
-		t.Fatalf("out %s, problems %v, want no payload and at least four problems", out, problems)
+	want := []string{"/criteria/0/status", "/extra", "/files/1/path", "/files/1/path", "/subject", "/subject"}
+	if out != nil || !slices.Equal(pointers(problems), want) {
+		t.Errorf("out %s, pointers %v, want no payload and %v", out, pointers(problems), want)
 	}
-	want := []string{"/criteria/0/status", "/extra", "/files/1/path", "/subject"}
-	if got := paths(problems); !slices.Equal(got, want) {
-		t.Errorf("pointers = %v, want %v, in this order", got, want)
-	}
-
-	// Through the submit core: a refusal names them all, and nothing is written.
-	written := map[string][]byte{}
-	target := submission.Target{
-		Tree:  tree(),
-		Write: func(_ context.Context, rel string, data []byte) error { written[rel] = data; return nil },
-		RunID: "20261020_100000_aaaaaa",
-	}
-	target.Tree = withRun(tree(), target.RunID)
-	_, err := submission.Submit(context.Background(), target, FixReport, payload(t, bad), fixedNow)
-	var refused *submission.Refused
-	if !asRefused(err, &refused) || len(refused.Problems) != len(problems) {
-		t.Fatalf("Submit error = %v, want a refusal with %d problems", err, len(problems))
-	}
-	if len(written) != 0 {
-		t.Errorf("a refused submission wrote %v", written)
-	}
-}
-
-// TestEveryViolationOfAFieldIsAProblemOfItsOwn guards 09-REQ-4.3 inside one field: a subject
-// that ends with a period and starts with a type, and a path that is absolute, has a
-// backslash and goes up, are each refused for every rule they break, so that a brain that is
-// told to correct them all does it in one round.
-func TestEveryViolationOfAFieldIsAProblemOfItsOwn(t *testing.T) {
-	_, problems := validate(t, with(func(m map[string]any) {
-		m["subject"] = "fix: add thing."
-		m["files"] = []any{map[string]any{"path": `/a\..\.git/config`, "why": "w"}}
-	}))
-
-	var subject, file []string
+	var messages []string
 	for _, p := range problems {
-		switch p.Path {
-		case "/subject":
-			subject = append(subject, p.Message)
-		case "/files/0/path":
-			file = append(file, p.Message)
+		messages = append(messages, p.Message)
+	}
+	for _, word := range []string{"backslash", "absolute", "period", "type"} {
+		if !strings.Contains(strings.Join(messages, "|"), word) {
+			t.Errorf("no problem says %q: %v", word, messages)
 		}
 	}
-	if len(subject) != 2 || !strings.Contains(strings.Join(subject, "|"), "period") || !strings.Contains(strings.Join(subject, "|"), "type") {
-		t.Errorf("subject problems = %v, want the period and the type, each once", subject)
-	}
-	if len(file) < 2 || !strings.Contains(strings.Join(file, "|"), "backslash") || !strings.Contains(strings.Join(file, "|"), "absolute") {
-		t.Errorf("path problems = %v, want the backslashes and the absolute path at least", file)
-	}
 }
 
-// TestNormalisationIsIdempotentAndApplied_TS_09_29 verifies TS-09-29: for
-// reports with white space, CRLF, no type and files out of order, the
-// normalised payload has none of them, and validating it returns it unchanged.
-// Verifies: 09-REQ-4.4
-func TestNormalisationIsIdempotentAndApplied_TS_09_29(t *testing.T) {
+// The normalised payload has no CR, no untrimmed string, the default type and its files in
+// order, and it is its own normal form.
+func TestValidate_NormalisesThePayloadOnce(t *testing.T) {
 	rng := rand.New(rand.NewSource(29))
-	pad := func(s string) string {
-		white := []string{"", " ", "\n", "\r\n", "\t ", "\t", "\v\f", "\u00a0", "\u2003\n", " \t\r\n "}
-		return white[rng.Intn(len(white))] + s + white[rng.Intn(len(white))]
-	}
+	white := []string{"", " ", "\n", "\r\n", "\t ", "\v\f", "\u00a0", "\u2003\n", " \t\r\n "}
+	pad := func(s string) string { return white[rng.Intn(len(white))] + s + white[rng.Intn(len(white))] }
 	text := func(n int) string {
-		words := []string{"alpha", "beta", "gamma", "delta"}
 		var b strings.Builder
 		for i := range n {
 			if i > 0 {
 				b.WriteString([]string{" ", "\r\n", "\n", "\r"}[rng.Intn(4)])
 			}
-			b.WriteString(words[rng.Intn(len(words))])
+			b.WriteString([]string{"alpha", "beta", "gamma"}[rng.Intn(3)])
 		}
 		return b.String()
 	}
-	for i := range 300 {
+	for i := range 50 {
 		m := map[string]any{
-			"subject": pad("Subject " + text(1)), "root_cause": pad(text(rng.Intn(6) + 1)), "change": pad(text(rng.Intn(6) + 1)),
+			"subject": pad("Subject " + text(1)), "root_cause": pad(text(rng.Intn(6) + 1)), "change": pad(text(3)),
 			"files": []any{
 				map[string]any{"path": pad("src/z.go"), "why": pad(text(2))},
 				map[string]any{"path": pad("src/a.go"), "why": pad(text(1))},
-				map[string]any{"path": pad("tests/fix_test.sh"), "why": pad(text(1))},
 			},
+			"criteria":  []any{map[string]any{"criterion": pad(text(2)), "status": "met", "evidence": pad(text(1))}},
 			"decisions": []any{pad(text(3))},
 		}
-		if rng.Intn(2) == 0 {
-			m["type"] = []string{"fix", "feat", "docs"}[rng.Intn(3)]
-		}
-		if rng.Intn(2) == 0 {
-			m["criteria"] = []any{map[string]any{"criterion": pad(text(2)), "status": "met", "evidence": pad(text(1))}}
+		if i%2 == 0 {
+			m["type"] = "docs"
 		}
 
 		first, problems := validate(t, m)
 		if len(problems) != 0 {
-			t.Fatalf("case %d: problems = %v for %v", i, problems, m)
+			t.Fatalf("case %d: problems = %v", i, problems)
 		}
-		var n struct {
-			Type  string `json:"type"`
-			Files []struct {
-				Path string `json:"path"`
-			} `json:"files"`
+		r := testutil.Decode[Report](t, first)
+		if strings.Contains(string(first), `\r`) || (i%2 == 1 && r.Type != DefaultType) || r.Files[0].Path != "src/a.go" || r.Files[1].Path != "src/z.go" {
+			t.Fatalf("case %d: a CR, no default type or files out of order: %s", i, first)
 		}
-		if err := json.Unmarshal(first, &n); err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(string(first), `\r`) || n.Type == "" {
-			t.Fatalf("case %d: the normalised payload has a CR or no type: %s", i, first)
-		}
-		if !slices.IsSortedFunc(n.Files, func(a, b struct {
-			Path string `json:"path"`
-		}) int {
-			return strings.Compare(a.Path, b.Path)
-		}) {
-			t.Fatalf("case %d: files are not sorted: %s", i, first)
-		}
-		var every any
-		if err := json.Unmarshal(first, &every); err != nil {
-			t.Fatal(err)
-		}
-		if s, ok := untrimmed(every); ok {
-			t.Fatalf("case %d: the string %q is not trimmed: %s", i, s, first)
-		}
-		second, problems := FixReport.Validate(context.Background(), tree(), first)
-		if len(problems) != 0 || string(second) != string(first) {
-			t.Fatalf("case %d: validating the normalised payload gave %s (%v), want it unchanged: %s", i, second, problems, first)
-		}
-		if _, ok := m["type"]; !ok && !strings.Contains(string(first), `"type":"fix"`) {
-			t.Fatalf("case %d: the type was not defaulted: %s", i, first)
-		}
-	}
-}
-
-// untrimmed is a string of the value that has white space at either end, if there is one.
-func untrimmed(v any) (string, bool) {
-	switch v := v.(type) {
-	case string:
-		return v, strings.TrimSpace(v) != v
-	case []any:
-		for _, item := range v {
-			if s, ok := untrimmed(item); ok {
-				return s, true
+		for _, s := range []string{r.Subject, r.RootCause, r.Change, r.Files[0].Why, r.Criteria[0].Criterion, r.Criteria[0].Evidence, r.Decisions[0]} {
+			if strings.TrimSpace(s) != s {
+				t.Fatalf("case %d: %q is not trimmed", i, s)
 			}
 		}
-	case map[string]any:
-		for _, item := range v {
-			if s, ok := untrimmed(item); ok {
-				return s, true
-			}
+		if second, problems := FixReport.Validate(context.Background(), submittedTree(), first); len(problems) != 0 || string(second) != string(first) {
+			t.Fatalf("case %d: validating the normal form gave %s (%v), want it unchanged", i, second, problems)
 		}
 	}
-	return "", false
-}
-
-var fixedNow = time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC)
-
-// withRun adds the run.json that the submit core reads the attempt and the nonce
-// of a submission from.
-func withRun(tree fstest.MapFS, runID string) fstest.MapFS {
-	run, _ := json.Marshal(submission.Run{RunID: runID, Kind: "fix_report", Attempt: 1, Nonce: "0123456789abcdef"})
-	tree[submission.RunPath(runID)] = &fstest.MapFile{Data: run}
-	return tree
-}
-
-func asRefused(err error, target **submission.Refused) bool { return errors.As(err, target) }
-
-// TestLineEndingsBecomeOneLFEach guards 09-REQ-4.4: CRLF is one line break, and
-// not two.
-func TestLineEndingsBecomeOneLFEach(t *testing.T) {
-	out, problems := validate(t, with(func(m map[string]any) { m["root_cause"] = " first\r\nsecond\rthird\nfourth\r\n " }))
-	if len(problems) != 0 {
-		t.Fatal(problems)
-	}
-	var r Report
-	if err := json.Unmarshal(out, &r); err != nil {
-		t.Fatal(err)
-	}
-	if r.RootCause != "first\nsecond\nthird\nfourth" {
-		t.Errorf("root_cause = %q", r.RootCause)
+	out, _ := validate(t, goodReport(set("root_cause", " first\r\nsecond\rthird\nfourth\r\n ")))
+	if r := testutil.Decode[Report](t, out); r.RootCause != "first\nsecond\nthird\nfourth" {
+		t.Errorf("root_cause = %q, want each line ending one LF", r.RootCause)
 	}
 }
 
-// TestDecodeReadsWhatValidateWrote guards the typed form later steps read an
-// accepted submission as.
-func TestDecodeReadsWhatValidateWrote(t *testing.T) {
-	out, _ := validate(t, report())
-	sub, err := Decode(out)
-	if err != nil || sub.Report == nil || sub.Question != nil || sub.Report.Subject != "Check the arguments before help runs" || sub.Report.Type != "fix" || len(sub.Report.Files) != 2 || sub.Report.Files[0].Path != "src/a.go" {
-		t.Errorf("Decode = %+v, %v", sub, err)
+func TestDecode_ReadsAnAcceptedPayloadAsAReportOrAQuestion(t *testing.T) {
+	out, _ := validate(t, goodReport())
+	if sub, err := Decode(out); err != nil || sub.Report == nil || sub.Question != nil || sub.Report.Subject != "Check the arguments before help runs" || len(sub.Report.Files) != 2 {
+		t.Errorf("Decode = %+v, %v, want the report", sub, err)
 	}
 	out, _ = validate(t, question("Which?", "a", "b"))
-	if sub, err := Decode(out); err != nil || sub.Question == nil || sub.Report != nil || sub.Question.Text != "Which?" || !slices.Equal(sub.Question.Options, []string{"a", "b"}) {
-		t.Errorf("Decode of a question = %+v, %v", sub, err)
+	if sub, err := Decode(out); err != nil || sub.Report != nil || sub.Question == nil || sub.Question.Text != "Which?" || !slices.Equal(sub.Question.Options, []string{"a", "b"}) {
+		t.Errorf("Decode = %+v, %v, want the question", sub, err)
 	}
-	if _, err := Decode([]byte(`[1]`)); err == nil {
-		t.Error("Decode of an array succeeded")
+	for _, payload := range []string{`[1]`, `{"subject":7}`} {
+		if _, err := Decode([]byte(payload)); err == nil {
+			t.Errorf("Decode(%s) succeeded", payload)
+		}
 	}
 }

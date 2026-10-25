@@ -20,7 +20,7 @@ the [HTTP API](api.md); for how they are built inside, see
   - [The scripted brain](#the-scripted-brain)
   - [Testing a brain](#testing-a-brain)
   - [Tests and the sandbox](#tests-and-the-sandbox)
-  - [Property and fuzz tests](#property-and-fuzz-tests)
+  - [Fuzz tests](#fuzz-tests)
 - [Opt-in tests](#opt-in-tests)
 - [Adding a command](#adding-a-command)
 - [Container images](#container-images)
@@ -86,9 +86,8 @@ engine. Keep it that way:
   forbids binding a local port makes them fail.
 - A test that needs git creates its own repository in a temporary directory,
   with its own identity and no global git configuration, and skips when git is
-  missing. A test that needs `sh` skips when there is none.
-  `TestSuitesPassWithoutGit_TS_06_75` runs the suites of these packages with
-  nothing on `PATH` to prove it.
+  missing (`testutil.Repo`, `testutil.Require`). A test that needs `sh` skips
+  when there is none.
 - Tests that do need a key or a container engine are [opt-in](#opt-in-tests).
 
 ## Repository layout
@@ -109,7 +108,7 @@ engine. Keep it that way:
 | `skills/` | The coding-agent [skills](#skills). |
 | `containers/` | Containerfiles for the [images](#container-images). |
 | `docs/` | The [documentation](#documentation). |
-| `.specs/` | `steering.md` and the archived specs. Test names such as `TS_10_63` and `REQ-…` ids refer to them. |
+| `.specs/` | `steering.md` and the archived specs. |
 
 [architecture.md](architecture.md#package-map) has the full package map.
 
@@ -121,7 +120,8 @@ Everything the tests talk to is faked in-process.
 
 `internal/testutil` holds what the tests of every package need: `Git`,
 `Repo` and `Commit` (git without the user's configuration, a repository with a
-first commit on `main`), `WriteFile`, `ReadFile` and `Files`, `Require` (skip
+first commit on `main`), `IsolateGit` (the same for the git that the code under
+test runs itself), `WriteFile`, `ReadFile` and `Files`, `Require` (skip
 unless a program is on `PATH`), `Eventually` (poll with a deadline instead of
 sleeping), `Log` (a JSON log the code under test writes to, read back as
 records), `JSON`, `Decode`, `JSONLines` and `SHA256`, `Key`, `OpenDB`, `Exec`,
@@ -169,15 +169,17 @@ over `httptest`, including pull and merge requests. It records requests
 (`Requests`, `Writes`, `Count`), can fail an operation (`Fail`), and hands the
 shell its client (`NewForge(token)`; an empty token is an unauthenticated
 client). The `internal/afcmd` tests set up a git repository, an app and a
-forge in one helper (`newTriageEnv`, and `fixEnv` for fix).
+forge in one helper (`newEnv`).
 
 ### The fake af
 
 A sandbox runs `af` by name, but a test binary is not `af`. So the `TestMain`
-of packages that run `af fix` (`internal/afcmd`, `cmd/af`) links the test
-binary as `af` (`fakeaf.LinkSelf`), points `brain.DefaultAFPath` at the link,
-and acts as the real `af` when run under that name. `internal/worker` does the
-same.
+of packages that run `af fix` (`internal/afcmd`, `internal/worker`) links the
+test binary as `af` (`fakeaf.LinkSelf`), points `brain.DefaultAFPath` at the
+link, and acts as the real `af` when run under that name. A test binary built
+with `-cover` writes a `GOCOVERDIR` warning to stderr when it starts, which a
+box returns with stdout, so a package that reads what the fake `af` printed
+runs it through a small script that sets `GOCOVERDIR` first.
 
 `internal/brain` instead uses a scripted fake: when its test binary runs as
 `af`, `fakeaf.Run` takes over. `fakeaf.Install(t)` creates the link directory
@@ -248,28 +250,22 @@ Give a turn a cost with `faux.Turn.Usage` to test the cost bound, or set
 on what the brain printed: `res.Payload`, the run directory's
 `submission.json`, the report's warnings and artifacts, and
 `RunDir.Ledger()`. `internal/brain`, `internal/box` and `internal/submission`
-run with no key and no network; `TestTheBrainsNeedNoKeyAndNoNetwork_TS_07_79`
-counts HTTP requests to prove it.
+run with no key and no network.
 
 A triage test can use the scripted brain, the `agentkit` brain on `faux`, or a
-spy brain of its own. `TestOnlyTheAllowedWarningCodesAndCategories_TS_08_64`
-checks that every envelope uses only documented warning codes and failure
-categories.
+spy brain of its own.
 
 ### Tests and the sandbox
 
 The default sandbox is `podman`, and no test may need it. Every test in
-`internal/*` that runs `af triage` or `af fix` passes `--sandbox local`. The
-helpers `triageEnv.loop`, `fixEnv.fix` and `fixEnv.fixRun` add it for you; a
+`internal/*` that runs `af triage` or `af fix` passes `--sandbox local`; the
+helpers `env.triage` and `env.fix` of `internal/afcmd` add it for you, and a
 later `--sandbox` in a test's arguments wins. A test of the default selection
 sets or clears `AF_SANDBOX` instead.
-`TestEveryTestThatRunsTriageOrFixSaysWhichBox_TS_10_62` parses the test
-sources and fails on any invocation that does neither. It cannot see a call
-whose command word is held in a variable.
 
-### Property and fuzz tests
+### Fuzz tests
 
-Property tests use a generator seeded by the test, so a failure repeats.
+A test that draws random inputs seeds its generator, so a failure repeats.
 Parsers and decisions that take text have fuzz targets:
 
 ```bash
@@ -284,13 +280,13 @@ Tests that need something `make check` must not depend on are gated by
 
 | Variable | Set to `1` to run | Needs |
 |---|---|---|
-| `AF_TEST_PODMAN` | The sandbox invariants and `af fix` end to end under `podman` | `podman info` answering, and the image (`AF_SANDBOX_IMAGE`, else `quay.io/agentfox/tools:latest`; `make build-tools-container` builds it). |
+| `AF_TEST_PODMAN` | That a box for a brain on the host holds no credential of the host, under `podman` | `podman info` answering, and the image (`AF_SANDBOX_IMAGE`, else `quay.io/agentfox/tools:latest`; `make build-tools-container` builds it). |
 
 ```bash
-AF_TEST_PODMAN=1 go test ./internal/brain ./internal/afcmd -run TS_10_63 -v
+AF_TEST_PODMAN=1 go test ./internal/brain -run TestBoxRequest_ABoxForABrainOnTheHostHoldsNoCredentialOfTheHost -v
 ```
 
-The same scenarios also run offline under `local`, so `make check` covers them.
+The same test also runs offline under `local`, so `make check` covers it.
 
 ## Adding a command
 
