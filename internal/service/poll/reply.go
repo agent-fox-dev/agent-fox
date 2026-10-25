@@ -48,7 +48,7 @@ func (c *cycleRun) threadCut(ctx context.Context, l *listing, n int, job jobs.Do
 }
 
 // reply posts the reply of the kind on the issue, ending with its marker, unless the latest comment of the issue carries
-// that marker already, so that a sighting of the poll and one of the stream do not both post it. A reply that cannot be
+// that marker already, so that two sightings of the same thread do not both post it. A reply that cannot be
 // posted is a WARN, and the label is consumed all the same.
 func (c *cycleRun) reply(ctx context.Context, l *listing, n int, job jobs.Doc, r read, kind, body string) {
 	marker := replyMarker(job.ID, r.attempt, kind)

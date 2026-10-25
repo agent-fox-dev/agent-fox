@@ -138,8 +138,7 @@ func (s *Service) Cancel(ctx context.Context, id string) (Doc, error) {
 // timer of the grace starts: a runner that has not returned when it ends has its
 // attempt recorded cancelled without it.
 //
-// A cancel by a person, by an unsubscribe or because the issue was closed owes the job's cancel
-// cleanup (without its request label, for the issue closed) when the layer has a
+// A cancel by a person or by an unsubscribe owes the job's cancel cleanup when the layer has a
 // cleaner and no runner of this process writes the labels: the cleanup is marked pending, and
 // its first try starts at once, when no attempt was running or when the running one is held
 // by no runner here (it was claimed and its runner not yet called, or its process ended). A

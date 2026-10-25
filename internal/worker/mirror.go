@@ -123,8 +123,7 @@ func (a *attempt) unmark(ctx context.Context) {
 //   - A shutdown writes nothing: the labels stay for the attempt that is handed over again.
 //   - A cancel takes in-progress off and puts the request label of the job back on the issue,
 //     which the person who cancelled had consumed, leaves ready in place, and sets no status
-//     label and posts no comment. A cancel because the issue was closed only takes in-progress
-//     off: nothing is put back on a closed issue.
+//     label and posts no comment.
 //   - A transient error, and any other end with no envelope, takes in-progress off and sets nothing.
 //   - An envelope is mapped to its label and its comment.
 func (r *Runner) mirror(ctx context.Context, a *attempt, out *outcome, how stop) {
