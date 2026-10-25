@@ -148,6 +148,7 @@ every path out (result, failure, panic, cancellation).
 | `internal/worker` | The production runner of the jobs layer: it carries out one attempt against a hub workspace. |
 | `internal/fakeaf` | A fake `af`: the test binary run under that name. |
 | `internal/optin` | Gates for the tests that need a container engine. |
+| `internal/testutil` | Helpers shared by the tests of every package: hermetic git and repositories, files, waiting with a deadline, a JSON log, JSON and SQLite helpers, HTTP requests and the error envelope. It imports no package of the repository. |
 | `skills` | The coding-agent skills (`af-triage`, `af-fix`, `af-bug-hunter`, `af-code-quality`, `af-code-simplifier`) and a Go package that embeds them, so the briefs carry the same skill text a person installs. |
 | `containers/sandbox`, `containers/tools` | Containerfiles of the sandbox image and of the tools image (the sandbox image with `af` in it). |
 

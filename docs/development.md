@@ -13,6 +13,7 @@ the [HTTP API](api.md); for how they are built inside, see
 - [Checks and tests](#checks-and-tests)
 - [Repository layout](#repository-layout)
 - [Test infrastructure](#test-infrastructure)
+  - [Shared test helpers](#shared-test-helpers)
   - [The fake hub](#the-fake-hub)
   - [The fake forge](#the-fake-forge)
   - [The fake af](#the-fake-af)
@@ -115,6 +116,19 @@ engine. Keep it that way:
 ## Test infrastructure
 
 Everything the tests talk to is faked in-process.
+
+### Shared test helpers
+
+`internal/testutil` holds what the tests of every package need: `Git`,
+`Repo` and `Commit` (git without the user's configuration, a repository with a
+first commit on `main`), `WriteFile`, `ReadFile` and `Files`, `Require` (skip
+unless a program is on `PATH`), `Eventually` (poll with a deadline instead of
+sleeping), `Log` (a JSON log the code under test writes to, read back as
+records), `JSON`, `Decode`, `JSONLines` and `SHA256`, `Key`, `OpenDB`, `Exec`,
+`Column` and `Count` (a SQLite file; the tables come from the owning package's
+schema function), and `Request`, `Bearer` and `Response` with `Object`,
+`Objects` and `Error` (the service's error envelope). It imports no package of
+the repository. What one package alone needs stays in its `helpers_test.go`.
 
 ### The fake hub
 
