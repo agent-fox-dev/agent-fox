@@ -361,9 +361,9 @@ func (s *Session) WriteFile(ctx context.Context, rel string, data []byte) error 
 // Export exports the box's tree into a fresh directory under the temporary
 // directory of the OS, af-export-<run_id>-*, never inside the checkout, and
 // records box_export. The directory is removed by Close. The tree comes out
-// without .git, and without what the hands' rules ignore, the run files of
-// .agent-fox/ among it. An export that carries a .git is removed and fails: it
-// breaks what the box is for.
+// without .git; the run files of .agent-fox/ come out with it, and the caller
+// leaves them alone (fix.Apply never writes .agent-fox/). An export that
+// carries a .git is removed and fails: it breaks what the box is for.
 func (s *Session) Export(ctx context.Context) (string, error) {
 	s.mu.Lock()
 	closed := s.closed
