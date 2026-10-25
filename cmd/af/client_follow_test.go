@@ -1,216 +1,167 @@
 package main
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
-	"fmt"
-	"io"
+	"errors"
 	"net/http"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
-	afclock "github.com/agent-fox-dev/agentfox/internal/afclient/fakeclock"
+	"github.com/agent-fox-dev/agentfox/internal/afclient"
+	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
-// eventDocument is the document of event seq of the job j, as the service sends it.
-func eventDocument(seq int) string {
-	return fmt.Sprintf(`{"seq":%d,"ts":"2026-10-23T12:00:00.000Z","job_id":"j","attempt":1,"type":"step","data":{"n":%d}}`, seq, seq)
-}
-
-// eventFrame is event seq as one frame of the stream.
-func eventFrame(seq int) string {
-	return fmt.Sprintf("id: %d\nevent: step\ndata: %s\n\n", seq, eventDocument(seq))
-}
-
-// doneJob is the document of the job j at rest.
-const doneJob = `{"id":"j","state":"done","workspace":"widgets","future":{"kept":[1,2]},"attempts":[{"n":1,"state":"done"}]}`
-
-// streaming is a handler that serves the stream of the job j with the frames, and the job
-// document for every other request.
-func streaming(frames []string, job string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/events") {
-			w.Header().Set("Content-Type", "text/event-stream")
-			for _, f := range frames {
-				_, _ = io.WriteString(w, f)
+func TestJobOutcome_EndsByWhatTheJobCameTo(t *testing.T) {
+	hint := &toolio.FixHint{Flag: "--sandbox", Suggest: "podman"}
+	errorOf := func(category string) string {
+		return `{"category":"` + category + `","message":"lost SECRET","retryable":true,"fix_hint":{"flag":"--sandbox","suggest":"podman"}}`
+	}
+	result := func(status, errObj string) string {
+		if errObj == "" {
+			errObj = "null"
+		}
+		return `{"status":"` + status + `","exit_code":0,"summary":"said SECRET","error":` + errObj + `}`
+	}
+	blocked := `{"question":"Which SECRET?","options":[{"id":"A","label":"main SECRET"},{"id":"B","label":"release"}]}`
+	for _, c := range []struct {
+		name, job string
+		fromFlag  bool
+		want      toolio.Outcome
+		failure   *toolio.Failure
+	}{
+		{"done", jobJSON("done", result("done", ""), "", "done"), false, toolio.Outcome{Status: toolio.StatusDone, Summary: "said ***"}, nil},
+		{"done unverified", jobJSON("done", result("unverified", ""), "", "done"), false, toolio.Outcome{Status: toolio.StatusUnverified, Summary: "said ***"}, nil},
+		{"done with no result", jobJSON("done", "", "", "done"), false, toolio.Outcome{Status: toolio.StatusDone, Summary: "the job j is done"}, nil},
+		{"blocked", jobJSON("blocked", "", blocked, "needs_human"), false, toolio.Outcome{Status: toolio.StatusNeedsHuman, Summary: "the job j is blocked",
+			NeedsHuman: &toolio.Question{Text: "Which ***?", Options: []string{"main ***", "release"}, ResumeArgv: []string{"af", "jobs", "answer", "j", "--wait"}}}, nil},
+		{"blocked, server from the flag", jobJSON("blocked", "", `{}`, "needs_human"), true, toolio.Outcome{Status: toolio.StatusNeedsHuman, Summary: "the job j is blocked",
+			NeedsHuman: &toolio.Question{Text: "the job j waits for an answer", ResumeArgv: []string{"af", "jobs", "answer", "j", "--wait", "--server", "http://svc"}}}, nil},
+		{"failed unverified", jobJSON("failed", result("unverified", ""), "", "failed"), false, toolio.Outcome{Status: toolio.StatusUnverified, Summary: "said ***"}, nil},
+		{"failed", jobJSON("failed", result("failed", errorOf("sandbox")), "", "failed"), false, toolio.Outcome{},
+			&toolio.Failure{Category: "sandbox", Message: "lost ***", Retryable: true, FixHint: hint}},
+		{"failed in usage", jobJSON("failed", result("usage", errorOf("brain")), "", "failed"), false, toolio.Outcome{},
+			&toolio.Failure{Category: toolio.CategoryUsage, Message: "lost ***", Retryable: true, FixHint: hint}},
+		{"failed with no error", jobJSON("failed", result("failed", ""), "", "failed"), false, toolio.Outcome{},
+			&toolio.Failure{Category: toolio.CategoryInternal, Message: "the job j failed on the service and its result has no error"}},
+		{"cancelled", jobJSON("cancelled", result("failed", errorOf("brain")), "", "cancelled"), false, toolio.Outcome{},
+			&toolio.Failure{Category: toolio.CategoryJobCancelled, Message: "the job j was cancelled on the service"}},
+		{"not JSON", `[1]`, false, toolio.Outcome{},
+			&toolio.Failure{Category: toolio.CategoryService, Message: "the document of the job j is not the JSON expected"}},
+	} {
+		res := jobResult{Job: json.RawMessage(c.job), Envelope: nullEnvelope}
+		got, err := jobOutcome(afclient.Server{URL: "http://svc", FromFlag: c.fromFlag}, "j", res, func(s string) string { return strings.ReplaceAll(s, "SECRET", "***") })
+		if c.failure != nil {
+			var f *toolio.Failure
+			if !errors.As(err, &f) || !reflect.DeepEqual(f, c.failure) {
+				t.Errorf("%s: error %#v, want %#v", c.name, err, c.failure)
 			}
-			return
-		}
-		if strings.Contains(r.URL.Path, "/attempts/") { // the attempt has no stored envelope
-			answering(404, `{"error":{"code":"not_found","message":"no such envelope"}}`)(w, r)
-			return
-		}
-		answering(200, job)(w, r)
-	}
-}
-
-// watch runs af jobs watch for the job j with a clock whose pauses cost nothing.
-func watch(t *testing.T, args ...string) (afResult, *afclock.Clock) {
-	t.Helper()
-	clk := afclock.New(time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC))
-	useClock(t, clk)
-	return afRun(t, "", append([]string{"jobs", "watch", "j"}, args...)...), clk
-}
-
-// TestWatchStartsFromSinceAndDeliversTheEventsAboveItAsJobEvents_TS_16_61 verifies TS-16-61
-// and TS-16-62 for the command: the first request asks for the stream from --since, the events
-// at or below it are not delivered, and the events hold one job_event for each delivered
-// event with the document of the service as its data.
-// Verifies: 16-REQ-9.1, 16-REQ-9.2
-func TestWatchStartsFromSinceAndDeliversTheEventsAboveItAsJobEvents_TS_16_61(t *testing.T) {
-	svc := ready(t, streaming([]string{eventFrame(4), eventFrame(5), eventFrame(6), eventFrame(6), eventFrame(7), eventFrame(5)}, doneJob))
-	useClock(t, afclock.New(time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)))
-	res, data := afRunEvents(t, "jobs", "watch", "j", "--since", "5")
-	if res.code != 0 {
-		t.Fatalf("exit %d, %s", res.code, res.stdout)
-	}
-	if reqs := svc.Requests(); len(reqs) < 2 || reqs[0].RequestURI != "/api/v1/jobs/j/events?since=5" {
-		t.Errorf("requests = %+v, want the stream from since=5 first", reqs)
-	}
-	var seqs []float64
-	for _, line := range strings.Split(strings.TrimSpace(data), "\n") {
-		var ev struct {
-			Type string `json:"type"`
-			Data any    `json:"data"`
-		}
-		if err := json.Unmarshal([]byte(line), &ev); err != nil {
-			t.Fatalf("%q: %v", line, err)
-		}
-		if ev.Type != "job_event" {
 			continue
 		}
-		doc, _ := ev.Data.(map[string]any)
-		seqs = append(seqs, doc["seq"].(float64))
-		var want map[string]any
-		if err := json.Unmarshal([]byte(eventDocument(int(doc["seq"].(float64)))), &want); err != nil || !reflect.DeepEqual(doc, want) {
-			t.Errorf("the data of job_event %v is %v, want the document of the service: %v", doc["seq"], doc, want)
+		c.want.Result = res
+		if err != nil || !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: %+v, %v; want %+v", c.name, got, err, c.want)
 		}
-	}
-	if !slices.Equal(seqs, []float64{6, 7}) {
-		t.Errorf("job_event seqs = %v, want 6 and 7 once each", seqs)
 	}
 }
 
-// TestWatchWritesOneCompactJSONLineForEachEventToStderrAndRecordsTheJob_TS_16_63 verifies
-// TS-16-63 for watch and the result of a job that is at rest, so far: the artifact of the job,
-// status done and the job document as received.
-// Verifies: 16-REQ-9.3
-func TestWatchWritesOneCompactJSONLineForEachEventToStderrAndRecordsTheJob_TS_16_63(t *testing.T) {
-	svc := ready(t, streaming([]string{eventFrame(1), eventFrame(2), eventFrame(3)}, doneJob))
-	res, _ := watch(t)
-	if res.code != 0 || field(res.env, "status") != "done" {
-		t.Fatalf("exit %d, status %v, %s", res.code, field(res.env, "status"), res.message())
-	}
-	var want []string
-	for i := 1; i <= 3; i++ {
-		var buf bytes.Buffer
-		if err := json.Compact(&buf, []byte(eventDocument(i))); err != nil {
-			t.Fatal(err)
+func TestFollow_AtRestGivesTheEnvelopeOfTheFinishedAttempt(t *testing.T) {
+	job := jobJSON("done", "", "", "done")
+	envelope := `{"tool":"fix","status":"done","warnings":[],"result":{"x":1}}`
+	for _, c := range []struct {
+		name     string
+		job      string
+		envelope http.HandlerFunc
+		want     any
+		warns    bool
+	}{
+		{"stored", job, answer(200, envelope), value(t, envelope), false},
+		{"not stored", job, answer(404, `{"error":{"code":"not_found","message":"no envelope"}}`), nil, false},
+		{"unreadable", job, answer(500, `{"error":{"code":"internal","message":"oops"}}`), nil, true},
+		{"no attempt finished", jobJSON("done", "", "", "queued"), answer(200, envelope), nil, false},
+	} {
+		serve(t, atRest(c.job, c.envelope))
+		res := af(t, "jobs", "watch", "j")
+		result, _ := res.result().(map[string]any)
+		if _, present := result["envelope"]; res.code != 0 || !present || !reflect.DeepEqual(result["envelope"], c.want) || !reflect.DeepEqual(result["job"], value(t, c.job)) {
+			t.Errorf("%s: exit %d, result %v, want the job as received and the envelope %v", c.name, res.code, result, c.want)
 		}
-		want = append(want, buf.String())
+		if slices.Contains(res.warnings(), "attempt_envelope_unavailable") != c.warns {
+			t.Errorf("%s: warnings %v, want attempt_envelope_unavailable %v", c.name, res.warnings(), c.warns)
+		}
 	}
-	if got := strings.Split(strings.TrimSuffix(res.stderr, "\n"), "\n"); !slices.Equal(got, want) {
-		t.Errorf("stderr = %q, want one compact line for each event in order: %q", got, want)
-	}
-	artifacts, _ := res.env["artifacts"].([]any)
-	if len(artifacts) != 1 || !reflect.DeepEqual(artifacts[0], map[string]any{"kind": "job", "name": "j", "url": svc.URL + "/api/v1/jobs/j"}) {
-		t.Errorf("artifacts = %v, want the job", artifacts)
-	}
-	result, _ := res.env["result"].(map[string]any)
-	var job any
-	if err := json.Unmarshal([]byte(doneJob), &job); err != nil {
+}
+
+func TestFollow_AppendsOnlyTheWarningsOfTheEnvelopeAfterItsOwn(t *testing.T) {
+	envelope := `{"status":"done","warnings":[{"code":"box_unconfined","message":"w1"},{"code":"issue_closed","message":"w2"}],
+		"artifacts":[{"kind":"pull_request","url":"https://example.com/pr/1"}],"next":[{"argv":["af","fix"],"reason":"r"}]}`
+	serve(t, atRest(doneJob, answer(200, envelope)))
+	path := home(t, "token = \"T\"\n")
+	if err := os.Chmod(path, 0o644); err != nil { // others can read it: a warning of af's own
 		t.Fatal(err)
 	}
-	if env, present := result["envelope"]; !present || env != nil || !reflect.DeepEqual(result["job"], job) {
-		t.Errorf("result = %v, want {job: the document as received, envelope: null}", result)
+	res := af(t, "jobs", "watch", "j")
+	if got, want := res.warnings(), []string{"credential_file_permissions", "box_unconfined", "issue_closed"}; res.code != 0 || !slices.Equal(got, want) {
+		t.Errorf("exit %d, warnings %v, want %v", res.code, got, want)
+	}
+	if w := field(res.env["warnings"].([]any)[0], "message"); !strings.Contains(str(w), path) {
+		t.Errorf("the warning %q does not name %s", w, path)
+	}
+	if !slices.Equal(res.artifacts(), []string{"j"}) || len(res.next()) != 0 {
+		t.Errorf("artifacts %v, next %v, want only the job and nothing next", res.artifacts(), res.next())
 	}
 }
 
-// TestWatchNeedsAJobIdAndANonNegativeSince_TS_16_61 verifies the arguments of watch.
-// Verifies: 16-REQ-9.1
-func TestWatchNeedsAJobIdAndANonNegativeSince_TS_16_61(t *testing.T) {
-	svc := ready(t, nil)
-	if res := afRun(t, "", "jobs", "watch"); res.code != 2 {
-		t.Errorf("no id: exit %d, want 2", res.code)
-	}
-	if res := afRun(t, "", "jobs", "watch", "j", "--since", "-1"); res.code != 2 || !strings.Contains(res.message(), "--since") {
-		t.Errorf("--since -1: exit %d, message %q, want 2 naming --since", res.code, res.message())
-	}
-	if res := afRun(t, "", "jobs", "watch", "j", "--since", "x"); res.code != 2 {
-		t.Errorf("--since x: exit %d, want 2", res.code)
-	}
-	if n := len(svc.Requests()); n != 0 {
-		t.Errorf("%d requests were sent", n)
-	}
-}
-
-// TestAFollowingThatGivesUpIsRetryableAndNextWatchesFromTheLastEvent_TS_16_66 verifies
-// TS-16-66 for the command: the failure, and the next argv with --server only when the server
-// came from the flag.
-// Verifies: 16-REQ-9.6
-func TestAFollowingThatGivesUpIsRetryableAndNextWatchesFromTheLastEvent_TS_16_66(t *testing.T) {
-	var asked int
-	svc := ready(t, func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasSuffix(r.URL.Path, "/events") {
-			answering(200, `{"id":"j","state":"running","attempts":[{"n":1,"state":"running"}]}`)(w, r)
-			return
-		}
-		asked++
-		if asked == 1 { // the first try delivers two events
-			w.Header().Set("Content-Type", "text/event-stream")
-			_, _ = io.WriteString(w, eventFrame(1)+eventFrame(2))
-			return
-		}
-		answering(502, `{"error":{"code":"hub_unavailable","message":"hub is down"}}`)(w, r)
-	})
-
+func TestFollow_StoppedByASignalOrTheTimeoutSuggestsWatchAndCancelAndCancelsNothing(t *testing.T) {
 	for _, c := range []struct {
-		name string
-		args []string
-		argv []string
+		name     string
+		args     []string
+		fromFlag bool
+		category string
 	}{
-		{"from AF_URL", nil, []string{"af", "jobs", "watch", "j", "--since", "2"}},
-		{"from the flag", []string{"--server", svc.URL}, []string{"af", "jobs", "watch", "j", "--since", "2", "--server", svc.URL}},
+		{"a signal", nil, false, "cancelled"},
+		{"a signal, server from the flag", nil, true, "cancelled"},
+		{"--timeout", []string{"--timeout", "200ms"}, false, "timeout"},
 	} {
-		asked = 0
-		res, clk := watch(t, c.args...)
-		if res.code != 1 || res.category() != "hub" || !res.retryable() {
-			t.Errorf("%s: exit %d, category %q, retryable %v, message %q, want 1, hub, retryable", c.name, res.code, res.category(), res.retryable(), res.message())
+		streaming := make(chan struct{}, 1)
+		svc := serve(t, func(w http.ResponseWriter, r *http.Request) {
+			if !strings.HasSuffix(r.URL.Path, "/events") {
+				answer(200, jobJSON("running", "", "", "running"))(w, r)
+				return
+			}
+			stream(frame(1))(w, r)
+			w.(http.Flusher).Flush()
+			select {
+			case streaming <- struct{}{}:
+			default:
+			}
+			<-r.Context().Done()
+		})
+		args := append([]string{"jobs", "watch", "j"}, c.args...)
+		suffix := ""
+		if c.fromFlag {
+			args = append(args, "--server", svc.URL)
+			suffix = " --server " + svc.URL
 		}
-		if m := res.message(); !strings.Contains(m, "j") || !strings.Contains(m, "may still be running") {
-			t.Errorf("%s: message %q, want it to name the job and say it may still be running", c.name, m)
+		ctx, cancel := context.WithCancel(context.Background())
+		if c.category == "cancelled" {
+			go func() { <-streaming; cancel() }()
 		}
-		next, _ := res.env["next"].([]any)
-		if len(next) != 1 {
-			t.Fatalf("%s: next = %v, want one entry", c.name, next)
+		res := afWith(t, ctx, strings.NewReader(""), args...)
+		cancel()
+		if res.code != 1 || res.category() != c.category || !slices.Equal(res.artifacts(), []string{"j"}) {
+			t.Errorf("%s: exit %d, category %v, artifacts %v, want 1, %s and the job", c.name, res.code, res.category(), res.artifacts(), c.category)
 		}
-		argv, _ := next[0].(map[string]any)["argv"].([]any)
-		var got []string
-		for _, a := range argv {
-			got = append(got, a.(string))
+		if want := []string{"af jobs watch j" + suffix, "af jobs cancel j" + suffix}; !slices.Equal(res.next(), want) {
+			t.Errorf("%s: next %v, want %v", c.name, res.next(), want)
 		}
-		if !slices.Equal(got, c.argv) {
-			t.Errorf("%s: next argv = %v, want %v", c.name, got, c.argv)
+		for _, r := range svc.requests() {
+			if r.Method != http.MethodGet {
+				t.Errorf("%s: %s %s was sent, want no cancel", c.name, r.Method, r.Path)
+			}
 		}
-		if got, want := clk.Sleeps(), []time.Duration{time.Second, time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}; !slices.Equal(got, want) {
-			t.Errorf("%s: sleeps = %v, want %v", c.name, got, want)
-		}
-	}
-}
-
-// TestA404WhileFollowingStopsAtOnceAndNamesTheJob_TS_16_67 verifies TS-16-67 for the command:
-// the answer is mapped as the table says, and the message names the job.
-// Verifies: 16-REQ-9.7
-func TestA404WhileFollowingStopsAtOnceAndNamesTheJob_TS_16_67(t *testing.T) {
-	svc := ready(t, answering(404, `{"error":{"code":"not_found","message":"job not found"}}`))
-	res, clk := watch(t)
-	if res.code != 2 || res.category() != "usage" || !strings.Contains(res.message(), `"j"`) {
-		t.Errorf("exit %d, category %q, message %q, want 2, usage, naming the job", res.code, res.category(), res.message())
-	}
-	if n := len(svc.Requests()); n != 1 || len(clk.Sleeps()) != 0 {
-		t.Errorf("%d requests and sleeps %v, want one try and no wait", n, clk.Sleeps())
 	}
 }

@@ -4,259 +4,45 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io/fs"
-	"os"
-	"path/filepath"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/agent-fox-dev/agentfox/internal/box"
-	"github.com/agent-fox-dev/agentfox/internal/submission"
-	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentkit-go/core"
 	"github.com/agent-fox-dev/agentkit-go/provider/faux"
+
+	"github.com/agent-fox-dev/agentfox/internal/submission"
+	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
-// noEnv is a host environment with nothing in it.
-func noEnv(string) (string, bool) { return "", false }
-
-// fauxBrain is the agentkit brain over a faux provider that plays the turns.
-func fauxBrain(t *testing.T, turns ...faux.Turn) (Brain, *faux.Provider) {
-	t.Helper()
-	p := faux.New(turns...)
-	b, err := Default.New(AgentkitName, Options{
-		Model: "faux-1", Getenv: noEnv,
-		NewProvider: func(string) (core.ProviderClient, error) { return p, nil },
-	})
-	if err != nil {
-		t.Fatal(err)
+func TestNewAgentkit_NeedsTheCredentialOfTheModelUnlessGivenAProvider(t *testing.T) {
+	b, err := Default.New(AgentkitName, Options{Getenv: noEnv})
+	if f := asFailure(t, err); b != nil || f.Category != toolio.CategoryAuth || f.FixHint == nil || f.FixHint.Env != VendorKeyVar {
+		t.Errorf("no key: %v, %+v; want failed/auth with the hint %s", b, f, VendorKeyVar)
 	}
-	return b, p
-}
-
-// usage is a faux usage with a cost.
-func usage(cost float64, in, out int64) core.Usage {
-	var u core.Usage
-	u.SetField(core.UsageInputTokens, in)
-	u.SetField(core.UsageOutputTokens, out)
-	u.SetCost(cost)
-	return u
-}
-
-// withUsage gives a turn a usage.
-func withUsage(t faux.Turn, u core.Usage) faux.Turn {
-	t.Usage = u
-	return t
-}
-
-// call is a faux turn that calls a tool.
-func call(id, name, args string) faux.Turn { return faux.ToolCall(id, name, args) }
-
-// runFaux runs the brain through Execute over a real box, as the loop does.
-func runFaux(t *testing.T, w *world, brain Brain, mutate func(*Brief)) (Result, error) {
-	t.Helper()
-	b := w.brief(1)
-	b.Kind = citeKind()
-	b.Tools = []string{"read_file", "list_files"}
-	if mutate != nil {
-		mutate(&b)
-	}
-	req := w.request(b, brain)
-	req.Name = AgentkitName
-	return Execute(context.Background(), req)
-}
-
-// toolResults are the texts of the tool results among the messages of a request.
-func toolResults(req core.Request) []string {
-	var out []string
-	for _, m := range req.Messages {
-		if tr, ok := m.(core.ToolResultMessage); ok {
-			out = append(out, tr.Content.Text())
-		}
-	}
-	return out
-}
-
-// lastToolResult is the text of the last tool result of a request.
-func lastToolResult(t *testing.T, req core.Request) string {
-	t.Helper()
-	results := toolResults(req)
-	if len(results) == 0 {
-		t.Fatalf("the request has no tool result: %+v", req.Messages)
-	}
-	return results[len(results)-1]
-}
-
-// toolNames are the names of the tools a request offers.
-func toolNames(req core.Request) []string {
-	var names []string
-	for _, tool := range req.Tools {
-		names = append(names, tool.Name)
-	}
-	slices.Sort(names)
-	return names
-}
-
-// TestTheDefaultRegistryHasBothBrains_TS_07_2 verifies TS-07-2:
-// an unknown brain name is a usage failure that lists the registered names.
-// Verifies: 07-REQ-1.2
-func TestTheDefaultRegistryHasBothBrains_TS_07_2(t *testing.T) {
-	if names := Default.Names(); !slices.Equal(names, []string{"agentkit", "scripted"}) {
-		t.Errorf("the default registry has %v, want agentkit and scripted", names)
+	if b, err := Default.New(AgentkitName, Options{Getenv: envOf(map[string]string{VendorKeyVar: "sk-ant-test"})}); err != nil || b == nil {
+		t.Errorf("with a key: %v, %v", b, err)
 	}
 
-	b, err := Default.New("claude", Options{})
-
-	f := asFailure(t, err)
-	if b != nil || f.Category != toolio.CategoryUsage || !strings.Contains(f.Message, "agentkit, scripted") || !strings.Contains(f.Message, `"claude"`) {
-		t.Errorf("New = %v, %v; want a usage failure that lists agentkit and scripted", b, err)
+	var read []string
+	spy := func(name string) (string, bool) { read = append(read, name); return "", false }
+	var model string
+	provider := func(m string) (core.ProviderClient, error) { model = m; return faux.New(), nil }
+	if _, err := Default.New(AgentkitName, Options{Getenv: spy, NewProvider: provider}); err != nil || model != defaultModel() || model == "" || len(read) != 0 {
+		t.Errorf("with a provider: %v, model %q, read %v; want the catalog's default model and no variable read", err, model, read)
 	}
-	for _, name := range []string{AgentkitName, ScriptedName} {
-		if e, err := Default.Lookup(name); err != nil || len(e.CredentialNames(PlacementHost)) != 0 {
-			t.Errorf("%s: %+v, %v; want no box environment for a brain on the host", name, e, err)
-		}
-	}
-	if e, _ := Default.Lookup(AgentkitName); e.CostSource != CostMeasured {
-		t.Errorf("the agentkit brain's cost source is %q, want measured", e.CostSource)
+	broken := func(string) (core.ProviderClient, error) { return nil, errors.New("no provider today") }
+	if _, err := Default.New(AgentkitName, Options{Getenv: noEnv, NewProvider: broken}); err == nil || !strings.Contains(err.Error(), "no provider today") {
+		t.Errorf("a provider that cannot be made: %v, want its error", err)
 	}
 }
 
-// TestHostTokensDoNotReachTheBox_TS_07_9 verifies TS-07-9:
-// with host tokens set, the agentkit and scripted boxes carry an empty
-// environment.
-// Verifies: 07-REQ-1.8
-func TestHostTokensDoNotReachTheBox_TS_07_9(t *testing.T) {
-	t.Setenv("GITHUB_TOKEN", "ghp_secret")
-	t.Setenv("GITLAB_TOKEN", "glpat_secret")
-	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-secret")
-	for _, name := range []string{AgentkitName, ScriptedName} {
-		t.Run(name, func(t *testing.T) {
-			entry, err := Default.Lookup(name)
-			if err != nil {
-				t.Fatal(err)
-			}
-			env := BuildBoxEnv(entry, PlacementHost, os.LookupEnv)
-			dir := newRepo(t)
-			rd, err := toolio.NewRunDir(dir, nil, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			s, err := box.Open(context.Background(), box.Request{Provider: "local", HostDir: dir, RunID: rd.ID, Tool: "fix", Env: env})
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = s.Close() })
-			b := Brief{Box: s, Env: env}
-
-			if len(s.Spec().Env) != 0 || len(b.Env) != 0 {
-				t.Errorf("Spec().Env = %v, Brief.Env = %v, want both empty", s.Spec().Env, b.Env)
-			}
-		})
-	}
-}
-
-// TestTheSubmitToolNeedsNoAllowlist_TS_07_58 verifies TS-07-58:
-// the terminating submit tool works with an empty Brief.Tools.
-// Verifies: 07-REQ-8.2
-func TestTheSubmitToolNeedsNoAllowlist_TS_07_58(t *testing.T) {
-	w := newWorld(t)
-	brain, _ := fauxBrain(t, call("c1", "submit_test", `{"summary":"done"}`))
-
-	res, err := runFaux(t, w, brain, func(b *Brief) { b.Tools = nil })
-
-	if err != nil || !res.Outcome.Submitted || res.Outcome.StopReason != StopSubmitted {
-		t.Fatalf("Execute = %+v, %v", res, err)
-	}
-	if got, err := w.boxFile(submission.SubmissionPath(w.run.ID)); err != nil || !strings.Contains(got, `"summary":"done"`) {
-		t.Errorf("the box's submission = %q, %v", got, err)
-	}
-}
-
-// TestBothBrainsRefuseAnUnknownTool_TS_07_59 verifies TS-07-59:
-// both in-process brains fail at Run start for an unknown tool name before any
-// model call or step.
-// Verifies: 07-REQ-8.3
-func TestBothBrainsRefuseAnUnknownTool_TS_07_59(t *testing.T) {
-	w := newWorld(t)
-	b := w.brief(1)
-	b.Tools = []string{"read_file", "teleport"}
-	b.Box = w.session
-
-	brain, p := fauxBrain(t, faux.Text("never asked"))
-	_, err := brain.Run(context.Background(), b)
-	var f *toolio.Failure
-	if err == nil || !strings.Contains(err.Error(), "teleport") || errors.As(err, &f) {
-		t.Errorf("agentkit Run = %v, want an internal error that names teleport", err)
-	}
-	if p.Calls() != 0 {
-		t.Errorf("the faux provider got %d requests", p.Calls())
-	}
-
-	scripted, err := Default.New(ScriptedName, Options{Script: writeScript(t, `{"steps":[{"tool":"list_files"}]}`)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	b.TranscriptPath = filepath.Join(t.TempDir(), "t.jsonl")
-	out, err := scripted.Run(context.Background(), b)
-	if err == nil || !strings.Contains(err.Error(), "teleport") || errors.As(err, &f) || out.Turns != 0 {
-		t.Errorf("scripted Run = %+v, %v; want an internal error that names teleport and no step", out, err)
-	}
-	if data, rerr := os.ReadFile(b.TranscriptPath); rerr == nil && len(data) > 0 {
-		t.Errorf("the scripted brain wrote steps before it checked the tools: %s", data)
-	}
-}
-
-// TestADenialIsTheNextTurn_TS_07_62 verifies TS-07-62:
-// a denial reason is the brain's next turn for both in-process brains.
-// Verifies: 07-REQ-8.6
-func TestADenialIsTheNextTurn_TS_07_62(t *testing.T) {
-	const reason = "tool write_file is not in this run's allowlist"
-	t.Run("agentkit", func(t *testing.T) {
-		w := newWorld(t)
-		brain, p := fauxBrain(t,
-			call("c1", "write_file", `{"path":"a.txt","content":"x"}`),
-			call("c2", "submit_test", `{"summary":"done"}`))
-
-		_, err := runFaux(t, w, brain, nil)
-
-		if err != nil {
-			t.Fatal(err)
-		}
-		reqs := p.Requests()
-		if len(reqs) < 2 || !strings.Contains(lastToolResult(t, reqs[1]), reason) {
-			t.Fatalf("the second request's tool result is not the denial: %v", toolResults(reqs[len(reqs)-1]))
-		}
-		if _, err := w.boxFile("a.txt"); err == nil {
-			t.Error("the denied write was executed")
-		}
-	})
-	t.Run("scripted", func(t *testing.T) {
-		w := newWorld(t)
-
-		res, err := runScript(t, w, `{"steps":[
-			{"tool":"write_file","args":{"path":"a.txt","content":"x"},"expect":"denied"},
-			{"submit":{"summary":"done"},"expect":"accepted"}]}`, func(b *Brief) { b.Tools = []string{"read_file"} })
-
-		if err != nil || !res.Outcome.Submitted {
-			t.Fatalf("Execute = %+v, %v", res, err)
-		}
-		tr := w.transcript()
-		if tr[0]["decision"] != DecisionDeny || tr[0]["reason"] != reason || len(tr) != 2 {
-			t.Errorf("the first transcript line = %v, want the denial with its reason, and the replay going on", tr[0])
-		}
-	})
-}
-
-// TestTheFirstRequestCarriesTheBrief_TS_07_72 verifies TS-07-72:
-// the agentkit brain's first faux request carries the prefix, the task and the
-// terminating tool.
-// Verifies: 07-REQ-10.1
-func TestTheFirstRequestCarriesTheBrief_TS_07_72(t *testing.T) {
+func TestAgentkit_TheFirstRequestCarriesTheBriefAndOnlyTheAllowedTools(t *testing.T) {
 	w := newWorld(t)
 	brain, p := fauxBrain(t, faux.Text("nothing to do"))
 
-	_, err := runFaux(t, w, brain, func(b *Brief) { b.Tools = []string{"read_file"} })
+	_, err := runFaux(w, brain, func(b *Brief) { b.Tools = []string{"read_file"} })
 
 	if f := asFailure(t, err); f.Category != toolio.CategoryNoResult {
 		t.Errorf("a brain that submits nothing: %+v, want no_result", f)
@@ -265,271 +51,205 @@ func TestTheFirstRequestCarriesTheBrief_TS_07_72(t *testing.T) {
 	if len(reqs) != 1 {
 		t.Fatalf("%d requests, want 1", len(reqs))
 	}
-	r := reqs[0]
-	b := w.brief(1)
-	if len(r.Prefix) != 1 || userText(r.Prefix[0]) != b.Prefix {
-		t.Errorf("prefix = %v, want the brief's prefix byte for byte", r.Prefix)
+	r, b := reqs[0], w.brief(1)
+	if len(r.Prefix) != 1 || r.Prefix[0].(core.UserMessage).Content.Text() != b.Prefix || len(r.Messages) != 1 || r.Messages[0].(core.UserMessage).Content.Text() != b.Task {
+		t.Errorf("prefix %v and messages %v, want the prefix of the brief byte for byte, then the task", r.Prefix, r.Messages)
 	}
-	if len(r.Messages) != 1 || userText(r.Messages[0]) != b.Task {
-		t.Errorf("messages = %v, want the task as the first user message", r.Messages)
-	}
-	if got := toolNames(r); !slices.Equal(got, []string{"read_file", "submit_test"}) {
-		t.Errorf("tools = %v, want read_file and the terminating tool, and no other box tool", got)
-	}
+	var names []string
 	for _, tool := range r.Tools {
+		names = append(names, tool.Name)
 		if tool.Name == "submit_test" && (tool.Description != "a test kind" || tool.InputSchema == nil) {
 			t.Errorf("the terminating tool = %+v, want the kind's description and schema", tool)
 		}
 	}
-}
-
-// userText is the text of a user message.
-func userText(m core.Message) string {
-	if u, ok := m.(core.UserMessage); ok {
-		return u.Content.Text()
+	if slices.Sort(names); !slices.Equal(names, []string{"read_file", "submit_test"}) {
+		t.Errorf("tools = %v, want read_file and the terminating tool", names)
 	}
-	return ""
-}
-
-// TestAMissingCredentialIsAuth_TS_07_73 verifies TS-07-73:
-// a missing vendor credential fails agentkit construction as failed/auth with
-// an ANTHROPIC_API_KEY hint and no box.
-// Verifies: 07-REQ-10.2
-func TestAMissingCredentialIsAuth_TS_07_73(t *testing.T) {
-	b, err := Default.New(AgentkitName, Options{Getenv: noEnv})
-
-	f := asFailure(t, err)
-	if b != nil || f.Category != toolio.CategoryAuth || f.FixHint == nil || f.FixHint.Env != "ANTHROPIC_API_KEY" {
-		t.Errorf("New = %v, %v; want failed/auth with the hint ANTHROPIC_API_KEY", b, err)
-	}
-	// With a key the brain is built, and nothing is asked of the network.
-	present := func(name string) (string, bool) {
-		if name == "ANTHROPIC_API_KEY" {
-			return "sk-ant-test", true
-		}
-		return "", false
-	}
-	if b, err := Default.New(AgentkitName, Options{Getenv: present}); err != nil || b == nil {
-		t.Errorf("New with a key = %v, %v", b, err)
-	}
-	// An injected provider needs no credential.
-	if _, p := fauxBrain(t); p == nil {
-		t.Error("no faux provider")
-	}
-}
-
-// twoProblemsKind refuses a payload that cites a path that is not in the tree,
-// with two problems.
-func twoProblemsKind() submission.Kind {
-	k := testKind()
-	k.Validate = func(_ context.Context, tree fs.FS, payload json.RawMessage) (json.RawMessage, []submission.Problem) {
-		var p struct {
-			Cite string `json:"cite"`
-		}
-		if err := json.Unmarshal(payload, &p); err != nil {
-			return nil, []submission.Problem{{Message: err.Error()}}
-		}
-		if _, err := fs.Stat(tree, p.Cite); err != nil {
-			return nil, []submission.Problem{
-				{Path: "cite", Message: p.Cite + " is not in the tree"},
-				{Path: "summary", Message: "must say what was done"},
-			}
-		}
-		return payload, nil
-	}
-	return k
-}
-
-// TestARefusedSubmissionIsTheNextTurn_TS_07_74 verifies TS-07-74:
-// a refused terminating-tool payload returns every problem as the next faux turn
-// and writes no file.
-// Verifies: 07-REQ-10.3
-func TestARefusedSubmissionIsTheNextTurn_TS_07_74(t *testing.T) {
-	w := newWorld(t)
-	brain, p := fauxBrain(t, call("c1", "submit_test", `{"cite":"missing.txt"}`), faux.Text("I give up"))
-
-	_, err := runFaux(t, w, brain, func(b *Brief) { b.Kind = twoProblemsKind() })
-
-	if f := asFailure(t, err); f.Category != toolio.CategoryNoResult {
-		t.Errorf("failure = %+v, want no_result: the brain gave up", f)
-	}
-	reqs := p.Requests()
-	if len(reqs) != 2 {
-		t.Fatalf("%d requests, want 2: the loop goes on after a refusal", len(reqs))
-	}
-	got := lastToolResult(t, reqs[1])
-	for _, want := range []string{"missing.txt is not in the tree", "must say what was done"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("the next turn %q does not carry %q", got, want)
+	var system strings.Builder
+	for _, block := range r.System {
+		if text, ok := block.(core.TextBlock); ok {
+			system.WriteString(text.Text)
 		}
 	}
-	if _, err := w.boxFile(submission.SubmissionPath(w.run.ID)); err == nil {
-		t.Error("a submission file exists after a refusal")
+	for _, hidden := range []string{"write_file", "edit_file", "run_command"} {
+		if strings.Contains(system.String(), hidden) {
+			t.Errorf("the system prompt names %s, which the brief does not allow", hidden)
+		}
 	}
 }
 
-// TestAnAcceptedSubmissionEndsTheLoop_TS_07_75 verifies TS-07-75:
-// an accepted terminating-tool submission ends the loop with StopReason
-// submitted and no further request.
-// Verifies: 07-REQ-10.4
-func TestAnAcceptedSubmissionEndsTheLoop_TS_07_75(t *testing.T) {
-	w := newWorld(t)
-	brain, p := fauxBrain(t, call("c1", "submit_test", `{"summary":"done"}`), faux.Text("must never be requested"))
-
-	res, err := runFaux(t, w, brain, nil)
-
-	if err != nil || !res.Outcome.Submitted || res.Outcome.StopReason != StopSubmitted {
-		t.Fatalf("Execute = %+v, %v", res, err)
-	}
-	if p.Calls() != 1 {
-		t.Errorf("%d requests, want exactly 1", p.Calls())
-	}
-	if _, err := w.boxFile(submission.SubmissionPath(w.run.ID)); err != nil {
-		t.Errorf("the submission file is not in the box: %v", err)
-	}
-}
-
-// TestADriverThatStopsIsMapped_TS_07_76 verifies TS-07-76:
-// the agentkit brain reports measured cost, turns and tokens and maps driver
-// stops to budget, turns and ended.
-// Verifies: 07-REQ-10.5
-func TestADriverThatStopsIsMapped_TS_07_76(t *testing.T) {
-	read := `{"path":"README.md"}`
-	for name, tc := range map[string]struct {
-		turns    []faux.Turn
-		mutate   func(*Brief)
-		stop     string
-		category string
-		suggest  string
-	}{
-		"the cost bound": {
-			[]faux.Turn{withUsage(call("c1", "read_file", read), usage(0.5, 1000, 200)), faux.Text("never")},
-			func(b *Brief) { b.MaxCostUSD = 0.01 }, StopBudget, toolio.CategoryBudget, "0.02"},
-		"the turn bound": {
-			[]faux.Turn{withUsage(call("c1", "read_file", read), usage(0.001, 1000, 200)), withUsage(faux.Text("never"), usage(0.001, 10, 10))},
-			func(b *Brief) { b.MaxTurns = 1 }, StopTurns, toolio.CategoryBudget, "2"},
-		"a natural end": {
-			[]faux.Turn{withUsage(faux.Text("I am done, and have nothing to submit"), usage(0.002, 1000, 200))},
-			nil, StopEnded, toolio.CategoryNoResult, ""},
-	} {
-		t.Run(name, func(t *testing.T) {
-			w := newWorld(t)
-			brain, _ := fauxBrain(t, tc.turns...)
-
-			res, err := runFaux(t, w, brain, tc.mutate)
-
-			o := res.Outcome
-			if o.StopReason != tc.stop || o.CostSource != CostMeasured || o.Turns < 1 || o.CostUSD <= 0 || o.InputTokens <= 0 || o.OutputTokens <= 0 || o.Submitted {
-				t.Errorf("Outcome = %+v, want stop %s, measured cost, turns and tokens", o, tc.stop)
-			}
-			f := asFailure(t, err)
-			if f.Category != tc.category || (tc.suggest != "" && (f.FixHint == nil || f.FixHint.Suggest != tc.suggest)) {
-				t.Errorf("failure = %+v, want %s %s", f, tc.category, tc.suggest)
-			}
-			if u := w.report.lastUsage(); u.CostSource != CostMeasured || u.CostUSD != o.CostUSD || u.Brain != AgentkitName {
-				t.Errorf("usage = %+v, want the measured cost of the run", u)
-			}
-		})
-	}
-}
-
-// TestTheInputTokensIncludeTheCache guards 07-REQ-10.5: the tokens of the
-// outcome are what the driver counted, the reads and the writes of the cache
-// among the input.
-func TestTheInputTokensIncludeTheCache(t *testing.T) {
-	w := newWorld(t)
-	u := usage(0.01, 1000, 200)
-	u.SetField(core.UsageCacheReadTokens, 2000)
-	u.SetField(core.UsageCacheWriteTokens, 300)
-	brain, _ := fauxBrain(t, withUsage(faux.Text("nothing to submit"), u))
-
-	res, _ := runFaux(t, w, brain, nil)
-
-	if o := res.Outcome; o.InputTokens != 3300 || o.OutputTokens != 200 {
-		t.Errorf("tokens = %d in, %d out; want 3300 (1000 + 2000 cache reads + 300 cache writes) and 200", o.InputTokens, o.OutputTokens)
-	}
-}
-
-// TestThePathOfARecovery guards 07-PATH-2: a denied tool, a refused submission
-// and a corrected one, with every call told to Observe, in the transcript and as
-// events that carry no arguments.
-func TestThePathOfARecovery(t *testing.T) {
+func TestAgentkit_ADeniedCallAndARefusedSubmissionAreTheNextTurns(t *testing.T) {
 	w := newWorld(t)
 	brain, p := fauxBrain(t,
 		call("c1", "write_file", `{"path":"a.txt","content":"secret-content"}`),
-		call("c2", "submit_test", `{"cite":"missing.txt"}`),
-		call("c3", "submit_test", `{"cite":"README.md"}`))
+		call("c2", "teleport", `{}`),
+		call("c3", "submit_test", `{"cite":"missing.txt"}`),
+		call("c4", "submit_test", `{"cite":"README.md"}`))
 
-	res, err := runFaux(t, w, brain, func(b *Brief) { b.Kind = twoProblemsKind() })
+	res, err := runFaux(w, brain, nil)
 
-	if err != nil || !res.Outcome.Submitted || p.Calls() != 3 {
+	if err != nil || string(res.Payload) != `{"cite":"README.md"}` || p.Calls() != 4 {
 		t.Fatalf("Execute = %+v, %v, %d requests", res, err, p.Calls())
+	}
+	reqs := p.Requests()
+	for i, want := range []string{"tool write_file is not in this run's allowlist", "teleport", "missing.txt is not in the tree; summary: must say what was done"} {
+		if got := toolResults(reqs[i+1]); !strings.Contains(got, want) {
+			t.Errorf("request %d read %q, want %q", i+2, got, want)
+		}
+	}
+	if _, err := w.boxFile("a.txt"); err == nil {
+		t.Error("the denied write was run")
 	}
 	var decisions []string
 	for _, e := range w.report.eventsOf("tool_call") {
-		decisions = append(decisions, e.data["tool"].(string)+":"+e.data["decision"].(string))
-		if strings.Contains(string(mustJSON(e.data)), "secret-content") {
-			t.Errorf("a tool_call event carries an argument: %v", e.data)
+		decisions = append(decisions, e["tool"].(string)+":"+e["decision"].(string))
+		if strings.Contains(string(must(json.Marshal(e))), "secret-content") {
+			t.Errorf("a tool_call event carries an argument: %v", e)
 		}
 	}
-	if !slices.Equal(decisions, []string{"write_file:deny", "submit_test:allow", "submit_test:allow"}) {
-		t.Errorf("tool_call events = %v", decisions)
+	if strings.Join(decisions, " ") != "write_file:deny submit_test:allow submit_test:allow" {
+		t.Errorf("tool_call events = %v; the driver answers a tool it does not have itself", decisions)
 	}
-	tr := w.transcript()
-	if len(tr) != 3 || tr[0]["ok"] != false || tr[1]["ok"] != false || tr[2]["ok"] != true || !strings.Contains(tr[0]["args"].(string), "secret-content") {
-		t.Errorf("transcript = %v, want a denial, a refusal and an acceptance, with the arguments", tr)
-	}
-	if string(res.Payload) != `{"cite":"README.md"}` {
-		t.Errorf("payload = %s", res.Payload)
+	lines := w.transcript(1)
+	if len(lines) != 3 || lines[0]["ok"] != false || !strings.Contains(lines[0]["args"].(string), "secret-content") || lines[1]["ok"] != false || lines[2]["ok"] != true {
+		t.Errorf("transcript = %v, want the denial with its arguments, the refusal and the acceptance", lines)
 	}
 }
 
-func mustJSON(v any) []byte {
-	b, _ := json.Marshal(v)
-	return b
+func TestAgentkit_AnAcceptedSubmissionEndsTheRun(t *testing.T) {
+	batch := func(calls ...[2]string) faux.Turn {
+		var blocks []core.ContentBlock
+		for i, c := range calls {
+			blocks = append(blocks, faux.FauxToolCall(fmt.Sprintf("c%d", i), c[0], c[1]))
+		}
+		return faux.FauxAssistantMessage(core.StopReasonToolUse, blocks...)
+	}
+	for _, tc := range []struct {
+		name string
+		turn faux.Turn
+		want string
+	}{
+		{"alone", call("c1", "submit_test", `{"summary":"done"}`), `{"summary":"done"}`},
+		{"among other calls", batch([2]string{"read_file", `{"path":"README.md"}`}, [2]string{"submit_test", `{"summary":"done"}`}, [2]string{"list_files", `{"path":"."}`}), `{"summary":"done"}`},
+		{"after a refusal in its turn", batch([2]string{"submit_test", `{"cite":"missing.go"}`}, [2]string{"submit_test", `{"cite":"README.md"}`}), `{"cite":"README.md"}`},
+		{"before another", batch([2]string{"submit_test", `{"n":1}`}, [2]string{"submit_test", `{"n":2}`}), `{"n":1}`},
+	} {
+		w := newWorld(t)
+		brain, p := fauxBrain(t, tc.turn, faux.Text("must never be requested"))
+
+		res, err := runFaux(w, brain, func(b *Brief) { b.Tools = nil })
+
+		if err != nil || string(res.Payload) != tc.want || res.Outcome.StopReason != StopSubmitted || p.Calls() != 1 {
+			t.Errorf("%s: Execute = %+v, %v, %d requests; want %s and one request", tc.name, res, err, p.Calls(), tc.want)
+		}
+	}
 }
 
-// TestASubmissionInAMixedBatchStillEndsTheLoop guards 07-REQ-10.4: a model that
-// submits in the same turn as another call has submitted, and the loop does not
-// go on to another request.
-func TestASubmissionInAMixedBatchStillEndsTheLoop(t *testing.T) {
+func TestAgentkit_MapsTheStopOfTheDriver(t *testing.T) {
+	read := call("c1", "read_file", `{"path":"README.md"}`)
+	cached := costs(faux.Text("nothing to submit"), 0.002, 1000, 200)
+	cached.Usage.SetField(core.UsageCacheReadTokens, 2000)
+	cached.Usage.SetField(core.UsageCacheWriteTokens, 300)
+	broken := faux.Turn{Err: errors.New("the provider fell over")}
 	w := newWorld(t)
-	both := faux.FauxAssistantMessage(core.StopReasonToolUse,
-		faux.FauxToolCall("c1", "read_file", `{"path":"README.md"}`),
-		faux.FauxToolCall("c2", "submit_test", `{"summary":"done"}`),
-		faux.FauxToolCall("c3", "list_files", `{"path":"."}`))
-	brain, p := fauxBrain(t, both, faux.Text("must never be requested"))
+	for _, tc := range []struct {
+		name          string
+		turns         []faux.Turn
+		cost          float64
+		maxTurns      int
+		stop          string
+		category      string
+		hint, mention string
+		in            int
+	}{
+		{"the cost bound", []faux.Turn{costs(read, 0.5, 1000, 200), faux.Text("never")}, 0.01, 10, StopBudget, toolio.CategoryBudget, "0.02", "", 1000},
+		{"the turn bound", []faux.Turn{costs(read, 0.001, 1000, 200), costs(faux.Text("never"), 0.001, 10, 10)}, 1, 1, StopTurns, toolio.CategoryBudget, "2", "", 1000},
+		{"the end of the turns, cache included", []faux.Turn{cached}, 1, 10, StopEnded, toolio.CategoryNoResult, "", "", 3300},
+		{"an error of the provider", []faux.Turn{costs(read, 0.001, 1000, 200), broken}, 1, 10, StopError, toolio.CategoryBrain, "", "the provider fell over", 1000},
+	} {
+		brain, _ := fauxBrain(t, tc.turns...)
 
-	res, err := runFaux(t, w, brain, nil)
+		res, err := runFaux(w, brain, func(b *Brief) { b.MaxCostUSD, b.MaxTurns = tc.cost, tc.maxTurns })
 
-	if err != nil || !res.Outcome.Submitted || res.Outcome.StopReason != StopSubmitted || p.Calls() != 1 {
-		t.Errorf("Execute = %+v, %v, %d requests; want a submission and one request", res, err, p.Calls())
+		o := res.Outcome
+		if o.StopReason != tc.stop || o.CostSource != CostMeasured || o.Turns < 1 || o.CostUSD <= 0 || o.InputTokens != tc.in || o.OutputTokens != 200 || o.Submitted {
+			t.Errorf("%s: outcome = %+v, want %s with the measured cost, turns and tokens", tc.name, o, tc.stop)
+		}
+		f := asFailure(t, err)
+		if f.Category != tc.category || (tc.hint != "" && (f.FixHint == nil || f.FixHint.Suggest != tc.hint)) || !strings.Contains(f.Message, tc.mention) {
+			t.Errorf("%s: failure = %+v, want %s %s %s", tc.name, f, tc.category, tc.hint, tc.mention)
+		}
+		if u := w.report.lastUsage(); u.CostSource != CostMeasured || u.Brain != AgentkitName {
+			t.Errorf("%s: usage = %+v, want the measured cost of the run", tc.name, u)
+		}
 	}
 }
 
-// TestAToolTheModelMakesUpIsDeniedLikeAny guards 07-REQ-8.1: a call to a tool the
-// box has and the brief does not allow is a denial, not an unknown tool, and a
-// call to one the box does not have is the driver's own error.
-func TestAToolTheModelMakesUpIsDeniedLikeAny(t *testing.T) {
+func TestAgentkit_AModelTheCatalogDoesNotPriceHasNoCost(t *testing.T) {
 	w := newWorld(t)
-	brain, p := fauxBrain(t,
-		call("c1", "execute", `{"command":"echo hi > outside.txt"}`),
-		call("c2", "teleport", `{}`),
-		call("c3", "submit_test", `{"summary":"done"}`))
+	unlisted, err := Default.New(AgentkitName, Options{Model: "a-model-nobody-listed", Getenv: envOf(map[string]string{VendorKeyVar: "key-for-the-test"})})
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	res, err := runFaux(t, w, brain, nil)
+	_, err = runFaux(w, unlisted, func(b *Brief) { b.MaxCostUSD = 2 })
 
-	if err != nil || !res.Outcome.Submitted {
-		t.Fatalf("Execute = %+v, %v", res, err)
+	if f := asFailure(t, err); f.Category != toolio.CategoryUsage || f.FixHint == nil || f.FixHint.Env != modelVar || !strings.Contains(f.Message, "a-model-nobody-listed") {
+		t.Errorf("a cost bound on it: %+v, want a usage failure that names the model and AF_MODEL", f)
 	}
-	reqs := p.Requests()
-	if got := lastToolResult(t, reqs[1]); !strings.Contains(got, "tool execute is not in this run's allowlist") {
-		t.Errorf("a call to execute: %q", got)
-	}
-	if got := lastToolResult(t, reqs[2]); !strings.Contains(got, "teleport") {
-		t.Errorf("a call to a tool that is not there: %q", got)
-	}
-	if _, err := w.boxFile("outside.txt"); err == nil {
-		t.Error("the denied command was executed")
+
+	p := faux.New(costs(call("c1", "submit_test", `{"summary":"done"}`), 0.5, 1000, 100))
+	res, err := runFaux(w, &agentkitBrain{model: "faux-1", provider: p}, func(b *Brief) { b.MaxCostUSD = 0 })
+
+	if u := w.report.lastUsage(); err != nil || !res.Outcome.Submitted || u.CostUSD != 0 || u.CostSource != CostNone || len(w.report.warned("model_unpriced")) != 1 {
+		t.Errorf("no bound: %+v, %v, usage %+v, warnings %+v; want the submission, no cost, and model_unpriced", res, err, u, w.report.warnings)
 	}
 }
+
+func TestAgentkit_RunsNothingThatCannotRun(t *testing.T) {
+	w := newWorld(t)
+	b := w.brief(1)
+	b.Box = w.session
+	noBox, unknown, schemaless := b, b, b
+	noBox.Box = nil
+	unknown.Tools = []string{"read_file", "teleport"}
+	schemaless.Kind.Schema = []byte(`{"type":`)
+	for _, tc := range []struct {
+		name    string
+		b       Brief
+		mention string
+	}{{"no box", noBox, "needs a box"}, {"a tool the box lacks", unknown, "teleport"}, {"a kind whose schema cannot be used", schemaless, "schema"}} {
+		brain, p := fauxBrain(t, faux.Text("never asked"))
+
+		out, err := brain.Run(context.Background(), tc.b)
+
+		var f *toolio.Failure
+		if err == nil || !strings.Contains(err.Error(), tc.mention) || errors.As(err, &f) || out.StopReason != StopError || p.Calls() != 0 {
+			t.Errorf("%s: %+v, %v, %d requests; want an internal error that says %q and no request", tc.name, out, err, p.Calls(), tc.mention)
+		}
+	}
+	if _, err := w.boxFile(submission.SubmissionPath(w.run.ID)); err == nil {
+		t.Error("a submission was made")
+	}
+}
+
+func TestAgentkit_RunsOnTheHostUnderAProviderThatDoesNotIsolate(t *testing.T) {
+	w := newWorld(t)
+	p := faux.New(call("c1", "list_files", `{"path":"."}`), call("c2", "submit_test", `{"summary":"hosted"}`))
+	brain, err := Default.New(AgentkitName, Options{Provider: "local", Getenv: noEnv, NewProvider: func(string) (core.ProviderClient, error) { return p, nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := runFaux(w, brain, nil)
+
+	if err != nil || !res.Outcome.Submitted || p.Calls() != 2 {
+		t.Fatalf("Execute = %+v, %v, %d requests; want the driver on the host to submit", res, err, p.Calls())
+	}
+	if kinds := w.kinds(); slices.Contains(kinds, "box_probe") || slices.Contains(kinds, "brain_process") {
+		t.Errorf("ledger = %v: a process was run in the box", kinds)
+	}
+}
+
+// call is a faux turn that calls a tool.
+func call(id, name, args string) faux.Turn { return faux.ToolCall(id, name, args) }

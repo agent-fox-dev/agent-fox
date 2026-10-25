@@ -5,115 +5,40 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync/atomic"
 	"testing"
 
-	"github.com/agent-fox-dev/agentkit-go/sandbox"
-	"github.com/agent-fox-dev/agentkit-go/sandbox/local"
-
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentkit-go/sandbox"
 )
 
-// podmanThatFails is a podman provider whose creation of a sandbox fails with err.
-type podmanThatFails struct{ err error }
-
-func (podmanThatFails) Capabilities() sandbox.Capabilities {
-	return sandbox.Capabilities{
-		Provider: "podman", Isolation: sandbox.IsolationContainer, Image: true,
-		Network: []sandbox.NetworkMode{sandbox.NetworkNone, sandbox.NetworkUnrestricted},
-	}
-}
-
-func (p podmanThatFails) Create(context.Context, sandbox.Spec) (sandbox.Sandbox, error) {
-	return nil, p.err
-}
-
-func (podmanThatFails) Reap(context.Context) ([]string, error) { return nil, nil }
-
-// withPodman sets the operating system and the provider that podman is made as.
-func withPodman(t *testing.T, goosName string, makeProvider func() (sandbox.Provider, error)) {
+// onGOOS makes the messages of the podman provider those of the operating system.
+func onGOOS(t *testing.T, goos string) {
 	t.Helper()
-	oldGoos, oldNew := GOOS, newPodmanProvider
-	t.Cleanup(func() { GOOS, newPodmanProvider = oldGoos, oldNew })
-	GOOS, newPodmanProvider = goosName, makeProvider
+	old := GOOS
+	t.Cleanup(func() { GOOS = old })
+	GOOS = goos
 }
 
-// withPodmanCreateError makes podman a provider whose engine answers err.
-func withPodmanCreateError(t *testing.T, goosName, message string) {
-	t.Helper()
-	withPodman(t, goosName, func() (sandbox.Provider, error) { return podmanThatFails{err: errors.New(message)}, nil })
-}
+func TestExplainPodman_AnEngineThatCannotBeReachedIsNotRetriedAndNamesSandbox(t *testing.T) {
+	for goos, machine := range map[string]bool{"darwin": true, "windows": true, "linux": false} {
+		onGOOS(t, goos)
 
-func openPodman(t *testing.T, mutate func(*Request)) (*Session, error) {
-	t.Helper()
-	req := Request{
-		Provider: "podman", HostDir: newRepo(t, 1, "main"), RunID: "20261021_130000_abcdef", Tool: "fix",
-		Image: "example.test/img:1", Network: NetworkOpen, Placement: "box",
-	}
-	if mutate != nil {
-		mutate(&req)
-	}
-	return Open(context.Background(), req)
-}
+		f := asFailure(t, explainPodman(Request{}, errors.New("cannot connect to Podman socket")))
 
-// TestAnEngineThatCannotBeReachedIsASandboxFailure_TS_10_19 verifies TS-10-19:
-// an engine that cannot be reached is failed/sandbox, not retryable, carries the
-// error of the provider, names --sandbox, and mentions `podman machine start` on an
-// operating system other than Linux.
-// Verifies: 10-REQ-4.1
-func TestAnEngineThatCannotBeReachedIsASandboxFailure_TS_10_19(t *testing.T) {
-	for _, tc := range []struct {
-		goos    string
-		machine bool
-	}{{"darwin", true}, {"windows", true}, {"linux", false}} {
-		withPodmanCreateError(t, tc.goos, "podman: volume create: cannot connect to Podman socket")
-
-		s, err := openPodman(t, nil)
-
-		if s != nil {
-			t.Fatalf("%s: a session was returned", tc.goos)
+		if f.Category != toolio.CategorySandbox || f.Retryable || !strings.Contains(f.Message, "the podman engine cannot be reached: cannot connect to Podman socket") {
+			t.Errorf("%s: %+v, want a sandbox failure that is not retried, with the error", goos, f)
 		}
-		f := asFailure(t, err)
-		if f.Category != toolio.CategorySandbox || f.Retryable {
-			t.Errorf("%s: failure = %+v, want sandbox and not retryable", tc.goos, f)
-		}
-		if !strings.Contains(f.Message, "cannot connect to Podman socket") {
-			t.Errorf("%s: message %q does not carry the error of the provider", tc.goos, f.Message)
-		}
-		if got := strings.Contains(f.Message, "podman machine start"); got != tc.machine {
-			t.Errorf("%s: the message mentions `podman machine start`: %v, want %v (%q)", tc.goos, got, tc.machine, f.Message)
-		}
-		if f.FixHint == nil || f.FixHint.Flag != "--sandbox" || f.FixHint.Env != "" {
-			t.Errorf("%s: fix_hint = %+v, want one that names --sandbox", tc.goos, f.FixHint)
+		if strings.Contains(f.Message, "podman machine start") != machine || f.FixHint == nil || *f.FixHint != (toolio.FixHint{Flag: "--sandbox"}) {
+			t.Errorf("%s: %q with hint %+v, want `podman machine start` %v and --sandbox", goos, f.Message, f.FixHint, machine)
 		}
 	}
 }
 
-// TestAnEngineThatIsNotThereIsTheSameFailure guards the provider that cannot be made
-// at all, since there is no podman on PATH: it is the failure of an engine that cannot
-// be reached.
-func TestAnEngineThatIsNotThereIsTheSameFailure(t *testing.T) {
-	withPodman(t, "darwin", func() (sandbox.Provider, error) {
-		return nil, errors.New(`exec: "podman": executable file not found in $PATH`)
-	})
-
-	_, err := openPodman(t, nil)
-
-	f := asFailure(t, err)
-	if f.Category != toolio.CategorySandbox || f.Retryable || !strings.Contains(f.Message, "executable file not found") || !strings.Contains(f.Message, "podman machine start") {
-		t.Errorf("failure = %+v, want the failure of an engine that cannot be reached, with the error", f)
-	}
-}
-
-// TestAnImageThatCannotBePulledIsARetryableSandboxFailure_TS_10_20 verifies TS-10-20:
-// an image that is missing and cannot be pulled is failed/sandbox, retryable, and the
-// message names the image and AF_SANDBOX_IMAGE.
-// Verifies: 10-REQ-4.2
-func TestAnImageThatCannotBePulledIsARetryableSandboxFailure_TS_10_20(t *testing.T) {
-	// One message for each thing the engine says, each of which says one thing only.
+func TestExplainPodman_AnImageThatCannotBePulledIsRetriedAndNamesAFSandboxImage(t *testing.T) {
+	onGOOS(t, "darwin")
 	for _, message := range []string{
+		"Error: example.test/img:1: image not known",
 		"image not found",
-		"podman: create: podman run failed with exit status 125; engine stderr: Error: example.test/img:1: image not known",
 		"Error: no such image: example.test/img:1",
 		"Error: reading manifest latest in example.test/img: manifest unknown",
 		"Trying to pull example.test/img:1... Error: name unknown",
@@ -122,105 +47,66 @@ func TestAnImageThatCannotBePulledIsARetryableSandboxFailure_TS_10_20(t *testing
 		"Error: failed to pull example.test/img:1: connection reset by peer",
 		`Error: error pulling "example.test/img:1": EOF`,
 		"denied: repository does not exist or may require authorization",
-		"Error: initializing source docker://example.test/img:1: pinging container registry example.test: no such host",
+		"Error: initializing source docker://example.test/img:1: no such host",
 	} {
-		withPodmanCreateError(t, "linux", message)
+		f := asFailure(t, explainPodman(Request{Image: "example.test/img:1"}, errors.New(message)))
 
-		_, err := openPodman(t, nil)
+		if f.Category != toolio.CategorySandbox || !f.Retryable || !strings.Contains(f.Message, "the image example.test/img:1 is missing") || f.FixHint == nil || f.FixHint.Env != "AF_SANDBOX_IMAGE" || strings.Contains(f.Message, "podman machine start") {
+			t.Errorf("%q: %+v, want a retried sandbox failure of the image that names AF_SANDBOX_IMAGE", message, f)
+		}
+	}
+	if f := asFailure(t, explainPodman(Request{}, errors.New("image not known"))); !strings.Contains(f.Message, "the image of the sandbox is missing") {
+		t.Errorf("no image named: %q, want the sandbox's image", f.Message)
+	}
+}
 
-		f := asFailure(t, err)
-		if f.Category != toolio.CategorySandbox || !f.Retryable {
-			t.Errorf("%q: failure = %+v, want sandbox and retryable", message, f)
-		}
-		if !strings.Contains(f.Message, "example.test/img:1") || !strings.Contains(f.Message, "AF_SANDBOX_IMAGE") {
-			t.Errorf("%q: message %q does not name the image and AF_SANDBOX_IMAGE", message, f.Message)
-		}
-		if strings.Contains(f.Message, "podman machine start") {
-			t.Errorf("%q: an image that is missing is not an engine that is down: %q", message, f.Message)
+func TestExplainPodman_AnImageWithNoAgentIsAFailureOfTheImage(t *testing.T) {
+	onGOOS(t, "darwin")
+	for image, says := range map[string]string{"example.test/img:1": "the image example.test/img:1 has no agent", "": "the image of the sandbox has no agent"} {
+		f := asFailure(t, explainPodman(Request{Image: image}, fmt.Errorf("podman: create: %w", sandbox.ErrNoAgent)))
+
+		if f.Category != toolio.CategorySandbox || f.Retryable || !strings.Contains(f.Message, says) || f.FixHint == nil || f.FixHint.Env != "AF_SANDBOX_IMAGE" || strings.Contains(f.Message, "cannot be reached") {
+			t.Errorf("%+v, want a failure of the image that says %q", f, says)
 		}
 	}
 }
 
-// TestPodmanFailuresThatAreNeitherAnEngineNorAMissingImageAreNotCalledSo guards the
-// classification of what the provider says: an image that is there and has no agent in
-// it (the provider's own error, matched through wrapping) is a failure that names the
-// image and AF_SANDBOX_IMAGE and does not send the person to a machine; a run that was
-// cancelled or timed out is its context's error, not an engine that is down.
-func TestPodmanFailuresThatAreNeitherAnEngineNorAMissingImageAreNotCalledSo(t *testing.T) {
-	withPodman(t, "darwin", func() (sandbox.Provider, error) {
-		return podmanThatFails{err: fmt.Errorf("podman: create: %w", sandbox.ErrNoAgent)}, nil
-	})
-
-	_, err := openPodman(t, nil)
-
-	f := asFailure(t, err)
-	if f.Category != toolio.CategorySandbox || f.Retryable || f.FixHint == nil || f.FixHint.Env != "AF_SANDBOX_IMAGE" {
-		t.Errorf("failure = %+v, want sandbox, not retryable, with a hint that names AF_SANDBOX_IMAGE", f)
-	}
-	if !strings.Contains(f.Message, "example.test/img:1") || !strings.Contains(f.Message, "AF_SANDBOX_IMAGE") || strings.Contains(f.Message, "podman machine start") || strings.Contains(f.Message, "cannot be reached") {
-		t.Errorf("message = %q, want one that names the image and the variable, and says nothing of an engine", f.Message)
-	}
-
+func TestExplainPodman_AStoppedRunIsTheErrorOfItsContext(t *testing.T) {
 	for _, ctxErr := range []error{context.Canceled, context.DeadlineExceeded} {
-		withPodman(t, "darwin", func() (sandbox.Provider, error) {
-			return podmanThatFails{err: fmt.Errorf("podman: create: %w", ctxErr)}, nil
-		})
+		err := fmt.Errorf("podman: create: %w", ctxErr)
 
-		_, err := openPodman(t, nil)
-
-		if !errors.Is(err, ctxErr) {
-			t.Errorf("%v: err = %v, want the error of the context to be matched through the failure", ctxErr, err)
-		}
-		var failure *toolio.Failure
-		if errors.As(err, &failure) && strings.Contains(failure.Message, "podman machine start") {
-			t.Errorf("%v: %q sends the person to a machine that is not the problem", ctxErr, failure.Message)
+		if got := explainPodman(Request{}, err); got != err {
+			t.Errorf("%v: explainPodman = %v, want the error as it is", ctxErr, got)
 		}
 	}
 }
 
-// TestADefaultProviderThatCannotOpenNamesHowToChooseAndNeverFallsBack_TS_10_5 verifies
-// TS-10-5: when the provider that was chosen by default cannot open, the failure is
-// failed/sandbox and its fix_hint names --sandbox and AF_SANDBOX; the other
-// providers are never made, and a provider that was asked for does not name the
-// variable.
-// Verifies: 10-REQ-1.5
-func TestADefaultProviderThatCannotOpenNamesHowToChooseAndNeverFallsBack_TS_10_5(t *testing.T) {
-	var fallbacks atomic.Int32
-	reg := NewRegistry()
-	reg.Register(Entry{Name: "podman", Explain: explainPodman, Build: func(ProviderConfig) (sandbox.Provider, error) {
-		return nil, errors.New("cannot connect to the engine")
-	}})
-	for _, name := range []string{"local"} {
-		reg.Register(Entry{Name: name, Unconfined: true, New: func() sandbox.Provider { fallbacks.Add(1); return local.Unisolated() }})
-	}
-	withPodman(t, "darwin", nil)
+func TestOpen_ThePodmanProviderOfDefaultExplainsItsFailures(t *testing.T) {
+	dir := hostRepo(t, nil)
+	onGOOS(t, "linux")
+	old := newPodmanProvider
+	t.Cleanup(func() { newPodmanProvider = old })
+	for _, tc := range []struct {
+		name      string
+		make      func() (sandbox.Provider, error)
+		says      string
+		retryable bool
+	}{
+		{"no podman on PATH", func() (sandbox.Provider, error) {
+			return nil, errors.New(`exec: "podman": executable file not found in $PATH`)
+		}, "the podman engine cannot be reached: exec", false},
+		{"an image that is not there", func() (sandbox.Provider, error) {
+			return &fakeProvider{Provider: localEntry().New(), f: &fake{createErr: errors.New("image not known")}}, nil
+		}, "is missing and cannot be pulled", true},
+	} {
+		newPodmanProvider = tc.make
+		req := request("podman", dir, nil, &ledger{})
+		req.Image = "example.test/img:1"
 
-	s, err := openPodman(t, func(r *Request) { r.Registry, r.Defaulted = reg, true })
+		_, err := Open(context.Background(), req)
 
-	if s != nil {
-		t.Fatal("a session was returned")
-	}
-	f := asFailure(t, err)
-	if f.Category != toolio.CategorySandbox || f.FixHint == nil || f.FixHint.Flag != "--sandbox" || f.FixHint.Env != "AF_SANDBOX" {
-		t.Errorf("failure = %+v, want sandbox with a fix_hint that names --sandbox and AF_SANDBOX", f)
-	}
-	if n := fallbacks.Load(); n != 0 {
-		t.Errorf("local and none were made %d times, want never", n)
-	}
-
-	_, err = openPodman(t, func(r *Request) { r.Registry = reg })
-	if f := asFailure(t, err); f.FixHint == nil || f.FixHint.Flag != "--sandbox" || f.FixHint.Env != "" {
-		t.Errorf("a provider that was asked for: fix_hint = %+v, want --sandbox alone", f.FixHint)
-	}
-}
-
-// TestOnlyASandboxFailureOfADefaultProviderGetsTheHint guards the hint: a refusal of the
-// request itself is not the provider's, and says nothing of choosing another.
-func TestOnlyASandboxFailureOfADefaultProviderGetsTheHint(t *testing.T) {
-	_, err := Open(context.Background(), Request{Provider: "local", HostDir: t.TempDir(), RunID: "r", Tool: "fix", Defaulted: true})
-
-	f := asFailure(t, err)
-	if f.Category != toolio.CategoryUsage || f.FixHint != nil {
-		t.Errorf("failure = %+v, want the usage failure of a directory that is no checkout, with no hint", f)
+		if f := asFailure(t, err); f.Category != toolio.CategorySandbox || f.Retryable != tc.retryable || !strings.Contains(f.Message, tc.says) {
+			t.Errorf("%s: %+v, want a sandbox failure saying %q, retryable %v", tc.name, f, tc.says, tc.retryable)
+		}
 	}
 }

@@ -1,405 +1,191 @@
 package poll
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/agent-fox-dev/agentfox/internal/hub/fakehub"
 	"github.com/agent-fox-dev/agentfox/internal/service/jobs"
-	"github.com/agent-fox-dev/agentfox/internal/service/jobs/fakerunner"
 )
 
-// answering is a runner whose first attempts end blocked on the question Which?, and whose later attempts wait.
-func answering(blocked int) *fakerunner.Runner {
-	steps := make([]fakerunner.Step, blocked)
-	for i := range steps {
-		steps[i] = blockedStep()
-	}
-	return fakerunner.New(steps...).Then(fakerunner.Block(fakerunner.Step{}))
-}
-
-// issuePath is the path of the read of the issue.
-func issuePath(n int) string { return fmt.Sprintf("/api/v1/workspaces/%s/issues/%d", slug, n) }
-
-// blockFix makes a fix job of the issue as the poll does, waits until its attempt is blocked, and posts its question
-// comment on the issue as the worker does. It returns the job's id.
-func (e *env) blockFix(n int) string {
-	e.t.Helper()
-	if _, ok := e.Hub.IssueOf(slug, n); !ok {
-		e.issue(n)
-	}
-	id := e.startedJob(jobs.KindFix, n, "af:fix")
-	e.waitState(id, jobs.StateBlocked)
-	e.comment(n, "agent-fox", fmt.Sprintf("**agent-fox needs an answer to go on.**\n\nWhich?\n\n<!-- agent-fox job=%s attempt=1 kind=question -->", id))
-	return id
-}
-
-// comment adds a comment of the login to the issue.
-func (e *env) comment(n int, login, body string) { e.Hub.AddPersonComment(slug, n, login, body) }
-
-// comments are how many comments the issue has.
-func (e *env) comments(n int) int {
-	issue, _ := e.Hub.IssueOf(slug, n)
-	return len(issue.Comments)
-}
-
-// doc is the document of the job with its attempts.
-func (e *env) doc(id string) jobs.Doc {
-	e.t.Helper()
-	d, err := e.Jobs.Get(ctx, id)
-	if err != nil {
-		e.t.Fatal(err)
-	}
-	return d
-}
-
-// hasLabel says whether the issue carries the label on hub.
-func (e *env) hasLabel(n int, label string) bool {
-	for _, l := range e.labelsOf(n) {
-		if l == label {
-			return true
-		}
-	}
-	return false
-}
-
-// TestAPersonsCommentAndTheLabelAgainAnswerTheBlockedFixJob_TS_19_1 verifies TS-19-1.
-// Verifies: 19-REQ-1.2, 19-REQ-2.1
-func TestAPersonsCommentAndTheLabelAgainAnswerTheBlockedFixJob_TS_19_1(t *testing.T) {
-	e := newEnv(t, withRunner(answering(1)))
-	id := e.blockFix(42)
+func TestAnswer_TheCommentsSinceTheQuestionAnswerTheBlockedJob(t *testing.T) {
+	e := newEnv(t)
+	id := e.waiting(42, jobs.StateBlocked)
 	e.comment(42, "alice", "use the greeting from the README")
 	e.Hub.AddLabel(slug, 42, "af:fix")
+
 	e.cycle()
-	d := e.doc(id)
-	if len(d.Attempts) != 2 || d.Attempts[1].Trigger != (jobs.Trigger{Kind: jobs.TriggerAnswer, By: "label af:fix"}) {
-		t.Fatalf("the attempts are %+v, want attempt 2 answered by the label", d.Attempts)
-	}
-	a := d.Attempts[1].Answer
-	if a == nil || a.Question != "Which?" || a.Option != nil || !strings.Contains(a.Text, "use the greeting from the README") || !strings.Contains(a.Text, "alice") {
-		t.Errorf("attempt 2's answer is %+v, want the question, no option, and the comment with its author", a)
-	}
-	if e.hasLabel(42, "af:fix") || e.removalsOf(42) != 1 {
-		t.Errorf("af:fix on 42: %v, %d removals, want it removed once", e.labelsOf(42), e.removalsOf(42))
-	}
-	if n := e.jobsFor(42); n != 1 {
-		t.Errorf("%d jobs for 42, want the one", n)
-	}
-	if got := e.Logs.find("INFO", "answered"); len(got) != 1 || got[0]["workspace"] != slug || got[0]["kind"] != "fix" ||
-		got[0]["issue"] != float64(42) || got[0]["label"] != "af:fix" || got[0]["job"] != id {
-		t.Errorf("the INFO records of the answer are %v", got)
-	}
-}
 
-// TestTheRunnerOfAForgeAnswersAttemptIsGivenTheAnswer_TS_19_2 verifies TS-19-2.
-// Verifies: 19-REQ-2.2
-func TestTheRunnerOfAForgeAnswersAttemptIsGivenTheAnswer_TS_19_2(t *testing.T) {
-	r := answering(1)
-	e := newEnv(t, withRunner(r))
-	e.blockFix(42)
-	e.comment(42, "alice", "use the greeting from the README")
-	e.Hub.AddLabel(slug, 42, "af:fix")
+	if want := "--- comment by alice ---\nuse the greeting from the README"; !slices.Equal(e.Jobs.answers, []string{want}) {
+		t.Errorf("the answers are %q, want %q", e.Jobs.answers, want)
+	}
+	if got, want := e.routes()[3:], []string{"issues(af:fix)", "read(42)", "remove(42,af:fix)"}; !slices.Equal(got, want) {
+		t.Errorf("hub was asked %v, want the issue read once, never its comment list, and the label removed", got)
+	}
+	if infos := e.Log.Find("INFO", "answered a blocked job"); len(infos) != 1 || infos[0]["job"] != id || infos[0]["issue"] != float64(42) {
+		t.Errorf("the INFO records are %v", infos)
+	}
+	e.Jobs.set(id, jobs.StateBlocked, &jobs.Standing{}) // the new attempt asks again at once
 	e.cycle()
-	waitFor(t, "attempt 2's runner", func() bool { return len(r.Calls()) == 2 })
-	answers := r.Calls()[1].Answers
-	if len(answers) != 1 || answers[0].Question != "Which?" || !strings.Contains(answers[0].Text, "use the greeting") || !strings.Contains(answers[0].Text, "alice") {
-		t.Errorf("the runner was given the answers %+v", answers)
+	e.cycle()
+	if len(e.Jobs.answers) != 1 || len(e.comments(42)) != 2 {
+		t.Errorf("%d answers and %d comments after two more cycles, want no more: the label was consumed", len(e.Jobs.answers), len(e.comments(42)))
 	}
 }
 
-// TestARecordNewerThanTheListingMakesTheSightingDoNothing_TS_19_5 verifies TS-19-5: a blocked job, a failed job and an issue
-// with no job, each with a record of af:fix on 42 that another trigger wrote after the listing was asked for.
-// Verifies: 19-REQ-1.3
-func TestARecordNewerThanTheListingMakesTheSightingDoNothing_TS_19_5(t *testing.T) {
-	for _, state := range []string{"blocked", "failed", "no job"} {
-		t.Run(state, func(t *testing.T) {
-			var e *env
-			inserted := false
-			e = newEnv(t, withRunner(fakerunner.New(blockedStep(), fakerunner.Failed("sandbox", false)).Then(fakerunner.Block(fakerunner.Step{}))),
-				withBeforeRequest(func(r *http.Request) {
-					if !inserted && strings.Contains(r.URL.RawQuery, "labels=af%3Afix") {
-						inserted = true
-						e.record(Record{Issue: 42, Label: "af:fix", Seen: SeenEnded, CreatedAt: e.Clock.Now()})
-					}
-				}))
-			e.issue(42)
-			id := ""
-			switch state {
-			case "blocked":
-				id = e.blockFix(42)
-			case "failed":
-				e.startedJob(jobs.KindFix, 7, "af:fix") // the first step, blocked, goes to another issue
-				id = e.startedJob(jobs.KindFix, 42, "af:fix")
-				e.waitState(id, jobs.StateFailed)
-			}
-			e.comment(42, "alice", "here is more")
-			e.Hub.AddLabel(slug, 42, "af:fix")
-			comments, before := e.comments(42), len(e.jobList())
-			attempts := 0
-			if id != "" {
-				attempts = len(e.doc(id).Attempts)
-			}
-			e.cycle()
-			if !e.hasLabel(42, "af:fix") || e.comments(42) != comments || len(e.jobList()) != before {
-				t.Errorf("label %v, %d comments (was %d), %d jobs (was %d): want nothing done", e.labelsOf(42), e.comments(42), comments, len(e.jobList()), before)
-			}
-			if id != "" && len(e.doc(id).Attempts) != attempts {
-				t.Errorf("the job has %d attempts, want %d", len(e.doc(id).Attempts), attempts)
-			}
-		})
-	}
-}
-
-// TestALabelOnAnIssueWhoseJobIsQueuedRunningOrBlockedWithAnOwedRemovalIsAbsorbed_TS_19_6 verifies TS-19-6.
-// Verifies: 19-REQ-1.4
-func TestALabelOnAnIssueWhoseJobIsQueuedRunningOrBlockedWithAnOwedRemovalIsAbsorbed_TS_19_6(t *testing.T) {
-	for _, state := range []string{"queued", "running", "blocked with an owed removal"} {
-		t.Run(state, func(t *testing.T) {
-			e := newEnv(t, withRunner(answering(1)))
-			var id string
-			switch state {
-			case "queued":
-				e.blockFix(1)
-				other := e.startedJob(jobs.KindFix, 2, "af:fix") // the workspace's runner holds this one
-				e.waitState(other, jobs.StateRunning)
-				e.issue(42)
-				id = e.startedJob(jobs.KindFix, 42, "af:fix")
-			case "running":
-				e.blockFix(1)
-				e.issue(42)
-				id = e.startedJob(jobs.KindFix, 42, "af:fix")
-				e.waitState(id, jobs.StateRunning)
-			default:
-				id = e.blockFix(42)
-				e.record(Record{Issue: 42, Label: "af:fix", Owed: true, Seen: SeenEnded})
-			}
-			e.comment(42, "alice", "here is an answer")
-			e.Hub.AddLabel(slug, 42, "af:fix")
-			attempts, jobsBefore := len(e.doc(id).Attempts), len(e.jobList())
-			e.cycle()
-			if len(e.doc(id).Attempts) != attempts || len(e.jobList()) != jobsBefore {
-				t.Errorf("%d attempts and %d jobs, want %d and %d", len(e.doc(id).Attempts), len(e.jobList()), attempts, jobsBefore)
-			}
-			if e.hasLabel(42, "af:fix") {
-				t.Errorf("af:fix is still on 42")
-			}
-		})
-	}
-}
-
-// TestAnAPIAnswerBetweenThePollsReadAndItsAnswerMakesThePollAbsorbTheLabel_TS_19_12 verifies TS-19-12.
-// Verifies: 19-REQ-2.4
-func TestAnAPIAnswerBetweenThePollsReadAndItsAnswerMakesThePollAbsorbTheLabel_TS_19_12(t *testing.T) {
-	var e *env
-	var id string
-	answered := false
-	e = newEnv(t, withRunner(answering(1)), withBeforeRequest(func(r *http.Request) {
-		if !answered && r.Method == http.MethodGet && r.URL.Path == issuePath(42) {
-			answered = true
-			text := "by the API"
-			if _, err := e.Jobs.Answer(context.Background(), id, "user-1", jobs.AnswerRequest{Answer: &text}); err != nil {
-				t.Errorf("the API answer: %v", err)
-			}
+func TestRetry_TheCommentsSinceTheFailureAreTheContextOfTheNextAttempt(t *testing.T) {
+	for _, comment := range []string{"the log is in CI run 812", ""} {
+		e := newEnv(t)
+		id := e.waiting(42, jobs.StateFailed)
+		if comment != "" {
+			e.comment(42, "bob", comment)
 		}
-	}))
-	id = e.blockFix(42)
-	e.comment(42, "alice", "use the greeting")
-	e.Hub.AddLabel(slug, 42, "af:fix")
-	comments := e.comments(42)
-	e.cycle()
-	if !answered {
-		t.Fatal("the poll did not read the issue")
-	}
-	d := e.doc(id)
-	if len(d.Attempts) != 2 || d.Attempts[1].Trigger.By != "user-1" {
-		t.Errorf("the attempts are %+v, want the API's one answer", d.Attempts)
-	}
-	if e.hasLabel(42, "af:fix") || e.comments(42) != comments {
-		t.Errorf("label %v and %d comments, want the label absorbed and no comment", e.labelsOf(42), e.comments(42))
-	}
-}
+		e.Hub.AddLabel(slug, 42, "af:fix")
+		comments := len(e.comments(42))
 
-// answerRefused is a jobs layer whose answers and retries are refused with an error.
-type answerRefused struct {
-	Jobs
-	err error
-}
-
-func (a answerRefused) Answer(context.Context, string, string, jobs.AnswerRequest) (jobs.Doc, error) {
-	return jobs.Doc{}, a.err
-}
-
-func (a answerRefused) RetryWithContext(context.Context, string, string, []string) (jobs.Doc, error) {
-	return jobs.Doc{}, a.err
-}
-
-// writes are the requests of the poll that wrote to the forge: comments and label changes.
-func (e *env) writes() []string {
-	var out []string
-	for _, r := range e.Hub.Requests() {
-		if r.Method != http.MethodGet && strings.Contains(r.Path, "/issues/") {
-			out = append(out, r.Method+" "+r.Path)
-		}
-	}
-	return out
-}
-
-// TestAnAnswerForAWorkspaceThatIsNotSubscribedWritesNothingAndEndsTheCycle_TS_19_13 verifies TS-19-13.
-// Verifies: 19-REQ-2.5
-func TestAnAnswerForAWorkspaceThatIsNotSubscribedWritesNothingAndEndsTheCycle_TS_19_13(t *testing.T) {
-	e := newEnv(t, withRunner(answering(2)), withJobs(func(j Jobs) Jobs { return answerRefused{Jobs: j, err: jobs.ErrNotSubscribed} }))
-	for _, n := range []int{42, 43} {
-		e.blockFix(n)
-		e.comment(n, "alice", "an answer")
-		e.Hub.AddLabel(slug, n, "af:fix")
-	}
-	before := len(e.writes())
-	e.cycle()
-	if got := e.writes()[before:]; len(got) != 0 {
-		t.Errorf("the poll wrote %v, want nothing", got)
-	}
-	if reads := len(e.Hub.RequestsTo(http.MethodGet, issuePath(43))); reads != 0 {
-		t.Errorf("43 was read %d times, want the cycle ended before it", reads)
-	}
-}
-
-// TestAnUnreadableTokenOrAnotherErrorOfTheAnswerLeavesTheLabelAndLogsOnce_TS_19_14 verifies TS-19-14.
-// Verifies: 19-REQ-2.6
-func TestAnUnreadableTokenOrAnotherErrorOfTheAnswerLeavesTheLabelAndLogsOnce_TS_19_14(t *testing.T) {
-	refused := &answerRefused{err: jobs.ErrTokenUnreadable}
-	e := newEnv(t, withRunner(answering(1)), withJobs(func(j Jobs) Jobs { refused.Jobs = j; return refused }))
-	id := e.blockFix(42)
-	e.comment(42, "alice", "an answer")
-	e.Hub.AddLabel(slug, 42, "af:fix")
-	for _, err := range []error{jobs.ErrTokenUnreadable, errors.New("disk full")} {
-		refused.err = err
 		e.cycle()
-		if !e.hasLabel(42, "af:fix") || len(e.doc(id).Attempts) != 1 {
-			t.Errorf("%v: label %v and %d attempts, want the label left and no attempt", err, e.labelsOf(42), len(e.doc(id).Attempts))
+
+		want := [][]string{nil}
+		if comment != "" {
+			want = [][]string{{"--- comment by bob ---\n" + comment}}
+		}
+		if !slices.EqualFunc(e.Jobs.retries, want, slices.Equal) || len(e.Jobs.creates) != 0 || len(e.labels(42)) != 0 {
+			t.Errorf("the retries are %q with %d jobs made and labels %v, want %q and the label consumed", e.Jobs.retries, len(e.Jobs.creates), e.labels(42), want)
+		}
+		if len(e.comments(42)) != comments || len(e.Log.Find("INFO", "retried a failed job")) != 1 || e.Log.Find("INFO", "retried")[0]["job"] != id {
+			t.Errorf("comments %q and logs %s, want no reply and the retry logged", e.comments(42), e.Log)
 		}
 	}
-	if got := e.Logs.find("WARN", "answer"); len(got) != 1 {
-		t.Errorf("%d failure records of the answer, want 1: %v", len(got), got)
+}
+
+// The record of every outcome is written before the removal and names the job only when the label is the job's own
+// request label, which its cancel puts back.
+func TestForgeOutcome_WritesItsRecordBeforeTheRemovalAndNamesOnlyAJobOfItsOwnLabel(t *testing.T) {
+	for _, outcome := range []string{"answer", "retry", "no answer", "thread cut"} {
+		for _, own := range []bool{true, false} {
+			e := newEnv(t)
+			state := jobs.StateBlocked
+			if outcome == "retry" {
+				state = jobs.StateFailed
+			}
+			id := e.waiting(42, state)
+			if !own {
+				e.Jobs.docs[0].RequestLabel = nil // a job of the API
+			}
+			if outcome != "no answer" {
+				e.comment(42, "alice", "an answer")
+			}
+			if outcome == "thread cut" {
+				e.Hub.Inject("GET", issuePath(42), fakehub.Fault{Status: 200, Body: e.threadBody(42, true, false), Once: true})
+			}
+			e.Hub.AddLabel(slug, 42, "af:fix")
+			e.Hub.FailOnce(removalPath(42, "af:fix"), 503)
+
+			e.cycle()
+
+			want := map[bool]string{true: id, false: ""}[own]
+			if recs := e.records(); len(recs) != 1 || !recs[0].Owed || recs[0].JobID != want {
+				t.Errorf("%s, own label %v: records %+v, want one owed that names the job %q", outcome, own, recs, want)
+			}
+			e.cycle()
+			if len(e.labels(42)) != 0 {
+				t.Errorf("%s, own label %v: the next cycle left %v", outcome, own, e.labels(42))
+			}
+		}
 	}
 }
 
-// TestTheCommentsAreReadThroughTheIssueReadAndNeverTheCommentList_TS_19_15 verifies TS-19-15: the poll reads the issue to
-// answer, once, and never the comment list.
-// Verifies: 19-REQ-3.1
-func TestTheCommentsAreReadThroughTheIssueReadAndNeverTheCommentList_TS_19_15(t *testing.T) {
-	e := newEnv(t, withRunner(answering(2))) // 42's first attempt and its answer
-	e.blockFix(42)
-	e.comment(42, "alice", "by the poll")
-	e.Hub.AddLabel(slug, 42, "af:fix")
-	e.cycle()
-	if n := len(e.Hub.RequestsTo(http.MethodGet, issuePath(42))); n != 1 {
-		t.Errorf("the poll read 42 %d times, want once", n)
-	}
-	if got := len(e.Hub.RequestsTo(http.MethodGet, issuePath(42)+"/comments")); got != 0 {
-		t.Errorf("the comment list of 42 was read %d times, want never", got)
-	}
-}
-
-// TestAHubFailureOfTheIssueReadLeavesTheLabelAndTheNextCycleAnswers_TS_19_20 verifies TS-19-20.
-// Verifies: 19-REQ-3.6
-func TestAHubFailureOfTheIssueReadLeavesTheLabelAndTheNextCycleAnswers_TS_19_20(t *testing.T) {
-	for _, status := range []int{503, 401, 403, 502} {
-		t.Run(fmt.Sprint(status), func(t *testing.T) {
-			e := newEnv(t, withRunner(answering(2)))
-			id := e.blockFix(42)
-			e.blockFix(43)
+func TestAnswerOrRetry_ThatTheJobsLayerRefuses(t *testing.T) {
+	for name, tc := range map[string]struct {
+		state    jobs.State
+		method   string // the method that fails, the answer or the retry when empty
+		err      error
+		absorbed string // the job named as absorbing the label, "-" when the label stays
+		warn     string
+	}{
+		"an answer to a job that moved":   {jobs.StateBlocked, "", &jobs.StateError{State: jobs.StateQueued}, "job_1", ""},
+		"a retry of a job that moved":     {jobs.StateFailed, "", &jobs.StateError{State: jobs.StateQueued}, "job_1", ""},
+		"a retry beaten by another job":   {jobs.StateFailed, "", &jobs.DuplicateError{JobID: "job_api"}, "job_api", ""},
+		"a retry refused as a duplicate":  {jobs.StateFailed, "", jobs.ErrDuplicate, "job_1", ""},
+		"an answer, not subscribed":       {jobs.StateBlocked, "", jobs.ErrNotSubscribed, "-", ""},
+		"a retry, not subscribed":         {jobs.StateFailed, "", jobs.ErrNotSubscribed, "-", ""},
+		"an answer, the token unreadable": {jobs.StateBlocked, "", jobs.ErrTokenUnreadable, "-", "answer the blocked job"},
+		"a retry, the disk full":          {jobs.StateFailed, "", errors.New("disk full"), "-", "retry the failed job"},
+		"the job cannot be read":          {jobs.StateBlocked, "Get", errors.New("locked"), "-", "read the job job_1 of af:fix on the issue 42"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
 			for _, n := range []int{42, 43} {
+				e.waiting(n, tc.state)
+				e.comment(n, "bob", "try again")
+				e.Hub.AddLabel(slug, n, "af:fix")
+			}
+			if tc.method == "" {
+				tc.method = map[jobs.State]string{jobs.StateBlocked: "Answer", jobs.StateFailed: "Retry"}[tc.state]
+			}
+			e.Jobs.fail(tc.method, tc.err)
+			comments := len(e.comments(42))
+
+			e.cycle()
+			e.cycle()
+
+			if len(e.comments(42)) != comments {
+				t.Errorf("comments %q, want none posted", e.comments(42))
+			}
+			if infos := e.Log.Find("INFO", "absorbed"); tc.absorbed != "-" && (len(infos) == 0 || infos[0]["job"] != tc.absorbed || len(e.labels(42)) != 0) {
+				t.Errorf("absorbed %v and labels %v, want the label absorbed by %s", infos, e.labels(42), tc.absorbed)
+			}
+			if tc.absorbed == "-" && (!slices.Contains(e.labels(42), "af:fix") || slices.Contains(e.routes(), "read(43)") || len(e.removals()) != 0) {
+				t.Errorf("labels %v and hub asked %v, want the label left and the cycle ended", e.labels(42), e.routes())
+			}
+			if warns := e.Log.Find("WARN", ""); (tc.warn == "") != (len(warns) == 0) || (tc.warn != "" && (len(warns) != 1 || !strings.Contains(warns[0]["msg"].(string), tc.warn))) {
+				t.Errorf("the warnings are %v, want one only for a refusal that says %q", warns, tc.warn)
+			}
+		})
+	}
+}
+
+func TestAnswer_AnIssueThatCannotBeReadLeavesTheLabelAndEndsTheCycleUnlessTheIssueIsAtFault(t *testing.T) {
+	forge := `{"error":{"code":502,"message":"the forge refused the token of hub","error_type":"forge_unauthenticated"}}`
+	for name, tc := range map[string]struct {
+		fault  fakehub.Fault
+		level  string
+		goesOn bool
+	}{
+		"503":                         {fakehub.Fault{Status: 503}, "WARN", false},
+		"401":                         {fakehub.Fault{Status: 401}, "ERROR", false},
+		"403":                         {fakehub.Fault{Status: 403}, "ERROR", false},
+		"502 of the forge":            {fakehub.Fault{Status: 502, Body: forge}, "ERROR", false},
+		"404":                         {fakehub.Fault{Status: 404}, "ERROR", true},
+		"422":                         {fakehub.Fault{Status: 422}, "ERROR", true},
+		"comments hub could not read": {fakehub.Fault{Status: 200}, "ERROR", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			for _, n := range []int{42, 43} {
+				e.waiting(n, jobs.StateBlocked)
 				e.comment(n, "alice", "an answer")
 				e.Hub.AddLabel(slug, n, "af:fix")
 			}
-			if status == 502 { // the forge refuses hub's credential, which would fail every issue
-				e.Hub.Inject(http.MethodGet, issuePath(42), fakehub.Fault{Status: 502,
-					Body: `{"error":{"code":"forge_forbidden","message":"the forge forbids hub's credential","error_type":"forge"}}`})
-			} else {
-				e.Hub.Fail(issuePath(42), status)
+			if tc.fault.Status == 200 {
+				tc.fault.Body = e.threadBody(42, false, true)
 			}
-			comments := e.comments(42)
+			e.Hub.Inject("GET", issuePath(42), tc.fault)
+
 			e.cycle()
-			if !e.hasLabel(42, "af:fix") || len(e.doc(id).Attempts) != 1 || e.comments(42) != comments {
-				t.Errorf("label %v, %d attempts, %d comments: want nothing done", e.labelsOf(42), len(e.doc(id).Attempts), e.comments(42))
+
+			if !slices.Contains(e.labels(42), "af:fix") || len(e.comments(42)) != 2 || len(e.Log.Find(tc.level, "read the comments of the issue 42")) != 1 {
+				t.Errorf("labels %v, comments %q, logs %s: want the label left, no reply and one %s", e.labels(42), e.comments(42), e.Log, tc.level)
 			}
-			if reads := len(e.Hub.RequestsTo(http.MethodGet, issuePath(43))); reads != 0 {
-				t.Errorf("43 was read %d times, want the cycle ended", reads)
-			}
-			if status == 503 && len(e.Logs.level("WARN")) != 1 {
-				t.Errorf("WARN records %v, want one", e.Logs.level("WARN"))
-			}
-			if (status == 401 || status == 403) && len(e.Logs.level("ERROR")) != 1 {
-				t.Errorf("ERROR records %v, want one, as the poll logs a token hub refuses", e.Logs.level("ERROR"))
+			if answered := len(e.Jobs.answers) == 1; answered != tc.goesOn {
+				t.Errorf("43 answered in the same cycle: %v, want %v", answered, tc.goesOn)
 			}
 			e.Hub.Clear()
 			e.cycle()
-			if len(e.doc(id).Attempts) != 2 {
-				t.Errorf("the next cycle made %d attempts, want the answer", len(e.doc(id).Attempts))
-			}
-		})
-	}
-}
-
-// threadBody is the body of hub's issue read of the issue as the fake holds it, with the cut and the failure to read the
-// comments that hub may say.
-func (e *env) threadBody(n int, truncated, commentsErr bool) string {
-	e.t.Helper()
-	issue, _ := e.Hub.IssueOf(slug, n)
-	comments := []map[string]any{}
-	for _, c := range issue.Comments {
-		comments = append(comments, map[string]any{"id": c.ID, "body": c.Body, "user": map[string]any{"login": c.Author}, "created_at": c.CreatedAt})
-	}
-	out := map[string]any{
-		"issue":     map[string]any{"number": n, "title": issue.Title, "body": issue.Body, "state": issue.State, "labels": issue.Labels},
-		"comments":  comments,
-		"truncated": truncated,
-	}
-	if commentsErr {
-		out["comments_err"] = map[string]any{}
-		out["comments"] = []any{}
-	}
-	raw, err := json.Marshal(out)
-	if err != nil {
-		e.t.Fatal(err)
-	}
-	return string(raw)
-}
-
-// TestA4xxOnOneIssuesReadOrCommentsErrReportsAndTheCycleGoesOn_TS_19_21 verifies TS-19-21.
-// Verifies: 19-REQ-3.7
-func TestA4xxOnOneIssuesReadOrCommentsErrReportsAndTheCycleGoesOn_TS_19_21(t *testing.T) {
-	for _, how := range []string{"404", "422", "comments_err"} {
-		t.Run(how, func(t *testing.T) {
-			e := newEnv(t, withRunner(answering(2)))
-			j42, j43 := e.blockFix(42), e.blockFix(43)
-			for _, n := range []int{42, 43} {
-				e.comment(n, "alice", "an answer")
-				e.Hub.AddLabel(slug, n, "af:fix")
-			}
-			switch how {
-			case "comments_err":
-				e.Hub.Inject(http.MethodGet, issuePath(42), fakehub.Fault{Status: 200, Body: e.threadBody(42, false, true)})
-			case "404":
-				e.Hub.Fail(issuePath(42), 404)
-			default:
-				e.Hub.Fail(issuePath(42), 422)
-			}
-			comments := e.comments(42)
-			e.cycle()
-			if !e.hasLabel(42, "af:fix") || len(e.doc(j42).Attempts) != 1 || e.comments(42) != comments {
-				t.Errorf("42: label %v, %d attempts, %d comments: want nothing done", e.labelsOf(42), len(e.doc(j42).Attempts), e.comments(42))
-			}
-			if len(e.Logs.level("ERROR"))+len(e.Logs.level("WARN")) == 0 {
-				t.Error("the failure was not reported")
-			}
-			if len(e.doc(j43).Attempts) != 2 {
-				t.Errorf("43 has %d attempts, want it answered in the same cycle", len(e.doc(j43).Attempts))
+			if len(e.Jobs.answers) != 2 {
+				t.Errorf("%d answers once the issue reads again, want both", len(e.Jobs.answers))
 			}
 		})
 	}

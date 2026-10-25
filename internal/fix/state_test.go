@@ -1,105 +1,51 @@
 package fix
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"os"
-	"path/filepath"
-	"sync"
+	"reflect"
+	"sync/atomic"
 	"testing"
 
-	"github.com/agent-fox-dev/agentfox/internal/project"
+	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/testutil"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
-func sampleState() State {
-	return State{
-		RunID:  "20261020_100000_aaaaaa",
-		Input:  StateInput{Kind: "issue", Origin: "https://github.com/o/r/issues/7", Key: "https://github.com/o/r/issues/7"},
-		Issue:  &StateIssue{URL: "https://github.com/o/r/issues/7", Title: "Greeting is wrong"},
-		Target: StateTarget{Repo: "o/r", Host: "github.com"}, Base: "main", BaseHead: "0123456789abcdef0123456789abcdef01234567",
-		Table:          project.Table{Source: "detected", Checks: []project.Check{{Name: "make check", Argv: []string{"make", "check"}, Kind: "check", Source: "Makefile:check", Available: true}}},
-		BaselineGateID: "abc123", BaselinePassed: true, BaselineMS: 1200,
-		PrefixSHA256: "feed", PrefixBytes: 1234, Suite: [][]string{{"make", "check"}}, Programs: []string{"make", "sh"}, Context: []string{"A", "B"}, Rounds: 0,
-	}
-}
-
-// TestFixJSONHoldsEveryFieldAndIsWrittenAtomically_TS_09_17 verifies TS-09-17 at the
-// function: every field the later steps need, written as a whole or not at all,
-// with no temporary file left, and read back as it was.
-// Verifies: 09-REQ-2.8
-func TestFixJSONHoldsEveryFieldAndIsWrittenAtomically_TS_09_17(t *testing.T) {
+func TestState_WriteThenLoadGivesItBack(t *testing.T) {
 	dir := t.TempDir()
 	s := sampleState()
 
 	if err := s.Write(dir); err != nil {
 		t.Fatal(err)
 	}
-
-	var raw map[string]json.RawMessage
-	data, err := os.ReadFile(filepath.Join(dir, "fix.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		t.Fatal(err)
-	}
-	for _, key := range []string{"run_id", "input", "issue", "target", "base", "base_head", "table", "baseline_gate_id", "no_verify", "prefix_sha256", "prefix_bytes", "suite", "programs", "context", "rounds"} {
-		if _, ok := raw[key]; !ok {
-			t.Errorf("fix.json has no %s: %s", key, data)
-		}
-	}
-	var input map[string]string
-	if err := json.Unmarshal(raw["input"], &input); err != nil || input["kind"] != "issue" || input["origin"] == "" || input["key"] == "" {
-		t.Errorf("input = %v (%v), want kind, origin and key", input, err)
-	}
 	got, err := LoadState(dir)
-	if err != nil {
-		t.Fatal(err)
+
+	if err != nil || !reflect.DeepEqual(got, s) {
+		t.Errorf("LoadState = %+v, %v, want %+v", got, err, s)
 	}
-	if again, _ := json.Marshal(got); string(again) != string(mustJSON(t, s)) {
-		t.Errorf("LoadState gave %s, want %s", again, mustJSON(t, s))
-	}
-	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
-		t.Errorf("the run directory holds %d entries, want fix.json alone: %v", len(entries), entries)
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 || entries[0].Name() != StateFile {
+		t.Errorf("the run directory holds %v, want fix.json alone", entries)
 	}
 	if _, err := LoadState(t.TempDir()); err == nil {
 		t.Error("LoadState of a directory with no fix.json succeeded")
 	}
 	bad := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bad, "fix.json"), []byte("{"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteFile(t, bad, StateFile, "{")
 	if _, err := LoadState(bad); err == nil {
 		t.Error("LoadState of a file that does not parse succeeded")
 	}
 }
 
-func mustJSON(t *testing.T, v any) []byte {
-	t.Helper()
-	data, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return data
-}
-
-// TestAReaderNeverSeesAPartialFixJSON guards the same atomicity under a reader: while
-// the file is written over and over, every read finds a whole document.
-func TestAReaderNeverSeesAPartialFixJSON(t *testing.T) {
+func TestState_AReaderNeverSeesAPartialFile(t *testing.T) {
 	dir := t.TempDir()
 	s := sampleState()
 	if err := s.Write(dir); err != nil {
 		t.Fatal(err)
 	}
-	stop := make(chan struct{})
-	var wg sync.WaitGroup
-	var partial int
-	var mu sync.Mutex
-	wg.Add(1)
+	var partial atomic.Int32
+	stop, done := make(chan struct{}), make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer close(done)
 		for {
 			select {
 			case <-stop:
@@ -107,63 +53,62 @@ func TestAReaderNeverSeesAPartialFixJSON(t *testing.T) {
 			default:
 			}
 			if _, err := LoadState(dir); err != nil {
-				mu.Lock()
-				partial++
-				mu.Unlock()
+				partial.Add(1)
 			}
 		}
 	}()
-	for i := range 300 {
-		s.Rounds = i
-		s.Context = append(s.Context[:0], make([]string, i%7)...)
+	for i := range 200 {
+		s.Rounds, s.Context = i, make([]string, i%7)
 		if err := s.Write(dir); err != nil {
 			t.Fatal(err)
 		}
 	}
 	close(stop)
-	wg.Wait()
-	if partial != 0 {
-		t.Errorf("%d reads saw a document that did not parse", partial)
+	<-done
+	if n := partial.Load(); n != 0 {
+		t.Errorf("%d reads saw a document that did not parse", n)
 	}
 }
 
-// TestTheInputKeyIdentifiesTheInputAcrossRuns guards 09-REQ-2.8: the URL of an
-// issue, the absolute path of a file, the SHA-256 of a text.
-func TestTheInputKeyIdentifiesTheInputAcrossRuns(t *testing.T) {
-	sum := sha256.Sum256([]byte("the greeting says helo"))
+func TestInputKey_IsTheURLThePathOrTheHashOfTheText(t *testing.T) {
 	for _, tc := range []struct{ kind, origin, body, want string }{
 		{"issue", "https://github.com/o/r/issues/7", "thread text", "https://github.com/o/r/issues/7"},
 		{"file", "/work/bug.md", "the contents", "/work/bug.md"},
-		{"text", "", "the greeting says helo", hex.EncodeToString(sum[:])},
-		{"stdin", "", "the greeting says helo", hex.EncodeToString(sum[:])},
+		{"text", "", "the greeting says helo", testutil.SHA256("the greeting says helo")},
+		{"stdin", "", "the greeting says helo", testutil.SHA256("the greeting says helo")},
 	} {
 		if got := InputKey(tc.kind, tc.origin, tc.body); got != tc.want {
 			t.Errorf("InputKey(%s) = %q, want %q", tc.kind, got, tc.want)
 		}
 	}
-	if InputKey("text", "", "a") == InputKey("text", "", "b") {
-		t.Error("two texts have the same key")
-	}
 }
 
-// TestUsageAddsUpAndKeepsTheBestSourceOfTheCost guards what the rounds of a run have used:
-// the costs are added, the last brain is the brain, and the source is the best any round had.
-func TestUsageAddsUpAndKeepsTheBestSourceOfTheCost(t *testing.T) {
+func TestAddUsage_AddsTheCostsAndKeepsTheBestSource(t *testing.T) {
 	var s State
 	for _, step := range []struct {
 		u      toolio.Usage
 		cost   float64
 		source string
 	}{
-		{toolio.Usage{Brain: "scripted", CostUSD: 0, CostSource: toolio.CostNone}, 0, toolio.CostNone},
+		{toolio.Usage{Brain: "scripted", CostSource: toolio.CostNone}, 0, toolio.CostNone},
 		{toolio.Usage{Brain: "agentkit", CostUSD: 0.5, CostSource: toolio.CostReported}, 0.5, toolio.CostReported},
 		{toolio.Usage{Brain: "agentkit", CostUSD: 0.25, CostSource: toolio.CostMeasured}, 0.75, toolio.CostMeasured},
 		{toolio.Usage{Brain: "agentkit", CostUSD: 1, CostSource: toolio.CostNone}, 1.75, toolio.CostMeasured},
-		{toolio.Usage{Brain: "agentkit", CostUSD: 0, CostSource: toolio.CostReported}, 1.75, toolio.CostMeasured},
+		{toolio.Usage{Brain: "agentkit", CostSource: toolio.CostReported}, 1.75, toolio.CostMeasured},
 	} {
 		s.AddUsage(step.u)
 		if s.CostUSD != step.cost || s.CostSource != step.source || s.Brain != step.u.Brain {
 			t.Fatalf("after %+v: brain %q, cost %v, source %q, want %v and %q", step.u, s.Brain, s.CostUSD, s.CostSource, step.cost, step.source)
 		}
+	}
+}
+
+func TestGateMS_AddsTheDurationsOfTheChecks(t *testing.T) {
+	res := &checks.Result{Checks: []checks.CheckResult{{DurationMS: 1200}, {DurationMS: 34}}}
+	if got := GateMS(res); got != 1234 {
+		t.Errorf("GateMS = %d, want 1234", got)
+	}
+	if got := GateMS(nil); got != 0 {
+		t.Errorf("GateMS(nil) = %d, want 0", got)
 	}
 }

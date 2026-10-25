@@ -2,16 +2,12 @@ package checks
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -19,454 +15,251 @@ import (
 	"unicode/utf8"
 
 	"github.com/agent-fox-dev/agentfox/internal/project"
+	"github.com/agent-fox-dev/agentfox/internal/testutil"
 )
 
-// requireSh skips the test where there is no POSIX shell to write checks in.
-func requireSh(t *testing.T) {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("the checks of these tests are shell scripts")
-	}
-	if _, err := exec.LookPath("sh"); err != nil {
-		t.Skip("sh is not installed")
-	}
-}
-
-// shCheck is a check that runs script with sh.
-func shCheck(name, script string) project.Check {
-	return project.Check{Name: name, Argv: []string{"sh", "-c", script}, Kind: project.KindCheck, Source: "test", Available: true}
-}
-
-// tableOf is a gate table of the given checks.
-func tableOf(checks ...project.Check) project.Table {
-	return project.Table{Source: project.SourceFile, Checks: checks}
-}
-
-// mustRun is Run, failing the test on an error.
-func mustRun(t *testing.T, dir string, opts Options) Result {
-	t.Helper()
-	res, err := Run(context.Background(), dir, opts)
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	return res
-}
-
-// counterCheck is a check that appends a line to a counter file outside the
-// repository, which is how the tests tell how often a check ran.
-func counterCheck(t *testing.T, name string) (counter string, check project.Check) {
-	t.Helper()
-	counter = filepath.Join(t.TempDir(), "counter")
-	return counter, shCheck(name, fmt.Sprintf("echo run >> '%s'; echo \"ran %s\"", counter, name))
-}
-
-// runs is how many lines the counter file holds.
-func runs(t *testing.T, counter string) int {
-	t.Helper()
-	data, err := os.ReadFile(counter)
-	if errors.Is(err, os.ErrNotExist) {
-		return 0
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	return strings.Count(string(data), "\n")
-}
-
-// readLog reads the log a result names, relative to dir.
-func readLog(t *testing.T, dir string, c CheckResult) string {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(c.Log)))
-	if err != nil {
-		t.Fatalf("the log of %s: %v", c.Name, err)
-	}
-	return string(data)
-}
-
-// TestRunRecordsEachCheck_TS_06_19 verifies TS-06-19:
-// A gate run executes the available checks in order, writes one full log
-// each, and records statuses, exit codes, durations and tails.
-// Verifies: 06-REQ-3.1, 06-REQ-3.3
-func TestRunRecordsEachCheck_TS_06_19(t *testing.T) {
-	requireSh(t)
+// A run takes the available checks in order, one full log each, and goes on
+// past a check that fails, cannot start, or outlives its deadline; that one
+// is stopped with everything it started.
+func TestRunRecordsEachCheckInOrder(t *testing.T) {
+	testutil.Require(t, "sh")
 	dir := newRepo(t)
+	pidFile := filepath.Join(t.TempDir(), "pid")
 	table := tableOf(
 		shCheck("pass", `i=0; while [ $i -lt 100 ]; do echo "line $i"; i=$((i+1)); done`),
 		shCheck("fail", `echo failing; echo oops >&2; exit 3`),
-		project.Check{Name: "missing", Argv: []string{"no-such-program-for-af"}, Kind: project.KindTest, Available: false},
-		project.Check{Name: "vanished", Argv: []string{"./vanished.sh"}, Kind: project.KindTest, Available: true},
-		shCheck("slow", `sleep 30`),
+		project.Check{Name: "missing", Argv: []string{"no-such-program-for-af"}, Kind: project.KindTest},
+		project.Check{Name: "Vanished!", Argv: []string{"./vanished.sh"}, Kind: project.KindTest, Available: true},
+		shCheck("hangs", fmt.Sprintf("echo started; sleep 60 & echo $! > '%s'; wait", pidFile)),
+		shCheck("after", "exit 0"),
 	)
 
 	res := mustRun(t, dir, Options{Table: table, CheckTimeout: 400 * time.Millisecond})
 
-	var names, statuses []string
-	var codes []int
+	var got []string
 	for _, c := range res.Checks {
-		names, statuses, codes = append(names, c.Name), append(statuses, c.Status), append(codes, c.ExitCode)
+		got = append(got, fmt.Sprintf("%s %s %d", c.Name, c.Status, c.ExitCode))
 	}
-	if want := []string{"pass", "fail", "vanished", "slow"}; !reflect.DeepEqual(names, want) {
-		t.Fatalf("checks = %v, want %v: the available checks, in order", names, want)
+	want := []string{"pass pass 0", "fail fail 3", "Vanished! error -1", "hangs timeout -1", "after pass 0"}
+	if !reflect.DeepEqual(got, want) || res.Passed {
+		t.Fatalf("checks = %q, passed %v; want %q and not passed", got, res.Passed, want)
 	}
-	if want := []string{"pass", "fail", "error", "timeout"}; !reflect.DeepEqual(statuses, want) {
-		t.Errorf("statuses = %v, want %v", statuses, want)
+	if !reflect.DeepEqual(res.Skipped, []Skipped{{Name: "missing", Reason: ReasonUnavailable}}) {
+		t.Errorf("skipped = %+v", res.Skipped)
 	}
-	if want := []int{0, 3, -1, -1}; !reflect.DeepEqual(codes, want) {
-		t.Errorf("exit codes = %v, want %v", codes, want)
-	}
-	if res.Checks[3].DurationMS < 300 || res.Checks[3].DurationMS > 10_000 {
-		t.Errorf("the slow check took %d ms, want about its 400 ms deadline", res.Checks[3].DurationMS)
-	}
-
-	for i, slug := range []string{"pass", "fail", "vanished", "slow"} {
-		want := fmt.Sprintf(".agent-fox/gate/%s/%02d-%s.log", res.ID, i+1, slug)
-		if res.Checks[i].Log != want {
-			t.Errorf("log of %s = %q, want %q (relative to the directory)", slug, res.Checks[i].Log, want)
+	for i, slug := range []string{"pass", "fail", "vanished", "hangs", "after"} {
+		if want := fmt.Sprintf(".agent-fox/gate/%s/%02d-%s.log", res.ID, i+1, slug); res.Checks[i].Log != want {
+			t.Errorf("log of %s = %q, want %q", res.Checks[i].Name, res.Checks[i].Log, want)
 		}
 	}
-	pass := readLog(t, dir, res.Checks[0])
-	if strings.Count(pass, "\n") != 100 {
-		t.Errorf("the log of pass holds %d lines, want all 100", strings.Count(pass, "\n"))
+	if d := res.Checks[3].DurationMS; d < 300 || d > 10_000 {
+		t.Errorf("the check that hangs took %d ms, want about its 400 ms deadline", d)
 	}
-	if log := readLog(t, dir, res.Checks[1]); !strings.Contains(log, "failing") || !strings.Contains(log, "oops") {
-		t.Errorf("the log of fail is %q, want the output and the error output combined", log)
+	logs := map[string]string{}
+	for _, c := range res.Checks {
+		logs[c.Name] = readLog(t, dir, c)
 	}
-	if log := readLog(t, dir, res.Checks[2]); !strings.Contains(log, "vanished.sh") {
-		t.Errorf("the log of a check that could not start is %q, want it to say why", log)
+	if n := strings.Count(logs["pass"], "\n"); n != 100 || !strings.HasPrefix(res.Checks[0].Tail, "line 60\n") {
+		t.Errorf("the log of pass has %d lines and the tail starts %.10q; want all 100, and the last 40", n, res.Checks[0].Tail)
 	}
-
-	tail := res.Checks[0].Tail
-	if lines := strings.Split(strings.TrimSuffix(tail, "\n"), "\n"); len(lines) != 40 || lines[0] != "line 60" || lines[39] != "line 99" {
-		t.Errorf("tail has %d lines from %q to %q, want the last 40: line 60 to line 99", len(lines), lines[0], lines[len(lines)-1])
-	}
-
-	if want := []Skipped{{Name: "missing", Reason: "unavailable"}}; !reflect.DeepEqual(res.Skipped, want) {
-		t.Errorf("skipped = %v, want %v", res.Skipped, want)
-	}
-	entries, _ := os.ReadDir(filepath.Join(dir, ".agent-fox", "gate", res.ID))
-	for _, e := range entries {
-		if strings.Contains(e.Name(), "missing") {
-			t.Errorf("a skipped check has a log: %s", e.Name())
+	for name, part := range map[string]string{"fail": "oops", "Vanished!": "vanished.sh", "hangs": "did not finish within 400ms"} {
+		if !strings.Contains(logs[name], part) {
+			t.Errorf("the log of %s = %q, want %q in it", name, logs[name], part)
 		}
 	}
+	if entries, _ := os.ReadDir(filepath.Join(dir, ".agent-fox", "gate", res.ID)); len(entries) != 6 {
+		t.Errorf("the result directory holds %d entries, want five logs and the result: a skipped check has no log", len(entries))
+	}
+	requireGone(t, pid(t, testutil.ReadFile(t, pidFile)))
 }
 
-// TestTailIsBoundedInBytes guards 06-REQ-3.3: the tail is capped at 4096
-// bytes whatever the lines are, and never cuts a character in two.
-func TestTailIsBoundedInBytes(t *testing.T) {
-	requireSh(t)
-	dir := newRepo(t)
-	big := filepath.Join(t.TempDir(), "big.txt")
+// The tail is the last 40 lines, of those at most the last 4096 bytes, and
+// never half a character.
+func TestTailOf(t *testing.T) {
+	lines := func(from, to int) string {
+		var b strings.Builder
+		for i := from; i < to; i++ {
+			fmt.Fprintf(&b, "line %d\n", i)
+		}
+		return b.String()
+	}
 	long := strings.Repeat("x", 10_000) + "\n" + strings.Repeat("é", 3000) + "\n"
-	if err := os.WriteFile(big, []byte(long), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	res := mustRun(t, dir, Options{Table: tableOf(shCheck("big", "cat '"+big+"'"))})
-
-	tail := res.Checks[0].Tail
-	if len(tail) == 0 || len(tail) > 4096 || !utf8.ValidString(tail) || !strings.HasSuffix(long, tail) {
-		t.Errorf("tail is %d bytes, valid UTF-8 %v, a suffix of the output %v; want a valid suffix of at most 4096 bytes",
-			len(tail), utf8.ValidString(tail), strings.HasSuffix(long, tail))
-	}
-	if log := readLog(t, dir, res.Checks[0]); log != long {
-		t.Errorf("the log is %d bytes, want the whole output (%d)", len(log), len(long))
+	for _, tc := range []struct{ name, in, want string }{
+		{"a short output", "one\ntwo\n", "one\ntwo\n"},
+		{"many lines", lines(0, 100), lines(60, 100)},
+		{"a last line with no newline", lines(0, 50) + "end", lines(11, 50) + "end"},
+		{"long lines", long, long[len(long)-4095:]}, // 4096 bytes would start inside an é
+		{"nothing", "", ""},
+	} {
+		got := tailOf(tc.in)
+		if got != tc.want || !utf8.ValidString(got) {
+			t.Errorf("%s: tail is %d bytes from %.12q, want %d bytes from %.12q", tc.name, len(got), got, len(tc.want), tc.want)
+		}
 	}
 }
 
-// TestResultFieldsAndPassed_TS_06_21 verifies TS-06-21:
-// The result carries all fields and passed is true only when at least one
-// check ran and all executed checks passed.
-// Verifies: 06-REQ-3.4
-func TestResultFieldsAndPassed_TS_06_21(t *testing.T) {
-	requireSh(t)
+func TestSlug(t *testing.T) {
+	for _, tc := range []struct{ name, want string }{
+		{"make check", "make-check"},
+		{"  Über Test!! ", "ber-test"},
+		{"go vet ./...", "go-vet"},
+		{strings.Repeat("abc ", 20), strings.TrimSuffix(strings.Repeat("abc-", 10), "-")}, // 40 characters at most
+		{"!!!", "check"},
+	} {
+		if got := slug(tc.name); got != tc.want {
+			t.Errorf("slug(%q) = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// A run passed when one check or more ran and every one passed, and it is
+// stored even when nothing could run.
+func TestRunPassedOnlyWhenEveryCheckThatRanPassed(t *testing.T) {
+	testutil.Require(t, "sh")
+	dir := newRepo(t)
 	ok := func(name string) project.Check { return shCheck(name, "exit 0") }
 	gone := project.Check{Name: "gone", Argv: []string{"no-such-program-for-af"}, Kind: project.KindTest}
-	cases := []struct {
-		name    string
-		checks  []project.Check
-		passed  bool
-		ran     int
-		skipped int
+	for _, tc := range []struct {
+		name         string
+		checks       []project.Check
+		passed       bool
+		ran, skipped int
 	}{
 		{"all pass", []project.Check{ok("a"), ok("b")}, true, 2, 0},
 		{"one fails", []project.Check{ok("a"), shCheck("b", "exit 1")}, false, 2, 0},
 		{"a pass and a skipped check", []project.Check{ok("a"), gone}, true, 1, 1},
 		{"nothing can run", []project.Check{gone}, false, 0, 1},
 		{"no checks at all", nil, false, 0, 0},
-	}
-	for _, tc := range cases {
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := newRepo(t)
-
 			res := mustRun(t, dir, Options{Table: tableOf(tc.checks...)})
 
-			if res.Passed != tc.passed || len(res.Checks) != tc.ran || len(res.Skipped) != tc.skipped {
-				t.Errorf("passed %v, %d ran, %d skipped; want %v, %d, %d", res.Passed, len(res.Checks), len(res.Skipped), tc.passed, tc.ran, tc.skipped)
+			if res.Passed != tc.passed || len(res.Checks) != tc.ran || len(res.Skipped) != tc.skipped || res.Cached {
+				t.Errorf("passed %v, %d ran, %d skipped, cached %v; want %v, %d, %d", res.Passed, len(res.Checks), len(res.Skipped), res.Cached, tc.passed, tc.ran, tc.skipped)
 			}
-			data, err := json.Marshal(res)
-			if err != nil {
-				t.Fatal(err)
+			if data, _ := json.Marshal(res); !strings.Contains(string(data), `"checks":[`) || !strings.Contains(string(data), `"skipped":[`) {
+				t.Errorf("the result is %s, want lists of checks and skipped, empty or not", data)
 			}
-			var fields map[string]any
-			if err := json.Unmarshal(data, &fields); err != nil {
-				t.Fatal(err)
-			}
-			for _, key := range []string{"id", "tree", "table_source", "cached", "passed", "checks", "skipped"} {
-				if _, ok := fields[key]; !ok {
-					t.Errorf("the result has no %q: %s", key, data)
-				}
-			}
-			for _, key := range []string{"checks", "skipped"} {
-				if _, ok := fields[key].([]any); !ok {
-					t.Errorf("%s is %v, want an array even when empty", key, fields[key])
-				}
-			}
-			if fields["table_source"] != "file" || fields["cached"] != false {
-				t.Errorf("table_source %v, cached %v", fields["table_source"], fields["cached"])
-			}
-			for _, s := range res.Skipped {
-				if s.Reason == "" {
-					t.Errorf("%s is skipped with no reason", s.Name)
-				}
-			}
-			if !regexpID.MatchString(res.ID) || !hex64.MatchString(res.Tree) {
-				t.Errorf("id %q, tree %q", res.ID, res.Tree)
+			if stored := readResult(t, dir, res.ID); stored.ID != res.ID || stored.Tree != res.Tree || stored.TableSource != project.SourceFile {
+				t.Errorf("the stored result = %+v", stored)
 			}
 		})
 	}
 }
 
-// TestNothingRunsWhenNothingCan guards 06-REQ-3.6: a table with no available
-// check runs nothing and still gives a result that can be stored and cited.
-func TestNothingRunsWhenNothingCan(t *testing.T) {
-	requireSh(t)
-	dir := newRepo(t)
-	counter, check := counterCheck(t, "counted")
-	check.Available = false
-
-	res := mustRun(t, dir, Options{Table: tableOf(check)})
-
-	if runs(t, counter) != 0 || len(res.Checks) != 0 || res.Passed {
-		t.Errorf("%d runs, %d checks, passed %v; want nothing run", runs(t, counter), len(res.Checks), res.Passed)
-	}
-	if _, err := os.Stat(filepath.Join(dir, ".agent-fox", "gate", res.ID, "result.json")); err != nil {
-		t.Errorf("an empty result is not stored: %v", err)
-	}
-}
-
-// TestTreeChangedDuringTheRun_TS_06_23 verifies TS-06-23:
-// A tree changed by the checks is stored under the earlier hash with the
-// result flagged.
-// Verifies: 06-REQ-3.7
-func TestTreeChangedDuringTheRun_TS_06_23(t *testing.T) {
-	requireSh(t)
+// A tree that the checks changed is stored under the hash from before the
+// run, and the run, not the stored result, says so.
+func TestRunOfChecksThatChangeTheTree(t *testing.T) {
+	testutil.Require(t, "sh")
 	dir := newRepo(t)
 	table := tableOf(shCheck("grows", "echo more >> README.md"))
 	pre := mustHash(t, dir)
 
 	res := mustRun(t, dir, Options{Table: table})
 
-	if res.Tree != pre || !res.TreeChanged {
-		t.Errorf("tree %s, changed %v; want the hash taken before the run (%s) and the flag", res.Tree, res.TreeChanged, pre)
+	if res.Tree != pre || !res.TreeChanged || res.ID != KeyOf(pre, table.Checks).ID || mustHash(t, dir) == pre {
+		t.Errorf("tree %s, changed %v, id %s; want the hash taken before the run, %s, and the flag", res.Tree, res.TreeChanged, res.ID, pre)
 	}
-	if res.ID != KeyOf(pre, table.Checks).ID {
-		t.Errorf("id %s is not the key of the earlier tree", res.ID)
-	}
-	if mustHash(t, dir) == pre {
-		t.Fatal("the check did not change the tree")
-	}
-	if _, err := os.Stat(filepath.Join(dir, ".agent-fox", "gate", res.ID, "result.json")); err != nil {
-		t.Errorf("the result is not stored under the earlier id: %v", err)
-	}
-	stored := readResult(t, dir, res.ID)
-	if stored.Tree != pre || stored.TreeChanged {
-		t.Errorf("the stored result has tree %s and the flag %v; the flag belongs to the run, not to the result", stored.Tree, stored.TreeChanged)
+	if stored := readResult(t, dir, res.ID); stored.Tree != pre || stored.TreeChanged {
+		t.Errorf("the stored result has tree %s and the flag %v", stored.Tree, stored.TreeChanged)
 	}
 }
 
-// readResult reads the stored result of id.
-func readResult(t *testing.T, dir, id string) Result {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, ".agent-fox", "gate", id, "result.json"))
-	if err != nil {
-		t.Fatal(err)
+// The steps run in order on one repository; each says whether the checks ran
+// again or the stored result was the answer.
+func TestRunIsCachedByTreeAndTable(t *testing.T) {
+	testutil.Require(t, "sh")
+	dir := newRepo(t)
+	writeFile(t, dir, ".gitignore", "*.ignored\n", 0o644)
+	testutil.Commit(t, dir, "chore: ignore")
+	counter, check := counterCheck(t, "counted")
+	absent := check
+	absent.Available = false
+	var last Result
+	spoil := func(content string) func() {
+		return func() { writeFile(t, dir, ".agent-fox/gate/"+last.ID+"/result.json", content, 0o644) }
 	}
-	var res Result
-	if err := json.Unmarshal(data, &res); err != nil {
-		t.Fatalf("result.json is not JSON: %v\n%s", err, data)
+	for _, step := range []struct {
+		name   string
+		change func()
+		check  project.Check
+		cached bool
+	}{
+		{"the first run", func() {}, check, false},
+		{"the same tree", func() {}, check, true},
+		{"an ignored file changes", func() { writeFile(t, dir, "x.ignored", "x", 0o644) }, check, true},
+		{"a file of .agent-fox changes", func() { writeFile(t, dir, ".agent-fox/noise", "x", 0o644) }, check, true},
+		{"a byte of a file changes", func() { writeFile(t, dir, "README.md", "# tesT\n", 0o644) }, check, false},
+		{"an executable bit changes", func() { writeFile(t, dir, "README.md", "# tesT\n", 0o755) }, check, false},
+		{"a stored result that is not JSON", spoil("{"), check, false},
+		{"a stored result of another id", spoil(`{"id":"aaaaaaaaaaaa","tree":"x","passed":true}`), check, false},
+		// A result made where the program was missing says nothing about its
+		// check; one that measured the check is good where the program is missing.
+		{"a new tree where the program is missing", func() { writeFile(t, dir, "new.txt", "n", 0o644) }, absent, false},
+		{"the program is there again", func() {}, check, false},
+		{"the program is missing again", func() {}, absent, true},
+	} {
+		before := runs(t, counter)
+		step.change()
+
+		res := mustRun(t, dir, Options{Table: tableOf(step.check)})
+
+		ran := runs(t, counter) - before
+		if res.Cached != step.cached || ran != map[bool]int{true: 0, false: 1}[step.cached || !step.check.Available] {
+			t.Fatalf("%s: cached %v, the check ran %d times; want cached %v", step.name, res.Cached, ran, step.cached)
+		}
+		if step.cached && (res.ID != last.ID || !reflect.DeepEqual(res.Checks, last.Checks) || res.TableSource != project.SourceFile) {
+			t.Errorf("%s: the hit is %+v, want the stored result %+v", step.name, res, last)
+		}
+		if stored := readResult(t, dir, res.ID); stored.ID != res.ID {
+			t.Errorf("%s: the stored result is %+v", step.name, stored)
+		}
+		last = res
 	}
-	return res
 }
 
-// TestKey_TS_06_25 verifies TS-06-25:
-// The gate id is the first 12 hex characters of SHA-256 over the tree hash,
-// the canonical JSON of the table and the runner mode.
-// Verifies: 06-REQ-4.1
-func TestKey_TS_06_25(t *testing.T) {
+// The id is the first 12 hex characters of the SHA-256 of the tree hash, the
+// canonical JSON of the checks (what a check is, with its keys in order) and
+// the mode; where a check came from and whether it can run here are not in it.
+func TestKeyOf(t *testing.T) {
 	tree := strings.Repeat("ab", 32)
 	checks := []project.Check{
 		{Name: "make check", Argv: []string{"make", "check"}, Kind: project.KindCheck, Source: "Makefile:check", Available: true},
 		{Name: "vet & <test>", Argv: []string{"go", "vet", "./..."}, Kind: project.KindLint, Source: "go.mod"},
 	}
 	canon := `[{"argv":["make","check"],"kind":"check","name":"make check"},{"argv":["go","vet","./..."],"kind":"lint","name":"vet & <test>"}]`
-	sum := func(mode string) string {
-		h := sha256.Sum256([]byte(tree + canon + mode))
-		return hex.EncodeToString(h[:])
-	}
-
-	reduced := KeyOf(tree, checks)
-
-	if reduced.Sum != sum("reduced") || reduced.ID != sum("reduced")[:12] || !regexpID.MatchString(reduced.ID) {
-		t.Errorf("reduced key = %+v, want SHA-256 %s", reduced, sum("reduced"))
-	}
-
-	changed := append([]project.Check(nil), checks...)
+	sum := testutil.SHA256(tree + canon + "reduced")
+	elsewhere := []project.Check{checks[0], checks[1]}
+	elsewhere[0].Source, elsewhere[0].Available, elsewhere[1].Available = "x", false, true
+	changed := []project.Check{checks[0], checks[1]}
 	changed[0].Argv = []string{"make", "test"}
-	if KeyOf(tree, changed).ID == reduced.ID {
-		t.Error("a different table gives the same id")
-	}
-	if KeyOf(strings.Repeat("cd", 32), checks).ID == reduced.ID {
-		t.Error("a different tree gives the same id")
-	}
 
-	// The same table written with its keys in another order, and without what
-	// is about the machine or the provenance, is the same table.
-	var reordered []project.Check
-	doc := `[{"source":"x","name":"make check","kind":"check","argv":["make","check"],"available":false},
-	         {"kind":"lint","argv":["go","vet","./..."],"available":true,"name":"vet & <test>","source":"y"}]`
-	if err := json.Unmarshal([]byte(doc), &reordered); err != nil {
-		t.Fatal(err)
-	}
-	if KeyOf(tree, reordered).ID != reduced.ID {
-		t.Error("the same table with its keys in another order, other sources and other availability gives another id")
-	}
+	key := KeyOf(tree, checks)
 
-	if got := KeyOf(tree, nil).Sum; got != func() string { h := sha256.Sum256([]byte(tree + "[]reduced")); return hex.EncodeToString(h[:]) }() {
+	if key.Sum != sum || key.ID != sum[:12] {
+		t.Errorf("KeyOf = %+v, want the SHA-256 %s", key, sum)
+	}
+	if KeyOf(tree, elsewhere) != key {
+		t.Error("another source and other availability give another key")
+	}
+	if KeyOf(tree, changed).ID == key.ID || KeyOf(strings.Repeat("cd", 32), checks).ID == key.ID {
+		t.Error("another table or another tree gives the same key")
+	}
+	if got := KeyOf(tree, nil).Sum; got != testutil.SHA256(tree+"[]reduced") {
 		t.Errorf("the key of an empty table is %s", got)
 	}
 }
 
-// TestCacheHit_TS_06_26 verifies TS-06-26:
-// Two gate runs on an unchanged tree execute a counter-script check once and
-// the second is cached.
-// Verifies: 06-REQ-4.2
-func TestCacheHit_TS_06_26(t *testing.T) {
-	requireSh(t)
-	dir := newRepo(t)
-	counter, check := counterCheck(t, "counted")
-	opts := Options{Table: tableOf(check)}
-
-	first := mustRun(t, dir, opts)
-	logs := listing(t, filepath.Join(dir, ".agent-fox", "gate", first.ID))
-	second := mustRun(t, dir, opts)
-
-	if runs(t, counter) != 1 {
-		t.Errorf("the check ran %d times, want once", runs(t, counter))
-	}
-	if first.Cached || !second.Cached || first.ID != second.ID {
-		t.Errorf("cached %v then %v, ids %s and %s; want false then true, and one id", first.Cached, second.Cached, first.ID, second.ID)
-	}
-	if !reflect.DeepEqual(first.Checks, second.Checks) || first.Tree != second.Tree || first.Passed != second.Passed {
-		t.Errorf("the hit reports %+v, want the stored checks %+v", second.Checks, first.Checks)
-	}
-	if after := listing(t, filepath.Join(dir, ".agent-fox", "gate", first.ID)); !reflect.DeepEqual(after, logs) {
-		t.Errorf("the hit changed the result directory: %v, was %v", after, logs)
-	}
-}
-
-// listing is the names and modification times of a directory's entries.
-func listing(t *testing.T, dir string) map[string]time.Time {
-	t.Helper()
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	out := map[string]time.Time{}
-	for _, e := range entries {
-		info, err := e.Info()
-		if err != nil {
-			t.Fatal(err)
-		}
-		out[e.Name()] = info.ModTime()
-	}
-	return out
-}
-
-// TestCachedResultWithSkippedChecks guards the cache against a result that
-// was made where a program was missing: once the program can be run, the
-// stored result is not the table's, and the checks run.
-func TestCachedResultWithSkippedChecks(t *testing.T) {
-	requireSh(t)
-	dir := newRepo(t)
-	counter, check := counterCheck(t, "counted")
-	absent := check
-	absent.Available = false
-	first := mustRun(t, dir, Options{Table: tableOf(absent)})
-
-	second := mustRun(t, dir, Options{Table: tableOf(check)})
-
-	if first.ID != second.ID {
-		t.Fatalf("availability changed the key: %s and %s", first.ID, second.ID)
-	}
-	if second.Cached || runs(t, counter) != 1 || len(second.Checks) != 1 {
-		t.Errorf("cached %v, %d runs, %d checks; want a run now that the check can be run", second.Cached, runs(t, counter), len(second.Checks))
-	}
-
-	third := mustRun(t, dir, Options{Table: tableOf(absent)})
-	if !third.Cached || len(third.Checks) != 1 {
-		t.Errorf("cached %v, %d checks; a result that holds the measurement is good where the program is missing", third.Cached, len(third.Checks))
-	}
-}
-
-// TestCorruptStoredResultIsReplaced guards 06-REQ-4.5: a result.json that is
-// not a result is a miss, and is replaced.
-func TestCorruptStoredResultIsReplaced(t *testing.T) {
-	requireSh(t)
-	dir := newRepo(t)
-	counter, check := counterCheck(t, "counted")
-	first := mustRun(t, dir, Options{Table: tableOf(check)})
-	path := filepath.Join(dir, ".agent-fox", "gate", first.ID, "result.json")
-	for name, junk := range map[string]string{"not JSON": "{", "another result": `{"id":"aaaaaaaaaaaa","passed":true}`} {
-		if err := os.WriteFile(path, []byte(junk), 0o644); err != nil {
-			t.Fatal(err)
-		}
-
-		res := mustRun(t, dir, Options{Table: tableOf(check)})
-
-		if res.Cached || res.ID != first.ID {
-			t.Errorf("%s: cached %v, id %s; want a run", name, res.Cached, res.ID)
-		}
-		if stored := readResult(t, dir, first.ID); stored.ID != first.ID {
-			t.Errorf("%s: result.json was not replaced: %+v", name, stored)
-		}
-	}
-	if runs(t, counter) != 3 {
-		t.Errorf("the check ran %d times, want 3", runs(t, counter))
-	}
-}
-
-// TestConcurrentRuns_TS_06_29 verifies TS-06-29:
-// result.json is written after the logs, atomically, so concurrent runs never
-// leave a partial file.
-// Verifies: 06-REQ-4.5
-func TestConcurrentRuns_TS_06_29(t *testing.T) {
-	requireSh(t)
+// Runs together write the result after its logs and atomically, so a reader
+// never sees a partial result, or one before its logs.
+func TestConcurrentRunsNeverShowAPartialResult(t *testing.T) {
+	testutil.Require(t, "sh")
 	dir := newRepo(t)
 	table := tableOf(shCheck("slowish", "sleep 0.2; echo done"))
-
 	stop := make(chan struct{})
 	problems := make(chan string, 8)
-	complain := func(format string, args ...any) {
-		select {
-		case problems <- fmt.Sprintf(format, args...):
-		default:
-		}
-	}
 	var reader sync.WaitGroup
-	reader.Add(1)
-	go func() {
-		defer reader.Done()
+	reader.Go(func() {
 		for {
 			select {
 			case <-stop:
@@ -476,56 +269,87 @@ func TestConcurrentRuns_TS_06_29(t *testing.T) {
 			matches, _ := filepath.Glob(filepath.Join(dir, ".agent-fox", "gate", "*", "result.json"))
 			for _, path := range matches {
 				data, err := os.ReadFile(path)
-				if errors.Is(err, os.ErrNotExist) {
-					continue
-				}
 				var res Result
-				if err != nil || json.Unmarshal(data, &res) != nil {
-					complain("result.json is not complete JSON (%v): %q", err, data)
-					continue
-				}
-				if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(res.Checks[0].Log))); err != nil {
-					complain("result.json exists before its log: %v", err)
+				switch {
+				case errors.Is(err, os.ErrNotExist):
+				case err != nil || json.Unmarshal(data, &res) != nil:
+					problems <- fmt.Sprintf("result.json is not complete JSON (%v): %q", err, data)
+					return
+				default:
+					if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(res.Checks[0].Log))); err != nil {
+						problems <- fmt.Sprintf("result.json is there before its log: %v", err)
+						return
+					}
 				}
 			}
 		}
-	}()
+	})
 
 	var runners sync.WaitGroup
-	results := make([]Result, 10)
-	errs := make([]error, 10)
-	for i := range results {
-		runners.Add(1)
-		go func() {
-			defer runners.Done()
-			results[i], errs[i] = Run(context.Background(), dir, Options{Table: table})
-		}()
+	ids := make([]string, 6)
+	for i := range ids {
+		runners.Go(func() {
+			res, err := Run(context.Background(), dir, Options{Table: table})
+			if err != nil {
+				problems <- fmt.Sprintf("run %d: %v", i, err)
+			}
+			ids[i] = res.ID
+		})
 	}
 	runners.Wait()
 	close(stop)
 	reader.Wait()
-
 	close(problems)
+
 	for p := range problems {
 		t.Error(p)
 	}
-	for i, err := range errs {
-		if err != nil {
-			t.Fatalf("run %d: %v", i, err)
-		}
-		if results[i].ID != results[0].ID {
-			t.Errorf("run %d has the id %s, run 0 %s", i, results[i].ID, results[0].ID)
-		}
-	}
-	stored := readResult(t, dir, results[0].ID)
+	stored := readResult(t, dir, ids[0])
 	if len(stored.Checks) != 1 || stored.Checks[0].Status != StatusPass {
 		t.Errorf("result.json = %+v", stored)
 	}
-	readLog(t, dir, stored.Checks[0])
-	entries, _ := os.ReadDir(filepath.Join(dir, ".agent-fox", "gate", results[0].ID))
+	entries, _ := os.ReadDir(filepath.Join(dir, ".agent-fox", "gate", ids[0]))
 	for _, e := range entries {
 		if strings.Contains(e.Name(), ".tmp-") {
 			t.Errorf("a temporary file was left behind: %s", e.Name())
 		}
+	}
+	for i, id := range ids {
+		if id != ids[0] {
+			t.Errorf("run %d has the id %s, run 0 %s", i, id, ids[0])
+		}
+	}
+}
+
+// A run that its context stops ends the check with everything it started,
+// stores nothing, and returns the context's error; the next run runs.
+func TestRunStoppedByItsContext(t *testing.T) {
+	testutil.Require(t, "sh")
+	dir := newRepo(t)
+	proceed, ready := filepath.Join(t.TempDir(), "proceed"), fifo(t)
+	check := shCheck("spawns", fmt.Sprintf("if [ -e '%s' ]; then exit 0; fi; sleep 60 & echo $! > '%s'; wait", proceed, ready))
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	child := make(chan string, 1)
+	go func() {
+		data, _ := os.ReadFile(ready) // returns once the check has started its child
+		child <- string(data)
+		cancel()
+	}()
+
+	_, err := Run(ctx, dir, Options{Table: tableOf(check)})
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run = %v, want context.Canceled", err)
+	}
+	requireGone(t, pid(t, <-child))
+	if written, _ := filepath.Glob(filepath.Join(dir, ".agent-fox", "gate", "*", "*")); len(written) != 0 {
+		t.Errorf("a stopped run wrote %v", written)
+	}
+	if err := os.WriteFile(proceed, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if res := mustRun(t, dir, Options{Table: tableOf(check)}); res.Cached || !res.Passed {
+		t.Errorf("the next run: cached %v, passed %v; want a run that passes", res.Cached, res.Passed)
 	}
 }

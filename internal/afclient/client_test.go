@@ -4,211 +4,258 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
+	"net/url"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/agent-fox-dev/agentfox/internal/afclient/fakeclock"
+	"github.com/agent-fox-dev/agentfox/internal/testutil"
 )
 
-// seen is a request a scripted service saw.
-type seen struct {
-	Method, Path string
-	Header       http.Header
-	Body         string
-}
-
-// scripted starts a service that records its requests and answers each with status and body,
-// and returns a client for it that sends the credential tok.
-func scripted(t *testing.T, status int, body string) (*Client, *[]seen) {
-	t.Helper()
-	var mu sync.Mutex
-	var requests []seen
+func TestDo_SendsTheCredentialTheUserAgentAndJSONUnderThePrefix(t *testing.T) {
+	type seen struct{ method, target, auth, agent, accept, ctype, body string }
+	got := make(chan seen, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		data, _ := io.ReadAll(r.Body)
-		mu.Lock()
-		requests = append(requests, seen{r.Method, r.URL.EscapedPath(), r.Header.Clone(), string(data)})
-		mu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		_, _ = io.WriteString(w, body)
+		got <- seen{r.Method, r.URL.RequestURI(), r.Header.Get("Authorization"), r.Header.Get("User-Agent"),
+			r.Header.Get("Accept"), r.Header.Get("Content-Type"), string(data)}
+		w.Header().Set("X-Answer", "1")
+		w.WriteHeader(201)
+		_, _ = io.WriteString(w, `{"ok":true}`)
 	}))
 	t.Cleanup(srv.Close)
-	server, err := ParseServer(srv.URL, true, "")
-	if err != nil {
-		t.Fatal(err)
+	c := clientAt(t, srv.URL+"/af/", nil)
+	if c.Server().URL != srv.URL+"/af" {
+		t.Errorf("Server() = %+v, want %s/af", c.Server(), srv.URL)
 	}
-	return New(server, "tok", "af/9.9.9", nil), &requests
-}
 
-// asError runs a GET of path against a service that answers status and body, and returns the
-// error of the request.
-func asError(t *testing.T, method, path string, status int, body string) *Error {
-	t.Helper()
-	c, _ := scripted(t, status, body)
-	_, err := c.Do(context.Background(), method, path, nil, nil)
-	var e *Error
-	if !errors.As(err, &e) {
-		t.Fatalf("%s %s answered %d: err = %v, want an *Error", method, path, status, err)
-	}
-	return e
-}
-
-// TestEveryRequestCarriesTheBearerTheUserAgentAndTheAcceptHeaderAndBodiesAreJSON_TS_16_38
-// verifies TS-16-38 for the requests the client can make so far: a PUT with a body, a POST
-// with a body and a GET. The events request is checked with the follower.
-// Verifies: 16-REQ-6.2
-func TestEveryRequestCarriesTheBearerTheUserAgentAndTheAcceptHeaderAndBodiesAreJSON_TS_16_38(t *testing.T) {
-	c, requests := scripted(t, 200, `{}`)
 	for _, call := range []struct {
 		method, path string
+		query        url.Values
 		body         any
+		want         seen
 	}{
-		{http.MethodPut, "/workspaces/widgets", map[string]string{"hub_token": "pat"}},
-		{http.MethodPost, "/workspaces/widgets/fix", map[string]any{"issue": 42}},
-		{http.MethodGet, "/jobs/j", nil},
+		{"PUT", "/workspaces/widgets", nil, map[string]string{"hub_token": "pat"},
+			seen{"PUT", "/af/api/v1/workspaces/widgets", "", "", "", "application/json", `{"hub_token":"pat"}`}},
+		{"GET", "/jobs", url.Values{"state": {"running"}, "limit": {"5"}}, nil,
+			seen{"GET", "/af/api/v1/jobs?limit=5&state=running", "", "", "", "", ""}},
 	} {
-		if _, err := c.Do(context.Background(), call.method, call.path, nil, call.body); err != nil {
+		resp, err := c.Do(context.Background(), call.method, call.path, call.query, call.body)
+		if err != nil {
 			t.Fatalf("%s %s: %v", call.method, call.path, err)
 		}
-	}
-	got := *requests
-	if len(got) != 3 {
-		t.Fatalf("%d requests, want 3", len(got))
-	}
-	for i, r := range got {
-		if r.Header.Get("Authorization") != "Bearer tok" || r.Header.Get("User-Agent") != "af/9.9.9" || r.Header.Get("Accept") != "application/json" {
-			t.Errorf("request %d (%s %s) headers = %v, want the bearer, af/9.9.9 and application/json", i, r.Method, r.Path, r.Header)
+		if resp.Status != 201 || string(resp.Body) != `{"ok":true}` || resp.Header.Get("X-Answer") != "1" {
+			t.Errorf("%s %s: answer %d %q %v", call.method, call.path, resp.Status, resp.Body, resp.Header)
 		}
-		hasBody := r.Body != ""
-		if hasBody != (r.Header.Get("Content-Type") == "application/json") {
-			t.Errorf("request %d (%s %s): body %q with Content-Type %q, want the type exactly when there is a body", i, r.Method, r.Path, r.Body, r.Header.Get("Content-Type"))
+		call.want.auth, call.want.agent, call.want.accept = "Bearer "+token, "af/test", "application/json"
+		if saw := <-got; saw != call.want {
+			t.Errorf("%s %s: the service saw %+v, want %+v", call.method, call.path, saw, call.want)
 		}
-	}
-	if got[0].Body != `{"hub_token":"pat"}` || got[1].Body != `{"issue":42}` || got[2].Body != "" {
-		t.Errorf("bodies = %q, %q, %q", got[0].Body, got[1].Body, got[2].Body)
 	}
 }
 
-// TestDecodeReadsTheDocumentAndRefusesWhatIsNotTheJSONExpected_TS_16_41 verifies the last row
-// of the table of TS-16-41 for the library: a body that is not the JSON that was expected is a
-// service failure that is not retryable.
-// Verifies: 16-REQ-6.5
-func TestDecodeReadsTheDocumentAndRefusesWhatIsNotTheJSONExpected_TS_16_41(t *testing.T) {
+func TestDecode_RefusesWhatIsNotTheJSONExpected(t *testing.T) {
 	type page struct {
 		Jobs []map[string]any `json:"jobs"`
 	}
-	c, _ := scripted(t, 200, `{"jobs":[{"id":"j"}]}`)
-	resp, err := c.Do(context.Background(), http.MethodGet, "/jobs", nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := &Response{Status: 200, Body: []byte(`{"jobs":[{"id":"j"}]}`)}
 	var p page
 	if err := resp.Decode(&p); err != nil || len(p.Jobs) != 1 || p.Jobs[0]["id"] != "j" {
 		t.Errorf("Decode = %v, %+v, want the page", err, p)
 	}
 	for _, body := range []string{`not json`, `[1,2]`, ``, `{"jobs":"x"}`} {
-		c, _ := scripted(t, 200, body)
-		resp, err := c.Do(context.Background(), http.MethodGet, "/jobs", nil, nil)
+		c := serve(t, answers(200, body), nil)
+		resp, err := c.Do(context.Background(), "GET", "/jobs", nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
+		e := asError(t, resp.Decode(&page{}))
+		if e.Category != CategoryService || e.Retryable || e.Status != 200 || !strings.Contains(e.Error(), c.Server().URL+" (given by --server)") {
+			t.Errorf("Decode of %q = %+v, want a service error that names the server and is not retryable", body, e)
+		}
+	}
+}
+
+func TestDo_ANon2xxAnswerIsItsErrorWithoutTheSecrets(t *testing.T) {
+	const pat = "ghp_patpatpatpat"
+	c := serve(t, answers(400, `{"error":{"code":"invalid_request","message":"bad `+token+` and `+pat+` and short1"}}`), nil)
+	c.Redact(pat, "short1")
+
+	_, err := c.Do(context.Background(), "GET", "/workspaces", nil, nil)
+
+	e := asError(t, err)
+	if e.Status != 400 || e.Code != "invalid_request" || e.Category != CategoryUsage {
+		t.Errorf("error = %+v, want the 400 as a usage error", e)
+	}
+	if want := "bad *** and *** and short1 (invalid_request)"; e.Message != want {
+		t.Errorf("message = %q, want %q: the credential and the registered value scrubbed, a value of under 8 bytes kept", e.Message, want)
+	}
+	if got := c.Scrub("x " + pat); got != "x ***" {
+		t.Errorf("Scrub = %q", got)
+	}
+}
+
+func TestDo_DoesNotFollowARedirect(t *testing.T) {
+	var reached atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached.Add(1) }))
+	t.Cleanup(target.Close)
+	c := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/api/v1/workspaces", http.StatusTemporaryRedirect)
+	}, nil)
+
+	_, err := c.Do(context.Background(), "GET", "/workspaces", nil, nil)
+
+	if e := asError(t, err); e.Status != 307 || e.Category != CategoryService || e.Retryable {
+		t.Errorf("error = %+v, want the 307 as a service error that is not retryable", e)
+	}
+	if n := reached.Load(); n != 0 {
+		t.Errorf("the target of the redirect saw %d requests", n)
+	}
+}
+
+func TestDo_IsCutAtTheRequestBound(t *testing.T) {
+	arrived := make(chan struct{}, 1)
+	clk := fakeclock.New(epoch)
+	c := serve(t, func(_ http.ResponseWriter, r *http.Request) {
+		arrived <- struct{}{}
+		<-r.Context().Done()
+	}, clk)
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.Do(context.Background(), "GET", "/workspaces", nil, nil)
+		done <- err
+	}()
+	<-arrived
+	if !clk.WaitForWaits(1, testutil.WaitTimeout) || clk.Waits()[0] != 2*time.Minute {
+		t.Fatalf("the request asked for the waits %v, want a bound of two minutes", clk.Waits())
+	}
+
+	clk.Advance(RequestBound)
+
+	e := asError(t, <-done)
+	if e.Category != CategoryService || !e.Retryable || !strings.Contains(e.Message, "did not answer within 2m0s") {
+		t.Errorf("error = %+v, want a retryable service error that names the bound", e)
+	}
+}
+
+func TestDo_ReturnsTheErrorOfAStoppedContext(t *testing.T) {
+	arrived := make(chan struct{}, 1)
+	c := serve(t, func(_ http.ResponseWriter, r *http.Request) {
+		arrived <- struct{}{}
+		<-r.Context().Done()
+	}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		<-arrived
+		cancel()
+	}()
+
+	_, err := c.Do(ctx, "GET", "/workspaces", nil, nil)
+
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want the error of the context", err)
+	}
+}
+
+// endless is the body of an answer that never ends: prefix, then spaces. It counts what is read.
+type endless struct {
+	prefix string
+	read   int
+}
+
+func (e *endless) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = ' '
+		if e.read < len(e.prefix) {
+			p[i] = e.prefix[e.read]
+		}
+		e.read++
+	}
+	return len(p), nil
+}
+
+func (e *endless) Close() error { return nil }
+
+func TestDo_ReadsAtMostEightMiBOfAnAnswer(t *testing.T) {
+	server, _ := ParseServer("http://127.0.0.1:1", true, "")
+	for _, c := range []struct {
+		name string
+		body io.ReadCloser
+		ok   bool
+	}{
+		{"a body of exactly 8 MiB", io.NopCloser(strings.NewReader(`{"a":1}` + strings.Repeat(" ", MaxBody-7))), true},
+		{"a body that never ends", &endless{prefix: `{"workspaces":[`}, false},
+	} {
+		client := New(server, token, "af/test", roundTrip(func(r *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 200, Header: http.Header{}, Body: c.body, Request: r}, nil
+		}))
+
+		resp, err := client.Do(context.Background(), "GET", "/workspaces", nil, nil)
+
+		if c.ok {
+			if err != nil || len(resp.Body) != MaxBody {
+				t.Errorf("%s: %v, want the whole body", c.name, err)
+			}
+			continue
+		}
+		if e := asError(t, err); e.Category != CategoryService || e.Retryable || !strings.Contains(e.Message, "longer than 8 MiB") {
+			t.Errorf("%s: %+v, want a service error that is not retryable", c.name, e)
+		}
+		if n := c.body.(*endless).read; n > MaxBody+1<<16 {
+			t.Errorf("%s: %d bytes were read, want little more than 8 MiB", c.name, n)
+		}
+	}
+}
+
+func TestDo_AnAnswerThatNeverCameNamesTheServer(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := "http://" + ln.Addr().String()
+	_ = ln.Close()
+	shortBody := func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		_, _ = io.WriteString(w, `{"a":`)
+		w.(http.Flusher).Flush()
+		hangUp(w)
+	}
+	for _, c := range []struct {
+		name, cause string
+		client      *Client
+	}{
+		{"nothing listens", "nothing is listening there", clientAt(t, closed, nil)},
+		{"the connection drops", "EOF", serve(t, hangsUp(), nil)},
+		{"the body is cut short", "EOF", serve(t, shortBody, nil)},
+	} {
+		_, err := c.client.Do(context.Background(), "GET", "/workspaces", nil, nil)
+
+		e := asError(t, err)
+		want := "the service at " + c.client.Server().URL + " (given by --server) cannot be reached: "
+		if e.Status != 0 || e.Category != CategoryService || !e.Retryable || !strings.HasPrefix(e.Message, want) || !strings.Contains(e.Message, c.cause) {
+			t.Errorf("%s: %+v, want a retryable service error %q... naming %q", c.name, e, want, c.cause)
+		}
+	}
+}
+
+func TestDo_ARequestThatCannotBeMadeIsNotAnAnswer(t *testing.T) {
+	c := clientAt(t, "http://127.0.0.1:1", nil)
+	for name, call := range map[string]struct {
+		method string
+		body   any
+	}{
+		"a method that is no method": {"BAD METHOD", nil},
+		"a body that is not JSON":    {"POST", map[string]any{"c": make(chan int)}},
+	} {
+		_, err := c.Do(context.Background(), call.method, "/workspaces", nil, call.body)
 		var e *Error
-		if err := resp.Decode(&page{}); !errors.As(err, &e) || e.Category != CategoryService || e.Retryable {
-			t.Errorf("Decode of %q = %v, want a service error that is not retryable", body, err)
-		}
-	}
-}
-
-// TestAnErrorMessageIsTheServicesMessageAndCodeAndAFourOhFourNamesWhatWasAskedFor_TS_16_42
-// verifies TS-16-42 for the library.
-// Verifies: 16-REQ-6.6
-func TestAnErrorMessageIsTheServicesMessageAndCodeAndAFourOhFourNamesWhatWasAskedFor_TS_16_42(t *testing.T) {
-	if e := asError(t, "GET", "/workspaces", 400, `{"error":{"code":"invalid_request","message":"bad"}}`); e.Message != "bad (invalid_request)" || e.Code != "invalid_request" {
-		t.Errorf("message %q code %q, want %q", e.Message, e.Code, "bad (invalid_request)")
-	}
-	for name, body := range map[string]string{"empty": ``, "not JSON": `oops`, "no error object": `{"x":1}`, "empty object": `{"error":{}}`} {
-		if e := asError(t, "GET", "/workspaces", 500, body); e.Message != "the service answered 500" {
-			t.Errorf("%s: message %q, want %q", name, e.Message, "the service answered 500")
-		}
-	}
-	if e := asError(t, "GET", "/workspaces", 400, `{"error":{"message":"just text"}}`); e.Message != "just text" {
-		t.Errorf("a message without a code: %q, want it as it is", e.Message)
-	}
-
-	notFound := `{"error":{"code":"not_found","message":"job not found"}}`
-	job := asError(t, "GET", "/jobs/job_abc/events", 404, notFound)
-	for _, want := range []string{"job_abc", "does not exist", "hub", "job not found (not_found)"} {
-		if !strings.Contains(job.Message, want) {
-			t.Errorf("404 on a job: %q does not contain %q", job.Message, want)
-		}
-	}
-	ws := asError(t, "GET", "/workspaces/a%20b%2Fc/jobs", 404, notFound)
-	for _, want := range []string{"workspace", `a b/c`, "does not exist", "hub"} {
-		if !strings.Contains(ws.Message, want) {
-			t.Errorf("404 on a workspace: %q does not contain %q", ws.Message, want)
-		}
-	}
-}
-
-// TestAFailureCarriesTheFixHintOfItsAnswer_TS_16_43 verifies TS-16-43 for the library: the
-// real slug in the hint of a workspace route, and the placeholder when the route names a job.
-// Verifies: 16-REQ-6.7
-func TestAFailureCarriesTheFixHintOfItsAnswer_TS_16_43(t *testing.T) {
-	subscribe := func(slug string) *Hint {
-		return &Hint{Suggest: "af workspace subscribe " + slug + " --hub-token-file FILE"}
-	}
-	for _, c := range []struct {
-		name         string
-		method, path string
-		status       int
-		code         string
-		want         *Hint
-	}{
-		{"401", "GET", "/workspaces", 401, "unauthenticated", &Hint{Suggest: CredentialSuggestion}},
-		{"404 on a workspace route", "GET", "/workspaces/w", 404, "not_found", subscribe("w")},
-		{"404 on a workspace job list", "GET", "/workspaces/w/jobs", 404, "not_found", subscribe("w")},
-		{"404 on a queue route", "POST", "/workspaces/a%20b/fix", 404, "not_found", subscribe("a b")},
-		{"404 on a job route", "GET", "/jobs/j", 404, "not_found", nil},
-		{"404 on an unknown route", "GET", "/nothing", 404, "not_found", nil},
-		{"409 not_subscribed on a workspace route", "POST", "/workspaces/w/fix", 409, "not_subscribed", subscribe("w")},
-		{"409 token_unreadable on a workspace route", "POST", "/workspaces/w/triage", 409, "token_unreadable", subscribe("w")},
-		{"409 not_subscribed on a job route", "POST", "/jobs/j/cancel", 409, "not_subscribed", subscribe("<slug>")},
-		{"409 token_unreadable on a job route", "POST", "/jobs/j/retry", 409, "token_unreadable", subscribe("<slug>")},
-		{"409 invalid_state", "POST", "/jobs/j/cancel", 409, "invalid_state", nil},
-		{"409 duplicate_job", "POST", "/workspaces/w/fix", 409, "duplicate_job", nil},
-		{"422", "PUT", "/workspaces/w", 422, "invalid_hub_token", &Hint{Flag: "--hub-token-file"}},
-		{"500", "GET", "/workspaces", 500, "internal", nil},
-	} {
-		e := asError(t, c.method, c.path, c.status, `{"error":{"code":"`+c.code+`","message":"m"}}`)
-		if !reflect.DeepEqual(e.Hint, c.want) {
-			t.Errorf("%s: hint = %+v, want %+v", c.name, e.Hint, c.want)
-		}
-	}
-}
-
-// TestTheAnswerTableGivesEachRowItsCategoryAndRetryableFlag_TS_16_41 verifies the table of
-// TS-16-41 for the library.
-// Verifies: 16-REQ-6.5
-func TestTheAnswerTableGivesEachRowItsCategoryAndRetryableFlag_TS_16_41(t *testing.T) {
-	for _, c := range []struct {
-		status    int
-		category  string
-		retryable bool
-	}{
-		{400, CategoryUsage, false}, {404, CategoryUsage, false},
-		{401, CategoryAuth, false}, {422, CategoryAuth, false},
-		{409, CategoryConflict, false},
-		{502, CategoryHub, true},
-		{500, CategoryService, false},
-		{503, CategoryService, true}, {504, CategoryService, true}, {507, CategoryService, true}, {599, CategoryService, true},
-		{405, CategoryService, false}, {413, CategoryService, false}, {415, CategoryService, false}, {418, CategoryService, false},
-		{301, CategoryService, false}, {302, CategoryService, false}, {307, CategoryService, false}, {308, CategoryService, false},
-	} {
-		e := asError(t, "GET", "/workspaces", c.status, ``)
-		if e.Status != c.status || e.Category != c.category || e.Retryable != c.retryable {
-			t.Errorf("%d: status %d, category %q, retryable %v, want %q and %v", c.status, e.Status, e.Category, e.Retryable, c.category, c.retryable)
+		if err == nil || errors.As(err, &e) {
+			t.Errorf("%s: err = %v, want a plain error", name, err)
 		}
 	}
 }

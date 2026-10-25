@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -30,6 +31,19 @@ func TestRepoCommitsTheFilesOnMainWithoutTheUsersConfiguration(t *testing.T) {
 	}
 	if _, err := GitErr(t, dir, "rev-parse", "nothing-here"); err == nil {
 		t.Error("GitErr of a failing command returned no error")
+	}
+}
+
+func TestIsolateGitGivesGitAnIdentityAndNoUserConfiguration(t *testing.T) {
+	Require(t, "git")
+	IsolateGit(t)
+	dir := t.TempDir()
+	out, err := exec.Command("git", "-C", dir, "var", "GIT_AUTHOR_IDENT").Output()
+	if err != nil || !strings.HasPrefix(string(out), "Test <test@example.com>") {
+		t.Errorf("git var GIT_AUTHOR_IDENT = %q, %v", out, err)
+	}
+	if out, err := exec.Command("git", "config", "--global", "--list").CombinedOutput(); err == nil && len(out) > 0 {
+		t.Errorf("git reads a global configuration: %s", out)
 	}
 }
 

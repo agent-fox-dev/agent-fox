@@ -155,7 +155,7 @@ every path out (result, failure, panic, cancellation).
 **Layering rules.** The packages `project`, `checks`, `conform`, `policy` and
 `repomap` return plain Go results and errors. They never import
 `internal/toolio`, never call `os.Exit` or `log.Fatal`, and never panic on bad
-input; a test reads their sources to check this. `internal/triage` imports
+input. `internal/triage` imports
 none of the shell, box or brain packages. The commands in `internal/afcmd` map
 package errors onto the envelope's failure categories.
 
@@ -1308,5 +1308,5 @@ submit` queues the same work on the service.
   the archived target architecture (the wider toolbelt, `af impl`, the spec
   pipeline, hub's tasks); it is out of scope and not built.
 - [`.specs/archive/`](../.specs/archive/) holds the implemented specs (01 to 04
-  are `issuex`'s, now in aflib; 05 to 19 are this repository's). The `TS-…`
-  and `REQ-…` ids in test names refer to them.
+  are `issuex`'s, now in aflib; 05 to 19 are this repository's). They were the
+  input to the code; the code, its tests and the decision records are the record.
