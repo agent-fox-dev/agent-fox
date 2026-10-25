@@ -15,7 +15,7 @@ const (
 	WarnInvalidCode = "invalid_warning_code"
 )
 
-// WarningCodes lists the warning codes the shell itself raises. Later specs
+// WarningCodes lists the warning codes the shell itself raises. The commands
 // add their own, and docs/cli.md lists them all.
 var WarningCodes = []string{
 	WarnInputTruncated,

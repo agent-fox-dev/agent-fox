@@ -149,9 +149,12 @@ func roundLimit(reported int) int {
 	return min(reported, maxRound)
 }
 
-// ruling applies the first of the rules of 12-REQ-6 that matches the envelope. The
-// round of attempt n is the latest attempt whose trigger is not auto, up to n, and the
-// automatic attempts after it.
+// ruling applies the first rule that matches the envelope: done, unverified but not
+// parked, and a question end the attempt as such; a retryable failure of the brain or of
+// no result queues an automatic attempt while the round is not full, unless the attempt
+// ends because its transient failures are used up; any other ending fails the attempt and
+// the job. The round of attempt n is the latest attempt whose trigger is not auto, up to
+// n, and the automatic attempts after it.
 func ruling(env toolio.Envelope, attempts []attemptRow, n, max int, spent bool) verdict {
 	switch env.Status {
 	case toolio.StatusDone:

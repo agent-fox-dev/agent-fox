@@ -8,9 +8,9 @@ import (
 )
 
 // Runner carries out one attempt of a job. It is the seam between this layer and the
-// attempt pipeline of the specs that follow (the hub session, the lease, the clone,
-// the loops, the forge writes); this spec ships a placeholder runner and, in the
-// package fakerunner, one that tests script.
+// attempt pipeline (the hub session, the lease, the clone, the loops, the forge
+// writes), which internal/worker carries out; the package fakerunner has one that
+// tests script.
 //
 // A runner returns either a Result, which carries the envelope of what the attempt
 // came to, or an error. An error that the runner marks with Transient asks for the
