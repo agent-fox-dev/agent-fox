@@ -82,8 +82,9 @@ af jobs submit fix 42 --workspace shop --wait
 | [docs/architecture.md](docs/architecture.md) | How agent-fox is built and why |
 | [docs/development.md](docs/development.md) | Building, testing and changing the code |
 
-Product requirements are in [docs/prd/](docs/prd/), and the notes on where
-the code differs from its specifications are in [docs/errata/](docs/errata/).
+Product requirements are in [docs/prd/](docs/prd/), and the decisions that
+shaped the code, where it differs from its specifications among them, are in
+[docs/adr/](docs/adr/).
 
 ## Installation
 

@@ -1316,5 +1316,5 @@ retyping a field, or changing a closed set (`status`, `exit_code`, `input.kind`,
 `side_effects[].state`, `usage.cost_source`).
 
 `5.0.0` is not compatible with the envelope of the earlier `triage`, `fix` and `impl`
-tools (up to `4.0.0`). [errata/05_old_envelope_fields.md](errata/05_old_envelope_fields.md)
+tools (up to `4.0.0`). [ADR 01](adr/01-keep-one-envelope-and-one-shell-for-every-command.md#consequences)
 lists the differences.

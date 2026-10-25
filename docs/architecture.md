@@ -1298,8 +1298,11 @@ submit` queues the same work on the service.
 
 - [`docs/prd/`](prd/) holds the product requirements that shaped the service
   and the loops (PRD 01 to 05).
-- [`docs/errata/`](errata/) records where the implementation diverges from
-  each spec, with the reason.
+- [`docs/adr/`](adr/) holds the architecture decision records: the rules the
+  code follows where the specs left a choice open or the code diverged from
+  them, grouped by topic (the shell, the tool policy, measuring, boxes and
+  brains, the loops, hub's API, the jobs layer, the service API, the worker,
+  the label poll and the service client).
 - [`docs/drafts/`](drafts/) holds design drafts. `target_architecture.md` is
   the archived target architecture (the wider toolbelt, `af impl`, the spec
   pipeline, hub's tasks); it is out of scope and not built.
