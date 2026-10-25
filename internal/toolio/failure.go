@@ -1,6 +1,6 @@
 package toolio
 
-// The failure categories the shell defines. Later specs add their own; a
+// The failure categories the shell defines. The commands add their own; a
 // category is an open string, and docs/cli.md lists them all.
 const (
 	CategoryUsage     = "usage"

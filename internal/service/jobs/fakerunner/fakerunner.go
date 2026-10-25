@@ -2,7 +2,7 @@
 // (return an envelope, return an error, return a transient failure, panic, or block
 // until its context is cancelled or it is released), and every call's inputs are
 // recorded. It needs no network, no hub, no key and no container engine, and the
-// tests of the specs that follow use it as this layer's tests do.
+// tests of the packages built on the layer use it as this layer's tests do.
 package fakerunner
 
 import (

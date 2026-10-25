@@ -17,8 +17,7 @@ import (
 
 // This file is where the AgentKit brain meets agentkit-go: the model and its
 // provider, the schema of the terminating tool, and the one wrapper over a
-// provider that the brain needs. What the PRD assumed of the driver and what it
-// is, as read from the module:
+// provider that the brain needs. What the driver is, as read from the module:
 //
 //   - agentkit.New(Config) returns an *Agent whose Run(ctx, prompt) runs the
 //     first user message to a stop, and returns the result with the error of a
