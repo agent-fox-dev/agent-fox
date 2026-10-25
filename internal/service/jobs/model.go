@@ -72,8 +72,8 @@ type Trigger struct {
 	By   string      `json:"by"`
 }
 
-// Source is where a job came from: the API, or one of the triggers of later
-// specs (label, event, rebuild, triage), and who or what made it.
+// Source is where a job came from, the API or the label poll, and who or what made
+// it.
 type Source struct {
 	Kind string `json:"kind"`
 	By   string `json:"by"`

@@ -19,7 +19,7 @@ import (
 // claims them, hands one back after a delay and, when it starts, hands over again the
 // ones that were claimed when the process before it ended. Each attempt is one item of
 // the type attempt, with the nonce <job id>:<n> and the payload {job_id, attempt}. Four
-// things differ from what the spec assumed of the queue:
+// things the queue does are not what the layer needs, and the layer works around them:
 //
 //   - Enqueue refuses a second queued or running item with the same type and key, so the
 //     key cannot be the workspace, which has many attempts waiting. The key is the nonce,
