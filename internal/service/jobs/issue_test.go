@@ -17,12 +17,12 @@ func TestParseIssue_AcceptsANumberAnIssueURLOrPathAndNumberAndNothingElse(t *tes
 		q("http://github.example.com/acme/widgets/issues/7"):                  7,
 		q("https://gitlab.example.com/acme/widgets/-/issues/42"):              42,
 		q("https://gitlab.example.com/group/sub/widgets/-/issues/9"):          9,
-		q("acme/widgets#42"):                         42,
-		q("a/b#1"):                                   1,
-		q("group/sub/widgets#7"):                     7,
-		q("a.b/c_d-e#1234"):                          1234,
-		q("acme/widgets#007"):                        7,
-		q("a/b" + strings.Repeat("a", 2042) + "#99"): 99, // 2048 bytes
+		q("acme/widgets#42"):     42,
+		q("a/b#1"):               1,
+		q("group/sub/widgets#7"): 7,
+		q("a.b/c_d-e#1234"):      1234,
+		q("acme/widgets#007"):    7,
+		q("a/b" + strings.Repeat("a", 2042) + "#99"):                     99, // 2048 bytes
 		q("https://gitlab.example.com/acme/widgets/-/issues/1?x=" + "y"): 1,
 		q("https://github.example.com/acme/widgets/issues/5/"):           5,
 		q("https://github.example.com/acme/widgets/issues/5#a/b#3"):      5,
