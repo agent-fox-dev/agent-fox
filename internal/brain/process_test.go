@@ -201,8 +201,9 @@ func TestProcess_SeesTheAllowedSettingsOfTheHostAndNoOtherVariable(t *testing.T)
 		t.Errorf("the process saw %v, want PATH with af first, HOME, the key of the box and AF_MODEL", seen)
 	}
 	for name := range seen {
-		// PWD and GOCOVERDIR are the fake's script's own.
-		if !slices.Contains(append(allowedNames(), "PATH", "HOME", VendorKeyVar, "AF_MODEL", "PWD", "GOCOVERDIR"), name) {
+		// PWD, GOCOVERDIR and SHLVL are the fake's script's own: a /bin/sh that
+		// is bash, as on macOS, sets SHLVL.
+		if !slices.Contains(append(allowedNames(), "PATH", "HOME", VendorKeyVar, "AF_MODEL", "PWD", "GOCOVERDIR", "SHLVL"), name) {
 			t.Errorf("the process saw %s, which is not allowed", name)
 		}
 	}

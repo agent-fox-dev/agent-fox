@@ -173,7 +173,16 @@ func TestKind_ACitedLinkMustLeadToAFileInsideTheCheckout(t *testing.T) {
 func TestKind_APathUnderAnyRootOfTheTreeIsAPathOfTheRepository(t *testing.T) {
 	dir, target := inProcessTree(t)
 	links := t.TempDir()
-	workspace := t.TempDir()
+	// The roots are the real directories, not the names a link to a temporary
+	// directory (such as /var on macOS) gives them.
+	dir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	for name, to := range map[string]string{"checkout": dir, "workspace": workspace} {
 		if err := os.Symlink(to, filepath.Join(links, name)); err != nil {
 			t.Skipf("no symbolic links here: %v", err)
