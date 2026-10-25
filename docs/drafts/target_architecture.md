@@ -331,7 +331,7 @@ involved beyond landing the branch.
 | `issuetriage` | `af triage`: a read-only brain run in a box, with the toolbelt around it (see [Triage, as built](#triage-as-built)) |
 | `codefix` | `af fix`: a brain run in a box that edits, with `af` applying its tree, measuring the change and landing or parking it (see [Fix, as built](#fix-as-built)) |
 | the `af-impl` skill | shrinks to the attended loop over `af` commands |
-| `cmd/impl`, `cmd/fix` | thin entry points that become `af impl`, `af fix` (the second is built: `cmd/af/fix*.go`); the envelope, flags and exit codes are those of `docs/cli.md`, whose envelope is a new shape (`docs/errata/05_old_envelope_fields.md`) |
+| `cmd/impl`, `cmd/fix` | thin entry points that become `af impl`, `af fix` (the second is built: `cmd/af/fix*.go`); the envelope, flags and exit codes are those of `docs/cli.md`, whose envelope is a new shape ([ADR 01](../adr/01-keep-one-envelope-and-one-shell-for-every-command.md)) |
 | `containers/tools` | `Spec.Image` for a brain with its own hands: the overlay line, Codex and OpenCode added |
 
 ## Open decisions

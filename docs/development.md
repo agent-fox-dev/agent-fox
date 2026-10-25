@@ -341,7 +341,7 @@ to refresh the generated package docs. The style rules are in
 | [architecture.md](architecture.md) | How it is built, and why. |
 | development.md | This guide. |
 | [prd/](prd/) | Product requirements. |
-| [errata/](errata/) | Where the code diverges from its spec. |
+| [adr/](adr/) | Architecture decisions, and where the code diverges from its spec. |
 | [drafts/](drafts/) | Design drafts, including the archived target architecture. |
 | [generated/](generated/) | Go package docs, written by `make doc`. Never edit by hand. |
 

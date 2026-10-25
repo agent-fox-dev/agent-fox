@@ -102,8 +102,8 @@ func TestMakeBuildWritesBinary_TS_05_7(t *testing.T) {
 	}
 
 	// cmd/af is wiring: main.go hands the process to App.Main, and it is the
-	// only file that ends the process. Spec 06 adds the files that register
-	// the commands (docs/errata/05_cmd_af_files.md).
+	// only file that ends the process; the other files of cmd/af are the
+	// service client's commands (docs/adr/01-keep-one-envelope-and-one-shell-for-every-command.md).
 	if !strings.Contains(readRepoFile(t, "cmd/af/main.go"), "os.Exit(newApp().Main(") {
 		t.Error("cmd/af/main.go does not exit with App.Main's return value")
 	}
