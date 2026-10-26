@@ -219,6 +219,24 @@ func TestReportSection_NeverExceedsTheCap(t *testing.T) {
 	}
 }
 
+// When an earlier part fills the builder close to the limit, the fallback
+// that writes only the marker for a part that does not fit at all must not
+// push the section past the cap.
+func TestReportSection_WithSeveralPartsNeverExceedsTheCap(t *testing.T) {
+	limit := maxReportBytes - len(reportHeading)
+	for size := 130900; size <= maxReportBytes; size++ {
+		r := issueReport(repeat("x", size))
+		r.Thread.Comments = r.Thread.Comments[:1]
+		parts, _, _ := reportParts(r)
+
+		text, _ := reportSection(parts, testMarker, limit)
+
+		if n := len(text); n > limit {
+			t.Fatalf("original of %d bytes: the report section is %d bytes, over the cap of %d", size, n, limit)
+		}
+	}
+}
+
 // Two briefs over the same tree and report have the same prefix, whatever the
 // run, the answers, the earlier question and the bounds, and it holds none of
 // them.

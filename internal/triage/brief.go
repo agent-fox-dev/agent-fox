@@ -253,10 +253,17 @@ func date(t time.Time) string {
 // of it: the part that crosses the limit is cut at a UTF-8 boundary, ends with
 // the shell's marker inside its fence, and no part follows.
 func reportSection(parts []part, marker string, limit int) (text string, cut bool) {
+	trimmedMarker := strings.TrimLeft(marker, "\n")
 	var b strings.Builder
-	for _, p := range parts {
+	for i, p := range parts {
 		block := fenced(p.provenance, p.content)
-		if b.Len()+len(block)+1 <= limit { // the newline that follows the block counts
+		fits := limit
+		if i < len(parts)-1 {
+			// A later part that does not fit at all falls back to writing just the
+			// marker past this one, so its length is kept free here.
+			fits -= len(trimmedMarker)
+		}
+		if b.Len()+len(block)+1 <= fits { // the newline that follows the block counts
 			b.WriteString(block + "\n")
 			continue
 		}
@@ -266,7 +273,7 @@ func reportSection(parts []part, marker string, limit int) (text string, cut boo
 		open, _ := Fence(p.content)
 		room := limit - b.Len() - len(p.provenance) - 1 - len(open) - 1 - len(marker) - 1 - len(open) - 1
 		if room <= 0 {
-			b.WriteString(strings.TrimLeft(marker, "\n"))
+			b.WriteString(trimmedMarker)
 			return b.String(), true
 		}
 		b.WriteString(fenced(p.provenance, cutAt(p.content, room)+marker))

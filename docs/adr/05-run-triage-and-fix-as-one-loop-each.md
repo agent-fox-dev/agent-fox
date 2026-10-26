@@ -83,5 +83,4 @@ each to `~/.claude/skills/<name>/SKILL.md`.
 - Known limits, left as they are: `af triage "<text>" --repo o/r` in a
   checkout with no origin and no `GITHUB_API_URL` is refused by the shell as
   having no repository, since the shell cannot tell the forge from `--repo`
-  alone; and a report section cut after several parts filled it nearly to the
-  cap can end a few bytes over, since a part already in is not cut again.
+  alone.
