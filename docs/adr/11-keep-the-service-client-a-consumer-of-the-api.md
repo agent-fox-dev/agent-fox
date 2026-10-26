@@ -34,8 +34,9 @@ credential and any workspace token are redacted from every output
 the `result` of the job document, which the service fills from the latest
 finished attempt; the follower then fetches that attempt's envelope for the
 result and its warnings. A followed job that failed, was cancelled or ended
-`usage` has the error and no result: the job is in `artifacts`, and
-`af jobs get` shows it.
+`usage` has the error and the same `{job, envelope}` result: a `toolio.Failure`
+can carry a result, which the shell keeps in the failed envelope. A failure
+without one still gives `result: null`.
 
 **Requests.**
 

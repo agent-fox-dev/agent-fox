@@ -38,9 +38,9 @@ type jobDoc struct {
 // to the command's own, and gives {job, envelope}: done or unverified for a job that is done (done
 // when it has no result), needs_human for a blocked job, answered by af jobs answer <id> --wait, and
 // the failure of the result for a job that failed. A job cancelled on the service is the category
-// job_cancelled. A following that the shell stops, by a signal or by --timeout, never cancels the
-// job; it names af jobs watch and af jobs cancel in next, and returns the error of the context to
-// the shell.
+// job_cancelled. These failures carry {job, envelope} as their result. A following that the shell
+// stops, by a signal or by --timeout, never cancels the job; it names af jobs watch and af jobs
+// cancel in next, and returns the error of the context to the shell.
 func followJob(r *toolio.Run, client *afclient.Client, id string, since int64, echo bool) (toolio.Outcome, error) {
 	srv := client.Server()
 	interrupted := func(err error) error {
@@ -111,7 +111,7 @@ func jobOutcome(srv afclient.Server, id string, result jobResult, scrub func(str
 			NeedsHuman: &toolio.Question{Text: question, Options: labels, ResumeArgv: withServer(srv, "af", "jobs", "answer", id, "--wait")},
 		}, nil
 	case "cancelled":
-		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryJobCancelled, Message: fmt.Sprintf("the job %s was cancelled on the service", id)}
+		return toolio.Outcome{}, &toolio.Failure{Category: toolio.CategoryJobCancelled, Message: fmt.Sprintf("the job %s was cancelled on the service", id), Result: result}
 	case "failed":
 		status := ""
 		if doc.Result != nil {
@@ -120,7 +120,7 @@ func jobOutcome(srv afclient.Server, id string, result jobResult, scrub func(str
 		if status == "unverified" {
 			return toolio.Outcome{Status: toolio.StatusUnverified, Summary: summary, Result: result}, nil
 		}
-		return toolio.Outcome{}, jobFailure(id, doc, scrub)
+		return toolio.Outcome{}, jobFailure(id, doc, result, scrub)
 	}
 	if doc.Result != nil && doc.Result.Status == "unverified" {
 		return toolio.Outcome{Status: toolio.StatusUnverified, Summary: summary, Result: result}, nil
@@ -130,13 +130,14 @@ func jobOutcome(srv afclient.Server, id string, result jobResult, scrub func(str
 
 // jobFailure is the failure of a job that failed: the error of its result, with its category,
 // message, retryable flag and fix hint, or an internal failure when the result has no error. A
-// result of status usage is a usage failure.
-func jobFailure(id string, doc jobDoc, scrub func(string) string) error {
+// result of status usage is a usage failure. Either way the failure carries result, the
+// {job, envelope} of the job.
+func jobFailure(id string, doc jobDoc, result jobResult, scrub func(string) string) error {
 	if doc.Result == nil || doc.Result.Error == nil {
-		return &toolio.Failure{Category: toolio.CategoryInternal, Message: fmt.Sprintf("the job %s failed on the service and its result has no error", id)}
+		return &toolio.Failure{Category: toolio.CategoryInternal, Message: fmt.Sprintf("the job %s failed on the service and its result has no error", id), Result: result}
 	}
 	e := doc.Result.Error
-	f := &toolio.Failure{Category: e.Category, Message: scrub(e.Message), Retryable: e.Retryable, FixHint: e.FixHint}
+	f := &toolio.Failure{Category: e.Category, Message: scrub(e.Message), Retryable: e.Retryable, FixHint: e.FixHint, Result: result}
 	if doc.Result.Status == "usage" {
 		f.Category = toolio.CategoryUsage
 	}

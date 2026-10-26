@@ -178,7 +178,7 @@ type Usage struct {
 }
 
 // fail makes the envelope a failure: status usage for the usage category,
-// failed for any other, with the error object from f.
+// failed for any other, with the error object from f and the result of f, null when it has none.
 func (e *Envelope) fail(f *Failure) {
 	category := f.Category
 	if category == "" {
@@ -189,7 +189,7 @@ func (e *Envelope) fail(f *Failure) {
 		e.Status = StatusUsage
 	}
 	e.Summary = f.Message
-	e.Result = nil
+	e.Result = f.Result
 	e.NeedsHuman = nil
 	e.Error = &ErrorInfo{Category: category, Message: f.Message, Retryable: f.Retryable, FixHint: f.FixHint}
 }

@@ -170,7 +170,7 @@ order. Arrays are `[]`, never null; an object that does not apply is `null`.
 | `exit_code` | integer | The code the process exits with. |
 | `summary` | string | One line saying what happened. |
 | `input` | object | `{kind, origin, truncated}`. `kind` is `issue`, `file`, `text`, `stdin` or `none`. `origin` is the issue URL or the file's absolute path, else `""`. |
-| `result` | any or null | The command's own result, described with each command. Null on failure. |
+| `result` | any or null | The command's own result, described with each command. Null on failure, except for a followed job that failed, was cancelled or ended `usage`, which keeps its `{job, envelope}`. |
 | `needs_human` | object or null | The question the command stopped on. Set exactly when `status` is `needs_human`. |
 | `error` | object or null | `{category, message, retryable, fix_hint}`. Set exactly when `status` is `failed` or `usage`. `fix_hint` is null or holds any of `flag`, `env`, `var` and `suggest`. See [Error categories](#error-categories). |
 | `warnings` | array | `[{code, message}]` in the order raised. See [Warning codes](#warning-codes). |
@@ -1019,8 +1019,8 @@ status follows the job:
 | `failed` | `failed` (1) with the attempt's error, or `unverified` (4) or `usage` (2) when the attempt ended so |
 | `cancelled` | `failed`/`job_cancelled` (1), not retryable |
 
-A failed or cancelled ending has no `result`; the job artifact is still listed, and
-`af jobs get <id>` shows it.
+A failed, cancelled or `usage` ending carries the same `{job, envelope}` result as the
+other endings, beside its `error`; the job artifact is listed too.
 
 **Stopping `af`.** A signal or `--timeout` while following stops following but never
 cancels the job, which keeps running on the service. The envelope is

@@ -55,15 +55,42 @@ func TestJobOutcome_EndsByWhatTheJobCameTo(t *testing.T) {
 		res := jobResult{Job: json.RawMessage(c.job), Envelope: nullEnvelope}
 		got, err := jobOutcome(afclient.Server{URL: "http://svc", FromFlag: c.fromFlag}, "j", res, func(s string) string { return strings.ReplaceAll(s, "SECRET", "***") })
 		if c.failure != nil {
+			want := *c.failure
+			if c.name != "not JSON" { // every ending of a job at rest carries {job, envelope}
+				want.Result = res
+			}
 			var f *toolio.Failure
-			if !errors.As(err, &f) || !reflect.DeepEqual(f, c.failure) {
-				t.Errorf("%s: error %#v, want %#v", c.name, err, c.failure)
+			if !errors.As(err, &f) || !reflect.DeepEqual(f, &want) {
+				t.Errorf("%s: error %#v, want %#v", c.name, err, &want)
 			}
 			continue
 		}
 		c.want.Result = res
 		if err != nil || !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: %+v, %v; want %+v", c.name, got, err, c.want)
+		}
+	}
+}
+
+func TestFollow_AFailedCancelledOrUsageEndingCarriesTheJobAndTheEnvelope(t *testing.T) {
+	errObj := `"error":{"category":"brain","message":"lost","retryable":false,"fix_hint":null}`
+	envelope := `{"tool":"fix","status":"failed","warnings":[],"result":{"x":1}}`
+	for _, c := range []struct {
+		name, job string
+		code      int
+		status    string
+		category  string
+	}{
+		{"failed", jobJSON("failed", `{"status":"failed","summary":"s",`+errObj+`}`, "", "failed"), 1, "failed", "brain"},
+		{"cancelled", jobJSON("cancelled", `{"status":"failed","summary":"s",`+errObj+`}`, "", "cancelled"), 1, "failed", "job_cancelled"},
+		{"usage", jobJSON("failed", `{"status":"usage","summary":"s",`+errObj+`}`, "", "failed"), 2, "usage", "usage"},
+	} {
+		serve(t, atRest(c.job, answer(200, envelope)))
+		res := af(t, "jobs", "watch", "j")
+		result, _ := res.result().(map[string]any)
+		if res.code != c.code || res.status() != c.status || res.category() != c.category ||
+			!reflect.DeepEqual(result["job"], value(t, c.job)) || !reflect.DeepEqual(result["envelope"], value(t, envelope)) {
+			t.Errorf("%s: exit %d, status %v, category %v, result %v; want %d, %s, %s and {job, envelope}", c.name, res.code, res.status(), res.category(), result, c.code, c.status, c.category)
 		}
 	}
 }

@@ -137,6 +137,31 @@ func TestEnvelope_ACallerOutsideTheShellMakesAndFailsOneAsTheShellDoes(t *testin
 	}
 }
 
+func TestEnvelope_AFailureKeepsItsResultAndAFailureWithoutOneHasNone(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		failure  Failure
+		status   string
+		wantNull bool
+	}{
+		{"failed", Failure{Category: CategoryConflict, Result: map[string]any{"job": "j"}}, "failed", false},
+		{"usage", Failure{Category: CategoryUsage, Result: map[string]any{"job": "j"}}, "usage", false},
+		{"no result", Failure{Category: CategoryConflict}, "failed", true},
+	} {
+		env := NewEnvelope("fix")
+		env.Result = "left over"
+		env.Fail(&c.failure)
+		data, err := env.Marshal()
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := testutil.Decode[map[string]any](t, data)
+		if got["status"] != c.status || (got["result"] == nil) != c.wantNull || (!c.wantNull && !reflect.DeepEqual(got["result"], map[string]any{"job": "j"})) {
+			t.Errorf("%s: envelope %s", c.name, data)
+		}
+	}
+}
+
 func TestAmend_AddsToTheListsAndChangesNothingElse(t *testing.T) {
 	env := NewEnvelope("fix")
 	env.Result = struct {

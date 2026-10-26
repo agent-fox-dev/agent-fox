@@ -188,5 +188,4 @@ attempt, the worker posts one usage record to hub with the model and tokens.
 
 The client commands (`af jobs submit`, `af jobs watch`, …) spend nothing on
 your machine: their envelope has zero usage, and the job's cost is in
-`result.job.usage`. For a job that ended failed or cancelled, read it with
-`af jobs get <id>`.
+`result.job.usage`, also for a job that ended failed or cancelled.

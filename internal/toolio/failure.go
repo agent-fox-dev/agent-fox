@@ -48,11 +48,14 @@ const (
 
 // Failure is the error a command returns to set the envelope's error object.
 // A Failure of category usage gives status usage; any other gives failed.
+// Its Result, when it has one, is the envelope's result; a Failure without one
+// gives result null.
 type Failure struct {
 	Category  string
 	Message   string
 	Retryable bool
 	FixHint   *FixHint
+	Result    any
 }
 
 // Error returns the failure's message.
