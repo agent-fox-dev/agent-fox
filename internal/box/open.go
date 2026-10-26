@@ -160,6 +160,9 @@ func openBox(ctx context.Context, req Request) (*Session, error) {
 	if err := s.scrubGit(ctx); err != nil {
 		return nil, s.abandon(ctx, err)
 	}
+	if err := s.excludeVendor(ctx); err != nil {
+		return nil, s.abandon(ctx, err)
+	}
 
 	if entry.Unconfined && req.Warn != nil {
 		req.Warn("box_unconfined", unconfinedMessage)
