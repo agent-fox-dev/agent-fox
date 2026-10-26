@@ -197,7 +197,10 @@ func (s *Session) Sync(ctx context.Context) error {
 	if err := s.sync(ctx); err != nil {
 		return err
 	}
-	return s.scrubGit(ctx)
+	if err := s.scrubGit(ctx); err != nil {
+		return err
+	}
+	return s.excludeVendor(ctx)
 }
 
 // refreshGit removes git's own state from the box, for the sync to send again.

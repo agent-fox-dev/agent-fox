@@ -135,30 +135,55 @@ func coveringRoot(roots []string, target string) string {
 	return ""
 }
 
-// rewriteGoMod returns dir's go.mod with every replace of p's rewritten to
-// the target's path inside the box.
-func rewriteGoMod(dir string, p vendorPlan) ([]byte, error) {
+// goWorkPath is the workspace file the box's go.work override is written to,
+// next to go.mod. It is never git-tracked: unlike go.mod, a change to it must
+// never look like part of the change a brain makes, so the override lives in
+// a file nothing commits, not in go.mod itself.
+const goWorkPath = "go.work"
+
+// buildGoWork returns a go.work for dir's module that replaces p's targets
+// with their path inside the box, leaving go.mod itself untouched. Go reads
+// go.work's replace directives over go.mod's own for the same module, so the
+// build inside the box resolves the targets the same way a build on the
+// host's real tree does.
+func buildGoWork(dir string, p vendorPlan) ([]byte, error) {
 	data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
 	if err != nil {
 		return nil, err
 	}
-	f, err := modfile.Parse("go.mod", data, nil)
+	mod, err := modfile.Parse("go.mod", data, nil)
 	if err != nil {
 		return nil, err
 	}
-	for r, boxPath := range p.boxPath {
-		if err := f.AddReplace(r.oldPath, r.oldVersion, boxPath, ""); err != nil {
+	wf, err := modfile.ParseWork(goWorkPath, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	if mod.Go != nil {
+		if err := wf.AddGoStmt(mod.Go.Version); err != nil {
 			return nil, err
 		}
 	}
-	f.Cleanup()
-	return modfile.Format(f.Syntax), nil
+	if mod.Module != nil {
+		if err := wf.AddUse(".", mod.Module.Mod.Path); err != nil {
+			return nil, err
+		}
+	}
+	for r, boxPath := range p.boxPath {
+		if err := wf.AddReplace(r.oldPath, r.oldVersion, boxPath, ""); err != nil {
+			return nil, err
+		}
+	}
+	wf.Cleanup()
+	return modfile.Format(wf.Syntax), nil
 }
 
 // syncVendor copies the local replace targets of dir's go.mod that fall
-// outside dir into the box under vendorDir, and sends a go.mod with those
-// replaces rewritten to reach them there, so a build inside the box resolves
-// the same modules a build on the host does. A repository with nothing to
+// outside dir into the box under vendorDir, and sends a go.work that
+// redirects those replaces to reach them there, so a build inside the box
+// resolves the same modules a build on the host does. go.mod is never
+// touched: go.work is a file nothing tracks, so the override can never be
+// mistaken for part of a brain's own change. A repository with nothing to
 // vendor is untouched: the common case costs one read and one parse of
 // go.mod, no sync.
 func (s *Session) syncVendor(ctx context.Context) error {
@@ -170,22 +195,32 @@ func (s *Session) syncVendor(ctx context.Context) error {
 		return nil
 	}
 	p := plan(replaces)
-	goMod, err := rewriteGoMod(s.hostDir, p)
+	goWork, err := buildGoWork(s.hostDir, p)
 	if err != nil {
-		return &toolio.Failure{Category: toolio.CategoryConfig, Message: fmt.Sprintf("cannot rewrite the replace directives of %s/go.mod for the box: %v", s.hostDir, err)}
+		return &toolio.Failure{Category: toolio.CategoryConfig, Message: fmt.Sprintf("cannot build a go.work for the box to reach the replaces of %s/go.mod: %v", s.hostDir, err)}
 	}
 	pr, pw := io.Pipe()
-	go func() { pw.CloseWithError(tarVendor(pw, p, goMod)) }()
+	go func() { pw.CloseWithError(tarVendor(pw, p, goWork)) }()
 	_, err = s.sb.Sync(ctx, sandbox.Tar{R: pr, Path: "."})
 	pr.CloseWithError(err)
 	return err
 }
 
-// tarVendor writes goMod as go.mod and every root of p, excluding .git, as a
-// tar stream rooted at the box's workspace.
-func tarVendor(w io.Writer, p vendorPlan, goMod []byte) error {
+// excludeVendor makes the box's git leave go.work and the vendored copies out
+// of anything it finds: a brain that stages everything (git add -A) must not
+// pick them up as if they were part of its change. It needs the box's
+// execute tool, so it runs where scrubGit does, after the tools are ready,
+// never during the sync that makes the box in the first place.
+func (s *Session) excludeVendor(ctx context.Context) error {
+	const command = `{ echo /` + goWorkPath + `; echo /` + vendorDir + `/; } >> .git/info/exclude`
+	return s.prepare(ctx, "its git to leave the box's own go.work and vendored copies out of a change", command)
+}
+
+// tarVendor writes goWork as go.work and every root of p, excluding .git, as
+// a tar stream rooted at the box's workspace.
+func tarVendor(w io.Writer, p vendorPlan, goWork []byte) error {
 	tw := tar.NewWriter(w)
-	if err := writeTarFile(tw, "go.mod", goMod); err != nil {
+	if err := writeTarFile(tw, goWorkPath, goWork); err != nil {
 		return err
 	}
 	for _, root := range p.roots {
