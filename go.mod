@@ -8,6 +8,7 @@ require (
 	github.com/agent-fox-dev/agentkit-go v0.0.0
 	github.com/agent-fox-dev/agentkit-go/sandbox v0.0.0
 	github.com/agent-fox-dev/agentkit-go/sandbox/gatewayd v0.0.0
+	golang.org/x/mod v0.41.0
 	modernc.org/sqlite v1.60.1
 )
 

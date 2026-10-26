@@ -258,14 +258,16 @@ func (s *Session) syncLocked(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if len(rels) == 0 {
-		return nil
+	if len(rels) > 0 {
+		pr, pw := io.Pipe()
+		go func() { pw.CloseWithError(tarFiles(pw, s.hostDir, rels)) }()
+		_, err = s.sb.Sync(ctx, sandbox.Tar{R: pr, Path: "."})
+		pr.CloseWithError(err)
+		if err != nil {
+			return err
+		}
 	}
-	pr, pw := io.Pipe()
-	go func() { pw.CloseWithError(tarFiles(pw, s.hostDir, rels)) }()
-	_, err = s.sb.Sync(ctx, sandbox.Tar{R: pr, Path: "."})
-	pr.CloseWithError(err)
-	return err
+	return s.syncVendor(ctx)
 }
 
 // tarFiles writes the regular files rels of dir to w as a tar stream. A link,

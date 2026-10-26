@@ -378,6 +378,11 @@ What goes in and out:
   refused, because a commit in the box would write the repository it links to.
 - Files ignored by the checkout's rules stay out, except ignored files that
   git tracks, so git in the box sees what git on the host sees.
+- A `replace` directive of the checkout's `go.mod` whose target is a local
+  directory outside the checkout (a sibling clone, as `agentkit-go`'s is for
+  development) is copied into the box under `.agent-fox/vendor/`, and the
+  box's `go.mod` is rewritten to reach it there, so a build inside the box
+  resolves the same modules a build on the host does.
 - Anything in the box's `.git/config` that could carry a credential (remote
   URLs, extra headers, credential helpers, URL rewrites) is removed when the
   box opens and after each sync.
