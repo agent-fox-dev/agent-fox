@@ -308,8 +308,13 @@ When the poll sees label L (kind K) on issue N, the first rule that applies deci
    `af:triage` again starts a new triage, which replaces the diagnosis and keeps the original report.
 
 Every rule that consumes the label (a new job, an answer, a retry, a reply) records it first, so the
-same label is not acted on twice while its removal is pending. If the forge keeps listing a label for
-a moment after it was removed, a second job can still result; the window is small.
+same label is not acted on twice while its removal is pending. After an answer or a retry the service
+also remembers it until a complete listing shows the label gone, or for about 5 minutes. A listing that
+still shows the label in that time, because the forge is slow to update, does not answer or retry the
+job again, and the label is left alone. A label put on the issue by a person within that time is acted on
+once a listing without the label has been seen, or after those 5 minutes. A label that was taken for a
+new request has no such memory: if the forge keeps listing it for a moment after it was removed, a second
+job can still result; the window is small.
 
 ### Answering and retrying from the issue
 

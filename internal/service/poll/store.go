@@ -32,6 +32,11 @@ type Record struct {
 	// Owed says that the removal of the label from the issue is still to be confirmed.
 	Owed bool
 	Seen Seen
+	// Guard says that the record is kept, once nothing is owed and its job ended, as evidence of an answer or a
+	// retry: a sighting of the label made after it must not be taken for a new one while the forge's index may still show
+	// the label it removed. It is released when a complete listing asked for after the record lacks the label, or when
+	// the release delay has passed since the record was made.
+	Guard bool
 	// ReleaseClock is when the release delay of a hold started to count, zero until it has.
 	ReleaseClock time.Time
 	CreatedAt    time.Time
@@ -44,7 +49,7 @@ type Records struct{ db *sql.DB }
 func NewRecords(db *sql.DB) *Records { return &Records{db: db} }
 
 // columns are the columns every read selects, in the order scan reads them.
-const columns = "id, workspace, issue, label, job_id, owed, seen, release_clock, created_at"
+const columns = "id, workspace, issue, label, job_id, owed, seen, release_clock, created_at, guard"
 
 // formatTime is how a time is stored: RFC 3339 in UTC, to the nanosecond.
 func formatTime(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
@@ -62,9 +67,9 @@ func (r *Records) Insert(ctx context.Context, rec Record) (Record, error) {
 		clock = formatTime(rec.ReleaseClock)
 	}
 	err := r.db.QueryRowContext(ctx,
-		`INSERT INTO af_poll_requests (workspace, issue, label, job_id, owed, seen, release_clock, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-		rec.Workspace, rec.Issue, rec.Label, job, rec.Owed, string(rec.Seen), clock, formatTime(rec.CreatedAt)).Scan(&rec.ID)
+		`INSERT INTO af_poll_requests (workspace, issue, label, job_id, owed, seen, release_clock, created_at, guard)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		rec.Workspace, rec.Issue, rec.Label, job, rec.Owed, string(rec.Seen), clock, formatTime(rec.CreatedAt), rec.Guard).Scan(&rec.ID)
 	if err != nil {
 		return Record{}, fmt.Errorf("poll record of %s #%d %s: %w", rec.Workspace, rec.Issue, rec.Label, err)
 	}
@@ -95,7 +100,7 @@ func (r *Records) query(ctx context.Context, query string, args ...any) ([]Recor
 			job, clock   sql.NullString
 			seen, create string
 		)
-		if err := rows.Scan(&rec.ID, &rec.Workspace, &rec.Issue, &rec.Label, &job, &rec.Owed, &seen, &clock, &create); err != nil {
+		if err := rows.Scan(&rec.ID, &rec.Workspace, &rec.Issue, &rec.Label, &job, &rec.Owed, &seen, &clock, &create, &rec.Guard); err != nil {
 			return nil, fmt.Errorf("poll records: %w", err)
 		}
 		rec.JobID, rec.Seen = job.String, Seen(seen)
@@ -149,10 +154,37 @@ func (r *Records) ClearOwed(ctx context.Context, workspace string, issue int, la
 	return r.exec(ctx, "UPDATE af_poll_requests SET owed = 0 WHERE workspace = ? AND issue = ? AND label = ? AND owed = 1", workspace, issue, label)
 }
 
-// Drop deletes the records of the workspace for which nothing is owed and nothing holds: the removal was confirmed or
-// settled, and the job ended holding nothing, or there is no job. It returns how many it deleted.
+// ClearGuard releases the guard of every record of the label on the issue of the workspace, because a complete listing
+// asked for after them lacked the label. It returns how many records it released.
+func (r *Records) ClearGuard(ctx context.Context, workspace string, issue int, label string) (int, error) {
+	return r.exec(ctx, "UPDATE af_poll_requests SET guard = 0 WHERE workspace = ? AND issue = ? AND label = ? AND guard = 1", workspace, issue, label)
+}
+
+// ExpireGuards releases the guard of the records of the workspace that were made at or before the time. The times are
+// compared as times, not as the text they are stored as.
+func (r *Records) ExpireGuards(ctx context.Context, workspace string, before time.Time) (int, error) {
+	recs, err := r.query(ctx, "SELECT "+columns+" FROM af_poll_requests WHERE workspace = ? AND guard = 1 ORDER BY id", workspace)
+	if err != nil {
+		return 0, err
+	}
+	var released int
+	for _, rec := range recs {
+		if rec.CreatedAt.After(before) {
+			continue
+		}
+		n, err := r.exec(ctx, "UPDATE af_poll_requests SET guard = 0 WHERE id = ?", rec.ID)
+		if err != nil {
+			return released, err
+		}
+		released += n
+	}
+	return released, nil
+}
+
+// Drop deletes the records of the workspace for which nothing is owed, nothing holds and nothing guards: the removal was
+// confirmed or settled, and the job ended holding nothing, or there is no job. It returns how many it deleted.
 func (r *Records) Drop(ctx context.Context, workspace string) (int, error) {
-	return r.exec(ctx, "DELETE FROM af_poll_requests WHERE workspace = ? AND owed = 0 AND (job_id IS NULL OR seen = 'ended')", workspace)
+	return r.exec(ctx, "DELETE FROM af_poll_requests WHERE workspace = ? AND owed = 0 AND guard = 0 AND (job_id IS NULL OR seen = 'ended')", workspace)
 }
 
 // Delete deletes the record.

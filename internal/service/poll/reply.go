@@ -33,7 +33,7 @@ func (c *cycleRun) noAnswer(ctx context.Context, l *listing, n int, job jobs.Doc
 	c.reply(ctx, l, n, job, r, replyNoAnswer, body)
 	c.s.cfg.Logger.Info("a request label found no answer since the question of a blocked job",
 		"workspace", c.slug, "kind", l.Kind, "issue", n, "label", l.Label, "job", job.ID)
-	return c.consume(ctx, l, n, owns(job, l.Label))
+	return c.consume(ctx, l, n, owns(job, l.Label), false)
 }
 
 // threadCut answers a sighting whose issue read hub cut: the comments read may not be all of them, so nothing is taken
@@ -44,7 +44,7 @@ func (c *cycleRun) threadCut(ctx context.Context, l *listing, n int, job jobs.Do
 	body := fmt.Sprintf("agent-fox could not read the whole thread of this issue: hub returned only part of its comments, so agent-fox took nothing from them. "+
 		"Use `af jobs %s %s`, or `POST /api/v1/jobs/%s/%s`.", action, job.ID, job.ID, action)
 	c.reply(ctx, l, n, job, r, replyThreadCut, body)
-	return c.consume(ctx, l, n, owns(job, l.Label))
+	return c.consume(ctx, l, n, owns(job, l.Label), false)
 }
 
 // reply posts the reply of the kind on the issue, ending with its marker, unless the latest comment of the issue carries

@@ -133,4 +133,10 @@ var migrations = []string{
 		created_at    TEXT    NOT NULL
 	);
 	CREATE INDEX af_poll_requests_by_issue ON af_poll_requests (workspace, issue, label)`,
+
+	// 2: the guard of a forge outcome. guard says that the record of an answer or a retry is kept after its job
+	// ended and its removal was confirmed, as evidence that the poll acted on the label: a listing that still shows the
+	// label because the forge's index lags the removal must not act on it again. The guard is released when a complete
+	// listing asked for after the record lacks the label, or when the release delay has passed since the record was made.
+	`ALTER TABLE af_poll_requests ADD COLUMN guard INTEGER NOT NULL DEFAULT 0 CHECK (guard IN (0, 1))`,
 }

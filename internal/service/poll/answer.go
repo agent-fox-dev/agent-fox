@@ -121,7 +121,7 @@ func (c *cycleRun) answer(ctx context.Context, l *listing, n int, job jobs.Doc) 
 	}
 	c.s.cfg.Logger.Info("a request label answered a blocked job with the comments since its question",
 		"workspace", c.slug, "kind", l.Kind, "issue", n, "label", l.Label, "job", job.ID)
-	return c.consume(ctx, l, n, owns(job, l.Label))
+	return c.consume(ctx, l, n, owns(job, l.Label), true)
 }
 
 // retry asks again for the failed job, the latest of its kind for the issue, with the comments a person wrote since its
@@ -160,5 +160,5 @@ func (c *cycleRun) retry(ctx context.Context, l *listing, n int, job jobs.Doc) b
 	}
 	c.s.cfg.Logger.Info("a request label retried a failed job with the comments since its failure",
 		"workspace", c.slug, "kind", l.Kind, "issue", n, "label", l.Label, "job", job.ID)
-	return c.consume(ctx, l, n, owns(job, l.Label))
+	return c.consume(ctx, l, n, owns(job, l.Label), true)
 }

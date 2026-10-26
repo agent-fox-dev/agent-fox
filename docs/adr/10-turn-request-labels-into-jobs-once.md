@@ -29,12 +29,19 @@ host whose clock stalls) cannot make a record look as old as the listing.
 
 **Which listings the guard protects.** The newer-record guard protects a
 sighting from a listing asked for before an answer or a retry was recorded. A
-listing asked for after it, which still shows the label only because the
-forge's index lags the removal, is not protected and can answer or retry the
-job a second time, as a lagging forge can make a second job of a new request.
-Records need no change to their drop for this: a workspace's listings are asked
-for and handled one at a time, and the drop runs only at the start of a cycle
-and after a listing is handled.
+listing asked for after it may still show the label only because the forge's
+index lags the removal, and by then the new attempt may have ended blocked or
+failed, so the job would be answered or retried a second time and cost an
+attempt. The record of an answer or a retry is therefore kept as a guard (a
+`guard` column, migration 2) after its removal is confirmed and its job ended:
+while it guards, a sighting of the label for that issue is left to the next
+cycle. The guard is released by a complete listing asked for after the record
+that lacks the label, or once the release delay has passed since the record was
+made, whichever is first, so a label a person really put back is not ignored for
+good, and the record is then dropped as before. A reply (no answer, cut thread)
+needs no guard: it carries its marker and changes no job. A new request is not
+guarded: a lagging forge can still make a second job of it, the window being
+small.
 
 **The thread of an answer.** The comments that count are those after the
 first comment carrying the latest attempt's marker (the question, the failure

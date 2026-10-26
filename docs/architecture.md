@@ -1196,9 +1196,13 @@ user-facing rules are in [api.md](api.md#request-labels); the setting is in
   the cycle leaves it alone, and the listing settles and releases nothing for
   it. Records are ordered by row id as well as time, so a stalled clock does
   not hide a newer one. There is no foreign key to `af_jobs`, so records outlive
-  restarts and the retention purge. A record is dropped once nothing is owed
-  and nothing holds; after that, a forge whose listing lags can still yield a
-  second job.
+  restarts and the retention purge. A record is dropped once nothing is owed,
+  nothing holds and nothing guards; after that, a forge whose listing lags can
+  still yield a second job of a new request. The record of an answer or a retry
+  is a **guard** (`guard` column) until a complete listing requested after it
+  lacks the label, or the release delay has passed since it was made; while it
+  guards, a sighting of the label is left to the next cycle, so a lagging index
+  cannot repeat the answer or the retry.
 - **Holds and the release delay.** `jobs.Service.Standing` reports a job's
   state, source, request label, whether its cancel reached a runner, whether a
   runner is still in progress, and the state of its cancel cleanup
@@ -1242,9 +1246,11 @@ side in `internal/worker/mirror.go`). The user-facing behaviour is in
 
 - **Rule order and guards.** A blocked job is answered and a failed job is
   retried only when no removal of L is owed and no record of L is newer than
-  the sighting. The newer-record guard matters: a listing requested before an
-  answer or a retry would otherwise find the job blocked or failed again once
-  the new attempt ended, and repeat it.
+  the sighting, and no record of L guards it. The newer-record guard matters: a
+  listing requested before an answer or a retry would otherwise find the job
+  blocked or failed again once the new attempt ended, and repeat it. The
+  record of the answer or retry guards against a listing requested after it
+  that still shows L because the forge lags the removal.
 - **Reading comments.** An answer and a retry read the issue through hub's
   issue read (`ReadIssue`), never the comment list, because only the issue read
   says when hub cut the comments (`truncated`) or failed to read them

@@ -29,8 +29,12 @@ func (r recordReconciler) reconcile(ctx context.Context, workspace string) {
 	r.s.drop(ctx, workspace)
 }
 
-// drop deletes the records of the workspace for which nothing is owed and nothing holds.
+// drop releases the guards that are older than the release delay, and deletes the records of the workspace for which
+// nothing is owed, nothing holds and nothing guards.
 func (s *Supervisor) drop(ctx context.Context, workspace string) {
+	if _, err := s.records.ExpireGuards(ctx, workspace, s.cfg.Clock.Now().Add(-s.cfg.ReleaseDelay)); err != nil {
+		s.cfg.Logger.Warn("the guards of the records of the poll could not be released", "workspace", workspace, "error", err.Error())
+	}
 	if _, err := s.records.Drop(ctx, workspace); err != nil {
 		s.cfg.Logger.Warn("the records of the poll that hold nothing could not be dropped", "workspace", workspace, "error", err.Error())
 	}
