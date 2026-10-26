@@ -41,7 +41,7 @@ test-short: ## Run all Go tests with -short, skipping the slow gates
 .PHONY: build
 build: ## Build all packages, and bin/af and bin/agent-fox
 	@rc=0; for m in $(MODULES); do echo "go build ./... ($$m)"; (cd $$m && go build ./...) || rc=1; done; exit $$rc
-	go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/af ./cmd/af
+	go install -ldflags "$(LDFLAGS)" ./cmd/af
 	go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/agent-fox ./cmd/agent-fox
 
 .PHONY: coverage
