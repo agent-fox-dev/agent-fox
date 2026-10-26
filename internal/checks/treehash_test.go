@@ -141,7 +141,9 @@ func TestTreeHashOfAnUnreadableFile(t *testing.T) {
 	if err != nil || h1 != mustHash(t, dir) {
 		t.Fatalf("TreeHash = %s, %v; want the same hash each time", h1, err)
 	}
-	writeFile(t, dir, "secret.txt", "hidden", 0o644)
+	if err := os.Chmod(filepath.Join(dir, "secret.txt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if mustHash(t, dir) == h1 {
 		t.Error("making the file readable did not change the hash")
 	}
