@@ -1,456 +1,750 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/requirements.v3.json",
   "spec_id": "04",
   "spec_name": "issuex_agentfox_migration",
-  "schema_version": 2,
-  "introduction": "Migration of agent-fox CLI commands, pipeline runners, and internal input utilities from internal/ghapi to the forge-neutral issuex package, enabling full issue and pull request workflows across GitHub and GitLab.",
-  "glossary": {
-    "Forge": "A web-based service hosting Git repositories, issue tracking, and code review workflows, such as GitHub or GitLab.",
-    "ForgeClient": "The unified Go interface declaring forge-neutral repository, issue, and pull request operations.",
-    "IssueRef": "A reference identifying an issue or pull request within a repository by number.",
-    "KindIssue": "The forge-neutral toolio input source classification indicating that the input originates from an issue or pull/merge request thread.",
-    "MultiSegmentRepo": "A repository path with multiple hierarchical namespace components, such as nested GitLab subgroups (e.g., group/subgroup/project).",
-    "NoOpClient": "An issuex client implementation used when no forge is configured, enabling offline file and text processing without network or credential requirements."
-  },
+  "schema_version": 3,
   "requirements": [
     {
-      "id": "04-REQ-1",
+      "id": "REQ-1",
       "title": "toolio Input Resolution and Forge-Neutral Issue Parsing",
       "rationale": "Tool input resolution must uniformly recognize and fetch issue and pull/merge request threads across both GitHub and GitLab forges.",
       "criteria": [
         {
-          "id": "04-REQ-1.1",
+          "id": "REQ-1.1",
           "pattern": "ubiquitous",
           "system": "toolio package",
-          "action": "define KindIssue SourceKind as \"issue\" and update Input struct fields to reference *issuex.IssueRef and *issuex.IssueThread"
+          "action": "define KindIssue SourceKind as \"issue\" and update Input struct fields to reference *issuex.IssueRef and *issuex.IssueThread",
+          "contract": "KindIssue constant string value is \"issue\"; Input struct has Issue of type *issuex.IssueRef; Input struct has Thread of type *issuex.IssueThread",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "the toolio package source code"
+            ],
+            "pseudocode": "assert string(toolio.KindIssue) == \"issue\"\nvar in toolio.Input\nvar _ *issuex.IssueRef = in.Issue\nvar _ *issuex.IssueThread = in.Thread"
+          }
         },
         {
-          "id": "04-REQ-1.2",
+          "id": "REQ-1.2",
           "pattern": "event_driven",
           "condition": "Resolve is called with an argument string matching a GitHub or GitLab issue or pull/merge request URL",
           "system": "input resolver",
-          "action": "parse the argument via issuex.ParseIssueURL and retrieve the issue thread using the provided issuex.Client"
+          "action": "parse the argument via issuex.ParseIssueURL and retrieve the issue thread using the provided issuex.Client",
+          "contract": "GitHub issue URL resolves to KindIssue with matching owner, name, and issue number; GitLab merge request URL resolves to KindIssue with multi-segment owner, name, number, and IsPullRequest true; parsed thread contents are retrieved and populated on the Input struct",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a mock issuex.Client configured to return issue and pull/merge request threads"
+            ],
+            "pseudocode": "inGH, errGH := toolio.Resolve(ctx, \"https://github.com/org/repo/issues/42\", nil, client)\nassert errGH == nil && inGH.Kind == toolio.KindIssue\nassert inGH.Issue.Repo.Owner == \"org\" && inGH.Issue.Repo.Name == \"repo\" && inGH.Issue.Number == 42\ninGL, errGL := toolio.Resolve(ctx, \"https://gitlab.com/group/sub/project/-/merge_requests/99\", nil, client)\nassert errGL == nil && inGL.Kind == toolio.KindIssue\nassert inGL.Issue.Repo.Owner == \"group/sub\" && inGL.Issue.Repo.Name == \"project\" && inGL.Issue.Number == 99 && inGL.Issue.IsPullRequest == true"
+          }
         },
         {
-          "id": "04-REQ-1.3",
+          "id": "REQ-1.3",
           "pattern": "unwanted",
           "condition": "Resolve receives an issue URL when the provided issuex.Client is nil",
           "system": "input resolver",
           "action": "reject the request with an error indicating no forge client is configured",
-          "contract": "returns an error stating cannot read issue: no forge client configured"
+          "contract": "returns an error stating cannot read issue: no forge client configured",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a valid issue URL string \"https://github.com/owner/repo/issues/10\""
+            ],
+            "pseudocode": "_, err := toolio.Resolve(ctx, \"https://github.com/owner/repo/issues/10\", nil, nil)\nassert err != nil\nassert strings.Contains(err.Error(), \"cannot read issue: no forge client configured\")"
+          }
         },
         {
-          "id": "04-REQ-1.4",
+          "id": "REQ-1.4",
           "pattern": "unwanted",
           "condition": "forge.ReadIssue returns an HTTP 404 not found error and forge.Authenticated() is false",
           "system": "input resolver",
           "action": "return an error wrapping the underlying failure and stating that the repository or issue may be private and require credentials",
-          "contract": "returns an error annotating that credentials may be required for private access"
+          "contract": "returns an error annotating that credentials may be required for private access",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an unauthenticated issuex.Client whose ReadIssue returns HTTP 404 Not Found"
+            ],
+            "pseudocode": "client := &mockClient{authenticated: false, readErr: issuex.ErrNotFound}\n_, err := toolio.Resolve(ctx, \"https://github.com/private/repo/issues/1\", nil, client)\nassert err != nil\nassert errors.Is(err, issuex.ErrNotFound)\nassert strings.Contains(err.Error(), \"credentials\") || strings.Contains(err.Error(), \"private\")"
+          }
         },
         {
-          "id": "04-REQ-1.5",
+          "id": "REQ-1.5",
           "pattern": "event_driven",
           "condition": "forge.ReadIssue succeeds for a recognized issue reference",
           "system": "input resolver",
-          "action": "set ref.IsPullRequest to true if thread.Issue.IsPR is true, truncate the rendered thread at MaxInputBytes, and return an Input with Kind KindIssue, Origin ref.URL(), Body set to truncated text, Truncated set to cut or thread.Truncated, Issue pointing to ref, and Thread pointing to thread"
+          "action": "set ref.IsPullRequest to true if thread.Issue.IsPR is true, truncate the rendered thread at MaxInputBytes, and return an Input with Kind KindIssue, Origin ref.URL(), Body set to truncated text, Truncated set to cut or thread.Truncated, Issue pointing to ref, and Thread pointing to thread",
+          "contract": "ref.IsPullRequest is set to true reflecting thread.Issue.IsPR; Input.Kind is KindIssue and Input.Origin is ref.URL(); Input.Body is truncated at MaxInputBytes with truncation marker; Input.Truncated is set to true and Input.Issue and Input.Thread are non-nil pointers",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an issuex.Client returning an IssueThread where Issue.IsPR is true and body exceeds MaxInputBytes"
+            ],
+            "pseudocode": "client := &mockClient{thread: issuex.IssueThread{Issue: issuex.Issue{IsPR: true, State: \"open\"}, Comments: makeLargeComments()}}\nin, err := toolio.Resolve(ctx, \"https://github.com/org/repo/issues/5\", nil, client)\nassert err == nil\nassert in.Kind == toolio.KindIssue\nassert in.Issue.IsPullRequest == true\nassert in.Origin == in.Issue.URL()\nassert in.Truncated == true\nassert len(in.Body) <= toolio.MaxInputBytes + 200\nassert strings.Contains(in.Body, \"truncated at\")"
+          }
         }
       ]
     },
     {
-      "id": "04-REQ-2",
+      "id": "REQ-2",
       "title": "toolio Thread Rendering and Prompt Generation",
       "rationale": "Models consuming issue threads require deterministic prompt structures with platform-accurate branding and comment histories.",
+      "system": "thread renderer",
       "criteria": [
         {
-          "id": "04-REQ-2.1",
+          "id": "REQ-2.1",
           "pattern": "event_driven",
           "condition": "RenderThread is called with an IssueRef whose Repo.Host contains \"gitlab\"",
-          "system": "thread renderer",
-          "action": "render the header line prefixed with \"GitLab \", followed by \"pull request\" or \"issue\", ref.String(), and \"(state: <state>)\""
+          "action": "render the header line prefixed with \"GitLab \", followed by \"pull request\" or \"issue\", ref.String(), and \"(state: <state>)\"",
+          "contract": "GitLab host renders header line prefixed with \"GitLab \" and \"pull request\" or \"issue\"; GitHub host or empty host renders header line prefixed with \"GitHub \" and \"pull request\" or \"issue\"; other forge hosts render header line prefixed with \"Forge \" and \"pull request\" or \"issue\"; state and reference string match the thread metadata",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "issue references targeting gitlab.com, github.com, and custom self-hosted forges"
+            ],
+            "pseudocode": "refGL := issuex.IssueRef{Repo: issuex.Repo{Host: \"gitlab.com\", Owner: \"o\", Name: \"r\"}, Number: 1, IsPullRequest: true}\nrefGH := issuex.IssueRef{Repo: issuex.Repo{Host: \"github.com\", Owner: \"o\", Name: \"r\"}, Number: 2, IsPullRequest: false}\nrefGHEmpty := issuex.IssueRef{Repo: issuex.Repo{Host: \"\", Owner: \"o\", Name: \"r\"}, Number: 3, IsPullRequest: false}\nrefCustom := issuex.IssueRef{Repo: issuex.Repo{Host: \"forgejo.example.com\", Owner: \"o\", Name: \"r\"}, Number: 4, IsPullRequest: true}\nthread := issuex.IssueThread{Issue: issuex.Issue{State: \"open\"}}\nassert strings.HasPrefix(toolio.RenderThread(refGL, thread), \"GitLab pull request o/r#1 (state: open)\\n\")\nassert strings.HasPrefix(toolio.RenderThread(refGH, thread), \"GitHub issue o/r#2 (state: open)\\n\")\nassert strings.HasPrefix(toolio.RenderThread(refGHEmpty, thread), \"GitHub issue o/r#3 (state: open)\\n\")\nassert strings.HasPrefix(toolio.RenderThread(refCustom, thread), \"Forge pull request o/r#4 (state: open)\\n\")"
+          }
         },
         {
-          "id": "04-REQ-2.2",
+          "id": "REQ-2.2",
           "pattern": "event_driven",
           "condition": "RenderThread is called with an IssueRef whose Repo.Host contains \"github\" or is empty",
-          "system": "thread renderer",
-          "action": "render the header line prefixed with \"GitHub \", followed by \"pull request\" or \"issue\", ref.String(), and \"(state: <state>)\""
+          "action": "render the header line prefixed with \"GitHub \", followed by \"pull request\" or \"issue\", ref.String(), and \"(state: <state>)\"",
+          "check": {
+            "same_as": "REQ-2.1"
+          }
         },
         {
-          "id": "04-REQ-2.3",
+          "id": "REQ-2.3",
           "pattern": "event_driven",
           "condition": "RenderThread is called with an IssueRef whose Repo.Host is non-empty and contains neither \"gitlab\" nor \"github\"",
-          "system": "thread renderer",
-          "action": "render the header line prefixed with \"Forge \", followed by \"pull request\" or \"issue\", ref.String(), and \"(state: <state>)\""
+          "action": "render the header line prefixed with \"Forge \", followed by \"pull request\" or \"issue\", ref.String(), and \"(state: <state>)\"",
+          "check": {
+            "same_as": "REQ-2.1"
+          }
         },
         {
-          "id": "04-REQ-2.4",
+          "id": "REQ-2.4",
           "pattern": "ubiquitous",
-          "system": "thread renderer",
-          "action": "for any issue thread rendered by RenderThread, format Title, Author, optional Labels, trimmed issue body, and sequential \"--- comment by <login> ---\" comment blocks in deterministic order"
+          "action": "for any issue thread rendered by RenderThread, format Title, Author, optional Labels, trimmed issue body, and sequential \"--- comment by <login> ---\" comment blocks in deterministic order",
+          "contract": "two renderings of the same thread produce identical string output; Title, Author, optional Labels, trimmed issue body, and sequential comments are rendered in deterministic order",
+          "check": {
+            "kind": "property",
+            "setup": [
+              "a generator for arbitrary issue threads with title, author, labels, body, and comments"
+            ],
+            "pseudocode": "forAll(genIssueThread, func(t issuex.IssueThread) bool {\n    ref := issuex.IssueRef{Repo: issuex.Repo{Host: \"github.com\", Owner: \"o\", Name: \"r\"}, Number: 1}\n    out1 := toolio.RenderThread(ref, t)\n    out2 := toolio.RenderThread(ref, t)\n    if out1 != out2 { return false }\n    if !strings.Contains(out1, \"Title: \" + t.Issue.Title) { return false }\n    if !strings.Contains(out1, \"Author: \" + t.Issue.Author.Login) { return false }\n    if len(t.Issue.Labels) > 0 && !strings.Contains(out1, \"Labels: \") { return false }\n    for _, c := range t.Comments {\n        expectedComment := fmt.Sprintf(\"--- comment by %s ---\\n%s\", c.User.Login, strings.TrimSpace(c.Body))\n        if !strings.Contains(out1, expectedComment) { return false }\n    }\n    return true\n})"
+          }
         },
         {
-          "id": "04-REQ-2.5",
-          "pattern": "complex_event",
-          "condition": "RenderThread formats an IssueThread",
-          "guard": "t.Truncated is true",
-          "system": "thread renderer",
-          "action": "append \"\\n[... further comments not read ...]\\n\" to the rendered thread text"
+          "id": "REQ-2.5",
+          "pattern": "event_driven",
+          "condition": "RenderThread formats an IssueThread and t.Truncated is true",
+          "action": "append \"\\n[... further comments not read ...]\\n\" to the rendered thread text",
+          "contract": "the rendered output ends with \"\\n[... further comments not read ...]\\n\"",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an IssueThread instance with Truncated set to true"
+            ],
+            "pseudocode": "ref := issuex.IssueRef{Repo: issuex.Repo{Host: \"gitlab.com\", Owner: \"g\", Name: \"p\"}, Number: 10}\nthread := issuex.IssueThread{\n    Issue: issuex.Issue{Title: \"Bug\", State: \"open\", Author: issuex.User{Login: \"alice\"}},\n    Truncated: true,\n}\nout := toolio.RenderThread(ref, thread)\nassert strings.HasSuffix(out, \"\\n[... further comments not read ...]\\n\")"
+          }
         }
       ]
     },
     {
-      "id": "04-REQ-3",
+      "id": "REQ-3",
       "title": "toolio App Shell and Client Factory Integration",
       "rationale": "The tool application shell must automatically instantiate and configure the appropriate forge client or fallback no-op client based on input arguments and repository remotes.",
       "criteria": [
         {
-          "id": "04-REQ-3.1",
+          "id": "REQ-3.1",
           "pattern": "ubiquitous",
           "system": "toolio package",
-          "action": "define the Forge field of type issuex.Client on the Deps struct, replacing GitHub *ghapi.Client"
+          "action": "define the Forge field of type issuex.Client on the Deps struct, replacing GitHub *ghapi.Client",
+          "contract": "Deps struct declares Forge of interface type issuex.Client; the former GitHub *ghapi.Client field is replaced by Forge",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "the toolio.Deps struct declaration"
+            ],
+            "pseudocode": "var d toolio.Deps\nvar _ issuex.Client = d.Forge"
+          }
         },
         {
-          "id": "04-REQ-3.2",
+          "id": "REQ-3.2",
           "pattern": "event_driven",
           "condition": "App.execute receives an argument recognized by issuex.ParseIssueURL with a non-empty Repo.Host",
           "system": "toolio application shell",
-          "action": "instantiate an issuex.Client via issuex.NewWithOptions targeting the parsed host URL and tool user agent"
+          "action": "instantiate an issuex.Client via issuex.NewWithOptions targeting the parsed host URL and tool user agent",
+          "contract": "issuex.NewWithOptions is called targeting \"https://gitlab.com\" and tool user agent; the instantiated forge client is passed in Deps.Forge to a.Exec",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "an App configured with an Exec callback inspecting d.Forge"
+            ],
+            "pseudocode": "var receivedForge issuex.Client\napp := toolio.App{\n    Name: \"testapp\", Version: \"1.0\",\n    Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {\n        receivedForge = d.Forge\n        return toolio.ExitOK, nil, nil\n    },\n}\napp.Main(ctx, []string{\"https://gitlab.com/group/project/-/issues/42\"}, nil, out, errOut)\nassert receivedForge != nil\nassert receivedForge.BaseURL() == \"https://gitlab.com\""
+          }
         },
         {
-          "id": "04-REQ-3.3",
+          "id": "REQ-3.3",
           "pattern": "event_driven",
           "condition": "the argument is not an issue URL or host-specific client creation returns an error",
           "system": "toolio application shell",
-          "action": "construct the forge client via issuex.New with tool user agent, falling back to issuex.NewNoOp() if construction returns an error"
+          "action": "construct the forge client via issuex.New with tool user agent, falling back to issuex.NewNoOp() if construction returns an error",
+          "contract": "the application falls back to issuex.NewNoOp() rather than failing execution; the command completes with ExitOK for offline text input",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "an environment where issuex.New returns an error (e.g., no forge detected, ambiguous forge)"
+            ],
+            "pseudocode": "var receivedForge issuex.Client\napp := toolio.App{\n    Name: \"testapp\", Version: \"1.0\",\n    Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {\n        receivedForge = d.Forge\n        return toolio.ExitOK, nil, nil\n    },\n}\ncode := app.Main(ctx, []string{\"plain text bug report\"}, nil, out, errOut)\nassert code == toolio.ExitOK\nassert receivedForge != nil\nassert receivedForge.Authenticated() == false"
+          }
         },
         {
-          "id": "04-REQ-3.4",
-          "pattern": "complex_event",
-          "condition": "Resolve completes successfully",
-          "guard": "in.Thread is non-nil and in.Thread.CommentsErr is non-nil",
+          "id": "REQ-3.4",
+          "pattern": "event_driven",
+          "condition": "Resolve completes successfully and in.Thread is non-nil and in.Thread.CommentsErr is non-nil",
           "system": "toolio application shell",
-          "action": "record a warning on e.run with format \"the issue's comments could not be read: %v\""
+          "action": "record a warning on e.run with format \"the issue's comments could not be read: %v\"",
+          "contract": "a warning is recorded on e.run with format \"the issue's comments could not be read: %v\"",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an issue input whose Thread has non-nil CommentsErr"
+            ],
+            "pseudocode": "mockRun := toolio.NewRun(\"test\", \"1.0\")\nthread := issuex.IssueThread{CommentsErr: errors.New(\"rate limited\")}\nin := toolio.Input{Kind: toolio.KindIssue, Thread: &thread}\n// simulate warning logic in App.execute:\nif in.Thread != nil && in.Thread.CommentsErr != nil {\n    mockRun.Warn(\"the issue's comments could not be read: %v\", in.Thread.CommentsErr)\n}\nassert len(mockRun.Warnings) == 1\nassert strings.Contains(mockRun.Warnings[0], \"the issue's comments could not be read: rate limited\")"
+          }
         },
         {
-          "id": "04-REQ-3.5",
+          "id": "REQ-3.5",
           "pattern": "event_driven",
           "condition": "App.execute invokes a.Exec",
           "system": "toolio application shell",
-          "action": "pass the resolved forge client in Deps.Forge"
+          "action": "pass the resolved forge client in Deps.Forge",
+          "check": {
+            "same_as": "REQ-3.2"
+          }
         }
       ]
     },
     {
-      "id": "04-REQ-4",
+      "id": "REQ-4",
       "title": "Codefix Pipeline Runner Migration",
       "rationale": "The codefix pipeline must execute repository detection, credential validation, pull request landing, and issue comment updates using forge-neutral interfaces.",
       "criteria": [
         {
-          "id": "04-REQ-4.1",
+          "id": "REQ-4.1",
           "pattern": "ubiquitous",
           "system": "codefix package",
-          "action": "define Options with Repo issuex.Repo and Forge issuex.Client, define CategoryForge as \"forge\" with CategoryGitHub aliased to CategoryForge, and type alias issueRef to *issuex.IssueRef"
+          "action": "define Options with Repo issuex.Repo and Forge issuex.Client, define CategoryForge as \"forge\" with CategoryGitHub aliased to CategoryForge, and type alias issueRef to *issuex.IssueRef",
+          "contract": "Options defines Repo as issuex.Repo and Forge as issuex.Client; CategoryForge is \"forge\" and CategoryGitHub is aliased to CategoryForge; issueRef is a type alias to *issuex.IssueRef",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "codefix package type declarations"
+            ],
+            "pseudocode": "var o codefix.Options\nvar _ issuex.Repo = o.Repo\nvar _ issuex.Client = o.Forge\nassert codefix.CategoryForge == \"forge\"\nassert codefix.CategoryGitHub == codefix.CategoryForge\nvar _ codefix.issueRef = (*issuex.IssueRef)(nil)"
+          }
         },
         {
-          "id": "04-REQ-4.2",
-          "pattern": "complex_event",
-          "condition": "preflight executes",
-          "guard": "target repository is not valid",
+          "id": "REQ-4.2",
+          "pattern": "event_driven",
+          "condition": "preflight executes and target repository is not valid",
           "system": "codefix pipeline",
-          "action": "detect repository using issuex.DetectRepo(o.Workspace.Root), falling back to o.Input.Issue.Repo if o.Input.Issue is present"
+          "action": "detect repository using issuex.DetectRepo(o.Workspace.Root), falling back to o.Input.Issue.Repo if o.Input.Issue is present",
+          "contract": "target repository is detected from workspace root using issuex.DetectRepo; when Input.Issue is present, fallback to o.Input.Issue.Repo is used",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a workspace git repository with a configured origin remote"
+            ],
+            "pseudocode": "opts := codefix.Options{Workspace: ws, Forge: mockForge}\ntarget, base, pfErr := codefix.Preflight(ctx, opts, git, result)\nassert pfErr == nil\nassert target.Owner == \"acme\" && target.Name == \"repo\""
+          }
         },
         {
-          "id": "04-REQ-4.3",
+          "id": "REQ-4.3",
           "pattern": "unwanted",
           "condition": "preflight executes with o.DryRun false, unauthenticated o.Forge, and either o.Input.Issue is non-nil or o.Land is LandPR",
           "system": "codefix pipeline",
           "action": "return an auth failure specifying GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN",
-          "contract": "returns a Failure with stage \"preflight\" and category \"auth\" stating credentials are required"
+          "contract": "returns a Failure with stage \"preflight\" and category \"auth\" stating credentials are required",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "codefix Options with DryRun false, unauthenticated Forge client, and LandPR enabled"
+            ],
+            "pseudocode": "opts := codefix.Options{\n    Workspace: ws, Land: codefix.LandPR, DryRun: false,\n    Forge: &mockClient{authenticated: false},\n}\n_, _, err := codefix.Preflight(ctx, opts, git, result)\nassert err != nil\nassert err.StageName() == \"preflight\"\nassert err.CategoryName() == \"auth\"\nassert strings.Contains(err.Error(), \"GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN\")"
+          }
         },
         {
-          "id": "04-REQ-4.4",
+          "id": "REQ-4.4",
           "pattern": "unwanted",
           "condition": "preflight executes with o.Land as LandPR, o.DryRun false, and target repository invalid after remote detection",
           "system": "codefix pipeline",
           "action": "return a usage failure explaining that --land=pr needs a target repository",
-          "contract": "returns a Failure with stage \"preflight\" and category \"usage\" explaining origin remote or issue URL requirement"
+          "contract": "returns a Failure with stage \"preflight\" and category \"usage\" explaining origin remote or issue URL requirement",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "codefix Options with LandPR, DryRun false, and no valid origin remote in git"
+            ],
+            "pseudocode": "opts := codefix.Options{\n    Workspace: emptyGitWs, Land: codefix.LandPR, DryRun: false,\n    Forge: &mockClient{authenticated: true},\n}\n_, _, err := codefix.Preflight(ctx, opts, git, result)\nassert err != nil\nassert err.StageName() == \"preflight\"\nassert err.CategoryName() == \"usage\"\nassert strings.Contains(err.Error(), \"--land=pr needs a target repository\")"
+          }
         },
         {
-          "id": "04-REQ-4.5",
+          "id": "REQ-4.5",
           "pattern": "event_driven",
           "condition": "openPullRequest executes with valid target repository",
           "system": "codefix pipeline",
-          "action": "call o.Forge.CreatePullRequest with Title, Body, Head, Base, and Draft parameters, recording returned URL and Number in result"
+          "action": "call o.Forge.CreatePullRequest with Title, Body, Head, Base, and Draft parameters, recording returned URL and Number in result",
+          "contract": "o.Forge.CreatePullRequest is invoked with Title, Body, Head, Base, and Draft parameters; result.PullRequestURL and result.PullRequestNumber are populated from the response; o.Forge.AddComment is invoked and the returned comment URL is appended to result.Comments",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "codefix Options with mock Forge client connected to an HTTP test server"
+            ],
+            "pseudocode": "server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if r.Method == \"POST\" && strings.Contains(r.URL.Path, \"/pulls\") {\n        json.NewEncoder(w).Encode(map[string]any{\"html_url\": \"https://forge/pr/1\", \"number\": 1})\n        return\n    }\n    if r.Method == \"POST\" && strings.Contains(r.URL.Path, \"/comments\") {\n        json.NewEncoder(w).Encode(map[string]any{\"html_url\": \"https://forge/comment/123\"})\n        return\n    }\n}))\ndefer server.Close()\nclient := issuex.NewWithOptions(issuex.Options{BaseURL: server.URL, Token: \"tok\"})\nopts.Forge = client\ncodefix.OpenPullRequest(ctx, opts, target, result, analysis, impl, \"main\", \"fix/1-bug\")\nassert result.PullRequestURL == \"https://forge/pr/1\"\nassert result.PullRequestNumber == 1\ncodefix.PostComment(ctx, opts, result, \"summary body\", \"summary\")\nassert len(result.Comments) == 1 && result.Comments[0] == \"https://forge/comment/123\""
+          }
         },
         {
-          "id": "04-REQ-4.6",
+          "id": "REQ-4.6",
           "pattern": "event_driven",
           "condition": "postComment executes with o.Input.Issue non-nil",
           "system": "codefix pipeline",
-          "action": "call o.Forge.AddComment with the target issue reference and comment body, appending the returned comment URL to result.Comments"
+          "action": "call o.Forge.AddComment with the target issue reference and comment body, appending the returned comment URL to result.Comments",
+          "check": {
+            "same_as": "REQ-4.5"
+          }
         }
       ]
     },
     {
-      "id": "04-REQ-5",
+      "id": "REQ-5",
       "title": "Codeimpl Pipeline Runner Migration",
       "rationale": "The codeimpl pipeline must validate target repository and forge authentication before landing pull requests through issuex.",
       "criteria": [
         {
-          "id": "04-REQ-5.1",
+          "id": "REQ-5.1",
           "pattern": "ubiquitous",
           "system": "codeimpl package",
-          "action": "define Options with Repo issuex.Repo and Forge issuex.Client, and define CategoryForge as \"forge\" with CategoryGitHub aliased to CategoryForge"
+          "action": "define Options with Repo issuex.Repo and Forge issuex.Client, and define CategoryForge as \"forge\" with CategoryGitHub aliased to CategoryForge",
+          "contract": "Options defines Repo as issuex.Repo and Forge as issuex.Client; CategoryForge is \"forge\" and CategoryGitHub is aliased to CategoryForge",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "codeimpl package type declarations"
+            ],
+            "pseudocode": "var o codeimpl.Options\nvar _ issuex.Repo = o.Repo\nvar _ issuex.Client = o.Forge\nassert codeimpl.CategoryForge == \"forge\"\nassert codeimpl.CategoryGitHub == codeimpl.CategoryForge"
+          }
         },
         {
-          "id": "04-REQ-5.2",
+          "id": "REQ-5.2",
           "pattern": "event_driven",
           "condition": "preflight runs with target repository unspecified",
           "system": "codeimpl pipeline",
-          "action": "resolve the target repository using issuex.DetectRepo(st.root)"
+          "action": "resolve the target repository using issuex.DetectRepo(st.root)",
+          "contract": "st.target is resolved from git repository root using issuex.DetectRepo",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a git repository with a recognized forge remote and codeimpl Options with empty Repo"
+            ],
+            "pseudocode": "st, err := codeimpl.Preflight(ctx, opts, result)\nassert err == nil\nassert st.Target.Valid()\nassert st.Target.Owner == \"acme\" && st.Target.Name == \"proj\""
+          }
         },
         {
-          "id": "04-REQ-5.3",
+          "id": "REQ-5.3",
           "pattern": "unwanted",
           "condition": "preflight runs with o.Land as LandPR, o.DryRun false, and o.Forge unauthenticated",
           "system": "codeimpl pipeline",
           "action": "return an auth failure stating that --land=pr needs GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN",
-          "contract": "returns a Failure with stage \"preflight\" and category \"auth\""
+          "contract": "returns a Failure with stage \"preflight\" and category \"auth\"",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "codeimpl Options with LandPR, DryRun false, and unauthenticated Forge client"
+            ],
+            "pseudocode": "opts := codeimpl.Options{\n    Workspace: ws, Land: codeimpl.LandPR, DryRun: false,\n    Forge: &mockClient{authenticated: false},\n}\n_, err := codeimpl.Preflight(ctx, opts, result)\nassert err != nil\nassert err.StageName() == \"preflight\"\nassert err.CategoryName() == \"auth\"\nassert strings.Contains(err.Error(), \"GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN\")"
+          }
         },
         {
-          "id": "04-REQ-5.4",
+          "id": "REQ-5.4",
           "pattern": "unwanted",
           "condition": "preflight runs with o.Land as LandPR, o.DryRun false, and target repository invalid",
           "system": "codeimpl pipeline",
           "action": "return a usage failure indicating that the repository root has no origin remote on a recognized forge",
-          "contract": "returns a Failure with stage \"preflight\" and category \"usage\""
+          "contract": "returns a Failure with stage \"preflight\" and category \"usage\"",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "codeimpl Options with LandPR, DryRun false, and a repository without origin remote"
+            ],
+            "pseudocode": "opts := codeimpl.Options{\n    Workspace: noRemoteWs, Land: codeimpl.LandPR, DryRun: false,\n    Forge: &mockClient{authenticated: true},\n}\n_, err := codeimpl.Preflight(ctx, opts, result)\nassert err != nil\nassert err.StageName() == \"preflight\"\nassert err.CategoryName() == \"usage\"\nassert strings.Contains(err.Error(), \"no origin remote on a recognized forge\")"
+          }
         },
         {
-          "id": "04-REQ-5.5",
+          "id": "REQ-5.5",
           "pattern": "event_driven",
           "condition": "codeimpl lands changes via LandPR",
           "system": "codeimpl pipeline",
-          "action": "call o.Forge.CreatePullRequest with target repository, title, body, head branch, base branch, and draft flag, populating result.PullRequestURL and result.PullRequestNumber upon success"
+          "action": "call o.Forge.CreatePullRequest with target repository, title, body, head branch, base branch, and draft flag, populating result.PullRequestURL and result.PullRequestNumber upon success",
+          "contract": "o.Forge.CreatePullRequest is called with target repo, title, body, head branch, base branch, and draft flag; result.PullRequestURL and result.PullRequestNumber are populated upon success",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a verified codeimpl implementation run and an issuex.Client"
+            ],
+            "pseudocode": "mockForge := &mockClient{createdPR: issuex.PullRequest{URL: \"https://gitlab.com/grp/prj/-/merge_requests/4\", Number: 4}}\nopts := codeimpl.Options{Land: codeimpl.LandPR, Forge: mockForge}\nres, err := codeimpl.LandPRChanges(ctx, opts, st, result)\nassert err == nil\nassert res.PullRequestURL == \"https://gitlab.com/grp/prj/-/merge_requests/4\"\nassert res.PullRequestNumber == 4\nassert res.Stage == \"landed\""
+          }
         }
       ]
     },
     {
-      "id": "04-REQ-6",
+      "id": "REQ-6",
       "title": "Issuetriage Pipeline Runner Migration",
       "rationale": "The issuetriage pipeline must inspect credentials and perform issue creation and updating against any supported forge through issuex.",
       "criteria": [
         {
-          "id": "04-REQ-6.1",
+          "id": "REQ-6.1",
           "pattern": "ubiquitous",
           "system": "issuetriage package",
-          "action": "define Options with Repo issuex.Repo and Forge issuex.Client, and define CategoryForge as \"forge\" with CategoryGitHub aliased to CategoryForge"
+          "action": "define Options with Repo issuex.Repo and Forge issuex.Client, and define CategoryForge as \"forge\" with CategoryGitHub aliased to CategoryForge",
+          "contract": "Options defines Repo as issuex.Repo and Forge as issuex.Client; CategoryForge is \"forge\" and CategoryGitHub is aliased to CategoryForge",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "issuetriage package type declarations"
+            ],
+            "pseudocode": "var o issuetriage.Options\nvar _ issuex.Repo = o.Repo\nvar _ issuex.Client = o.Forge\nassert issuetriage.CategoryForge == \"forge\"\nassert issuetriage.CategoryGitHub == issuetriage.CategoryForge"
+          }
         },
         {
-          "id": "04-REQ-6.2",
+          "id": "REQ-6.2",
           "pattern": "unwanted",
           "condition": "resolveTarget executes with o.Repo unset, o.Input.Issue unset, o.DryRun false, and issuex.DetectRepo failing to find an origin remote",
           "system": "issuetriage pipeline",
           "action": "return a usage failure explaining that no origin remote exists on a recognized forge",
-          "contract": "returns a Failure with stage \"preflight\" and category \"usage\" naming --repo and --dry-run"
+          "contract": "returns a Failure with stage \"preflight\" and category \"usage\" naming --repo and --dry-run",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "issuetriage Options with Repo unset, Input.Issue unset, DryRun false, and no git remote"
+            ],
+            "pseudocode": "opts := issuetriage.Options{Workspace: noRemoteWs, DryRun: false}\n_, err := issuetriage.ResolveTarget(opts)\nassert err != nil\nassert err.StageName() == \"preflight\"\nassert err.CategoryName() == \"usage\"\nassert strings.Contains(err.Error(), \"--repo\") && strings.Contains(err.Error(), \"--dry-run\")"
+          }
         },
         {
-          "id": "04-REQ-6.3",
+          "id": "REQ-6.3",
           "pattern": "unwanted",
           "condition": "checkWriteCredential executes when o.Forge is nil",
           "system": "issuetriage pipeline",
           "action": "return an internal failure indicating no forge client is configured",
-          "contract": "returns a Failure with stage \"preflight\" and category \"internal\""
+          "contract": "returns a Failure with stage \"preflight\" and category \"internal\"",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "issuetriage Options with Forge nil and DryRun false"
+            ],
+            "pseudocode": "opts := issuetriage.Options{Forge: nil, DryRun: false}\nerr := issuetriage.CheckWriteCredential(opts, targetRepo)\nassert err != nil\nassert err.StageName() == \"preflight\"\nassert err.CategoryName() == \"internal\"\nassert strings.Contains(err.Error(), \"no forge client configured\")"
+          }
         },
         {
-          "id": "04-REQ-6.4",
+          "id": "REQ-6.4",
           "pattern": "unwanted",
           "condition": "checkWriteCredential executes when o.Forge is unauthenticated and o.DryRun is false",
           "system": "issuetriage pipeline",
           "action": "return an auth failure stating that the action in target needs GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN",
-          "contract": "returns a Failure with stage \"preflight\" and category \"auth\""
+          "contract": "returns a Failure with stage \"preflight\" and category \"auth\"",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "issuetriage Options with unauthenticated Forge client and DryRun false"
+            ],
+            "pseudocode": "opts := issuetriage.Options{\n    Forge: &mockClient{authenticated: false}, DryRun: false,\n}\nerr := issuetriage.CheckWriteCredential(opts, targetRepo)\nassert err != nil\nassert err.StageName() == \"preflight\"\nassert err.CategoryName() == \"auth\"\nassert strings.Contains(err.Error(), \"needs a credential: set GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN, or pass --dry-run\")"
+          }
         },
         {
-          "id": "04-REQ-6.5",
-          "pattern": "complex_event",
-          "condition": "write executes",
-          "guard": "o.Overwrite is true",
+          "id": "REQ-6.5",
+          "pattern": "event_driven",
+          "condition": "write executes and o.Overwrite is true",
           "system": "issuetriage pipeline",
-          "action": "call o.Forge.UpdateIssue with o.Input.Issue reference, updating title and body, and populate result with the issue URL and Number"
+          "action": "call o.Forge.UpdateIssue with o.Input.Issue reference, updating title and body, and populate result with the issue URL and Number",
+          "contract": "when Overwrite is false, o.Forge.CreateIssue creates an issue with title, body, and labels; when Overwrite is true, o.Forge.UpdateIssue updates title and body of the target issue; result is populated with issue URL, Number, and appropriate Action",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "an issuetriage run with an issuex.Client connected to an HTTP test server"
+            ],
+            "pseudocode": "// Overwrite == false -> CreateIssue\noptsCreate := issuetriage.Options{Forge: client, Overwrite: false, Labels: []string{\"bug\"}}\noutCreate := &issuetriage.Result{Title: \"New issue\", Body: \"details\"}\nerr := issuetriage.Write(ctx, optsCreate, target, outCreate)\nassert err == nil\nassert outCreate.Action == \"created\" && outCreate.URL != \"\" && outCreate.Number > 0\n\n// Overwrite == true -> UpdateIssue\nissueRef := issuex.IssueRef{Repo: target, Number: 42}\noptsUpdate := issuetriage.Options{Forge: client, Overwrite: true, Input: toolio.Input{Issue: &issueRef}}\noutUpdate := &issuetriage.Result{Title: \"Updated title\", Body: \"updated details\"}\nerr = issuetriage.Write(ctx, optsUpdate, target, outUpdate)\nassert err == nil\nassert outUpdate.Action == \"updated\" && outUpdate.URL != \"\" && outUpdate.Number == 42"
+          }
         },
         {
-          "id": "04-REQ-6.6",
-          "pattern": "complex_event",
-          "condition": "write executes",
-          "guard": "o.Overwrite is false",
+          "id": "REQ-6.6",
+          "pattern": "event_driven",
+          "condition": "write executes and o.Overwrite is false",
           "system": "issuetriage pipeline",
-          "action": "call o.Forge.CreateIssue with target repository, title, body, and labels, and populate result with the created issue URL and Number"
+          "action": "call o.Forge.CreateIssue with target repository, title, body, and labels, and populate result with the created issue URL and Number",
+          "check": {
+            "same_as": "REQ-6.5"
+          }
         },
         {
-          "id": "04-REQ-6.7",
+          "id": "REQ-6.7",
           "pattern": "unwanted",
           "condition": "write encounters an error from o.Forge",
           "system": "issuetriage pipeline",
           "action": "classify the error via issuex.IsNoToken to return an auth failure if true or a CategoryForge failure otherwise",
-          "contract": "returns a Failure with stage \"write\" and category \"auth\" when token is missing or \"forge\" for other forge errors"
+          "contract": "returns a Failure with stage \"write\" and category \"auth\" when token is missing or \"forge\" for other forge errors",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an issuetriage write call encountering errors from o.Forge"
+            ],
+            "pseudocode": "// Test missing token error classification\nerrNoToken := issuetriage.Write(ctx, opts, target, out, &mockClient{err: issuex.ErrNoToken})\nassert errNoToken != nil\nassert errNoToken.StageName() == \"write\"\nassert errNoToken.CategoryName() == \"auth\"\n\n// Test general forge error classification\nerrGeneral := issuetriage.Write(ctx, opts, target, out, &mockClient{err: errors.New(\"500 internal server error\")})\nassert errGeneral != nil\nassert errGeneral.StageName() == \"write\"\nassert errGeneral.CategoryName() == \"forge\""
+          }
         }
       ]
     },
     {
-      "id": "04-REQ-7",
+      "id": "REQ-7",
       "title": "Specgen Pipeline Runner Migration",
       "rationale": "The specgen pipeline must validate forge credentials and post PRD feedback comments to issues across GitHub and GitLab via issuex.",
       "criteria": [
         {
-          "id": "04-REQ-7.1",
+          "id": "REQ-7.1",
           "pattern": "ubiquitous",
           "system": "specgen package",
-          "action": "define Options with Forge issuex.Client, replacing GitHub *ghapi.Client"
+          "action": "define Options with Forge issuex.Client, replacing GitHub *ghapi.Client",
+          "contract": "Options declares Forge of type issuex.Client; the former GitHub *ghapi.Client field is replaced",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "specgen package declarations"
+            ],
+            "pseudocode": "var o specgen.Options\nvar _ issuex.Client = o.Forge"
+          }
         },
         {
-          "id": "04-REQ-7.2",
+          "id": "REQ-7.2",
           "pattern": "unwanted",
           "condition": "specgen executes preflight with o.Comment true, o.DryRun false, and o.Forge is nil or unauthenticated",
           "system": "specgen pipeline",
           "action": "return an auth failure stating that --comment needs a forge credential: set GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN, or run without --comment",
-          "contract": "returns a Failure with stage \"preflight\" and category \"auth\""
+          "contract": "returns a Failure with stage \"preflight\" and category \"auth\"",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "specgen Options with Comment true, DryRun false, and unauthenticated or nil Forge client"
+            ],
+            "pseudocode": "opts := specgen.Options{\n    Comment: true, DryRun: false,\n    Input: toolio.Input{Kind: toolio.KindIssue, Issue: &issueRef},\n    Forge: &mockClient{authenticated: false},\n}\n_, err := specgen.Preflight(ctx, opts)\nassert err != nil\nassert err.StageName() == \"preflight\"\nassert err.CategoryName() == \"auth\"\nassert strings.Contains(err.Error(), \"--comment needs a forge credential: set GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN, or run without --comment\")"
+          }
         },
         {
-          "id": "04-REQ-7.3",
-          "pattern": "complex_event",
-          "condition": "specgen finishes generating a PRD with o.Comment true and o.DryRun false",
-          "guard": "o.Input.Issue is non-nil",
+          "id": "REQ-7.3",
+          "pattern": "event_driven",
+          "condition": "specgen finishes generating a PRD with o.Comment true and o.DryRun false and o.Input.Issue is non-nil",
           "system": "specgen pipeline",
-          "action": "post the PRD content as an issue comment via o.Forge.AddComment"
+          "action": "post the PRD content as an issue comment via o.Forge.AddComment",
+          "contract": "calls o.Forge.AddComment with target issue reference and PRD markdown; when comment succeeds, populates pkg.CommentURL; when comment fails, o.Run records a warning while pipeline returns a successful Result",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "specgen pipeline generating a PRD with Comment true and DryRun false"
+            ],
+            "pseudocode": "// Success case\nmockForge := &mockClient{commentURL: \"https://forge/issue/1#note_9\"}\nopts := specgen.Options{Comment: true, DryRun: false, Input: toolio.Input{Issue: &issueRef}, Forge: mockForge}\npkg, _, err := specgen.GeneratePRD(ctx, opts)\nassert err == nil\nassert pkg.CommentURL == \"https://forge/issue/1#note_9\"\n\n// Error degraded to warning case\nmockForgeErr := &mockClient{commentErr: errors.New(\"forbidden\")}\noptsErr := specgen.Options{Comment: true, DryRun: false, Input: toolio.Input{Issue: &issueRef}, Forge: mockForgeErr, Run: run}\npkgErr, _, err2 := specgen.GeneratePRD(ctx, optsErr)\nassert err2 == nil\nassert len(run.Warnings) == 1\nassert strings.Contains(run.Warnings[0], \"the PRD could not be posted\")"
+          }
         },
         {
-          "id": "04-REQ-7.4",
+          "id": "REQ-7.4",
           "pattern": "unwanted",
           "condition": "o.Forge.AddComment fails while posting the PRD comment",
           "system": "specgen pipeline",
           "action": "record a warning on o.Run without failing the pipeline execution",
-          "contract": "o.Run records the warning while the pipeline returns a successful Result"
+          "contract": "o.Run records the warning while the pipeline returns a successful Result",
+          "check": {
+            "same_as": "REQ-7.3"
+          }
         }
       ]
     },
     {
-      "id": "04-REQ-8",
+      "id": "REQ-8",
       "title": "CLI Commands Migration",
       "rationale": "Command line interfaces must parse repository flags with multi-segment path support, pass forge clients to pipeline runners, and display updated forge-neutral help text.",
       "criteria": [
         {
-          "id": "04-REQ-8.1",
+          "id": "REQ-8.1",
           "pattern": "event_driven",
           "condition": "cmd/fix parses a non-empty --repo flag",
           "system": "cmd/fix",
-          "action": "validate and parse the repository identifier using issuex.ParseRepo, pass Forge: d.Forge to codefix.Options, and describe GitHub and GitLab issue and pull/merge-request URLs in usage text"
+          "action": "validate and parse the repository identifier using issuex.ParseRepo, pass Forge: d.Forge to codefix.Options, and describe GitHub and GitLab issue and pull/merge-request URLs in usage text",
+          "contract": "issuex.ParseRepo parses multi-segment repository paths for --repo flags; Forge client from d.Forge is passed into each pipeline options struct; usage text in all commands describes GitHub and GitLab issue and pull/merge-request URLs",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "flag parsers and App declarations for cmd/fix, cmd/impl, cmd/issue, and cmd/spec"
+            ],
+            "pseudocode": "repo := \"gitlab-org/subgroup/project\"\nparsed, ok := issuex.ParseRepo(repo)\nassert ok && parsed.Owner == \"gitlab-org/subgroup\" && parsed.Name == \"project\"\n// verify each command binds d.Forge to pipeline Options:\nassert fixOpts.Forge == d.Forge\nassert implOpts.Forge == d.Forge\nassert issueOpts.Forge == d.Forge\nassert specOpts.Forge == d.Forge\n// verify usage text mentions GitHub and GitLab\nfor _, u := range []string{fixUsage, implUsage, issueUsage, specUsage} {\n    assert strings.Contains(u, \"GitHub\") && strings.Contains(u, \"GitLab\")\n}"
+          }
         },
         {
-          "id": "04-REQ-8.2",
+          "id": "REQ-8.2",
           "pattern": "event_driven",
           "condition": "cmd/impl parses a non-empty --repo flag",
           "system": "cmd/impl",
-          "action": "validate and parse the repository identifier using issuex.ParseRepo, pass Forge: d.Forge to codeimpl.Options, and document forge options in usage text"
+          "action": "validate and parse the repository identifier using issuex.ParseRepo, pass Forge: d.Forge to codeimpl.Options, and document forge options in usage text",
+          "check": {
+            "same_as": "REQ-8.1"
+          }
         },
         {
-          "id": "04-REQ-8.3",
+          "id": "REQ-8.3",
           "pattern": "event_driven",
           "condition": "cmd/issue parses a non-empty --repo flag",
           "system": "cmd/issue",
-          "action": "validate and parse the repository identifier using issuex.ParseRepo, pass Forge: d.Forge to issuetriage.Options, and update usage and preflight text to refer to forge issue URLs"
+          "action": "validate and parse the repository identifier using issuex.ParseRepo, pass Forge: d.Forge to issuetriage.Options, and update usage and preflight text to refer to forge issue URLs",
+          "check": {
+            "same_as": "REQ-8.1"
+          }
         },
         {
-          "id": "04-REQ-8.4",
+          "id": "REQ-8.4",
           "pattern": "event_driven",
           "condition": "cmd/spec executes",
           "system": "cmd/spec",
-          "action": "pass Forge: d.Forge to specgen.Options, and document GitHub and GitLab issue URLs in usage text"
+          "action": "pass Forge: d.Forge to specgen.Options, and document GitHub and GitLab issue URLs in usage text",
+          "check": {
+            "same_as": "REQ-8.1"
+          }
         },
         {
-          "id": "04-REQ-8.5",
+          "id": "REQ-8.5",
           "pattern": "unwanted",
           "condition": "cmd/fix, cmd/impl, or cmd/issue receives a malformed --repo flag that issuex.ParseRepo fails to parse",
           "system": "CLI command",
           "action": "reject the execution with a usage error",
-          "contract": "returns a usage error indicating the repository flag cannot be parsed"
+          "contract": "returns a usage error indicating the repository flag cannot be parsed",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "CLI command entry points (cmd/fix, cmd/impl, cmd/issue)"
+            ],
+            "pseudocode": "for _, badRepo := range []string{\"single\", \"trailing/\", \"///\", \"owner//repo\"} {\n    code := runCommand(cmdFix, \"--repo\", badRepo, \"arg\")\n    assert code == toolio.ExitUsage\n    code = runCommand(cmdImpl, \"--repo\", badRepo, \"arg\")\n    assert code == toolio.ExitUsage\n    code = runCommand(cmdIssue, \"--repo\", badRepo, \"arg\")\n    assert code == toolio.ExitUsage\n}"
+          }
         }
       ]
     },
     {
-      "id": "04-REQ-9",
+      "id": "REQ-9",
       "title": "Deprecation and Compatibility Layer for internal/ghapi",
       "rationale": "Deprecation notices and type forwarding in internal/ghapi preserve backwards compatibility for unmigrated branches while directing callers to issuex.",
+      "system": "ghapi package",
       "criteria": [
         {
-          "id": "04-REQ-9.1",
+          "id": "REQ-9.1",
           "pattern": "ubiquitous",
-          "system": "ghapi package",
-          "action": "include standard Go deprecation comments referencing github.com/agent-fox-dev/agentfox/issuex in package-level documentation"
+          "action": "include standard Go deprecation comments referencing github.com/agent-fox-dev/agentfox/issuex in package-level documentation",
+          "contract": "package-level documentation includes standard Go deprecation comments referencing issuex; Repo and IssueRef are aliased to issuex types with deprecation notices; ParseRepo, ParseRemote, DetectRepo, and ParseIssueURL forward to issuex with deprecation notices; ghapi.Client methods are retained with deprecation annotations for backwards compatibility",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "internal/ghapi package source code"
+            ],
+            "pseudocode": "// Check type aliases\nvar r ghapi.Repo = issuex.Repo{Owner: \"o\", Name: \"r\"}\nvar ref ghapi.IssueRef = issuex.IssueRef{Repo: r, Number: 1}\n// Check forwarding functions\nr2, ok := ghapi.ParseRepo(\"o/r\")\nassert ok && r2 == issuex.Repo{Owner: \"o\", Name: \"r\"}\nref2, ok := ghapi.ParseIssueURL(\"https://github.com/o/r/issues/1\")\nassert ok && ref2.Number == 1\n// Check doc deprecation comment in ghapi files\nassert strings.Contains(ghapiDoc, \"// Deprecated: use github.com/agent-fox-dev/agentfox/issuex instead.\")"
+          }
         },
         {
-          "id": "04-REQ-9.2",
+          "id": "REQ-9.2",
           "pattern": "ubiquitous",
-          "system": "ghapi package",
-          "action": "alias Repo to issuex.Repo and IssueRef to issuex.IssueRef with deprecation notices"
+          "action": "alias Repo to issuex.Repo and IssueRef to issuex.IssueRef with deprecation notices",
+          "check": {
+            "same_as": "REQ-9.1"
+          }
         },
         {
-          "id": "04-REQ-9.3",
+          "id": "REQ-9.3",
           "pattern": "ubiquitous",
-          "system": "ghapi package",
-          "action": "forward ParseRepo, ParseRemote, DetectRepo, and ParseIssueURL to their issuex equivalents with deprecation notices"
+          "action": "forward ParseRepo, ParseRemote, DetectRepo, and ParseIssueURL to their issuex equivalents with deprecation notices",
+          "check": {
+            "same_as": "REQ-9.1"
+          }
         },
         {
-          "id": "04-REQ-9.4",
+          "id": "REQ-9.4",
           "pattern": "ubiquitous",
-          "system": "ghapi package",
-          "action": "retain Client methods in internal/ghapi/client.go annotated with deprecation notices for backwards compatibility"
+          "action": "retain Client methods in internal/ghapi/client.go annotated with deprecation notices for backwards compatibility",
+          "check": {
+            "same_as": "REQ-9.1"
+          }
         }
       ]
     },
     {
-      "id": "04-REQ-10",
+      "id": "REQ-10",
       "title": "Test Suite Migration and Verification",
       "rationale": "Automated test suites must verify forge interactions against mock HTTP servers using issuex clients across GitHub and GitLab scenarios.",
       "criteria": [
         {
-          "id": "04-REQ-10.1",
+          "id": "REQ-10.1",
           "pattern": "event_driven",
           "condition": "input resolution tests run in internal/toolio",
           "system": "toolio test suite",
-          "action": "verify that both GitHub and GitLab issue and pull/merge-request URLs resolve to KindIssue with parsed IssueRef metadata matching the URL using issuex clients"
+          "action": "verify that both GitHub and GitLab issue and pull/merge-request URLs resolve to KindIssue with parsed IssueRef metadata matching the URL using issuex clients",
+          "check": {
+            "same_as": "REQ-1.2"
+          }
         },
         {
-          "id": "04-REQ-10.2",
+          "id": "REQ-10.2",
           "pattern": "event_driven",
           "condition": "thread rendering tests run in internal/toolio",
           "system": "toolio test suite",
-          "action": "verify deterministic thread text output including distinct headers for GitHub, GitLab, and other forge hosts"
+          "action": "verify deterministic thread text output including distinct headers for GitHub, GitLab, and other forge hosts",
+          "check": {
+            "same_as": "REQ-2.1"
+          }
         },
         {
-          "id": "04-REQ-10.3",
+          "id": "REQ-10.3",
           "pattern": "event_driven",
           "condition": "pipeline tests run in codefix",
           "system": "codefix test suite",
-          "action": "verify pull request creation and issue comment operations using an issuex.Client connected to an HTTP test server"
+          "action": "verify pull request creation and issue comment operations using an issuex.Client connected to an HTTP test server",
+          "check": {
+            "same_as": "REQ-4.5"
+          }
         },
         {
-          "id": "04-REQ-10.4",
+          "id": "REQ-10.4",
           "pattern": "event_driven",
           "condition": "triage tests run in issuetriage",
           "system": "issuetriage test suite",
-          "action": "verify new issue creation and existing issue update mutations using an issuex.Client connected to an HTTP test server"
+          "action": "verify new issue creation and existing issue update mutations using an issuex.Client connected to an HTTP test server",
+          "check": {
+            "same_as": "REQ-6.5"
+          }
         },
         {
-          "id": "04-REQ-10.5",
+          "id": "REQ-10.5",
           "pattern": "ubiquitous",
           "system": "test suite and linter",
-          "action": "complete make test and make lint across all modified packages without errors or deprecation breakages"
+          "action": "complete make test and make lint across all modified packages without errors or deprecation breakages",
+          "contract": "make test completes with zero failures across all packages; make lint passes with zero linter errors or warnings",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "the complete migrated repository across all packages"
+            ],
+            "pseudocode": "testOut, testErr := execCommand(\"make\", \"test\")\nassert testErr == nil\nlintOut, lintErr := execCommand(\"make\", \"lint\")\nassert lintErr == nil"
+          }
         }
       ]
     }
   ],
   "execution_paths": [
     {
-      "id": "04-PATH-1",
+      "id": "PATH-1",
       "title": "Triaging a GitLab issue via issue CLI",
       "steps": [
         {
@@ -473,10 +767,28 @@
           "actor": "issuetriage pipeline",
           "action": "executes diagnosis and updates the issue via forge.UpdateIssue or posts an issue comment"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "toolio.App",
+          "toolio.Resolve",
+          "toolio.RenderThread",
+          "issuetriage.Run",
+          "issuex.GitLabClient"
+        ],
+        "setup": [
+          "a mock GitLab HTTP server serving issue 42 and comments, and a git repository with GitLab origin remote"
+        ],
+        "end_state": [
+          "application shell parses gitlab.com host and instantiates GitLab issuex client",
+          "input resolver reads issue thread and sets Kind to KindIssue",
+          "thread renderer generates prompt text prefixed with GitLab branding header",
+          "issuetriage pipeline completes analysis and records diagnosis envelope"
+        ]
+      }
     },
     {
-      "id": "04-PATH-2",
+      "id": "PATH-2",
       "title": "Fixing a bug and opening a GitHub pull request via fix CLI",
       "steps": [
         {
@@ -499,10 +811,28 @@
           "actor": "developer",
           "action": "receives JSON envelope containing the created pull request URL and issue comment link"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "toolio.App",
+          "codefix.Run",
+          "internal/gitx.Git",
+          "internal/checks.Detect",
+          "issuex.GitHubClient"
+        ],
+        "setup": [
+          "a clean git repository, GITHUB_TOKEN set, and mock GitHub HTTP server with issue 7"
+        ],
+        "end_state": [
+          "application shell constructs GitHub issuex client and passes it in Deps.Forge",
+          "codefix pipeline verifies repository and credentials during preflight",
+          "branch is created, fix committed, and pull request is opened via Forge.CreatePullRequest",
+          "summary comment is posted via Forge.AddComment and JSON envelope contains pull request URL"
+        ]
+      }
     },
     {
-      "id": "04-PATH-3",
+      "id": "PATH-3",
       "title": "Generating specifications with PRD feedback posted to a GitLab issue",
       "steps": [
         {
@@ -521,10 +851,27 @@
           "actor": "GitLab forge",
           "action": "receives the comment payload and appends the PRD markdown to the issue thread"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "toolio.App",
+          "specgen.Run",
+          "specgen.ArtifactSchema",
+          "issuex.GitLabClient"
+        ],
+        "setup": [
+          "a git repository, GITLAB_TOKEN configured, and mock GitLab server with issue 15"
+        ],
+        "end_state": [
+          "application shell initializes authenticated GitLab issuex client",
+          "specgen validates preflight credentials and generates specification package",
+          "generated PRD content is posted back to the GitLab issue via Forge.AddComment",
+          "result envelope records successful PRD generation and issue comment URL"
+        ]
+      }
     },
     {
-      "id": "04-PATH-4",
+      "id": "PATH-4",
       "title": "Implementing a specification with pull request landing on a nested GitLab project",
       "steps": [
         {
@@ -543,7 +890,25 @@
           "actor": "developer",
           "action": "receives JSON envelope with merge request URL for the multi-segment repository"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "cmd/impl",
+          "codeimpl.Run",
+          "afspec.LoadSpec",
+          "internal/gitx.Git",
+          "issuex.GitLabClient"
+        ],
+        "setup": [
+          "a git repository configured with remote targeting nested GitLab project \"gitlab-org/subgroup/repo\" and a valid specification package"
+        ],
+        "end_state": [
+          "command parses multi-segment repository path \"gitlab-org/subgroup/repo\" via issuex.ParseRepo",
+          "codeimpl pipeline verifies forge credentials and repository target in preflight",
+          "pipeline completes task implementation, commits changes, and calls Forge.CreatePullRequest",
+          "JSON envelope contains merge request URL on the nested GitLab project"
+        ]
+      }
     }
   ]
 }

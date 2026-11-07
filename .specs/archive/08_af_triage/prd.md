@@ -4,9 +4,8 @@ spec_name: "af_triage"
 title: "af triage: diagnose a report on the toolbelt and write the diagnosis back to the forge"
 status: "active"
 created_at: "2026-10-20T08:04:42.33103Z"
-updated_at: "2026-10-20T08:04:42.33103Z"
 intent_hash: "fe599dfeab97e14b0a644b76d425b83941e542a2830716744a7a6b0a41290ed9"
-schema_version: 2
+schema_version: 3
 source: "docs/prd/02-rebuild-triage-and-fix-on-the-toolbelt.md"
 ---
 ## Intent
@@ -476,3 +475,20 @@ The loop lands in-process with its own forge client. `af triage land --run <id>`
 | `Issue`, `IssueThread`, `Comment`, `IssueRef` | `issuex` | `Issue{Number, Title, Body, State, URL, HTMLURL, Author User, Labels, CreatedAt, …, IsPR}`; `IssueThread{Issue, Comments, Truncated, CommentsErr}`; `Comment{ID, Body, User, CreatedAt, …}`; `IssueRef{Repo, Number, IsPullRequest}` with `String()` and `URL()` | verified, `issuex/types.go` |
 | hands' read-only tool names | agentkit-go `tools` | `read_file`, `list_files`, `find_files`, `search_files`, `file_outline`, `find_symbol`, `find_references`, `code_search` | **unverified**: source in `../agentkit-go`, outside the repository |
 | `Brain`, `Brief`, `Outcome`, the submit factory, the in-process submit, the read-back | `internal/brain`, `internal/submission`, `internal/box` (spec 07) | as named in `af_brains'` PRD | **unverified**: spec 07's package is still being generated; wire to its real names |
+
+## Glossary
+
+- **--run-id**: The flag naming an existing run for `af triage run`, `submit` and `land`. PRD 08 wrote `--run`; spec 07's submit command factory fixes `--run-id`, and per PRD 08 DD35 that name wins.
+- **diagnosis**: The single JSON object a triage brain submits: title, severity, confidence, root_cause, affected_files, suggested_fix, acceptance_criteria and an optional question.
+- **file view**: `checks.FileView(ctx, dir)` from spec 06: git's sorted, slash-separated list of tracked and untracked non-ignored files, without `.git/` and `.agent-fox/`.
+- **file_diagnosis**: The terminating tool offered to an in-process brain; its input schema is the diagnosis schema and it calls spec 07's in-process submit with the triage submission kind.
+- **input fingerprint**: The issue ref string (`owner/repo#N`) for an issue input, else the hex SHA-256 of the input body; used to find an earlier question on resume.
+- **original report**: The person's report bytes: the raw issue body (Thread.Issue.Body) when the issue was never triaged, the bytes between the original-report markers when it was, or the input body for text, file and stdin input. Stored as original.md.
+- **original-report markers**: The HTML comments `<!-- agent-fox:original-report:begin -->` and `<!-- agent-fox:original-report:end -->` that enclose the original report inside a rendered body.
+- **prefix**: The run-constant first part of the brief (mandate, skill body, repository map, report); byte-identical across runs over the same binary, tree and input.
+- **rejected path call**: A refused submit call whose problems include at least one unresolved path, counted from rejections.jsonl.
+- **task block**: The run-specific tail of the brief: earlier question and --context answers, run id, submission route and bounds.
+- **triage allowlist**: The tool names a triage brain may call: the hands' read-only tools that are offered, plus file_diagnosis; never a tool that writes or executes.
+- **triage loop**: The command `af triage <input>`: preflight, brief, brain run and landing in one process.
+- **triage marker**: The first line `<!-- agent-fox:triage v1 run=<run_id> -->` of a body rendered by af triage.
+- **triage.json**: The run-facts file written by the loop and `af triage brief`: format version 1, input kind/origin/fingerprint, target repository, issue ref, original report SHA-256 and the prefix's byte length and SHA-256.

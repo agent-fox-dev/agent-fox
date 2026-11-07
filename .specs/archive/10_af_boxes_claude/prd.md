@@ -4,9 +4,8 @@ spec_name: "af_boxes_claude"
 title: "af boxes and the claude brain: landlock, podman and none, the host-side commit under each, and headless Claude Code"
 status: "active"
 created_at: "2026-10-20T08:34:06.792553Z"
-updated_at: "2026-10-20T08:34:06.792553Z"
 intent_hash: "73f6d3f093ebb891097b8b2fd3c90f3aa800b47bf04d4c374c82b093d1339122"
-schema_version: 2
+schema_version: 3
 source: "docs/prd/02-rebuild-triage-and-fix-on-the-toolbelt.md"
 ---
 ## Intent
@@ -421,3 +420,15 @@ This section covers `claude`, and `agentkit` placed in the box.
 | Claude Code JSON result | external | `{type, subtype, is_error, num_turns, total_cost_usd \| cost_usd, usage{input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens}, session_id, result}` | **unverified** |
 | Claude Code settings | external | `{"hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "…", "timeout": 30}]}]}}` | **unverified** |
 | Podman engine | external, through agentkit's provider | tests detect it with `podman info` exiting 0 | **unverified** |
+
+## Glossary
+
+- **Landlock ABI**: The Linux Landlock version that the `landlock_create_ruleset` version query reports. ABI 4 is the first with network rules.
+- **borrowed hands**: The `--borrowed-hands` mode, where the agentkit driver runs on the host and drives the box's tools instead of running inside the box.
+- **foreign commit**: A commit that appears on the checkout's history while the brain runs under `none` and that `af` did not make.
+- **in-place session**: The `*box.Session` that the `none` provider returns. The developer's checkout is the tree, so nothing is synced or exported, and `InPlace()` reports true.
+- **isolating provider**: A box provider that confines the brain: `landlock` and `podman`. `local` and `none` are not isolating.
+- **placement**: Where a brain runs for one run: `host` (af's process, over the box's tools), `box` (a process inside the box), or `checkout` (a process on the host checkout under `none`).
+- **probe**: A once-per-session check, before the first process-brain run, that the `af` binary runs, the `claude` binary runs where it is needed, and `HOME` is set and writable inside the box.
+- **process brain**: A brain that runs as a separate process through `Session.Exec`: `claude` under every provider, and `agentkit` inside `landlock` or `podman` without `--borrowed-hands`.
+- **tools image**: `quay.io/agentfox/tools`, which is the sandbox image plus `af` and Claude Code. It is built from `containers/tools/Containerfile` and is the default `podman` image.

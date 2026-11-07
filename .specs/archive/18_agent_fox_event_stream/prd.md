@@ -4,9 +4,8 @@ spec_name: "agent_fox_event_stream"
 title: "Hub's event stream as the immediate trigger of the label protocol"
 status: "active"
 created_at: "2026-10-23T17:20:07.656012Z"
-updated_at: "2026-10-24T03:14:14Z"
 intent_hash: "d6e57c608582423ae88b71022b877290210b17b1ba7fd21b702c0b860b979ed7"
-schema_version: 2
+schema_version: 3
 source: "docs/prd/04-drive-the-service-from-the-forge.md"
 ---
 ## Intent
@@ -360,3 +359,17 @@ Every phrase that `docs/*_docs_test.go` asserts must keep passing; `docs/poll_do
 - `(*hub.ForgeClient).RemoveLabel(ctx, ref, label string) error`.
 - `issuex.IsNotFound(err) bool`.
 - `issuex.ParseRemote(url) (issuex.Repo, bool)`, through `hub.Record.Repo()`.
+
+## Glossary
+
+- **absorbed / held / owed**: The label poll's rules: absorbed means an open job of that kind already exists and the label is removed; held means a restored label is left alone; owed means a removal of a label already taken is still due.
+- **activity**: Any frame or comment line received on an open event-stream connection, whether or not it carries an event.
+- **canonical label**: The request label spelled `<prefix><kind>` from the subscription's `label_prefix`, used as a job's `request_label`.
+- **closed event**: A `hub.forge.issue.closed` event that is not malformed and names no other workspace.
+- **connection failure**: A failure of the token read, the variable read, the workspace-record read or the connect of an event-stream connection, logged once per kind and operation until the next activity.
+- **event stream**: The service's connection to hub's `GET /api/v1/events?workspace=<slug>` server-sent events route for one workspace, owned by the label poll's Supervisor.
+- **event-handling failure**: A failure of a hub call or of the jobs layer while a request or closed event is handled, logged once per kind and operation until an event of the workspace is handled without failure.
+- **issue-closed cancel**: A cancel whose cause is `jobs.ErrIssueClosed` (wrapping `ErrCancelled`), stored as `cancel_cause` `issue_closed`; it removes the jobs' status labels and puts no request label back.
+- **malformed event**: A labeled event without a label, a labeled event with a request label, or a closed event, that has no id, no issue number, or an id longer than 256 bytes or containing control characters.
+- **poll record**: A row of `af_poll_requests` that links a request label on an issue to the job it made, with its owed, seen and hold state.
+- **request event**: A `hub.forge.issue.labeled` event whose label equals `<prefix>triage` or `<prefix>fix` (case ignored) and that names no other workspace.

@@ -1,8 +1,8 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/tasks.v3.json",
   "spec_id": "07",
   "spec_name": "af_brains",
-  "schema_version": 2,
+  "schema_version": 3,
   "test_commands": {
     "all_tests": "make test",
     "linter": "make lint",
@@ -21,24 +21,11 @@
   "tasks": [
     {
       "id": 1,
-      "kind": "implement",
       "title": "Box registry, Open and Sync over the local provider",
       "criteria": [
-        "07-REQ-1.5",
-        "07-REQ-1.7",
-        "07-REQ-2"
-      ],
-      "tests": [
-        "TS-07-5",
-        "TS-07-7",
-        "TS-07-10",
-        "TS-07-11",
-        "TS-07-12",
-        "TS-07-13",
-        "TS-07-14",
-        "TS-07-15",
-        "TS-07-16",
-        "TS-07-17"
+        "REQ-1.5",
+        "REQ-1.7",
+        "REQ-2"
       ],
       "steps": [
         "Write the listed tests first (package box, real-git helper copied from internal/gitx newRepo(t), a counting provider wrapper and stub providers whose Create or Sync fails) and confirm they fail",
@@ -62,26 +49,13 @@
       ],
       "done_when": [
         "`go test ./internal/box/... -count=1` passes offline"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 2,
-      "kind": "implement",
       "title": "Session FS, WriteFile, Export, Close and box.With",
       "criteria": [
-        "07-REQ-3"
-      ],
-      "tests": [
-        "TS-07-18",
-        "TS-07-19",
-        "TS-07-20",
-        "TS-07-21",
-        "TS-07-22",
-        "TS-07-23",
-        "TS-07-24",
-        "TS-07-25"
+        "REQ-3"
       ],
       "steps": [
         "Write the listed tests first (including a stub sandbox whose Export creates <dst>/.git and one whose Close errors) and confirm they fail",
@@ -104,26 +78,13 @@
       ],
       "done_when": [
         "`go test ./internal/box/... -count=1` passes offline"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 3,
-      "kind": "implement",
       "title": "Submission kinds and the Submit core",
       "criteria": [
-        "07-REQ-4"
-      ],
-      "tests": [
-        "TS-07-26",
-        "TS-07-27",
-        "TS-07-28",
-        "TS-07-29",
-        "TS-07-30",
-        "TS-07-31",
-        "TS-07-32",
-        "TS-07-33"
+        "REQ-4"
       ],
       "steps": [
         "Write the listed tests first (package submission; a Target whose Tree is os.DirFS and Write writes the host filesystem) and confirm they fail",
@@ -146,24 +107,13 @@
       ],
       "done_when": [
         "`go test ./internal/submission/... -count=1` passes offline"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 4,
-      "kind": "implement",
       "title": "The submit command factory",
       "criteria": [
-        "07-REQ-5"
-      ],
-      "tests": [
-        "TS-07-34",
-        "TS-07-35",
-        "TS-07-36",
-        "TS-07-37",
-        "TS-07-38",
-        "TS-07-39"
+        "REQ-5"
       ],
       "steps": [
         "Write the listed tests first using a toolio.App with the command registered and a fake kind; confirm they fail (read internal/toolio for the real Command, Run, Failure and App names and adapt)",
@@ -186,27 +136,17 @@
       ],
       "done_when": [
         "`go test ./internal/submission/... -count=1` passes offline"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 5,
-      "kind": "implement",
       "title": "Brain contract types, shared flags and box environment",
       "criteria": [
-        "07-REQ-1.1",
-        "07-REQ-1.3",
-        "07-REQ-1.4",
-        "07-REQ-1.6",
-        "07-REQ-1.8"
-      ],
-      "tests": [
-        "TS-07-1",
-        "TS-07-3",
-        "TS-07-4",
-        "TS-07-6",
-        "TS-07-8"
+        "REQ-1.1",
+        "REQ-1.3",
+        "REQ-1.4",
+        "REQ-1.6",
+        "REQ-1.8"
       ],
       "steps": [
         "Write the listed tests first (package brain) and confirm they fail",
@@ -229,33 +169,20 @@
       ],
       "done_when": [
         "`go test ./internal/brain/... -count=1` passes offline"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 6,
-      "kind": "implement",
       "title": "Execute: place the brief, run the brain, record usage",
       "criteria": [
-        "07-REQ-6.1",
-        "07-REQ-6.2",
-        "07-REQ-6.3",
-        "07-REQ-6.4",
-        "07-REQ-6.5",
-        "07-REQ-6.6",
-        "07-REQ-6.7",
-        "07-REQ-8.8"
-      ],
-      "tests": [
-        "TS-07-40",
-        "TS-07-41",
-        "TS-07-42",
-        "TS-07-43",
-        "TS-07-44",
-        "TS-07-45",
-        "TS-07-46",
-        "TS-07-64"
+        "REQ-6.1",
+        "REQ-6.2",
+        "REQ-6.3",
+        "REQ-6.4",
+        "REQ-6.5",
+        "REQ-6.6",
+        "REQ-6.7",
+        "REQ-8.8"
       ],
       "steps": [
         "Write the listed tests first using a stub Brain, a local box session on a temp repo, a real RunDir and a recording Report; confirm they fail",
@@ -280,29 +207,14 @@
       ],
       "done_when": [
         "`go test ./internal/brain/... -count=1` passes offline"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 7,
-      "kind": "implement",
       "title": "Execute: decide the submission and map failures",
       "criteria": [
-        "07-REQ-6.8",
-        "07-REQ-7"
-      ],
-      "tests": [
-        "TS-07-47",
-        "TS-07-48",
-        "TS-07-49",
-        "TS-07-50",
-        "TS-07-51",
-        "TS-07-52",
-        "TS-07-53",
-        "TS-07-54",
-        "TS-07-55",
-        "TS-07-56"
+        "REQ-6.8",
+        "REQ-7"
       ],
       "steps": [
         "Write the listed tests first with stub brains that write the box submission.json directly through Session.WriteFile or call submission.Submit; confirm they fail",
@@ -326,25 +238,16 @@
       ],
       "done_when": [
         "`go test ./internal/brain/... -count=1` passes offline"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 8,
-      "kind": "implement",
       "title": "The tool gate for in-process brains",
       "criteria": [
-        "07-REQ-8.1",
-        "07-REQ-8.4",
-        "07-REQ-8.5",
-        "07-REQ-8.7"
-      ],
-      "tests": [
-        "TS-07-57",
-        "TS-07-60",
-        "TS-07-61",
-        "TS-07-63"
+        "REQ-8.1",
+        "REQ-8.4",
+        "REQ-8.5",
+        "REQ-8.7"
       ],
       "steps": [
         "Write the listed tests first with a spy box tool set and a transcript writer; confirm they fail",
@@ -367,25 +270,13 @@
       ],
       "done_when": [
         "`go test ./internal/brain/... -count=1` passes offline"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 9,
-      "kind": "implement",
       "title": "The scripted brain",
       "criteria": [
-        "07-REQ-9"
-      ],
-      "tests": [
-        "TS-07-65",
-        "TS-07-66",
-        "TS-07-67",
-        "TS-07-68",
-        "TS-07-69",
-        "TS-07-70",
-        "TS-07-71"
+        "REQ-9"
       ],
       "steps": [
         "Write the listed tests first with script files in t.TempDir() and a local session; confirm they fail",
@@ -408,36 +299,21 @@
       ],
       "done_when": [
         "`go test ./internal/brain/... -count=1` passes offline"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 10,
-      "kind": "implement",
       "title": "The agentkit brain on the host over box tools",
       "criteria": [
-        "07-REQ-1.2",
-        "07-REQ-8.2",
-        "07-REQ-8.3",
-        "07-REQ-8.6",
-        "07-REQ-10.1",
-        "07-REQ-10.2",
-        "07-REQ-10.3",
-        "07-REQ-10.4",
-        "07-REQ-10.5"
-      ],
-      "tests": [
-        "TS-07-2",
-        "TS-07-9",
-        "TS-07-58",
-        "TS-07-59",
-        "TS-07-62",
-        "TS-07-72",
-        "TS-07-73",
-        "TS-07-74",
-        "TS-07-75",
-        "TS-07-76"
+        "REQ-1.2",
+        "REQ-8.2",
+        "REQ-8.3",
+        "REQ-8.6",
+        "REQ-10.1",
+        "REQ-10.2",
+        "REQ-10.3",
+        "REQ-10.4",
+        "REQ-10.5"
       ],
       "steps": [
         "Write the listed tests first using agentkit's provider/faux (recording requests) and local sessions; confirm they fail",
@@ -463,22 +339,14 @@
       ],
       "done_when": [
         "`go test ./internal/brain/... -count=1` passes offline with ANTHROPIC_API_KEY unset"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 11,
-      "kind": "implement",
       "title": "Brain contract tests, offline guarantee and documentation",
       "criteria": [
-        "07-REQ-10.6",
-        "07-REQ-10.7"
-      ],
-      "tests": [
-        "TS-07-77",
-        "TS-07-78",
-        "TS-07-79"
+        "REQ-10.6",
+        "REQ-10.7"
       ],
       "steps": [
         "Write internal/brain/contract_test.go as a table with rows scripted (script file) and agentkit (faux script); both run the same brief over a local box on a temp repo with a test kind whose validator checks a cited path exists in the tree",
@@ -507,43 +375,7 @@
       ],
       "done_when": [
         "`make check` exits 0 with ANTHROPIC_API_KEY unset and no network"
-      ],
-      "state": "done",
-      "optional": false
-    },
-    {
-      "id": 12,
-      "kind": "integration",
-      "title": "Verify every execution path end to end and remove stubs",
-      "tests": [
-        "TS-07-80",
-        "TS-07-81",
-        "TS-07-82",
-        "TS-07-83",
-        "TS-07-84"
-      ],
-      "steps": [
-        "Write the five smoke tests TS-07-80..84 against real components (real local provider, real git, real RunDir, real toolio.App for the submit command, faux provider for agentkit) and confirm they pass",
-        "Trace 07-PATH-1 through the real code: brain.Flags -> registry New(scripted) -> box.With -> box.Open -> brain.Execute -> scripted brain -> submission.Submit -> Execute decision -> box close; confirm each step calls the next and no stub remains",
-        "Trace 07-PATH-2 (agentkit on faux with a denied tool and a refused submission), 07-PATH-3 (submit command), 07-PATH-4 (stale submission, failed/no_result, usage still recorded, box closed) and 07-PATH-5 (export without .git, removed on Close)",
-        "For every criterion with a contract confirm the producer's result is consumed in production code: Result.Payload and Path, Outcome via Tally and SetUsage, box_unconfined and box_close_failed warnings, submission.Command registered by a caller, the registry and Flags used by a command",
-        "Confirm the guard call in the gate and the submit command's Run.Stdin read reach the real internal/policy and toolio code from specs 06 and 05; if an entry point from another spec is not called from production code, report it rather than stubbing",
-        "Search internal/brain, internal/box, internal/submission and internal/gitx for panic(\"not implemented\"), TODO, and a bare `return nil` on a non-trivial path, and remove any that remain",
-        "Run `make check` offline with ANTHROPIC_API_KEY unset"
-      ],
-      "touches": [
-        "internal/brain/smoke_test.go",
-        "internal/box/smoke_test.go",
-        "internal/submission/smoke_test.go"
-      ],
-      "depends_on": [
-        11
-      ],
-      "done_when": [
-        "`make check` passes offline with no key and no network"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     }
   ]
 }

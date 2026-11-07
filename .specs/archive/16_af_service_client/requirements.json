@@ -1,648 +1,1183 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/requirements.v3.json",
   "spec_id": "16",
   "spec_name": "af_service_client",
-  "schema_version": 2,
-  "introduction": "This spec makes the `af` binary a client of the agent-fox service. A person stores a hub credential with `af login`, then subscribes hub workspaces, queues triage and fix jobs (`--workspace`), follows a job until it is at rest, and lists, answers, retries and cancels jobs. Every command speaks the existing one-envelope contract. Running the loops on the person's own machine is still available, and now needs an explicit `--local`.",
-  "glossary": {
-    "at rest": "A job that is blocked, done, failed or cancelled and has no running attempt.",
-    "credential file": "`~/.af/config.toml`, the file `afc login` writes. Its top-level string key `token` is the only source of the hub credential.",
-    "failed try": "A try that ends without the job at rest and delivers no new event.",
-    "from the flag": "Said of a server that `--server` named rather than `AF_URL`. Such a server's suggested argv entries (`next`, `resume.argv`) then carry `--server <url>`.",
-    "job result": "The result `{job, envelope}` shared by every job command. `job` is the service's job document carried verbatim, and `envelope` is the final attempt's stored envelope or null.",
-    "local mode": "`af triage` or `af fix` run with `--local`: the loop runs on this machine exactly as before this spec.",
-    "server": "The agent-fox service base URL. It comes from `--server`, or else from `AF_URL`. The API lives at `<server>/api/v1/…`.",
-    "service command": "Any command that sends requests to the agent-fox service: `af login`, `af workspace …`, `af jobs …`, and `af triage`/`af fix` in service mode.",
-    "service mode": "`af triage` or `af fix` run with `--workspace <slug>`: a job is queued on the agent-fox service and no loop runs on this machine.",
-    "try": "One request to `GET /api/v1/jobs/{id}/events?since=<n>` and, once that stream ends, one read of `GET /api/v1/jobs/{id}`.",
-    "workspace PAT": "The hub token that `af workspace subscribe` reads from `--hub-token-file` and sends to the service as `hub_token`."
-  },
+  "schema_version": 3,
   "requirements": [
     {
-      "id": "16-REQ-1",
+      "id": "REQ-1",
       "title": "Choosing where a triage or fix runs",
       "rationale": "A guessed mode would send a person's report to the wrong place, and a refused invocation must leave no trace.",
       "criteria": [
         {
-          "id": "16-REQ-1.1",
+          "id": "REQ-1.1",
           "pattern": "unwanted",
           "condition": "`af triage` or `af fix` is invoked on the af binary's command line with neither `--local` nor `--workspace`",
           "system": "af",
           "action": "refuse the invocation with a usage error. Its message says to choose and names `--workspace <slug>` (on the service that `--server` or `AF_URL` names) and `--local`",
-          "contract": "status `usage`, exit code 2; `error.fix_hint` is `{flag: \"--workspace\"}` when a server is named and `{flag: \"--local\"}` otherwise"
+          "contract": "status `usage`, exit code 2; `error.fix_hint` is `{flag: \"--workspace\"}` when a server is named and `{flag: \"--local\"}` otherwise",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a temp working dir",
+              "a recording fake forge and a recording fake service"
+            ],
+            "pseudocode": "for cmd in [fix,triage]: for url in [set,unset]: env=run(cmd,input); assert env.status=='usage' and exit==2; assert hint.flag == ('--workspace' if url else '--local')"
+          }
         },
         {
-          "id": "16-REQ-1.2",
+          "id": "REQ-1.2",
           "pattern": "unwanted",
           "condition": "`af triage` or `af fix` is invoked with both `--local` and `--workspace`",
           "system": "af",
           "action": "refuse the invocation with a usage error that names both flags",
-          "contract": "status `usage`, exit code 2"
+          "contract": "status `usage`, exit code 2",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recording fake service"
+            ],
+            "pseudocode": "env=run('fix','42','--local','--workspace','widgets'); assert exit==2; assert '--local' in msg and '--workspace' in msg"
+          }
         },
         {
-          "id": "16-REQ-1.3",
+          "id": "REQ-1.3",
           "pattern": "ubiquitous",
           "system": "af",
-          "action": "choose the mode of `af triage` and `af fix` before it parses flags for a mode, resolves the input, builds a forge client, creates a run directory or sends any request. An invocation refused by 16-REQ-1 or 16-REQ-2 therefore sends no request to the service or the forge and creates no `.agent-fox/run/` directory"
+          "action": "choose the mode of `af triage` and `af fix` before it parses flags for a mode, resolves the input, builds a forge client, creates a run directory or sends any request. An invocation refused by 16-REQ-1 or 16-REQ-2 therefore sends no request to the service or the forge and creates no `.agent-fox/run/` directory",
+          "contract": "every one exits 2; the forge recorded zero requests; the service recorded zero requests; no `.agent-fox/run/` directory exists under the working dir or --dir",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a recording fake forge, a recording fake service, GITHUB_TOKEN set and AF_URL naming the fake",
+              "an empty working dir"
+            ],
+            "pseudocode": "for args in refused: run(args); assert forge.requests==[] and svc.requests==[]; assert not exists('.agent-fox/run')"
+          }
         },
         {
-          "id": "16-REQ-1.4",
+          "id": "REQ-1.4",
           "pattern": "ubiquitous",
           "system": "af mode scan",
-          "action": "read only the words after the command path and before the first `--`, and treat any word after `--` as the input, never as a mode"
+          "action": "read only the words after the command path and before the first `--`, and treat any word after `--` as the input, never as a mode",
+          "contract": "`-- --local` names no mode: exit 2 with the no-mode message; `--workspace widgets -- 42` chooses service mode; a `--workspace` after `--` is not read as a mode: exit 2 no-mode message",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recording fake service"
+            ],
+            "pseudocode": "assert run('triage','--','--local').exit==2; assert mode('fix','--workspace','widgets','--','42')=='service'"
+          }
         },
         {
-          "id": "16-REQ-1.5",
+          "id": "REQ-1.5",
           "pattern": "ubiquitous",
           "system": "af mode scan",
-          "action": "treat a word that is the value of a value-taking flag of either mode as that flag's value and never as a mode. So `af triage x --context --local` names no mode and exits 2"
+          "action": "treat a word that is the value of a value-taking flag of either mode as that flag's value and never as a mode. So `af triage x --context --local` names no mode and exits 2",
+          "contract": "the first three name no mode and exit 2; no forge or service request is sent and no run directory is created; `--local` is accepted as the value of the flag in each case rather than as a mode",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recording fake service and forge"
+            ],
+            "pseudocode": "env=run('triage','x','--context','--local'); assert env.exit==2 and 'no mode' semantics"
+          }
         },
         {
-          "id": "16-REQ-1.6",
+          "id": "REQ-1.6",
           "pattern": "ubiquitous",
           "system": "af mode scan",
           "action": "accept each mode flag with one dash or two. `--workspace <slug>` and `--workspace=<slug>` both choose service mode, and a `--workspace` with no value or an empty value is a usage error naming `--workspace`",
-          "contract": "a missing or empty `--workspace` value gives status `usage`, exit code 2"
+          "contract": "a missing or empty `--workspace` value gives status `usage`, exit code 2",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a fake service that accepts queue requests"
+            ],
+            "pseudocode": "for form in forms: assert mode(form)=='service'; for bad in [last,'--workspace=',empty]: assert exit==2 and '--workspace' in msg"
+          }
         },
         {
-          "id": "16-REQ-1.7",
+          "id": "REQ-1.7",
           "pattern": "ubiquitous",
           "system": "af mode scan",
           "action": "read `--local` as a Go boolean flag: `--local` and `--local=true` choose local mode, `--local=false` counts as not given, and a value that `strconv.ParseBool` refuses is a usage error naming `--local`",
-          "contract": "an unparseable `--local` value gives status `usage`, exit code 2"
+          "contract": "an unparseable `--local` value gives status `usage`, exit code 2",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a fake forge"
+            ],
+            "pseudocode": "assert mode('--local=true')=='local'; assert run('--local=false').exit==2; assert '--local' in run('--local=maybe').msg"
+          }
         },
         {
-          "id": "16-REQ-1.8",
+          "id": "REQ-1.8",
           "pattern": "event_driven",
           "condition": "a person runs `af triage --help`, `af help triage`, `af fix --help` or `af help fix`",
           "system": "af",
           "action": "print help that describes both local mode and service mode, with each mode's flags",
-          "contract": "exit code 0"
+          "contract": "exit code 0",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "no forge or service"
+            ],
+            "pseudocode": "for a in forms: out=run(a); assert exit==0; assert all(t in out for t in ['--local','--workspace','--server','--wait'])"
+          }
         }
       ]
     },
     {
-      "id": "16-REQ-2",
+      "id": "REQ-2",
       "title": "Mode-specific flags, local-mode compatibility, schemas and documentation",
       "rationale": "A flag that silently does nothing is worse than a refusal, and local runs must keep behaving exactly as before.",
       "criteria": [
         {
-          "id": "16-REQ-2.1",
+          "id": "REQ-2.1",
           "pattern": "unwanted",
           "condition": "local mode is chosen and `--server` or `--wait` is given",
           "system": "af",
           "action": "refuse the invocation with a usage error that names the refused flag",
-          "contract": "status `usage`, exit code 2; no forge read, no request and no run directory"
+          "contract": "status `usage`, exit code 2; no forge read, no request and no run directory",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recording fake forge and service"
+            ],
+            "pseudocode": "for flag in ['--server http://x','--wait']: env=run(...); assert exit==2 and flag_name in msg; assert no_traces()"
+          }
         },
         {
-          "id": "16-REQ-2.2",
+          "id": "REQ-2.2",
           "pattern": "unwanted",
           "condition": "service mode is chosen and a flag only the loop reads is given. For both commands these are `--dir`, `--repo`, `--dry-run`, `--land`, `--brain`, `--sandbox`, `--borrowed-hands`, `--budget`, `--max-turns` and `--script`; for triage, `--label`; for fix, `--base`, `--attempts` and `--no-verify`",
           "system": "af",
           "action": "refuse the invocation with a usage error that names the refused flag",
-          "contract": "status `usage`, exit code 2; no request is sent"
+          "contract": "status `usage`, exit code 2; no request is sent",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recording fake service"
+            ],
+            "pseudocode": "for (cmd,flag) in table: env=run(cmd,'1','--workspace','w',flag,val); assert exit==2 and flag in msg; assert svc.requests==[]"
+          }
         },
         {
-          "id": "16-REQ-2.3",
+          "id": "REQ-2.3",
           "pattern": "ubiquitous",
           "system": "af",
           "action": "accept `--context`, `--timeout`, `--output` and `--emit-events` on `af triage` and `af fix` in both modes",
-          "contract": "none of these four flags gives a usage error in either mode"
+          "contract": "none of these four flags gives a usage error in either mode",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a fake service that queues jobs",
+              "a stubbed local loop"
+            ],
+            "pseudocode": "for mode in modes: for flag in four: assert not usage_error_naming(flag)"
+          }
         },
         {
-          "id": "16-REQ-2.4",
+          "id": "REQ-2.4",
           "pattern": "state_driven",
           "condition": "local mode is chosen",
           "system": "af",
           "action": "run `af triage` and `af fix` with the same flags, defaults, input resolution, forge client, run directory, events, warnings, results, statuses, exit codes and envelopes as before this spec, even when `AF_URL` points at a closed port. No request is sent to any agent-fox service",
-          "contract": "for the same input and flags, the envelope equals the pre-spec envelope. The one exception is the fix suggestion of 16-REQ-2.5"
+          "contract": "for the same input and flags, the envelope equals the pre-spec envelope. The one exception is the fix suggestion of 16-REQ-2.5",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "scripted brain and fake forge as used by the existing local triage and fix tests",
+              "AF_URL set to a closed local port"
+            ],
+            "pseudocode": "env=run('fix',url,'--local',...); assert normalize(env)==baseline; assert port_attempts==0"
+          }
         },
         {
-          "id": "16-REQ-2.5",
+          "id": "REQ-2.5",
           "pattern": "event_driven",
           "condition": "triage reaches a confirmed or probable diagnosis, either from the loop or from `af triage land`",
           "system": "af triage",
           "action": "add to `next` the argv `af fix <issue url> --dir <dir> --local`, so that the suggestion runs as given",
-          "contract": "`next[].argv` equals `[\"af\",\"fix\",<issue url>,\"--dir\",<dir>,\"--local\"]`"
+          "contract": "`next[].argv` equals `[\"af\",\"fix\",<issue url>,\"--dir\",<dir>,\"--local\"]`",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a scripted triage ending in a confirmed diagnosis and another in a probable diagnosis",
+              "a prepared run for `af triage land`"
+            ],
+            "pseudocode": "assert hasNext(env, ['af','fix',url,'--dir',dir,'--local'])"
+          }
         },
         {
-          "id": "16-REQ-2.6",
+          "id": "REQ-2.6",
           "pattern": "ubiquitous",
           "system": "af",
           "action": "apply the mode rule only to the af binary's command line. An in-process caller of the loops, such as the worker of `13_agent_fox_worker`, runs them without `--local` and never sends a request to an agent-fox service",
-          "contract": "13_agent_fox_worker's tests pass unchanged"
+          "contract": "13_agent_fox_worker's tests pass unchanged",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a fresh toolio.App with the loops registered as the worker does",
+              "a recording fake service named by AF_URL"
+            ],
+            "pseudocode": "app=newInProcessApp(); env=app.Main(['af','fix',url,'--dir',d]); assert env.status != usage_nomode; assert svc.requests==[]"
+          }
         },
         {
-          "id": "16-REQ-2.7",
+          "id": "REQ-2.7",
           "pattern": "ubiquitous",
           "system": "af",
           "action": "register a result schema for every new command. The schemas for the job result `{job, envelope}`, the job page, the subscription view, `{workspaces}`, `{slug}` and `{credential_file, server}` describe the fields `af` relies on and allow other fields. `af triage --schema` and `af fix --schema` admit both the local result and the job result",
-          "contract": "`cmd/af/testdata/schema.golden.json` is regenerated and matches `--schema` output byte for byte"
+          "contract": "`cmd/af/testdata/schema.golden.json` is regenerated and matches `--schema` output byte for byte",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "the registered af app",
+              "cmd/af/testdata/schema.golden.json"
+            ],
+            "pseudocode": "assert dumpSchemas()==read(golden); for s in samples: assert validate(s.schema, s.doc)"
+          }
         },
         {
-          "id": "16-REQ-2.8",
+          "id": "REQ-2.8",
           "pattern": "ubiquitous",
           "system": "documentation",
           "action": "document the following, all checked by a docs test:\n- in `docs/cli.md`: the mode rule and how its words are read; the new commands and flags; the order of local checks and the answer table; the categories `service`, `conflict`, `hub` and `job_cancelled`, with `cancelled` still a signal sent to the process; the warnings `server_insecure`, `credential_file_permissions` and `attempt_envelope_unavailable`; the event `job_event`; that a command may supply its own `resume.argv`; the triage and fix synopses with `--local`; `af fix <issue url> --dir <dir> --local`; the count of registered commands\n- in `docs/configuration.md` and `docs/model-usage.md`: `AF_URL`, `~/.af/config.toml` and its `token` key, and that a job's cost is `result.job.usage`\n- the client in `docs/architecture.md`, `docs/development.md` and `README.md`\nEvery divergence is recorded in `docs/errata/16_*.md`, and no phrase an existing docs test checks is removed",
-          "contract": "`make check` passes offline"
+          "contract": "`make check` passes offline",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "docs/cli.md, docs/configuration.md, docs/model-usage.md, docs/architecture.md, docs/development.md, README.md, docs/errata/16_*.md"
+            ],
+            "pseudocode": "for (file,terms) in required: for t in terms: assert t in read(file)"
+          }
         }
       ]
     },
     {
-      "id": "16-REQ-3",
+      "id": "REQ-3",
       "title": "Naming the service",
       "rationale": "The service is named only by `--server` or `AF_URL`. A URL that could leak a password, or send a credential in clear, must be caught.",
+      "system": "af service command",
       "criteria": [
         {
-          "id": "16-REQ-3.1",
+          "id": "REQ-3.1",
           "pattern": "ubiquitous",
-          "system": "af service command",
-          "action": "take the server URL from `--server` when given, and otherwise from `AF_URL`. An empty `AF_URL` counts as unset"
+          "action": "take the server URL from `--server` when given, and otherwise from `AF_URL`. An empty `AF_URL` counts as unset",
+          "contract": "the first sends its requests only to A; the second sends to B; the third is the no-server usage error",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "two scripted fake services A and B"
+            ],
+            "pseudocode": "assert hits(A)>0 and hits(B)==0; ...; assert run().exit==2"
+          }
         },
         {
-          "id": "16-REQ-3.2",
+          "id": "REQ-3.2",
           "pattern": "ubiquitous",
-          "system": "af service command",
-          "action": "accept as the server an absolute `http` or `https` URL with a host and an optional path prefix. It drops one trailing `/` and sends API requests to `<url>/api/v1/…`"
+          "action": "accept as the server an absolute `http` or `https` URL with a host and an optional path prefix. It drops one trailing `/` and sends API requests to `<url>/api/v1/…`",
+          "contract": "requests go to `/prefix/api/v1/...` with no double slash; `https://` URLs with a host are accepted",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a scripted fake service under a path prefix /prefix"
+            ],
+            "pseudocode": "assert recorded.path.startswith('/prefix/api/v1/')"
+          }
         },
         {
-          "id": "16-REQ-3.3",
+          "id": "REQ-3.3",
           "pattern": "unwanted",
           "condition": "the server URL is not absolute, is not `http` or `https`, has no host, or carries a query, a fragment or user info",
-          "system": "af service command",
           "action": "refuse with a usage error that names `--server` or `AF_URL` (whichever gave the URL) and the rule broken, and send nothing",
-          "contract": "status `usage`, exit code 2"
+          "contract": "status `usage`, exit code 2",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recording fake service"
+            ],
+            "pseudocode": "for u in bad: for src in [flag,env]: env=run(src,u); assert exit==2 and src_name in msg"
+          }
         },
         {
-          "id": "16-REQ-3.4",
+          "id": "REQ-3.4",
           "pattern": "unwanted",
           "condition": "a service command runs with neither `--server` nor a non-empty `AF_URL`",
-          "system": "af service command",
           "action": "refuse with a usage error whose message names `--server` and `AF_URL`, and also `--local` for `triage` and `fix`, and send nothing",
-          "contract": "status `usage`, exit code 2, `error.fix_hint` `{flag: \"--server\", env: \"AF_URL\"}`"
+          "contract": "status `usage`, exit code 2, `error.fix_hint` `{flag: \"--server\", env: \"AF_URL\"}`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "AF_URL unset",
+              "a valid credential file"
+            ],
+            "pseudocode": "env=run('workspace','list'); assert env.error.fix_hint=={'flag':'--server','env':'AF_URL'}"
+          }
         },
         {
-          "id": "16-REQ-3.5",
+          "id": "REQ-3.5",
           "pattern": "event_driven",
           "condition": "the server URL is `http` and its host is not loopback (`localhost`, `127.0.0.0/8` or `::1`)",
-          "system": "af service command",
           "action": "raise the warning `server_insecure` and continue the command",
-          "contract": "envelope `warnings` contains code `server_insecure`"
+          "contract": "envelope `warnings` contains code `server_insecure`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a fake transport answering 200 for any host"
+            ],
+            "pseudocode": "assert ('server_insecure' in codes(run(u))) == (u=='http://example.com')"
+          }
         }
       ]
     },
     {
-      "id": "16-REQ-4",
+      "id": "REQ-4",
       "title": "The hub credential",
       "rationale": "`~/.af/config.toml` is the only credential source named by PRD 01 and PRD 03. A bearer token must never leak or reach another host.",
       "criteria": [
         {
-          "id": "16-REQ-4.1",
+          "id": "REQ-4.1",
           "pattern": "ubiquitous",
           "system": "af service command",
-          "action": "send every service request with `Authorization: Bearer <credential>`. The credential is the top-level string key `token` of `~/.af/config.toml`, where `~` is the home directory `os.UserHomeDir` reports. Every other key in the file is ignored"
+          "action": "send every service request with `Authorization: Bearer <credential>`. The credential is the top-level string key `token` of `~/.af/config.toml`, where `~` is the home directory `os.UserHomeDir` reports. Every other key in the file is ignored",
+          "contract": "Authorization is `Bearer T1`; other keys and the table's token are ignored",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "HOME holds .af/config.toml with other keys, a table with its own `token`, and a top-level token `T1`",
+              "a scripted fake service"
+            ],
+            "pseudocode": "assert svc.last.header['Authorization']=='Bearer T1'"
+          }
         },
         {
-          "id": "16-REQ-4.2",
+          "id": "REQ-4.2",
           "pattern": "unwanted",
           "condition": "the home directory cannot be found, or the credential file exists but cannot be read (permission denied, a directory, or a read error)",
           "system": "af service command",
           "action": "fail before any request with a message naming the path",
-          "contract": "status `failed`, exit code 1, category `io`; no request is sent"
+          "contract": "status `failed`, exit code 1, category `io`; no request is sent",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recording fake service",
+              "(a) no HOME, (b) the credential path is a directory, (c) the file has mode 000 (non-root, Unix)"
+            ],
+            "pseudocode": "for case in cases: env=run(); assert env.exit==1 and env.error.category=='io'; assert svc.requests==[]"
+          }
         },
         {
-          "id": "16-REQ-4.3",
+          "id": "REQ-4.3",
           "pattern": "unwanted",
           "condition": "the credential file does not exist, or its `token` is missing, is not a string, or is empty",
           "system": "af service command",
           "action": "fail before any request with a message naming the file and saying to run `af login --token-file FILE` or `afc login`",
-          "contract": "status `failed`, exit code 1, category `auth`, `error.fix_hint` `{suggest: \"af login --token-file FILE\"}`; no request is sent"
+          "contract": "status `failed`, exit code 1, category `auth`, `error.fix_hint` `{suggest: \"af login --token-file FILE\"}`; no request is sent",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recording fake service",
+              "cases: no file, no token key, token = 5, token = \"\""
+            ],
+            "pseudocode": "for case in cases: env=run(); assert env.error.category=='auth' and env.error.fix_hint.suggest=='af login --token-file FILE'"
+          }
         },
         {
-          "id": "16-REQ-4.4",
+          "id": "REQ-4.4",
           "pattern": "unwanted",
           "condition": "the credential file does not parse as TOML, or the credential holds a line break or a control character",
           "system": "af service command",
           "action": "fail before any request with a message naming the file",
-          "contract": "status `failed`, exit code 1, category `config`; no request is sent"
+          "contract": "status `failed`, exit code 1, category `config`; no request is sent",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recording fake service",
+              "cases: `token = ` garbage, a token containing \\n, a token containing \\x07"
+            ],
+            "pseudocode": "for case in cases: env=run(); assert env.error.category=='config'"
+          }
         },
         {
-          "id": "16-REQ-4.5",
+          "id": "REQ-4.5",
           "pattern": "event_driven",
           "condition": "on Unix, the credential file has any group or other permission bit set",
           "system": "af service command",
           "action": "raise the warning `credential_file_permissions` naming the file, and continue the command",
-          "contract": "envelope `warnings` contains code `credential_file_permissions`"
+          "contract": "envelope `warnings` contains code `credential_file_permissions`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a credential file with mode 0644, a second with 0600",
+              "a fake service answering 200"
+            ],
+            "pseudocode": "assert 'credential_file_permissions' in codes(run(mode=0o644)); assert not in codes(run(mode=0o600))"
+          }
         },
         {
-          "id": "16-REQ-4.6",
+          "id": "REQ-4.6",
           "pattern": "ubiquitous",
           "system": "af",
           "action": "for any credential and any workspace PAT, keep that secret out of stdout, stderr, the `--output` file, the events and `--emit-events`, every error message and every warning",
-          "contract": "a sentinel credential and a sentinel PAT are absent from all four outputs"
+          "contract": "a sentinel credential and a sentinel PAT are absent from all four outputs",
+          "check": {
+            "kind": "property",
+            "setup": [
+              "a scripted fake service that sometimes succeeds and sometimes fails, and may echo request headers or bodies into error messages"
+            ],
+            "pseudocode": "for cmd,cred,pat,answer in gen(): out=run(cmd,--output o,--emit-events e); for s in [cred,pat]: for f in [stdout,stderr,o,e]: assert s not in f"
+          }
         },
         {
-          "id": "16-REQ-4.7",
+          "id": "REQ-4.7",
           "pattern": "ubiquitous",
           "system": "af service command",
-          "action": "send the credential only to the host of the server URL, and to no other host"
+          "action": "send the credential only to the host of the server URL, and to no other host",
+          "contract": "B received no request; no request to any host other than A carries the Authorization header",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a scripted service A that redirects to a second recording server B"
+            ],
+            "pseudocode": "assert B.requests==[]"
+          }
         }
       ]
     },
     {
-      "id": "16-REQ-5",
+      "id": "REQ-5",
       "title": "Storing a credential with af login",
       "rationale": "`af login` writes afc's file, so it must check the credential first and change only the value of `token`.",
+      "system": "af login",
       "criteria": [
         {
-          "id": "16-REQ-5.1",
+          "id": "REQ-5.1",
           "pattern": "ubiquitous",
-          "system": "af login",
           "action": "read the credential from the `--token-file` file, or from stdin for `-`, and never from the command line. It then runs these steps in order, stopping at the first that fails and writing nothing:\n1. read the credential\n2. find the server\n3. check the existing credential file\n4. check the credential with the service\n5. write the file\nA token file that is missing or cannot be read, or stdin that cannot be read, fails with a message naming the path or stdin",
-          "contract": "an unreadable source gives status `failed`, exit code 1, category `io`"
+          "contract": "an unreadable source gives status `failed`, exit code 1, category `io`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a fake service answering 200 to the check",
+              "a token file, a missing path, a stdin that errors"
+            ],
+            "pseudocode": "assert svc.check.header=='Bearer '+tok; assert run('login','--token-file','missing').error.category=='io'"
+          }
         },
         {
-          "id": "16-REQ-5.2",
+          "id": "REQ-5.2",
           "pattern": "unwanted",
           "condition": "the trimmed credential is empty, spans more than one line, holds a control character, or is longer than 4096 bytes",
-          "system": "af login",
           "action": "refuse with a usage error naming `--token-file`, and write nothing",
-          "contract": "status `usage`, exit code 2"
+          "contract": "status `usage`, exit code 2",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a fake service",
+              "a HOME with no credential file"
+            ],
+            "pseudocode": "for t in bad: assert run(t).exit==2 and '--token-file' in msg; assert not exists(config)"
+          }
         },
         {
-          "id": "16-REQ-5.3",
+          "id": "REQ-5.3",
           "pattern": "unwanted",
           "condition": "an existing credential file cannot be read, does not parse as TOML, or has no top-level `token = \"…\"` or `token = '…'` line before any table header, where the value is a one-line string optionally followed by a comment",
-          "system": "af login",
           "action": "fail without sending the check request and without changing the file. For a layout problem, the message names the file, says its layout is not the one `af` expects, and says that `afc login` or an edit fixes it",
-          "contract": "status `failed`, exit code 1; category `io` when unreadable, and `config` when the file does not parse or has the wrong layout; the file's bytes are unchanged"
+          "contract": "status `failed`, exit code 1; category `io` when unreadable, and `config` when the file does not parse or has the wrong layout; the file's bytes are unchanged",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "existing files: unreadable (mode 000), invalid TOML, no token line, token only after a [table], token with a multi-line string, `token = \"a\" \"b\"`, token via dotted key",
+              "a recording fake service"
+            ],
+            "pseudocode": "for case in cases: before=read(cfg); env=run(); assert env.error.category==case.cat; assert read(cfg)==before; assert svc.requests==[]"
+          }
         },
         {
-          "id": "16-REQ-5.4",
+          "id": "REQ-5.4",
           "pattern": "event_driven",
           "condition": "the local checks pass",
-          "system": "af login",
-          "action": "send `GET /api/v1/workspaces` with the new credential, and accept the credential on any 2xx answer"
+          "action": "send `GET /api/v1/workspaces` with the new credential, and accept the credential on any 2xx answer",
+          "contract": "exactly one request: GET /api/v1/workspaces with `Authorization: Bearer <new token>`; a 2xx answer proceeds to the write",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a scripted service answering 200, 204-like 2xx variants"
+            ],
+            "pseudocode": "assert svc.requests==[('GET','/api/v1/workspaces')]"
+          }
         },
         {
-          "id": "16-REQ-5.5",
+          "id": "REQ-5.5",
           "pattern": "unwanted",
           "condition": "the service answers the check with 401",
-          "system": "af login",
           "action": "fail with a message saying that the service refused this credential, and write nothing",
-          "contract": "status `failed`, exit code 1, category `auth`; the credential file is unchanged or still absent"
+          "contract": "status `failed`, exit code 1, category `auth`; the credential file is unchanged or still absent",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a service answering 401",
+              "(a) no credential file, (b) an existing file"
+            ],
+            "pseudocode": "assert env.error.category=='auth' and 'refused' in msg; assert unchanged(cfg)"
+          }
         },
         {
-          "id": "16-REQ-5.6",
+          "id": "REQ-5.6",
           "pattern": "unwanted",
           "condition": "the check gets any answer other than 2xx or 401, a transport error, or runs past the request bound",
-          "system": "af login",
           "action": "fail as 16-REQ-6 maps the answer, with a message saying the credential could not be checked (not that it was refused), and write nothing",
-          "contract": "a 502 gives status `failed`, exit code 1, category `hub`, `retryable` true; the credential file is unchanged"
+          "contract": "a 502 gives status `failed`, exit code 1, category `hub`, `retryable` true; the credential file is unchanged",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "services answering 502, 500, 404, a closed port, and one that stalls past the request bound (injected clock)"
+            ],
+            "pseudocode": "assert env.error.category=='hub' and env.error.retryable; assert 'could not be checked' in msg and 'refused' not in msg"
+          }
         },
         {
-          "id": "16-REQ-5.7",
+          "id": "REQ-5.7",
           "pattern": "event_driven",
           "condition": "the service accepts the credential",
-          "system": "af login",
           "action": "write `~/.af/config.toml` through a temporary file in `~/.af` that is renamed over the old file, with file mode 0600.\n- With no existing file, it creates `~/.af` with mode 0700 when missing and writes the single line `token = \"<credential>\"`.\n- With an existing file, it replaces only the value on the `token` line with the credential as a TOML basic string, and keeps every other byte.\nIts result never contains the credential",
-          "contract": "status `done`, exit code 0, result `{credential_file, server}`"
+          "contract": "status `done`, exit code 0, result `{credential_file, server}`",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a fake service answering 200",
+              "HOME without ~/.af; then a file with comments, other keys, a table and a literal-string `token = 'old'  # note` line",
+              "a credential containing quotes and backslashes"
+            ],
+            "pseudocode": "assert read(cfg)==expected; assert stat(cfg).mode==0o600; assert toml.decode(read(cfg))['token']==cred; assert cred not in stdout"
+          }
         },
         {
-          "id": "16-REQ-5.8",
+          "id": "REQ-5.8",
           "pattern": "unwanted",
           "condition": "creating `~/.af`, writing, syncing or closing the temporary file, or renaming it fails",
-          "system": "af login",
           "action": "fail with a message naming the path, remove the temporary file, and leave any existing credential file as it was",
-          "contract": "status `failed`, exit code 1, category `io`; the existing file's bytes are unchanged"
+          "contract": "status `failed`, exit code 1, category `io`; the existing file's bytes are unchanged",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "injected failures in turn: creating ~/.af, writing the temp file, sync, close, rename",
+              "a service answering 200",
+              "an existing credential file"
+            ],
+            "pseudocode": "for fault in faults: env=run(fault); assert env.error.category=='io'; assert listdir(.af)==['config.toml']; assert read(cfg)==before"
+          }
         }
       ]
     },
     {
-      "id": "16-REQ-6",
+      "id": "REQ-6",
       "title": "Requests and how answers map",
       "rationale": "Scripts need the exit code and category of every failure to be predictable, and a bearer token must never follow a redirect.",
+      "system": "af service command",
       "criteria": [
         {
-          "id": "16-REQ-6.1",
+          "id": "REQ-6.1",
           "pattern": "ubiquitous",
-          "system": "af service command",
           "action": "run its local checks in this order, and report the first that fails. It sends a request only after all of them pass:\n1. the mode and flags (a missing or doubled mode, a refused or unknown flag, a malformed flag value)\n2. the positional arguments and the input, including reading stdin, `af login`'s token file and the PAT file\n3. the server URL\n4. the credential, or for `af login` the existing credential file",
-          "contract": "an invocation with several local mistakes reports the first in this order"
+          "contract": "an invocation with several local mistakes reports the first in this order",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recording fake service",
+              "a missing credential file and no server"
+            ],
+            "pseudocode": "assert run(flag_err,bad_input,bad_url).msg mentions flag; assert run(bad_input,bad_url).msg mentions input; ..."
+          }
         },
         {
-          "id": "16-REQ-6.2",
+          "id": "REQ-6.2",
           "pattern": "ubiquitous",
-          "system": "af service command",
-          "action": "send every request with these headers, and any body as JSON with `Content-Type: application/json`:\n- `Authorization: Bearer <credential>`\n- `User-Agent: af/<version>`, with the version from `App.Identity`\n- `Accept: application/json`, or `Accept: text/event-stream` on the event stream"
+          "action": "send every request with these headers, and any body as JSON with `Content-Type: application/json`:\n- `Authorization: Bearer <credential>`\n- `User-Agent: af/<version>`, with the version from `App.Identity`\n- `Accept: application/json`, or `Accept: text/event-stream` on the event stream",
+          "contract": "all carry Authorization Bearer <credential> and User-Agent `af/V`; events request has Accept text/event-stream, the others application/json; requests with a body carry Content-Type application/json",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recording fake service",
+              "App.Identity version V"
+            ],
+            "pseudocode": "for r in svc.requests: assert r.UA=='af/'+V; assert r.accept == ('text/event-stream' if events else 'application/json')"
+          }
         },
         {
-          "id": "16-REQ-6.3",
+          "id": "REQ-6.3",
           "pattern": "ubiquitous",
-          "system": "af service command",
           "action": "apply these bounds:\n- each request other than the event stream lasts at most 2 minutes, or the command's remaining `--timeout` when that is shorter\n- at most 8 MiB of a response body is read\n- `--timeout` has no default limit on any client command",
-          "contract": "a request past its bound fails as 16-REQ-6.5 maps it: category `service`, `retryable` true; a body past 8 MiB fails category `service`, `retryable` false"
+          "contract": "a request past its bound fails as 16-REQ-6.5 maps it: category `service`, `retryable` true; a body past 8 MiB fails category `service`, `retryable` false",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an injected clock",
+              "a service that never answers",
+              "a service that returns a body over 8 MiB"
+            ],
+            "pseudocode": "clock.advance(120s); assert env.error=={'service',retryable:true}; assert bytesRead<=8*MiB"
+          }
         },
         {
-          "id": "16-REQ-6.4",
+          "id": "REQ-6.4",
           "pattern": "unwanted",
           "condition": "the service answers with a 3xx redirect",
-          "system": "af service command",
           "action": "not follow the redirect, send no request to its target, and treat the 3xx as the answer",
-          "contract": "status `failed`, exit code 1, category `service`, `retryable` false"
+          "contract": "status `failed`, exit code 1, category `service`, `retryable` false",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a scripted service answering 301, 302, 307 and 308 with a Location pointing at a recording server"
+            ],
+            "pseudocode": "assert env.error.category=='service' and not env.error.retryable; assert target.requests==[]"
+          }
         },
         {
-          "id": "16-REQ-6.5",
+          "id": "REQ-6.5",
           "pattern": "unwanted",
           "condition": "the service answers a request with a non-2xx status, a transport error occurs, the 2-minute bound runs out, or the body is too large or is not the expected JSON",
-          "system": "af service command",
           "action": "map the answer as follows:\n\n| Answer | Status | Category | Retryable |\n|---|---|---|---|\n| 400 | `usage` | `usage` | false |\n| 401 | `failed` | `auth` | false |\n| 404 | `usage` | `usage` | false |\n| 409 | `failed` | `conflict` | false |\n| 422 | `failed` | `auth` | false |\n| 502 | `failed` | `hub` | true |\n| 500 | `failed` | `service` | false |\n| 503, 504 and any other 5xx | `failed` | `service` | true |\n| any other 4xx (including 405, 413 and 415) | `failed` | `service` | false |\n| a transport error, or the bound running out | `failed` | `service` | true |\n| a body too large or not the expected JSON | `failed` | `service` | false |",
-          "contract": "the exit code follows the status: 2 for `usage` and 1 for `failed`; `error.category` and `error.retryable` are as in the table"
+          "contract": "the exit code follows the status: 2 for `usage` and 1 for `failed`; `error.category` and `error.retryable` are as in the table",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a scripted service that answers the chosen status for `af workspace get w`"
+            ],
+            "pseudocode": "for (status,exp) in table: env=run(answer=status); assert (env.status,env.exit,env.error.category,env.error.retryable)==exp"
+          }
         },
         {
-          "id": "16-REQ-6.6",
+          "id": "REQ-6.6",
           "pattern": "ubiquitous",
-          "system": "af service command",
           "action": "word failure messages as follows:\n- in general, the service's `error.message` followed by its `error.code` in parentheses, or \"the service answered <status>\" when the body has neither\n- for a transport error, also name the server URL and its source (`--server` or `AF_URL`)\n- for a 404, name the job id or workspace slug asked for, and say it does not exist or hub does not let the caller see it",
-          "contract": "`error.message` holds the text described"
+          "contract": "`error.message` holds the text described",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a scripted service"
+            ],
+            "pseudocode": "assert msg=='bad (invalid_request)'; assert 'j' in msg404job; assert '--server' in transportMsgFlag"
+          }
         },
         {
-          "id": "16-REQ-6.7",
+          "id": "REQ-6.7",
           "pattern": "ubiquitous",
-          "system": "af service command",
           "action": "attach these fix hints:\n- `{suggest: \"af login --token-file FILE\"}` to a 401\n- `{suggest: \"af workspace subscribe <slug> --hub-token-file FILE\"}` to a 404 on a workspace route, and to a 409 `not_subscribed` or `token_unreadable`\n- `{flag: \"--hub-token-file\"}` to a 422",
-          "contract": "`error.fix_hint` as listed"
+          "contract": "`error.fix_hint` as listed",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a scripted service"
+            ],
+            "pseudocode": "assert env.error.fix_hint==expected"
+          }
         },
         {
-          "id": "16-REQ-6.8",
+          "id": "REQ-6.8",
           "pattern": "ubiquitous",
-          "system": "af service command",
-          "action": "carry the service's JSON documents into its results as received, so that fields `af` does not know survive, and read only the fields it needs"
+          "action": "carry the service's JSON documents into its results as received, so that fields `af` does not know survive, and read only the fields it needs",
+          "contract": "result.job, the page and the subscription view hold every field of the document, including unknown ones, with equal values",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a scripted service returning job, page and subscription documents with extra unknown fields and nested values"
+            ],
+            "pseudocode": "assert json_equal(env.result.job, served_job)"
+          }
         }
       ]
     },
     {
-      "id": "16-REQ-7",
+      "id": "REQ-7",
       "title": "Queuing a job with --workspace",
       "rationale": "The service decides which issue URLs it accepts, and the client must send input that fits the service's limits.",
       "criteria": [
         {
-          "id": "16-REQ-7.1",
+          "id": "REQ-7.1",
           "pattern": "event_driven",
           "condition": "`af triage <input> --workspace <slug>` runs",
           "system": "af triage",
-          "action": "turn the input into the request by the first matching rule:\n1. `-` reads stdin and is sent as `text`\n2. any `http://` or `https://` URL is sent as `issue`, the trimmed URL string, unclassified and without consulting any forge variable\n3. a positive integer, optionally with a leading `#`, is sent as `issue`, a JSON number\n4. `<path>#<N>`, where `<path>` is two or more `/`-separated segments of `[A-Za-z0-9_.-]`, is sent as `issue`, the string\n5. an existing regular file is sent as `file: {name: <base name>, content}`\n6. anything else is sent as `text`"
+          "action": "turn the input into the request by the first matching rule:\n1. `-` reads stdin and is sent as `text`\n2. any `http://` or `https://` URL is sent as `issue`, the trimmed URL string, unclassified and without consulting any forge variable\n3. a positive integer, optionally with a leading `#`, is sent as `issue`, a JSON number\n4. `<path>#<N>`, where `<path>` is two or more `/`-separated segments of `[A-Za-z0-9_.-]`, is sent as `issue`, the string\n5. an existing regular file is sent as `file: {name: <base name>, content}`\n6. anything else is sent as `text`",
+          "contract": "`-`: {text}; both URLs: {issue:<URL string>}, no classification and no GITHUB_API_URL consulted; `42` and `#42`: {issue: 42} as a JSON number; `o/r#7` and `a/b/c#7`: {issue:\"o/r#7\"} as a string; `notes.txt`: {file:{name:\"notes.txt\", content}}; `some words` and `7x`: {text}",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recording service answering 202",
+              "an existing regular file notes.txt"
+            ],
+            "pseudocode": "assert body('42')=={'issue':42}; assert body('o/r#7')=={'issue':'o/r#7'}; assert body('notes.txt').file.name=='notes.txt'"
+          }
         },
         {
-          "id": "16-REQ-7.2",
+          "id": "REQ-7.2",
           "pattern": "unwanted",
           "condition": "`af fix --workspace` gets an input that matches none of rules 2, 3 and 4",
           "system": "af fix",
           "action": "refuse with a usage error saying that with `--workspace`, `af fix` takes an issue: `N`, `#N`, `owner/repo#N` or an issue URL",
-          "contract": "status `usage`, exit code 2; no request is sent"
+          "contract": "status `usage`, exit code 2; no request is sent",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recording service",
+              "an existing file and free text"
+            ],
+            "pseudocode": "for bad in [...]: assert exit==2 and svc.requests==[]"
+          }
         },
         {
-          "id": "16-REQ-7.3",
+          "id": "REQ-7.3",
           "pattern": "unwanted",
           "condition": "the text or file content is empty after trimming, holds a NUL byte or is not valid UTF-8; or the named file is a directory or cannot be read",
           "system": "af triage",
           "action": "refuse before any request",
-          "contract": "status `usage`, exit code 2 for empty, NUL, invalid UTF-8 or a directory; status `failed`, exit code 1, category `io` for an unreadable file"
+          "contract": "status `usage`, exit code 2 for empty, NUL, invalid UTF-8 or a directory; status `failed`, exit code 1, category `io` for an unreadable file",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recording service",
+              "stdin and files with whitespace only, a NUL byte, bytes 0xff 0xfe, a directory, and a file with mode 000"
+            ],
+            "pseudocode": "for case in cases: env=run(case); assert (env.exit,cat)==case.expected; assert svc.requests==[]"
+          }
         },
         {
-          "id": "16-REQ-7.4",
+          "id": "REQ-7.4",
           "pattern": "event_driven",
           "condition": "text or file content is longer than `MaxInputBytes` (131072)",
           "system": "af triage",
           "action": "cut the content at a UTF-8 boundary so that the content plus the truncation marker is at most `MaxInputBytes`, set `input.truncated`, and raise the warning `input_truncated`",
-          "contract": "the sent content's length is at most 131072 bytes; envelope `input.truncated` is true"
+          "contract": "the sent content's length is at most 131072 bytes; envelope `input.truncated` is true",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recording service",
+              "content of 131072+1000 bytes of 3-byte runes, and content of exactly 131072 bytes"
+            ],
+            "pseudocode": "assert len(sent)<=131072 and utf8.valid(sent); assert env.input.truncated and 'input_truncated' in codes"
+          }
         },
         {
-          "id": "16-REQ-7.5",
+          "id": "REQ-7.5",
           "pattern": "ubiquitous",
           "system": "af triage and af fix in service mode",
-          "action": "report in the envelope's `input`:\n- `kind`: `issue`, `file`, `text` or `stdin`\n- `origin`: the URL for rule 2, the absolute file path for rule 5, and `\"\"` otherwise\n- `truncated`"
+          "action": "report in the envelope's `input`:\n- `kind`: `issue`, `file`, `text` or `stdin`\n- `origin`: the URL for rule 2, the absolute file path for rule 5, and `\"\"` otherwise\n- `truncated`",
+          "contract": "kind is issue, issue, file, text, stdin respectively; origin is the URL for the URL, the absolute path for the file, and \"\" otherwise; truncated is reported for each",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a service answering 202"
+            ],
+            "pseudocode": "assert env.input=={'kind':'file','origin':abs(path),'truncated':false}"
+          }
         },
         {
-          "id": "16-REQ-7.6",
+          "id": "REQ-7.6",
           "pattern": "ubiquitous",
           "system": "af triage and af fix in service mode",
-          "action": "post the body to `POST /api/v1/workspaces/{slug}/triage` or `/fix`, with the slug path-escaped. The `--context` values go as `context` in their order, and `context` is absent when there are none"
+          "action": "post the body to `POST /api/v1/workspaces/{slug}/triage` or `/fix`, with the slug path-escaped. The `--context` values go as `context` in their order, and `context` is absent when there are none",
+          "contract": "the paths are /api/v1/workspaces/a%20b%2Fc/triage and /api/v1/workspaces/w/fix; the first body has context [\"x\",\"y\"], the second has no context key",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recording service answering 202"
+            ],
+            "pseudocode": "assert body.context==['x','y']; assert 'context' not in body2"
+          }
         },
         {
-          "id": "16-REQ-7.7",
+          "id": "REQ-7.7",
           "pattern": "event_driven",
           "condition": "the service answers the queue request with 202",
           "system": "af triage and af fix in service mode",
           "action": "record at once the artifact `{kind: \"job\", name: <id>, url: <server>/api/v1/jobs/<id>}`, then act on `--wait`:\n- without it: finish with status `done`, result `{job, envelope: null}`, a summary naming the job and the workspace, and `next` `af jobs watch <id>` (with `--server <url>` when the server came from the flag)\n- with it: follow the job as 16-REQ-9 and 16-REQ-10 describe",
-          "contract": "without `--wait`, exit code 0"
+          "contract": "without `--wait`, exit code 0",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a scripted service answering 202 with a job document",
+              "the server given via --server, and in another run via AF_URL"
+            ],
+            "pseudocode": "assert env.artifacts[0]=={...}; assert env.result.envelope is None; assert env.next[0].argv==['af','jobs','watch',id,'--server',url]"
+          }
         },
         {
-          "id": "16-REQ-7.8",
+          "id": "REQ-7.8",
           "pattern": "unwanted",
           "condition": "the service answers the queue request with 409 `duplicate_job`",
           "system": "af triage and af fix in service mode",
           "action": "fail, carrying the service's message, which names the open job",
-          "contract": "status `failed`, exit code 1, category `conflict`, `retryable` false"
+          "contract": "status `failed`, exit code 1, category `conflict`, `retryable` false",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a service answering 409 {code:duplicate_job, message naming job_abc}"
+            ],
+            "pseudocode": "assert env.error.category=='conflict' and 'job_abc' in msg"
+          }
         }
       ]
     },
     {
-      "id": "16-REQ-8",
+      "id": "REQ-8",
       "title": "Workspace subscriptions and job commands",
       "rationale": "A person must be able to subscribe workspaces and list, inspect, answer, retry and cancel jobs from `af`.",
       "criteria": [
         {
-          "id": "16-REQ-8.1",
+          "id": "REQ-8.1",
           "pattern": "event_driven",
           "condition": "`af workspace subscribe <slug> --hub-token-file <file|-> [--prefix P]` runs",
           "system": "af workspace subscribe",
           "action": "send `PUT /api/v1/workspaces/{slug}` with `{hub_token}`, adding `label_prefix` only when `--prefix` is given. Both 201 and 200 count as success, and the summary says subscribed for 201 and replaced for 200",
-          "contract": "exit code 0, result: the subscription view as received"
+          "contract": "exit code 0, result: the subscription view as received",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a service answering 201 on one run and 200 on another"
+            ],
+            "pseudocode": "assert body=={'hub_token':pat}; assert body2=={'hub_token':pat,'label_prefix':'P'}"
+          }
         },
         {
-          "id": "16-REQ-8.2",
+          "id": "REQ-8.2",
           "pattern": "unwanted",
           "condition": "the `--hub-token-file` file or stdin cannot be read, or its trimmed content is empty, multi-line, holds a control character, or is longer than 4096 bytes",
           "system": "af workspace subscribe",
           "action": "fail before any request, naming the file or stdin for a read failure and `--hub-token-file` for a content rule",
-          "contract": "for a read failure, status `failed`, exit code 1, category `io`; for a content rule, status `usage`, exit code 2"
+          "contract": "for a read failure, status `failed`, exit code 1, category `io`; for a content rule, status `usage`, exit code 2",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recording service",
+              "a missing file, a stdin read error, empty, multi-line, control char and 4097-byte contents"
+            ],
+            "pseudocode": "assert env.error.category=='io'; assert '--hub-token-file' in msg"
+          }
         },
         {
-          "id": "16-REQ-8.3",
+          "id": "REQ-8.3",
           "pattern": "ubiquitous",
           "system": "af workspace",
           "action": "implement these subcommands, each taking the slug as a required, path-escaped positional argument where it applies:\n- `list` sends `GET /api/v1/workspaces` and returns `{workspaces}`\n- `get <slug>` sends `GET /api/v1/workspaces/{slug}` and returns the subscription view\n- `unsubscribe <slug>` sends `DELETE /api/v1/workspaces/{slug}` and returns `{slug}` on 204, with a summary saying the workspace's open jobs were cancelled",
-          "contract": "exit code 0 on success; a 400 about the slug maps to `usage`, exit code 2"
+          "contract": "exit code 0 on success; a 400 about the slug maps to `usage`, exit code 2",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a service answering the documented documents, 204 on DELETE, and 400 for a bad slug"
+            ],
+            "pseudocode": "assert env.result=={'slug':'w'}; assert run('workspace','get','BAD!').exit==2"
+          }
         },
         {
-          "id": "16-REQ-8.4",
+          "id": "REQ-8.4",
           "pattern": "event_driven",
           "condition": "`af jobs list [--workspace S] [--state S] [--cursor C]` runs",
           "system": "af jobs list",
           "action": "send `GET /api/v1/workspaces/{S}/jobs` when `--workspace` is given, and `GET /api/v1/jobs` otherwise. `--state` and `--cursor` pass through as the `state` and `cursor` query parameters only when given. When `next_cursor` is not null, `next` repeats the command with `--cursor <next_cursor>`",
-          "contract": "exit code 0, result: the page `{jobs, next_cursor}`"
+          "contract": "exit code 0, result: the page `{jobs, next_cursor}`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recording service returning pages with next_cursor \"c2\" and null"
+            ],
+            "pseudocode": "assert query=={'state':'blocked','cursor':'c1'}; assert env.next[0].argv[-2:]==['--cursor','c2']"
+          }
         },
         {
-          "id": "16-REQ-8.5",
+          "id": "REQ-8.5",
           "pattern": "ubiquitous",
           "system": "af jobs",
           "action": "implement these subcommands:\n- `get <id>` sends `GET /api/v1/jobs/{id}`\n- `cancel <id>` sends `POST /api/v1/jobs/{id}/cancel`\n- `retry <id> [--wait]` sends `POST /api/v1/jobs/{id}/retry` with body `{}`\n- `answer <id> … [--wait]` sends `POST /api/v1/jobs/{id}/answer`\nWithout `--wait` each returns `{job, envelope: null}` with status `done`. With `--wait`, `answer` and `retry` record the job artifact and follow the job as 16-REQ-9 and 16-REQ-10 describe",
-          "contract": "without `--wait`, exit code 0"
+          "contract": "without `--wait`, exit code 0",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a scripted service that answers each job route and serves a short event stream for --wait"
+            ],
+            "pseudocode": "assert body_retry=={}; assert env.result.envelope is None; assert env_wait.artifacts[0].name=='j'"
+          }
         },
         {
-          "id": "16-REQ-8.6",
+          "id": "REQ-8.6",
           "pattern": "unwanted",
           "condition": "`af jobs answer` is given no answer, or more than one of positional text, `--context` and `--option`",
           "system": "af jobs answer",
           "action": "refuse with a usage error, and send no request",
-          "contract": "status `usage`, exit code 2"
+          "contract": "status `usage`, exit code 2",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recording service"
+            ],
+            "pseudocode": "for args in combos: assert run(args).exit==2 and svc.requests==[]"
+          }
         },
         {
-          "id": "16-REQ-8.7",
+          "id": "REQ-8.7",
           "pattern": "ubiquitous",
           "system": "af jobs answer",
           "action": "handle the two kinds of answer as follows:\n- an `--option` value is uppercased and sent as `{option}`\n- a text answer (positional or `--context`) must be non-empty after trimming. `af` first reads the job: text equal to an option id of the blocked question, ignoring case, is sent as that `{option}`, and any other text as `{answer}`",
-          "contract": "empty text gives status `usage`, exit code 2"
+          "contract": "empty text gives status `usage`, exit code 2",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a service whose job j is blocked with options A and B",
+              "empty text, `b`, `B`, `free text`"
+            ],
+            "pseudocode": "assert body=={'option':'B'}; assert body2=={'answer':'free text'}"
+          }
         },
         {
-          "id": "16-REQ-8.8",
+          "id": "REQ-8.8",
           "pattern": "unwanted",
           "condition": "a job command gets a 409 (`invalid_state`, `not_subscribed` or `token_unreadable`)",
           "system": "af jobs",
           "action": "fail, carrying the service's message and the fix hint of 16-REQ-6.7",
-          "contract": "status `failed`, exit code 1, category `conflict`, `retryable` false"
+          "contract": "status `failed`, exit code 1, category `conflict`, `retryable` false",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a service answering 409 invalid_state, not_subscribed and token_unreadable"
+            ],
+            "pseudocode": "assert env.error.category=='conflict' and not env.error.retryable"
+          }
         }
       ]
     },
     {
-      "id": "16-REQ-9",
+      "id": "REQ-9",
       "title": "Following a job's event stream",
       "rationale": "End of file cannot tell the server's end from a dropped connection, so following resumes from the last seq and stops only when a fresh read says the job is at rest.",
+      "system": "af follower",
       "criteria": [
         {
-          "id": "16-REQ-9.1",
+          "id": "REQ-9.1",
           "pattern": "ubiquitous",
-          "system": "af follower",
-          "action": "read the stream as follows:\n- request `GET /api/v1/jobs/{id}/events?since=<n>`, starting from 0, or from `--since` for `af jobs watch`\n- frame events by `id:`, `event:` and `data:` lines and a blank line\n- ignore comment lines and unknown fields\n- accept lines of at most 1 MiB"
+          "action": "read the stream as follows:\n- request `GET /api/v1/jobs/{id}/events?since=<n>`, starting from 0, or from `--since` for `af jobs watch`\n- frame events by `id:`, `event:` and `data:` lines and a blank line\n- ignore comment lines and unknown fields\n- accept lines of at most 1 MiB",
+          "contract": "the first request is events?since=0, and since=5 for --since 5; every frame is delivered as its event document; comments and unknown fields have no effect; the 1 MiB line is accepted",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a scripted stream with `: keepalive` comments, `retry:` and unknown fields, CRLF and LF endings, multi-field frames, and a data line of about 1 MiB"
+            ],
+            "pseudocode": "assert delivered==expected_docs; assert request.query.since=='5'"
+          }
         },
         {
-          "id": "16-REQ-9.2",
+          "id": "REQ-9.2",
           "pattern": "ubiquitous",
-          "system": "af follower",
           "action": "drop any event whose `seq` is at most the last one delivered. Each delivered event is emitted as the `af` event `job_event`, whose data is the service's event document `{seq, ts, job_id, attempt, type, data}`",
-          "contract": "`--emit-events` holds one `job_event` per delivered event"
+          "contract": "`--emit-events` holds one `job_event` per delivered event",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a stream with seq 1,2,2,1,3 in one connection"
+            ],
+            "pseudocode": "assert [e.data.seq for e in events(f)]==[1,2,3]"
+          }
         },
         {
-          "id": "16-REQ-9.3",
+          "id": "REQ-9.3",
           "pattern": "ubiquitous",
-          "system": "af follower",
           "action": "write each delivered event document to stderr as one line of compact JSON under `af jobs watch`, and write nothing to stderr under `--wait`",
-          "contract": "under `watch`, stderr holds one JSON line per event, in `seq` order"
+          "contract": "under `watch`, stderr holds one JSON line per event, in `seq` order",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a stream of three events ending with at_rest true"
+            ],
+            "pseudocode": "assert stderr.splitlines()==[compact(e) for e in events]; assert wait_stderr==''"
+          }
         },
         {
-          "id": "16-REQ-9.4",
+          "id": "REQ-9.4",
           "pattern": "ubiquitous",
-          "system": "af follower",
-          "action": "run in tries.\n- A stream ends at end of file, on a dropped connection, on an unreadable frame, or after 60 s with no byte. `af` then reads `GET /api/v1/jobs/{id}`.\n- When that read says the job is at rest, following ends and the result is built.\n- Otherwise `af` makes another try with `since` set to the last `seq` delivered"
+          "action": "run in tries.\n- A stream ends at end of file, on a dropped connection, on an unreadable frame, or after 60 s with no byte. `af` then reads `GET /api/v1/jobs/{id}`.\n- When that read says the job is at rest, following ends and the result is built.\n- Otherwise `af` makes another try with `since` set to the last `seq` delivered",
+          "contract": "after each stream end exactly one GET /api/v1/jobs/{id} is made; not at rest (including state done with a running attempt) leads to another events request with since = last seq; at rest ends the following",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "scripted streams ending by EOF, a dropped connection, an unreadable frame, and 60 s of silence on an injected clock",
+              "job reads saying running first and at rest later; and a job `done` with a `running` attempt"
+            ],
+            "pseudocode": "assert sequence==[events(0),job,events(k),job]"
+          }
         },
         {
-          "id": "16-REQ-9.5",
+          "id": "REQ-9.5",
           "pattern": "ubiquitous",
-          "system": "af follower",
           "action": "count a try as failed when it ends without the job at rest and delivers no new event, whatever ended it. That includes a 5xx or transport error on the events request or on the job read. A try that delivers a new event resets the count. Waits between tries are:\n- 1 s after a try that delivered an event\n- 1, 2, 4 and 8 s after the first, second, third and fourth failed try in a row",
-          "contract": "the delay before each try, measured on an injected clock, is 1, 2, 4 or 8 s after the 1st to 4th failed try in a row, and 1 s after a try that delivered an event"
+          "contract": "the delay before each try, measured on an injected clock, is 1, 2, 4 or 8 s after the 1st to 4th failed try in a row, and 1 s after a try that delivered an event",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an injected clock that records sleeps",
+              "tries ending by EOF, drop, idle cut, unreadable frame, 5xx and transport error on the events request, and 5xx on the job read"
+            ],
+            "pseudocode": "assert clock.sleeps==[1,1,2,4,8]; assert after_reset==[1,1]"
+          }
         },
         {
-          "id": "16-REQ-9.6",
+          "id": "REQ-9.6",
           "pattern": "unwanted",
           "condition": "the fifth try in a row fails",
-          "system": "af follower",
           "action": "stop following without a further wait. The message names the job and says it may still be running, and `next` is `af jobs watch <id> --since <last seq>` (with `--server <url>` when the server came from the flag)",
-          "contract": "status `failed`, exit code 1, category `hub` when the last failure was a 502 and `service` otherwise, `retryable` true"
+          "contract": "status `failed`, exit code 1, category `hub` when the last failure was a 502 and `service` otherwise, `retryable` true",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a service whose every try fails with 502 and another with 503 or a transport error",
+              "last delivered seq k; server from the flag in one run"
+            ],
+            "pseudocode": "assert tries==5 and sleeps==[1,2,4,8]; assert env.next[0].argv[:5]==['af','jobs','watch',id,'--since']"
+          }
         },
         {
-          "id": "16-REQ-9.7",
+          "id": "REQ-9.7",
           "pattern": "unwanted",
           "condition": "during following, the events request or the job read gets a 401, a 404, a 3xx or a 4xx other than those",
-          "system": "af follower",
           "action": "stop following at once, with no further try, and map the answer as 16-REQ-6 says",
-          "contract": "status, exit code and category as 16-REQ-6.5 maps the answer"
+          "contract": "status, exit code and category as 16-REQ-6.5 maps the answer",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a service answering the events request, or the job read, with 401, 404, 302, 400 and 418"
+            ],
+            "pseudocode": "assert tries==1 and sleeps==[]; assert (cat)==table[status]"
+          }
         },
         {
-          "id": "16-REQ-9.8",
+          "id": "REQ-9.8",
           "pattern": "ubiquitous",
-          "system": "af follower",
           "action": "for any sequence of stream cuts and duplicate frames, resume a stream cut after event k with `since=k`, and deliver every event of the job exactly once in ascending `seq` order",
-          "contract": "`--emit-events` holds each event's `job_event` exactly once, in order"
+          "contract": "`--emit-events` holds each event's `job_event` exactly once, in order",
+          "check": {
+            "kind": "property",
+            "setup": [
+              "a scripted service holding events 1..n and a job that reaches rest after the last",
+              "an injected clock"
+            ],
+            "pseudocode": "for n,cuts,dups in gen(): run(); assert [e.seq for e in emitted]==list(range(1,n+1)); assert all(req.since==prev_last for req in reconnects)"
+          }
         }
       ]
     },
     {
-      "id": "16-REQ-10",
+      "id": "REQ-10",
       "title": "The outcome of following a job",
       "rationale": "`--wait` must exit with the job's own outcome, and interrupting `af` must never cancel shared work.",
+      "system": "af follower",
       "criteria": [
         {
-          "id": "16-REQ-10.1",
+          "id": "REQ-10.1",
           "pattern": "event_driven",
           "condition": "following finds the job at rest",
-          "system": "af follower",
           "action": "read the job with its attempts, then fetch `GET /api/v1/jobs/{id}/attempts/{n}/envelope` for the highest-numbered attempt whose state is not `queued` or `running`.\n- A 404 leaves the envelope null.\n- Any other failure leaves it null and raises the warning `attempt_envelope_unavailable`",
-          "contract": "result `{job, envelope}`"
+          "contract": "result `{job, envelope}`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a job at rest with attempts 1 done, 2 failed, 3 queued; variants: envelope route 404, 500",
+              "a job with only queued/running attempts"
+            ],
+            "pseudocode": "assert fetched==['/attempts/2/envelope']; assert 'attempt_envelope_unavailable' in codes"
+          }
         },
         {
-          "id": "16-REQ-10.2",
+          "id": "REQ-10.2",
           "pattern": "ubiquitous",
-          "system": "af follower",
-          "action": "append the attempt envelope's warnings to `af`'s own. Its artifacts, side effects, `next` and usage are not copied, `af`'s `usage` stays the no-brain usage, and following adds no `next` of its own on reaching rest"
+          "action": "append the attempt envelope's warnings to `af`'s own. Its artifacts, side effects, `next` and usage are not copied, `af`'s `usage` stays the no-brain usage, and following adds no `next` of its own on reaching rest",
+          "contract": "af's warnings include af's own then the envelope's warnings; af's artifacts hold only the job artifact; af's next has no entries added by following and usage stays the no-brain usage",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an attempt envelope with warnings, artifacts, side_effects, next and usage"
+            ],
+            "pseudocode": "assert env.warnings==own+att.warnings; assert env.next==[]; assert env.usage==NO_BRAIN"
+          }
         },
         {
-          "id": "16-REQ-10.3",
+          "id": "REQ-10.3",
           "pattern": "event_driven",
           "condition": "the job at rest is `done`",
-          "system": "af follower",
           "action": "take the envelope's `result.status`, which is `done` or `unverified`, and use `done` when `result` is null",
-          "contract": "exit code 0 for `done`, 4 for `unverified`"
+          "contract": "exit code 0 for `done`, 4 for `unverified`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a job done with envelope result.status done, one with unverified (outcome parked), one with result null"
+            ],
+            "pseudocode": "assert exit_codes==[0,4,0]"
+          }
         },
         {
-          "id": "16-REQ-10.4",
+          "id": "REQ-10.4",
           "pattern": "event_driven",
           "condition": "the job at rest is `blocked`",
-          "system": "af follower",
           "action": "end `needs_human`, with the blocked question and its option labels in order",
-          "contract": "status `needs_human`, exit code 3, `needs_human.resume` `{argv: [\"af\",\"jobs\",\"answer\",<id>,\"--wait\"], flag: \"--context\"}`, with `--server <url>` added to argv when the server came from the flag"
+          "contract": "status `needs_human`, exit code 3, `needs_human.resume` `{argv: [\"af\",\"jobs\",\"answer\",<id>,\"--wait\"], flag: \"--context\"}`, with `--server <url>` added to argv when the server came from the flag",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a blocked job with a question and options A and B",
+              "server via flag in one run and via AF_URL in another"
+            ],
+            "pseudocode": "assert env.needs_human.resume=={'argv':['af','jobs','answer',id,'--wait'],'flag':'--context'}"
+          }
         },
         {
-          "id": "16-REQ-10.5",
+          "id": "REQ-10.5",
           "pattern": "event_driven",
           "condition": "the job at rest is `failed`",
-          "system": "af follower",
           "action": "take the envelope's `result.status`, which is `failed`, `unverified` or `usage`. A failure carries `result.error`'s category, message, retryable flag and fix hint, and is category `internal` when `result.error` is null",
-          "contract": "exit code 1 for `failed`, 4 for `unverified`, 2 for `usage`"
+          "contract": "exit code 1 for `failed`, 4 for `unverified`, 2 for `usage`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "failed jobs whose envelope has: failed with error{category,message,retryable,fix_hint}, unverified, usage, and failed with error null"
+            ],
+            "pseudocode": "assert env.error==att.error; assert null_case.error.category=='internal'"
+          }
         },
         {
-          "id": "16-REQ-10.6",
+          "id": "REQ-10.6",
           "pattern": "event_driven",
           "condition": "the job at rest is `cancelled`",
-          "system": "af follower",
           "action": "fail with a message saying the job was cancelled on the service, and ignore the attempt envelope's category",
-          "contract": "status `failed`, exit code 1, category `job_cancelled`, `retryable` false"
+          "contract": "status `failed`, exit code 1, category `job_cancelled`, `retryable` false",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a cancelled job whose attempt envelope has category cancelled, and one with another category, and one with no envelope"
+            ],
+            "pseudocode": "assert env.error.category=='job_cancelled' and not env.error.retryable"
+          }
         },
         {
-          "id": "16-REQ-10.7",
+          "id": "REQ-10.7",
           "pattern": "unwanted",
           "condition": "`af` is interrupted by SIGINT, SIGTERM or SIGHUP, or its `--timeout` runs out, while following",
-          "system": "af follower",
           "action": "stop following without sending any cancel request. Only on this path, add `next` entries `af jobs watch <id>` and `af jobs cancel <id>` (each with `--server <url>` when the server came from the flag). The job artifact, which was recorded before following started, stays in the envelope",
-          "contract": "the shell's failure: category `cancelled` for a signal or `timeout` for the bound; `artifacts` names the job"
+          "contract": "the shell's failure: category `cancelled` for a signal or `timeout` for the bound; `artifacts` names the job",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a service whose stream stays open on a running job and records all requests",
+              "a --wait run, and a finished --wait run for contrast"
+            ],
+            "pseudocode": "assert env.error.category=='cancelled'; assert not any(r.path.endswith('/cancel') for r in svc.requests); assert argvs(env.next)==[watch,cancel]"
+          }
         }
       ]
     }
   ],
   "execution_paths": [
     {
-      "id": "16-PATH-1",
+      "id": "PATH-1",
       "title": "A person logs in and subscribes a workspace",
       "steps": [
         {
@@ -673,10 +1208,28 @@
           "actor": "af client",
           "action": "writes a `done` envelope carrying the subscription view and exits 0"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "af binary command line (newApp().Main)",
+          "real service HTTP handler",
+          "fakehub",
+          "credential file in a temp HOME"
+        ],
+        "setup": [
+          "the service of specs 11 and 12 in process over fakehub with a user token and a workspace PAT",
+          "empty HOME and AF_URL naming the service"
+        ],
+        "end_state": [
+          "login exits 0 and ~/.af/config.toml has mode 0600 holding the token",
+          "subscribe exits 0 with the subscription view (service answered 201)",
+          "the repeated subscribe also exits 0 (service answered 200)",
+          "the sentinel token and PAT are in no output"
+        ]
+      }
     },
     {
-      "id": "16-PATH-2",
+      "id": "PATH-2",
       "title": "A fix job is queued and waited on until it is done",
       "steps": [
         {
@@ -707,10 +1260,29 @@
           "actor": "af client",
           "action": "writes an envelope with `result.job.state` `done` and `result.envelope` set to attempt 1's envelope, and exits 0"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "af command line",
+          "real service HTTP handler with jobs routes",
+          "fakehub",
+          "jobs fake runner",
+          "SSE follower"
+        ],
+        "setup": [
+          "the real service handler over fakehub with the jobs layer's fake runner, workspace widgets subscribed",
+          "a stored credential"
+        ],
+        "end_state": [
+          "done: exit 0, result.job.state done, result.envelope equals attempt 1's stored envelope",
+          "unverified parked: exit 4",
+          "non-retryable failed: exit 1 with the same error.category",
+          "watch writes every event of the job to stderr in seq order, one JSON line each"
+        ]
+      }
     },
     {
-      "id": "16-PATH-3",
+      "id": "PATH-3",
       "title": "A blocked triage job is answered through its resume argv",
       "steps": [
         {
@@ -741,10 +1313,28 @@
           "actor": "af client",
           "action": "follows attempt 2 to rest and exits with the attempt envelope's exit code"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "af command line",
+          "real service HTTP handler with jobs routes",
+          "fakehub",
+          "jobs fake runner",
+          "SSE follower"
+        ],
+        "setup": [
+          "the real service over fakehub with the fake runner returning needs_human with options A and B on attempt 1",
+          "a stored credential"
+        ],
+        "end_state": [
+          "the first run exits 3 with resume {argv:[\"af\",\"jobs\",\"answer\",<id>,\"--wait\"], flag:\"--context\"}",
+          "the second run posts {option:\"B\"}, attempt 2 starts, and its runner receives option B's label as the answer",
+          "the second run exits with attempt 2's envelope's code"
+        ]
+      }
     },
     {
-      "id": "16-PATH-4",
+      "id": "PATH-4",
       "title": "A fix with no mode is refused before anything happens",
       "steps": [
         {
@@ -763,10 +1353,28 @@
           "actor": "toolio shell",
           "action": "writes a usage envelope naming `--workspace`, `--server`/`AF_URL` and `--local`, sends no request to the forge or the service, creates no `.agent-fox/run/` directory, and exits 2"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "af binary command line (newApp().Main)",
+          "toolio shell",
+          "recording fake forge and service"
+        ],
+        "setup": [
+          "a recording fake forge and a recording fake service",
+          "an empty working directory",
+          "GITHUB_TOKEN set"
+        ],
+        "end_state": [
+          "a usage envelope naming `--workspace`, `--server`/`AF_URL` and `--local` is written",
+          "exit code is 2",
+          "the forge and the service recorded zero requests",
+          "no `.agent-fox/run/` directory exists"
+        ]
+      }
     },
     {
-      "id": "16-PATH-5",
+      "id": "PATH-5",
       "title": "A local triage runs as before and suggests a local fix",
       "steps": [
         {
@@ -785,10 +1393,29 @@
           "actor": "af triage loop",
           "action": "writes the envelope with `next` `af fix <issue url> --dir <dir> --local`, sends no request to the agent-fox service, and exits 0"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "af command line",
+          "toolio shell",
+          "local triage loop",
+          "fake forge",
+          "scripted brain"
+        ],
+        "setup": [
+          "a fake forge serving the issue and a scripted brain reaching a confirmed diagnosis",
+          "AF_URL set to a closed port",
+          "a stored run directory under --dir"
+        ],
+        "end_state": [
+          "the issue is resolved from the forge and the run directory is created",
+          "exit 0 with next argv [\"af\",\"fix\",<issue url>,\"--dir\",<dir>,\"--local\"]",
+          "no request is attempted to the agent-fox service"
+        ]
+      }
     },
     {
-      "id": "16-PATH-6",
+      "id": "PATH-6",
       "title": "Watching a job resumes after a dropped stream",
       "steps": [
         {
@@ -815,7 +1442,26 @@
           "actor": "af client",
           "action": "writes each event once to stderr and to events.jsonl in `seq` order, fetches the final attempt envelope, and exits with the job's status"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "af command line",
+          "SSE follower",
+          "HTTP client",
+          "scripted fake service",
+          "events file writer"
+        ],
+        "setup": [
+          "a scripted fake service that sends events 1..k then cuts the connection, answers the job read as not at rest, then on since=k replays a duplicate frame, sends the rest and a final job_state at_rest true",
+          "an injected clock",
+          "a stored credential"
+        ],
+        "end_state": [
+          "the second events request has since=k after a 1 s wait",
+          "stderr and events.jsonl hold every event exactly once in seq order",
+          "the final attempt envelope is fetched and the exit code is the job's status"
+        ]
+      }
     }
   ],
   "external_apis": [

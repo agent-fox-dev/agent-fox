@@ -4,9 +4,8 @@ spec_name: "agent_fox_label_protocol"
 title: "agent-fox label protocol: create the seven labels on subscribe, and make a cancelled job's issue match its record"
 status: "active"
 created_at: "2026-10-23T16:51:11.759013Z"
-updated_at: "2026-10-23T20:56:05Z"
 intent_hash: "bf1cf6ba4cda3884d0993f8c08bdf7a103551ebb24f78db7babe8ab87cb3ad86"
-schema_version: 2
+schema_version: 3
 source: "docs/prd/04-drive-the-service-from-the-forge.md"
 ---
 ## Intent
@@ -392,3 +391,15 @@ These rules hold whatever cancelled the job, a person or an unsubscribe.
   - `WorkspaceRecord`, which classes a record without a forge URL as unavailable (`internal/hub/calls.go:240`).
 
 **Standard library:** `database/sql`, `log/slog`, `context`, `time`, `net/http`, `encoding/json`.
+
+## Glossary
+
+- **already there**: Hub's report that a label exists: `200`, `409`, or any other 4xx whose `error_type` is `already_exists` or whose message contains "already exists" (in any case).
+- **cancel cleanup**: The jobs layer's background work after a cancel that no runner cleans up. It removes the status labels the cancelled job accounts for and puts its request label back. Its state is `labels.cleanup`.
+- **hold**: The poll's rule that a cancelled poll-made job keeps its request label absorbed, so the label does not start a new job.
+- **hub session**: The session an attempt opens with hub, recorded in `af_attempts.hub_session`. A runner that has reported one writes its own labels on cancel.
+- **label table**: The one table in code that defines the seven protocol labels (suffix, kind, colour, description) in a fixed order: triage, fix, in-progress, ready, needs-human, landed, failed.
+- **release clock**: The time the poll first sees that no runner of a held job is in progress and no cleanup of it is pending. The hold is released no earlier than the release delay (5 minutes) after it.
+- **request label**: The labels `{prefix}triage` and `{prefix}fix`. A person sets one to ask agent-fox for a job, and the job consumes it.
+- **status label**: The labels `{prefix}in-progress`, `{prefix}ready`, `{prefix}needs-human`, `{prefix}landed` and `{prefix}failed`. They mirror the job record.
+- **try**: One run of a job's cancel cleanup: read the token, the workspace record and the issue, then write only the label changes that are missing. It is bounded by one minute.

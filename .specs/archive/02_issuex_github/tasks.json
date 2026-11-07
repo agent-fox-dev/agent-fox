@@ -1,8 +1,8 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/tasks.v3.json",
   "spec_id": "02",
   "spec_name": "issuex_github",
-  "schema_version": 2,
+  "schema_version": 3,
   "test_commands": {
     "all_tests": "make test",
     "linter": "make lint",
@@ -17,30 +17,19 @@
   "tasks": [
     {
       "id": 1,
-      "kind": "implement",
       "title": "Implement GitHub client constructor, transport, error handling, and factory wiring",
       "criteria": [
-        "02-REQ-1.1",
-        "02-REQ-1.2",
-        "02-REQ-1.3",
-        "02-REQ-1.4",
-        "02-REQ-1.5",
-        "02-REQ-7.1",
-        "02-REQ-7.2",
-        "02-REQ-7.3",
-        "02-REQ-7.4",
-        "02-REQ-7.5",
-        "02-REQ-7.6"
-      ],
-      "tests": [
-        "TS-02-1",
-        "TS-02-2",
-        "TS-02-3",
-        "TS-02-4",
-        "TS-02-21",
-        "TS-02-22",
-        "TS-02-23",
-        "TS-02-24"
+        "REQ-1.1",
+        "REQ-1.2",
+        "REQ-1.3",
+        "REQ-1.4",
+        "REQ-1.5",
+        "REQ-7.1",
+        "REQ-7.2",
+        "REQ-7.3",
+        "REQ-7.4",
+        "REQ-7.5",
+        "REQ-7.6"
       ],
       "steps": [
         "Write unit tests TS-02-1, TS-02-2, TS-02-21, TS-02-22, TS-02-24, property tests TS-02-4, TS-02-23, and factory integration test TS-02-3 in issuex/github_test.go; verify they fail.",
@@ -57,22 +46,16 @@
         "issuex/github.go",
         "issuex/factory.go",
         "issuex/github_test.go"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 2,
-      "kind": "implement",
       "title": "Implement repository metadata inspection and merge policy caching",
       "criteria": [
-        "02-REQ-2.1",
-        "02-REQ-2.2",
-        "02-REQ-2.3",
-        "02-REQ-2.4"
-      ],
-      "tests": [
-        "TS-02-5",
-        "TS-02-6"
+        "REQ-2.1",
+        "REQ-2.2",
+        "REQ-2.3",
+        "REQ-2.4"
       ],
       "steps": [
         "Write unit tests TS-02-5 and TS-02-6 in issuex/github_test.go covering GetRepository success with permissions, merge strategies, and authenticated vs unauthenticated 404 responses; verify they fail.",
@@ -88,40 +71,27 @@
       ],
       "depends_on": [
         1
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 3,
-      "kind": "implement",
       "title": "Implement issue lifecycle, comment handling, and label operations",
       "criteria": [
-        "02-REQ-3.1",
-        "02-REQ-3.2",
-        "02-REQ-3.3",
-        "02-REQ-3.4",
-        "02-REQ-3.5",
-        "02-REQ-3.6",
-        "02-REQ-3.7",
-        "02-REQ-3.8",
-        "02-REQ-4.1",
-        "02-REQ-4.2",
-        "02-REQ-4.3",
-        "02-REQ-4.4",
-        "02-REQ-4.5",
-        "02-REQ-4.6",
-        "02-REQ-4.7"
-      ],
-      "tests": [
-        "TS-02-7",
-        "TS-02-8",
-        "TS-02-9",
-        "TS-02-10",
-        "TS-02-11",
-        "TS-02-12",
-        "TS-02-13",
-        "TS-02-14",
-        "TS-02-15"
+        "REQ-3.1",
+        "REQ-3.2",
+        "REQ-3.3",
+        "REQ-3.4",
+        "REQ-3.5",
+        "REQ-3.6",
+        "REQ-3.7",
+        "REQ-3.8",
+        "REQ-4.1",
+        "REQ-4.2",
+        "REQ-4.3",
+        "REQ-4.4",
+        "REQ-4.5",
+        "REQ-4.6",
+        "REQ-4.7"
       ],
       "steps": [
         "Write unit tests TS-02-7, TS-02-8, TS-02-9, TS-02-10, TS-02-11, TS-02-12, TS-02-13, TS-02-14, and TS-02-15 in issuex/github_issues_test.go; verify they fail.",
@@ -144,35 +114,26 @@
       ],
       "depends_on": [
         1
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 4,
-      "kind": "implement",
       "title": "Implement pull request lifecycle, reviews, CI checks, and merge resolution",
       "criteria": [
-        "02-REQ-5.1",
-        "02-REQ-5.2",
-        "02-REQ-5.3",
-        "02-REQ-5.4",
-        "02-REQ-5.5",
-        "02-REQ-5.6",
-        "02-REQ-5.7",
-        "02-REQ-6.1",
-        "02-REQ-6.2",
-        "02-REQ-6.3",
-        "02-REQ-6.4",
-        "02-REQ-6.5",
-        "02-REQ-6.6",
-        "02-REQ-6.7"
-      ],
-      "tests": [
-        "TS-02-16",
-        "TS-02-17",
-        "TS-02-18",
-        "TS-02-19",
-        "TS-02-20"
+        "REQ-5.1",
+        "REQ-5.2",
+        "REQ-5.3",
+        "REQ-5.4",
+        "REQ-5.5",
+        "REQ-5.6",
+        "REQ-5.7",
+        "REQ-6.1",
+        "REQ-6.2",
+        "REQ-6.3",
+        "REQ-6.4",
+        "REQ-6.5",
+        "REQ-6.6",
+        "REQ-6.7"
       ],
       "steps": [
         "Write unit tests TS-02-16, TS-02-17, TS-02-18, TS-02-19, and TS-02-20 in issuex/github_pr_test.go; verify they fail.",
@@ -194,45 +155,7 @@
       ],
       "depends_on": [
         2
-      ],
-      "state": "done"
-    },
-    {
-      "id": 5,
-      "kind": "integration",
-      "title": "Verify GitHub adapter execution paths and factory integration end-to-end",
-      "tests": [
-        "TS-02-25",
-        "TS-02-26",
-        "TS-02-27"
-      ],
-      "steps": [
-        "Write smoke tests TS-02-25, TS-02-26, and TS-02-27 in issuex/smoke_test.go exercising the complete live flows against mock HTTP server environments.",
-        "Trace 02-PATH-1 through NewGitHub, CreateIssue, ReadIssue (verifying issue thread and comments), and CloseIssue (verifying comment posting and closed state); confirm each call transitions to the next with zero stubs.",
-        "Trace 02-PATH-2 through NewWithOptions with ForgeTypeGitHub detection, ReadPullRequest, GetCIChecks, PostReviewComment, and MergePullRequest with MergeMethodDefault selecting repo-configured merge strategy; confirm each call transitions to the next with zero stubs.",
-        "Trace 02-PATH-3 through rate-limit backoff retry with injected sleep function verifying that 403 quota exhaustion with 2-second backoff sleeps and retries successfully; confirm execution flow.",
-        "Confirm every unwanted criterion contract is satisfied in production code: IsNotFound on 404 with private hints, IsNoToken on unauthenticated writes, IsConflict on merge 405/409, IsRateLimited on excessive backoff or retry failure, and partial comment error preservation in IssueThread.CommentsErr.",
-        "Search all touched files (issuex/github.go, issuex/factory.go, issuex/github_issues.go, issuex/github_pr.go, issuex/github_test.go, issuex/github_issues_test.go, issuex/github_pr_test.go, issuex/smoke_test.go) for stub markers like panic(\"not implemented\"), TODO, or unimplemented return values, and ensure none remain.",
-        "Run make test and make lint to verify full repository build, lint, and test suite pass cleanly."
-      ],
-      "touches": [
-        "issuex/github.go",
-        "issuex/factory.go",
-        "issuex/github_issues.go",
-        "issuex/github_pr.go",
-        "issuex/smoke_test.go"
-      ],
-      "depends_on": [
-        1,
-        2,
-        3,
-        4
-      ],
-      "done_when": [
-        "`make test` passes with zero failures across all packages",
-        "`make lint` passes with no formatting or vet discrepancies"
-      ],
-      "state": "done"
+      ]
     }
   ]
 }

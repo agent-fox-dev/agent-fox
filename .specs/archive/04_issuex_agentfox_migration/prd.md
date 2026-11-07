@@ -4,9 +4,8 @@ spec_name: "issuex_agentfox_migration"
 title: "Issuex Migration and GHAPI Deprecation"
 status: "active"
 created_at: "2026-09-10T17:12:46.903801Z"
-updated_at: "2026-09-10T17:12:46.903801Z"
 intent_hash: "dc9195679695928ffa6a412d5956f2fe1b5db72ca06562bd7d30e1ab5112df07"
-schema_version: 2
+schema_version: 3
 source: "docs/drafts/forge_neutral_issue_pr_client.md"
 ---
 ## Intent
@@ -212,3 +211,12 @@ All package test suites shall be updated to test against `issuex`:
 | `01_issuex_core` | Foundational forge client interface, domain data models, URL and git remote parsing, error taxonomy, and NoOpClient. |
 | `02_issuex_github` | GitHub REST client adapter implementing `issuex.Client` for GitHub and GitHub Enterprise instances. |
 | `03_issuex_gitlab` | GitLab REST client adapter implementing `issuex.Client` for GitLab and self-hosted GitLab instances. |
+
+## Glossary
+
+- **Forge**: A web-based service hosting Git repositories, issue tracking, and code review workflows, such as GitHub or GitLab.
+- **ForgeClient**: The unified Go interface declaring forge-neutral repository, issue, and pull request operations.
+- **IssueRef**: A reference identifying an issue or pull request within a repository by number.
+- **KindIssue**: The forge-neutral toolio input source classification indicating that the input originates from an issue or pull/merge request thread.
+- **MultiSegmentRepo**: A repository path with multiple hierarchical namespace components, such as nested GitLab subgroups (e.g., group/subgroup/project).
+- **NoOpClient**: An issuex client implementation used when no forge is configured, enabling offline file and text processing without network or credential requirements.

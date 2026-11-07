@@ -4,9 +4,8 @@ spec_name: "issuex_core"
 title: "Forge-Neutral Issue and Pull Request Client Core"
 status: "active"
 created_at: "2026-09-10T16:55:22.682974Z"
-updated_at: "2026-09-10T16:55:22.682974Z"
 intent_hash: "cc4cde5e19b0453ee5b2b58d1d53f0d7430e55a528437da4338938d94bff5fc6"
-schema_version: 2
+schema_version: 3
 source: "docs/drafts/forge_neutral_issue_pr_client.md"
 ---
 ## Intent
@@ -157,3 +156,11 @@ The package shall provide a complete implementation of `Client` via `NewNoOp()`:
 8. **Pluggable forge registration dispatch**: `NewWithOptions` in `issuex_core` implements forge detection and environment resolution; when GitHub or GitLab is detected prior to their adapter specs, it returns `ErrUnsupportedForge` cleanly signaling the missing adapter.
 9. **Origin remote fallback for detection**: When base URL and environment variables do not indicate a forge, the constructor checks the git origin remote in the current working directory before returning an ambiguity error, reducing required configuration in typical CLI workflows.
 10. **Zero external HTTP dependencies**: Transport is built strictly on standard library `net/http` and `encoding/json` with no third-party HTTP framework dependencies, preserving compatibility with `agent-fox` ecosystem constraints.
+
+## Glossary
+
+- **Forge**: A web-based service hosting Git repositories, issue tracking, and code review workflows, such as GitHub or GitLab.
+- **ForgeClient**: The unified Go interface declaring forge-neutral repository, issue, and pull request operations.
+- **IssueRef**: A reference identifying an issue or pull request within a repository by number.
+- **NoOpClient**: A client implementation that returns zero-values for reads, performs silent no-ops for issue writes, and returns explicit errors for pull request operations.
+- **Repo**: A repository identifier containing owner, name, and optional host segments, supporting nested group paths.

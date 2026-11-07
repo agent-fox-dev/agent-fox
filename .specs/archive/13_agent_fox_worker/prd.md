@@ -4,9 +4,8 @@ spec_name: "agent_fox_worker"
 title: "agent-fox worker: run one triage or fix attempt over hub — lease, gateway box, in-process loops, forge through hub, sessions and audit"
 status: "active"
 created_at: "2026-10-21T21:25:19.129062Z"
-updated_at: "2026-10-21T21:25:19.129062Z"
 intent_hash: "f1932716868d3695f2c93cf02b27bf300f3d0b33767c1d00fdb57cc32cbef129"
-schema_version: 2
+schema_version: 3
 source: "docs/prd/03-run-the-agent-fox-service.md"
 ---
 ## Intent
@@ -774,3 +773,19 @@ Every test runs offline.
 **Standard library and git.** These are the expected mechanisms, which design confirms:
 - `net/http/cgi.Handler{Path, Args, Dir, Env}` serves `git http-backend`, with `GIT_PROJECT_ROOT` and `GIT_HTTP_EXPORT_ALL`, for the fake git server.
 - git honours `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, available since git 2.31, together with `http.<url>.extraHeader`. This is how the scoped Basic header reaches git without a command line or a file.
+
+## Glossary
+
+- **PAT**: The subscription's personal access token for hub, read from the store with Token(ctx, slug); the only credential the worker sends to hub and to hub's git server.
+- **attempt**: One delivery of a job to the runner; the jobs layer gives it the directory attempts/<job id>/<n>/ and stores envelope.json and report.md there after the runner returns.
+- **earlier questions**: Per --context value, the question it answers with its options, or no question; supplied in-process by the caller instead of being searched for in run directories.
+- **fakehub**: internal/hub/fakehub, the offline test double for hub, extended here with the worker's endpoints, a loopback git smart-HTTP server and leases over an in-process gateway.
+- **gateway provider**: A box provider built from a lease's gateway URL and token, held only in the attempt's own box registry; not an af --sandbox choice.
+- **hermetic runner**: A git runner with no global or system git configuration, no prompt and no askpass, built on gitx.HermeticEnv.
+- **lease**: A sandbox granted by hub for one attempt: {id, gateway_url, token, expires_at}. The token authenticates to the gateway only.
+- **mirror**: The worker's write of an attempt's outcome to the issue: a status label under the subscription's prefix and at most one comment.
+- **ring-1 commands**: The af commands of 06_af_ring1_facts used for measuring: af lang detect, af gate run and af revert-check, whose results are read from their envelopes.
+- **round position**: The attempt's position in its round: 1 for an attempt triggered by create, answer or retry, and one more for each auto attempt after it. Added by this spec to what the jobs layer gives the runner.
+- **status labels**: The labels in-progress, ready, needs-human, landed and failed, each prefixed by the subscription's label_prefix.
+- **transient error**: An error the worker returns instead of a result for an infrastructure failure; it carries a *toolio.Failure with retryable true, and the jobs layer hands the same attempt over again.
+- **worker**: The production Runner of agent_fox_jobs: the component that carries out one attempt of a job inside the agent-fox service process.

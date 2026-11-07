@@ -1,8 +1,8 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/tasks.v3.json",
   "spec_id": "06",
   "spec_name": "af_ring1_facts",
-  "schema_version": 2,
+  "schema_version": 3,
   "test_commands": {
     "all_tests": "make test",
     "linter": "make lint",
@@ -17,20 +17,9 @@
   "tasks": [
     {
       "id": 1,
-      "kind": "implement",
       "title": "Add NUL-separated gitx listings, the shared file view and the tree hash",
       "criteria": [
-        "06-REQ-1"
-      ],
-      "tests": [
-        "TS-06-1",
-        "TS-06-2",
-        "TS-06-3",
-        "TS-06-4",
-        "TS-06-5",
-        "TS-06-6",
-        "TS-06-7",
-        "TS-06-8"
+        "REQ-1"
       ],
       "steps": [
         "Write TS-06-1..8 first (package checks and gitx tests; copy gitx's newRepo helper per package and skip when git is missing) and confirm they fail",
@@ -50,27 +39,14 @@
       ],
       "done_when": [
         "`go test ./internal/gitx/... ./internal/checks/... -count=1` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 2,
-      "kind": "implement",
       "title": "Detect languages, the gate table, suite forms, programs and test paths",
       "criteria": [
-        "06-REQ-2",
-        "06-REQ-6.2"
-      ],
-      "tests": [
-        "TS-06-9",
-        "TS-06-10",
-        "TS-06-11",
-        "TS-06-12",
-        "TS-06-13",
-        "TS-06-14",
-        "TS-06-16",
-        "TS-06-39"
+        "REQ-2",
+        "REQ-6.2"
       ],
       "steps": [
         "Write TS-06-9..14, 16 and 39 first (fixture directories built in t.TempDir) and confirm they fail",
@@ -95,25 +71,17 @@
       "done_when": [
         "`go test ./internal/project/... -count=1` passes",
         "Detect on this repository returns go first and exactly [make check]"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 3,
-      "kind": "implement",
       "title": "Wire `af lang detect`, extend toolio for stdin/stdout document and failure categories",
       "criteria": [
-        "06-REQ-2.6",
-        "06-REQ-2.7",
-        "06-REQ-2.8",
-        "06-REQ-10.5",
-        "06-REQ-10.6"
-      ],
-      "tests": [
-        "TS-06-15",
-        "TS-06-17",
-        "TS-06-18"
+        "REQ-2.6",
+        "REQ-2.7",
+        "REQ-2.8",
+        "REQ-10.5",
+        "REQ-10.6"
       ],
       "steps": [
         "Read the real spec-05 internal/toolio and cmd/af API before wiring; use its actual names",
@@ -135,32 +103,17 @@
       ],
       "done_when": [
         "`go test ./cmd/af/... ./internal/toolio/... -count=1` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 4,
-      "kind": "implement",
       "title": "Run the gate: checks engine, logs, result, cache key and `af gate run`",
       "criteria": [
-        "06-REQ-3",
-        "06-REQ-4.1",
-        "06-REQ-4.2",
-        "06-REQ-4.4",
-        "06-REQ-4.5"
-      ],
-      "tests": [
-        "TS-06-19",
-        "TS-06-20",
-        "TS-06-21",
-        "TS-06-22",
-        "TS-06-23",
-        "TS-06-24",
-        "TS-06-25",
-        "TS-06-26",
-        "TS-06-28",
-        "TS-06-29"
+        "REQ-3",
+        "REQ-4.1",
+        "REQ-4.2",
+        "REQ-4.4",
+        "REQ-4.5"
       ],
       "steps": [
         "Write the tests first; gate checks are small shell scripts or go invocations appending to an ignored counter file; confirm they fail",
@@ -189,30 +142,16 @@
       ],
       "done_when": [
         "`go test ./internal/checks/... ./cmd/af/... -count=1` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 5,
-      "kind": "implement",
       "title": "Add gate labels, cache properties and `af gate compare`",
       "criteria": [
-        "06-REQ-4.3",
-        "06-REQ-4.6",
-        "06-REQ-4.7",
-        "06-REQ-5"
-      ],
-      "tests": [
-        "TS-06-27",
-        "TS-06-30",
-        "TS-06-31",
-        "TS-06-32",
-        "TS-06-33",
-        "TS-06-34",
-        "TS-06-35",
-        "TS-06-36",
-        "TS-06-37"
+        "REQ-4.3",
+        "REQ-4.6",
+        "REQ-4.7",
+        "REQ-5"
       ],
       "steps": [
         "Write the tests first and confirm they fail",
@@ -237,28 +176,14 @@
       ],
       "done_when": [
         "`go test ./internal/checks/... ./cmd/af/... -count=1` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 6,
-      "kind": "implement",
       "title": "Implement `af revert-check` with backup, index-safe revert and uncancellable restore",
       "criteria": [
-        "06-REQ-6",
-        "06-REQ-10.6"
-      ],
-      "tests": [
-        "TS-06-38",
-        "TS-06-40",
-        "TS-06-41",
-        "TS-06-42",
-        "TS-06-43",
-        "TS-06-44",
-        "TS-06-45",
-        "TS-06-46",
-        "TS-06-74"
+        "REQ-6",
+        "REQ-10.6"
       ],
       "steps": [
         "Write the tests first (repos built like newRepo; script test checks recording observations into an ignored file) and confirm they fail",
@@ -285,26 +210,13 @@
       ],
       "done_when": [
         "`go test ./internal/conform/... ./cmd/af/... -count=1` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 7,
-      "kind": "implement",
       "title": "Build the policy engine: tokenizer, segments and shell rules",
       "criteria": [
-        "06-REQ-7"
-      ],
-      "tests": [
-        "TS-06-47",
-        "TS-06-48",
-        "TS-06-49",
-        "TS-06-50",
-        "TS-06-51",
-        "TS-06-52",
-        "TS-06-53",
-        "TS-06-54"
+        "REQ-7"
       ],
       "steps": [
         "Write the tests first and confirm they fail",
@@ -325,27 +237,13 @@
       ],
       "done_when": [
         "`go test ./internal/policy/... -count=1` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 8,
-      "kind": "implement",
       "title": "Load policies, decide write tools and wire `af guard check`",
       "criteria": [
-        "06-REQ-8"
-      ],
-      "tests": [
-        "TS-06-55",
-        "TS-06-56",
-        "TS-06-57",
-        "TS-06-58",
-        "TS-06-59",
-        "TS-06-60",
-        "TS-06-61",
-        "TS-06-62",
-        "TS-06-73"
+        "REQ-8"
       ],
       "steps": [
         "Write the tests first (subprocess tests for --host claude using the built binary or in-process Main with captured stdout) and confirm they fail",
@@ -371,24 +269,13 @@
       ],
       "done_when": [
         "`go test ./internal/policy/... ./cmd/af/... -count=1` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 9,
-      "kind": "implement",
       "title": "Render the budgeted repository map and wire `af map`",
       "criteria": [
-        "06-REQ-9"
-      ],
-      "tests": [
-        "TS-06-63",
-        "TS-06-64",
-        "TS-06-65",
-        "TS-06-66",
-        "TS-06-67",
-        "TS-06-68"
+        "REQ-9"
       ],
       "steps": [
         "Write the tests first with a fake Outliner and confirm they fail",
@@ -414,29 +301,18 @@
       ],
       "done_when": [
         "`go test ./internal/repomap/... ./cmd/af/... -count=1` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 10,
-      "kind": "implement",
       "title": "Finish shell wiring checks, schemas golden, offline guarantees and documentation",
       "criteria": [
-        "06-REQ-10.1",
-        "06-REQ-10.2",
-        "06-REQ-10.3",
-        "06-REQ-10.4",
-        "06-REQ-10.7",
-        "06-REQ-10.8"
-      ],
-      "tests": [
-        "TS-06-69",
-        "TS-06-70",
-        "TS-06-71",
-        "TS-06-72",
-        "TS-06-75",
-        "TS-06-76"
+        "REQ-10.1",
+        "REQ-10.2",
+        "REQ-10.3",
+        "REQ-10.4",
+        "REQ-10.7",
+        "REQ-10.8"
       ],
       "steps": [
         "Write the tests first and confirm they fail",
@@ -469,40 +345,7 @@
       ],
       "done_when": [
         "`make check` passes offline"
-      ],
-      "state": "done",
-      "optional": false
-    },
-    {
-      "id": 11,
-      "kind": "integration",
-      "title": "Verify the five ring-1 execution paths end to end",
-      "tests": [
-        "TS-06-77",
-        "TS-06-78",
-        "TS-06-79",
-        "TS-06-80",
-        "TS-06-81"
-      ],
-      "steps": [
-        "Write TS-06-77..81 as smoke tests against the built af binary with real git repositories and confirm they pass",
-        "Trace 06-PATH-1..5 from the toolio shell through cmd/af into internal/project, checks, conform, policy and repomap; confirm each step calls the next and no stub remains",
-        "For every criterion with a contract (gate result, labels.json, compare verdict, revert outcome, guard decision, map level), confirm the producer's result is consumed by a caller in production code, not only by tests",
-        "Confirm spec-05's shell entry point (toolio Main and cmd/af main) calls the registration of all six commands in production code",
-        "Search every file named in all tasks' touches for panic(\"not implemented\"), TODO, NotImplementedError and a bare `return nil` on a non-trivial path and remove them",
-        "Run make check and confirm the --schema golden and docs are current"
-      ],
-      "touches": [
-        "cmd/af/smoke_test.go"
-      ],
-      "depends_on": [
-        10
-      ],
-      "done_when": [
-        "`make check` passes offline"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     }
   ]
 }

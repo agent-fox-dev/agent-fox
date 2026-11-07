@@ -1,8 +1,8 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/tasks.v3.json",
   "spec_id": "10",
   "spec_name": "af_boxes_claude",
-  "schema_version": 2,
+  "schema_version": 3,
   "test_commands": {
     "all_tests": "make test",
     "linter": "make lint",
@@ -33,21 +33,13 @@
   "tasks": [
     {
       "id": 1,
-      "kind": "implement",
       "title": "Register landlock, podman, local and none and resolve --sandbox, AF_SANDBOX and --borrowed-hands",
       "criteria": [
-        "10-REQ-1.1",
-        "10-REQ-1.2",
-        "10-REQ-1.3",
-        "10-REQ-1.4",
-        "10-REQ-1.7"
-      ],
-      "tests": [
-        "TS-10-1",
-        "TS-10-2",
-        "TS-10-3",
-        "TS-10-4",
-        "TS-10-7"
+        "REQ-1.1",
+        "REQ-1.2",
+        "REQ-1.3",
+        "REQ-1.4",
+        "REQ-1.7"
       ],
       "steps": [
         "Write TS-10-1, 2, 3, 4 and 7 first and confirm they fail",
@@ -68,28 +60,17 @@
       ],
       "done_when": [
         "`make lint` and `make test` pass offline"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 2,
-      "kind": "implement",
       "title": "Compute the box request from brain, provider, borrowed-hands and tools",
       "criteria": [
-        "10-REQ-2.1",
-        "10-REQ-2.2",
-        "10-REQ-2.3",
-        "10-REQ-2.4",
-        "10-REQ-2.5"
-      ],
-      "tests": [
-        "TS-10-8",
-        "TS-10-9",
-        "TS-10-10",
-        "TS-10-11",
-        "TS-10-12",
-        "TS-10-13"
+        "REQ-2.1",
+        "REQ-2.2",
+        "REQ-2.3",
+        "REQ-2.4",
+        "REQ-2.5"
       ],
       "steps": [
         "Write TS-10-8 to 13 first (table tests plus property tests with testing/quick or a seeded generator) and confirm they fail",
@@ -112,22 +93,13 @@
       ],
       "done_when": [
         "`make lint` and `make test` pass offline"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 3,
-      "kind": "implement",
       "title": "Implement the landlock provider with an ABI 4 check that fails closed",
       "criteria": [
-        "10-REQ-3"
-      ],
-      "tests": [
-        "TS-10-15",
-        "TS-10-16",
-        "TS-10-17",
-        "TS-10-18"
+        "REQ-3"
       ],
       "steps": [
         "Write TS-10-15 to 18 first and confirm they fail",
@@ -151,27 +123,17 @@
       ],
       "done_when": [
         "`make lint` and `make test` pass offline on this OS"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 4,
-      "kind": "implement",
       "title": "Implement the podman provider failures, restore the tools image and add the Makefile targets",
       "criteria": [
-        "10-REQ-1.5",
-        "10-REQ-4.1",
-        "10-REQ-4.2",
-        "10-REQ-4.4",
-        "10-REQ-4.5"
-      ],
-      "tests": [
-        "TS-10-5",
-        "TS-10-19",
-        "TS-10-20",
-        "TS-10-22",
-        "TS-10-23"
+        "REQ-1.5",
+        "REQ-4.1",
+        "REQ-4.2",
+        "REQ-4.4",
+        "REQ-4.5"
       ],
       "steps": [
         "Write TS-10-5, 19, 20, 22 and 23 first and confirm they fail",
@@ -198,29 +160,18 @@
       ],
       "done_when": [
         "`make -n build-containers` prints the sandbox build before the tools build"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 5,
-      "kind": "implement",
       "title": "Implement the none provider's in-place session",
       "criteria": [
-        "10-REQ-1.6",
-        "10-REQ-5.1",
-        "10-REQ-5.2",
-        "10-REQ-5.3",
-        "10-REQ-5.4",
-        "10-REQ-5.5"
-      ],
-      "tests": [
-        "TS-10-24",
-        "TS-10-25",
-        "TS-10-26",
-        "TS-10-27",
-        "TS-10-28",
-        "TS-10-6"
+        "REQ-1.6",
+        "REQ-5.1",
+        "REQ-5.2",
+        "REQ-5.3",
+        "REQ-5.4",
+        "REQ-5.5"
       ],
       "steps": [
         "Write TS-10-24 to 28 and TS-10-6 first and confirm they fail",
@@ -245,25 +196,16 @@
       ],
       "done_when": [
         "`make lint` and `make test` pass offline"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 6,
-      "kind": "implement",
       "title": "Keep submission.json host-accepted under in-place sessions and add prefix_bytes to run.json",
       "criteria": [
-        "10-REQ-5.6",
-        "10-REQ-5.7",
-        "10-REQ-5.8",
-        "10-REQ-9.6"
-      ],
-      "tests": [
-        "TS-10-29",
-        "TS-10-30",
-        "TS-10-31",
-        "TS-10-58"
+        "REQ-5.6",
+        "REQ-5.7",
+        "REQ-5.8",
+        "REQ-9.6"
       ],
       "steps": [
         "Write TS-10-29, 30, 31 and 58 first and confirm they fail",
@@ -289,31 +231,19 @@
       ],
       "done_when": [
         "`make lint` and `make test` pass offline"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 7,
-      "kind": "implement",
       "title": "Add Session.Exec and the process runner with probe, env allowlist and timeout",
       "criteria": [
-        "10-REQ-7.1",
-        "10-REQ-7.2",
-        "10-REQ-7.3",
-        "10-REQ-7.4",
-        "10-REQ-7.5",
-        "10-REQ-7.8",
-        "10-REQ-4.3"
-      ],
-      "tests": [
-        "TS-10-21",
-        "TS-10-38",
-        "TS-10-39",
-        "TS-10-40",
-        "TS-10-41",
-        "TS-10-42",
-        "TS-10-45"
+        "REQ-7.1",
+        "REQ-7.2",
+        "REQ-7.3",
+        "REQ-7.4",
+        "REQ-7.5",
+        "REQ-7.8",
+        "REQ-4.3"
       ],
       "steps": [
         "Write TS-10-21, 38, 39, 40, 41, 42 and 45 first and confirm they fail",
@@ -340,29 +270,15 @@
       ],
       "done_when": [
         "`make lint` and `make test` pass offline"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 8,
-      "kind": "implement",
       "title": "Add the claude brain: construction, guard files, command line, tool table and hook wiring",
       "criteria": [
-        "10-REQ-8",
-        "10-REQ-7.6",
-        "10-REQ-7.7"
-      ],
-      "tests": [
-        "TS-10-43",
-        "TS-10-44",
-        "TS-10-46",
-        "TS-10-47",
-        "TS-10-48",
-        "TS-10-49",
-        "TS-10-50",
-        "TS-10-51",
-        "TS-10-52"
+        "REQ-8",
+        "REQ-7.6",
+        "REQ-7.7"
       ],
       "steps": [
         "Write TS-10-43, 44, 46 to 52 first and confirm they fail",
@@ -391,31 +307,19 @@
       ],
       "done_when": [
         "`make lint` and `make test` pass offline"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 9,
-      "kind": "implement",
       "title": "Map process-brain outcomes and run agentkit inside landlock and podman",
       "criteria": [
-        "10-REQ-9.1",
-        "10-REQ-9.2",
-        "10-REQ-9.3",
-        "10-REQ-9.4",
-        "10-REQ-9.5",
-        "10-REQ-9.7",
-        "10-REQ-9.8"
-      ],
-      "tests": [
-        "TS-10-53",
-        "TS-10-54",
-        "TS-10-55",
-        "TS-10-56",
-        "TS-10-57",
-        "TS-10-59",
-        "TS-10-60"
+        "REQ-9.1",
+        "REQ-9.2",
+        "REQ-9.3",
+        "REQ-9.4",
+        "REQ-9.5",
+        "REQ-9.7",
+        "REQ-9.8"
       ],
       "steps": [
         "Write TS-10-53 to 57, 59 and 60 first and confirm they fail",
@@ -440,26 +344,14 @@
       ],
       "done_when": [
         "`make lint` and `make test` pass offline"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 10,
-      "kind": "implement",
       "title": "Apply fixes under every provider, with the none foreign-commit check and box in the fix result",
       "criteria": [
-        "10-REQ-6",
-        "10-REQ-2.6"
-      ],
-      "tests": [
-        "TS-10-14",
-        "TS-10-32",
-        "TS-10-33",
-        "TS-10-34",
-        "TS-10-35",
-        "TS-10-36",
-        "TS-10-37"
+        "REQ-6",
+        "REQ-2.6"
       ],
       "steps": [
         "Write TS-10-14 and TS-10-32 to 37 first and confirm they fail",
@@ -490,23 +382,13 @@
       ],
       "done_when": [
         "`make lint` and `make test` pass offline"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 11,
-      "kind": "implement",
       "title": "Wire triage to the new boxes, pass --sandbox local in legacy tests, add opt-in tests and docs",
       "criteria": [
-        "10-REQ-10"
-      ],
-      "tests": [
-        "TS-10-61",
-        "TS-10-62",
-        "TS-10-63",
-        "TS-10-64",
-        "TS-10-65"
+        "REQ-10"
       ],
       "steps": [
         "Write TS-10-61 to 65 first and confirm they fail",
@@ -543,42 +425,7 @@
       ],
       "done_when": [
         "`make check` passes offline"
-      ],
-      "state": "done",
-      "optional": false
-    },
-    {
-      "id": 12,
-      "kind": "integration",
-      "title": "Verify the claude, none, landlock and default-failure paths end to end",
-      "tests": [
-        "TS-10-66",
-        "TS-10-67",
-        "TS-10-68",
-        "TS-10-69"
-      ],
-      "steps": [
-        "Write TS-10-66 to 69 against the real af binary built in TestMain; TS-10-68 skips with a reason unless AF_TEST_LANDLOCK=1 and ABI 4 is present",
-        "Trace 10-PATH-1 through cmd/af triage, brain.Flags, the local provider, brain.Execute, the process runner, the claude brain, af guard check and af triage submit; confirm each step calls the next and no stub remains",
-        "Trace 10-PATH-2 through cmd/af fix, the none in-place session, the foreign-commit check, the apply step skip and the landing commit; confirm Export is never called",
-        "Trace 10-PATH-3 and 10-PATH-4 through the landlock and podman providers and the default selection failure mapping to the result envelope",
-        "For every criterion with a contract confirm its producer's result is consumed by a caller in production code (BoxRequest by both loops, InPlace by the apply step, ABI function by the landlock provider, claude_result by the usage block), not only by tests",
-        "Confirm the entry points owned by other specs (cmd/af triage, cmd/af fix, af guard check, af <agent> submit, af triage run, af fix run) are called from production code",
-        "Grep every file in the touches of tasks 1 to 11 for panic(\"not implemented\"), TODO, NotImplementedError and bare `return nil` on non-trivial paths and remove any that remain, including the stub factories from task 1",
-        "Run `make check` and confirm it passes offline"
-      ],
-      "touches": [
-        "cmd/af/smoke_boxes_test.go"
-      ],
-      "depends_on": [
-        11
-      ],
-      "done_when": [
-        "`make check` passes offline",
-        "no stub marker remains in any touched file"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     }
   ]
 }

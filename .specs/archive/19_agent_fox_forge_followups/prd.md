@@ -4,9 +4,8 @@ spec_name: "agent_fox_forge_followups"
 title: "agent-fox forge follow-ups: answer and retry from the forge, and AF_AUTO_FIX"
 status: "active"
 created_at: "2026-10-23T17:48:40.254014Z"
-updated_at: "2026-10-24T06:21:09Z"
 intent_hash: "8dbcec12b5f304ed6aa33ed562b5382525ece2c6a2dfa9e381ec1e9450e02dbd"
-schema_version: 2
+schema_version: 3
 source: "docs/prd/04-drive-the-service-from-the-forge.md"
 ---
 ## Intent
@@ -389,3 +388,13 @@ The `fix_summary` comment of a fix job whose source is `triage` gains the line `
   Hub's OpenAPI document (`../hub/docs/openapi.yaml`) is outside the repository.
 
 **Standard library:** `strings`, `unicode/utf8`, `time`, `database/sql`, `log/slog`.
+
+## Glossary
+
+- **anchor**: The comment on the issue that carries the marker of the job's latest attempt (`<!-- agent-fox job=J attempt=<n> kind=`). If no such comment exists, the anchor is the time that attempt finished.
+- **answer comments**: The comments after the anchor whose body does not contain `<!-- agent-fox` and is not blank after trimming.
+- **cut thread**: An issue read in which hub answered `truncated: true`, so the comments read are not all of the issue's comments.
+- **follow-up**: A durable jobs-layer record that a triage job asked for a fix on an issue. It holds the label, the issue, a state (pending, made, absorbed or withdrawn) and an optional job id.
+- **newer record**: A poll record of label L on issue N made at or after the time the poll listing was requested (spec 18 R7). It makes the sighting do nothing, and the label is left to the next cycle.
+- **owed removal**: A poll record that says the service still has to remove a label it consumed, because an earlier removal failed.
+- **sighting**: A request label L of kind K (<prefix>triage or <prefix>fix) on issue N of a workspace, found by a poll cycle listing or by an event of the event stream. Its `by` is `label <L>` for the poll, or the hub event id for the stream.

@@ -4,9 +4,8 @@ spec_name: "af_cli_envelope"
 title: "The af binary, its envelope and its run directory"
 status: "active"
 created_at: "2026-10-20T07:26:48.777724Z"
-updated_at: "2026-10-20T07:26:48.777724Z"
 intent_hash: "feaec2dc5848c34e654cedb0e94dd61e9f14f486dbfe253c6b57375978ace755"
-schema_version: 2
+schema_version: 3
 source: "docs/prd/02-rebuild-triage-and-fix-on-the-toolbelt.md"
 ---
 ## Intent
@@ -283,3 +282,17 @@ This scope uses only the standard library and `issuex`. `issuex` lives in this m
 | `issuex.IsNotFound` / `IsRateLimited` / `IsNoToken` | `func(err error) bool` | `issuex/errors.go` |
 | `issuex.ErrAmbiguousForge` / `ErrUnsupportedForge` | sentinel `error` values | `issuex/errors.go` |
 | `issuex.MaxBodyLength` / `BodyLimiter` | `func MaxBodyLength(c Client) int`; `interface{ MaxBodyLength() int }` | `issuex/bodylimit.go` |
+
+## Glossary
+
+- **DryRunForge**: `toolio.DryRunForge(inner)`: an issuex.Client decorator that passes reads through and refuses every write with an error wrapping `toolio.ErrDryRun`, recording it as a planned side effect.
+- **command path**: The one or more words a command is registered under ("triage", "gate run"); it is the envelope's `tool` value.
+- **envelope**: The single JSON object (`toolio.Envelope`, schema_version "5.0.0") that every af command invocation other than --version, --schema and help writes to stdout, with a fixed field set and order.
+- **failure**: `*toolio.Failure{Category, Message, Retryable, FixHint}`: the error type a command returns to set the envelope's `error` object and category.
+- **ledger**: `<run_dir>/ledger.jsonl`: append-only JSON lines `{seq, ts, kind, data}` that later commands use to record what they measured.
+- **outcome**: `toolio.Outcome{Status, Summary, Result, NeedsHuman}`: what a command returns when it did not fail; status is done, unverified or needs_human.
+- **resume**: `needs_human.resume {argv, flag}`: the argv to re-run, with argv[0] "af", plus the flag ("--context") to append with the human's answer.
+- **run directory**: `<dir>/.agent-fox/run/<id>/`, the per-invocation local state holding envelope.json, events.jsonl, ledger.jsonl and optionally report.md and panic.txt; git-ignored by `<dir>/.agent-fox/.gitignore`.
+- **run id**: The run directory's name, `YYYYMMDD_HHMMSS_<6 lowercase hex>` in UTC.
+- **shell**: `toolio.App`: the dispatcher that parses flags, resolves input, builds the forge client and run directory, calls the command's Run and turns its outcome or error into the envelope.
+- **test command**: A command registered only inside `internal/toolio` tests to exercise each shell behaviour without a real work command.

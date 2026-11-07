@@ -1,637 +1,1135 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/requirements.v3.json",
   "spec_id": "05",
   "spec_name": "af_cli_envelope",
-  "schema_version": 2,
-  "introduction": "The `af` binary (`cmd/af`) and its command shell (`internal/toolio`) give every agent-fox command one contract: a single JSON envelope on stdout with a fixed status and exit-code table, `needs_human` with a `--context` resume, a forge client that cannot write under `--dry-run`, a fetchable `--schema`, uniform resolution of the positional `<issue|file|text|->` input, and a git-ignored run directory under the checkout holding the envelope, the event stream and the ledger. In this scope the binary answers only `--version`, `--schema` and `help`; work commands land in later specs on this shell.",
-  "glossary": {
-    "DryRunForge": "`toolio.DryRunForge(inner)`: an issuex.Client decorator that passes reads through and refuses every write with an error wrapping `toolio.ErrDryRun`, recording it as a planned side effect.",
-    "command path": "The one or more words a command is registered under (\"triage\", \"gate run\"); it is the envelope's `tool` value.",
-    "envelope": "The single JSON object (`toolio.Envelope`, schema_version \"5.0.0\") that every af command invocation other than --version, --schema and help writes to stdout, with a fixed field set and order.",
-    "failure": "`*toolio.Failure{Category, Message, Retryable, FixHint}`: the error type a command returns to set the envelope's `error` object and category.",
-    "ledger": "`<run_dir>/ledger.jsonl`: append-only JSON lines `{seq, ts, kind, data}` that later commands use to record what they measured.",
-    "outcome": "`toolio.Outcome{Status, Summary, Result, NeedsHuman}`: what a command returns when it did not fail; status is done, unverified or needs_human.",
-    "resume": "`needs_human.resume {argv, flag}`: the argv to re-run, with argv[0] \"af\", plus the flag (\"--context\") to append with the human's answer.",
-    "run directory": "`<dir>/.agent-fox/run/<id>/`, the per-invocation local state holding envelope.json, events.jsonl, ledger.jsonl and optionally report.md and panic.txt; git-ignored by `<dir>/.agent-fox/.gitignore`.",
-    "run id": "The run directory's name, `YYYYMMDD_HHMMSS_<6 lowercase hex>` in UTC.",
-    "shell": "`toolio.App`: the dispatcher that parses flags, resolves input, builds the forge client and run directory, calls the command's Run and turns its outcome or error into the envelope.",
-    "test command": "A command registered only inside `internal/toolio` tests to exercise each shell behaviour without a real work command."
-  },
+  "schema_version": 3,
   "requirements": [
     {
-      "id": "05-REQ-1",
+      "id": "REQ-1",
       "title": "Binary, command dispatch, help and version",
       "rationale": "One binary with one dispatch rule lets every later command inherit the same invocation grammar.",
       "criteria": [
         {
-          "id": "05-REQ-1.1",
+          "id": "REQ-1.1",
           "pattern": "event_driven",
           "condition": "the leading non-flag arguments of an invocation match one or more registered command paths",
           "system": "shell",
           "action": "dispatch to the command with the longest matching registered path and pass it the remaining arguments",
-          "contract": "the envelope's `tool` equals the dispatched command path (e.g. \"gate run\" over \"gate\")"
+          "contract": "the envelope's `tool` equals the dispatched command path (e.g. \"gate run\" over \"gate\")",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "commands registered under \"gate\" and \"gate run\", each returning done",
+              "an App with in-memory stdin, stdout and stderr"
+            ],
+            "pseudocode": "app.Register(gate); app.Register(gateRun); code = app.Main(ctx, ['gate','run'], in, out, err); assert json(out).tool == 'gate run'; assert gateRun.called && !gate.called"
+          }
         },
         {
-          "id": "05-REQ-1.2",
+          "id": "REQ-1.2",
           "pattern": "unwanted",
           "condition": "`af` is invoked with no arguments or with a first word that matches no registered command path",
           "system": "shell",
           "action": "print a `usage` envelope whose `tool` is \"af\" and whose `error.message` lists every registered command path",
-          "contract": "exit code 2; status `usage`; error.category `usage`"
+          "contract": "exit code 2; status `usage`; error.category `usage`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "commands \"alpha\" and \"beta gamma\" registered"
+            ],
+            "pseudocode": "for args in [[], ['nosuch']]: code = Main(args); assert code == 2; e = json(out); assert e.tool == 'af' && e.status == 'usage' && 'alpha' in e.error.message && 'beta gamma' in e.error.message"
+          }
         },
         {
-          "id": "05-REQ-1.3",
+          "id": "REQ-1.3",
           "pattern": "ubiquitous",
           "system": "shell",
-          "action": "parse each command's own flag.FlagSet with ContinueOnError, accepting flags before or after the positional argument and treating `--` as the end of flag parsing, so that `af X ./bug.md --dir repo` and `af X --dir repo ./bug.md` yield the same parsed flags and positional"
+          "action": "parse each command's own flag.FlagSet with ContinueOnError, accepting flags before or after the positional argument and treating `--` as the end of flag parsing, so that `af X ./bug.md --dir repo` and `af X --dir repo ./bug.md` yield the same parsed flags and positional",
+          "contract": "the first two calls record the same dir and the same positional; the third call treats \"--dir\" as the positional text and sets no dir flag; the flag set is created with ContinueOnError (no os.Exit on a bad flag)",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a test command declaring an input and a --dir flag that records its parsed flags and input"
+            ],
+            "pseudocode": "a = run(['X','./bug.md','--dir',d]); b = run(['X','--dir',d,'./bug.md']); assert a.flags == b.flags && a.pos == b.pos; c = run(['X','--','--dir']); assert c.pos == '--dir'"
+          }
         },
         {
-          "id": "05-REQ-1.4",
+          "id": "REQ-1.4",
           "pattern": "unwanted",
           "condition": "flag parsing fails, or more positional arguments are given than the command declares (one by default)",
           "system": "shell",
           "action": "discard the flag package's own output and print a `usage` envelope naming the offending flag or argument",
-          "contract": "exit code 2; status `usage`; nothing written to stderr"
+          "contract": "exit code 2; status `usage`; nothing written to stderr",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a test command with one positional input and a --dir flag"
+            ],
+            "pseudocode": "code = Main(['X','--bogus','a']); assert code == 2; assert 'bogus' in json(out).error.message; assert err.Len() == 0"
+          }
         },
         {
-          "id": "05-REQ-1.5",
+          "id": "REQ-1.5",
           "pattern": "event_driven",
           "condition": "`-h`, `--help`, `af help` or `af help <command>` is invoked",
           "system": "shell",
           "action": "print plain-text help on stdout: the registered command list, or the named command's synopsis and flags",
-          "contract": "exit code 0; stdout is the help text and is not JSON"
+          "contract": "exit code 0; stdout is the help text and is not JSON",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "commands \"alpha\" (with a --dir flag and a summary) and \"beta\" registered"
+            ],
+            "pseudocode": "for args in cases: assert Main(args) == 0; assert !json.Valid(out); assert 'alpha' in out"
+          }
         },
         {
-          "id": "05-REQ-1.6",
+          "id": "REQ-1.6",
           "pattern": "event_driven",
           "condition": "`af --version` is invoked",
           "system": "shell",
           "action": "print `{\"name\":\"af\",\"version\",\"commit\",\"build_time\",\"go_version\"}` taking the values from the `-ldflags -X` variables of package main, else from runtime/debug.ReadBuildInfo (main module version, vcs.revision, vcs.time), else version \"dev\" with empty commit and build_time",
-          "contract": "exit code 0; stdout is exactly one JSON document"
+          "contract": "exit code 0; stdout is exactly one JSON document",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an App built with explicit Version, Commit and BuildTime, and a second App with all three empty"
+            ],
+            "pseudocode": "assert Main(['--version']) == 0; v = json(out); assert v.name == 'af' && v.version == 'v1.2.3' && v.go_version == runtime.Version()"
+          }
         },
         {
-          "id": "05-REQ-1.7",
+          "id": "REQ-1.7",
           "pattern": "event_driven",
           "condition": "`make build` is run",
           "system": "Makefile",
           "action": "build every package and write `bin/af` from `./cmd/af` with `-ldflags` setting main.version, main.commit and main.buildTime from the Makefile's VERSION, COMMIT and BUILD_TIME; `cmd/af` holds only package main wiring that exits with the code `App.Main(ctx, args, stdin, stdout, stderr)` returns",
-          "contract": "`bin/af --version` reports the Makefile's VERSION; `go build ./cmd/af` succeeds"
+          "contract": "`bin/af --version` reports the Makefile's VERSION; `go build ./cmd/af` succeeds",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "the repository checkout with its Makefile"
+            ],
+            "pseudocode": "run('make build VERSION=9.9.9-test'); out = run('bin/af --version'); assert json(out).version == '9.9.9-test'"
+          }
         },
         {
-          "id": "05-REQ-1.8",
+          "id": "REQ-1.8",
           "pattern": "event_driven",
           "condition": "`--schema`, `--version` or `--help` appears anywhere on a command line",
           "system": "shell",
           "action": "answer that request without resolving input, building a forge client or creating a run directory",
-          "contract": "exit code 0; no forge request is made and no `.agent-fox` directory is created"
+          "contract": "exit code 0; no forge request is made and no `.agent-fox` directory is created",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a command declaring input, forge, run directory and dry-run, with an NewForge hook that counts calls",
+              "a temporary --dir"
+            ],
+            "pseudocode": "for args in cases: assert Main(args) == 0; assert forgeCalls == 0; assert !exists(tmp/'.agent-fox')"
+          }
         }
       ]
     },
     {
-      "id": "05-REQ-2",
+      "id": "REQ-2",
       "title": "The envelope",
       "rationale": "A consumer must never have to tell a missing field from an empty one, so the shape is fixed and always complete.",
+      "system": "shell",
       "criteria": [
         {
-          "id": "05-REQ-2.1",
+          "id": "REQ-2.1",
           "pattern": "ubiquitous",
-          "system": "shell",
           "action": "write exactly one JSON object to stdout for every command invocation other than --version, --schema and help, indented by two spaces and followed by one newline, and write nothing else to stdout",
-          "contract": "stdout parses as a single JSON object"
+          "contract": "stdout parses as a single JSON object",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a test command returning done"
+            ],
+            "pseudocode": "dec = json.NewDecoder(out); dec.Decode(&obj); assert !dec.More(); assert out == json.MarshalIndent(obj,'','  ') + '\\n'"
+          }
         },
         {
-          "id": "05-REQ-2.2",
+          "id": "REQ-2.2",
           "pattern": "ubiquitous",
-          "system": "shell",
           "action": "emit the envelope fields in the order schema_version (\"5.0.0\"), tool, run_id, status, exit_code, summary, input, result, needs_human, error, warnings, artifacts, side_effects, next, usage, started_at, finished_at, duration_ms, with every field present, arrays as `[]` never null, and `fix_hint` either null or an object with only the keys flag, env, var and suggest",
-          "contract": "JSON key order equals the listed order for every status"
+          "contract": "JSON key order equals the listed order for every status",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "test commands that end done, failed, usage, needs_human and unverified"
+            ],
+            "pseudocode": "for s in statuses: keys = topLevelKeys(out); assert keys == EXPECTED; assert e.schema_version == '5.0.0'; assert e.warnings == []"
+          }
         },
         {
-          "id": "05-REQ-2.3",
+          "id": "REQ-2.3",
           "pattern": "ubiquitous",
-          "system": "shell",
           "action": "for any envelope, set `needs_human` non-null if and only if status is `needs_human`, set `error` non-null if and only if status is `failed` or `usage`, and set `exit_code` to the code the status maps to and the process returns",
-          "contract": "status/exit_code pairs are exactly done/0, failed/1, usage/2, needs_human/3, unverified/4, and App.Main returns exit_code"
+          "contract": "status/exit_code pairs are exactly done/0, failed/1, usage/2, needs_human/3, unverified/4, and App.Main returns exit_code",
+          "check": {
+            "kind": "property",
+            "setup": [
+              "a test command whose ending is chosen by the generator"
+            ],
+            "pseudocode": "for ending in gen_endings(): code = Main(...); e = json(out); assert code == e.exit_code == MAP[e.status]; assert (e.needs_human != null) == (e.status == 'needs_human'); assert (e.error != null) == (e.status in ['failed','usage'])"
+          }
         },
         {
-          "id": "05-REQ-2.4",
+          "id": "REQ-2.4",
           "pattern": "ubiquitous",
-          "system": "shell",
-          "action": "write started_at and finished_at as RFC 3339 UTC timestamps with millisecond precision, duration_ms as the invocation's wall time in integer milliseconds, and, when no brain ran, usage as `{brain: \"\", cost_usd: 0, cost_source: \"none\", input_tokens: 0, output_tokens: 0, turns: 0}`"
+          "action": "write started_at and finished_at as RFC 3339 UTC timestamps with millisecond precision, duration_ms as the invocation's wall time in integer milliseconds, and, when no brain ran, usage as `{brain: \"\", cost_usd: 0, cost_source: \"none\", input_tokens: 0, output_tokens: 0, turns: 0}`",
+          "contract": "started_at and finished_at match ^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$; duration_ms is 250 and is an integer; usage equals {brain \"\", cost_usd 0, cost_source \"none\", input_tokens 0, output_tokens 0, turns 0}",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an App whose Now function returns a fixed instant then an instant 250ms later"
+            ],
+            "pseudocode": "e = json(out); assert re.match(RFC3339_MS, e.started_at); assert e.duration_ms == 250; assert e.usage == {brain:'',cost_usd:0,cost_source:'none',input_tokens:0,output_tokens:0,turns:0}"
+          }
         },
         {
-          "id": "05-REQ-2.5",
+          "id": "REQ-2.5",
           "pattern": "event_driven",
           "condition": "the invocation has a run directory or was given `--output <path>` (accepted by every command)",
-          "system": "shell",
           "action": "write the same envelope to `<run_dir>/envelope.json` and to the `--output` path before printing it to stdout",
-          "contract": "each file's content is byte-identical to the stdout envelope"
+          "contract": "each file's content is byte-identical to the stdout envelope",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a command with a run directory in a temporary --dir",
+              "--output pointing at a path in a temporary directory"
+            ],
+            "pseudocode": "assert read(runDir/'envelope.json') == stdout; assert read(outPath) == stdout"
+          }
         },
         {
-          "id": "05-REQ-2.6",
+          "id": "REQ-2.6",
           "pattern": "unwanted",
           "condition": "`<run_dir>/envelope.json` or the `--output` path cannot be written",
-          "system": "shell",
           "action": "add the warning `envelope_unwritable` (run directory copy) or `output_unwritable` (--output copy) to the stdout envelope and leave its status unchanged",
-          "contract": "stdout envelope carries the warning; exit code is the status's code"
+          "contract": "stdout envelope carries the warning; exit code is the status's code",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a command ending done",
+              "--output pointing into a nonexistent directory",
+              "in a second case, the run directory's envelope.json path replaced by a directory"
+            ],
+            "pseudocode": "e = json(out); assert 'output_unwritable' in codes(e.warnings); assert e.status == 'done' && code == 0"
+          }
         },
         {
-          "id": "05-REQ-2.7",
+          "id": "REQ-2.7",
           "pattern": "unwanted",
           "condition": "writing the envelope to stdout fails",
-          "system": "shell",
           "action": "return the exit code of the envelope's status from App.Main regardless of the write error",
-          "contract": "App.Main returns the status's exit code"
+          "contract": "App.Main returns the status's exit code",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a stdout writer that always returns an error",
+              "commands ending done, needs_human and failed"
+            ],
+            "pseudocode": "assert Main(args, failingWriter) == 3"
+          }
         }
       ]
     },
     {
-      "id": "05-REQ-3",
+      "id": "REQ-3",
       "title": "Status, failures and warnings",
       "rationale": "Every way a command can end, including a crash, maps to one status and one exit code so callers can branch without parsing prose.",
+      "system": "shell",
       "criteria": [
         {
-          "id": "05-REQ-3.1",
+          "id": "REQ-3.1",
           "pattern": "event_driven",
           "condition": "a command returns an Outcome with status done, unverified or needs_human and a nil error",
-          "system": "shell",
           "action": "copy the outcome's status, summary and result into the envelope",
-          "contract": "exit code 0 for done, 4 for unverified, 3 for needs_human"
+          "contract": "exit code 0 for done, 4 for unverified, 3 for needs_human",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "commands returning done, unverified (with a warning) and needs_human outcomes with a summary and a result object"
+            ],
+            "pseudocode": "assert e.summary == 'ok' && e.result == {n:1} && code == 0"
+          }
         },
         {
-          "id": "05-REQ-3.2",
+          "id": "REQ-3.2",
           "pattern": "event_driven",
           "condition": "a command returns an error that is a `*toolio.Failure`",
-          "system": "shell",
           "action": "set `error` to `{category, message, retryable, fix_hint}` from the Failure, with status `usage` when the category is `usage` and status `failed` for any other category",
-          "contract": "exit code 2 for category usage, 1 otherwise"
+          "contract": "exit code 2 for category usage, 1 otherwise",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a command returning Failure{Category: \"forge\", Message: \"m\", Retryable: true, FixHint: {Env: \"X\"}}",
+              "a command returning Failure{Category: \"usage\"}"
+            ],
+            "pseudocode": "assert e.error == {category:'forge',message:'m',retryable:true,fix_hint:{env:'X'}} && code == 1"
+          }
         },
         {
-          "id": "05-REQ-3.3",
+          "id": "REQ-3.3",
           "pattern": "unwanted",
           "condition": "a command returns a non-nil error that is not a `*toolio.Failure`",
-          "system": "shell",
           "action": "report status `failed` with error.category `internal` and the error's text as error.message",
-          "contract": "exit code 1; error.retryable false"
+          "contract": "exit code 1; error.retryable false",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a command returning errors.New(\"disk on fire\")"
+            ],
+            "pseudocode": "assert code == 1 && e.error.category == 'internal' && !e.error.retryable"
+          }
         },
         {
-          "id": "05-REQ-3.4",
+          "id": "REQ-3.4",
           "pattern": "unwanted",
           "condition": "a command panics",
-          "system": "shell",
           "action": "recover the panic, write the stack to stderr and, when a run directory exists, to `<run_dir>/panic.txt`, and print one envelope with status `failed` and category `internal`",
-          "contract": "exit code 1; stdout holds exactly one envelope"
+          "contract": "exit code 1; stdout holds exactly one envelope",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a command with a run directory that panics with \"boom\""
+            ],
+            "pseudocode": "assert code == 1; assert 'boom' in stderr; assert 'boom' in read(runDir/'panic.txt')"
+          }
         },
         {
-          "id": "05-REQ-3.5",
+          "id": "REQ-3.5",
           "pattern": "ubiquitous",
-          "system": "shell",
           "action": "for any envelope, keep `summary` to a single line containing no newline character, and fill it with a one-line description whenever the shell sets the status itself (usage, internal, cancelled, timeout)",
-          "contract": "envelope summary contains no newline or carriage-return character"
+          "contract": "envelope summary contains no newline or carriage-return character",
+          "check": {
+            "kind": "property",
+            "setup": [
+              "a test command returning arbitrary summaries"
+            ],
+            "pseudocode": "for ending in gen_endings_with_newlines(): s = json(out).summary; assert '\\n' not in s and '\\r' not in s; if shellSet(ending): assert s != ''"
+          }
         },
         {
-          "id": "05-REQ-3.6",
+          "id": "REQ-3.6",
           "pattern": "ubiquitous",
-          "system": "shell",
           "action": "for any sequence of warnings raised through Run.Warn or by the shell, list each distinct (code, message) pair once in the order first raised and leave the status unchanged",
-          "contract": "a done run with warnings still has status done and exit code 0"
+          "contract": "a done run with warnings still has status done and exit code 0",
+          "check": {
+            "kind": "property",
+            "setup": [
+              "a test command that raises a generated sequence of warnings and returns done"
+            ],
+            "pseudocode": "for seq in gen_warning_seqs(): run(seq); assert e.warnings == dedupe_keep_first(seq); assert e.status == 'done' && code == 0"
+          }
         },
         {
-          "id": "05-REQ-3.7",
+          "id": "REQ-3.7",
           "pattern": "ubiquitous",
-          "system": "shell",
           "action": "define the failure categories usage, auth, forge, io, cancelled, timeout and internal as exported constants of internal/toolio",
-          "contract": "toolio exports a constant for each of the seven category strings; error.category of a shell-set failure is one of them"
+          "contract": "toolio exports a constant for each of the seven category strings; error.category of a shell-set failure is one of them",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "the toolio package"
+            ],
+            "pseudocode": "assert [CategoryUsage,...] == ['usage','auth','forge','io','cancelled','timeout','internal']"
+          }
         },
         {
-          "id": "05-REQ-3.8",
+          "id": "REQ-3.8",
           "pattern": "ubiquitous",
-          "system": "shell",
-          "action": "raise only warning codes that match `^[a-z][a-z0-9_]*$`"
+          "action": "raise only warning codes that match `^[a-z][a-z0-9_]*$`",
+          "contract": "every code matches ^[a-z][a-z0-9_]*$; the set of codes seen includes all five names",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "scenarios that make the shell raise input_truncated, comments_unreadable, envelope_unwritable, output_unwritable and events_unwritable"
+            ],
+            "pseudocode": "for w in all_warnings: assert re.match('^[a-z][a-z0-9_]*$', w.code)"
+          }
         }
       ]
     },
     {
-      "id": "05-REQ-4",
+      "id": "REQ-4",
       "title": "Cancellation and timeouts",
       "rationale": "A stopped or overdue command must still leave a parseable envelope and a bounded exit time.",
+      "system": "shell",
       "criteria": [
         {
-          "id": "05-REQ-4.1",
+          "id": "REQ-4.1",
           "pattern": "event_driven",
           "condition": "the process receives SIGINT or SIGTERM while a command runs",
-          "system": "shell",
           "action": "cancel the command's context, and report status `failed` with category `cancelled` when the command then returns an error",
-          "contract": "exit code 1; error.category `cancelled`"
+          "contract": "exit code 1; error.category `cancelled`",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a test command that blocks on Run.Ctx.Done() and returns ctx.Err()",
+              "signal delivery to the process through the shell's signal handling"
+            ],
+            "pseudocode": "go Main(...); waitStarted(); syscall.Kill(pid, SIGINT); assert code == 1 && e.error.category == 'cancelled'"
+          }
         },
         {
-          "id": "05-REQ-4.2",
-          "pattern": "complex_event",
-          "condition": "the command's context was cancelled by SIGINT or SIGTERM",
-          "guard": "the command has not returned within 10 seconds",
-          "system": "shell",
+          "id": "REQ-4.2",
+          "pattern": "event_driven",
+          "condition": "the command's context was cancelled by SIGINT or SIGTERM and the command has not returned within 10 seconds",
           "action": "stop waiting for the command and print an envelope with status `failed` and category `cancelled`",
-          "contract": "exit code 1 within 10 seconds of the signal plus envelope write time"
+          "contract": "exit code 1 within 10 seconds of the signal plus envelope write time",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a test command that ignores its context and blocks for 60 seconds"
+            ],
+            "pseudocode": "t0 = now(); kill(SIGTERM); code = <-done; assert 9s <= now()-t0 < 15s; assert e.error.category == 'cancelled'"
+          }
         },
         {
-          "id": "05-REQ-4.3",
+          "id": "REQ-4.3",
           "pattern": "optional",
           "condition": "a command opts into `--timeout <duration>`",
-          "system": "shell",
-          "action": "run the command under a context deadline of the given duration, using the command's declared default when the flag is absent and no deadline when the value is 0"
+          "action": "run the command under a context deadline of the given duration, using the command's declared default when the flag is absent and no deadline when the value is 0",
+          "contract": "no flag: deadline about 5 minutes ahead; --timeout 30s: deadline about 30 seconds ahead; --timeout 0: no deadline; the non-opted command rejects --timeout as an unknown flag with a usage envelope",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a command declaring --timeout with default 5m that records Run.Ctx.Deadline()",
+              "a command that does not opt in"
+            ],
+            "pseudocode": "d,ok = ctx.Deadline(); assert ok && abs(d-now()-30s) < 1s"
+          }
         },
         {
-          "id": "05-REQ-4.4",
+          "id": "REQ-4.4",
           "pattern": "unwanted",
           "condition": "the `--timeout` deadline expires before the command returns",
-          "system": "shell",
           "action": "report status `failed` with category `timeout`, retryable false and fix_hint `{flag: \"--timeout\", suggest: <twice the given duration>}`",
-          "contract": "exit code 1; error.fix_hint.flag \"--timeout\""
+          "contract": "exit code 1; error.fix_hint.flag \"--timeout\"",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a command that blocks on its context and returns ctx.Err()"
+            ],
+            "pseudocode": "assert e.error.category == 'timeout' && !e.error.retryable && e.error.fix_hint == {flag:'--timeout', suggest:'100ms'}"
+          }
         },
         {
-          "id": "05-REQ-4.5",
+          "id": "REQ-4.5",
           "pattern": "unwanted",
           "condition": "the `--timeout` value does not parse as a Go duration or is negative",
-          "system": "shell",
           "action": "refuse the invocation before calling the command",
-          "contract": "exit code 2; status `usage`"
+          "contract": "exit code 2; status `usage`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a command opting into --timeout that records whether it ran"
+            ],
+            "pseudocode": "assert Main(['X','--timeout','abc']) == 2 && !ran"
+          }
         }
       ]
     },
     {
-      "id": "05-REQ-5",
+      "id": "REQ-5",
       "title": "needs_human and --context",
       "rationale": "A command that stops on a question must tell the caller exactly how to resume with the answer, without the shell holding state between runs.",
+      "system": "shell",
       "criteria": [
         {
-          "id": "05-REQ-5.1",
+          "id": "REQ-5.1",
           "pattern": "event_driven",
           "condition": "a command returns an Outcome with status needs_human and a non-empty question",
-          "system": "shell",
           "action": "set `needs_human` to `{question, options, resume}` with options as `[{id, label}]` whose ids are \"A\", \"B\", … in order, and an empty options array meaning free text is expected",
-          "contract": "exit code 3; status `needs_human`"
+          "contract": "exit code 3; status `needs_human`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a command returning needs_human with question \"Which?\" and options labelled \"x\", \"y\"",
+              "a second command returning needs_human with no options"
+            ],
+            "pseudocode": "assert e.needs_human.options == [{id:'A',label:'x'},{id:'B',label:'y'}]"
+          }
         },
         {
-          "id": "05-REQ-5.2",
+          "id": "REQ-5.2",
           "pattern": "ubiquitous",
-          "system": "shell",
           "action": "set `needs_human.resume` to `{argv, flag: \"--context\"}` where argv is the invocation as received with argv[0] replaced by \"af\" and any `--context` values already present retained",
-          "contract": "running resume.argv with `--context <answer>` appended re-invokes the same command with all prior answers plus the new one"
+          "contract": "running resume.argv with `--context <answer>` appended re-invokes the same command with all prior answers plus the new one",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a needs_human command opting into --context, invoked as [\"/tmp/bin/whatever\", \"X\", \"text\", \"--context\", \"A\"]"
+            ],
+            "pseudocode": "assert e.needs_human.resume == {argv:['af','X','text','--context','A'], flag:'--context'}"
+          }
         },
         {
-          "id": "05-REQ-5.3",
+          "id": "REQ-5.3",
           "pattern": "optional",
           "condition": "a command opts into `--context <text>`",
-          "system": "shell",
           "action": "accept the flag repeatedly and pass the values to the command verbatim, in command-line order, as Run.Context, attaching no other meaning to them",
-          "contract": "Run.Context equals the given values in order"
+          "contract": "Run.Context equals the given values in order",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a command opting into --context that records Run.Context"
+            ],
+            "pseudocode": "assert recorded == [' B ','x y','B']"
+          }
         },
         {
-          "id": "05-REQ-5.4",
+          "id": "REQ-5.4",
           "pattern": "unwanted",
           "condition": "a `--context` value is empty",
-          "system": "shell",
           "action": "refuse the invocation before calling the command",
-          "contract": "exit code 2; status `usage`"
+          "contract": "exit code 2; status `usage`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a command opting into --context"
+            ],
+            "pseudocode": "assert Main(['X','--context','']) == 2 && !ran"
+          }
         },
         {
-          "id": "05-REQ-5.5",
+          "id": "REQ-5.5",
           "pattern": "unwanted",
           "condition": "a command returns status needs_human with an empty question, returns a question with any other status, or returns more than 26 options",
-          "system": "shell",
           "action": "treat the outcome as a command bug and report status `failed` with category `internal`",
-          "contract": "exit code 1; needs_human null"
+          "contract": "exit code 1; needs_human null",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "commands returning: needs_human with empty question; done with a NeedsHuman question; needs_human with 27 options"
+            ],
+            "pseudocode": "for c in bad: assert Main(c) == 1; assert e.error.category == 'internal' && e.needs_human == null"
+          }
         }
       ]
     },
     {
-      "id": "05-REQ-6",
+      "id": "REQ-6",
       "title": "Positional input classification",
       "rationale": "Every command that takes `<issue|file|text|->` must read it the same way so callers learn one rule.",
       "criteria": [
         {
-          "id": "05-REQ-6.1",
+          "id": "REQ-6.1",
           "pattern": "event_driven",
           "condition": "a command that declares an input receives the positional argument `-`",
           "system": "input resolver",
           "action": "read stdin until EOF as the input body",
-          "contract": "input.kind \"stdin\", input.origin \"\""
+          "contract": "input.kind \"stdin\", input.origin \"\"",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a command declaring an input and stdin containing \"multi\\nline problem\\n\""
+            ],
+            "pseudocode": "assert e.input.kind == 'stdin' && e.input.origin == '' && recorded.Body == 'multi\\nline problem'"
+          }
         },
         {
-          "id": "05-REQ-6.2",
+          "id": "REQ-6.2",
           "pattern": "event_driven",
           "condition": "the positional argument is accepted by issuex.ParseIssueURL",
           "system": "input resolver",
           "action": "read the thread with the run's forge client via ReadIssue, set Input.Issue and Input.Thread, and set IsPullRequest when either the URL or thread.Issue.IsPR says so",
-          "contract": "input.kind \"issue\", input.origin equals the IssueRef.URL()"
+          "contract": "input.kind \"issue\", input.origin equals the IssueRef.URL()",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "an httptest GitHub forge serving issue 7 and its comments, with GITHUB_API_URL pointing at it",
+              "a command declaring input and forge use"
+            ],
+            "pseudocode": "assert e.input.kind == 'issue' && e.input.origin == ref.URL() && rec.Issue.IsPullRequest == isPR"
+          }
         },
         {
-          "id": "05-REQ-6.3",
+          "id": "REQ-6.3",
           "pattern": "unwanted",
           "condition": "the positional argument starts with `http://` or `https://` but is not accepted by issuex.ParseIssueURL",
           "system": "input resolver",
           "action": "refuse it with a message naming the accepted GitHub and GitLab issue and pull/merge-request URL forms and a fix_hint naming GITHUB_API_URL and GITLAB_API_URL for self-hosted forges",
-          "contract": "exit code 2; status `usage`; no forge request"
+          "contract": "exit code 2; status `usage`; no forge request",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a counting httptest server",
+              "a command declaring input"
+            ],
+            "pseudocode": "assert code == 2; assert 'GITHUB_API_URL' in hintText(e) && 'GITLAB_API_URL' in hintText(e); assert srv.requests == 0"
+          }
         },
         {
-          "id": "05-REQ-6.4",
+          "id": "REQ-6.4",
           "pattern": "event_driven",
           "condition": "the positional argument names an existing regular file relative to the process's working directory",
           "system": "input resolver",
           "action": "read the file as the input body",
-          "contract": "input.kind \"file\", input.origin is the file's absolute path"
+          "contract": "input.kind \"file\", input.origin is the file's absolute path",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a text file bug.md in a temporary working directory and the process chdir'd there"
+            ],
+            "pseudocode": "assert e.input.kind == 'file' && isAbs(e.input.origin) && e.input.origin.endsWith('bug.md')"
+          }
         },
         {
-          "id": "05-REQ-6.5",
+          "id": "REQ-6.5",
           "pattern": "unwanted",
           "condition": "the named file has a NUL byte in its first 8 KiB, the argument names a directory, or the file exists but cannot be read",
           "system": "input resolver",
           "action": "refuse the input: \"not a text file\" for the NUL case, a directory error for a directory, an io failure for an unreadable file",
-          "contract": "NUL or directory: exit code 2, status `usage`; unreadable: exit code 1, status `failed`, category `io`"
+          "contract": "NUL or directory: exit code 2, status `usage`; unreadable: exit code 1, status `failed`, category `io`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a file with a NUL byte within its first 8 KiB",
+              "a directory",
+              "a file with a NUL byte after the first 8 KiB",
+              "a regular file with permissions 000 (skipped when running as root)"
+            ],
+            "pseudocode": "assert Main(['X', binfile]) == 2 && 'not a text file' in msg\nchmod(f, 0); assert code == 1 && e.error.category == 'io'"
+          }
         },
         {
-          "id": "05-REQ-6.6",
+          "id": "REQ-6.6",
           "pattern": "event_driven",
           "condition": "the positional argument matches none of the stdin, issue URL, http(s) or file rules",
           "system": "input resolver",
           "action": "use the argument with surrounding whitespace trimmed as the input body",
-          "contract": "input.kind \"text\", input.origin \"\""
+          "contract": "input.kind \"text\", input.origin \"\"",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "no file named \"  fix the login bug  \" exists"
+            ],
+            "pseudocode": "assert e.input.kind == 'text' && rec.Body == 'fix the login bug'"
+          }
         },
         {
-          "id": "05-REQ-6.7",
+          "id": "REQ-6.7",
           "pattern": "unwanted",
           "condition": "a command that requires an input gets no positional argument, or the resolved input body is empty after trimming whitespace",
           "system": "input resolver",
           "action": "refuse the invocation before calling the command",
-          "contract": "exit code 2; status `usage`"
+          "contract": "exit code 2; status `usage`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a command requiring an input"
+            ],
+            "pseudocode": "for args in cases: assert Main(args) == 2 && !ran"
+          }
         },
         {
-          "id": "05-REQ-6.8",
+          "id": "REQ-6.8",
           "pattern": "ubiquitous",
           "system": "shell",
-          "action": "set the envelope's `input` to `{kind, origin, truncated}` from the resolved Input, and to `{kind: \"none\", origin: \"\", truncated: false}` when the command declares no input or none was resolved"
+          "action": "set the envelope's `input` to `{kind, origin, truncated}` from the resolved Input, and to `{kind: \"none\", origin: \"\", truncated: false}` when the command declares no input or none was resolved",
+          "contract": "the first envelope input is {kind file, origin <abs path>, truncated false}; the second is {kind none, origin \"\", truncated false}",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a command declaring an input and one declaring none"
+            ],
+            "pseudocode": "assert e2.input == {kind:'none',origin:'',truncated:false}"
+          }
         }
       ]
     },
     {
-      "id": "05-REQ-7",
+      "id": "REQ-7",
       "title": "Issue rendering, truncation and read errors",
       "rationale": "The rendered body is what a brief shows a model, so its format, its size bound and its failure categories are fixed.",
       "criteria": [
         {
-          "id": "05-REQ-7.1",
+          "id": "REQ-7.1",
           "pattern": "ubiquitous",
           "system": "RenderThread",
           "action": "render an issue thread as the heading `<GitHub|GitLab|Forge> <issue|pull request> <ref> (state: <state>)` (GitLab when the host contains `gitlab`, GitHub when it contains `github` or is empty, Forge otherwise), then `Title:`, `Author:` and `Labels:` lines with the labels line omitted when there are none, then the trimmed body, then each comment as `\\n--- comment by <login> ---\\n<body>\\n`, then `\\n[... further comments not read ...]\\n` when the thread is truncated",
-          "contract": "Input.Body for an issue equals RenderThread(ref, thread) before truncation"
+          "contract": "Input.Body for an issue equals RenderThread(ref, thread) before truncation",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "threads for github.com, gitlab.example, an unrecognised host and an empty host",
+              "a thread with labels and comments and one without labels, one with Truncated set"
+            ],
+            "pseudocode": "assert RenderThread(ref, t) == 'GitHub issue o/r#7 (state: open)\\nTitle: T\\nAuthor: a\\nLabels: bug\\n...'"
+          }
         },
         {
-          "id": "05-REQ-7.2",
+          "id": "REQ-7.2",
           "pattern": "unwanted",
           "condition": "the input body exceeds 131072 bytes",
           "system": "input resolver",
           "action": "cut the body at the last UTF-8 boundary at or below 131072 bytes, append `\\n[... input truncated at 131072 bytes ...]\\n`, set truncated, and raise the warning `input_truncated`",
-          "contract": "input.truncated true; warnings contain code `input_truncated`"
+          "contract": "input.truncated true; warnings contain code `input_truncated`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a text input of 131073+ bytes of ASCII"
+            ],
+            "pseudocode": "assert len(rec.Body) == 131072 + len(marker) && e.input.truncated && 'input_truncated' in codes"
+          }
         },
         {
-          "id": "05-REQ-7.3",
+          "id": "REQ-7.3",
           "pattern": "ubiquitous",
           "system": "input resolver",
-          "action": "for any valid UTF-8 input body, produce a Body that is valid UTF-8, is at most 131072 bytes plus the marker's length, and equals the original when the original is at most 131072 bytes"
+          "action": "for any valid UTF-8 input body, produce a Body that is valid UTF-8, is at most 131072 bytes plus the marker's length, and equals the original when the original is at most 131072 bytes",
+          "contract": "the result is valid UTF-8; its length is at most 131072 plus the marker length; when the original is at most 131072 bytes the result equals the original",
+          "check": {
+            "kind": "property",
+            "setup": [
+              "the input resolver's truncation applied to generated bodies"
+            ],
+            "pseudocode": "for s in gen_utf8(): b = Truncate(s); assert utf8.ValidString(b); assert len(b) <= 131072 + len(marker); if len(s) <= 131072: assert b == s"
+          }
         },
         {
-          "id": "05-REQ-7.4",
+          "id": "REQ-7.4",
           "pattern": "event_driven",
           "condition": "the issue thread read from the forge has Truncated set",
           "system": "input resolver",
           "action": "set input.truncated and raise the warning `input_truncated`",
-          "contract": "input.truncated true"
+          "contract": "input.truncated true",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "an httptest forge whose comment listing has further pages beyond the client limit so the thread has Truncated set"
+            ],
+            "pseudocode": "assert e.input.truncated && 'input_truncated' in codes"
+          }
         },
         {
-          "id": "05-REQ-7.5",
+          "id": "REQ-7.5",
           "pattern": "event_driven",
           "condition": "the issue thread read from the forge has CommentsErr set",
           "system": "input resolver",
           "action": "raise the warning `comments_unreadable` and continue with the issue body",
-          "contract": "warnings contain code `comments_unreadable`; status unaffected"
+          "contract": "warnings contain code `comments_unreadable`; status unaffected",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "an httptest forge serving the issue but returning 500 for its comments"
+            ],
+            "pseudocode": "assert 'comments_unreadable' in codes && e.status == 'done'"
+          }
         },
         {
-          "id": "05-REQ-7.6",
+          "id": "REQ-7.6",
           "pattern": "unwanted",
           "condition": "ReadIssue returns a not-found error while the forge client is unauthenticated",
           "system": "input resolver",
           "action": "report a failure saying the issue may be private, with fix_hint `{env: \"GITLAB_TOKEN\"}` for a GitLab host and `{env: \"GITHUB_TOKEN\"}` otherwise",
-          "contract": "exit code 1; status `failed`; category `auth`"
+          "contract": "exit code 1; status `failed`; category `auth`",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "an httptest forge answering 404 for the issue and no token in the environment",
+              "a GitHub-host URL and a GitLab-host URL"
+            ],
+            "pseudocode": "assert e.error.category == 'auth' && 'private' in e.error.message && e.error.fix_hint.env == 'GITLAB_TOKEN'"
+          }
         },
         {
-          "id": "05-REQ-7.7",
+          "id": "REQ-7.7",
           "pattern": "unwanted",
           "condition": "ReadIssue returns a not-found error while the forge client is authenticated",
           "system": "input resolver",
           "action": "report a forge failure",
-          "contract": "exit code 1; status `failed`; category `forge`; retryable false"
+          "contract": "exit code 1; status `failed`; category `forge`; retryable false",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "an httptest forge answering 404 and a GITHUB_TOKEN set"
+            ],
+            "pseudocode": "assert e.error.category == 'forge' && !e.error.retryable"
+          }
         },
         {
-          "id": "05-REQ-7.8",
+          "id": "REQ-7.8",
           "pattern": "unwanted",
           "condition": "ReadIssue returns a rate-limit error or a transport error",
           "system": "input resolver",
           "action": "report a retryable forge failure",
-          "contract": "exit code 1; status `failed`; category `forge`; retryable true"
+          "contract": "exit code 1; status `failed`; category `forge`; retryable true",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "an httptest forge answering 429 with a short Retry-After",
+              "a second forge that closes the connection without a response"
+            ],
+            "pseudocode": "for srv in [rateLimited, dropped]: assert e.error.category == 'forge' && e.error.retryable"
+          }
         }
       ]
     },
     {
-      "id": "05-REQ-8",
+      "id": "REQ-8",
       "title": "Forge client construction and --dry-run",
       "rationale": "The forge is the one effect the shell hands out itself, so the shell guarantees a dry run cannot write to it.",
       "criteria": [
         {
-          "id": "05-REQ-8.1",
+          "id": "REQ-8.1",
           "pattern": "optional",
           "condition": "a command declares that it uses a forge",
           "system": "shell",
           "action": "build the client through App.NewForge (default issuex.NewWithOptions) with UserAgent \"af/<version>\" and Dir set to --dir, using Options{Repo: ref.Repo} for an issue URL input, else Options{Repo: <parsed --repo>} when the command opts into --repo and it is given, else Options{}, and set Run.Target to the resolved repository; build no client for a command that does not declare one",
-          "contract": "Run.Forge is non-nil exactly for commands that declare forge use"
+          "contract": "Run.Forge is non-nil exactly for commands that declare forge use",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an App with NewForge recording the issuex.Options it receives and returning a stub client",
+              "commands: one declaring forge use and --repo, one declaring no forge"
+            ],
+            "pseudocode": "assert opts.UserAgent == 'af/'+version && opts.Dir == absDir; assert opts.Repo == ref.Repo; assert run.Forge == nil for noForge"
+          }
         },
         {
-          "id": "05-REQ-8.2",
+          "id": "REQ-8.2",
           "pattern": "unwanted",
           "condition": "`--repo` is rejected by issuex.ParseRepo, or `--repo` and an issue URL input name different repositories",
           "system": "shell",
           "action": "refuse the invocation before calling the command",
-          "contract": "exit code 2; status `usage`"
+          "contract": "exit code 2; status `usage`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a forge-using command opting into --repo"
+            ],
+            "pseudocode": "assert Main(['X','--repo','bad']) == 2 && Main(['X','--repo','a/b',urlCD]) == 2"
+          }
         },
         {
-          "id": "05-REQ-8.3",
+          "id": "REQ-8.3",
           "pattern": "unwanted",
           "condition": "client construction fails with ErrAmbiguousForge or ErrUnsupportedForge and the input is an issue URL",
           "system": "shell",
           "action": "report a usage failure carrying issuex's message and fix_hint `{env: \"GITHUB_API_URL\"}`",
-          "contract": "exit code 2; status `usage`"
+          "contract": "exit code 2; status `usage`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "NewForge returning an error wrapping issuex.ErrAmbiguousForge, and another wrapping ErrUnsupportedForge",
+              "an issue URL input"
+            ],
+            "pseudocode": "assert code == 2 && e.error.fix_hint.env == 'GITHUB_API_URL' && issuexMsg in e.error.message"
+          }
         },
         {
-          "id": "05-REQ-8.4",
+          "id": "REQ-8.4",
           "pattern": "unwanted",
           "condition": "client construction fails with ErrAmbiguousForge or ErrUnsupportedForge and the input is not an issue URL",
           "system": "shell",
           "action": "hand the command issuex.NewNoOp() and an invalid Run.Target and call the command",
-          "contract": "the command runs; Run.Target.Valid() is false"
+          "contract": "the command runs; Run.Target.Valid() is false",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "NewForge returning ErrAmbiguousForge",
+              "a forge-using command with a text input that records Run.Forge and Run.Target"
+            ],
+            "pseudocode": "assert ran && !run.Forge.Authenticated() && !run.Target.Valid()"
+          }
         },
         {
-          "id": "05-REQ-8.5",
+          "id": "REQ-8.5",
           "pattern": "event_driven",
           "condition": "a command that was given a forge client returns or panics",
           "system": "shell",
           "action": "close the client exactly once before writing the envelope",
-          "contract": "the client's Close is called once"
+          "contract": "the client's Close is called once",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a counting stub client from NewForge",
+              "commands that return done, return an error, and panic"
+            ],
+            "pseudocode": "assert stub.closeCalls == 1; assert closeTime < stdoutWriteTime"
+          }
         },
         {
-          "id": "05-REQ-8.6",
+          "id": "REQ-8.6",
           "pattern": "optional",
           "condition": "a command opts into `--dry-run` and the flag is given",
           "system": "shell",
           "action": "set Run.DryRun true and hand the command toolio.DryRunForge(inner) instead of the inner client",
-          "contract": "Run.DryRun true; Run.Forge is the decorator"
+          "contract": "Run.DryRun true; Run.Forge is the decorator",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a forge-using command opting into --dry-run recording Run.DryRun and Run.Forge"
+            ],
+            "pseudocode": "assert run.DryRun && run.Forge != inner && isDryRunForge(run.Forge)"
+          }
         },
         {
-          "id": "05-REQ-8.7",
+          "id": "REQ-8.7",
           "pattern": "ubiquitous",
           "system": "DryRunForge",
           "action": "pass Authenticated, Close, GetRepository, ReadIssue, ListIssues, ListComments, ReadPullRequest, ReadChangedFiles, GetPRState, GetCIChecks and GetPRReviews through to the inner client, and implement MaxBodyLength returning issuex.MaxBodyLength(inner)",
-          "contract": "issuex.MaxBodyLength(DryRunForge(gitlabClient)) is 1048576"
+          "contract": "issuex.MaxBodyLength(DryRunForge(gitlabClient)) is 1048576",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "an httptest GitHub forge and an httptest GitLab forge recording requests",
+              "clients built with issuex.NewGitHub and NewGitLab wrapped in DryRunForge"
+            ],
+            "pseudocode": "assert issuex.MaxBodyLength(DryRunForge(gl)) == 1048576"
+          }
         },
         {
-          "id": "05-REQ-8.8",
+          "id": "REQ-8.8",
           "pattern": "ubiquitous",
           "system": "DryRunForge",
           "action": "for any call to CreateIssue, UpdateIssue, CloseIssue, AddComment, AddLabels, RemoveLabel, CreateLabel, CreatePullRequest, PostReviewComment, MergePullRequest or ClosePullRequest, send no request, return an error wrapping toolio.ErrDryRun, and append the side effect `{kind: <method in snake_case>, target: <IssueRef.String() or Repo.String()>, state: \"planned\"}`",
-          "contract": "an httptest forge records zero write requests; errors.Is(err, toolio.ErrDryRun); envelope side_effects lists each refused write as planned"
+          "contract": "an httptest forge records zero write requests; errors.Is(err, toolio.ErrDryRun); envelope side_effects lists each refused write as planned",
+          "check": {
+            "kind": "property",
+            "setup": [
+              "an httptest forge counting every request by method",
+              "DryRunForge wrapping a client for it",
+              "an httptest GitHub forge, a command calling AddComment, AddLabels and CreateIssue under --dry-run"
+            ],
+            "pseudocode": "for m, ref in gen(): err = call(m, ref); assert errors.Is(err, ErrDryRun); assert srv.writes == 0; assert last(effects) == {kind: snake(m), target: ref.String(), state:'planned'}\nassert kinds(e.side_effects) == ['add_comment','add_labels','create_issue'] && srv.writes == 0"
+          }
         }
       ]
     },
     {
-      "id": "05-REQ-9",
+      "id": "REQ-9",
       "title": "Run directory, events and ledger",
       "rationale": "Local, ignored state per run lets later submit and land commands resume work and audit what happened without touching the repository's own files.",
       "criteria": [
         {
-          "id": "05-REQ-9.1",
+          "id": "REQ-9.1",
           "pattern": "optional",
           "condition": "a command declares a run directory",
           "system": "shell",
           "action": "create `<dir>/.agent-fox/run/<id>/` before calling Run, with <dir> the absolute --dir (default `.`) and <id> `YYYYMMDD_HHMMSS_<6 lowercase hex>` from UTC time and random bytes, also under --dry-run; set the envelope's run_id and add the artifact `{kind: \"run_dir\", path}`, and when the command calls RunDir.WriteReport write `report.md` and add the artifact `{kind: \"report\", path}`",
-          "contract": "run_id matches `^[0-9]{8}_[0-9]{6}_[0-9a-f]{6}$`; artifact paths are absolute; run_id is null for commands without a run directory"
+          "contract": "run_id matches `^[0-9]{8}_[0-9]{6}_[0-9a-f]{6}$`; artifact paths are absolute; run_id is null for commands without a run directory",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a temporary --dir, an App with injected clock",
+              "a command declaring a run directory that calls RunDir.WriteReport",
+              "a command declaring none"
+            ],
+            "pseudocode": "assert re.match(ID_RE, e.run_id); assert isAbs(artifact('run_dir').path); assert exists(runDir+'/report.md')"
+          }
         },
         {
-          "id": "05-REQ-9.2",
+          "id": "REQ-9.2",
           "pattern": "unwanted",
           "condition": "--dir does not exist or is not a directory",
           "system": "shell",
           "action": "refuse the invocation before creating anything or calling the command",
-          "contract": "exit code 2; status `usage`"
+          "contract": "exit code 2; status `usage`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a nonexistent path and a regular file path"
+            ],
+            "pseudocode": "assert Main(['X','--dir',missing]) == 2 && !ran"
+          }
         },
         {
-          "id": "05-REQ-9.3",
+          "id": "REQ-9.3",
           "pattern": "unwanted",
           "condition": "the drawn run directory already exists",
           "system": "RunDir",
           "action": "draw a new random suffix, up to 5 attempts in total, and fail when all collide",
-          "contract": "after 5 collisions: exit code 1; status `failed`; category `io`"
+          "contract": "after 5 collisions: exit code 1; status `failed`; category `io`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an App whose Rand yields the same bytes every time and a pre-existing directory with that id",
+              "a second setup where only the first 4 draws collide"
+            ],
+            "pseudocode": "assert code == 1 && e.error.category == 'io' && draws == 5"
+          }
         },
         {
-          "id": "05-REQ-9.4",
+          "id": "REQ-9.4",
           "pattern": "ubiquitous",
           "system": "RunDir",
           "action": "create `<dir>/.agent-fox/.gitignore` with content `*\\n` only when it is missing, opening it with O_EXCL so that a concurrent run neither fails nor overwrites it, and never edit the repository's own `.gitignore`",
-          "contract": "`git status --porcelain` shows nothing under .agent-fox; the repository .gitignore is byte-identical before and after"
+          "contract": "`git status --porcelain` shows nothing under .agent-fox; the repository .gitignore is byte-identical before and after",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a real git repository in a temporary dir with its own .gitignore",
+              "concurrent run-directory creations in the same dir"
+            ],
+            "pseudocode": "parallel(8, newRun); assert read('.agent-fox/.gitignore') == '*\\n'; assert git('status','--porcelain') == ''"
+          }
         },
         {
-          "id": "05-REQ-9.5",
+          "id": "REQ-9.5",
           "pattern": "event_driven",
           "condition": "toolio.OpenRunDir(dir, id) is called",
           "system": "RunDir",
           "action": "return the existing run directory when id matches the run id format and the run exists, and otherwise return a usage failure without touching the filesystem outside .agent-fox/run",
-          "contract": "ids such as `../x` or a missing run give a *Failure with category `usage`"
+          "contract": "ids such as `../x` or a missing run give a *Failure with category `usage`",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a run created by NewRunDir in a temp dir"
+            ],
+            "pseudocode": "rd,err = OpenRunDir(d, id); assert rd.Path == orig.Path; _,err = OpenRunDir(d,'../x'); assert err.(*Failure).Category == 'usage'"
+          }
         },
         {
-          "id": "05-REQ-9.6",
+          "id": "REQ-9.6",
           "pattern": "ubiquitous",
           "system": "RunDir",
-          "action": "for any sequence of RunDir.Record(kind, data) calls, append lines `{seq, ts, kind, data}` to `<run_dir>/ledger.jsonl` with seq 1..n, and return them in the same order with the same kinds and data from RunDir.Ledger(); the shell itself records nothing in the ledger"
+          "action": "for any sequence of RunDir.Record(kind, data) calls, append lines `{seq, ts, kind, data}` to `<run_dir>/ledger.jsonl` with seq 1..n, and return them in the same order with the same kinds and data from RunDir.Ledger(); the shell itself records nothing in the ledger",
+          "contract": "ledger.jsonl has n lines with seq 1..n; Ledger() returns the same kinds and data in the same order; a run that records nothing leaves ledger.jsonl empty or absent after a full shell invocation",
+          "check": {
+            "kind": "property",
+            "setup": [
+              "a fresh run directory"
+            ],
+            "pseudocode": "for recs in gen_records(): rd = NewRunDir(tmp); for r in recs: rd.Record(r.kind, r.data); got = rd.Ledger(); assert [(g.seq,g.kind,g.data) for g in got] == [(i+1,r.kind,r.data) ...]"
+          }
         },
         {
-          "id": "05-REQ-9.7",
+          "id": "REQ-9.7",
           "pattern": "ubiquitous",
           "system": "shell",
           "action": "write events as JSON lines `{seq, ts, run_id, type, data}` with seq starting at 1 and each line flushed when written, to `<run_dir>/events.jsonl` and appended to `--emit-events <path>` (accepted by every command), emitting `run_start` `{tool, argv, input_kind}` first, one `warning` event per warning, the command's own events from Run.Emit, and `run_end` `{status, exit_code, duration_ms}` last",
-          "contract": "events.jsonl's first type is run_start and last is run_end; seq is strictly increasing by 1"
+          "contract": "events.jsonl's first type is run_start and last is run_end; seq is strictly increasing by 1",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a run-directory command that raises two warnings and emits a step and a heartbeat event",
+              "--emit-events pointing at a file that already holds one line"
+            ],
+            "pseudocode": "evs = lines(events.jsonl); assert evs[0].type == 'run_start' && evs[-1].type == 'run_end'; assert [e.seq for e in evs] == range(1, n+1)"
+          }
         },
         {
-          "id": "05-REQ-9.8",
+          "id": "REQ-9.8",
           "pattern": "unwanted",
           "condition": "an event cannot be written to the run directory or the --emit-events path",
           "system": "shell",
           "action": "raise the warning `events_unwritable` once and continue the run",
-          "contract": "warnings contain exactly one `events_unwritable`; status unchanged"
+          "contract": "warnings contain exactly one `events_unwritable`; status unchanged",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "--emit-events pointing into a nonexistent directory and a command emitting several events"
+            ],
+            "pseudocode": "assert count(codes, 'events_unwritable') == 1 && e.status == 'done'"
+          }
         }
       ]
     },
     {
-      "id": "05-REQ-10",
+      "id": "REQ-10",
       "title": "Schema, golden files and documentation",
       "rationale": "Consumers validate the envelope against a fetchable schema, and the docs are the contract's human-readable copy.",
       "criteria": [
         {
-          "id": "05-REQ-10.1",
+          "id": "REQ-10.1",
           "pattern": "event_driven",
           "condition": "`af --schema` is invoked",
           "system": "shell",
           "action": "print the JSON Schema (draft 2020-12) embedded from `internal/toolio/schema/envelope.schema.json`, with schema_version `const: \"5.0.0\"`, `required` listing every envelope field in envelope order, `result` open, and each registered command's result schema under `$defs` keyed by its path with spaces replaced by `_`",
-          "contract": "exit code 0; stdout is one JSON document"
+          "contract": "exit code 0; stdout is one JSON document",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "two commands registered, one with a result schema and a path \"gate run\""
+            ],
+            "pseudocode": "s = json(out); assert s.properties.schema_version.const == '5.0.0'; assert s.required == ENVELOPE_FIELDS; assert 'gate_run' in s['$defs']"
+          }
         },
         {
-          "id": "05-REQ-10.2",
+          "id": "REQ-10.2",
           "pattern": "event_driven",
           "condition": "`af <command> --schema` is invoked",
           "system": "shell",
           "action": "print the envelope schema narrowed to that command: `tool` is `const` the command path and `result` is null or the command's declared result schema",
-          "contract": "exit code 0; stdout is one JSON document"
+          "contract": "exit code 0; stdout is one JSON document",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a command \"gate run\" with a result schema and a command without one"
+            ],
+            "pseudocode": "assert s.properties.tool.const == 'gate run'"
+          }
         },
         {
-          "id": "05-REQ-10.3",
+          "id": "REQ-10.3",
           "pattern": "ubiquitous",
           "system": "schema tests",
           "action": "compare the schema output with the committed golden files `internal/toolio/testdata/schema.golden.json` (no commands registered) and `cmd/af/testdata/schema.golden.json` (the real binary's registrations), failing on any difference and rewriting them when run with `go test ./... -update`",
-          "contract": "`go test ./...` fails when either golden file differs from the output"
+          "contract": "`go test ./...` fails when either golden file differs from the output",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "internal/toolio/testdata/schema.golden.json and cmd/af/testdata/schema.golden.json committed"
+            ],
+            "pseudocode": "got = schemaOutput(app); if *update: write(golden, got); assert got == read(golden)"
+          }
         },
         {
-          "id": "05-REQ-10.4",
+          "id": "REQ-10.4",
           "pattern": "ubiquitous",
           "system": "schema tests",
           "action": "fail when the schema's `required` list differs, in names or in order, from the JSON tags of toolio.Envelope's fields",
-          "contract": "`go test ./internal/toolio` fails on drift"
+          "contract": "`go test ./internal/toolio` fails on drift",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "toolio.Envelope and the embedded envelope.schema.json"
+            ],
+            "pseudocode": "assert tags(reflect.TypeOf(Envelope{})) == schema.required"
+          }
         },
         {
-          "id": "05-REQ-10.5",
+          "id": "REQ-10.5",
           "pattern": "ubiquitous",
           "system": "documentation",
           "action": "ship `docs/cli.md` (af and its global flags, the envelope field by field, the status and exit-code table, error categories and warning codes, needs_human and --context, --dry-run, --schema, --version and help, the run directory layout), `docs/configuration.md` (GITHUB_TOKEN, GH_TOKEN, GITLAB_TOKEN, GITHUB_API_URL, GITLAB_API_URL and the .agent-fox directory) and `docs/model-usage.md` (af runs no model and reads no vendor key in this release); update `README.md` with cmd/af/, internal/toolio/ and bin/af and `docs/architecture.md` with the run directory layout and ledger formats, removing the claim that docs/cli.md already existed; and commit the output of `make doc`",
-          "contract": "the three new files exist and name every status, exit code, category and warning code the shell defines"
+          "contract": "the three new files exist and name every status, exit code, category and warning code the shell defines",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "docs/cli.md, docs/configuration.md, docs/model-usage.md, README.md and docs/architecture.md in the repository"
+            ],
+            "pseudocode": "for term in REQUIRED_TERMS: assert term in read(file)"
+          }
         },
         {
-          "id": "05-REQ-10.6",
+          "id": "REQ-10.6",
           "pattern": "ubiquitous",
           "system": "build",
           "action": "pass `make check` (gofmt, go vet and go test) with no network access, using only httptest servers on loopback for forge tests",
-          "contract": "`make check` exits 0 offline"
+          "contract": "`make check` exits 0 offline",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "the repository checkout"
+            ],
+            "pseudocode": "assert run('make lint').exit == 0; for url in urls(test_files): assert host(url) in loopback"
+          }
         }
       ]
     }
   ],
   "execution_paths": [
     {
-      "id": "05-PATH-1",
+      "id": "PATH-1",
       "title": "A tool fetches the version and the envelope schema from the real binary",
       "steps": [
         {
@@ -654,10 +1152,29 @@
           "actor": "caller",
           "action": "receives two JSON documents, each with exit code 0, the schema matching cmd/af/testdata/schema.golden.json"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "cmd/af main",
+          "toolio.App",
+          "embedded schema",
+          "make build",
+          "go toolchain"
+        ],
+        "setup": [
+          "the binary built by `make build` with ldflags version 9.9.9-test"
+        ],
+        "end_state": [
+          "both exit 0 and each prints exactly one JSON document",
+          "the version document reports 9.9.9-test",
+          "the schema equals cmd/af/testdata/schema.golden.json",
+          "nothing is written to stderr and no .agent-fox directory is created"
+        ],
+        "pseudocode": "v = exec('bin/af','--version'); s = exec('bin/af','--schema'); assert v.exit == 0 && s.exit == 0; assert s.stdout == read('cmd/af/testdata/schema.golden.json')"
+      }
     },
     {
-      "id": "05-PATH-2",
+      "id": "PATH-2",
       "title": "A dry run reads a GitHub issue and is refused every forge write",
       "steps": [
         {
@@ -684,10 +1201,35 @@
           "actor": "shell",
           "action": "writes envelope.json and events.jsonl (run_start … run_end) into the run directory and prints the envelope with status done, input.kind issue and two planned side effects"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "toolio.App",
+          "input resolver",
+          "DryRunForge",
+          "issuex GitHub client",
+          "httptest forge",
+          "RunDir",
+          "filesystem",
+          "git binary"
+        ],
+        "setup": [
+          "an httptest GitHub forge serving an issue and its comments, GITHUB_API_URL pointing at it",
+          "a temporary git checkout as --dir",
+          "a test command that calls AddComment and CreatePullRequest on Run.Forge and returns done"
+        ],
+        "end_state": [
+          "<tmp>/.agent-fox/.gitignore and <tmp>/.agent-fox/run/<id>/ exist",
+          "the forge recorded the GET requests for the issue and comments and zero write requests",
+          "both write calls returned errors wrapping ErrDryRun",
+          "the envelope has status done, input.kind issue, two planned side effects (add_comment, create_pull_request)",
+          "envelope.json and events.jsonl (run_start … run_end) exist in the run directory and envelope.json equals stdout"
+        ],
+        "pseudocode": "code = Main(['X', issueURL, '--dry-run', '--dir', tmp]); assert code == 0; assert srv.writes == 0; assert len(e.side_effects) == 2; assert events[0].type == 'run_start'"
+      }
     },
     {
-      "id": "05-PATH-3",
+      "id": "PATH-3",
       "title": "A command stops on a question and is resumed with --context",
       "steps": [
         {
@@ -714,10 +1256,26 @@
           "actor": "shell",
           "action": "prints an envelope with status done and exit code 0"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "toolio.App",
+          "flag parsing",
+          "input resolver"
+        ],
+        "setup": [
+          "a test command opting into --context that returns needs_human with two options when Run.Context is empty and done otherwise"
+        ],
+        "end_state": [
+          "the first envelope has exit code 3, options A and B, and resume {argv starting with \"af\", flag \"--context\"}",
+          "the second run receives Run.Context [\"B\"]",
+          "the second envelope has status done and exit code 0"
+        ],
+        "pseudocode": "c1 = Main(['X','text']); r = e1.needs_human.resume; c2 = Main(r.argv[1:] + [r.flag,'B']); assert c1 == 3 && c2 == 0 && recorded.Context == ['B']"
+      }
     },
     {
-      "id": "05-PATH-4",
+      "id": "PATH-4",
       "title": "An unknown command yields a usage envelope",
       "steps": [
         {
@@ -736,10 +1294,25 @@
           "actor": "caller",
           "action": "observes exit code 2 and nothing on stderr"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "cmd/af main",
+          "toolio.App"
+        ],
+        "setup": [
+          "the real cmd/af registrations and an App wired like main"
+        ],
+        "end_state": [
+          "exit code is 2",
+          "the envelope has tool \"af\", status usage and an error message listing the registered commands",
+          "stderr is empty"
+        ],
+        "pseudocode": "assert Main(['nosuch']) == 2 && e.tool == 'af' && stderr == ''"
+      }
     },
     {
-      "id": "05-PATH-5",
+      "id": "PATH-5",
       "title": "An unauthenticated read of a private GitLab merge request fails with an auth hint",
       "steps": [
         {
@@ -762,7 +1335,27 @@
           "actor": "shell",
           "action": "prints an envelope with status failed, category auth, a message saying the issue may be private and fix_hint {env: \"GITLAB_TOKEN\"}, and exits 1"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "toolio.App",
+          "input resolver",
+          "issuex GitLab client",
+          "httptest forge"
+        ],
+        "setup": [
+          "an httptest GitLab forge answering the merge-request read with 404",
+          "GITLAB_API_URL pointing at it and no GITLAB_TOKEN, GITHUB_TOKEN or GH_TOKEN set",
+          "a test command declaring input and forge use"
+        ],
+        "end_state": [
+          "exit code is 1",
+          "the envelope has status failed, category auth, a message saying the issue may be private",
+          "fix_hint is {env \"GITLAB_TOKEN\"}",
+          "the forge saw only the read request"
+        ],
+        "pseudocode": "code = Main(['X', mrURL]); assert code == 1 && e.error.category == 'auth' && e.error.fix_hint.env == 'GITLAB_TOKEN'"
+      }
     }
   ],
   "external_apis": [

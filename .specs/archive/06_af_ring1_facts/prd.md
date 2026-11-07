@@ -4,9 +4,8 @@ spec_name: "af_ring1_facts"
 title: "Ring-1 fact commands: lang detect, gate run/compare, revert-check, guard check and the repository map"
 status: "active"
 created_at: "2026-10-20T07:39:04.701224Z"
-updated_at: "2026-10-20T07:39:04.701224Z"
 intent_hash: "7a7044ee3a8e51c8a33d76daf0877a2f61589553a89be135e49367d0643660c1"
-schema_version: 2
+schema_version: 3
 source: "docs/prd/02-rebuild-triage-and-fix-on-the-toolbelt.md"
 ---
 ## Intent
@@ -402,3 +401,20 @@ The documentation is updated as follows:
 | outline (package path unknown) | agentkit-go | returns a file's declarations as kind, name and start line; fallback is the `file_outline` tool (`path`, `include_private`) through `tools.For(workspace)` | **unverified**; bound in one adapter behind `repomap.Outliner` |
 | Claude Code `PreToolUse` hook | Claude Code CLI (external protocol) | stdin JSON: `session_id`, `transcript_path`, `cwd`, `hook_event_name`, `tool_name`, `tool_input` (`Bash`: `command`; `Write`/`Edit`/`MultiEdit`: `file_path`; `NotebookEdit`: `notebook_path`). Stdout on exit 0: `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"\|"deny"\|"ask","permissionDecisionReason":"…"}}`. `allow` bypasses permission prompts. | **unverified**: an external CLI contract, recorded from its documentation |
 | hands' tool names | agentkit-go `tools` | shell tool `execute` (`command`); writers `write_file` and `edit_file` (`path`) | **unverified** |
+
+## Glossary
+
+- **Outliner**: The `repomap.Outliner` interface returning a file's declarations as kind, name and start line; implemented by one adapter over the hands' outline and by a fake in tests.
+- **file view**: The sorted, slash-separated, `--dir`-relative list of files shared by the tree hash, language detection and the map: git's tracked plus untracked-not-ignored files (read NUL-separated, deleted files dropped) in a work tree, or a standard-library walk with fixed skip directories outside one; `.git/` and `.agent-fox/` are always excluded.
+- **gate id**: The first 12 hex characters of the cache key SHA-256(tree hash, canonical JSON of the gate table, runner mode); names the directory `.agent-fox/gate/<id>/`.
+- **gate program**: A program name the guard and the agentkit brain may allow: each check's argv[0] plus each detected language's toolchain programs.
+- **gate table**: The ordered list of checks (`name`, `argv`, `kind` lint|test|check, `source`, `available`) that `af gate run` executes, taken from `.agent-fox/gate.json` (table_source `file`) or detected from root-level files (table_source `detected`).
+- **hands**: The agentkit-go library (`github.com/agent-fox-dev/agentkit-go`) providing `tools.ReducedEnv`, `guard.Check` and the tree-sitter outline; its source is outside this repository.
+- **label**: A free-form name matching `^[a-z][a-z0-9_-]{0,31}$` (e.g. `baseline`, `after`) mapped to the latest gate id in `.agent-fox/gate/labels.json`.
+- **ladder level**: One of the six reduction levels of `af map`, from every file with every declaration (1) down to directories cut off at the budget (6).
+- **protected path**: A path prefix the guard refuses writes into; defaults `.git/`, `.agent-fox/`, `.specs/`, `.github/workflows/`, `.gitlab-ci.yml`.
+- **revert backup**: The directory `.agent-fox/revert/<id>/` holding copies of the non-test changed paths and a manifest while `af revert-check` has them reverted.
+- **suite form**: A command argv the guard treats as the full test suite: the gate's checks, `make check`/`make test` when those targets exist, and each detected language's full-suite form.
+- **test path**: A path classified as a test by the fixed convention table of R6 (e.g. `_test.go`, `test_*.py`, `*.spec.*`, `src/test/`, a `test`/`tests`/`spec` directory segment).
+- **tree hash**: SHA-256 over the file view's entries in order (kind, exec bit, path and content hash for regular files; target for symlinks; type for other files; an `unreadable` marker for unreadable files). Independent of HEAD.
+- **verdict**: The comparison of two gate results: `pass`, `pass_was_already_failing`, `regressed`, `still_failing` or `unverified`.

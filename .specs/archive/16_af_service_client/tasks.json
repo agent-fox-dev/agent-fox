@@ -1,8 +1,8 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/tasks.v3.json",
   "spec_id": "16",
   "spec_name": "af_service_client",
-  "schema_version": 2,
+  "schema_version": 3,
   "test_commands": {
     "all_tests": "make test",
     "linter": "make lint",
@@ -37,28 +37,15 @@
   "tasks": [
     {
       "id": 1,
-      "kind": "implement",
       "title": "Client core: server URL, credential file, request layer and `af workspace list`",
       "criteria": [
-        "16-REQ-3",
-        "16-REQ-4.1",
-        "16-REQ-4.2",
-        "16-REQ-4.3",
-        "16-REQ-4.4",
-        "16-REQ-4.5",
-        "16-REQ-4.7"
-      ],
-      "tests": [
-        "TS-16-17",
-        "TS-16-18",
-        "TS-16-19",
-        "TS-16-20",
-        "TS-16-21",
-        "TS-16-22",
-        "TS-16-23",
-        "TS-16-24",
-        "TS-16-25",
-        "TS-16-26"
+        "REQ-3",
+        "REQ-4.1",
+        "REQ-4.2",
+        "REQ-4.3",
+        "REQ-4.4",
+        "REQ-4.5",
+        "REQ-4.7"
       ],
       "steps": [
         "Write TS-16-17..TS-16-26 (run through newApp().Main with t.Setenv HOME/AF_URL and an httptest recording fake service) and confirm they fail",
@@ -84,25 +71,13 @@
       ],
       "done_when": [
         "`af workspace list` with no server, a bad server or a bad credential file fails before any request is sent"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 2,
-      "kind": "implement",
       "title": "Request bounds, redirect refusal, answer mapping, messages, hints and verbatim documents",
       "criteria": [
-        "16-REQ-6"
-      ],
-      "tests": [
-        "TS-16-28",
-        "TS-16-38",
-        "TS-16-39",
-        "TS-16-40",
-        "TS-16-41",
-        "TS-16-42",
-        "TS-16-43",
-        "TS-16-44"
+        "REQ-6"
       ],
       "steps": [
         "Write TS-16-28 and TS-16-38..TS-16-44 against a scripted fake service (injectable clock/timeouts) and confirm they fail",
@@ -125,26 +100,13 @@
       ],
       "done_when": [
         "a redirect target recorded zero requests in the tests"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 3,
-      "kind": "implement",
       "title": "`af login` with byte-preserving credential file rewrite",
       "criteria": [
-        "16-REQ-5"
-      ],
-      "tests": [
-        "TS-16-29",
-        "TS-16-30",
-        "TS-16-31",
-        "TS-16-32",
-        "TS-16-33",
-        "TS-16-34",
-        "TS-16-35",
-        "TS-16-36",
-        "TS-16-37"
+        "REQ-5"
       ],
       "steps": [
         "Write TS-16-29..TS-16-37 (including injected write-phase faults and the local-check ordering test) and confirm they fail",
@@ -168,25 +130,13 @@
       ],
       "done_when": [
         "a 401 or 502 on the check leaves ~/.af/config.toml byte-identical or absent"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 4,
-      "kind": "implement",
       "title": "Event-stream follower with tries, backoff and `af jobs watch`",
       "criteria": [
-        "16-REQ-9"
-      ],
-      "tests": [
-        "TS-16-61",
-        "TS-16-62",
-        "TS-16-63",
-        "TS-16-64",
-        "TS-16-65",
-        "TS-16-66",
-        "TS-16-67",
-        "TS-16-68"
+        "REQ-9"
       ],
       "steps": [
         "Write TS-16-61..TS-16-68 against a scripted SSE fake service with an injected clock (sleep recorder) and a rapid/property-style generator for cuts and duplicate frames; confirm they fail",
@@ -209,23 +159,13 @@
       ],
       "done_when": [
         "the property test shows every event once in ascending order for arbitrary cuts and duplicates"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 5,
-      "kind": "implement",
       "title": "Outcome of following: envelope fetch, status mapping, needs_human resume, interrupt handling",
       "criteria": [
-        "16-REQ-10"
-      ],
-      "tests": [
-        "TS-16-69",
-        "TS-16-70",
-        "TS-16-71",
-        "TS-16-72",
-        "TS-16-73",
-        "TS-16-74"
+        "REQ-10"
       ],
       "steps": [
         "Write TS-16-69..TS-16-74 using the scripted fake service and `af jobs watch` as the entry point, and confirm they fail (TS-16-75, the interrupt test, is owned by the final schema/compat task because it runs through `af fix --wait`)",
@@ -248,25 +188,13 @@
       ],
       "done_when": [
         "a blocked job's needs_human resume.argv is exactly [\"af\",\"jobs\",\"answer\",<id>,\"--wait\"] with flag --context"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 6,
-      "kind": "implement",
       "title": "Workspace subscribe/get/unsubscribe and jobs list/get/cancel/answer/retry",
       "criteria": [
-        "16-REQ-8"
-      ],
-      "tests": [
-        "TS-16-53",
-        "TS-16-54",
-        "TS-16-55",
-        "TS-16-56",
-        "TS-16-57",
-        "TS-16-58",
-        "TS-16-59",
-        "TS-16-60"
+        "REQ-8"
       ],
       "steps": [
         "Write TS-16-53..TS-16-60 against a scripted fake service and confirm they fail",
@@ -289,29 +217,15 @@
       ],
       "done_when": [
         "the resume argv `af jobs answer <id> --wait --context B` parses and sends {option:\"B\"}"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 7,
-      "kind": "implement",
       "title": "Mode dispatch and `af triage|fix --workspace` queuing",
       "criteria": [
-        "16-REQ-7",
-        "16-REQ-1.1",
-        "16-REQ-1.2"
-      ],
-      "tests": [
-        "TS-16-1",
-        "TS-16-2",
-        "TS-16-45",
-        "TS-16-46",
-        "TS-16-47",
-        "TS-16-48",
-        "TS-16-49",
-        "TS-16-50",
-        "TS-16-51",
-        "TS-16-52"
+        "REQ-7",
+        "REQ-1.1",
+        "REQ-1.2"
       ],
       "steps": [
         "Write TS-16-1, TS-16-2 and TS-16-45..TS-16-52 and confirm they fail",
@@ -336,34 +250,21 @@
       ],
       "done_when": [
         "a no-mode `af fix <url>` exits 2 before any forge read"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 8,
-      "kind": "implement",
       "title": "Mode scan rules, refused flags per mode, and help for both modes",
       "criteria": [
-        "16-REQ-1.3",
-        "16-REQ-1.4",
-        "16-REQ-1.5",
-        "16-REQ-1.6",
-        "16-REQ-1.7",
-        "16-REQ-1.8",
-        "16-REQ-2.1",
-        "16-REQ-2.2",
-        "16-REQ-2.3"
-      ],
-      "tests": [
-        "TS-16-3",
-        "TS-16-4",
-        "TS-16-5",
-        "TS-16-6",
-        "TS-16-7",
-        "TS-16-8",
-        "TS-16-9",
-        "TS-16-10",
-        "TS-16-11"
+        "REQ-1.3",
+        "REQ-1.4",
+        "REQ-1.5",
+        "REQ-1.6",
+        "REQ-1.7",
+        "REQ-1.8",
+        "REQ-2.1",
+        "REQ-2.2",
+        "REQ-2.3"
       ],
       "steps": [
         "Write TS-16-3..TS-16-11 using recording fake forge and service and confirm they fail",
@@ -384,29 +285,18 @@
       ],
       "done_when": [
         "`af triage x --context --local` exits 2 with the no-mode message"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 9,
-      "kind": "implement",
       "title": "Local-mode compatibility, triage --local suggestion, schemas, secrecy sweep and documentation",
       "criteria": [
-        "16-REQ-2.4",
-        "16-REQ-2.5",
-        "16-REQ-2.6",
-        "16-REQ-2.7",
-        "16-REQ-2.8",
-        "16-REQ-4.6"
-      ],
-      "tests": [
-        "TS-16-12",
-        "TS-16-13",
-        "TS-16-14",
-        "TS-16-15",
-        "TS-16-16",
-        "TS-16-27",
-        "TS-16-75"
+        "REQ-2.4",
+        "REQ-2.5",
+        "REQ-2.6",
+        "REQ-2.7",
+        "REQ-2.8",
+        "REQ-4.6"
       ],
       "steps": [
         "Write TS-16-12..TS-16-16, TS-16-27 and TS-16-75 and confirm they fail (TS-16-75 runs `af fix --workspace --wait` with a SIGINT/--timeout against a scripted service holding the stream open)",
@@ -437,42 +327,7 @@
       ],
       "done_when": [
         "`make check` passes offline"
-      ],
-      "state": "done"
-    },
-    {
-      "id": 10,
-      "kind": "integration",
-      "title": "Verify the service-client paths end to end against the real service",
-      "tests": [
-        "TS-16-76",
-        "TS-16-77",
-        "TS-16-78",
-        "TS-16-79",
-        "TS-16-80",
-        "TS-16-81"
-      ],
-      "steps": [
-        "Write the smoke tests TS-16-76..TS-16-81: 76-78 run newApp().Main against the real service handler of specs 11 and 12 in process over fakehub with the jobs fake runner (add a small in-process constructor/test helper in those packages if none exists); 79-81 use the recording fakes, the scripted brain and the scripted SSE service with an injected clock; confirm they pass",
-        "Trace 16-PATH-1 (login -> check GET /workspaces -> write config.toml 0600 -> subscribe PUT 201/200), 16-PATH-2 (queue -> job artifact -> events -> job read -> attempt envelope -> exit code), 16-PATH-3 (blocked -> resume argv + --context B -> {option:\"B\"} -> attempt 2) through the real code and confirm each step calls the next and no stub remains",
-        "Trace 16-PATH-4, 16-PATH-5 and 16-PATH-6: mode scan before forge/run dir, local triage next `--local`, and watch resuming with since=k after a cut with duplicates dropped",
-        "Confirm every criterion with a contract has a production consumer: the resume-argv override is consumed by toolio's newNeedsHuman, the input setter by the queue command, the new categories/warnings/event by toolio's envelope validation, the mode hook by the af binary's register()",
-        "Confirm the in-process loop entry point used by 13_agent_fox_worker is still called from production code without --local and never reaches the client",
-        "Grep internal/afclient, cmd/af and internal/toolio for panic(\"not implemented\"), TODO, and bare `return nil` on non-trivial paths, and remove any that remain",
-        "Run `make check` offline and confirm it passes"
-      ],
-      "touches": [
-        "cmd/af/smoke_client_test.go",
-        "internal/afclient/smoke_test.go"
-      ],
-      "depends_on": [
-        9
-      ],
-      "done_when": [
-        "`make check` passes offline",
-        "all six smoke tests pass"
-      ],
-      "state": "done"
+      ]
     }
   ]
 }

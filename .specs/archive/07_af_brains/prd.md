@@ -4,9 +4,8 @@ spec_name: "af_brains"
 title: "The Brain interface, the local box and the submission protocol"
 status: "active"
 created_at: "2026-10-20T07:51:23.542701Z"
-updated_at: "2026-10-20T07:51:23.542701Z"
 intent_hash: "67acc01f40f17bd896933b5ca66f1511ef209a44d9c82ba5594f343421699d49"
-schema_version: 2
+schema_version: 3
 source: "docs/prd/02-rebuild-triage-and-fix-on-the-toolbelt.md"
 ---
 ## Intent
@@ -426,3 +425,20 @@ Only the import path `github.com/agent-fox-dev/agentkit-go/tools` and the call `
 | `provider/faux` | a scripted provider that returns a sequence of model turns (text or tool calls) | unverified |
 | box tool names | `read_file`, `write_file`, a listing tool, `execute` | unverified |
 | `internal/gitx` | `func New(dir string, r Runner) *Git`; `(*Git).IsRepo(ctx) bool`; `(*Git).Head(ctx) (string, error)` (short hash) | read in `internal/gitx/git.go` |
+
+## Glossary
+
+- **Tally**: The accumulator of `Outcome` cost, turns and tokens across all attempts of a run, reported as the envelope's `usage`.
+- **borrowed hands**: Running the agentkit driver on the host over the box's proxied tools rather than inside the box; the only placement in this release.
+- **box**: An agentkit sandbox held by `af` for one run through a `*box.Session`; the checkout is synced in with `.git` and exported out without `.git`. Git writes and credentials stay on the host.
+- **brain**: Anything that runs a brief to a submission behind the `brain.Brain` interface (`Run(ctx, Brief) (Outcome, error)`); in this scope the in-process `agentkit` driver and the `scripted` replay.
+- **brief**: The `brain.Brief` value handed to a brain: the run-constant `Prefix`, the `Task` block, the tool allowlist, the hook config, the held box session and the cost, turn and time bounds. `Document()` is `Prefix + Task`.
+- **faux provider**: agentkit's scripted model provider (`provider/faux`) that returns a fixed sequence of model turns, used to drive the agentkit brain offline in tests.
+- **local provider**: The only box provider registered in this scope: in-process, with no process or network isolation, which is why every run using it raises `box_unconfined`.
+- **nonce**: A 16-hex-digit value drawn per brief and written into run.json; a submission whose nonce differs is stale and counts as absent.
+- **ring-1 guard**: The Go decision function in `internal/policy` (spec 06) that allows or denies one tool call against a policy; this scope only feeds calls to it.
+- **run directory**: The host-side `.agent-fox/run/<id>/` directory owned by `toolio.RunDir` (spec 05), holding the ledger, brief copies, hook.json, transcripts and the accepted submission.
+- **run.json**: The box-side file `.agent-fox/run/<id>/run.json` holding `{run_id, kind, attempt, nonce}`, placed before each brain run; the submit core takes `attempt` and `nonce` from it.
+- **submission**: The single JSON result a brain hands back, stored in the tree as `.agent-fox/run/<id>/submission.json` with `{kind, run_id, attempt, nonce, submitted_at, payload_sha256, payload}` and copied by the host to `<run_dir>/submission.json` once re-validated.
+- **submission kind**: A `submission.Kind`: the name, terminating tool name, description, JSON Schema and `Validate` function that define what a brain submits and how it is checked against the tree.
+- **tool gate**: The single check every tool call from an in-process brain passes: the `Brief.Tools` allowlist, the ring-1 guard decision with `Brief.Hook`, and the `.agent-fox/` write denial.

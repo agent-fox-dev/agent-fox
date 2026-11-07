@@ -4,9 +4,8 @@ spec_name: "agent_fox_poll"
 title: "agent-fox poll: turn request labels found through hub's issues API into jobs, consuming each label once"
 status: "active"
 created_at: "2026-10-21T22:32:31.294143Z"
-updated_at: "2026-10-21T22:32:31.294143Z"
 intent_hash: "07f5eda7dd482e1c48c38b29aaeb6196e4509d507afa0f2dbb70a11d7beb0953"
-schema_version: 2
+schema_version: 3
 source: "docs/prd/03-run-the-agent-fox-service.md"
 ---
 ## Intent
@@ -418,3 +417,18 @@ A label removal that fails, in any row, stays owed (R5).
 - `time.ParseDuration`, which accepts `"0"` as zero;
 - `math/rand/v2`, for the start delay;
 - `context.WithCancel`, `database/sql` and `log/slog`.
+
+## Glossary
+
+- **absorbed label**: A request label found on an issue that already has an open (queued, running or blocked) job of the same kind; the poll removes it and creates no job.
+- **complete listing**: A ListIssues result whose `Incomplete` is false.
+- **consume**: Remove the request label through hub after the job for it was created, so adding the label again is a new request.
+- **cycle**: One run of the poll for one workspace: reconcile records, read token and variables, then (if enabled) read the workspace record and list both request labels.
+- **hold**: The state of a poll-created job cancelled while one of its attempts was in a runner (or purged before the poll saw it end): its request label, put back by the worker's cancel cleanup, is left alone until released.
+- **loop**: The per-workspace goroutine that schedules that workspace's cycles.
+- **owed removal**: A label removal the poll attempted and that failed (other than with not found); it is retried whenever the issue is listed under the label and settled by a complete listing that no longer contains the issue.
+- **poll record**: A row of `af_poll_requests` describing one workspace, issue and label: whether its removal is owed and what the poll has seen of its job; it has no foreign key to `af_jobs`.
+- **release clock**: The instant a hold's release delay is counted from: when the poll first sees no runner of the held job in progress, or when it found a purged job gone.
+- **release delay**: 5 minutes (injectable): a complete listing releases a hold only if it was requested at least this long after the release clock started.
+- **request label**: `<prefix>triage` or `<prefix>fix`, where the prefix is the subscription's `label_prefix`; a person adds it to an issue to ask for a triage or a fix job.
+- **supervisor**: The poll component that scans the store's subscriptions at start and every 60 seconds and keeps exactly one loop per subscribed workspace.

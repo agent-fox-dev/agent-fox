@@ -4,9 +4,8 @@ spec_name: "agent_fox_service_core"
 title: "agent-fox service core: the process, its configuration and state, hub identity, and workspace subscriptions"
 status: "active"
 created_at: "2026-10-21T20:16:01.462291Z"
-updated_at: "2026-10-21T20:16:01.462291Z"
 intent_hash: "8898657c15a8d670ac28de048870a8c61c3d750a60903b244e9b464719bc333f"
-schema_version: 2
+schema_version: 3
 source: "docs/prd/03-run-the-agent-fox-service.md"
 ---
 ## Intent
@@ -424,3 +423,17 @@ If `aflib/jobqueue` turns out to register a different driver, `agent_fox_jobs` s
 - `http.MaxBytesReader`
 - `log/slog.NewJSONHandler`
 - `os/signal.NotifyContext`
+
+## Glossary
+
+- **PAT**: A hub workspace personal access token handed over at subscribe; stored sealed and used by later specs to act on the workspace.
+- **apikit envelope**: The error body shape {"error":{"code":…,"message":…,"error_type"?}} from PRD 01 §6.2; error_type is never sent in this release.
+- **caller token**: The bearer token a client sends to agent-fox; it is validated against hub's GET /api/v1/user and identifies the caller by hub user id.
+- **hub**: The external service that is the identity provider and workspace authority; agent-fox calls its API under <hub.url>/api/v1.
+- **identity cache**: An in-memory TTL cache keyed by the hex SHA-256 of a caller token holding hub's answer to who the token belongs to (user id or refusal).
+- **seal**: AES-256-GCM encryption of a PAT with additional data agent-fox/subscription/<slug>, stored as version byte 0x01, 12-byte nonce, ciphertext and tag.
+- **start failure**: Any failure before the listener is bound; it writes exactly one JSON log record at level ERROR with msg 'start failed' and an error attribute, then exits 1 or 2.
+- **subscription**: A row in the af_-prefixed subscriptions table linking a hub workspace slug to a sealed PAT, a label prefix and bookkeeping fields.
+- **token_state**: Field of the subscription view: ok when the stored sealed PAT opens with the deployment's key, unreadable otherwise.
+- **version document**: The JSON object {name, version, commit, build_time, go_version} produced by internal/toolio with ldflags values first and build info as fallback.
+- **visibility cache**: An in-memory TTL cache keyed by (token hash, slug) holding hub's answer to whether the caller can see the workspace (found or not found).

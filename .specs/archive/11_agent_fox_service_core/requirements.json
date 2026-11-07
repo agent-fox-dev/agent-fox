@@ -1,641 +1,1186 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/requirements.v3.json",
   "spec_id": "11",
   "spec_name": "agent_fox_service_core",
-  "schema_version": 2,
-  "introduction": "agent-fox is a long-running HTTP service, separate from the af CLI, that starts from one config.toml, keeps its state in one SQLite file, treats hub as the only authority on who is calling and which workspaces they may see, and lets a caller subscribe a hub workspace by handing over a workspace PAT that is sealed with AES-256-GCM at rest and never returned. Jobs, the worker, the poll and the CLI client are built on this foundation in later specs.",
-  "glossary": {
-    "PAT": "A hub workspace personal access token handed over at subscribe; stored sealed and used by later specs to act on the workspace.",
-    "apikit envelope": "The error body shape {\"error\":{\"code\":…,\"message\":…,\"error_type\"?}} from PRD 01 §6.2; error_type is never sent in this release.",
-    "caller token": "The bearer token a client sends to agent-fox; it is validated against hub's GET /api/v1/user and identifies the caller by hub user id.",
-    "hub": "The external service that is the identity provider and workspace authority; agent-fox calls its API under <hub.url>/api/v1.",
-    "identity cache": "An in-memory TTL cache keyed by the hex SHA-256 of a caller token holding hub's answer to who the token belongs to (user id or refusal).",
-    "seal": "AES-256-GCM encryption of a PAT with additional data agent-fox/subscription/<slug>, stored as version byte 0x01, 12-byte nonce, ciphertext and tag.",
-    "start failure": "Any failure before the listener is bound; it writes exactly one JSON log record at level ERROR with msg 'start failed' and an error attribute, then exits 1 or 2.",
-    "subscription": "A row in the af_-prefixed subscriptions table linking a hub workspace slug to a sealed PAT, a label prefix and bookkeeping fields.",
-    "token_state": "Field of the subscription view: ok when the stored sealed PAT opens with the deployment's key, unreadable otherwise.",
-    "version document": "The JSON object {name, version, commit, build_time, go_version} produced by internal/toolio with ldflags values first and build info as fallback.",
-    "visibility cache": "An in-memory TTL cache keyed by (token hash, slug) holding hub's answer to whether the caller can see the workspace (found or not found)."
-  },
+  "schema_version": 3,
   "requirements": [
     {
-      "id": "11-REQ-1",
+      "id": "REQ-1",
       "title": "The agent-fox binary and its command line",
       "rationale": "A server's lifecycle (flags, signals, logs, exit codes) needs its own binary rather than toolio's one-envelope command shell.",
       "criteria": [
         {
-          "id": "11-REQ-1.1",
+          "id": "REQ-1.1",
           "pattern": "ubiquitous",
           "system": "build",
-          "action": "build cmd/agent-fox so that make build writes $(BIN_DIR)/agent-fox beside $(BIN_DIR)/af with the same -X main.version/commit/buildTime ldflags"
+          "action": "build cmd/agent-fox so that make build writes $(BIN_DIR)/agent-fox beside $(BIN_DIR)/af with the same -X main.version/commit/buildTime ldflags",
+          "contract": "both <tmp>/af and <tmp>/agent-fox exist and are executable; agent-fox --version reports version 9.9.9-test; af --version reports the same version and commit",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a temporary BIN_DIR and make available"
+            ],
+            "pseudocode": "run('make build VERSION=9.9.9-test BIN_DIR='+tmp); assert exists(tmp/agent-fox) and exists(tmp/af); v=json(run(tmp/agent-fox,'--version')); assert v.version=='9.9.9-test'; assert v.commit==json(run(tmp/af,'--version')).commit"
+          }
         },
         {
-          "id": "11-REQ-1.2",
+          "id": "REQ-1.2",
           "pattern": "event_driven",
           "condition": "agent-fox is invoked with --version or with --help",
           "system": "agent-fox",
           "action": "for --version print the version document as one JSON object with name agent-fox, version, commit, build_time and go_version using the same ldflags-then-build-info fallback as af --version (reusing internal/toolio's exported document), and for --help print the usage; in both cases read no configuration",
-          "contract": "exit code 0; --version stdout parses as one JSON object with exactly those five fields"
+          "contract": "exit code 0; --version stdout parses as one JSON object with exactly those five fields",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "the agent-fox binary built by make build",
+              "no config file anywhere on the lookup path and an empty HOME"
+            ],
+            "pseudocode": "r=run(bin,'--version'); assert r.code==0; d=json(r.stdout); assert keys(d)=={'name','version','commit','build_time','go_version'}; assert d.name=='agent-fox'; h=run(bin,'--help'); assert h.code==0; assert '--config' in (h.stdout+h.stderr)"
+          }
         },
         {
-          "id": "11-REQ-1.3",
+          "id": "REQ-1.3",
           "pattern": "unwanted",
           "condition": "agent-fox is invoked with an unknown flag or a positional argument",
           "system": "agent-fox",
           "action": "print a plain-text usage message on stderr and not start",
-          "contract": "exit code 2; nothing listens"
+          "contract": "exit code 2; nothing listens",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "the agent-fox binary"
+            ],
+            "pseudocode": "for args in (['--bogus'],['extra']): r=run(bin,*args); assert r.code==2; assert not parses_as_json(r.stderr); assert 'listening' not in r.stderr"
+          }
         },
         {
-          "id": "11-REQ-1.4",
+          "id": "REQ-1.4",
           "pattern": "unwanted",
           "condition": "the configuration, the key file or the database is invalid at start",
           "system": "agent-fox",
           "action": "write exactly one JSON log record at level ERROR with msg 'start failed' and an error attribute naming the key or file at fault, bind nothing and write no listening record",
-          "contract": "exit code 2; stderr holds exactly one JSON record, level ERROR"
+          "contract": "exit code 2; stderr holds exactly one JSON record, level ERROR",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a config with unknown key server.external_url",
+              "a config whose key file is missing",
+              "a config whose database.path is a directory that cannot be opened as a database"
+            ],
+            "pseudocode": "for case in cases: r=run(bin,'--config',case.file); assert r.code==2; recs=json_lines(r.stderr); assert len(recs)==1; assert recs[0].level=='ERROR' and recs[0].msg=='start failed'; assert case.needle in recs[0].error"
+          }
         },
         {
-          "id": "11-REQ-1.5",
+          "id": "REQ-1.5",
           "pattern": "unwanted",
           "condition": "binding server.listen fails at start because the address is in use, permission is denied, or the host does not resolve or is not local",
           "system": "agent-fox",
           "action": "write exactly one JSON log record at level ERROR with msg 'start failed' and an error attribute naming the address and reason, and write no listening record",
-          "contract": "exit code 1; stderr holds exactly one JSON record, level ERROR"
+          "contract": "exit code 1; stderr holds exactly one JSON record, level ERROR",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a loopback port already held by another listener",
+              "a config with server.listen set to that address",
+              "a second config with a host that does not resolve"
+            ],
+            "pseudocode": "ln=net.Listen('127.0.0.1:0'); r=run(bin,'--config',cfg(listen=ln.Addr())); assert r.code==1; recs=json_lines(r.stderr); assert len(recs)==1 and recs[0].msg=='start failed'; assert ln.Addr() in recs[0].error"
+          }
         },
         {
-          "id": "11-REQ-1.6",
+          "id": "REQ-1.6",
           "pattern": "event_driven",
           "condition": "the listener is bound",
           "system": "agent-fox",
           "action": "log a listening record whose addr attribute is the actually bound address, so that listen = \"127.0.0.1:0\" yields a usable port",
-          "contract": "one JSON record with msg 'listening' and attribute addr host:port with a non-zero port"
+          "contract": "one JSON record with msg 'listening' and attribute addr host:port with a non-zero port",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a valid config with server.listen 127.0.0.1:0"
+            ],
+            "pseudocode": "p=start(bin,cfg); rec=wait_record(p.stderr,'listening'); host,port=split(rec.addr); assert port!='0'; assert get('http://'+rec.addr+'/healthz').status==200"
+          }
         },
         {
-          "id": "11-REQ-1.7",
+          "id": "REQ-1.7",
           "pattern": "event_driven",
           "condition": "the running service receives SIGINT or SIGTERM",
           "system": "agent-fox",
           "action": "stop accepting connections, wait up to 30 seconds for requests in flight to finish, close the database and exit",
-          "contract": "exit code 0; an in-flight request started before the signal completes with its response"
+          "contract": "exit code 0; an in-flight request started before the signal completes with its response",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a running agent-fox whose fake hub delays GET /api/v1/user by about one second",
+              "a request in flight that needs that hub call"
+            ],
+            "pseudocode": "p=start(bin,cfg); fut=async(get(addr+'/api/v1/workspaces',bearer='t')); sleep(200ms); p.signal(SIGTERM); assert fut.result().status==200; assert p.wait()==0; assert connect(addr).refused"
+          }
         },
         {
-          "id": "11-REQ-1.8",
+          "id": "REQ-1.8",
           "pattern": "unwanted",
           "condition": "the listener fails after start",
           "system": "agent-fox",
           "action": "log the failure at level ERROR, close the database and exit",
-          "contract": "exit code 1"
+          "contract": "exit code 1",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "the service run function with a listener whose Accept fails after start",
+              "a real opened store"
+            ],
+            "pseudocode": "code=run(cfg, listener=failingListener()); assert code==1; assert 'ERROR' in logs; assert store.closed"
+          }
         }
       ]
     },
     {
-      "id": "11-REQ-2",
+      "id": "REQ-2",
       "title": "Configuration",
       "rationale": "One validated file is the whole deployment surface, and a misspelt or out-of-range key must be refused rather than silently defaulted.",
       "criteria": [
         {
-          "id": "11-REQ-2.1",
+          "id": "REQ-2.1",
           "pattern": "ubiquitous",
           "system": "config loader",
-          "action": "read the file named by --config when given, otherwise the first that exists of ./config.toml and $XDG_CONFIG_HOME/agent-fox/config.toml ($HOME/.config/agent-fox/config.toml when XDG_CONFIG_HOME is unset), parsed with github.com/BurntSushi/toml"
+          "action": "read the file named by --config when given, otherwise the first that exists of ./config.toml and $XDG_CONFIG_HOME/agent-fox/config.toml ($HOME/.config/agent-fox/config.toml when XDG_CONFIG_HOME is unset), parsed with github.com/BurntSushi/toml",
+          "contract": "an explicit path wins over every other file; ./config.toml wins over the XDG file; $XDG_CONFIG_HOME/agent-fox/config.toml is used when set; $HOME/.config/agent-fox/config.toml is used when XDG_CONFIG_HOME is unset",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "temp directories holding distinct config files at each lookup location",
+              "XDG_CONFIG_HOME set in one case and unset in another with HOME pointing to a temp dir"
+            ],
+            "pseudocode": "assert Load(explicit).Hub.URL=='http://explicit'; chdir(withLocal); assert Load('').Hub.URL=='http://local'; chdir(empty); setenv(XDG,x); assert Load('').Hub.URL=='http://xdg'; unsetenv(XDG); assert Load('').Hub.URL=='http://home'"
+          }
         },
         {
-          "id": "11-REQ-2.2",
+          "id": "REQ-2.2",
           "pattern": "unwanted",
           "condition": "no --config is given and none of the lookup paths exists, or the --config file does not exist or is not valid TOML",
           "system": "config loader",
           "action": "fail start with an error listing every path tried, or naming the file and parse position",
-          "contract": "start failure with exit code 2 (11-REQ-1.4)"
+          "contract": "start failure with exit code 2 (11-REQ-1.4)",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "no --config and no file at any lookup path",
+              "a --config pointing to a nonexistent file",
+              "a --config file with a TOML syntax error on line 3"
+            ],
+            "pseudocode": "err=Load(''); for p in lookupPaths: assert p in err.Error(); err=Load(badToml); assert file in err.Error() and 'line 3' in err.Error()"
+          }
         },
         {
-          "id": "11-REQ-2.3",
+          "id": "REQ-2.3",
           "pattern": "event_driven",
           "condition": "a configuration file sets only hub.url and secrets.key_file",
           "system": "config loader",
           "action": "apply the defaults server.listen = 127.0.0.1:8090, hub.auth_cache_ttl = 60s and database.path = $XDG_STATE_HOME/agent-fox/agent-fox.db ($HOME/.local/state when unset), drop a trailing / from hub.url, and resolve a relative database.path or secrets.key_file against the config file's directory",
-          "contract": "the loaded configuration holds those defaults and absolute paths; the service starts and listens"
+          "contract": "the loaded configuration holds those defaults and absolute paths; the service starts and listens",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a config in a temp dir setting only hub.url = http://hub.local:9000/ and secrets.key_file = key",
+              "XDG_STATE_HOME set to a temp dir, then unset with HOME set"
+            ],
+            "pseudocode": "c=Load(f); assert c.Server.Listen=='127.0.0.1:8090'; assert c.Hub.AuthCacheTTL==60s; assert c.Hub.URL=='http://hub.local:9000'; assert c.Secrets.KeyFile==join(dir,'key'); assert c.Database.Path==join(xdg,'agent-fox/agent-fox.db')"
+          }
         },
         {
-          "id": "11-REQ-2.4",
+          "id": "REQ-2.4",
           "pattern": "ubiquitous",
           "system": "config loader",
-          "action": "after decoding, expand ${NAME} (NAME matching [A-Za-z_][A-Za-z0-9_]*) from the environment in every string value, with a variable set to empty expanding to empty so that a required key left empty fails as missing"
+          "action": "after decoding, expand ${NAME} (NAME matching [A-Za-z_][A-Za-z0-9_]*) from the environment in every string value, with a variable set to empty expanding to empty so that a required key left empty fails as missing",
+          "contract": "the first config holds http://hub.local:1 and /k/key; the second fails as secrets.key_file missing/empty rather than as an unset variable; a $ not followed by {NAME} is left alone",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "environment HUBHOST=hub.local and KEYDIR=/k and EMPTYVAR set to empty",
+              "a config with hub.url = \"http://${HUBHOST}:1\" and secrets.key_file = \"${KEYDIR}/key\"",
+              "a second config with secrets.key_file = \"${EMPTYVAR}\""
+            ],
+            "pseudocode": "c=Load(f1); assert c.Hub.URL=='http://hub.local:1'; assert c.Secrets.KeyFile=='/k/key'; err=Load(f2); assert 'secrets.key_file' in err.Error()"
+          }
         },
         {
-          "id": "11-REQ-2.5",
+          "id": "REQ-2.5",
           "pattern": "unwanted",
           "condition": "a string value references a ${NAME} that is unset in the environment",
           "system": "config loader",
           "action": "fail start with an error naming the variable and the dotted key holding it",
-          "contract": "start failure with exit code 2; the error attribute contains the variable name"
+          "contract": "start failure with exit code 2; the error attribute contains the variable name",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a config with hub.url = \"${NO_SUCH_VAR_XYZ}\" and the variable unset"
+            ],
+            "pseudocode": "r=run(bin,'--config',f); assert r.code==2; e=json_lines(r.stderr)[0].error; assert 'NO_SUCH_VAR_XYZ' in e and 'hub.url' in e"
+          }
         },
         {
-          "id": "11-REQ-2.6",
+          "id": "REQ-2.6",
           "pattern": "unwanted",
           "condition": "the file contains a key outside server.listen, hub.url, hub.auth_cache_ttl, database.path and secrets.key_file (server.external_url, [workers] and database.retain included), or a value of the wrong type",
           "system": "config loader",
           "action": "fail start with an error naming the dotted key",
-          "contract": "start failure with exit code 2; the error attribute contains the dotted key, for example server.external_url"
+          "contract": "start failure with exit code 2; the error attribute contains the dotted key, for example server.external_url",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "configs adding server.external_url, a [workers] table with count, database.retain, a misspelt hub.auth_cach_ttl, and hub.url = 5 (wrong type)"
+            ],
+            "pseudocode": "for c in cases: r=run(bin,'--config',c.file); assert r.code==2; assert c.key in json_lines(r.stderr)[0].error"
+          }
         },
         {
-          "id": "11-REQ-2.7",
+          "id": "REQ-2.7",
           "pattern": "unwanted",
           "condition": "hub.auth_cache_ttl is outside 1s to 15m inclusive (for example 16m or 500ms), hub.url or secrets.key_file is missing or empty, hub.url is not an absolute http or https URL or carries a query or fragment, or server.listen is rejected by net.SplitHostPort",
           "system": "config loader",
           "action": "refuse the value without clamping and fail start with an error naming the dotted key",
-          "contract": "start failure with exit code 2; the error attribute contains the dotted key"
+          "contract": "start failure with exit code 2; the error attribute contains the dotted key",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "configs with hub.auth_cache_ttl of 500ms, 1s, 15m, 16m and a non-duration string",
+              "configs with hub.url missing, empty, relative, ftp://x, with ?q=1, with #frag",
+              "a config with secrets.key_file missing",
+              "a config with server.listen = \"nocolon\""
+            ],
+            "pseudocode": "assert Load(ttl('1s')).Hub.AuthCacheTTL==1s; assert Load(ttl('15m')).Hub.AuthCacheTTL==15m; for v in ('500ms','16m','x'): assert 'hub.auth_cache_ttl' in Load(ttl(v)).Error()\nfor c in bad: assert c.key in Load(c.file).Error(); assert Load(prefixed).Hub.URL=='https://h/prefix'"
+          }
         },
         {
-          "id": "11-REQ-2.8",
+          "id": "REQ-2.8",
           "pattern": "event_driven",
           "condition": "hub.url uses http and its host is not a loopback address",
           "system": "agent-fox",
           "action": "accept the configuration and log a WARN record saying caller tokens and PATs cross the link in clear, written after the listener is bound and before the listening record",
-          "contract": "service starts; a failed start still writes only its one ERROR record"
+          "contract": "service starts; a failed start still writes only its one ERROR record",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a config with hub.url = http://hub.example.internal:8080",
+              "a second config with hub.url = http://127.0.0.1:1",
+              "a valid key file and a temp database"
+            ],
+            "pseudocode": "recs=records_until(p.stderr,'listening'); assert index(recs,level=='WARN') < index(recs,msg=='listening'); assert no_warn(second)"
+          }
         }
       ]
     },
     {
-      "id": "11-REQ-3",
+      "id": "REQ-3",
       "title": "The key file and the sealing of workspace tokens",
       "rationale": "A PAT at rest must be unreadable without the deployment key, bound to its row, and never leak through logs or errors.",
       "criteria": [
         {
-          "id": "11-REQ-3.1",
+          "id": "REQ-3.1",
           "pattern": "unwanted",
           "condition": "secrets.key_file is missing or unreadable, is not standard base64 after trimming surrounding whitespace, or does not decode to exactly 32 bytes",
           "system": "key loader",
           "action": "fail start with an error naming the file and the reason, without including the file's contents",
-          "contract": "start failure with exit code 2; the error attribute contains the key file path"
+          "contract": "start failure with exit code 2; the error attribute contains the key file path",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a key path that does not exist",
+              "a 0600 key file with the text 'not base64 !!!secretmarker'",
+              "a 0600 key file holding base64 of 31 bytes and one holding 33 bytes"
+            ],
+            "pseudocode": "for f in bad: err=LoadKey(f); assert f in err.Error(); assert 'secretmarker' not in err.Error(); assert LoadKey(valid_with_newline) ok"
+          }
         },
         {
-          "id": "11-REQ-3.2",
+          "id": "REQ-3.2",
           "pattern": "unwanted",
           "condition": "on Unix the key file has any group or other permission bit set (mode & 0o077 != 0)",
           "system": "key loader",
           "action": "fail start with an error naming the file and its mode, while accepting owner-only modes 0600, 0400 and 0700",
-          "contract": "start failure with exit code 2 for 0644 or 0640; start proceeds for 0600, 0400 and 0700"
+          "contract": "start failure with exit code 2 for 0644 or 0640; start proceeds for 0600, 0400 and 0700",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "valid key files chmodded to 0644, 0640, 0600, 0400 and 0700 (non-Windows)"
+            ],
+            "pseudocode": "for m in (0o644,0o640): chmod(f,m); err=LoadKey(f); assert f in err and oct(m) in err; for m in (0o600,0o400,0o700): chmod(f,m); assert LoadKey(f) ok"
+          }
         },
         {
-          "id": "11-REQ-3.3",
+          "id": "REQ-3.3",
           "pattern": "ubiquitous",
           "system": "sealer",
           "action": "seal a token with AES-256-GCM using a fresh 12-byte nonce from crypto/rand for every seal and additional data agent-fox/subscription/<slug>, storing version byte 0x01, then the nonce, then the ciphertext with its tag",
-          "contract": "sealed value length = 1 + 12 + len(token) + 16 and first byte 0x01"
+          "contract": "sealed value length = 1 + 12 + len(token) + 16 and first byte 0x01",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a 32-byte key and a sealer"
+            ],
+            "pseudocode": "s=Seal('widgets',tok); assert s[0]==1 and len(s)==1+12+len(tok)+16; assert tok not in s; assert gcm.Open(nil,s[1:13],s[13:],'agent-fox/subscription/widgets')==tok"
+          }
         },
         {
-          "id": "11-REQ-3.4",
+          "id": "REQ-3.4",
           "pattern": "ubiquitous",
           "system": "sealer",
-          "action": "for any token and slug, open(slug, seal(slug, token)) with the same key returns the token, and two seals of the same token differ"
+          "action": "for any token and slug, open(slug, seal(slug, token)) with the same key returns the token, and two seals of the same token differ",
+          "contract": "open(slug, seal(slug, token)) returns the token with the same key; the two seals of the same token differ",
+          "check": {
+            "kind": "property",
+            "setup": [
+              "a random 32-byte key and a seed taken from the test"
+            ],
+            "pseudocode": "for tok,slug in gen(): a=Seal(slug,tok); b=Seal(slug,tok); assert Open(slug,a)==tok; assert a!=b"
+          }
         },
         {
-          "id": "11-REQ-3.5",
+          "id": "REQ-3.5",
           "pattern": "unwanted",
           "condition": "a sealed value is opened with a wrong key, with one byte altered, under another slug, with an unknown version byte, or truncated to any shorter length",
           "system": "sealer",
           "action": "return an error and never panic",
-          "contract": "non-nil error; no plaintext returned"
+          "contract": "non-nil error; no plaintext returned",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a sealed value for slug widgets under key A"
+            ],
+            "pseudocode": "for variant in variants: pt,err=Open(variant); assert err!=nil and pt==''; for n in range(len(s)): assert Open(s[:n]) errors"
+          }
         },
         {
-          "id": "11-REQ-3.6",
+          "id": "REQ-3.6",
           "pattern": "ubiquitous",
           "system": "agent-fox",
           "action": "never log the key or a plaintext token, never include either in an error message, and never write a plaintext token anywhere except as input to the AEAD",
-          "contract": "stderr, every error message and every file other than the sealed column contain neither the key bytes nor any plaintext token"
+          "contract": "stderr, every error message and every file other than the sealed column contain neither the key bytes nor any plaintext token",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a running service against a fake hub with a distinctive key and a distinctive PAT",
+              "failing cases: wrong PAT, hub 500, unreadable token"
+            ],
+            "pseudocode": "run_scenario(); for blob in (stderr, error_bodies, read(db), read(db+'-wal')): assert key_b64 not in blob and key_raw not in blob and PAT not in blob"
+          }
         }
       ]
     },
     {
-      "id": "11-REQ-4",
+      "id": "REQ-4",
       "title": "The state database",
       "rationale": "One SQLite file holds the state, with table names and a migration record that leave room for aflib/jobqueue in the same file.",
+      "system": "store",
       "criteria": [
         {
-          "id": "11-REQ-4.1",
+          "id": "REQ-4.1",
           "pattern": "event_driven",
           "condition": "the service opens database.path at start",
-          "system": "store",
           "action": "create the parent directory with mode 0700 and the file with mode 0600 when missing, open it through database/sql with the modernc.org/sqlite driver, and set journal_mode=WAL, busy_timeout=5000 and foreign_keys=ON",
-          "contract": "PRAGMA journal_mode answers wal, busy_timeout 5000, foreign_keys 1; new file mode 0600, new directory mode 0700"
+          "contract": "PRAGMA journal_mode answers wal, busy_timeout 5000, foreign_keys 1; new file mode 0600, new directory mode 0700",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a database path inside a directory that does not exist"
+            ],
+            "pseudocode": "s=Open(path); assert mode(dir)==0o700 and mode(path)==0o600; assert q('PRAGMA journal_mode')=='wal'; assert q('PRAGMA busy_timeout')==5000; assert q('PRAGMA foreign_keys')==1"
+          }
         },
         {
-          "id": "11-REQ-4.2",
+          "id": "REQ-4.2",
           "pattern": "ubiquitous",
-          "system": "store",
-          "action": "name every table it owns with the prefix af_, record applied migrations in an af_-prefixed table of its own without reading or writing PRAGMA user_version, and never read or write a table it does not own"
+          "action": "name every table it owns with the prefix af_, record applied migrations in an af_-prefixed table of its own without reading or writing PRAGMA user_version, and never read or write a table it does not own",
+          "contract": "every table in sqlite_master other than the foreign jobs table starts with af_; PRAGMA user_version is still 42; the jobs table and its rows are unchanged; the migration record lives in an af_-prefixed table",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a database pre-populated with a table named jobs with rows and PRAGMA user_version set to 42"
+            ],
+            "pseudocode": "seed(jobs, user_version=42); s=Open(path); put_get_delete(s); for t in tables: assert t=='jobs' or t.startswith('af_'); assert user_version()==42; assert rows(jobs)==seed"
+          }
         },
         {
-          "id": "11-REQ-4.3",
+          "id": "REQ-4.3",
           "pattern": "event_driven",
           "condition": "the store is opened",
-          "system": "store",
           "action": "apply every not-yet-applied migration of its ordered, append-only list at start, each in one transaction, so that reopening an up-to-date file applies nothing",
-          "contract": "after two opens the migration record lists each migration exactly once"
+          "contract": "after two opens the migration record lists each migration exactly once",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an empty database path"
+            ],
+            "pseudocode": "Open(p).Close(); Open(p).Close(); rows=q('select version from af_schema_migrations'); assert rows==[1]; assert failing_migration_rolled_back()"
+          }
         },
         {
-          "id": "11-REQ-4.4",
+          "id": "REQ-4.4",
           "pattern": "unwanted",
           "condition": "the database records a migration version higher than this binary knows",
-          "system": "store",
           "action": "fail start with an error naming both the recorded and the known version, and leave the file unchanged",
-          "contract": "start failure with exit code 2"
+          "contract": "start failure with exit code 2",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a database whose migration record holds version 999 while the binary knows 1"
+            ],
+            "pseudocode": "seed_version(999); before=sha(db); r=run(bin,cfg); assert r.code==2; e=json_lines(r.stderr)[0].error; assert '999' in e and '1' in e; assert sha(db)==before"
+          }
         },
         {
-          "id": "11-REQ-4.5",
+          "id": "REQ-4.5",
           "pattern": "unwanted",
           "condition": "the database file cannot be created, opened or migrated",
-          "system": "store",
           "action": "return an error naming the file, which fails start",
-          "contract": "start failure with exit code 2; the error attribute contains database.path"
+          "contract": "start failure with exit code 2; the error attribute contains database.path",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "database.path under a parent that is a regular file",
+              "database.path that is a file of non-SQLite garbage"
+            ],
+            "pseudocode": "for p in bad_paths: r=run(bin,cfg(db=p)); assert r.code==2; assert p in json_lines(r.stderr)[0].error"
+          }
         },
         {
-          "id": "11-REQ-4.6",
+          "id": "REQ-4.6",
           "pattern": "ubiquitous",
-          "system": "store",
-          "action": "in migration 1 create the subscriptions table recording a unique slug, the label prefix, the sealed PAT, the hub user id behind the PAT or nothing, the user id of the caller who last subscribed it, and created and updated times stored as RFC 3339 UTC"
+          "action": "in migration 1 create the subscriptions table recording a unique slug, the label prefix, the sealed PAT, the hub user id behind the PAT or nothing, the user id of the caller who last subscribed it, and created and updated times stored as RFC 3339 UTC",
+          "contract": "the table has columns for slug, label prefix, sealed token, token user (nullable), subscribed by and created/updated times; the second insert of the same slug violates uniqueness; stored created_at and updated_at parse as RFC 3339 and end in Z (UTC)",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a freshly migrated store"
+            ],
+            "pseudocode": "assert dup_insert fails with unique error; row=get('widgets'); t=time.Parse(RFC3339,row.created_at); assert t.Location()==UTC"
+          }
         }
       ]
     },
     {
-      "id": "11-REQ-5",
+      "id": "REQ-5",
       "title": "The hub client",
       "rationale": "One place knows hub's paths and answer shapes, so a correction to hub's API is a local change.",
+      "system": "hub client",
       "criteria": [
         {
-          "id": "11-REQ-5.1",
+          "id": "REQ-5.1",
           "pattern": "ubiquitous",
-          "system": "hub client",
-          "action": "make exactly two kinds of call, GET <hub.url>/api/v1/user and GET <hub.url>/api/v1/workspaces/<path-escaped slug>, each sending Authorization: Bearer <token>, Accept: application/json and User-Agent: agent-fox/<version>"
+          "action": "make exactly two kinds of call, GET <hub.url>/api/v1/user and GET <hub.url>/api/v1/workspaces/<path-escaped slug>, each sending Authorization: Bearer <token>, Accept: application/json and User-Agent: agent-fox/<version>",
+          "contract": "the paths are /api/v1/user and /api/v1/workspaces/a%20b%2Fc%3F under the configured base path prefix; method is GET; Authorization is 'Bearer tok', Accept is application/json, User-Agent is agent-fox/1.2.3; no other path is requested",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an httptest server recording requests and a client with version 1.2.3"
+            ],
+            "pseudocode": "c.User(ctx,'tok'); c.Workspace(ctx,'tok','a b/c?'); r=srv.requests; assert r[0].path=='/api/v1/user'; assert r[1].rawpath=='/api/v1/workspaces/a%20b%2Fc%3F'; assert r[0].header['Authorization']=='Bearer tok'"
+          }
         },
         {
-          "id": "11-REQ-5.2",
+          "id": "REQ-5.2",
           "pattern": "ubiquitous",
-          "system": "hub client",
-          "action": "bound every request by 10 seconds unless the context is shorter, read at most 1 MiB of a response body, and not follow redirects"
+          "action": "bound every request by 10 seconds unless the context is shorter, read at most 1 MiB of a response body, and not follow redirects",
+          "contract": "the client's default timeout is 10s and a 50ms context ends the call in about 50ms as unavailable; the second server in the redirect receives no request, so the token never reaches another host; at most 1 MiB of the large body is read and the answer is unavailable",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a server that hangs, a server answering 302 to a second server, and a server sending a body larger than 1 MiB"
+            ],
+            "pseudocode": "assert c.HTTP.Timeout==10s; err=c.User(ctx50ms,'t'); assert Unavailable(err); c.User(ctx,'t') on 302; assert target.requests==0; assert bytes_read<=1<<20+1"
+          }
         },
         {
-          "id": "11-REQ-5.3",
+          "id": "REQ-5.3",
           "pattern": "event_driven",
           "condition": "hub answers 200 with a JSON object",
-          "system": "hub client",
           "action": "for the user call return the user identified by a non-empty id field (a string, or a number kept as its decimal string) with an optional login, and for the workspace call return the workspace as found",
-          "contract": "user value {id: string, login: string or empty}; workspace found"
+          "contract": "user value {id: string, login: string or empty}; workspace found",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a hub answering {\"id\":\"usr_1\",\"login\":\"ann\"}, {\"id\":42}, and a workspace object {\"slug\":\"widgets\"}"
+            ],
+            "pseudocode": "assert c.User()=={id:'usr_1',login:'ann'}; assert c.User()=={id:'42',login:''}; assert c.Workspace() err==nil"
+          }
         },
         {
-          "id": "11-REQ-5.4",
+          "id": "REQ-5.4",
           "pattern": "unwanted",
           "condition": "hub answers 401, 403 or 404",
-          "system": "hub client",
           "action": "classify 401 as refused for both calls, 403 as refused for the user call and not found for the workspace call, and 404 as unavailable for the user call and not found for the workspace call",
-          "contract": "an error that callers classify as refused, not found or unavailable"
+          "contract": "an error that callers classify as refused, not found or unavailable",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a hub answering each of 401, 403, 404 for both calls"
+            ],
+            "pseudocode": "table={('user',401):Refused,('user',403):Refused,('user',404):Unavailable,('ws',401):Refused,('ws',403):NotFound,('ws',404):NotFound}; for (call,st),want in table: assert classify(call(st))==want"
+          }
         },
         {
-          "id": "11-REQ-5.5",
+          "id": "REQ-5.5",
           "pattern": "unwanted",
           "condition": "hub answers 3xx, 429 or 5xx, the transport fails, the request times out, or the 200 body is not a JSON object or the user object lacks a non-empty id",
-          "system": "hub client",
           "action": "classify the failure as unavailable",
-          "contract": "an error that callers classify as unavailable"
+          "contract": "an error that callers classify as unavailable",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a hub answering 301, 302, 429, 500, 503, hanging up, answering 200 with non-JSON, 200 with a JSON array, 200 user without id, 200 user with empty id"
+            ],
+            "pseudocode": "for case in cases: assert classify(c.User(case))==Unavailable; for case in status_and_body_cases: assert classify(c.Workspace(case))==Unavailable"
+          }
         },
         {
-          "id": "11-REQ-5.6",
+          "id": "REQ-5.6",
           "pattern": "ubiquitous",
-          "system": "hub client",
           "action": "let callers tell refused, not found and unavailable apart with errors.Is or errors.As without parsing message text, and never include the token in any error value or message",
-          "contract": "errors.Is/errors.As identify refused, not found and unavailable; err.Error() never contains the token"
+          "contract": "errors.Is/errors.As identify refused, not found and unavailable; err.Error() never contains the token",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "failures of each class produced by a fake hub, with token 'tok-SECRET-123'",
+              "a fake hub that can answer any status or hang up, seeded from the test"
+            ],
+            "pseudocode": "for err in errs: assert exactly_one(is_refused(err),is_notfound(err),is_unavailable(err)); assert 'tok-SECRET-123' not in err.Error()\nfor tok,mode in gen(): err=call(tok,mode); assert err==nil or tok not in err.Error()"
+          }
         }
       ]
     },
     {
-      "id": "11-REQ-6",
+      "id": "REQ-6",
       "title": "Caller identity and workspace visibility",
       "rationale": "Hub's answers are the whole access rule, cached by token hash with a bounded TTL so hub is not called for every request.",
       "criteria": [
         {
-          "id": "11-REQ-6.1",
+          "id": "REQ-6.1",
           "pattern": "unwanted",
           "condition": "a request to a route under /api/v1 has no Authorization header, a scheme other than Bearer (matched case-insensitively), or an empty token",
           "system": "auth middleware",
           "action": "answer without calling hub",
-          "contract": "HTTP 401 with error code unauthenticated; hub request count unchanged"
+          "contract": "HTTP 401 with error code unauthenticated; hub request count unchanged",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a service with a fake hub that counts requests"
+            ],
+            "pseudocode": "for h in bad: r=get('/api/v1/workspaces',auth=h); assert r.status==401 and r.json.error.code=='unauthenticated'; assert hub.total()==0; get(auth='bearer tok'); assert hub.count('/api/v1/user',hash('tok'))==1"
+          }
         },
         {
-          "id": "11-REQ-6.2",
+          "id": "REQ-6.2",
           "pattern": "event_driven",
           "condition": "a request carries a bearer token",
           "system": "auth middleware",
           "action": "look up the identity cache keyed by the hex SHA-256 of the token, use a hit within auth_cache_ttl of hub's answer without calling hub, otherwise call hub's user endpoint and cache the user id, which becomes the request's caller",
-          "contract": "a token validated once is not sent to GET /api/v1/user again within the TTL and is sent again after the TTL"
+          "contract": "a token validated once is not sent to GET /api/v1/user again within the TTL and is sent again after the TTL",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a service with auth_cache_ttl 60s and an injectable clock",
+              "a fake hub mapping token t1 to a user"
+            ],
+            "pseudocode": "for i in 3: get(t1); assert hub.count('/api/v1/user',h(t1))==1; clock.advance(61s); get(t1); assert hub.count('/api/v1/user',h(t1))==2"
+          }
         },
         {
-          "id": "11-REQ-6.3",
+          "id": "REQ-6.3",
           "pattern": "unwanted",
           "condition": "hub refuses the caller token on the user call",
           "system": "auth middleware",
           "action": "cache the refusal for auth_cache_ttl and answer the request",
-          "contract": "HTTP 401 unauthenticated; the same token is not sent to hub again within the TTL"
+          "contract": "HTTP 401 unauthenticated; the same token is not sent to hub again within the TTL",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a service with a TTL and a fake hub that refuses token bad with 401"
+            ],
+            "pseudocode": "assert get(bad).status==401; assert get(bad).status==401; assert hub.count(user,h(bad))==1; clock.advance(ttl+1); get(bad); assert hub.count(user,h(bad))==2"
+          }
         },
         {
-          "id": "11-REQ-6.4",
+          "id": "REQ-6.4",
           "pattern": "unwanted",
           "condition": "hub is unavailable on an identity or visibility call made with the caller's token",
           "system": "auth middleware",
           "action": "cache nothing and answer the request",
-          "contract": "HTTP 502 hub_unavailable; the next request calls hub again"
+          "contract": "HTTP 502 hub_unavailable; the next request calls hub again",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a fake hub failing /api/v1/user with 500 for token t, and later failing /api/v1/workspaces/widgets with 503 for a validated caller"
+            ],
+            "pseudocode": "hub.fail('/api/v1/user',500); assert get(t).status==502 and code=='hub_unavailable'; hub.clear(); assert get(t).status==200; assert hub.count(user,h(t))==2"
+          }
         },
         {
-          "id": "11-REQ-6.5",
+          "id": "REQ-6.5",
           "pattern": "event_driven",
           "condition": "a request targets a route with {slug}",
           "system": "auth middleware",
           "action": "check in order: the slug against ^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$ (else 400 invalid_request), the identity, then visibility from hub's workspace call with the caller's token cached by (token hash, slug) for auth_cache_ttl; let found through and cache not found",
-          "contract": "not found answers HTTP 404 not_found with a body byte-identical to the one for a slug that is not subscribed"
+          "contract": "not found answers HTTP 404 not_found with a body byte-identical to the one for a slug that is not subscribed",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "widgets subscribed; caller A sees widgets on hub; caller B does not; slug ghost is subscribed nowhere and visible to nobody",
+              "a service with a TTL and injectable clock",
+              "a service and a fake hub counting requests"
+            ],
+            "pseudocode": "r1=get('/api/v1/workspaces/widgets',B); r2=get('/api/v1/workspaces/zzz',A); assert r1.body==r2.body and r1.status==404; get(B); assert hub.count(ws('widgets'),h(B))==1\nfor s in bad: r=get('/api/v1/workspaces/'+s,'Bearer nope'); assert r.status==400 and r.json.error.code=='invalid_request'; assert hub.total()==0"
+          }
         },
         {
-          "id": "11-REQ-6.6",
+          "id": "REQ-6.6",
           "pattern": "unwanted",
           "condition": "hub answers 401 to a call made with a cached caller token on the caller's behalf",
           "system": "auth middleware",
           "action": "evict the token's identity entry and all of its visibility entries",
-          "contract": "HTTP 401 unauthenticated; the next request with that token calls GET /api/v1/user again"
+          "contract": "HTTP 401 unauthenticated; the next request with that token calls GET /api/v1/user again",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "caller token t validated and cached, and visibility cached for widgets and gadgets",
+              "then hub answers 401 to the workspace call for gizmos made with t"
+            ],
+            "pseudocode": "warm(t,'widgets','gadgets'); hub.fail_once(ws('gizmos'),401); assert get('gizmos',t).status==401; u=hub.count(user,h(t)); get('widgets',t); assert hub.count(user,h(t))==u+1; assert hub.count(ws('widgets'),h(t))==2"
+          }
         },
         {
-          "id": "11-REQ-6.7",
+          "id": "REQ-6.7",
           "pattern": "ubiquitous",
           "system": "auth middleware",
-          "action": "never read, fill or evict the identity or visibility cache for a call made with a subscription PAT, even when the PAT equals the caller's token"
+          "action": "never read, fill or evict the identity or visibility cache for a call made with a subscription PAT, even when the PAT equals the caller's token",
+          "contract": "the PAT calls reach hub even though the cache holds an answer for the same token hash; a hub 401 on the PAT gate answers 422 and leaves the caller's cached entries in place (no extra /user call afterwards); a PAT-only token never creates cache entries for its hash",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a caller token t whose identity and visibility are cached",
+              "a PUT whose hub_token equals t, and a PUT whose PAT hub refuses with 401"
+            ],
+            "pseudocode": "warm(t); put(t, pat=t); assert hub.count(ws('widgets'),h(t))>=2; put(t, pat=refused); before=hub.count(user,h(t)); get(t); assert hub.count(user,h(t))==before"
+          }
         },
         {
-          "id": "11-REQ-6.8",
+          "id": "REQ-6.8",
           "pattern": "ubiquitous",
           "system": "TTL cache",
-          "action": "hold at most 10,000 entries per cache, evicting expired entries first and then the oldest when full, be safe for concurrent use, and take its clock as an injectable function so expiry is tested by advancing it without sleeping"
+          "action": "hold at most 10,000 entries per cache, evicting expired entries first and then the oldest when full, be safe for concurrent use, and take its clock as an injectable function so expiry is tested by advancing it without sleeping",
+          "contract": "an entry is a hit until TTL and a miss after, with no sleeping; at 10,000 entries inserting one more evicts an expired entry before any live one; with no expired entry the oldest live entry is evicted; size never exceeds 10,000",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a cache with capacity 10,000, an injectable clock and TTL 60s",
+              "a cache of capacity 10,000 with an injected clock, run with the race detector"
+            ],
+            "pseudocode": "c=New(10000,clock); fill(c,10000); clock.advance(30s) ; add one fresh; clock.advance(31s); put('new'); assert c.len<=10000; assert c.has('fresh') and not c.has(oldest_expired)\nparallel(16, lambda: for op in gen_ops(seed): apply(c,op)); assert c.len()<=10000; assert no_race"
+          }
         }
       ]
     },
     {
-      "id": "11-REQ-7",
+      "id": "REQ-7",
       "title": "The HTTP surface",
       "rationale": "Probes, a fixed apikit error envelope and redacted logs make the service operable and safe to put behind a proxy.",
       "criteria": [
         {
-          "id": "11-REQ-7.1",
+          "id": "REQ-7.1",
           "pattern": "event_driven",
           "condition": "a client sends GET /healthz, GET /readyz or GET /version without a token",
           "system": "HTTP server",
           "action": "answer /healthz with {\"status\":\"ok\"}, /readyz with {\"status\":\"ready\"} after a successful database ping, and /version with the version document of 11-REQ-1.2",
-          "contract": "HTTP 200 with application/json for each"
+          "contract": "HTTP 200 with application/json for each",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a service with an open database"
+            ],
+            "pseudocode": "assert get('/healthz').json=={'status':'ok'}; assert get('/readyz').json=={'status':'ready'}; assert get('/version').json.name=='agent-fox'"
+          }
         },
         {
-          "id": "11-REQ-7.2",
+          "id": "REQ-7.2",
           "pattern": "unwanted",
           "condition": "the database ping fails on GET /readyz",
           "system": "HTTP server",
           "action": "answer not ready",
-          "contract": "HTTP 503 with error code not_ready"
+          "contract": "HTTP 503 with error code not_ready",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a service whose database handle is closed after start"
+            ],
+            "pseudocode": "store.Close(); r=get('/readyz'); assert r.status==503 and r.json.error.code=='not_ready'; assert get('/healthz').status==200"
+          }
         },
         {
-          "id": "11-REQ-7.3",
+          "id": "REQ-7.3",
           "pattern": "ubiquitous",
           "system": "HTTP server",
           "action": "answer every error as application/json with body {\"error\":{\"code\":…,\"message\":…}} and no error_type, mapping invalid_request 400, unauthenticated 401, not_found 404 (also for an unknown route), method_not_allowed 405, payload_too_large 413, unsupported_media_type 415, invalid_hub_token 422, internal 500, hub_unavailable 502, not_ready 503",
-          "contract": "Content-Type application/json; body has error.code and error.message and no error_type; status matches the code"
+          "contract": "Content-Type application/json; body has error.code and error.message and no error_type; status matches the code",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a running service with hub and a store"
+            ],
+            "pseudocode": "for case in cases: r=do(case); assert r.status==case.status; assert r.ctype.startswith('application/json'); e=r.json.error; assert e.code==case.code and e.message!=''; assert 'error_type' not in e"
+          }
         },
         {
-          "id": "11-REQ-7.4",
+          "id": "REQ-7.4",
           "pattern": "unwanted",
           "condition": "a request body is not Content-Type application/json (parameters allowed), exceeds 64 KiB, or is malformed JSON, has unknown fields or has trailing data",
           "system": "HTTP server",
           "action": "refuse the request before any write",
-          "contract": "HTTP 415 unsupported_media_type, 413 payload_too_large, or 400 invalid_request respectively"
+          "contract": "HTTP 415 unsupported_media_type, 413 payload_too_large, or 400 invalid_request respectively",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a valid caller and visible workspace widgets, an empty subscriptions table"
+            ],
+            "pseudocode": "assert put(ctype='text/plain').status==415; assert put(body='x'*65537).status==413; for b in ('{', '{\"hub_token\":\"p\",\"x\":1}', '{\"hub_token\":\"p\"} {}'): assert put(body=b).status==400; assert count()==0"
+          }
         },
         {
-          "id": "11-REQ-7.5",
+          "id": "REQ-7.5",
           "pattern": "unwanted",
           "condition": "a handler panics",
           "system": "HTTP server",
           "action": "recover, log the panic with its stack at level ERROR, and keep the process serving",
-          "contract": "HTTP 500 internal; a following request is answered"
+          "contract": "HTTP 500 internal; a following request is answered",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a service with a test handler that panics registered in the same middleware chain",
+              "a captured log buffer"
+            ],
+            "pseudocode": "r=get('/boom'); assert r.status==500 and r.json.error.code=='internal'; assert any(rec.level=='ERROR' and 'goroutine' in rec.stack); assert get('/healthz').status==200"
+          }
         },
         {
-          "id": "11-REQ-7.6",
+          "id": "REQ-7.6",
           "pattern": "ubiquitous",
           "system": "HTTP server",
-          "action": "set a non-zero ReadHeaderTimeout on the http.Server"
+          "action": "set a non-zero ReadHeaderTimeout on the http.Server",
+          "contract": "ReadHeaderTimeout is greater than zero",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "the server constructed by the service for a config"
+            ],
+            "pseudocode": "srv=NewServer(cfg,...); assert srv.ReadHeaderTimeout>0"
+          }
         },
         {
-          "id": "11-REQ-7.7",
+          "id": "REQ-7.7",
           "pattern": "ubiquitous",
           "system": "agent-fox",
-          "action": "write every stderr line after flag parsing as a log/slog JSON record, with one record per request carrying method, path, status, duration and, when known, the caller's user id"
+          "action": "write every stderr line after flag parsing as a log/slog JSON record, with one record per request carrying method, path, status, duration and, when known, the caller's user id",
+          "contract": "every stderr line after flag parsing parses as JSON with time, level and msg; each request has exactly one record with method, path, status, duration; the authenticated request's record carries the caller's user id; an unauthenticated request's record has no user id",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a running agent-fox binary with a fake hub and an authenticated caller"
+            ],
+            "pseudocode": "for line in stderr_lines: rec=json(line); assert rec.level and rec.msg; reqs=[r for r in recs if r.msg=='request']; assert len(reqs)==n; assert reqs[0].user=='usr_1'"
+          }
         },
         {
-          "id": "11-REQ-7.8",
+          "id": "REQ-7.8",
           "pattern": "ubiquitous",
           "system": "agent-fox",
-          "action": "never log the Authorization header, request or response bodies, tokens, ciphertext or the key"
+          "action": "never log the Authorization header, request or response bodies, tokens, ciphertext or the key",
+          "contract": "the log contains no 'Bearer', no caller token, no PAT, no request or response body text, no ciphertext bytes (hex or base64) and no key bytes",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a running service with a distinctive caller token, PAT and key, and a captured log"
+            ],
+            "pseudocode": "run_all(); for needle in (caller_tok,pat,'Bearer',key_b64,hex(sealed),b64(sealed),'label_prefix'): assert needle not in log"
+          }
         }
       ]
     },
     {
-      "id": "11-REQ-8",
+      "id": "REQ-8",
       "title": "Subscribing a workspace",
       "rationale": "A caller hands over a workspace PAT that hub confirms can see the workspace, so later specs can act on it.",
+      "system": "subscription API",
       "criteria": [
         {
-          "id": "11-REQ-8.1",
+          "id": "REQ-8.1",
           "pattern": "event_driven",
           "condition": "a caller who can see slug on hub sends PUT /api/v1/workspaces/{slug} with {\"hub_token\": PAT, \"label_prefix\"?: string} and slug is not yet subscribed, and hub's workspace call with the PAT finds slug",
-          "system": "subscription API",
           "action": "seal the PAT (11-REQ-3.3) and insert the row in one upsert statement with label_prefix (default af:), token_user, subscribed_by = the caller's user id, and created_at = updated_at = now",
-          "contract": "HTTP 201 with the subscription view (11-REQ-9.1)"
+          "contract": "HTTP 201 with the subscription view (11-REQ-9.1)",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "caller token c belongs to usr_1 and sees widgets on hub",
+              "PAT p is accepted by hub for widgets and belongs to usr_9",
+              "widgets is not yet subscribed"
+            ],
+            "pseudocode": "r=put('widgets',c,{'hub_token':p,'label_prefix':'x:'}); assert r.status==201; v=r.json; assert v.token_user=='usr_9' and v.subscribed_by=='usr_1'; assert v.created_at==v.updated_at; assert count()==1"
+          }
         },
         {
-          "id": "11-REQ-8.2",
-          "pattern": "complex_event",
-          "condition": "a valid PUT /api/v1/workspaces/{slug} passes every check",
-          "guard": "slug is already subscribed",
-          "system": "subscription API",
+          "id": "REQ-8.2",
+          "pattern": "event_driven",
+          "condition": "a valid PUT /api/v1/workspaces/{slug} passes every check and slug is already subscribed",
           "action": "replace the row in full: an absent label_prefix resets to af:, token_user takes this request's answer (empty stays empty), subscribed_by becomes the current caller, created_at is kept and updated_at is now",
-          "contract": "HTTP 200 with the subscription view"
+          "contract": "HTTP 200 with the subscription view",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "widgets subscribed by usr_1 with label_prefix x: and token_user usr_9",
+              "a second caller usr_2 who can see widgets, with a new PAT that /user refuses"
+            ],
+            "pseudocode": "r=put('widgets',c2,{'hub_token':p2}); assert r.status==200; v=r.json; assert v.label_prefix=='af:' and v.token_user is None and v.subscribed_by=='usr_2'; assert v.created_at==old.created_at and v.updated_at>old.updated_at; assert store.Token('widgets')==p2"
+          }
         },
         {
-          "id": "11-REQ-8.3",
+          "id": "REQ-8.3",
           "pattern": "unwanted",
           "condition": "hub_token is missing or empty, or label_prefix is not 1 to 32 characters or contains whitespace, a control character or a comma",
-          "system": "subscription API",
           "action": "refuse the request without calling hub with the PAT and without writing",
-          "contract": "HTTP 400 invalid_request; the subscriptions table is unchanged"
+          "contract": "HTTP 400 invalid_request; the subscriptions table is unchanged",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a visible workspace, an empty subscriptions table, and hub counters keyed by PAT hash"
+            ],
+            "pseudocode": "for body in bad: assert put('widgets',c,body).status==400; assert hub.count_for(h(pat))==0; assert count()==0; assert put('widgets',c,{'hub_token':pat,'label_prefix':'a'*32}).status==201"
+          }
         },
         {
-          "id": "11-REQ-8.4",
+          "id": "REQ-8.4",
           "pattern": "ubiquitous",
-          "system": "subscription API",
-          "action": "after the caller and body checks, make two fresh hub calls with the PAT that bypass both caches, first the workspace call for slug as the gate and then the user call as best effort, storing the user's id as token_user or leaving token_user empty when hub refuses the PAT on the user call"
+          "action": "after the caller and body checks, make two fresh hub calls with the PAT that bypass both caches, first the workspace call for slug as the gate and then the user call as best effort, storing the user's id as token_user or leaving token_user empty when hub refuses the PAT on the user call",
+          "contract": "each PUT sends hub the workspace call with the PAT before the user call with the PAT (recorded order); both calls are repeated on the second PUT (no cache hit); the subscription is stored with token_user null when /user refuses the PAT; the PAT's hash never creates entries that serve a later caller request",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "caller token c with warm identity and visibility caches",
+              "a PAT that hub lets see widgets but refuses on /user"
+            ],
+            "pseudocode": "put(); put(); r=hub.requests_for(h(pat)); assert [x.path for x in r]==[ws,user,ws,user]; assert view.token_user is None"
+          }
         },
         {
-          "id": "11-REQ-8.5",
+          "id": "REQ-8.5",
           "pattern": "unwanted",
           "condition": "hub refuses the PAT on the gate workspace call (401)",
-          "system": "subscription API",
           "action": "write nothing and leave both caches untouched",
-          "contract": "HTTP 422 invalid_hub_token with a message saying hub refused the token"
+          "contract": "HTTP 422 invalid_hub_token with a message saying hub refused the token",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a visible workspace and a PAT hub answers 401 to on the workspace call",
+              "warm caches for the caller"
+            ],
+            "pseudocode": "r=put(...); assert r.status==422 and r.json.error.code=='invalid_hub_token'; assert 'refused' in r.json.error.message; assert count()==0"
+          }
         },
         {
-          "id": "11-REQ-8.6",
+          "id": "REQ-8.6",
           "pattern": "unwanted",
           "condition": "hub does not find slug for the PAT on the gate workspace call (403 or 404)",
-          "system": "subscription API",
           "action": "write nothing and leave both caches untouched",
-          "contract": "HTTP 422 invalid_hub_token with a message naming the workspace slug"
+          "contract": "HTTP 422 invalid_hub_token with a message naming the workspace slug",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a PAT hub answers 403 to on widgets, and another it answers 404 to"
+            ],
+            "pseudocode": "for pat in (p403,p404): r=put('widgets',c,{'hub_token':pat}); assert r.status==422; assert 'widgets' in r.json.error.message; assert count()==0"
+          }
         },
         {
-          "id": "11-REQ-8.7",
+          "id": "REQ-8.7",
           "pattern": "unwanted",
           "condition": "hub is unavailable on either the gate call or the user call made with the PAT",
-          "system": "subscription API",
           "action": "write nothing and leave both caches untouched",
-          "contract": "HTTP 502 hub_unavailable; the subscriptions table is unchanged"
+          "contract": "HTTP 502 hub_unavailable; the subscriptions table is unchanged",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a fake hub failing the workspace route with 500 in one case and the user route with 503 in another, for PAT calls"
+            ],
+            "pseudocode": "for route in (ws,user): hub.fail_for_pat(route,500); r=put(); assert r.status==502 and r.json.error.code=='hub_unavailable'; assert count()==0"
+          }
         },
         {
-          "id": "11-REQ-8.8",
+          "id": "REQ-8.8",
           "pattern": "ubiquitous",
-          "system": "subscription API",
-          "action": "for any stored subscription, keep the PAT's bytes out of the database file, its WAL and every response body"
+          "action": "for any stored subscription, keep the PAT's bytes out of the database file, its WAL and every response body",
+          "contract": "the PAT's bytes appear in no response body from any call; they appear in neither the .db file nor the -wal file at any point after the PUT, even before checkpoint",
+          "check": {
+            "kind": "property",
+            "setup": [
+              "a service with a real SQLite file in WAL mode, seeded from the test"
+            ],
+            "pseudocode": "for pat,slug,prefix in gen(): bodies=[put(...),get(...),list(),delete()]; for b in bodies: assert pat not in b; assert pat not in read(db) and pat not in read(db+'-wal')"
+          }
         }
       ]
     },
     {
-      "id": "11-REQ-9",
+      "id": "REQ-9",
       "title": "Reading and removing subscriptions",
       "rationale": "Callers who can see a workspace on hub can inspect and remove its subscription, and later specs can read the opened PAT in-process.",
       "criteria": [
         {
-          "id": "11-REQ-9.1",
+          "id": "REQ-9.1",
           "pattern": "ubiquitous",
           "system": "subscription API",
-          "action": "render a subscription as {slug, label_prefix, token_user, subscribed_by, token_state, created_at, updated_at}, with label_prefix the value given at subscribe or af:, token_user null when empty, and neither the token nor its ciphertext"
+          "action": "render a subscription as {slug, label_prefix, token_user, subscribed_by, token_state, created_at, updated_at}, with label_prefix the value given at subscribe or af:, token_user null when empty, and neither the token nor its ciphertext",
+          "contract": "keys are exactly slug, label_prefix, token_user, subscribed_by, token_state, created_at, updated_at; token_user is JSON null when empty and the id otherwise; label_prefix is the stored value (af: by default); no key contains token or ciphertext and the sealed bytes appear nowhere",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a stored subscription with empty token_user and one with token_user usr_9"
+            ],
+            "pseudocode": "d=json(render(sub)); assert set(d)=={'slug','label_prefix','token_user','subscribed_by','token_state','created_at','updated_at'}; assert d['token_user'] is None"
+          }
         },
         {
-          "id": "11-REQ-9.2",
+          "id": "REQ-9.2",
           "pattern": "event_driven",
           "condition": "a caller sends GET /api/v1/workspaces",
           "system": "subscription API",
           "action": "return every subscription whose slug the caller can see per the cached visibility check, sorted by slug",
-          "contract": "HTTP 200 with {\"workspaces\":[view…]}; a caller who cannot see widgets gets a list without widgets"
+          "contract": "HTTP 200 with {\"workspaces\":[view…]}; a caller who cannot see widgets gets a list without widgets",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "subscriptions zeta, widgets and alpha",
+              "caller A sees all three; caller B sees only alpha"
+            ],
+            "pseudocode": "assert slugs(get('/api/v1/workspaces',A))==['alpha','widgets','zeta']; assert slugs(get(B))==['alpha']; assert get(C).json=={'workspaces':[]}"
+          }
         },
         {
-          "id": "11-REQ-9.3",
+          "id": "REQ-9.3",
           "pattern": "unwanted",
           "condition": "hub is unavailable on the visibility check for any subscription while listing",
           "system": "subscription API",
           "action": "answer with no partial list",
-          "contract": "HTTP 502 hub_unavailable"
+          "contract": "HTTP 502 hub_unavailable",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "three subscriptions and a hub that fails the workspace route for one slug with 500"
+            ],
+            "pseudocode": "hub.fail(ws('widgets'),500); r=get('/api/v1/workspaces'); assert r.status==502 and 'workspaces' not in r.json"
+          }
         },
         {
-          "id": "11-REQ-9.4",
+          "id": "REQ-9.4",
           "pattern": "event_driven",
           "condition": "a caller sends GET /api/v1/workspaces/{slug}",
           "system": "subscription API",
           "action": "return the subscription view, or answer not found when slug is not subscribed or the caller cannot see it",
-          "contract": "HTTP 200 with the view, or HTTP 404 not_found with the same body in both not-found cases"
+          "contract": "HTTP 200 with the view, or HTTP 404 not_found with the same body in both not-found cases",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "widgets subscribed; caller A sees it; caller B does not; slug nothing is visible to B but not subscribed"
+            ],
+            "pseudocode": "assert get('widgets',A).status==200; r1=get('widgets',B); r2=get('nothing',B); assert r1.status==r2.status==404; assert r1.body==r2.body"
+          }
         },
         {
-          "id": "11-REQ-9.5",
+          "id": "REQ-9.5",
           "pattern": "event_driven",
           "condition": "a caller sends DELETE /api/v1/workspaces/{slug}",
           "system": "subscription API",
           "action": "remove the row, sealed token included, or answer not found under the rule of 11-REQ-9.4",
-          "contract": "HTTP 204 with no body, or HTTP 404 not_found"
+          "contract": "HTTP 204 with no body, or HTTP 404 not_found",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "widgets subscribed; caller A sees it; caller B does not"
+            ],
+            "pseudocode": "assert delete('widgets',B).status==404; assert count()==1; r=delete('widgets',A); assert r.status==204 and r.body==''; assert count()==0; assert delete('widgets',A).status==404"
+          }
         },
         {
-          "id": "11-REQ-9.6",
+          "id": "REQ-9.6",
           "pattern": "state_driven",
           "condition": "the service runs with a key file",
           "system": "subscription API",
           "action": "report token_state ok for a subscription whose sealed token opens with that key and unreadable otherwise, and keep serving every route including PUT and DELETE for an unreadable one",
-          "contract": "after restart with the same key the view shows token_state ok; with a different key it shows unreadable and the service still answers /healthz 200"
+          "contract": "after restart with the same key the view shows token_state ok; with a different key it shows unreadable and the service still answers /healthz 200",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a subscription created under key A in a database file",
+              "a store reopened with key A and then with key B"
+            ],
+            "pseudocode": "restart(keyA); assert get(w).json.token_state=='ok'; restart(keyB); assert get(w).json.token_state=='unreadable'; assert get('/healthz').status==200; assert put(w).status==200 and get(w).json.token_state=='ok'"
+          }
         },
         {
-          "id": "11-REQ-9.7",
+          "id": "REQ-9.7",
           "pattern": "event_driven",
           "condition": "code inside the process reads a subscription's PAT by slug",
           "system": "store",
           "action": "return the opened plaintext PAT",
-          "contract": "the PAT given at subscribe"
+          "contract": "the PAT given at subscribe",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a service with a subscription for widgets created with PAT p"
+            ],
+            "pseudocode": "put(w,p); assert store.Token(ctx,'widgets')==p; put(w,p2); assert store.Token(ctx,'widgets')==p2"
+          }
         },
         {
-          "id": "11-REQ-9.8",
+          "id": "REQ-9.8",
           "pattern": "unwanted",
           "condition": "the in-process PAT read is for a slug that is not subscribed or whose token does not open",
           "system": "store",
           "action": "return an error and never panic, with no plaintext in the error",
-          "contract": "non-nil error distinguishable as not subscribed or unreadable"
+          "contract": "non-nil error distinguishable as not subscribed or unreadable",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a store with a subscription sealed under key A, opened with key B",
+              "a slug that is not subscribed"
+            ],
+            "pseudocode": "_,err=Token('missing'); assert errors.Is(err,ErrNotSubscribed); _,err=Token('widgets'); assert errors.Is(err,ErrUnreadable) and pat not in err.Error()"
+          }
         }
       ]
     },
     {
-      "id": "11-REQ-10",
+      "id": "REQ-10",
       "title": "Test support and documentation",
       "rationale": "Later specs extend the fake hub, and the steering requires every new surface to be documented in the same change.",
       "criteria": [
         {
-          "id": "11-REQ-10.1",
+          "id": "REQ-10.1",
           "pattern": "ubiquitous",
           "system": "internal/hub/fakehub",
-          "action": "serve GET /api/v1/user and GET /api/v1/workspaces/{slug} from an httptest table mapping tokens to users and users to visible workspaces, where a token may also be given workspaces without a user so that /user refuses it while the workspace call finds the workspace"
+          "action": "serve GET /api/v1/user and GET /api/v1/workspaces/{slug} from an httptest table mapping tokens to users and users to visible workspaces, where a token may also be given workspaces without a user so that /user refuses it while the workspace call finds the workspace",
+          "contract": "t1 gets the user and finds widgets and not other (403 or 404); t2 is refused by /user (401) but finds widgets; an unknown token gets 401 on both",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a fakehub with token t1->usr_1 seeing widgets, and token t2 given workspace widgets without a user"
+            ],
+            "pseudocode": "h=fakehub.New(t); h.AddUser('t1','usr_1',['widgets']); h.AddWorkspaceToken('t2',['widgets']); assert get(h,'/api/v1/user','t2').status==401; assert get(h,'/api/v1/workspaces/widgets','t2').status==200"
+          }
         },
         {
-          "id": "11-REQ-10.2",
+          "id": "REQ-10.2",
           "pattern": "ubiquitous",
           "system": "internal/hub/fakehub",
           "action": "count and record every request by path and token hash, and fail a chosen route with a given status or by hanging up when told to",
-          "contract": "per-(path, token hash) request counts readable by tests; a failed route answers the configured status or closes the connection"
+          "contract": "per-(path, token hash) request counts readable by tests; a failed route answers the configured status or closes the connection",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a fakehub with a user table"
+            ],
+            "pseudocode": "get(user,'t1'); get(user,'t1'); assert h.Count('/api/v1/user',sha('t1'))==2; h.Fail('/api/v1/user',503); assert get(user,'t1').status==503; h.Hangup('/api/v1/user'); assert transport_error(get(user,'t1'))"
+          }
         },
         {
-          "id": "11-REQ-10.3",
+          "id": "REQ-10.3",
           "pattern": "ubiquitous",
           "system": "docs",
           "action": "create docs/api.md covering the routes, the bearer authentication rule, the subscription view with token_user possibly null and label_prefix being the value given at subscribe, PUT's 201 on create and 200 on replace, the error codes, and the envelope without error_type",
-          "contract": "docs/api.md exists and names every route and every error code of 11-REQ-7.3"
+          "contract": "docs/api.md exists and names every route and every error code of 11-REQ-7.3",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "the repository's docs directory"
+            ],
+            "pseudocode": "doc=read('docs/api.md'); for s in routes+codes+('201','200','null','given at subscribe','Bearer','error_type'): assert s in doc"
+          }
         },
         {
-          "id": "11-REQ-10.4",
+          "id": "REQ-10.4",
           "pattern": "ubiquitous",
           "system": "docs",
-          "action": "give docs/cli.md an agent-fox section with the flags --config, --version and --help, exit codes 0, 1 and 2 with their meaning, and the config file lookup order"
+          "action": "give docs/cli.md an agent-fox section with the flags --config, --version and --help, exit codes 0, 1 and 2 with their meaning, and the config file lookup order",
+          "contract": "it has an agent-fox section naming --config, --version and --help; it explains exit codes 0, 1 and 2; it lists ./config.toml and $XDG_CONFIG_HOME/agent-fox/config.toml; the existing af content is still present",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "docs/cli.md"
+            ],
+            "pseudocode": "doc=read('docs/cli.md'); assert 'agent-fox' in doc; for s in ('--config','--version','--help','./config.toml','XDG_CONFIG_HOME/agent-fox/config.toml'): assert s in doc"
+          }
         },
         {
-          "id": "11-REQ-10.5",
+          "id": "REQ-10.5",
           "pattern": "ubiquitous",
           "system": "docs",
-          "action": "give docs/configuration.md an agent-fox section listing the keys of 11-REQ-2, stating that server.external_url and [workers] are not accepted in this release, and describing the key file with the recipe (umask 077; openssl rand -base64 32 > key)"
+          "action": "give docs/configuration.md an agent-fox section listing the keys of 11-REQ-2, stating that server.external_url and [workers] are not accepted in this release, and describing the key file with the recipe (umask 077; openssl rand -base64 32 > key)",
+          "contract": "it lists server.listen, hub.url, hub.auth_cache_ttl, database.path and secrets.key_file; it says server.external_url and [workers] are not accepted in this release; it contains the exact recipe (umask 077; openssl rand -base64 32 > key)",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "docs/configuration.md"
+            ],
+            "pseudocode": "doc=read('docs/configuration.md'); assert '(umask 077; openssl rand -base64 32 > key)' in doc; assert 'server.external_url' in doc and '[workers]' in doc"
+          }
         },
         {
-          "id": "11-REQ-10.6",
+          "id": "REQ-10.6",
           "pattern": "ubiquitous",
           "system": "docs",
-          "action": "state in docs/model-usage.md that agent-fox runs no model in this release, add a service section to docs/architecture.md (process, state file, hub as identity provider), list cmd/agent-fox, internal/hub and the service packages in docs/development.md's layout table, and describe the binary and how to start it in README.md"
+          "action": "state in docs/model-usage.md that agent-fox runs no model in this release, add a service section to docs/architecture.md (process, state file, hub as identity provider), list cmd/agent-fox, internal/hub and the service packages in docs/development.md's layout table, and describe the binary and how to start it in README.md",
+          "contract": "model-usage says agent-fox runs no model in this release; architecture has a service section covering the process, the state file and hub as the identity provider; development's layout table lists cmd/agent-fox, internal/hub and the service packages; README describes the agent-fox binary and how to start it",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "docs/model-usage.md, docs/architecture.md, docs/development.md and README.md"
+            ],
+            "pseudocode": "assert 'no model' in read('docs/model-usage.md'); assert 'cmd/agent-fox' in read('docs/development.md') and 'internal/hub' in read('docs/development.md'); assert 'agent-fox --config' in read('README.md')"
+          }
         },
         {
-          "id": "11-REQ-10.7",
+          "id": "REQ-10.7",
           "pattern": "ubiquitous",
           "system": "docs",
-          "action": "commit the output of make doc under docs/generated/, including docs/generated/cmd/agent-fox.txt"
+          "action": "commit the output of make doc under docs/generated/, including docs/generated/cmd/agent-fox.txt",
+          "contract": "docs/generated/cmd/agent-fox.txt exists and is non-empty; it documents package main of cmd/agent-fox",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "the committed docs/generated tree"
+            ],
+            "pseudocode": "b=read('docs/generated/cmd/agent-fox.txt'); assert len(b)>0 and 'package main' in b"
+          }
         },
         {
-          "id": "11-REQ-10.8",
+          "id": "REQ-10.8",
           "pattern": "ubiquitous",
           "system": "build",
           "action": "pass make check offline, with no network beyond loopback, no real hub and no pre-existing key file",
-          "contract": "make check exits 0"
+          "contract": "make check exits 0",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "the repository's service test files and an environment with no network and no key file"
+            ],
+            "pseudocode": "for f in service_test_files: for url in urls(f): assert is_loopback_or_inert(url); assert 'AF_KEY' not in env_reads(f)"
+          }
         }
       ]
     }
   ],
   "execution_paths": [
     {
-      "id": "11-PATH-1",
+      "id": "PATH-1",
       "title": "An operator starts agent-fox from a minimal config and probes it",
       "steps": [
         {
@@ -658,10 +1203,30 @@
           "actor": "operator",
           "action": "sends SIGTERM and the process closes the database and exits 0"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "agent-fox binary",
+          "config loader",
+          "key loader",
+          "SQLite store",
+          "HTTP server"
+        ],
+        "setup": [
+          "a built agent-fox binary",
+          "a config setting only hub.url (a fake hub) and secrets.key_file (0600, base64 of 32 bytes) plus server.listen 127.0.0.1:0, in a temp dir"
+        ],
+        "end_state": [
+          "a listening record with a non-zero port appears",
+          "/healthz answers 200 {\"status\":\"ok\"}, /readyz 200 {\"status\":\"ready\"}, /version 200 with name agent-fox",
+          "the SQLite file exists with mode 0600",
+          "the process exits 0 after SIGTERM"
+        ],
+        "pseudocode": "p=start(bin,'--config',c); addr=wait_listening(p); assert get(addr,'/healthz').json=={'status':'ok'}; assert get(addr,'/readyz').json=={'status':'ready'}; assert get(addr,'/version').json.name=='agent-fox'; p.signal(SIGTERM); assert p.wait()==0"
+      }
     },
     {
-      "id": "11-PATH-2",
+      "id": "PATH-2",
       "title": "A bad configuration is refused before listening",
       "steps": [
         {
@@ -676,10 +1241,28 @@
           "actor": "operator",
           "action": "observes exit code 2 and no listening record"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "agent-fox binary",
+          "config loader",
+          "slog JSON logger"
+        ],
+        "setup": [
+          "a built agent-fox binary",
+          "one config with server.external_url set and another with hub.auth_cache_ttl = \"16m\""
+        ],
+        "end_state": [
+          "each exits 2",
+          "stderr holds one JSON record at level ERROR with msg 'start failed'",
+          "the error attribute names server.external_url or hub.auth_cache_ttl respectively",
+          "no listening record is written and no database file is created"
+        ],
+        "pseudocode": "for c,key in ((ext,'server.external_url'),(ttl,'hub.auth_cache_ttl')): r=run(bin,'--config',c); assert r.code==2; recs=json_lines(r.stderr); assert len(recs)==1 and key in recs[0].error; assert not exists(dbpath)"
+      }
     },
     {
-      "id": "11-PATH-3",
+      "id": "PATH-3",
       "title": "A caller subscribes a workspace and lists it",
       "steps": [
         {
@@ -706,10 +1289,32 @@
           "actor": "caller",
           "action": "sends GET /api/v1/workspaces and receives a list holding widgets, while a caller who cannot see widgets gets a list without it and 404 on GET /api/v1/workspaces/widgets"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "agent-fox binary",
+          "auth middleware and caches",
+          "hub client",
+          "fakehub",
+          "sealer",
+          "SQLite store"
+        ],
+        "setup": [
+          "a running agent-fox binary against a fakehub where caller A sees widgets and caller B does not",
+          "a PAT that the fakehub lets see widgets",
+          "a real SQLite file in WAL mode"
+        ],
+        "end_state": [
+          "the PUT answers 201 with a view that has no PAT",
+          "hub saw /user and workspace calls for A's token and both PAT calls",
+          "the database file and its WAL do not contain the PAT bytes",
+          "A's list holds widgets, B's list does not, and B gets 404 for widgets"
+        ],
+        "pseudocode": "r=put(addr,'widgets',A,{'hub_token':pat}); assert r.status==201 and pat not in r.body; assert 'widgets' in slugs(get(addr,'/api/v1/workspaces',A)); assert 'widgets' not in slugs(get(B)); assert get(addr,'/api/v1/workspaces/widgets',B).status==404; assert pat not in read(db)+read(db+'-wal')"
+      }
     },
     {
-      "id": "11-PATH-4",
+      "id": "PATH-4",
       "title": "A subscription survives a restart with the same key and degrades with another key",
       "steps": [
         {
@@ -732,10 +1337,29 @@
           "actor": "agent-fox",
           "action": "starts, and answers the view of widgets with token_state unreadable while /healthz still answers 200"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "agent-fox binary",
+          "key loader",
+          "sealer",
+          "SQLite store",
+          "fakehub"
+        ],
+        "setup": [
+          "agent-fox running with key A against a fakehub, with widgets subscribed",
+          "the same database file"
+        ],
+        "end_state": [
+          "after the key A restart the view has token_state ok",
+          "after the key B restart the service starts, the view has token_state unreadable and /healthz answers 200",
+          "no view or log contains the PAT"
+        ],
+        "pseudocode": "subscribe(); restart(keyA); assert view().token_state=='ok'; restart(keyB); assert view().token_state=='unreadable'; assert get('/healthz').status==200"
+      }
     },
     {
-      "id": "11-PATH-5",
+      "id": "PATH-5",
       "title": "A token revoked on hub is evicted and revalidated",
       "steps": [
         {
@@ -758,10 +1382,28 @@
           "actor": "agent-fox",
           "action": "calls hub GET /api/v1/user again to revalidate the token"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "agent-fox binary",
+          "auth middleware and caches",
+          "hub client",
+          "fakehub"
+        ],
+        "setup": [
+          "a running agent-fox with a TTL of 60s against a fakehub",
+          "a token whose identity is cached and widgets subscribed and visible"
+        ],
+        "end_state": [
+          "the first request answers 401 unauthenticated",
+          "the second request makes agent-fox call /api/v1/user for that token again (count increased by one)",
+          "with the token still refused by /user the second request also answers 401"
+        ],
+        "pseudocode": "warm(t); hub.fail_once(ws('gizmos'),401); assert get('/api/v1/workspaces/gizmos',t).status==401; n=hub.count(user,h(t)); get('/api/v1/workspaces/widgets',t); assert hub.count(user,h(t))==n+1"
+      }
     },
     {
-      "id": "11-PATH-6",
+      "id": "PATH-6",
       "title": "A caller removes a subscription",
       "steps": [
         {
@@ -776,7 +1418,25 @@
           "actor": "caller",
           "action": "sends GET /api/v1/workspaces/widgets and receives 404 not_found"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "agent-fox binary",
+          "auth middleware and caches",
+          "hub client",
+          "fakehub",
+          "SQLite store"
+        ],
+        "setup": [
+          "a running agent-fox against a fakehub with widgets subscribed and visible to the caller"
+        ],
+        "end_state": [
+          "DELETE answers 204 with no body",
+          "the subscriptions table has no widgets row and no sealed token remains",
+          "GET answers 404 not_found"
+        ],
+        "pseudocode": "assert delete(addr,'widgets',t).status==204; assert row_count(db)==0; r=get(addr,'/api/v1/workspaces/widgets',t); assert r.status==404 and r.json.error.code=='not_found'"
+      }
     }
   ],
   "external_apis": [

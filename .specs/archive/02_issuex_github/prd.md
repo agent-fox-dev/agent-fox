@@ -4,9 +4,8 @@ spec_name: "issuex_github"
 title: "Forge-Neutral Issue and Pull Request Client: GitHub Adapter"
 status: "active"
 created_at: "2026-09-10T17:00:28.467132Z"
-updated_at: "2026-09-10T17:00:28.467132Z"
 intent_hash: "c0c6850674ecd701c4c9a75df1549582c75e27f001da0511bbefb1c31fd166c0"
-schema_version: 2
+schema_version: 3
 source: "docs/drafts/forge_neutral_issue_pr_client.md"
 ---
 ## Intent
@@ -195,3 +194,11 @@ This spec implements the GitHub client adapter within `issuex`, fulfilling the `
 | Spec | Status | Reason |
 |---|---|---|
 | `01_issuex_core` | active | Supplies `Client` interface, domain data models, options configuration, forge detection, error hierarchy, and shared transport foundation that this adapter implements. |
+
+## Glossary
+
+- **CheckRun**: A GitHub Actions or external CI/CD check execution attached to a specific commit SHA.
+- **EnterpriseEndpoint**: A custom GitHub Enterprise Server or GitHub Enterprise Cloud API endpoint path.
+- **MergeMethod**: The pull request merge strategy: merge commit, squash and merge, or rebase and merge.
+- **ReviewEvent**: The GitHub pull request review event action, such as COMMENT, APPROVE, or REQUEST_CHANGES.
+- **Truncated**: A boolean flag indicating that comments or list results exceeded the fetch cap and more items exist on the server.

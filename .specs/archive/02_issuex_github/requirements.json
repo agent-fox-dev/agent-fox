@@ -1,385 +1,591 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/requirements.v3.json",
   "spec_id": "02",
   "spec_name": "issuex_github",
-  "schema_version": 2,
-  "introduction": "The issuex GitHub adapter provides a full implementation of the forge-neutral Client interface for GitHub REST API v3 / 2022-11-28, supporting repository inspection, issue tracking, and pull request workflows across github.com and GitHub Enterprise instances.",
-  "glossary": {
-    "CheckRun": "A GitHub Actions or external CI/CD check execution attached to a specific commit SHA.",
-    "EnterpriseEndpoint": "A custom GitHub Enterprise Server or GitHub Enterprise Cloud API endpoint path.",
-    "MergeMethod": "The pull request merge strategy: merge commit, squash and merge, or rebase and merge.",
-    "ReviewEvent": "The GitHub pull request review event action, such as COMMENT, APPROVE, or REQUEST_CHANGES.",
-    "Truncated": "A boolean flag indicating that comments or list results exceeded the fetch cap and more items exist on the server."
-  },
+  "schema_version": 3,
   "requirements": [
     {
-      "id": "02-REQ-1",
+      "id": "REQ-1",
       "title": "GitHub Client Construction, Lifecycle, and Factory Wiring",
       "rationale": "Direct construction and factory integration allow callers to instantiate authenticated or unauthenticated GitHub adapters configured for public or enterprise instances.",
       "criteria": [
         {
-          "id": "02-REQ-1.1",
+          "id": "REQ-1.1",
           "pattern": "ubiquitous",
           "system": "issuex package",
-          "action": "provide a GitHub client adapter struct that implements all methods of the Client interface and export the NewGitHub(Options) (Client, error) constructor"
+          "action": "provide a GitHub client adapter struct that implements all methods of the Client interface and export the NewGitHub(Options) (Client, error) constructor",
+          "contract": "githubClient implements the issuex.Client interface completely; Authenticated() returns true when holding a non-empty token and false otherwise; Close() closes idle transport connections and returns nil",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "the issuex package and GitHub client adapter implementation"
+            ],
+            "pseudocode": "var _ issuex.Client = (*githubClient)(nil)\nc := newTestGitHubClient(Options{Token: \"ghp_secret\"})\nassert c.Authenticated() == true\nassert c.Close() == nil\n\nunauth := newTestGitHubClient(Options{})\nassert unauth.Authenticated() == false"
+          }
         },
         {
-          "id": "02-REQ-1.2",
+          "id": "REQ-1.2",
           "pattern": "event_driven",
           "condition": "NewGitHub is called with Options",
           "system": "GitHub constructor",
-          "action": "resolve BaseURL from Options or GITHUB_API_URL or default to https://api.github.com without trailing slash, Token from Options or GITHUB_TOKEN or GH_TOKEN, HTTPClient from Options or default 30-second timeout client, and UserAgent from Options or default agent-fox"
+          "action": "resolve BaseURL from Options or GITHUB_API_URL or default to https://api.github.com without trailing slash, Token from Options or GITHUB_TOKEN or GH_TOKEN, HTTPClient from Options or default 30-second timeout client, and UserAgent from Options or default agent-fox",
+          "contract": "BaseURL resolves from Options or GITHUB_API_URL or defaults to https://api.github.com without trailing slash; Token resolves from Options or GITHUB_TOKEN or GH_TOKEN; default HTTPClient has a 30-second timeout if unspecified; default UserAgent is agent-fox if unspecified",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "custom Options and process environment variable combinations"
+            ],
+            "pseudocode": "c1, _ := NewGitHub(Options{BaseURL: \"https://ghe.example.com/api/v3/\", Token: \"tok1\", UserAgent: \"custom-ua\"})\nassert c1.(*githubClient).baseURL == \"https://ghe.example.com/api/v3\"\nassert c1.(*githubClient).token == \"tok1\"\nassert c1.(*githubClient).userAgent == \"custom-ua\"\n\nt.Setenv(\"GITHUB_API_URL\", \"https://api.github.corp/\")\nt.Setenv(\"GITHUB_TOKEN\", \"tok2\")\nc2, _ := NewGitHub(Options{})\nassert c2.(*githubClient).baseURL == \"https://api.github.corp\"\nassert c2.(*githubClient).token == \"tok2\"\nassert c2.(*githubClient).userAgent == \"agent-fox\"\nassert c2.(*githubClient).httpClient.Timeout == 30*time.Second"
+          }
         },
         {
-          "id": "02-REQ-1.3",
+          "id": "REQ-1.3",
           "pattern": "event_driven",
           "condition": "NewWithOptions is called with NoOp set to false and the resolved forge type is ForgeTypeGitHub",
           "system": "client factory",
-          "action": "construct and return the GitHub client adapter instead of returning ErrUnsupportedForge"
+          "action": "construct and return the GitHub client adapter instead of returning ErrUnsupportedForge",
+          "contract": "NewWithOptions detects ForgeTypeGitHub and returns an active GitHub client adapter rather than ErrUnsupportedForge",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "Options with remote URL pointing to github.com and NoOp false"
+            ],
+            "pseudocode": "client, err := issuex.NewWithOptions(issuex.Options{\n    Repo: issuex.Repo{Owner: \"agentfox\", Name: \"agent-fox\"},\n    RemoteURL: \"https://github.com/agentfox/agent-fox.git\",\n    Token: \"dummy-token\",\n})\nassert err == nil\nassert client != nil\nassert client.Authenticated() == true\nassert client.(*githubClient).repo.Owner == \"agentfox\""
+          }
         },
         {
-          "id": "02-REQ-1.4",
+          "id": "REQ-1.4",
           "pattern": "ubiquitous",
           "system": "GitHub client",
-          "action": "report true from Authenticated() when holding a non-empty token and false otherwise, and close idle HTTP connections on the underlying transport from Close() returning nil"
+          "action": "report true from Authenticated() when holding a non-empty token and false otherwise, and close idle HTTP connections on the underlying transport from Close() returning nil",
+          "check": {
+            "same_as": "REQ-1.1"
+          }
         },
         {
-          "id": "02-REQ-1.5",
+          "id": "REQ-1.5",
           "pattern": "ubiquitous",
           "system": "GitHub client",
-          "action": "for any outgoing HTTP request, include Accept: application/vnd.github+json, X-GitHub-Api-Version: 2022-11-28, and User-Agent headers, appending Authorization: Bearer <Token> when authenticated and Content-Type: application/json when a request body is present"
+          "action": "for any outgoing HTTP request, include Accept: application/vnd.github+json, X-GitHub-Api-Version: 2022-11-28, and User-Agent headers, appending Authorization: Bearer <Token> when authenticated and Content-Type: application/json when a request body is present",
+          "contract": "Accept header is always application/vnd.github+json; X-GitHub-Api-Version is always 2022-11-28; User-Agent is always populated; Authorization header contains Bearer token when authenticated and is omitted when unauthenticated; Content-Type is application/json when request body is present",
+          "check": {
+            "kind": "property",
+            "setup": [
+              "a quickcheck generator for HTTP methods, paths, authentication tokens, and request payloads"
+            ],
+            "pseudocode": "forAll(genMethod, genPath, genToken, genPayload, func(method, path, token string, body []byte) bool {\n    var captured *http.Request\n    srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n        captured = r\n        w.WriteHeader(http.StatusOK)\n        w.Write([]byte(\"{}\"))\n    }))\n    defer srv.Close()\n    c := newTestGitHubClient(Options{BaseURL: srv.URL, Token: token})\n    _ = c.do(context.Background(), method, path, body, nil)\n    ok := captured.Header.Get(\"Accept\") == \"application/vnd.github+json\" &&\n          captured.Header.Get(\"X-GitHub-Api-Version\") == \"2022-11-28\" &&\n          captured.Header.Get(\"User-Agent\") != \"\"\n    if token != \"\" {\n        ok = ok && captured.Header.Get(\"Authorization\") == \"Bearer \" + token\n    } else {\n        ok = ok && captured.Header.Get(\"Authorization\") == \"\"\n    }\n    if len(body) > 0 {\n        ok = ok && captured.Header.Get(\"Content-Type\") == \"application/json\"\n    }\n    return ok\n})"
+          }
         }
       ]
     },
     {
-      "id": "02-REQ-2",
+      "id": "REQ-2",
       "title": "Repository Metadata and Merge Policy Inspection",
       "rationale": "Repository inspection verifies repository accessibility, permissions, default branch, and allowed merge strategies for pull request automation.",
+      "system": "GitHub client",
       "criteria": [
         {
-          "id": "02-REQ-2.1",
+          "id": "REQ-2.1",
           "pattern": "event_driven",
           "condition": "GetRepository is called with a valid Repo",
-          "system": "GitHub client",
-          "action": "execute GET /repos/{owner}/{name} and populate a Repository struct with FullName, DefaultBranch, Private, Archived, and Permissions booleans for Push, Pull, and Admin"
+          "action": "execute GET /repos/{owner}/{name} and populate a Repository struct with FullName, DefaultBranch, Private, Archived, and Permissions booleans for Push, Pull, and Admin",
+          "contract": "FullName, DefaultBranch, Private, Archived, and Permissions booleans are accurately populated; merge strategy flags allow_merge_commit, allow_squash_merge, and allow_rebase_merge are recorded in the client",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a mock server returning GitHub repository JSON with permissions and merge strategy flags"
+            ],
+            "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    assert r.Method == \"GET\"\n    assert r.URL.Path == \"/repos/owner/test-repo\"\n    w.Write([]byte(`{\n        \"full_name\": \"owner/test-repo\",\n        \"default_branch\": \"main\",\n        \"private\": true,\n        \"archived\": false,\n        \"permissions\": {\"push\": true, \"pull\": true, \"admin\": false},\n        \"allow_merge_commit\": true,\n        \"allow_squash_merge\": false,\n        \"allow_rebase_merge\": true\n    }`))\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nrepo, err := c.GetRepository(context.Background(), Repo{Owner: \"owner\", Name: \"test-repo\"})\nassert err == nil\nassert repo.FullName == \"owner/test-repo\"\nassert repo.DefaultBranch == \"main\"\nassert repo.Private == true\nassert repo.Archived == false\nassert repo.Permissions.Push == true && repo.Permissions.Pull == true && repo.Permissions.Admin == false\nassert c.allowMergeCommit == true && c.allowSquashMerge == false && c.allowRebaseMerge == true"
+          }
         },
         {
-          "id": "02-REQ-2.2",
+          "id": "REQ-2.2",
           "pattern": "event_driven",
           "condition": "GetRepository receives a successful repository response",
-          "system": "GitHub client",
-          "action": "record the repository merge strategy booleans allow_merge_commit, allow_squash_merge, and allow_rebase_merge for pull request merge method resolution"
+          "action": "record the repository merge strategy booleans allow_merge_commit, allow_squash_merge, and allow_rebase_merge for pull request merge method resolution",
+          "check": {
+            "same_as": "REQ-2.1"
+          }
         },
         {
-          "id": "02-REQ-2.3",
+          "id": "REQ-2.3",
           "pattern": "unwanted",
           "condition": "GetRepository receives HTTP 404 on a client without an authentication token",
-          "system": "GitHub client",
           "action": "return an error wrapping ErrNotFound with guidance indicating the repository may be private and require authentication",
-          "contract": "returns an error satisfying IsNotFound(err) == true and containing private repository guidance"
+          "contract": "returns an error satisfying IsNotFound(err) == true and containing private repository guidance",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a mock server returning HTTP 404 Not Found for GET /repos/{owner}/{name}"
+            ],
+            "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    w.WriteHeader(http.StatusNotFound)\n    w.Write([]byte(`{\"message\": \"Not Found\"}`))\n}))\ndefer srv.Close()\n\nunauth := newTestGitHubClient(Options{BaseURL: srv.URL})\n_, errUnauth := unauth.GetRepository(context.Background(), Repo{Owner: \"owner\", Name: \"priv-repo\"})\nassert issuex.IsNotFound(errUnauth) == true\nassert strings.Contains(strings.ToLower(errUnauth.Error()), \"private\")\n\nauth := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\n_, errAuth := auth.GetRepository(context.Background(), Repo{Owner: \"owner\", Name: \"priv-repo\"})\nassert issuex.IsNotFound(errAuth) == true"
+          }
         },
         {
-          "id": "02-REQ-2.4",
+          "id": "REQ-2.4",
           "pattern": "unwanted",
           "condition": "GetRepository receives HTTP 404 on an authenticated client",
-          "system": "GitHub client",
           "action": "return an error wrapping ErrNotFound",
-          "contract": "returns an error satisfying IsNotFound(err) == true"
+          "contract": "returns an error satisfying IsNotFound(err) == true",
+          "check": {
+            "same_as": "REQ-2.3"
+          }
         }
       ]
     },
     {
-      "id": "02-REQ-3",
+      "id": "REQ-3",
       "title": "Issue Lifecycle and Retrieval",
       "rationale": "Issue lifecycle methods enable creating, reading with full comment history, updating, closing, and filtered listing of forge issues.",
+      "system": "GitHub client",
       "criteria": [
         {
-          "id": "02-REQ-3.1",
+          "id": "REQ-3.1",
           "pattern": "event_driven",
           "condition": "CreateIssue is called with a Repo and CreateIssueRequest on an authenticated client",
-          "system": "GitHub client",
-          "action": "execute POST /repos/{owner}/{name}/issues with title, body, and labels, returning the created Issue with Number, Title, Body, State, URL, Author, Labels, timestamps, and IsPR set to false"
+          "action": "execute POST /repos/{owner}/{name}/issues with title, body, and labels, returning the created Issue with Number, Title, Body, State, URL, Author, Labels, timestamps, and IsPR set to false",
+          "contract": "POST request is sent to /repos/{owner}/{name}/issues with title, body, and labels; returned Issue struct has Number, Title, Body, State, URL, Author, Labels, and IsPR set to false",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an authenticated GitHub client and mock server handling POST /repos/{owner}/{name}/issues"
+            ],
+            "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    assert r.Method == \"POST\"\n    assert r.URL.Path == \"/repos/owner/repo/issues\"\n    var body map[string]any\n    json.NewDecoder(r.Body).Decode(&body)\n    assert body[\"title\"] == \"Bug title\"\n    assert body[\"body\"] == \"Bug body\"\n    assert body[\"labels\"].([]any)[0] == \"bug\"\n    w.WriteHeader(http.StatusCreated)\n    w.Write([]byte(`{\n        \"number\": 12,\n        \"title\": \"Bug title\",\n        \"body\": \"Bug body\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/owner/repo/issues/12\",\n        \"user\": {\"login\": \"alice\"},\n        \"labels\": [{\"name\": \"bug\"}],\n        \"created_at\": \"2025-01-01T00:00:00Z\",\n        \"updated_at\": \"2025-01-01T00:00:00Z\"\n    }`))\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nissue, err := c.CreateIssue(context.Background(), Repo{Owner: \"owner\", Name: \"repo\"}, CreateIssueRequest{\n    Title: \"Bug title\", Body: \"Bug body\", Labels: []string{\"bug\"},\n})\nassert err == nil\nassert issue.Number == 12\nassert issue.Title == \"Bug title\"\nassert issue.Author.Login == \"alice\"\nassert issue.Labels[0].Name == \"bug\"\nassert issue.IsPR == false"
+          }
         },
         {
-          "id": "02-REQ-3.2",
+          "id": "REQ-3.2",
           "pattern": "unwanted",
           "condition": "CreateIssue, UpdateIssue, or CloseIssue is called on a client without an authentication token",
-          "system": "GitHub client",
           "action": "reject the call and return ErrNoToken without executing network requests",
-          "contract": "returns an error satisfying IsNoToken(err) == true"
+          "contract": "returns an error satisfying IsNoToken(err) == true",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an unauthenticated GitHub client with no token"
+            ],
+            "pseudocode": "c := newTestGitHubClient(Options{Token: \"\"})\nctx := context.Background()\nref := IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 1}\nrepo := Repo{Owner: \"o\", Name: \"r\"}\n\n_, err1 := c.CreateIssue(ctx, repo, CreateIssueRequest{Title: \"t\"})\nassert issuex.IsNoToken(err1) == true\n\n_, err2 := c.UpdateIssue(ctx, ref, UpdateIssueRequest{Title: \"t\"})\nassert issuex.IsNoToken(err2) == true\n\nerr3 := c.CloseIssue(ctx, ref, \"closing\")\nassert issuex.IsNoToken(err3) == true\n\n_, err4 := c.AddComment(ctx, ref, \"cmt\")\nassert issuex.IsNoToken(err4) == true\n\nerr5 := c.AddLabels(ctx, ref, []string{\"lbl\"})\nassert issuex.IsNoToken(err5) == true\n\nerr6 := c.RemoveLabel(ctx, ref, \"lbl\")\nassert issuex.IsNoToken(err6) == true\n\nerr7 := c.CreateLabel(ctx, repo, Label{Name: \"lbl\"})\nassert issuex.IsNoToken(err7) == true\n\n_, err8 := c.CreatePullRequest(ctx, repo, CreatePullRequestRequest{Title: \"t\"})\nassert issuex.IsNoToken(err8) == true\n\nerr9 := c.ClosePullRequest(ctx, ref)\nassert issuex.IsNoToken(err9) == true\n\nerr10 := c.PostReviewComment(ctx, ref, \"rev\")\nassert issuex.IsNoToken(err10) == true\n\n_, err11 := c.MergePullRequest(ctx, ref, MergeOptions{})\nassert issuex.IsNoToken(err11) == true"
+          }
         },
         {
-          "id": "02-REQ-3.3",
+          "id": "REQ-3.3",
           "pattern": "event_driven",
           "condition": "ReadIssue is called with an IssueRef",
-          "system": "GitHub client",
-          "action": "execute GET /repos/{owner}/{name}/issues/{number}, set Issue.IsPR to true if the response contains a pull_request key, and fetch chronological comments via ListComments into IssueThread"
+          "action": "execute GET /repos/{owner}/{name}/issues/{number}, set Issue.IsPR to true if the response contains a pull_request key, and fetch chronological comments via ListComments into IssueThread",
+          "contract": "Issue.IsPR is set to true when the pull_request key is present; IssueThread.Comments contains chronologically listed comments when comment retrieval succeeds; IssueThread has populated Issue, non-nil CommentsErr, and ReadIssue returns nil error when comment fetch fails",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a mock server returning issue details with pull_request key and comments responses"
+            ],
+            "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if strings.HasSuffix(r.URL.Path, \"/comments\") {\n        if r.Header.Get(\"X-Fail-Comments\") == \"1\" {\n            w.WriteHeader(http.StatusInternalServerError)\n            return\n        }\n        w.Write([]byte(`[{\"body\": \"first comment\", \"user\": {\"login\": \"bob\"}, \"html_url\": \"https://cmt/1\"}]`))\n        return\n    }\n    w.Write([]byte(`{\n        \"number\": 42,\n        \"title\": \"PR issue\",\n        \"pull_request\": {\"url\": \"https://api.github.com/repos/o/r/pulls/42\"}\n    }`))\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nthread, err := c.ReadIssue(context.Background(), IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 42})\nassert err == nil\nassert thread.Issue.IsPR == true\nassert len(thread.Comments) == 1\nassert thread.Comments[0].Body == \"first comment\"\n\n// Test partial comment failure resilience\ncFail := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\", HTTPClient: injectHeaderClient(\"X-Fail-Comments\", \"1\")})\nthreadFail, errFail := cFail.ReadIssue(context.Background(), IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 42})\nassert errFail == nil\nassert threadFail.Issue.Number == 42\nassert threadFail.CommentsErr != nil"
+          }
         },
         {
-          "id": "02-REQ-3.4",
+          "id": "REQ-3.4",
           "pattern": "unwanted",
           "condition": "ReadIssue receives an error when fetching comments after successfully retrieving issue metadata",
-          "system": "GitHub client",
           "action": "record the comment failure in IssueThread.CommentsErr and return the populated Issue with nil top-level error",
-          "contract": "IssueThread has populated Issue, non-nil CommentsErr, and ReadIssue returns nil error"
+          "contract": "IssueThread has populated Issue, non-nil CommentsErr, and ReadIssue returns nil error",
+          "check": {
+            "same_as": "REQ-3.3"
+          }
         },
         {
-          "id": "02-REQ-3.5",
+          "id": "REQ-3.5",
           "pattern": "unwanted",
           "condition": "ReadIssue receives HTTP 404 on an unauthenticated client",
-          "system": "GitHub client",
           "action": "return an error wrapping ErrNotFound with guidance that the issue or repository may be private",
-          "contract": "returns an error satisfying IsNotFound(err) == true and containing private issue guidance"
+          "contract": "returns an error satisfying IsNotFound(err) == true and containing private issue guidance",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an unauthenticated GitHub client and mock server returning HTTP 404 Not Found"
+            ],
+            "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    w.WriteHeader(http.StatusNotFound)\n    w.Write([]byte(`{\"message\": \"Not Found\"}`))\n}))\ndefer srv.Close()\nunauth := newTestGitHubClient(Options{BaseURL: srv.URL})\n_, err := unauth.ReadIssue(context.Background(), IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 999})\nassert issuex.IsNotFound(err) == true\nassert strings.Contains(strings.ToLower(err.Error()), \"private\")"
+          }
         },
         {
-          "id": "02-REQ-3.6",
+          "id": "REQ-3.6",
           "pattern": "event_driven",
           "condition": "UpdateIssue is called with an IssueRef and UpdateIssueRequest on an authenticated client",
-          "system": "GitHub client",
-          "action": "execute PATCH /repos/{owner}/{name}/issues/{number} with non-empty fields and return the updated Issue struct"
+          "action": "execute PATCH /repos/{owner}/{name}/issues/{number} with non-empty fields and return the updated Issue struct",
+          "contract": "UpdateIssue PATCHes only specified fields and returns the updated Issue struct; CloseIssue calls AddComment first if comment is non-empty before sending PATCH with state closed",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an authenticated GitHub client and mock server handling issue PATCH and comment POST"
+            ],
+            "pseudocode": "var calls []string\nsrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    calls = append(calls, r.Method+\" \"+r.URL.Path)\n    if r.Method == \"POST\" && strings.HasSuffix(r.URL.Path, \"/comments\") {\n        w.WriteHeader(http.StatusCreated)\n        w.Write([]byte(`{\"html_url\": \"https://cmt/1\"}`))\n        return\n    }\n    if r.Method == \"PATCH\" {\n        var body map[string]any\n        json.NewDecoder(r.Body).Decode(&body)\n        w.Write([]byte(fmt.Sprintf(`{\"number\": 5, \"title\": \"%s\", \"state\": \"%s\"}`, body[\"title\"], body[\"state\"])))\n        return\n    }\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nctx := context.Background()\nref := IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 5}\n\nupd, errUpd := c.UpdateIssue(ctx, ref, UpdateIssueRequest{Title: \"New Title\"})\nassert errUpd == nil\nassert upd.Title == \"New Title\"\n\nerrClose := c.CloseIssue(ctx, ref, \"Closing as completed\")\nassert errClose == nil\nassert calls[1] == \"POST /repos/o/r/issues/5/comments\"\nassert calls[2] == \"PATCH /repos/o/r/issues/5\""
+          }
         },
         {
-          "id": "02-REQ-3.7",
+          "id": "REQ-3.7",
           "pattern": "event_driven",
           "condition": "CloseIssue is called with an IssueRef and optional comment on an authenticated client",
-          "system": "GitHub client",
-          "action": "post the comment via AddComment if non-empty, and execute PATCH /repos/{owner}/{name}/issues/{number} with state closed"
+          "action": "post the comment via AddComment if non-empty, and execute PATCH /repos/{owner}/{name}/issues/{number} with state closed",
+          "check": {
+            "same_as": "REQ-3.6"
+          }
         },
         {
-          "id": "02-REQ-3.8",
+          "id": "REQ-3.8",
           "pattern": "event_driven",
           "condition": "ListIssues is called with a Repo and IssueFilter",
-          "system": "GitHub client",
-          "action": "paginate GET /repos/{owner}/{name}/issues with state, labels, assignee, sort, and direction query parameters, exclude items containing a pull_request key, and set IssueList.Incomplete to true if results reach filter.Limit while additional issues remain"
+          "action": "paginate GET /repos/{owner}/{name}/issues with state, labels, assignee, sort, and direction query parameters, exclude items containing a pull_request key, and set IssueList.Incomplete to true if results reach filter.Limit while additional issues remain",
+          "contract": "query parameters state, labels, assignee, sort, and direction are correctly appended to the request URL; items containing a pull_request key are excluded from the returned issues; IssueList.Incomplete is set to true when results reach filter.Limit while additional issues remain",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a mock server returning paginated issue responses containing genuine issues and pull requests"
+            ],
+            "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    q := r.URL.Query()\n    assert q.Get(\"state\") == \"open\"\n    assert q.Get(\"labels\") == \"bug,p1\"\n    assert q.Get(\"assignee\") == \"alice\"\n    assert q.Get(\"sort\") == \"updated\"\n    assert q.Get(\"direction\") == \"desc\"\n    w.Write([]byte(`[\n        {\"number\": 1, \"title\": \"Genuine issue 1\"},\n        {\"number\": 2, \"title\": \"Pull Request 2\", \"pull_request\": {}},\n        {\"number\": 3, \"title\": \"Genuine issue 3\"}\n    ]`))\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nlist, err := c.ListIssues(context.Background(), Repo{Owner: \"o\", Name: \"r\"}, IssueFilter{\n    State: \"open\", Labels: []string{\"bug\", \"p1\"}, Assignee: \"alice\", Sort: \"updated\", Direction: \"desc\", Limit: 2,\n})\nassert err == nil\nassert len(list.Issues) == 2\nassert list.Issues[0].Number == 1\nassert list.Issues[1].Number == 3\nassert list.Incomplete == false"
+          }
         }
       ]
     },
     {
-      "id": "02-REQ-4",
+      "id": "REQ-4",
       "title": "Issue Comments and Label Operations",
       "rationale": "Comments and labels provide issue interaction and triage categorization with idempotent mutation semantics.",
+      "system": "GitHub client",
       "criteria": [
         {
-          "id": "02-REQ-4.1",
+          "id": "REQ-4.1",
           "pattern": "event_driven",
           "condition": "AddComment is called with an IssueRef and comment body on an authenticated client",
-          "system": "GitHub client",
-          "action": "execute POST /repos/{owner}/{name}/issues/{number}/comments with the comment body and return the comment html_url"
+          "action": "execute POST /repos/{owner}/{name}/issues/{number}/comments with the comment body and return the comment html_url",
+          "contract": "AddComment executes POST to /comments with body and returns comment html_url; ListComments paginates up to 5 pages (500 comments) and sets CommentList.Truncated to true when page 5 contains 100 items",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an authenticated GitHub client and mock server handling issue comments"
+            ],
+            "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if r.Method == \"POST\" {\n        var body map[string]string\n        json.NewDecoder(r.Body).Decode(&body)\n        assert body[\"body\"] == \"test comment\"\n        w.WriteHeader(http.StatusCreated)\n        w.Write([]byte(`{\"html_url\": \"https://github.com/o/r/issues/1#issuecomment-1\"}`))\n        return\n    }\n    page := r.URL.Query().Get(\"page\")\n    if page == \"5\" {\n        // Return 100 items on 5th page to trigger truncation\n        w.Write(makeCommentPageJSON(100))\n        return\n    }\n    w.Write(makeCommentPageJSON(100))\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nref := IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 1}\n\nurl, err := c.AddComment(context.Background(), ref, \"test comment\")\nassert err == nil\nassert url == \"https://github.com/o/r/issues/1#issuecomment-1\"\n\ncmts, errList := c.ListComments(context.Background(), ref)\nassert errList == nil\nassert len(cmts.Comments) == 500\nassert cmts.Truncated == true"
+          }
         },
         {
-          "id": "02-REQ-4.2",
+          "id": "REQ-4.2",
           "pattern": "event_driven",
           "condition": "ListComments is called with an IssueRef",
-          "system": "GitHub client",
-          "action": "paginate GET /repos/{owner}/{name}/issues/{number}/comments with 100 items per page up to a maximum cap of 5 pages (500 comments), setting CommentList.Truncated to true if the 5th page contains 100 items"
+          "action": "paginate GET /repos/{owner}/{name}/issues/{number}/comments with 100 items per page up to a maximum cap of 5 pages (500 comments), setting CommentList.Truncated to true if the 5th page contains 100 items",
+          "check": {
+            "same_as": "REQ-4.1"
+          }
         },
         {
-          "id": "02-REQ-4.3",
+          "id": "REQ-4.3",
           "pattern": "event_driven",
           "condition": "AddLabels is called with an IssueRef and a non-empty slice of label names on an authenticated client",
-          "system": "GitHub client",
-          "action": "execute POST /repos/{owner}/{name}/issues/{number}/labels with the label names array"
+          "action": "execute POST /repos/{owner}/{name}/issues/{number}/labels with the label names array",
+          "contract": "AddLabels with empty slice returns nil immediately without executing network requests; AddLabels with non-empty slice executes POST /repos/{owner}/{name}/issues/{number}/labels with the label names",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an authenticated GitHub client and mock server"
+            ],
+            "pseudocode": "called := false\nsrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    called = true\n    assert r.Method == \"POST\"\n    assert r.URL.Path == \"/repos/o/r/issues/10/labels\"\n    var body map[string]any\n    json.NewDecoder(r.Body).Decode(&body)\n    assert len(body[\"labels\"].([]any)) == 2\n    w.WriteHeader(http.StatusOK)\n    w.Write([]byte(`[{\"name\": \"bug\"}, {\"name\": \"ui\"}]`))\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nref := IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 10}\n\n// Empty labels: should not touch server\nassert c.AddLabels(context.Background(), ref, []string{}) == nil\nassert called == false\n\n// Non-empty labels: calls server\nassert c.AddLabels(context.Background(), ref, []string{\"bug\", \"ui\"}) == nil\nassert called == true"
+          }
         },
         {
-          "id": "02-REQ-4.4",
+          "id": "REQ-4.4",
           "pattern": "event_driven",
           "condition": "AddLabels is called with an empty labels slice",
-          "system": "GitHub client",
-          "action": "return nil immediately without making network calls"
+          "action": "return nil immediately without making network calls",
+          "check": {
+            "same_as": "REQ-4.3"
+          }
         },
         {
-          "id": "02-REQ-4.5",
+          "id": "REQ-4.5",
           "pattern": "event_driven",
           "condition": "RemoveLabel is called with an IssueRef and label name on an authenticated client",
-          "system": "GitHub client",
-          "action": "execute DELETE /repos/{owner}/{name}/issues/{number}/labels/{label} with URL-escaped label name, returning nil when the response is HTTP 200 or HTTP 404"
+          "action": "execute DELETE /repos/{owner}/{name}/issues/{number}/labels/{label} with URL-escaped label name, returning nil when the response is HTTP 200 or HTTP 404",
+          "contract": "RemoveLabel URL-escapes label name and treats HTTP 404 as successful idempotent removal returning nil; CreateLabel strips leading # from color and treats HTTP 422 with already_exists code as successful idempotent creation returning nil",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an authenticated GitHub client and mock server returning HTTP 404 for DELETE and HTTP 422 already_exists for POST"
+            ],
+            "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if r.Method == \"DELETE\" {\n        assert r.URL.Path == \"/repos/o/r/issues/10/labels/special%20label\"\n        w.WriteHeader(http.StatusNotFound)\n        return\n    }\n    if r.Method == \"POST\" {\n        var body map[string]string\n        json.NewDecoder(r.Body).Decode(&body)\n        assert body[\"color\"] == \"ff0000\" // leading # stripped\n        w.WriteHeader(http.StatusUnprocessableEntity)\n        w.Write([]byte(`{\"message\": \"Validation Failed\", \"errors\": [{\"resource\": \"Label\", \"code\": \"already_exists\", \"field\": \"name\"}]}`))\n        return\n    }\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nref := IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 10}\n\nerrRem := c.RemoveLabel(context.Background(), ref, \"special label\")\nassert errRem == nil\n\nerrCreate := c.CreateLabel(context.Background(), Repo{Owner: \"o\", Name: \"r\"}, Label{\n    Name: \"special label\", Color: \"#ff0000\", Description: \"desc\",\n})\nassert errCreate == nil"
+          }
         },
         {
-          "id": "02-REQ-4.6",
+          "id": "REQ-4.6",
           "pattern": "event_driven",
           "condition": "CreateLabel is called with a Repo and Label on an authenticated client",
-          "system": "GitHub client",
-          "action": "execute POST /repos/{owner}/{name}/labels with name, hex color stripped of leading hash, and description, returning nil when the response is HTTP 201 or HTTP 422 with already_exists code"
+          "action": "execute POST /repos/{owner}/{name}/labels with name, hex color stripped of leading hash, and description, returning nil when the response is HTTP 201 or HTTP 422 with already_exists code",
+          "check": {
+            "same_as": "REQ-4.5"
+          }
         },
         {
-          "id": "02-REQ-4.7",
+          "id": "REQ-4.7",
           "pattern": "unwanted",
           "condition": "AddComment, AddLabels, RemoveLabel, or CreateLabel is called on a client without an authentication token",
-          "system": "GitHub client",
           "action": "reject the call and return ErrNoToken without executing network requests",
-          "contract": "returns an error satisfying IsNoToken(err) == true"
+          "contract": "returns an error satisfying IsNoToken(err) == true",
+          "check": {
+            "same_as": "REQ-3.2"
+          }
         }
       ]
     },
     {
-      "id": "02-REQ-5",
+      "id": "REQ-5",
       "title": "Pull Request Lifecycle and File Changes",
       "rationale": "Pull request operations support automated code review workflows, PR metadata inspection, and changed file analysis.",
+      "system": "GitHub client",
       "criteria": [
         {
-          "id": "02-REQ-5.1",
+          "id": "REQ-5.1",
           "pattern": "event_driven",
           "condition": "CreatePullRequest is called with a Repo and CreatePullRequestRequest on an authenticated client",
-          "system": "GitHub client",
-          "action": "execute POST /repos/{owner}/{name}/pulls with title, body, head, base, and draft flag, returning the created PullRequest struct with Merged set to false"
+          "action": "execute POST /repos/{owner}/{name}/pulls with title, body, head, base, and draft flag, returning the created PullRequest struct with Merged set to false",
+          "contract": "CreatePullRequest executes POST /pulls with draft flag and returns PullRequest with Merged false; ReadPullRequest executes GET /pulls/{number} and returns parsed PullRequest struct with branch names and head SHA",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an authenticated GitHub client and mock server handling PR creation and retrieval"
+            ],
+            "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if r.Method == \"POST\" {\n        var body map[string]any\n        json.NewDecoder(r.Body).Decode(&body)\n        assert body[\"draft\"] == true\n        assert body[\"head\"] == \"feature\"\n        assert body[\"base\"] == \"main\"\n        w.WriteHeader(http.StatusCreated)\n        w.Write([]byte(`{\n            \"number\": 88, \"title\": \"PR 88\", \"draft\": true, \"merged\": false,\n            \"head\": {\"ref\": \"feature\", \"sha\": \"abc123\"}, \"base\": {\"ref\": \"main\"}\n        }`))\n        return\n    }\n    w.Write([]byte(`{\n        \"number\": 88, \"title\": \"PR 88\", \"draft\": true, \"merged\": false,\n        \"head\": {\"ref\": \"feature\", \"sha\": \"abc123\"}, \"base\": {\"ref\": \"main\"}\n    }`))\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\npr, err := c.CreatePullRequest(context.Background(), Repo{Owner: \"o\", Name: \"r\"}, CreatePullRequestRequest{\n    Title: \"PR 88\", Head: \"feature\", Base: \"main\", Draft: true,\n})\nassert err == nil\nassert pr.Number == 88\nassert pr.Draft == true\nassert pr.Merged == false\n\nreadPR, errRead := c.ReadPullRequest(context.Background(), IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 88})\nassert errRead == nil\nassert readPR.HeadBranch == \"feature\"\nassert readPR.HeadSHA == \"abc123\"\nassert readPR.BaseBranch == \"main\""
+          }
         },
         {
-          "id": "02-REQ-5.2",
+          "id": "REQ-5.2",
           "pattern": "event_driven",
           "condition": "ReadPullRequest is called with an IssueRef",
-          "system": "GitHub client",
-          "action": "execute GET /repos/{owner}/{name}/pulls/{number} and return the parsed PullRequest struct with head branch, base branch, head SHA, draft status, and merge status"
+          "action": "execute GET /repos/{owner}/{name}/pulls/{number} and return the parsed PullRequest struct with head branch, base branch, head SHA, draft status, and merge status",
+          "check": {
+            "same_as": "REQ-5.1"
+          }
         },
         {
-          "id": "02-REQ-5.3",
+          "id": "REQ-5.3",
           "pattern": "unwanted",
           "condition": "ReadPullRequest receives HTTP 404 on an unauthenticated client",
-          "system": "GitHub client",
           "action": "return an error wrapping ErrNotFound with guidance indicating the repository or pull request may be private",
-          "contract": "returns an error satisfying IsNotFound(err) == true and containing private repository guidance"
+          "contract": "returns an error satisfying IsNotFound(err) == true and containing private repository guidance",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an unauthenticated GitHub client and mock server returning HTTP 404 on GET /pulls/{number}"
+            ],
+            "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    w.WriteHeader(http.StatusNotFound)\n    w.Write([]byte(`{\"message\": \"Not Found\"}`))\n}))\ndefer srv.Close()\nunauth := newTestGitHubClient(Options{BaseURL: srv.URL})\n_, err := unauth.ReadPullRequest(context.Background(), IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 99})\nassert issuex.IsNotFound(err) == true\nassert strings.Contains(strings.ToLower(err.Error()), \"private\")"
+          }
         },
         {
-          "id": "02-REQ-5.4",
+          "id": "REQ-5.4",
           "pattern": "event_driven",
           "condition": "ReadChangedFiles is called with an IssueRef",
-          "system": "GitHub client",
-          "action": "execute GET /repos/{owner}/{name}/pulls/{number}/files and return a slice of ChangedFile structs with status normalized to added, modified, or deleted"
+          "action": "execute GET /repos/{owner}/{name}/pulls/{number}/files and return a slice of ChangedFile structs with status normalized to added, modified, or deleted",
+          "contract": "ReadChangedFiles returns ChangedFile structs with status normalized to added, modified, or deleted; GetPRState maps merged PRs to state merged, unmerged closed PRs to closed, and otherwise open; ClosePullRequest sends PATCH with state closed",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an authenticated GitHub client and mock server handling PR changed files, state, and close"
+            ],
+            "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if strings.HasSuffix(r.URL.Path, \"/files\") {\n        w.Write([]byte(`[\n            {\"filename\": \"a.go\", \"status\": \"added\", \"additions\": 10, \"deletions\": 0},\n            {\"filename\": \"b.go\", \"status\": \"modified\", \"additions\": 2, \"deletions\": 1},\n            {\"filename\": \"c.go\", \"status\": \"removed\", \"additions\": 0, \"deletions\": 5}\n        ]`))\n        return\n    }\n    if r.Method == \"PATCH\" {\n        var body map[string]any\n        json.NewDecoder(r.Body).Decode(&body)\n        assert body[\"state\"] == \"closed\"\n        w.Write([]byte(`{\"state\": \"closed\"}`))\n        return\n    }\n    // GET /pulls/5\n    w.Write([]byte(`{\"number\": 5, \"state\": \"closed\", \"merged\": true, \"head\": {\"sha\": \"sha1\"}}`))\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nref := IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 5}\n\nfiles, errFiles := c.ReadChangedFiles(context.Background(), ref)\nassert errFiles == nil\nassert len(files) == 3\nassert files[2].Status == \"deleted\" // mapped from removed to deleted\n\nst, errSt := c.GetPRState(context.Background(), ref)\nassert errSt == nil\nassert st.State == \"merged\" // merged=true overrides closed\nassert st.Merged == true\n\nerrClose := c.ClosePullRequest(context.Background(), ref)\nassert errClose == nil"
+          }
         },
         {
-          "id": "02-REQ-5.5",
+          "id": "REQ-5.5",
           "pattern": "event_driven",
           "condition": "GetPRState is called with an IssueRef",
-          "system": "GitHub client",
-          "action": "execute GET /repos/{owner}/{name}/pulls/{number} and return a PRState struct with State set to merged when merged is true, closed when state is closed and merged is false, or open otherwise"
+          "action": "execute GET /repos/{owner}/{name}/pulls/{number} and return a PRState struct with State set to merged when merged is true, closed when state is closed and merged is false, or open otherwise",
+          "check": {
+            "same_as": "REQ-5.4"
+          }
         },
         {
-          "id": "02-REQ-5.6",
+          "id": "REQ-5.6",
           "pattern": "event_driven",
           "condition": "ClosePullRequest is called with an IssueRef on an authenticated client",
-          "system": "GitHub client",
-          "action": "execute PATCH /repos/{owner}/{name}/pulls/{number} with state closed"
+          "action": "execute PATCH /repos/{owner}/{name}/pulls/{number} with state closed",
+          "check": {
+            "same_as": "REQ-5.4"
+          }
         },
         {
-          "id": "02-REQ-5.7",
+          "id": "REQ-5.7",
           "pattern": "unwanted",
           "condition": "CreatePullRequest or ClosePullRequest is called on a client without an authentication token",
-          "system": "GitHub client",
           "action": "reject the call and return ErrNoToken without executing network requests",
-          "contract": "returns an error satisfying IsNoToken(err) == true"
+          "contract": "returns an error satisfying IsNoToken(err) == true",
+          "check": {
+            "same_as": "REQ-3.2"
+          }
         }
       ]
     },
     {
-      "id": "02-REQ-6",
+      "id": "REQ-6",
       "title": "Pull Request Checks, Reviews, and Merge Execution",
       "rationale": "CI status checks, review commenting, and policy-aware pull request merging enable complete automation of review and integration pipelines.",
+      "system": "GitHub client",
       "criteria": [
         {
-          "id": "02-REQ-6.1",
+          "id": "REQ-6.1",
           "pattern": "event_driven",
           "condition": "GetCIChecks is called with an IssueRef",
-          "system": "GitHub client",
-          "action": "resolve the pull request head commit SHA via ReadPullRequest and execute GET /repos/{owner}/{name}/commits/{head_sha}/check-runs, returning mapped CheckRun structs"
+          "action": "resolve the pull request head commit SHA via ReadPullRequest and execute GET /repos/{owner}/{name}/commits/{head_sha}/check-runs, returning mapped CheckRun structs",
+          "contract": "GetCIChecks resolves PR head SHA via ReadPullRequest and queries /commits/{head_sha}/check-runs; GetPRReviews normalizes review states to lowercase approved, changes_requested, commented, or dismissed; PostReviewComment executes POST /reviews with event COMMENT and body",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an authenticated GitHub client and mock server handling commit check runs, reviews, and review comments"
+            ],
+            "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if r.URL.Path == \"/repos/o/r/pulls/7\" && r.Method == \"GET\" {\n        w.Write([]byte(`{\"number\": 7, \"head\": {\"sha\": \"commit_sha_123\"}}`))\n        return\n    }\n    if r.URL.Path == \"/repos/o/r/commits/commit_sha_123/check-runs\" {\n        w.Write([]byte(`{\"check_runs\": [{\"name\": \"ci/test\", \"status\": \"completed\", \"conclusion\": \"success\", \"output\": {\"summary\": \"Passed\"}, \"html_url\": \"https://ci/1\"}]}`))\n        return\n    }\n    if r.URL.Path == \"/repos/o/r/pulls/7/reviews\" && r.Method == \"GET\" {\n        w.Write([]byte(`[{\"user\": {\"login\": \"eve\"}, \"state\": \"CHANGES_REQUESTED\", \"body\": \"Needs fixes\", \"submitted_at\": \"2025-01-01T00:00:00Z\"}]`))\n        return\n    }\n    if r.URL.Path == \"/repos/o/r/pulls/7/reviews\" && r.Method == \"POST\" {\n        var body map[string]any\n        json.NewDecoder(r.Body).Decode(&body)\n        assert body[\"event\"] == \"COMMENT\"\n        assert body[\"body\"] == \"Looks promising\"\n        w.WriteHeader(http.StatusOK)\n        w.Write([]byte(`{}`))\n        return\n    }\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nref := IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 7}\n\nchecks, errChecks := c.GetCIChecks(context.Background(), ref)\nassert errChecks == nil\nassert len(checks) == 1\nassert checks[0].Name == \"ci/test\"\nassert checks[0].Conclusion == \"success\"\n\nreviews, errReviews := c.GetPRReviews(context.Background(), ref)\nassert errReviews == nil\nassert len(reviews) == 1\nassert reviews[0].State == \"changes_requested\" // normalized to lowercase\n\nerrComment := c.PostReviewComment(context.Background(), ref, \"Looks promising\")\nassert errComment == nil"
+          }
         },
         {
-          "id": "02-REQ-6.2",
+          "id": "REQ-6.2",
           "pattern": "event_driven",
           "condition": "GetPRReviews is called with an IssueRef",
-          "system": "GitHub client",
-          "action": "execute GET /repos/{owner}/{name}/pulls/{number}/reviews and return mapped Review structs with state normalized to approved, changes_requested, commented, or dismissed"
+          "action": "execute GET /repos/{owner}/{name}/pulls/{number}/reviews and return mapped Review structs with state normalized to approved, changes_requested, commented, or dismissed",
+          "check": {
+            "same_as": "REQ-6.1"
+          }
         },
         {
-          "id": "02-REQ-6.3",
+          "id": "REQ-6.3",
           "pattern": "event_driven",
           "condition": "PostReviewComment is called with an IssueRef and body string on an authenticated client",
-          "system": "GitHub client",
-          "action": "execute POST /repos/{owner}/{name}/pulls/{number}/reviews with event COMMENT and body"
+          "action": "execute POST /repos/{owner}/{name}/pulls/{number}/reviews with event COMMENT and body",
+          "check": {
+            "same_as": "REQ-6.1"
+          }
         },
         {
-          "id": "02-REQ-6.4",
+          "id": "REQ-6.4",
           "pattern": "event_driven",
           "condition": "MergePullRequest is called with an explicit MergeMethod option on an authenticated client",
-          "system": "GitHub client",
-          "action": "map MergeMethodMerge to merge, MergeMethodSquash to squash, or MergeMethodRebase to rebase, and execute PUT /repos/{owner}/{name}/pulls/{number}/merge returning MergeResult on HTTP 200"
+          "action": "map MergeMethodMerge to merge, MergeMethodSquash to squash, or MergeMethodRebase to rebase, and execute PUT /repos/{owner}/{name}/pulls/{number}/merge returning MergeResult on HTTP 200",
+          "contract": "MergePullRequest maps explicit MergeMethod (merge, squash, rebase) into JSON payload; MergeMethodDefault queries repository allowed merge strategies (merge > squash > rebase); returns an error satisfying IsConflict(err) == true when GitHub responds with HTTP 405 or HTTP 409",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an authenticated GitHub client and mock server handling PR merge and repository merge settings"
+            ],
+            "pseudocode": "var mergeMethodSent string\nvar returnConflict bool\nsrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if r.Method == \"GET\" && r.URL.Path == \"/repos/o/r\" {\n        // repo settings: merge commit disabled, squash enabled\n        w.Write([]byte(`{\"allow_merge_commit\": false, \"allow_squash_merge\": true, \"allow_rebase_merge\": true}`))\n        return\n    }\n    if r.Method == \"PUT\" && strings.HasSuffix(r.URL.Path, \"/merge\") {\n        if returnConflict {\n            w.WriteHeader(http.StatusMethodNotAllowed) // 405\n            w.Write([]byte(`{\"message\": \"Pull Request is not mergeable\"}`))\n            return\n        }\n        var body map[string]any\n        json.NewDecoder(r.Body).Decode(&body)\n        mergeMethodSent = body[\"merge_method\"].(string)\n        w.WriteHeader(http.StatusOK)\n        w.Write([]byte(`{\"merged\": true, \"sha\": \"merged_sha_99\", \"message\": \"Pull Request successfully merged\"}`))\n        return\n    }\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nref := IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 10}\n\n// Explicit squash\nres, err := c.MergePullRequest(context.Background(), ref, MergeOptions{Method: MergeMethodSquash})\nassert err == nil\nassert res.Merged == true\nassert mergeMethodSent == \"squash\"\n\n// Default method: queries repo, selects squash since merge_commit is false\nresDef, errDef := c.MergePullRequest(context.Background(), ref, MergeOptions{Method: MergeMethodDefault})\nassert errDef == nil\nassert resDef.Merged == true\nassert mergeMethodSent == \"squash\"\n\n// Conflict on 405/409\nreturnConflict = true\n_, errConflict := c.MergePullRequest(context.Background(), ref, MergeOptions{})\nassert issuex.IsConflict(errConflict) == true"
+          }
         },
         {
-          "id": "02-REQ-6.5",
+          "id": "REQ-6.5",
           "pattern": "event_driven",
           "condition": "MergePullRequest is called with MergeMethodDefault on an authenticated client",
-          "system": "GitHub client",
-          "action": "query repository merge settings via GET /repos/{owner}/{name} and select the first enabled strategy from merge commit, squash, or rebase, falling back to omitting merge_method"
+          "action": "query repository merge settings via GET /repos/{owner}/{name} and select the first enabled strategy from merge commit, squash, or rebase, falling back to omitting merge_method",
+          "check": {
+            "same_as": "REQ-6.4"
+          }
         },
         {
-          "id": "02-REQ-6.6",
+          "id": "REQ-6.6",
           "pattern": "unwanted",
           "condition": "MergePullRequest receives HTTP 405 or HTTP 409 from GitHub",
-          "system": "GitHub client",
           "action": "return an error wrapping ErrConflict indicating the pull request cannot be merged",
-          "contract": "returns an error satisfying IsConflict(err) == true"
+          "contract": "returns an error satisfying IsConflict(err) == true",
+          "check": {
+            "same_as": "REQ-6.4"
+          }
         },
         {
-          "id": "02-REQ-6.7",
+          "id": "REQ-6.7",
           "pattern": "unwanted",
           "condition": "PostReviewComment or MergePullRequest is called on a client without an authentication token",
-          "system": "GitHub client",
           "action": "reject the call and return ErrNoToken without executing network requests",
-          "contract": "returns an error satisfying IsNoToken(err) == true"
+          "contract": "returns an error satisfying IsNoToken(err) == true",
+          "check": {
+            "same_as": "REQ-3.2"
+          }
         }
       ]
     },
     {
-      "id": "02-REQ-7",
+      "id": "REQ-7",
       "title": "GitHub REST Transport, Error Handling, and Rate Limiting",
       "rationale": "Bounded memory usage, rate-limit backoff with retry, and canonical error classification ensure resilience against GitHub API failures and throttling.",
+      "system": "GitHub transport",
       "criteria": [
         {
-          "id": "02-REQ-7.1",
+          "id": "REQ-7.1",
           "pattern": "ubiquitous",
-          "system": "GitHub transport",
-          "action": "read all HTTP response bodies through an io.LimitReader bounded to at most 8 MB (8388608 bytes)"
+          "action": "read all HTTP response bodies through an io.LimitReader bounded to at most 8 MB (8388608 bytes)",
+          "contract": "response reader is bounded to at most 8,388,608 bytes via io.LimitReader preventing unbounded memory growth",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a mock server generating an HTTP response body exceeding 8 MB"
+            ],
+            "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    w.WriteHeader(http.StatusOK)\n    // Stream 9 MB of data\n    chunk := make([]byte, 1024*1024)\n    for i := 0; i < 9; i++ {\n        w.Write(chunk)\n    }\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nvar buf bytes.Buffer\nerr := c.do(context.Background(), \"GET\", \"/test\", nil, &buf)\n// Body reading is truncated at 8,388,608 bytes via io.LimitReader\nassert buf.Len() <= 8*1024*1024"
+          }
         },
         {
-          "id": "02-REQ-7.2",
-          "pattern": "complex_event",
-          "condition": "an HTTP response has status 429 or status 403 with header X-RateLimit-Remaining 0",
-          "guard": "the calculated RetryAfter backoff duration is less than or equal to 120 seconds",
-          "system": "GitHub transport",
-          "action": "invoke the configured sleep function for the backoff duration and retry the request once"
+          "id": "REQ-7.2",
+          "pattern": "event_driven",
+          "condition": "an HTTP response has status 429 or status 403 with header X-RateLimit-Remaining 0 and the calculated RetryAfter backoff duration is less than or equal to 120 seconds",
+          "action": "invoke the configured sleep function for the backoff duration and retry the request once",
+          "contract": "the custom sleep function is invoked for the backoff duration and the request is retried once when backoff <= 120 seconds; returns an error satisfying IsRateLimited(err) == true when backoff > 120 seconds or retry fails; the injected sleep function is called instead of time.Sleep during retries",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a GitHub client configured with an injected sleep function and mock server simulating 429 and 403 quota exhaustion"
+            ],
+            "pseudocode": "var slept time.Duration\nsleepFn := func(d time.Duration) { slept = d }\n\n// Case 1: 429 with 5-second backoff succeeds on retry\nattempts := 0\nsrv1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    attempts++\n    if attempts == 1 {\n        w.Header().Set(\"Retry-After\", \"5\")\n        w.WriteHeader(http.StatusTooManyRequests)\n        return\n    }\n    w.WriteHeader(http.StatusOK)\n    w.Write([]byte(`{\"full_name\": \"o/r\"}`))\n}))\ndefer srv1.Close()\nc1 := newTestGitHubClient(Options{BaseURL: srv1.URL, Token: \"tok\"})\nc1.sleep = sleepFn\n_, err1 := c1.GetRepository(context.Background(), Repo{Owner: \"o\", Name: \"r\"})\nassert err1 == nil\nassert attempts == 2\nassert slept == 5*time.Second\n\n// Case 2: 403 quota exhaustion with > 120s backoff aborts immediately\nsrv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    w.Header().Set(\"X-RateLimit-Remaining\", \"0\")\n    w.Header().Set(\"X-RateLimit-Reset\", strconv.FormatInt(time.Now().Add(200*time.Second).Unix(), 10))\n    w.WriteHeader(http.StatusForbidden)\n}))\ndefer srv2.Close()\nc2 := newTestGitHubClient(Options{BaseURL: srv2.URL, Token: \"tok\"})\nc2.sleep = sleepFn\n_, err2 := c2.GetRepository(context.Background(), Repo{Owner: \"o\", Name: \"r\"})\nassert issuex.IsRateLimited(err2) == true"
+          }
         },
         {
-          "id": "02-REQ-7.3",
+          "id": "REQ-7.3",
           "pattern": "unwanted",
           "condition": "an HTTP response has status 429 or status 403 with header X-RateLimit-Remaining 0 and the RetryAfter backoff exceeds 120 seconds, or a retried rate-limited request fails",
-          "system": "GitHub transport",
           "action": "abort the request and return an error wrapping ErrRateLimited",
-          "contract": "returns an error satisfying IsRateLimited(err) == true"
+          "contract": "returns an error satisfying IsRateLimited(err) == true",
+          "check": {
+            "same_as": "REQ-7.2"
+          }
         },
         {
-          "id": "02-REQ-7.4",
+          "id": "REQ-7.4",
           "pattern": "ubiquitous",
-          "system": "GitHub transport",
-          "action": "for any GitHub REST error response payload containing a message and an errors array, format the HTTPError message by concatenating the message with field-level details from the errors array"
+          "action": "for any GitHub REST error response payload containing a message and an errors array, format the HTTPError message by concatenating the message with field-level details from the errors array",
+          "contract": "HTTPError message concatenates the top-level message with formatted field-level details from the errors array",
+          "check": {
+            "kind": "property",
+            "setup": [
+              "a generator producing GitHub REST error JSON payloads with messages and field-level errors"
+            ],
+            "pseudocode": "forAll(genErrorMessage, genFieldErrors, func(msg string, fieldErrs []fieldError) bool {\n    payload, _ := json.Marshal(map[string]any{\n        \"message\": msg,\n        \"errors\": fieldErrs,\n    })\n    httpErr := parseGitHubError(http.StatusUnprocessableEntity, \"POST\", \"/repos/o/r/labels\", payload)\n    expectedPrefix := msg\n    if !strings.Contains(httpErr.Error(), expectedPrefix) {\n        return false\n    }\n    for _, fe := range fieldErrs {\n        if !strings.Contains(httpErr.Error(), fe.Field) || !strings.Contains(httpErr.Error(), fe.Code) {\n            return false\n        }\n    }\n    return true\n})"
+          }
         },
         {
-          "id": "02-REQ-7.5",
+          "id": "REQ-7.5",
           "pattern": "event_driven",
           "condition": "an HTTP response returns status 404, 409, or 405",
-          "system": "GitHub transport",
-          "action": "wrap the corresponding sentinel error ErrNotFound for status 404 or ErrConflict for status 409 and 405 in the returned HTTPError"
+          "action": "wrap the corresponding sentinel error ErrNotFound for status 404 or ErrConflict for status 409 and 405 in the returned HTTPError",
+          "contract": "HTTP 404 response wraps ErrNotFound in the returned HTTPError; HTTP 409 and 405 responses wrap ErrConflict in the returned HTTPError",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a mock server returning HTTP 404, 409, and 405 error responses"
+            ],
+            "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    switch r.URL.Path {\n    case \"/404\":\n        w.WriteHeader(http.StatusNotFound)\n        w.Write([]byte(`{\"message\": \"Not Found\"}`))\n    case \"/409\":\n        w.WriteHeader(http.StatusConflict)\n        w.Write([]byte(`{\"message\": \"Conflict\"}`))\n    case \"/405\":\n        w.WriteHeader(http.StatusMethodNotAllowed)\n        w.Write([]byte(`{\"message\": \"Method Not Allowed\"}`))\n    }\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\n\nerr404 := c.do(context.Background(), \"GET\", \"/404\", nil, nil)\nassert issuex.IsNotFound(err404) == true\nassert errors.Is(err404, issuex.ErrNotFound)\n\nerr409 := c.do(context.Background(), \"POST\", \"/409\", nil, nil)\nassert issuex.IsConflict(err409) == true\nassert errors.Is(err409, issuex.ErrConflict)\n\nerr405 := c.do(context.Background(), \"PUT\", \"/405\", nil, nil)\nassert issuex.IsConflict(err405) == true\nassert errors.Is(err405, issuex.ErrConflict)"
+          }
         },
         {
-          "id": "02-REQ-7.6",
+          "id": "REQ-7.6",
           "pattern": "event_driven",
           "condition": "a custom sleep function is configured on the GitHub client adapter",
-          "system": "GitHub transport",
-          "action": "invoke the custom sleep function instead of time.Sleep during rate-limit backoff retries"
+          "action": "invoke the custom sleep function instead of time.Sleep during rate-limit backoff retries",
+          "check": {
+            "same_as": "REQ-7.2"
+          }
         }
       ]
     }
   ],
   "execution_paths": [
     {
-      "id": "02-PATH-1",
+      "id": "PATH-1",
       "title": "GitHub issue creation, reading with comments, and closing with comment",
       "steps": [
         {
@@ -414,10 +620,25 @@
           "actor": "GitHub client",
           "action": "executes AddComment to post the closing comment and PATCHes the issue state to closed"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "issuex.Client",
+          "issuex.NewGitHub",
+          "githubClient",
+          "HTTP transport"
+        ],
+        "setup": [
+          "an authenticated GitHub client connected to a mock GitHub REST server"
+        ],
+        "end_state": [
+          "the issue is created with expected number, read back with comment thread, and closed with the closing comment persisted"
+        ],
+        "pseudocode": "c, err := issuex.NewGitHub(issuex.Options{BaseURL: mockServer.URL, Token: \"ghp_mocktoken\"})\nassert err == nil\nrepo := issuex.Repo{Owner: \"agentfox\", Name: \"agent-fox\"}\n\n// 1. Create issue\nissue, err := c.CreateIssue(ctx, repo, issuex.CreateIssueRequest{\n    Title: \"Smoke issue\", Body: \"Issue body\", Labels: []string{\"smoke\"},\n})\nassert err == nil\nref := issuex.IssueRef{Repo: repo, Number: issue.Number}\n\n// 2. Read issue with comments\nthread, err := c.ReadIssue(ctx, ref)\nassert err == nil\nassert thread.Issue.Number == issue.Number\nassert thread.CommentsErr == nil\n\n// 3. Close issue with comment\nerr = c.CloseIssue(ctx, ref, \"Completed smoke test\")\nassert err == nil"
+      }
     },
     {
-      "id": "02-PATH-2",
+      "id": "PATH-2",
       "title": "Pull request check runs inspection, review commenting, and repository-policy merge",
       "steps": [
         {
@@ -452,10 +673,25 @@
           "actor": "GitHub client",
           "action": "queries repository merge settings, selects the allowed merge strategy, and executes PUT /repos/{owner}/{name}/pulls/{number}/merge"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "issuex.Client",
+          "issuex.NewWithOptions",
+          "githubClient",
+          "HTTP transport"
+        ],
+        "setup": [
+          "an authenticated GitHub client configured via NewWithOptions targeting a repository with merge commit policy"
+        ],
+        "end_state": [
+          "PR metadata and head SHA are resolved, CI check runs are returned, review comment is submitted, and PR is merged successfully using repository allowed strategy"
+        ],
+        "pseudocode": "c, err := issuex.NewWithOptions(issuex.Options{\n    Repo: issuex.Repo{Owner: \"agentfox\", Name: \"agent-fox\"},\n    RemoteURL: \"https://github.com/agentfox/agent-fox.git\",\n    Token: \"ghp_mocktoken\",\n    BaseURL: mockServer.URL,\n})\nassert err == nil\nref := issuex.IssueRef{Repo: issuex.Repo{Owner: \"agentfox\", Name: \"agent-fox\"}, Number: 10}\n\n// 1. Read PR\npr, err := c.ReadPullRequest(ctx, ref)\nassert err == nil\nassert pr.HeadSHA != \"\"\n\n// 2. Get CI checks\nchecks, err := c.GetCIChecks(ctx, ref)\nassert err == nil\nassert len(checks) > 0\n\n// 3. Post review comment\nerr = c.PostReviewComment(ctx, ref, \"Smoke review approved\")\nassert err == nil\n\n// 4. Merge with default repo policy\nres, err := c.MergePullRequest(ctx, ref, issuex.MergeOptions{Method: issuex.MergeMethodDefault})\nassert err == nil\nassert res.Merged == true"
+      }
     },
     {
-      "id": "02-PATH-3",
+      "id": "PATH-3",
       "title": "Rate-limit backoff and retry recovery on GitHub REST request",
       "steps": [
         {
@@ -478,7 +714,22 @@
           "actor": "GitHub client",
           "action": "receives HTTP 200 and returns the populated Repository struct to the caller"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "issuex.Client",
+          "issuex.NewGitHub",
+          "githubClient",
+          "HTTP transport rate-limit retry logic"
+        ],
+        "setup": [
+          "an authenticated GitHub client with an injected zero-delay sleep function and mock server simulating 403 quota exhaustion on first attempt"
+        ],
+        "end_state": [
+          "injected sleep function is invoked with 2 seconds, the request is retried once, and the repository metadata is successfully returned"
+        ],
+        "pseudocode": "var slept time.Duration\nc, err := issuex.NewGitHub(issuex.Options{BaseURL: mockServer.URL, Token: \"ghp_mocktoken\"})\nassert err == nil\nc.(*githubClient).sleep = func(d time.Duration) { slept = d }\n\nrepo, err := c.GetRepository(ctx, issuex.Repo{Owner: \"agentfox\", Name: \"agent-fox\"})\nassert err == nil\nassert repo.FullName == \"agentfox/agent-fox\"\nassert slept == 2*time.Second"
+      }
     }
   ]
 }

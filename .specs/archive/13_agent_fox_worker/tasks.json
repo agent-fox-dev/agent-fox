@@ -1,8 +1,8 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/tasks.v3.json",
   "spec_id": "13",
   "spec_name": "agent_fox_worker",
-  "schema_version": 2,
+  "schema_version": 3,
   "test_commands": {
     "all_tests": "make test",
     "linter": "make lint",
@@ -45,22 +45,9 @@
   "tasks": [
     {
       "id": 1,
-      "kind": "implement",
       "title": "Move the af commands into an importable package and add in-process seams",
       "criteria": [
-        "13-REQ-1"
-      ],
-      "tests": [
-        "TS-13-1",
-        "TS-13-2",
-        "TS-13-3",
-        "TS-13-4",
-        "TS-13-5",
-        "TS-13-6",
-        "TS-13-7",
-        "TS-13-8",
-        "TS-13-9",
-        "TS-13-10"
+        "REQ-1"
       ],
       "steps": [
         "Write TS-13-1..TS-13-10 and confirm they fail (unit tests move with the code; tests that build and run the binary stay in cmd/af)",
@@ -88,28 +75,14 @@
       ],
       "done_when": [
         "`make check` passes and cmd/af/testdata/schema.golden.json is unchanged"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 2,
-      "kind": "implement",
       "title": "Extend fakehub and add the hub client calls an attempt makes",
       "criteria": [
-        "13-REQ-2",
-        "13-REQ-10.7"
-      ],
-      "tests": [
-        "TS-13-11",
-        "TS-13-12",
-        "TS-13-13",
-        "TS-13-14",
-        "TS-13-15",
-        "TS-13-16",
-        "TS-13-17",
-        "TS-13-18",
-        "TS-13-19",
-        "TS-13-80"
+        "REQ-2",
+        "REQ-10.7"
       ],
       "steps": [
         "Write TS-13-11..TS-13-19 and TS-13-80 and confirm they fail",
@@ -127,24 +100,13 @@
       ],
       "done_when": [
         "go test ./internal/hub/... -count=1 passes offline"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 3,
-      "kind": "implement",
       "title": "Provide the hub-backed issuex.Client and its factory",
       "criteria": [
-        "13-REQ-3"
-      ],
-      "tests": [
-        "TS-13-20",
-        "TS-13-21",
-        "TS-13-22",
-        "TS-13-23",
-        "TS-13-24",
-        "TS-13-25",
-        "TS-13-26"
+        "REQ-3"
       ],
       "steps": [
         "Write TS-13-20..TS-13-26 and confirm they fail",
@@ -161,29 +123,15 @@
       ],
       "depends_on": [
         2
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 4,
-      "kind": "implement",
       "title": "Add the gateway provider and measuring in the box for service fix attempts",
       "criteria": [
-        "13-REQ-6.4",
-        "13-REQ-6.5",
-        "13-REQ-7"
-      ],
-      "tests": [
-        "TS-13-44",
-        "TS-13-45",
-        "TS-13-49",
-        "TS-13-50",
-        "TS-13-51",
-        "TS-13-52",
-        "TS-13-53",
-        "TS-13-54",
-        "TS-13-55",
-        "TS-13-56"
+        "REQ-6.4",
+        "REQ-6.5",
+        "REQ-7"
       ],
       "steps": [
         "Write TS-13-44, TS-13-45 and TS-13-49..TS-13-56 and confirm they fail",
@@ -211,28 +159,18 @@
       "depends_on": [
         1,
         2
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 5,
-      "kind": "implement",
       "title": "Worker resolve: settings, refusals, input forms and the hub session",
       "criteria": [
-        "13-REQ-4.1",
-        "13-REQ-4.2",
-        "13-REQ-4.6",
-        "13-REQ-8.5",
-        "13-REQ-10.1",
-        "13-REQ-10.2"
-      ],
-      "tests": [
-        "TS-13-27",
-        "TS-13-28",
-        "TS-13-31",
-        "TS-13-61",
-        "TS-13-74",
-        "TS-13-75"
+        "REQ-4.1",
+        "REQ-4.2",
+        "REQ-4.6",
+        "REQ-8.5",
+        "REQ-10.1",
+        "REQ-10.2"
       ],
       "steps": [
         "Write TS-13-27, TS-13-28, TS-13-31, TS-13-61, TS-13-74 and TS-13-75 and confirm they fail",
@@ -256,30 +194,19 @@
         2,
         3,
         4
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 6,
-      "kind": "implement",
       "title": "Clone with the scoped Basic credential, hermetic git and the branch publish hook",
       "criteria": [
-        "13-REQ-5.2",
-        "13-REQ-5.3",
-        "13-REQ-5.4",
-        "13-REQ-5.5",
-        "13-REQ-5.6",
-        "13-REQ-5.8",
-        "13-REQ-8.6"
-      ],
-      "tests": [
-        "TS-13-34",
-        "TS-13-35",
-        "TS-13-36",
-        "TS-13-37",
-        "TS-13-38",
-        "TS-13-40",
-        "TS-13-63"
+        "REQ-5.2",
+        "REQ-5.3",
+        "REQ-5.4",
+        "REQ-5.5",
+        "REQ-5.6",
+        "REQ-5.8",
+        "REQ-8.6"
       ],
       "steps": [
         "Write TS-13-34..TS-13-38, TS-13-40 and TS-13-63 and confirm they fail",
@@ -301,28 +228,18 @@
       "depends_on": [
         2,
         5
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 7,
-      "kind": "implement",
       "title": "Lease, gateway box, timeout cut and release",
       "criteria": [
-        "13-REQ-6.1",
-        "13-REQ-6.2",
-        "13-REQ-6.3",
-        "13-REQ-6.6",
-        "13-REQ-6.7",
-        "13-REQ-6.8"
-      ],
-      "tests": [
-        "TS-13-41",
-        "TS-13-42",
-        "TS-13-43",
-        "TS-13-46",
-        "TS-13-47",
-        "TS-13-48"
+        "REQ-6.1",
+        "REQ-6.2",
+        "REQ-6.3",
+        "REQ-6.6",
+        "REQ-6.7",
+        "REQ-6.8"
       ],
       "steps": [
         "Write TS-13-41..TS-13-43, TS-13-46..TS-13-48 and confirm they fail",
@@ -340,36 +257,22 @@
       "depends_on": [
         4,
         5
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 8,
-      "kind": "implement",
       "title": "Run the attempt pipeline: loop invocation, transient errors vs envelopes, events and results",
       "criteria": [
-        "13-REQ-4.5",
-        "13-REQ-4.7",
-        "13-REQ-5.1",
-        "13-REQ-5.7",
-        "13-REQ-8.1",
-        "13-REQ-8.2",
-        "13-REQ-8.3",
-        "13-REQ-8.4",
-        "13-REQ-8.7",
-        "13-REQ-8.8"
-      ],
-      "tests": [
-        "TS-13-30",
-        "TS-13-32",
-        "TS-13-33",
-        "TS-13-39",
-        "TS-13-57",
-        "TS-13-58",
-        "TS-13-59",
-        "TS-13-60",
-        "TS-13-62",
-        "TS-13-64"
+        "REQ-4.5",
+        "REQ-4.7",
+        "REQ-5.1",
+        "REQ-5.7",
+        "REQ-8.1",
+        "REQ-8.2",
+        "REQ-8.3",
+        "REQ-8.4",
+        "REQ-8.7",
+        "REQ-8.8"
       ],
       "steps": [
         "Write TS-13-30, TS-13-32, TS-13-33, TS-13-39, TS-13-57..TS-13-60, TS-13-62 and TS-13-64 and confirm they fail",
@@ -393,28 +296,15 @@
         5,
         6,
         7
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 9,
-      "kind": "implement",
       "title": "Mirror outcomes to the issue and clean up on cancel or shutdown",
       "criteria": [
-        "13-REQ-4.3",
-        "13-REQ-4.4",
-        "13-REQ-9"
-      ],
-      "tests": [
-        "TS-13-29",
-        "TS-13-66",
-        "TS-13-67",
-        "TS-13-68",
-        "TS-13-69",
-        "TS-13-70",
-        "TS-13-71",
-        "TS-13-72",
-        "TS-13-73"
+        "REQ-4.3",
+        "REQ-4.4",
+        "REQ-9"
       ],
       "steps": [
         "Write TS-13-29 and TS-13-66..TS-13-73 and confirm they fail",
@@ -438,27 +328,17 @@
       "depends_on": [
         3,
         8
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 10,
-      "kind": "implement",
       "title": "Report to hub, enforce the credential invariant and update the documentation",
       "criteria": [
-        "13-REQ-10.3",
-        "13-REQ-10.4",
-        "13-REQ-10.5",
-        "13-REQ-10.6",
-        "13-REQ-10.8"
-      ],
-      "tests": [
-        "TS-13-65",
-        "TS-13-76",
-        "TS-13-77",
-        "TS-13-78",
-        "TS-13-79",
-        "TS-13-81"
+        "REQ-10.3",
+        "REQ-10.4",
+        "REQ-10.5",
+        "REQ-10.6",
+        "REQ-10.8"
       ],
       "steps": [
         "Write TS-13-65, TS-13-76..TS-13-79 and TS-13-81 and confirm they fail",
@@ -487,39 +367,7 @@
       ],
       "done_when": [
         "`make check` passes including the docs tests"
-      ],
-      "state": "done"
-    },
-    {
-      "id": 11,
-      "kind": "integration",
-      "title": "Verify the worker execution paths end to end",
-      "tests": [
-        "TS-13-82",
-        "TS-13-83",
-        "TS-13-84",
-        "TS-13-85",
-        "TS-13-86",
-        "TS-13-87"
-      ],
-      "steps": [
-        "Write the smoke tests TS-13-82..TS-13-87 against real components (fakehub, its git server, in-process gateway over the local provider, hub forge client, git binary, fakeclaude af, scripted brain) and confirm they pass",
-        "Trace 13-PATH-1 to 13-PATH-6 through the real code: Runner.Run, resolve, session, mark, clone, lease, afcmd loop, publish hook, mirror, release, report; confirm each step calls the next and no stub remains",
-        "For every criterion with a contract, confirm the producer's result is consumed in production code (e.g. the recorder receives events and hub refs, the jobs layer's result carries labels and max attempts, the hub forge factory and gateway registry are passed to the loop)",
-        "Confirm the entry point from 12_agent_fox_jobs is live: the production service wiring uses worker.Runner in place of the unsupported placeholder and the jobs layer passes the round position",
-        "Search every file in the tasks' touches for panic(\"not implemented\"), TODO, NotImplementedError and bare return nil on non-trivial paths, and remove them",
-        "Run make check"
-      ],
-      "touches": [
-        "internal/worker/smoke_test.go"
-      ],
-      "depends_on": [
-        10
-      ],
-      "done_when": [
-        "`make test` passes offline with the six smoke tests included"
-      ],
-      "state": "done"
+      ]
     }
   ]
 }

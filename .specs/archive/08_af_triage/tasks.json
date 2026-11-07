@@ -1,8 +1,8 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/tasks.v3.json",
   "spec_id": "08",
   "spec_name": "af_triage",
-  "schema_version": 2,
+  "schema_version": 3,
   "test_commands": {
     "all_tests": "make test",
     "linter": "make lint",
@@ -25,24 +25,12 @@
   "tasks": [
     {
       "id": 1,
-      "kind": "implement",
       "title": "Render and extract the issue body, and ship the af-triage skill with its embedding",
       "criteria": [
-        "08-REQ-7",
-        "08-REQ-10.1",
-        "08-REQ-10.2",
-        "08-REQ-10.3"
-      ],
-      "tests": [
-        "TS-08-43",
-        "TS-08-44",
-        "TS-08-45",
-        "TS-08-46",
-        "TS-08-47",
-        "TS-08-48",
-        "TS-08-65",
-        "TS-08-66",
-        "TS-08-67"
+        "REQ-7",
+        "REQ-10.1",
+        "REQ-10.2",
+        "REQ-10.3"
       ],
       "steps": [
         "Write the listed tests first and confirm they fail",
@@ -66,31 +54,19 @@
       ],
       "done_when": [
         "`go test ./internal/triage/... ./skills/... -count=1` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 2,
-      "kind": "implement",
       "title": "Implement the diagnosis validator with file-view path resolution and rejection counting",
       "criteria": [
-        "08-REQ-5.2",
-        "08-REQ-5.3",
-        "08-REQ-5.4",
-        "08-REQ-5.5",
-        "08-REQ-5.6",
-        "08-REQ-6.2",
-        "08-REQ-6.3"
-      ],
-      "tests": [
-        "TS-08-32",
-        "TS-08-33",
-        "TS-08-34",
-        "TS-08-35",
-        "TS-08-36",
-        "TS-08-40",
-        "TS-08-41"
+        "REQ-5.2",
+        "REQ-5.3",
+        "REQ-5.4",
+        "REQ-5.5",
+        "REQ-5.6",
+        "REQ-6.2",
+        "REQ-6.3"
       ],
       "steps": [
         "Write the listed tests first and confirm they fail",
@@ -114,29 +90,18 @@
       ],
       "done_when": [
         "`go test ./internal/triage/... -count=1` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 3,
-      "kind": "implement",
       "title": "Render the brief: mandate, skill body, repository map, fenced report and task block",
       "criteria": [
-        "08-REQ-3.1",
-        "08-REQ-3.2",
-        "08-REQ-3.3",
-        "08-REQ-3.4",
-        "08-REQ-3.5",
-        "08-REQ-3.7"
-      ],
-      "tests": [
-        "TS-08-16",
-        "TS-08-17",
-        "TS-08-18",
-        "TS-08-19",
-        "TS-08-20",
-        "TS-08-22"
+        "REQ-3.1",
+        "REQ-3.2",
+        "REQ-3.3",
+        "REQ-3.4",
+        "REQ-3.5",
+        "REQ-3.7"
       ],
       "steps": [
         "Write the listed tests first and confirm they fail",
@@ -159,31 +124,19 @@
       ],
       "done_when": [
         "`go test ./internal/triage/... -count=1` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 4,
-      "kind": "implement",
       "title": "Implement preflight refusals as a pure function with structured failures",
       "criteria": [
-        "08-REQ-2.2",
-        "08-REQ-2.3",
-        "08-REQ-2.4",
-        "08-REQ-2.5",
-        "08-REQ-2.6",
-        "08-REQ-2.7",
-        "08-REQ-2.8"
-      ],
-      "tests": [
-        "TS-08-9",
-        "TS-08-10",
-        "TS-08-11",
-        "TS-08-12",
-        "TS-08-13",
-        "TS-08-14",
-        "TS-08-15"
+        "REQ-2.2",
+        "REQ-2.3",
+        "REQ-2.4",
+        "REQ-2.5",
+        "REQ-2.6",
+        "REQ-2.7",
+        "REQ-2.8"
       ],
       "steps": [
         "Write the listed tests first and confirm they fail",
@@ -205,32 +158,20 @@
       ],
       "done_when": [
         "`go test ./internal/triage/... -count=1` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 5,
-      "kind": "implement",
       "title": "Implement landing: diagnosis.md, body replacement, comment fallback, issue creation, labels and errors",
       "criteria": [
-        "08-REQ-8.1",
-        "08-REQ-8.2",
-        "08-REQ-8.3",
-        "08-REQ-8.4",
-        "08-REQ-8.5",
-        "08-REQ-8.6",
-        "08-REQ-8.7",
-        "08-REQ-8.8"
-      ],
-      "tests": [
-        "TS-08-49",
-        "TS-08-50",
-        "TS-08-51",
-        "TS-08-52",
-        "TS-08-53",
-        "TS-08-54",
-        "TS-08-55"
+        "REQ-8.1",
+        "REQ-8.2",
+        "REQ-8.3",
+        "REQ-8.4",
+        "REQ-8.5",
+        "REQ-8.6",
+        "REQ-8.7",
+        "REQ-8.8"
       ],
       "steps": [
         "Write the listed tests first and confirm they fail",
@@ -253,23 +194,15 @@
       ],
       "done_when": [
         "`go test ./internal/triage/... -count=1` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 6,
-      "kind": "implement",
       "title": "Add `af triage brief` with the run files, ledger records and previous-question lookup",
       "criteria": [
-        "08-REQ-1.3",
-        "08-REQ-3.6",
-        "08-REQ-3.8"
-      ],
-      "tests": [
-        "TS-08-3",
-        "TS-08-21",
-        "TS-08-23"
+        "REQ-1.3",
+        "REQ-3.6",
+        "REQ-3.8"
       ],
       "steps": [
         "Write the listed tests first and confirm they fail",
@@ -293,29 +226,18 @@
       ],
       "done_when": [
         "`go test ./cmd/af/... ./internal/triage/... -count=1` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 7,
-      "kind": "implement",
       "title": "Add the triage submission kind, `af triage submit` and `af triage run`",
       "criteria": [
-        "08-REQ-4.4",
-        "08-REQ-4.7",
-        "08-REQ-5.1",
-        "08-REQ-5.7",
-        "08-REQ-5.8",
-        "08-REQ-6.1"
-      ],
-      "tests": [
-        "TS-08-27",
-        "TS-08-30",
-        "TS-08-31",
-        "TS-08-37",
-        "TS-08-38",
-        "TS-08-39"
+        "REQ-4.4",
+        "REQ-4.7",
+        "REQ-5.1",
+        "REQ-5.7",
+        "REQ-5.8",
+        "REQ-6.1"
       ],
       "steps": [
         "Write the listed tests first and confirm they fail",
@@ -342,23 +264,15 @@
       ],
       "done_when": [
         "`go test ./cmd/af/... ./internal/triage/... -count=1` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 8,
-      "kind": "implement",
       "title": "Add `af triage land` and the toolio forge-for-repository constructor",
       "criteria": [
-        "08-REQ-1.6",
-        "08-REQ-1.7",
-        "08-REQ-6.4"
-      ],
-      "tests": [
-        "TS-08-6",
-        "TS-08-7",
-        "TS-08-42"
+        "REQ-1.6",
+        "REQ-1.7",
+        "REQ-6.4"
       ],
       "steps": [
         "Write the listed tests first and confirm they fail",
@@ -381,37 +295,22 @@
       ],
       "done_when": [
         "`go test ./cmd/af/... ./internal/toolio/... -count=1` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 9,
-      "kind": "implement",
       "title": "Implement the triage loop: preflight, brief, bounded brain run, read-back and registration",
       "criteria": [
-        "08-REQ-1.1",
-        "08-REQ-1.2",
-        "08-REQ-1.4",
-        "08-REQ-1.5",
-        "08-REQ-2.1",
-        "08-REQ-4.1",
-        "08-REQ-4.2",
-        "08-REQ-4.3",
-        "08-REQ-4.5",
-        "08-REQ-4.6"
-      ],
-      "tests": [
-        "TS-08-1",
-        "TS-08-2",
-        "TS-08-4",
-        "TS-08-5",
-        "TS-08-8",
-        "TS-08-24",
-        "TS-08-25",
-        "TS-08-26",
-        "TS-08-28",
-        "TS-08-29"
+        "REQ-1.1",
+        "REQ-1.2",
+        "REQ-1.4",
+        "REQ-1.5",
+        "REQ-2.1",
+        "REQ-4.1",
+        "REQ-4.2",
+        "REQ-4.3",
+        "REQ-4.5",
+        "REQ-4.6"
       ],
       "steps": [
         "Write the listed tests first and confirm they fail",
@@ -439,37 +338,22 @@
       ],
       "done_when": [
         "`go test ./cmd/af/... ./internal/triage/... -count=1` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 10,
-      "kind": "implement",
       "title": "Finish outcomes: needs_human, result, artifacts, next entries, step events, warnings and schemas",
       "criteria": [
-        "08-REQ-9.1",
-        "08-REQ-9.2",
-        "08-REQ-9.3",
-        "08-REQ-9.4",
-        "08-REQ-9.5",
-        "08-REQ-9.6",
-        "08-REQ-9.7",
-        "08-REQ-9.8",
-        "08-REQ-10.4",
-        "08-REQ-10.5"
-      ],
-      "tests": [
-        "TS-08-56",
-        "TS-08-57",
-        "TS-08-58",
-        "TS-08-59",
-        "TS-08-60",
-        "TS-08-61",
-        "TS-08-62",
-        "TS-08-63",
-        "TS-08-64",
-        "TS-08-68"
+        "REQ-9.1",
+        "REQ-9.2",
+        "REQ-9.3",
+        "REQ-9.4",
+        "REQ-9.5",
+        "REQ-9.6",
+        "REQ-9.7",
+        "REQ-9.8",
+        "REQ-10.4",
+        "REQ-10.5"
       ],
       "steps": [
         "Write the listed tests first and confirm they fail",
@@ -496,19 +380,13 @@
       ],
       "done_when": [
         "`go test ./cmd/af/... ./internal/triage/... -count=1` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 11,
-      "kind": "implement",
       "title": "Update the documentation and regenerate golang docs",
       "criteria": [
-        "08-REQ-10.6"
-      ],
-      "tests": [
-        "TS-08-70"
+        "REQ-10.6"
       ],
       "steps": [
         "Write TS-08-70 first (a test scanning the named documents for the triage terms) and confirm it fails",
@@ -535,45 +413,7 @@
       "done_when": [
         "`make check` passes",
         "docs/generated/skills.txt exists"
-      ],
-      "state": "done",
-      "optional": false
-    },
-    {
-      "id": 12,
-      "kind": "integration",
-      "title": "Verify every triage execution path end to end and the offline suite",
-      "tests": [
-        "TS-08-69",
-        "TS-08-71",
-        "TS-08-72",
-        "TS-08-73",
-        "TS-08-74",
-        "TS-08-75",
-        "TS-08-76",
-        "TS-08-77"
-      ],
-      "steps": [
-        "Write the smoke tests TS-08-71 to TS-08-77 and TS-08-69 against the real shell, loop, brain, box, validator, renderer and httptest GitHub and GitLab clients, and confirm they pass",
-        "Trace 08-PATH-1 to 08-PATH-7 through the real code: shell input resolution, Preflight, BuildBrief, brain.Execute, read-back, Land, envelope; confirm each step calls the next and no stub remains",
-        "Confirm each criterion with a contract has its producer's result consumed in production code: Validate by the submit command, the in-process kind and host re-validation; CountRejections by the result builder; Extract by the brief renderer and Land; FindPreviousQuestion by the brief command; the forge-for-repository constructor by `af triage land`",
-        "Confirm the entry points owned by other specs (toolio App.Main, brain.Execute, submission.Command, checks.FileView, repomap.Build) are called from production code",
-        "Search internal/triage, cmd/af, internal/toolio, skills and every task's touches for panic(\"not implemented\"), TODO, and a bare `return nil` on a non-trivial path, and remove any that remain",
-        "Confirm all requests in the suite go to loopback with no token or vendor key set, then run `make check`"
-      ],
-      "touches": [
-        "cmd/af/triage_smoke_test.go",
-        "internal/triage/",
-        "cmd/af/triage.go"
-      ],
-      "depends_on": [
-        11
-      ],
-      "done_when": [
-        "`make check` passes offline"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     }
   ]
 }

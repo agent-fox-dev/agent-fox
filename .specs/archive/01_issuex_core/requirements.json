@@ -1,384 +1,624 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/requirements.v3.json",
   "spec_id": "01",
   "spec_name": "issuex_core",
-  "schema_version": 2,
-  "introduction": "The issuex package provides a forge-neutral Go client interface, canonical domain models, git remote and issue URL detection, a standardized error hierarchy, transport safety utilities, and a no-op implementation for GitHub and GitLab operations.",
-  "glossary": {
-    "Forge": "A web-based service hosting Git repositories, issue tracking, and code review workflows, such as GitHub or GitLab.",
-    "ForgeClient": "The unified Go interface declaring forge-neutral repository, issue, and pull request operations.",
-    "IssueRef": "A reference identifying an issue or pull request within a repository by number.",
-    "NoOpClient": "A client implementation that returns zero-values for reads, performs silent no-ops for issue writes, and returns explicit errors for pull request operations.",
-    "Repo": "A repository identifier containing owner, name, and optional host segments, supporting nested group paths."
-  },
+  "schema_version": 3,
   "requirements": [
     {
-      "id": "01-REQ-1",
+      "id": "REQ-1",
       "title": "Forge Client Interface Contract",
       "rationale": "A unified interface allows ecosystem tools to interact with multiple git forges using identical method signatures.",
       "criteria": [
         {
-          "id": "01-REQ-1.1",
+          "id": "REQ-1.1",
           "pattern": "ubiquitous",
           "system": "issuex package",
-          "action": "declare the Client interface and ForgeClient type alias with Authenticated() bool and Close() error lifecycle methods"
+          "action": "declare the Client interface and ForgeClient type alias with Authenticated() bool and Close() error lifecycle methods",
+          "contract": "Client and ForgeClient are mutually assignable type aliases; all repository, issue, and PR methods accept context.Context as first argument and return value types",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "the issuex package interfaces"
+            ],
+            "pseudocode": "var _ issuex.Client = (issuex.ForgeClient)(nil)\nvar _ = issuex.Client.Authenticated\nvar _ = issuex.Client.Close\nvar _ = issuex.Client.GetRepository\nvar _ = issuex.Client.CreateIssue\nvar _ = issuex.Client.ReadIssue\nvar _ = issuex.Client.UpdateIssue\nvar _ = issuex.Client.CloseIssue\nvar _ = issuex.Client.ListIssues\nvar _ = issuex.Client.AddComment\nvar _ = issuex.Client.ListComments\nvar _ = issuex.Client.AddLabels\nvar _ = issuex.Client.RemoveLabel\nvar _ = issuex.Client.CreateLabel\nvar _ = issuex.Client.CreatePullRequest\nvar _ = issuex.Client.ReadPullRequest\nvar _ = issuex.Client.ReadChangedFiles\nvar _ = issuex.Client.GetPRState\nvar _ = issuex.Client.GetCIChecks\nvar _ = issuex.Client.GetPRReviews\nvar _ = issuex.Client.PostReviewComment\nvar _ = issuex.Client.MergePullRequest\nvar _ = issuex.Client.ClosePullRequest"
+          }
         },
         {
-          "id": "01-REQ-1.2",
+          "id": "REQ-1.2",
           "pattern": "ubiquitous",
           "system": "Client interface",
-          "action": "declare repository and issue management methods GetRepository, CreateIssue, ReadIssue, UpdateIssue, CloseIssue, ListIssues, AddComment, ListComments, AddLabels, RemoveLabel, and CreateLabel accepting context.Context as first parameter and returning value types"
+          "action": "declare repository and issue management methods GetRepository, CreateIssue, ReadIssue, UpdateIssue, CloseIssue, ListIssues, AddComment, ListComments, AddLabels, RemoveLabel, and CreateLabel accepting context.Context as first parameter and returning value types",
+          "check": {
+            "same_as": "REQ-1.1"
+          }
         },
         {
-          "id": "01-REQ-1.3",
+          "id": "REQ-1.3",
           "pattern": "ubiquitous",
           "system": "Client interface",
-          "action": "declare pull request management methods CreatePullRequest, ReadPullRequest, ReadChangedFiles, GetPRState, GetCIChecks, GetPRReviews, PostReviewComment, MergePullRequest, and ClosePullRequest accepting context.Context as first parameter and returning value types"
+          "action": "declare pull request management methods CreatePullRequest, ReadPullRequest, ReadChangedFiles, GetPRState, GetCIChecks, GetPRReviews, PostReviewComment, MergePullRequest, and ClosePullRequest accepting context.Context as first parameter and returning value types",
+          "check": {
+            "same_as": "REQ-1.1"
+          }
         }
       ]
     },
     {
-      "id": "01-REQ-2",
+      "id": "REQ-2",
       "title": "Domain Data Models",
       "rationale": "Domain data structures normalize differences between GitHub and GitLab entities into consistent value types.",
+      "system": "issuex package",
       "criteria": [
         {
-          "id": "01-REQ-2.1",
+          "id": "REQ-2.1",
           "pattern": "ubiquitous",
-          "system": "issuex package",
-          "action": "define the Repo struct with Owner, Name, and Host string fields, where Repo.Valid() reports whether Owner and Name are non-empty"
+          "action": "define the Repo struct with Owner, Name, and Host string fields, where Repo.Valid() reports whether Owner and Name are non-empty",
+          "contract": "Valid() returns true if both Owner and Name are non-empty; Valid() returns false if either Owner or Name is empty",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "various Repo struct instances with combinations of empty and non-empty Owner and Name"
+            ],
+            "pseudocode": "assert Repo{Owner: \"foo\", Name: \"bar\"}.Valid() == true\nassert Repo{Owner: \"group/sub\", Name: \"bar\"}.Valid() == true\nassert Repo{Owner: \"\", Name: \"bar\"}.Valid() == false\nassert Repo{Owner: \"foo\", Name: \"\"}.Valid() == false\nassert Repo{}.Valid() == false"
+          }
         },
         {
-          "id": "01-REQ-2.2",
+          "id": "REQ-2.2",
           "pattern": "ubiquitous",
-          "system": "issuex package",
-          "action": "for any Repo instance with non-empty Owner and Name, return fmt.Sprintf(\"%s/%s\", r.Owner, r.Name) from Repo.String()"
+          "action": "for any Repo instance with non-empty Owner and Name, return fmt.Sprintf(\"%s/%s\", r.Owner, r.Name) from Repo.String()",
+          "contract": "Repo.String() always produces fmt.Sprintf(\"%s/%s\", r.Owner, r.Name)",
+          "check": {
+            "kind": "property",
+            "setup": [
+              "a quickcheck generator for valid repository owner and name segments"
+            ],
+            "pseudocode": "forAll(genOwner, genName, func(owner, name string) bool {\n    r := Repo{Owner: owner, Name: name}\n    return r.String() == fmt.Sprintf(\"%s/%s\", owner, name)\n})"
+          }
         },
         {
-          "id": "01-REQ-2.3",
+          "id": "REQ-2.3",
           "pattern": "ubiquitous",
-          "system": "issuex package",
-          "action": "for any IssueRef instance with valid Repo and positive Number, return fmt.Sprintf(\"%s#%d\", ref.Repo.String(), ref.Number) from IssueRef.String()"
+          "action": "for any IssueRef instance with valid Repo and positive Number, return fmt.Sprintf(\"%s#%d\", ref.Repo.String(), ref.Number) from IssueRef.String()",
+          "contract": "IssueRef.String() always produces fmt.Sprintf(\"%s#%d\", ref.Repo.String(), ref.Number)",
+          "check": {
+            "kind": "property",
+            "setup": [
+              "a quickcheck generator for valid Repo instances and positive issue numbers"
+            ],
+            "pseudocode": "forAll(genValidRepo, genPositiveInt, func(r Repo, num int) bool {\n    ref := IssueRef{Repo: r, Number: num}\n    return ref.String() == fmt.Sprintf(\"%s#%d\", r.String(), num)\n})"
+          }
         },
         {
-          "id": "01-REQ-2.4",
+          "id": "REQ-2.4",
           "pattern": "ubiquitous",
-          "system": "issuex package",
-          "action": "define the Issue, IssueThread, Comment, and User structs representing issue metadata and comments using value fields and error tracking"
+          "action": "define the Issue, IssueThread, Comment, and User structs representing issue metadata and comments using value fields and error tracking",
+          "contract": "Issue, IssueThread, Comment, and User structs store and expose expected value fields and error tracking; PullRequest, ChangedFile, PRState, CheckRun, and Review structs store and expose expected metadata fields",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "domain data types for issues and pull requests in issuex"
+            ],
+            "pseudocode": "iss := Issue{Number: 42, Title: \"Bug\", State: \"open\", Author: User{Login: \"dev\"}}\nthread := IssueThread{Issue: iss, Comments: []Comment{{Body: \"cmt\"}}, Truncated: false, CommentsErr: nil}\npr := PullRequest{Number: 10, State: \"open\", HeadBranch: \"feat\", BaseBranch: \"main\"}\nfile := ChangedFile{Filename: \"a.go\", Status: \"modified\", Additions: 3, Deletions: 1}\ncheck := CheckRun{Name: \"ci/test\", Status: \"completed\", Conclusion: \"success\"}\nrev := Review{Author: User{Login: \"rev\"}, State: \"approved\"}"
+          }
         },
         {
-          "id": "01-REQ-2.5",
+          "id": "REQ-2.5",
           "pattern": "ubiquitous",
-          "system": "issuex package",
-          "action": "define the PullRequest, ChangedFile, PRState, CheckRun, and Review structs representing pull request metadata, changed files, checks, and reviews"
+          "action": "define the PullRequest, ChangedFile, PRState, CheckRun, and Review structs representing pull request metadata, changed files, checks, and reviews",
+          "check": {
+            "same_as": "REQ-2.4"
+          }
         },
         {
-          "id": "01-REQ-2.6",
+          "id": "REQ-2.6",
           "pattern": "ubiquitous",
-          "system": "issuex package",
-          "action": "define the Repository, RepoPermissions, Label, IssueFilter, IssueList, and CommentList structs with filtering and pagination limits"
+          "action": "define the Repository, RepoPermissions, Label, IssueFilter, IssueList, and CommentList structs with filtering and pagination limits",
+          "contract": "Repository, Label, IssueFilter, IssueList, and CommentList structs represent values with filtering and limits; CreateIssueRequest, UpdateIssueRequest, CreatePullRequestRequest, MergeOptions, MergeMethod, and MergeResult define complete parameters",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "domain data types for repository metadata, labels, filters, and requests in issuex"
+            ],
+            "pseudocode": "repo := Repository{FullName: \"o/r\", DefaultBranch: \"main\", Permissions: RepoPermissions{Push: true}}\nlbl := Label{Name: \"bug\", Color: \"ff0000\"}\nfilt := IssueFilter{State: \"open\", Limit: 100}\nlist := IssueList{Issues: []Issue{{Number: 1}}, Incomplete: false}\nclist := CommentList{Comments: []Comment{{Body: \"ok\"}}, Truncated: false}\nreq := CreateIssueRequest{Title: \"T\", Body: \"B\", Labels: []string{\"bug\"}}\nmOpt := MergeOptions{Method: MergeMethodSquash, CommitTitle: \"Squash merge\"}\nmRes := MergeResult{Merged: true, SHA: \"abcdef\"}"
+          }
         },
         {
-          "id": "01-REQ-2.7",
+          "id": "REQ-2.7",
           "pattern": "ubiquitous",
-          "system": "issuex package",
-          "action": "define CreateIssueRequest, UpdateIssueRequest, CreatePullRequestRequest, MergeOptions, MergeMethod enum constants, and MergeResult structs"
+          "action": "define CreateIssueRequest, UpdateIssueRequest, CreatePullRequestRequest, MergeOptions, MergeMethod enum constants, and MergeResult structs",
+          "check": {
+            "same_as": "REQ-2.6"
+          }
         }
       ]
     },
     {
-      "id": "01-REQ-3",
+      "id": "REQ-3",
       "title": "Git Remote and URL Parsing",
       "rationale": "Detecting repository references and web URLs simplifies command-line invocations across diverse git configurations.",
       "criteria": [
         {
-          "id": "01-REQ-3.1",
+          "id": "REQ-3.1",
           "pattern": "event_driven",
           "condition": "ParseRepo is called with a path string containing one or more slash delimiters and non-empty segments",
           "system": "repo parser",
-          "action": "parse the string into a Repo whose Name is the last path segment and Owner is all preceding segments joined by slash, returning the Repo and true"
+          "action": "parse the string into a Repo whose Name is the last path segment and Owner is all preceding segments joined by slash, returning the Repo and true",
+          "contract": "the last path segment is assigned to Name; all preceding path segments joined by slash are assigned to Owner; the returned boolean is true",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "repository path strings representing standard and nested group structures"
+            ],
+            "pseudocode": "r1, ok1 := ParseRepo(\"octocat/Hello-World\")\nassert ok1 == true\nassert r1.Owner == \"octocat\" && r1.Name == \"Hello-World\"\n\nr2, ok2 := ParseRepo(\"gitlab-org/subgroup/project\")\nassert ok2 == true\nassert r2.Owner == \"gitlab-org/subgroup\" && r2.Name == \"project\""
+          }
         },
         {
-          "id": "01-REQ-3.2",
+          "id": "REQ-3.2",
           "pattern": "unwanted",
           "condition": "ParseRepo is called with an empty string or a string without slash delimiters",
           "system": "repo parser",
           "action": "reject the input and return a zero-value Repo with false",
-          "contract": "(Repo{}, false)"
+          "contract": "(Repo{}, false)",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "empty or slash-less input strings"
+            ],
+            "pseudocode": "r1, ok1 := ParseRepo(\"\")\nassert ok1 == false && r1 == Repo{}\n\nr2, ok2 := ParseRepo(\"singleword\")\nassert ok2 == false && r2 == Repo{}\n\nr3, ok3 := ParseRepo(\"/leading\")\nassert ok3 == false && r3 == Repo{}"
+          }
         },
         {
-          "id": "01-REQ-3.3",
+          "id": "REQ-3.3",
           "pattern": "event_driven",
           "condition": "ParseRemote is called with an HTTPS, SSH, or SCP-style git remote URL matching a supported forge host",
           "system": "remote parser",
-          "action": "parse the remote URL into a Repo containing Host, Owner with multi-segment support, and Name without .git suffix, returning the Repo and true"
+          "action": "parse the remote URL into a Repo containing Host, Owner with multi-segment support, and Name without .git suffix, returning the Repo and true",
+          "contract": "ParseRemote returns true and populates Host, Owner (including nested groups), and Name without .git suffix",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "various valid remote URL strings across HTTPS, SSH, and SCP-style syntax for GitHub and GitLab"
+            ],
+            "pseudocode": "r1, ok1 := ParseRemote(\"https://github.com/octocat/Hello-World.git\")\nassert ok1 == true && r1.Host == \"github.com\" && r1.Owner == \"octocat\" && r1.Name == \"Hello-World\"\n\nr2, ok2 := ParseRemote(\"git@gitlab.com:group/subgroup/repo.git\")\nassert ok2 == true && r2.Host == \"gitlab.com\" && r2.Owner == \"group/subgroup\" && r2.Name == \"repo\"\n\nr3, ok3 := ParseRemote(\"ssh://git@github.com/org/repo.git\")\nassert ok3 == true && r3.Host == \"github.com\" && r3.Owner == \"org\" && r3.Name == \"repo\""
+          }
         },
         {
-          "id": "01-REQ-3.4",
+          "id": "REQ-3.4",
           "pattern": "unwanted",
           "condition": "ParseRemote is called with an invalid remote URL, missing host, or unsupported format",
           "system": "remote parser",
           "action": "reject the remote URL and return a zero-value Repo with false",
-          "contract": "(Repo{}, false)"
+          "contract": "(Repo{}, false)",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "invalid, empty, or unsupported remote URL strings"
+            ],
+            "pseudocode": "r1, ok1 := ParseRemote(\"\")\nassert ok1 == false && r1 == Repo{}\n\nr2, ok2 := ParseRemote(\"http://\")\nassert ok2 == false && r2 == Repo{}\n\nr3, ok3 := ParseRemote(\"not-a-remote-url\")\nassert ok3 == false && r3 == Repo{}"
+          }
         },
         {
-          "id": "01-REQ-3.5",
+          "id": "REQ-3.5",
           "pattern": "event_driven",
           "condition": "DetectRepo is called with a directory path whose git origin remote is configured and readable",
           "system": "repo detector",
-          "action": "execute git remote get-url origin in the target directory, pass the output to ParseRemote, and return the resulting Repo with true"
+          "action": "execute git remote get-url origin in the target directory, pass the output to ParseRemote, and return the resulting Repo with true",
+          "contract": "for a valid git repo with origin, DetectRepo returns the parsed Repo and true; for an invalid or remote-less directory, DetectRepo returns a zero-value Repo and false without error",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a temporary git repository directory with an origin remote and a non-git directory"
+            ],
+            "pseudocode": "// Valid repo case:\ngitDir := setupTempGitRepoWithOrigin(\"git@github.com:agentfox/agent-fox.git\")\nr1, ok1 := DetectRepo(gitDir)\nassert ok1 == true && r1.Host == \"github.com\" && r1.Owner == \"agentfox\" && r1.Name == \"agent-fox\"\n\n// Non-git dir case:\nnonGitDir := t.TempDir()\nr2, ok2 := DetectRepo(nonGitDir)\nassert ok2 == false && r2 == Repo{}"
+          }
         },
         {
-          "id": "01-REQ-3.6",
+          "id": "REQ-3.6",
           "pattern": "unwanted",
           "condition": "DetectRepo is called on a directory that is not a git repository or has no origin remote configured",
           "system": "repo detector",
           "action": "return a zero-value Repo with false without returning an error",
-          "contract": "(Repo{}, false)"
+          "contract": "(Repo{}, false)",
+          "check": {
+            "same_as": "REQ-3.5"
+          }
         },
         {
-          "id": "01-REQ-3.7",
+          "id": "REQ-3.7",
           "pattern": "event_driven",
           "condition": "ParseIssueURL is called with a valid GitHub or GitLab web issue or pull request URL",
           "system": "issue URL parser",
-          "action": "parse the URL into an IssueRef with Repo, Number, and IsPullRequest set to true for PR and MR URLs, returning the IssueRef and true"
+          "action": "parse the URL into an IssueRef with Repo, Number, and IsPullRequest set to true for PR and MR URLs, returning the IssueRef and true",
+          "contract": "ParseIssueURL returns true and sets Repo, Number, and IsPullRequest accurately for issues and PRs/MRs",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "valid GitHub and GitLab web issue and pull/merge request URLs"
+            ],
+            "pseudocode": "ref1, ok1 := ParseIssueURL(\"https://github.com/owner/repo/issues/123\")\nassert ok1 == true && ref1.Repo.Owner == \"owner\" && ref1.Number == 123 && ref1.IsPullRequest == false\n\nref2, ok2 := ParseIssueURL(\"https://github.com/owner/repo/pull/456\")\nassert ok2 == true && ref2.Repo.Owner == \"owner\" && ref2.Number == 456 && ref2.IsPullRequest == true\n\nref3, ok3 := ParseIssueURL(\"https://gitlab.com/group/sub/proj/-/issues/789\")\nassert ok3 == true && ref3.Repo.Owner == \"group/sub\" && ref3.Number == 789 && ref3.IsPullRequest == false\n\nref4, ok4 := ParseIssueURL(\"https://gitlab.com/group/sub/proj/-/merge_requests/101\")\nassert ok4 == true && ref4.Repo.Owner == \"group/sub\" && ref4.Number == 101 && ref4.IsPullRequest == true"
+          }
         },
         {
-          "id": "01-REQ-3.8",
+          "id": "REQ-3.8",
           "pattern": "unwanted",
           "condition": "ParseIssueURL is called with an invalid URL, a non-issue path, or a non-numeric identifier",
           "system": "issue URL parser",
           "action": "reject the URL and return a zero-value IssueRef with false",
-          "contract": "(IssueRef{}, false)"
+          "contract": "(IssueRef{}, false)",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "malformed, non-numeric, or non-issue web URLs"
+            ],
+            "pseudocode": "ref1, ok1 := ParseIssueURL(\"https://github.com/owner/repo/issues/abc\")\nassert ok1 == false && ref1 == IssueRef{}\n\nref2, ok2 := ParseIssueURL(\"https://github.com/owner/repo/commits/123\")\nassert ok2 == false && ref2 == IssueRef{}\n\nref3, ok3 := ParseIssueURL(\"not-a-url\")\nassert ok3 == false && ref3 == IssueRef{}"
+          }
         }
       ]
     },
     {
-      "id": "01-REQ-4",
+      "id": "REQ-4",
       "title": "Forge Detection and Options Configuration",
       "rationale": "Automatic forge detection selects the target platform from configuration, environment variables, or local git remotes.",
+      "system": "client factory",
       "criteria": [
         {
-          "id": "01-REQ-4.1",
+          "id": "REQ-4.1",
           "pattern": "event_driven",
           "condition": "NewWithOptions is called with Options having NoOp set to true",
-          "system": "client factory",
-          "action": "instantiate and return a NoOpClient instance and nil error"
+          "action": "instantiate and return a NoOpClient instance and nil error",
+          "contract": "NewWithOptions returns a non-nil client and a nil error; the client is an instance of NoOpClient",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "Options with NoOp set to true"
+            ],
+            "pseudocode": "client, err := NewWithOptions(Options{NoOp: true})\nassert err == nil\nassert client != nil\nassert client.Authenticated() == false"
+          }
         },
         {
-          "id": "01-REQ-4.2",
+          "id": "REQ-4.2",
           "pattern": "event_driven",
           "condition": "NewWithOptions is called with BaseURL containing github or api.github.com",
-          "system": "client factory",
-          "action": "resolve the forge type to ForgeTypeGitHub"
+          "action": "resolve the forge type to ForgeTypeGitHub",
+          "contract": "GitHub URL resolves to ForgeTypeGitHub; GitLab URL resolves to ForgeTypeGitLab",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "Options with explicit BaseURL targeting GitHub and GitLab hosts"
+            ],
+            "pseudocode": "// Pre-adapter phase: detection succeeds, then unsupported forge error is returned indicating missing adapter\n_, err1 := NewWithOptions(Options{BaseURL: \"https://api.github.com\"})\nassert errors.Is(err1, ErrUnsupportedForge)\nassert strings.Contains(err1.Error(), \"github\")\n\n_, err2 := NewWithOptions(Options{BaseURL: \"https://gitlab.example.com/api/v4\"})\nassert errors.Is(err2, ErrUnsupportedForge)\nassert strings.Contains(err2.Error(), \"gitlab\")"
+          }
         },
         {
-          "id": "01-REQ-4.3",
+          "id": "REQ-4.3",
           "pattern": "event_driven",
           "condition": "NewWithOptions is called with BaseURL containing gitlab",
-          "system": "client factory",
-          "action": "resolve the forge type to ForgeTypeGitLab"
+          "action": "resolve the forge type to ForgeTypeGitLab",
+          "check": {
+            "same_as": "REQ-4.2"
+          }
         },
         {
-          "id": "01-REQ-4.4",
+          "id": "REQ-4.4",
           "pattern": "event_driven",
           "condition": "NewWithOptions is called with empty BaseURL and GitHub environment variables are present while GitLab environment variables are absent",
-          "system": "client factory",
-          "action": "resolve the forge type to ForgeTypeGitHub with default endpoint https://api.github.com and credentials from GITHUB_TOKEN or GH_TOKEN"
+          "action": "resolve the forge type to ForgeTypeGitHub with default endpoint https://api.github.com and credentials from GITHUB_TOKEN or GH_TOKEN",
+          "contract": "presence of GitHub tokens resolves to GitHub forge with default endpoint https://api.github.com; presence of GitLab tokens resolves to GitLab forge with default endpoint https://gitlab.com/api/v4",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "environment variables set for GitHub only, and alternatively GitLab only"
+            ],
+            "pseudocode": "// GitHub only:\nt.Setenv(\"GITHUB_TOKEN\", \"gh-tok\")\nt.Setenv(\"GITLAB_TOKEN\", \"\")\n_, err1 := NewWithOptions(Options{})\nassert errors.Is(err1, ErrUnsupportedForge)\nassert strings.Contains(err1.Error(), \"github\")\n\n// GitLab only:\nt.Setenv(\"GITHUB_TOKEN\", \"\")\nt.Setenv(\"GITLAB_TOKEN\", \"gl-tok\")\n_, err2 := NewWithOptions(Options{})\nassert errors.Is(err2, ErrUnsupportedForge)\nassert strings.Contains(err2.Error(), \"gitlab\")"
+          }
         },
         {
-          "id": "01-REQ-4.5",
+          "id": "REQ-4.5",
           "pattern": "event_driven",
           "condition": "NewWithOptions is called with empty BaseURL and GitLab environment variables are present while GitHub environment variables are absent",
-          "system": "client factory",
-          "action": "resolve the forge type to ForgeTypeGitLab with default endpoint https://gitlab.com/api/v4 and credentials from GITLAB_TOKEN"
+          "action": "resolve the forge type to ForgeTypeGitLab with default endpoint https://gitlab.com/api/v4 and credentials from GITLAB_TOKEN",
+          "check": {
+            "same_as": "REQ-4.4"
+          }
         },
         {
-          "id": "01-REQ-4.6",
-          "pattern": "complex_event",
-          "condition": "NewWithOptions is called with empty BaseURL and forge environment variables are either both present or both absent",
-          "guard": "the git origin remote in the working directory matches a recognized forge host",
-          "system": "client factory",
-          "action": "resolve the forge type corresponding to the git origin remote host"
+          "id": "REQ-4.6",
+          "pattern": "event_driven",
+          "condition": "NewWithOptions is called with empty BaseURL and forge environment variables are either both present or both absent and the git origin remote in the working directory matches a recognized forge host",
+          "action": "resolve the forge type corresponding to the git origin remote host",
+          "contract": "the forge type resolves according to the host of the git origin remote",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a directory whose git origin remote points to a recognized forge and empty environment variables"
+            ],
+            "pseudocode": "dir := setupTempGitRepoWithOrigin(\"git@gitlab.com:team/project.git\")\norigDir, _ := os.Getwd()\nos.Chdir(dir)\ndefer os.Chdir(origDir)\n\nt.Setenv(\"GITHUB_TOKEN\", \"\")\nt.Setenv(\"GITLAB_TOKEN\", \"\")\n_, err := NewWithOptions(Options{})\nassert errors.Is(err, ErrUnsupportedForge)\nassert strings.Contains(err.Error(), \"gitlab\")"
+          }
         },
         {
-          "id": "01-REQ-4.7",
+          "id": "REQ-4.7",
           "pattern": "unwanted",
           "condition": "NewWithOptions cannot determine the forge type from BaseURL, environment variables, or git origin remote",
-          "system": "client factory",
           "action": "reject client construction and return a nil Client and an error wrapping ErrAmbiguousForge",
-          "contract": "(nil, err) where errors.Is(err, ErrAmbiguousForge) is true"
+          "contract": "(nil, err) where errors.Is(err, ErrAmbiguousForge) is true",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "no BaseURL, no forge environment variables, and no git origin remote in current directory"
+            ],
+            "pseudocode": "nonGitDir := t.TempDir()\norigDir, _ := os.Getwd()\nos.Chdir(nonGitDir)\ndefer os.Chdir(origDir)\n\nt.Setenv(\"GITHUB_TOKEN\", \"\")\nt.Setenv(\"GITLAB_TOKEN\", \"\")\nclient, err := NewWithOptions(Options{})\nassert client == nil\nassert errors.Is(err, ErrAmbiguousForge) == true"
+          }
         },
         {
-          "id": "01-REQ-4.8",
+          "id": "REQ-4.8",
           "pattern": "unwanted",
           "condition": "NewWithOptions resolves a forge type to ForgeTypeGitHub or ForgeTypeGitLab prior to provider adapter registration",
-          "system": "client factory",
           "action": "reject client construction and return a nil Client and an error wrapping ErrUnsupportedForge indicating the provider adapter is not registered",
-          "contract": "(nil, err) where errors.Is(err, ErrUnsupportedForge) is true"
+          "contract": "(nil, err) where errors.Is(err, ErrUnsupportedForge) is true",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a detected forge type prior to provider adapter registration in issuex_core"
+            ],
+            "pseudocode": "client, err := NewWithOptions(Options{BaseURL: \"https://api.github.com\", Token: \"fake\"})\nassert client == nil\nassert errors.Is(err, ErrUnsupportedForge) == true"
+          }
         }
       ]
     },
     {
-      "id": "01-REQ-5",
+      "id": "REQ-5",
       "title": "Standardized Error Types and Classification",
       "rationale": "Standardized error types allow consumers to distinguish and handle distinct forge failure modes cleanly.",
       "criteria": [
         {
-          "id": "01-REQ-5.1",
+          "id": "REQ-5.1",
           "pattern": "ubiquitous",
           "system": "issuex package",
-          "action": "define sentinel errors ErrNoToken, ErrNotFound, ErrConflict, ErrRateLimited, ErrUnsupportedForge, and ErrAmbiguousForge"
+          "action": "define sentinel errors ErrNoToken, ErrNotFound, ErrConflict, ErrRateLimited, ErrUnsupportedForge, and ErrAmbiguousForge",
+          "contract": "all six sentinel errors are non-nil distinct errors; HTTPError formats Error() as fmt.Sprintf(\"%s %s: %d %s\", e.Method, e.Path, e.Status, e.Message)",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "sentinel error definitions and an HTTPError instance"
+            ],
+            "pseudocode": "assert ErrNoToken != nil\nassert ErrNotFound != nil\nassert ErrConflict != nil\nassert ErrRateLimited != nil\nassert ErrUnsupportedForge != nil\nassert ErrAmbiguousForge != nil\n\nhttpErr := &HTTPError{Method: \"GET\", Path: \"/repos\", Status: 404, Message: \"Not Found\"}\nassert httpErr.Error() == \"GET /repos: 404 Not Found\""
+          }
         },
         {
-          "id": "01-REQ-5.2",
+          "id": "REQ-5.2",
           "pattern": "ubiquitous",
           "system": "issuex package",
-          "action": "define HTTPError carrying Method, Path, Status, Message, RetryAfterHeader, RateLimitReset, and RateLimitRemaining, formatted by Error() as fmt.Sprintf(\"%s %s: %d %s\", e.Method, e.Path, e.Status, e.Message)"
+          "action": "define HTTPError carrying Method, Path, Status, Message, RetryAfterHeader, RateLimitReset, and RateLimitRemaining, formatted by Error() as fmt.Sprintf(\"%s %s: %d %s\", e.Method, e.Path, e.Status, e.Message)",
+          "check": {
+            "same_as": "REQ-5.1"
+          }
         },
         {
-          "id": "01-REQ-5.3",
+          "id": "REQ-5.3",
           "pattern": "event_driven",
           "condition": "RetryAfter is called on an HTTPError with status 429 or status 403 with RateLimitRemaining 0 and a valid Retry-After or X-RateLimit-Reset header",
           "system": "HTTPError",
-          "action": "calculate the backoff duration from the header value plus a 1-second buffer and return the duration with true"
+          "action": "calculate the backoff duration from the header value plus a 1-second buffer and return the duration with true",
+          "contract": "RetryAfter returns header backoff duration plus 1-second buffer with true for 429 and 403 quota exhaustion; for non-rate-limit errors or missing headers, RetryAfter returns 0 and false",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "various HTTPError instances representing rate-limiting and non-rate-limiting responses"
+            ],
+            "pseudocode": "err429 := &HTTPError{Status: 429, RetryAfterHeader: \"30\"}\nd, ok := err429.RetryAfter()\nassert ok == true && d == 31*time.Second\n\nerr403 := &HTTPError{Status: 403, RateLimitRemaining: \"0\", RateLimitReset: fmt.Sprint(time.Now().Add(10*time.Second).Unix())}\nd2, ok2 := err403.RetryAfter()\nassert ok2 == true && d2 >= 10*time.Second\n\nerrNonRate := &HTTPError{Status: 500}\nd3, ok3 := errNonRate.RetryAfter()\nassert ok3 == false && d3 == 0"
+          }
         },
         {
-          "id": "01-REQ-5.4",
+          "id": "REQ-5.4",
           "pattern": "unwanted",
           "condition": "RetryAfter is called on an HTTPError with non-rate-limit status or missing rate-limit headers",
           "system": "HTTPError",
           "action": "return zero duration and false",
-          "contract": "(0, false)"
+          "contract": "(0, false)",
+          "check": {
+            "same_as": "REQ-5.3"
+          }
         },
         {
-          "id": "01-REQ-5.5",
+          "id": "REQ-5.5",
           "pattern": "event_driven",
           "condition": "IsNotFound is called with an error",
           "system": "error classifier",
-          "action": "return true if the error wraps ErrNotFound or is an HTTPError with status 404, and false otherwise"
+          "action": "return true if the error wraps ErrNotFound or is an HTTPError with status 404, and false otherwise",
+          "contract": "IsNotFound returns true for ErrNotFound or HTTP 404; IsConflict returns true for ErrConflict or HTTP 409; IsRateLimited returns true for ErrRateLimited, HTTP 429, or HTTP 403 with remaining 0; IsNoToken returns true for ErrNoToken",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "various wrapped errors and HTTPError instances"
+            ],
+            "pseudocode": "assert IsNotFound(ErrNotFound) == true\nassert IsNotFound(&HTTPError{Status: 404}) == true\nassert IsNotFound(errors.New(\"other\")) == false\n\nassert IsConflict(ErrConflict) == true\nassert IsConflict(&HTTPError{Status: 409}) == true\n\nassert IsRateLimited(ErrRateLimited) == true\nassert IsRateLimited(&HTTPError{Status: 429}) == true\nassert IsRateLimited(&HTTPError{Status: 403, RateLimitRemaining: \"0\"}) == true\n\nassert IsNoToken(ErrNoToken) == true\nassert IsNoToken(errors.New(\"other\")) == false"
+          }
         },
         {
-          "id": "01-REQ-5.6",
+          "id": "REQ-5.6",
           "pattern": "event_driven",
           "condition": "IsConflict is called with an error",
           "system": "error classifier",
-          "action": "return true if the error wraps ErrConflict or is an HTTPError with status 409, and false otherwise"
+          "action": "return true if the error wraps ErrConflict or is an HTTPError with status 409, and false otherwise",
+          "check": {
+            "same_as": "REQ-5.5"
+          }
         },
         {
-          "id": "01-REQ-5.7",
+          "id": "REQ-5.7",
           "pattern": "event_driven",
           "condition": "IsRateLimited is called with an error",
           "system": "error classifier",
-          "action": "return true if the error wraps ErrRateLimited or is an HTTPError with status 429 or status 403 with RateLimitRemaining 0, and false otherwise"
+          "action": "return true if the error wraps ErrRateLimited or is an HTTPError with status 429 or status 403 with RateLimitRemaining 0, and false otherwise",
+          "check": {
+            "same_as": "REQ-5.5"
+          }
         },
         {
-          "id": "01-REQ-5.8",
+          "id": "REQ-5.8",
           "pattern": "event_driven",
           "condition": "IsNoToken is called with an error",
           "system": "error classifier",
-          "action": "return true if the error wraps ErrNoToken, and false otherwise"
+          "action": "return true if the error wraps ErrNoToken, and false otherwise",
+          "check": {
+            "same_as": "REQ-5.5"
+          }
         }
       ]
     },
     {
-      "id": "01-REQ-6",
+      "id": "REQ-6",
       "title": "Shared Transport Foundation",
       "rationale": "Centralized transport safety prevents out-of-memory errors on large payloads and manages rate-limit backoff consistently.",
+      "system": "shared transport",
       "criteria": [
         {
-          "id": "01-REQ-6.1",
+          "id": "REQ-6.1",
           "pattern": "ubiquitous",
-          "system": "shared transport",
-          "action": "bound HTTP response body reads using io.LimitReader to a maximum of 8 MB (8388608 bytes)"
+          "action": "bound HTTP response body reads using io.LimitReader to a maximum of 8 MB (8388608 bytes)",
+          "contract": "response body reads are capped at 8388608 bytes (8 MB)",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an HTTP response stream exceeding 8 MB in size"
+            ],
+            "pseudocode": "largeBody := make([]byte, 10<<20) // 10 MB\nr := io.LimitReader(bytes.NewReader(largeBody), 8<<20)\nreadBytes, err := io.ReadAll(r)\nassert err == nil\nassert len(readBytes) == 8388608"
+          }
         },
         {
-          "id": "01-REQ-6.2",
-          "pattern": "complex_event",
-          "condition": "an HTTP response status is rate-limited",
-          "guard": "the calculated RetryAfter duration is less than or equal to 120 seconds",
-          "system": "shared transport",
-          "action": "invoke the injectable sleep function for the duration and retry the request once"
+          "id": "REQ-6.2",
+          "pattern": "event_driven",
+          "condition": "an HTTP response status is rate-limited and the calculated RetryAfter duration is less than or equal to 120 seconds",
+          "action": "invoke the injectable sleep function for the duration and retry the request once",
+          "contract": "the injectable sleep function is invoked with the calculated duration; the transport retries the request once and succeeds",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a rate-limited HTTP response with Retry-After within 120 seconds and an injectable sleep recorder"
+            ],
+            "pseudocode": "var slept time.Duration\ntransport := &TestTransport{\n    Sleep: func(d time.Duration) { slept = d },\n    Responses: []*http.Response{\n        {StatusCode: 429, Header: http.Header{\"Retry-After\": []string{\"10\"}}},\n        {StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{}`))},\n    },\n}\nresp, err := transport.ExecuteRequest(req)\nassert err == nil\nassert resp.StatusCode == 200\nassert slept == 11*time.Second"
+          }
         },
         {
-          "id": "01-REQ-6.3",
+          "id": "REQ-6.3",
           "pattern": "unwanted",
           "condition": "an HTTP response status is rate-limited and the calculated RetryAfter duration exceeds 120 seconds",
-          "system": "shared transport",
           "action": "abort the request and return an error wrapping ErrRateLimited without retrying",
-          "contract": "returns an error wrapping ErrRateLimited without issuing a retry request"
+          "contract": "returns an error wrapping ErrRateLimited without issuing a retry request",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a rate-limited HTTP response with Retry-After exceeding 120 seconds"
+            ],
+            "pseudocode": "transport := &TestTransport{\n    Responses: []*http.Response{\n        {StatusCode: 429, Header: http.Header{\"Retry-After\": []string{\"300\"}}},\n    },\n}\n_, err := transport.ExecuteRequest(req)\nassert err != nil\nassert errors.Is(err, ErrRateLimited) == true\nassert transport.RequestCount == 1"
+          }
         },
         {
-          "id": "01-REQ-6.4",
+          "id": "REQ-6.4",
           "pattern": "unwanted",
           "condition": "an unauthenticated request receives an HTTP 404 status",
-          "system": "shared transport",
           "action": "return an error wrapping ErrNotFound and containing guidance that the target resource may be private and require credentials",
-          "contract": "returns an error satisfying IsNotFound(err) == true and containing \"resource may be private\""
+          "contract": "returns an error satisfying IsNotFound(err) == true and containing \"resource may be private\"",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an unauthenticated client making a request that receives an HTTP 404 response"
+            ],
+            "pseudocode": "err := handleResponse(404, authenticated=false)\nassert IsNotFound(err) == true\nassert strings.Contains(err.Error(), \"resource may be private\")"
+          }
         },
         {
-          "id": "01-REQ-6.5",
+          "id": "REQ-6.5",
           "pattern": "event_driven",
           "condition": "a custom sleep function is configured on the transport",
-          "system": "shared transport",
-          "action": "invoke the custom sleep function instead of time.Sleep during retry backoff"
+          "action": "invoke the custom sleep function instead of time.Sleep during retry backoff",
+          "check": {
+            "same_as": "REQ-6.2"
+          }
         }
       ]
     },
     {
-      "id": "01-REQ-7",
+      "id": "REQ-7",
       "title": "No-Op Client Implementation",
       "rationale": "A no-op client allows tools to operate in offline or forge-disabled environments with predictable issue defaults and failing PR safety.",
+      "system": "no-op client",
       "criteria": [
         {
-          "id": "01-REQ-7.1",
+          "id": "REQ-7.1",
           "pattern": "event_driven",
           "condition": "Authenticated is called on NoOpClient",
-          "system": "no-op client",
-          "action": "return false"
+          "action": "return false",
+          "contract": "Authenticated() returns false; Close() returns nil; GetRepository returns zero-value Repository and nil error",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an instantiated NoOpClient instance"
+            ],
+            "pseudocode": "client := NewNoOp()\nassert client.Authenticated() == false\nassert client.Close() == nil\nrepo, err := client.GetRepository(context.Background(), Repo{Owner: \"a\", Name: \"b\"})\nassert err == nil && repo == Repository{}"
+          }
         },
         {
-          "id": "01-REQ-7.2",
+          "id": "REQ-7.2",
           "pattern": "event_driven",
           "condition": "Close is called on NoOpClient",
-          "system": "no-op client",
-          "action": "return nil"
+          "action": "return nil",
+          "check": {
+            "same_as": "REQ-7.1"
+          }
         },
         {
-          "id": "01-REQ-7.3",
+          "id": "REQ-7.3",
           "pattern": "event_driven",
           "condition": "GetRepository is called on NoOpClient",
-          "system": "no-op client",
-          "action": "return a zero-value Repository and nil"
+          "action": "return a zero-value Repository and nil",
+          "check": {
+            "same_as": "REQ-7.1"
+          }
         },
         {
-          "id": "01-REQ-7.4",
+          "id": "REQ-7.4",
           "pattern": "event_driven",
           "condition": "any issue read method (ReadIssue, ListIssues, ListComments) is called on NoOpClient",
-          "system": "no-op client",
-          "action": "return a zero-value result struct and nil error"
+          "action": "return a zero-value result struct and nil error",
+          "contract": "issue read methods return zero-value structs with nil error; issue write methods complete silently with zero values and nil error",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an instantiated NoOpClient instance"
+            ],
+            "pseudocode": "ctx := context.Background()\nclient := NewNoOp()\nref := IssueRef{Repo: Repo{Owner: \"a\", Name: \"b\"}, Number: 1}\n\nt, err := client.ReadIssue(ctx, ref)\nassert err == nil && t == IssueThread{}\n\nlist, err := client.ListIssues(ctx, ref.Repo, IssueFilter{})\nassert err == nil && list == IssueList{}\n\nclist, err := client.ListComments(ctx, ref)\nassert err == nil && clist == CommentList{}\n\niss, err := client.CreateIssue(ctx, ref.Repo, CreateIssueRequest{})\nassert err == nil && iss == Issue{}\n\nuiss, err := client.UpdateIssue(ctx, ref, UpdateIssueRequest{})\nassert err == nil && uiss == Issue{}\n\nassert client.CloseIssue(ctx, ref, \"\") == nil\nassert client.AddComment(ctx, ref, \"\") == (\"\", nil)\nassert client.AddLabels(ctx, ref, nil) == nil\nassert client.RemoveLabel(ctx, ref, \"\") == nil\nassert client.CreateLabel(ctx, ref.Repo, Label{}) == nil"
+          }
         },
         {
-          "id": "01-REQ-7.5",
+          "id": "REQ-7.5",
           "pattern": "event_driven",
           "condition": "any issue write method (CreateIssue, UpdateIssue, CloseIssue, AddComment, AddLabels, RemoveLabel, CreateLabel) is called on NoOpClient",
-          "system": "no-op client",
-          "action": "perform no remote operation and return zero values with nil error"
+          "action": "perform no remote operation and return zero values with nil error",
+          "check": {
+            "same_as": "REQ-7.4"
+          }
         },
         {
-          "id": "01-REQ-7.6",
+          "id": "REQ-7.6",
           "pattern": "unwanted",
           "condition": "any pull request method (CreatePullRequest, ReadPullRequest, ReadChangedFiles, GetPRState, GetCIChecks, GetPRReviews, PostReviewComment, MergePullRequest, ClosePullRequest) is called on NoOpClient",
-          "system": "no-op client",
           "action": "return an error indicating that pull request operations require an active forge client",
-          "contract": "non-nil error containing \"pull request operations require an active forge client\""
+          "contract": "non-nil error containing \"pull request operations require an active forge client\"",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an instantiated NoOpClient instance"
+            ],
+            "pseudocode": "ctx := context.Background()\nclient := NewNoOp()\nref := IssueRef{Repo: Repo{Owner: \"a\", Name: \"b\"}, Number: 1, IsPullRequest: true}\n\n_, err1 := client.CreatePullRequest(ctx, ref.Repo, CreatePullRequestRequest{})\nassert err1 != nil && strings.Contains(err1.Error(), \"pull request operations require an active forge client\")\n\n_, err2 := client.ReadPullRequest(ctx, ref)\nassert err2 != nil && strings.Contains(err2.Error(), \"pull request operations require an active forge client\")\n\n_, err3 := client.ReadChangedFiles(ctx, ref)\nassert err3 != nil && strings.Contains(err3.Error(), \"pull request operations require an active forge client\")\n\n_, err4 := client.GetPRState(ctx, ref)\nassert err4 != nil && strings.Contains(err4.Error(), \"pull request operations require an active forge client\")\n\n_, err5 := client.GetCIChecks(ctx, ref)\nassert err5 != nil && strings.Contains(err5.Error(), \"pull request operations require an active forge client\")\n\n_, err6 := client.GetPRReviews(ctx, ref)\nassert err6 != nil && strings.Contains(err6.Error(), \"pull request operations require an active forge client\")\n\nerr7 := client.PostReviewComment(ctx, ref, \"\")\nassert err7 != nil && strings.Contains(err7.Error(), \"pull request operations require an active forge client\")\n\n_, err8 := client.MergePullRequest(ctx, ref, MergeOptions{})\nassert err8 != nil && strings.Contains(err8.Error(), \"pull request operations require an active forge client\")\n\nerr9 := client.ClosePullRequest(ctx, ref)\nassert err9 != nil && strings.Contains(err9.Error(), \"pull request operations require an active forge client\")"
+          }
         }
       ]
     }
   ],
   "execution_paths": [
     {
-      "id": "01-PATH-1",
+      "id": "PATH-1",
       "title": "No-Op client initialization and silent issue creation",
       "steps": [
         {
@@ -405,10 +645,25 @@
           "actor": "no-op client",
           "action": "completes silently and returns a zero-value Issue struct with nil error"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "client factory NewWithOptions",
+          "NoOpClient",
+          "CreateIssue"
+        ],
+        "setup": [
+          "a caller instantiating a client with NoOp enabled"
+        ],
+        "end_state": [
+          "NewWithOptions returns an active NoOpClient",
+          "Authenticated() returns false",
+          "CreateIssue executes silently returning a zero Issue and nil error"
+        ]
+      }
     },
     {
-      "id": "01-PATH-2",
+      "id": "PATH-2",
       "title": "Git remote and web issue URL parsing to domain models",
       "steps": [
         {
@@ -431,10 +686,26 @@
           "actor": "domain model",
           "action": "returns canonical string owner/repo#number and formatted canonical web URL"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "ParseRemote",
+          "ParseIssueURL",
+          "Repo domain model",
+          "IssueRef domain model"
+        ],
+        "setup": [
+          "valid git remote URLs and web issue URLs"
+        ],
+        "end_state": [
+          "ParseRemote returns a valid Repo model with host, owner, and project name",
+          "ParseIssueURL returns a valid IssueRef model indicating issue or PR status",
+          "IssueRef.String() and IssueRef.URL() produce canonical formatted references"
+        ]
+      }
     },
     {
-      "id": "01-PATH-3",
+      "id": "PATH-3",
       "title": "Rate-limit HTTP error inspection and backoff duration calculation",
       "steps": [
         {
@@ -453,7 +724,23 @@
           "actor": "error classifier",
           "action": "reports true for IsRateLimited and returns the backoff duration with a 1-second buffer"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "transport error handler",
+          "HTTPError",
+          "IsRateLimited classifier",
+          "RetryAfter calculator"
+        ],
+        "setup": [
+          "an HTTP 429 response carrying a Retry-After header"
+        ],
+        "end_state": [
+          "the transport builds an HTTPError preserving response headers",
+          "IsRateLimited reports true for the error",
+          "RetryAfter returns the backoff duration plus a 1-second safety buffer"
+        ]
+      }
     }
   ]
 }

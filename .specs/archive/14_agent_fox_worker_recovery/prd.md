@@ -4,9 +4,8 @@ spec_name: "agent_fox_worker_recovery"
 title: "agent-fox worker recovery: resuming interrupted attempts, replacing lost boxes and releasing orphaned leases"
 status: "active"
 created_at: "2026-10-21T22:00:00.664947Z"
-updated_at: "2026-10-21T22:00:00.664947Z"
 intent_hash: "3e2a22e12b104d96a7abaedc7f10b236fcf57d80344c1c3439466a41743217f4"
-schema_version: 2
+schema_version: 3
 source: "docs/prd/03-run-the-agent-fox-service.md"
 ---
 ## Intent
@@ -527,3 +526,17 @@ There is no list-pull-requests method in the interface (`internal/toolio/dryrun.
 **In this repository** (read): `triage.LandParams.Created func() (IssueInfo, bool)` (`internal/triage/land.go`); `checks.Compare(dir, before, after string)` reading stored results under the host directory (`internal/checks/compare.go`); `fix.Finish`'s `exhausted` failure `no_result` with `Retryable` unset (`internal/fix/finish.go`).
 
 **Standard library**: `os`, `encoding/json`, `crypto/sha256`, `errors.Is` and `errors.As`, and `context.Cause`.
+
+## Glossary
+
+- **attempt's brain spend**: Cost, cost source, input and output tokens and turns of every brain run of the attempt: the spend carried over in the journal from removed run directories plus the brain_end records of the current run's ledger.
+- **delivery**: One call of the worker by the jobs layer for an attempt; the handover count is 1 on the first delivery and is incremented each time the jobs layer hands the same attempt over again after a shutdown, a crash or a transient error.
+- **journal**: recovery/journal.json in the attempt directory: the worker's credential-free record of an attempt's run, session, leases, deliveries, brain spend, landing plan and landing, mirror and report steps done.
+- **landing plan**: The journal entry recorded before the first push: branch, commit, outcome, status, measured verdict, whether the change closes the issue, pull request title, body and draft flag, and the warnings so far.
+- **lost box**: A box that, after it was opened, fails an operation because the sandbox is gone or unreachable: tool error code sandbox_unavailable, a gateway answer that the sandbox does not exist or its lease expired, or the gateway not being reachable.
+- **orphan lease**: A hub sandbox lease whose job label names a job in this database and whose attempt label names an attempt no runner of this process is carrying out.
+- **outcome file**: recovery/outcome.json in the attempt directory: the attempt's final envelope, report text and most attempts, marked as mirrored or not yet mirrored.
+- **pinned file**: The run directory's fix.json or triage.json, which holds what the preflight and brief produced: base, base head, gate table, baseline gate id, brief prefix and round count.
+- **reconciliation pass**: The background sweep that releases orphan leases and completes the hub sessions of ended attempts whose journal records an uncompleted session.
+- **resume stage**: Where a resumed delivery picks up: outcome (a stored outcome file), published (the change is on hub's git server), applied (an accepted fix report was applied), submitted (an accepted question or triage diagnosis), or brain (the brain must run).
+- **stage-abort seam**: A test-only hook that stops a delivery right after a named stage without any cleanup, simulating a process death.

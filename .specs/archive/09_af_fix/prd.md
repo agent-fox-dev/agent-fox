@@ -4,9 +4,8 @@ spec_name: "af_fix"
 title: "af fix: the fix agent on the toolbelt — preflight, brief, measure, land or park"
 status: "active"
 created_at: "2026-10-20T08:18:29.202603Z"
-updated_at: "2026-10-20T08:18:29.202603Z"
 intent_hash: "fdbeb576b414f3d01bdad535b95274fa0f7ed49690f8ca86a5a3f6bc9758daac"
-schema_version: 2
+schema_version: 3
 source: "docs/prd/02-rebuild-triage-and-fix-on-the-toolbelt.md"
 ---
 ## Intent
@@ -452,3 +451,19 @@ This scope calls no agentkit symbol directly. Everything from agentkit-go reache
 | `issuex.IssueRef.URL` | `func (IssueRef) URL() string` | `issuex/types.go` |
 | `gitx.Slug` / `UniqueBranchName` | `func Slug(title string) string`; `func UniqueBranchName(ctx, g *Git, name string) string` | `internal/gitx/branch.go` |
 | `gitx.Git` methods | `DirtyFiles(ctx) ([]string, error)`; `CurrentBranch(ctx) (string, error)`; `HasRemote(ctx) bool`; `CreateBranch(ctx, name) error`; `Checkout(ctx, name) error`; `CommitAll(ctx, msg) (string, error)`; `CommitAllNoVerify(ctx, msg) (string, error)`; `Push(ctx, branch string, attempts int, log func(string)) error`; `ResetHard(ctx, ref) error`; `Clean(ctx) error`; `CheckoutPaths(ctx, ref string, paths ...string) error`; `ShowFile(ctx, ref, path) (string, bool, error)`; `CommitsSince(ctx, since) ([]Commit, error)`. `CommitAll` returns the short hash. | `internal/gitx/git.go` |
+
+## Glossary
+
+- **apply**: Mirroring the box's exported tree onto the host working tree without committing (R5).
+- **attempt**: A budget scope: `--budget` USD and `--max-turns` turns, with a fresh brain context. A run has at most `--attempts` of them, and one attempt can hold several rounds.
+- **base_head**: The full commit hash of the base branch at preflight. HEAD must still equal it when measuring, and the fix branch is created from it.
+- **fix.json**: The run file under `<run_dir>`, written atomically. It holds everything later steps need: input, base, base_head, the pinned table, the baseline gate id, no_verify, prefix_sha256, the context values and the round counter.
+- **input key**: Identifies the input across runs: the issue URL, the absolute file path, or the SHA-256 of the text.
+- **measure**: The host-side step after apply (R6): foreign-commit check, protected-path revert, scope check, gate after with verdict, and the revert check.
+- **parking**: Committing work that did not land as `wip: <subject>` on the fix branch with `CommitAllNoVerify`, then returning the checkout to the base branch with a clean tree.
+- **pinned table**: The gate table that `project.Detect` gives at preflight. It is stored in `fix.json`, passed to every host gate run, and written into the box as `.agent-fox/gate.json`.
+- **prefix**: The stable part of the brief (mandate, skill, report, gate table and baseline, repository map, schema). It is byte-identical across rounds, attempts and resumes of the same input on the same tree. Its SHA-256 is `prefix_sha256`.
+- **refusal**: A measured result that cannot land (a non-landable verdict, or `no_change`). In the loop it becomes the next round's task block. In `af fix land` it goes straight to parking.
+- **revert check**: Spec 06's `conform.Check`. Only its outcome `proven` makes the commit and pull request say `Closes`; any other outcome makes them say `Refs`.
+- **round**: One `brain.Execute` call inside an attempt. Rounds are numbered across the whole run, and that number is passed as `Brief.Attempt` so per-round run files never collide.
+- **task block**: The per-round part of the brief: run id, attempt and round numbers, how to submit, earlier questions and answers, the previous refusal, and why the previous attempt ended.

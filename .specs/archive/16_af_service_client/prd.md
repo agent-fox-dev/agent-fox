@@ -4,9 +4,8 @@ spec_name: "af_service_client"
 title: "af as the agent-fox service client: login, workspaces, jobs, --workspace and --wait, and an explicit --local"
 status: "sealed"
 created_at: "2026-10-21T23:05:30.086973Z"
-updated_at: "2026-10-23T16:18:49Z"
 intent_hash: "b6cba4a43c2cba0315e4959dc5cadf7b39033c7fd600be66d0dbacb45da6f826"
-schema_version: 2
+schema_version: 3
 source: "docs/prd/03-run-the-agent-fox-service.md"
 ---
 ## Intent
@@ -479,3 +478,17 @@ A docs test checks these terms. Every divergence found while implementing is rec
 - `unicode/utf8.ValidString`;
 - `strconv.ParseBool` for `--local=<value>`;
 - `net.ParseIP(...).IsLoopback()`.
+
+## Glossary
+
+- **at rest**: A job that is blocked, done, failed or cancelled and has no running attempt.
+- **credential file**: `~/.af/config.toml`, the file `afc login` writes. Its top-level string key `token` is the only source of the hub credential.
+- **failed try**: A try that ends without the job at rest and delivers no new event.
+- **from the flag**: Said of a server that `--server` named rather than `AF_URL`. Such a server's suggested argv entries (`next`, `resume.argv`) then carry `--server <url>`.
+- **job result**: The result `{job, envelope}` shared by every job command. `job` is the service's job document carried verbatim, and `envelope` is the final attempt's stored envelope or null.
+- **local mode**: `af triage` or `af fix` run with `--local`: the loop runs on this machine exactly as before this spec.
+- **server**: The agent-fox service base URL. It comes from `--server`, or else from `AF_URL`. The API lives at `<server>/api/v1/…`.
+- **service command**: Any command that sends requests to the agent-fox service: `af login`, `af workspace …`, `af jobs …`, and `af triage`/`af fix` in service mode.
+- **service mode**: `af triage` or `af fix` run with `--workspace <slug>`: a job is queued on the agent-fox service and no loop runs on this machine.
+- **try**: One request to `GET /api/v1/jobs/{id}/events?since=<n>` and, once that stream ends, one read of `GET /api/v1/jobs/{id}`.
+- **workspace PAT**: The hub token that `af workspace subscribe` reads from `--hub-token-file` and sends to the service as `hub_token`.

@@ -1,8 +1,8 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/tasks.v3.json",
   "spec_id": "14",
   "spec_name": "agent_fox_worker_recovery",
-  "schema_version": 2,
+  "schema_version": 3,
   "test_commands": {
     "all_tests": "make test",
     "linter": "make lint",
@@ -45,17 +45,11 @@
   "tasks": [
     {
       "id": 1,
-      "kind": "implement",
       "title": "Foundations: brain_end token fields, box-loss sentinel and fake hub lease/session/kill controls",
       "criteria": [
-        "14-REQ-4.6",
-        "14-REQ-7.1",
-        "14-REQ-10.3"
-      ],
-      "tests": [
-        "TS-14-27",
-        "TS-14-43",
-        "TS-14-61"
+        "REQ-4.6",
+        "REQ-7.1",
+        "REQ-10.3"
       ],
       "steps": [
         "Write TS-14-27, TS-14-43 and TS-14-61 and confirm they fail",
@@ -77,24 +71,13 @@
       ],
       "done_when": [
         "existing brain and box tests still pass with unchanged Failure messages"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 2,
-      "kind": "implement",
       "title": "Attempt journal, deliveries that stop without an outcome and the stage-abort seam",
       "criteria": [
-        "14-REQ-1"
-      ],
-      "tests": [
-        "TS-14-1",
-        "TS-14-2",
-        "TS-14-3",
-        "TS-14-4",
-        "TS-14-5",
-        "TS-14-6",
-        "TS-14-7"
+        "REQ-1"
       ],
       "steps": [
         "Write TS-14-1..TS-14-7 and confirm they fail",
@@ -119,28 +102,14 @@
       ],
       "done_when": [
         "no file under recovery/ contains the PAT or any lease token"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 3,
-      "kind": "implement",
       "title": "Delivery start: fresh, resumed or discarded, session reuse, lease release and carried spend",
       "criteria": [
-        "14-REQ-2",
-        "14-REQ-4.5"
-      ],
-      "tests": [
-        "TS-14-8",
-        "TS-14-9",
-        "TS-14-10",
-        "TS-14-11",
-        "TS-14-12",
-        "TS-14-13",
-        "TS-14-14",
-        "TS-14-15",
-        "TS-14-16",
-        "TS-14-26"
+        "REQ-2",
+        "REQ-4.5"
       ],
       "steps": [
         "Write the listed tests and confirm they fail",
@@ -166,22 +135,13 @@
       ],
       "done_when": [
         "a changed base branch, landing mode, model or budget on hub does not change a resumed run"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 4,
-      "kind": "implement",
       "title": "Skip the brain, bring the clone back, and rerun the loop from the base",
       "criteria": [
-        "14-REQ-3"
-      ],
-      "tests": [
-        "TS-14-17",
-        "TS-14-18",
-        "TS-14-19",
-        "TS-14-20",
-        "TS-14-21"
+        "REQ-3"
       ],
       "steps": [
         "Write the listed tests and confirm they fail",
@@ -204,26 +164,17 @@
       ],
       "done_when": [
         "no -2 suffix on the pushed branch name after the parked branch is deleted"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 5,
-      "kind": "implement",
       "title": "One budget and one usage total per attempt",
       "criteria": [
-        "14-REQ-4.1",
-        "14-REQ-4.2",
-        "14-REQ-4.3",
-        "14-REQ-4.4",
-        "14-REQ-4.7"
-      ],
-      "tests": [
-        "TS-14-22",
-        "TS-14-23",
-        "TS-14-24",
-        "TS-14-25",
-        "TS-14-28"
+        "REQ-4.1",
+        "REQ-4.2",
+        "REQ-4.3",
+        "REQ-4.4",
+        "REQ-4.7"
       ],
       "steps": [
         "Write the listed tests and confirm they fail",
@@ -245,23 +196,15 @@
       ],
       "done_when": [
         "a done envelope after a resume reports delivery 1's brain spend plus delivery 2's"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 6,
-      "kind": "implement",
       "title": "Landing plan, published-change detection and recorded landing steps",
       "criteria": [
-        "14-REQ-5.1",
-        "14-REQ-5.2",
-        "14-REQ-5.3"
-      ],
-      "tests": [
-        "TS-14-29",
-        "TS-14-30",
-        "TS-14-31",
-        "TS-14-38"
+        "REQ-5.1",
+        "REQ-5.2",
+        "REQ-5.3"
       ],
       "steps": [
         "Write the listed tests and confirm they fail",
@@ -286,27 +229,17 @@
       ],
       "done_when": [
         "journal.json holds the plan before the fake hub records the first push"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 7,
-      "kind": "implement",
       "title": "Re-measure an unpublished change, baseline rerun, no_result and question/diagnosis resumes",
       "criteria": [
-        "14-REQ-5.4",
-        "14-REQ-5.5",
-        "14-REQ-5.6",
-        "14-REQ-5.7",
-        "14-REQ-5.8"
-      ],
-      "tests": [
-        "TS-14-32",
-        "TS-14-33",
-        "TS-14-34",
-        "TS-14-35",
-        "TS-14-36",
-        "TS-14-37"
+        "REQ-5.4",
+        "REQ-5.5",
+        "REQ-5.6",
+        "REQ-5.7",
+        "REQ-5.8"
       ],
       "steps": [
         "Write the listed tests and confirm they fail",
@@ -329,24 +262,15 @@
       ],
       "done_when": [
         "the re-measure verdict is never unverified for lack of a baseline"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 8,
-      "kind": "implement",
       "title": "Outcome file, mirror journalling, stored-outcome resume and resume visibility",
       "criteria": [
-        "14-REQ-6",
-        "14-REQ-9.1",
-        "14-REQ-9.3"
-      ],
-      "tests": [
-        "TS-14-39",
-        "TS-14-40",
-        "TS-14-41",
-        "TS-14-42",
-        "TS-14-57"
+        "REQ-6",
+        "REQ-9.1",
+        "REQ-9.3"
       ],
       "steps": [
         "Write the listed tests and confirm they fail",
@@ -369,29 +293,18 @@
       ],
       "done_when": [
         "at the outcome stage attempt_resumed is the only difference from the stored envelope"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 9,
-      "kind": "implement",
       "title": "Replace a lost box once within a delivery",
       "criteria": [
-        "14-REQ-7.2",
-        "14-REQ-7.3",
-        "14-REQ-7.4",
-        "14-REQ-7.5",
-        "14-REQ-7.6",
-        "14-REQ-9.2"
-      ],
-      "tests": [
-        "TS-14-44",
-        "TS-14-45",
-        "TS-14-46",
-        "TS-14-47",
-        "TS-14-48",
-        "TS-14-49",
-        "TS-14-58"
+        "REQ-7.2",
+        "REQ-7.3",
+        "REQ-7.4",
+        "REQ-7.5",
+        "REQ-7.6",
+        "REQ-9.2"
       ],
       "steps": [
         "Write the listed tests and confirm they fail",
@@ -414,24 +327,13 @@
       ],
       "done_when": [
         "a replacement box never produces a parked branch from the lost box's partial work"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 10,
-      "kind": "implement",
       "title": "Reconciliation pass for orphaned leases and open sessions",
       "criteria": [
-        "14-REQ-8"
-      ],
-      "tests": [
-        "TS-14-50",
-        "TS-14-51",
-        "TS-14-52",
-        "TS-14-53",
-        "TS-14-54",
-        "TS-14-55",
-        "TS-14-56"
+        "REQ-8"
       ],
       "steps": [
         "Write the listed tests and confirm they fail",
@@ -455,20 +357,14 @@
       ],
       "done_when": [
         "the service accepts requests before the first pass completes"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 11,
-      "kind": "implement",
       "title": "Documentation and offline guarantee for recovery",
       "criteria": [
-        "14-REQ-10.1",
-        "14-REQ-10.2"
-      ],
-      "tests": [
-        "TS-14-59",
-        "TS-14-60"
+        "REQ-10.1",
+        "REQ-10.2"
       ],
       "steps": [
         "Write TS-14-59 (docs terms test beside docs/docs_test.go, never removing existing text) and TS-14-60 (offline guard: no ANTHROPIC_API_KEY, loopback-only dials, no podman) and confirm they fail",
@@ -495,42 +391,7 @@
       ],
       "done_when": [
         "make check passes offline"
-      ],
-      "state": "done"
-    },
-    {
-      "id": 12,
-      "kind": "integration",
-      "title": "Verify all recovery paths end to end",
-      "tests": [
-        "TS-14-62",
-        "TS-14-63",
-        "TS-14-64",
-        "TS-14-65",
-        "TS-14-66",
-        "TS-14-67",
-        "TS-14-68",
-        "TS-14-69"
-      ],
-      "steps": [
-        "Write TS-14-62..TS-14-69 as smoke tests over the fake hub, in-process gateway over local, scripted brain and (for TS-14-63) the real jobs layer on a database file restarted, and confirm they pass",
-        "Trace 14-PATH-1 to 14-PATH-8 through real code: confirm each step calls the next (runner -> start decision -> skip-brain/restore -> baseline -> measure -> landing plan -> push -> mirror -> outcome file -> release -> report; box loss -> replacement; reconciler -> hub client) and no stub remains",
-        "For every criterion with a contract confirm the producer's result is consumed in production code: journal/outcome readers in the runner, box.ErrUnavailable in the loop wrapper, reconciler started by the service, stage-abort seam reachable only from tests",
-        "Confirm the jobs layer's runner entry point calls the worker with the handover count and attempt directory in production code, and that the recorder receives session, run and sandbox ids",
-        "Grep every file in all tasks' touches for panic(\"not implemented\"), TODO, NotImplementedError and bare return nil on non-trivial paths and remove them",
-        "Run make check"
-      ],
-      "touches": [
-        "internal/worker/smoke_test.go",
-        "internal/service/reconcile/smoke_test.go"
-      ],
-      "depends_on": [
-        11
-      ],
-      "done_when": [
-        "`make check` passes offline"
-      ],
-      "state": "done"
+      ]
     }
   ]
 }

@@ -1,688 +1,1109 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/requirements.v3.json",
   "spec_id": "13",
   "spec_name": "agent_fox_worker",
-  "schema_version": 2,
-  "introduction": "The agent-fox worker carries out one attempt of a triage or fix job against a subscribed hub workspace. It runs af's triage and fix loops in-process from an importable package, with hub supplying the workspace record and variables, a clone from hub's git server, a sandbox lease reached through the gateway, every forge read and write, and the session, usage and event records the attempt is billed and traced by.",
-  "glossary": {
-    "PAT": "The subscription's personal access token for hub, read from the store with Token(ctx, slug); the only credential the worker sends to hub and to hub's git server.",
-    "attempt": "One delivery of a job to the runner; the jobs layer gives it the directory attempts/<job id>/<n>/ and stores envelope.json and report.md there after the runner returns.",
-    "earlier questions": "Per --context value, the question it answers with its options, or no question; supplied in-process by the caller instead of being searched for in run directories.",
-    "fakehub": "internal/hub/fakehub, the offline test double for hub, extended here with the worker's endpoints, a loopback git smart-HTTP server and leases over an in-process gateway.",
-    "gateway provider": "A box provider built from a lease's gateway URL and token, held only in the attempt's own box registry; not an af --sandbox choice.",
-    "hermetic runner": "A git runner with no global or system git configuration, no prompt and no askpass, built on gitx.HermeticEnv.",
-    "lease": "A sandbox granted by hub for one attempt: {id, gateway_url, token, expires_at}. The token authenticates to the gateway only.",
-    "mirror": "The worker's write of an attempt's outcome to the issue: a status label under the subscription's prefix and at most one comment.",
-    "ring-1 commands": "The af commands of 06_af_ring1_facts used for measuring: af lang detect, af gate run and af revert-check, whose results are read from their envelopes.",
-    "round position": "The attempt's position in its round: 1 for an attempt triggered by create, answer or retry, and one more for each auto attempt after it. Added by this spec to what the jobs layer gives the runner.",
-    "status labels": "The labels in-progress, ready, needs-human, landed and failed, each prefixed by the subscription's label_prefix.",
-    "transient error": "An error the worker returns instead of a result for an infrastructure failure; it carries a *toolio.Failure with retryable true, and the jobs layer hands the same attempt over again.",
-    "worker": "The production Runner of agent_fox_jobs: the component that carries out one attempt of a job inside the agent-fox service process."
-  },
+  "schema_version": 3,
   "requirements": [
     {
-      "id": "13-REQ-1",
+      "id": "REQ-1",
       "title": "The agent commands are callable in-process by both binaries",
       "rationale": "The worker must run the same triage and fix code af runs, and package main cannot be imported.",
       "criteria": [
         {
-          "id": "13-REQ-1.1",
+          "id": "REQ-1.1",
           "pattern": "ubiquitous",
           "system": "af binary",
           "action": "keep its commands, flags, help text, envelopes, exit codes, events and --schema output unchanged after every command implementation (triage and fix loops, ring-1, submit and land commands, schemas) moves from cmd/af into one importable internal package, with cmd/af/main.go keeping only main, the ldflags variables and building the toolio.App from that package",
-          "contract": "make check passes, the existing af tests pass, and cmd/af/testdata/schema.golden.json is byte-identical"
+          "contract": "make check passes, the existing af tests pass, and cmd/af/testdata/schema.golden.json is byte-identical",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "every command implementation has moved from cmd/af into the importable package",
+              "cmd/af/main.go holds only main, the ldflags variables and the toolio.App construction"
+            ],
+            "pseudocode": "out = run('af triage --schema'); assert out == golden['triage']; assert exit('make check') == 0"
+          }
         },
         {
-          "id": "13-REQ-1.2",
+          "id": "REQ-1.2",
           "pattern": "optional",
           "condition": "an in-process caller supplies, per invocation, a forge client factory, a box provider registry (which may hold providers af does not offer), a brain registry, brain options (model and environment lookup), a git runner, earlier questions, a post-push step or measuring seams",
           "system": "af command package",
           "action": "use each supplied value in place of the package-level variables and the process environment, and use af's current value for each one not supplied",
-          "contract": "an invocation whose environment lookup yields nothing reads no AF_MODEL, AF_SANDBOX or ANTHROPIC_API_KEY from the process environment"
+          "contract": "an invocation whose environment lookup yields nothing reads no AF_MODEL, AF_SANDBOX or ANTHROPIC_API_KEY from the process environment",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "the process environment holds AF_MODEL=other, AF_SANDBOX=bogus and ANTHROPIC_API_KEY=sentinel",
+              "an in-process caller supplies a forge factory, a box registry with a provider af does not offer, a brain registry, brain options whose environment lookup yields nothing, and a git runner",
+              "an in-process caller supplies none of the seams"
+            ],
+            "pseudocode": "t.Setenv('AF_MODEL','other'); inv = Invocation{Getenv: empty, Forge: spy, Registry: reg, Git: spyRunner}; run(inv); assert spy.called && reg.used && seenModel != 'other'"
+          }
         },
         {
-          "id": "13-REQ-1.3",
+          "id": "REQ-1.3",
           "pattern": "event_driven",
           "condition": "an in-process caller supplies earlier questions for the --context values",
           "system": "af command package",
           "action": "render a value given with a question in the brief as the question, its options and the answer; render a value given with no question as material from a person; search no run directory; and, in triage, use the question of the last value that has one",
-          "contract": "the envelope carries no question_not_found warning"
+          "contract": "the envelope carries no question_not_found warning",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "context values [\"ctx1\", \"ans1\"] where ctx1 has no question and ans1 has a question with options A and B",
+              "a clone with no .agent-fox/run directories",
+              "three context values where the first and second carry questions Q1 and Q2 and the third carries none"
+            ],
+            "pseudocode": "brief = build(ctx=[c1,a1], earlier=[nil,q1]); assert 'material from a person' in brief; assert q1.text in brief; assert no warning('question_not_found')"
+          }
         },
         {
-          "id": "13-REQ-1.4",
+          "id": "REQ-1.4",
           "pattern": "state_driven",
           "condition": "a command is invoked in-process",
           "system": "toolio",
           "action": "install no signal handler, treat the caller's context as the only stop, and still apply --timeout and the grace period",
-          "contract": "sending SIGHUP or SIGTERM to the process does not cancel the invocation"
+          "contract": "sending SIGHUP or SIGTERM to the process does not cancel the invocation",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an in-process toolio invocation whose command blocks until its context ends"
+            ],
+            "pseudocode": "go run(); syscall.Kill(pid,SIGHUP); assert !done; cancel(); assert done within grace"
+          }
         },
         {
-          "id": "13-REQ-1.5",
+          "id": "REQ-1.5",
           "pattern": "event_driven",
           "condition": "an in-process caller supplies an event sink",
           "system": "toolio",
           "action": "deliver every event line to the sink as the line is written, in addition to writing it to the run directory's events.jsonl",
-          "contract": "the sink receives the same lines, in the same order, as events.jsonl"
+          "contract": "the sink receives the same lines, in the same order, as events.jsonl",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an invocation with an event sink"
+            ],
+            "pseudocode": "assert sink.lines == readLines(runDir+'/events.jsonl')"
+          }
         },
         {
-          "id": "13-REQ-1.6",
+          "id": "REQ-1.6",
           "pattern": "event_driven",
           "condition": "an in-process caller supplies a run id",
           "system": "toolio",
           "action": "name the run directory with that id and set it as the envelope's run_id, and reject an id that does not match YYYYMMDD_HHMMSS_<6 hex> before creating any run directory",
-          "contract": "envelope run_id equals the supplied id; a malformed id returns a usage error and no run directory exists"
+          "contract": "envelope run_id equals the supplied id; a malformed id returns a usage error and no run directory exists",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a valid run id 20250102_030405_abc123 and a malformed id 'run-1'"
+            ]
+          }
         },
         {
-          "id": "13-REQ-1.7",
+          "id": "REQ-1.7",
           "pattern": "event_driven",
           "condition": "an in-process caller supplies a target repository including its host",
           "system": "toolio",
           "action": "build the forge client for that repository and use it as the command's repository for every input kind, in place of --repo and the origin of --dir, and treat an issue URL on another repository as a usage error",
-          "contract": "an issue URL on another repository gives a usage envelope and no forge request"
+          "contract": "an issue URL on another repository gives a usage envelope and no forge request",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a target repository host/owner/name and a --dir whose origin is another host"
+            ]
+          }
         },
         {
-          "id": "13-REQ-1.8",
+          "id": "REQ-1.8",
           "pattern": "ubiquitous",
           "system": "af command package",
           "action": "for any two invocations running at the same time in one process, each with its own App, set or read no process environment variable on behalf of an invocation, change no working directory, and write no package-level variable",
-          "contract": "both invocations complete under go test -race with no data race reported"
+          "contract": "both invocations complete under go test -race with no data race reported",
+          "check": {
+            "kind": "property",
+            "setup": [
+              "two Apps built independently with their own seams"
+            ],
+            "pseudocode": "for a,b in gen_pairs(): go run(a); go run(b); wait; assert cwd == before; assert envReads == 0"
+          }
         }
       ]
     },
     {
-      "id": "13-REQ-2",
+      "id": "REQ-2",
       "title": "The hub client covers every call an attempt makes",
       "rationale": "Only the hub client knows hub's paths and field names, so every attempt call goes through it.",
+      "system": "hub client",
       "criteria": [
         {
-          "id": "13-REQ-2.1",
+          "id": "REQ-2.1",
           "pattern": "ubiquitous",
-          "system": "hub client",
           "action": "provide the calls: read the workspace record (clone URL, base branch, mode standard or carry_patch, forge repository URL) via GET /api/v1/workspaces/{slug}; read resolved variables via GET …/vars/resolved; open a session via POST /api/v1/sessions {workspace_slug, archetype, model, run_id}; post usage via POST /api/v1/sessions/{id}/usage; complete a session via POST /api/v1/sessions/{id}/complete; post an events batch via POST …/runs/{run_id}/events/batch; lease via POST …/sandboxes; release via DELETE …/sandboxes/{id}; publish a branch via POST …/branches/{branch}/push; each made with the subscription's PAT, with the path-escaped slug, and touching no identity or visibility cache",
-          "contract": "fakehub records each call at its route with the PAT and the escaped slug"
+          "contract": "fakehub records each call at its route with the PAT and the escaped slug",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "fakehub with a workspace whose slug needs path escaping",
+              "a hub client with warm identity and visibility caches"
+            ],
+            "pseudocode": "for call in calls: call(client, pat, slug); r = fake.Requests(); assert r.path == expected && r.auth == pat"
+          }
         },
         {
-          "id": "13-REQ-2.2",
+          "id": "REQ-2.2",
           "pattern": "ubiquitous",
-          "system": "hub client",
           "action": "bound every request to 10 seconds unless the context is shorter, read at most 1 MiB of any answer, follow no redirect, and put no token in any error value or message",
-          "contract": "a delayed answer fails after 10 s as unavailable; a 3xx answer is not followed; err.Error() never contains the PAT"
+          "contract": "a delayed answer fails after 10 s as unavailable; a 3xx answer is not followed; err.Error() never contains the PAT",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a hub client with an injectable clock and fakehub routes that delay, redirect with 302, or answer 2 MiB",
+              "fakehub failing each call with 401, 403, 404, 422, 500, a hangup and a timeout, and a PAT 'pat-secret-xyz'"
+            ],
+            "pseudocode": "for e in errs: assert 'pat-secret-xyz' not in fmt.Sprintf('%+v', e)"
+          }
         },
         {
-          "id": "13-REQ-2.3",
+          "id": "REQ-2.3",
           "pattern": "event_driven",
           "condition": "the client sends a lease request or a branch push route request",
-          "system": "hub client",
           "action": "bound the request to 5 minutes, or the attempt's context when that is shorter, instead of 10 seconds, and classify a timeout as unavailable",
-          "contract": "a lease answered after 30 s succeeds; a timed-out lease returns an unavailable error"
+          "contract": "a lease answered after 30 s succeeds; a timed-out lease returns an unavailable error",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "fakehub delaying the lease answer 30 s and a second lease route delaying beyond 5 minutes, with a fake clock"
+            ]
+          }
         },
         {
-          "id": "13-REQ-2.4",
+          "id": "REQ-2.4",
           "pattern": "ubiquitous",
-          "system": "hub client",
           "action": "classify each answer so callers distinguish it without parsing text: 401 refused; 403 forbidden, with a message naming the hub operation, saying the subscription's PAT lacks the scope for it, and pointing to PUT /api/v1/workspaces/{slug}; 404 not found; any other 4xx rejected, carrying hub's message from {error: {code, message}} when present; 429, 5xx, a transport error, a timeout or a body that is not the expected JSON unavailable",
-          "contract": "errors.Is / errors.As on the returned error identify refused, forbidden, not found, rejected and unavailable"
+          "contract": "errors.Is / errors.As on the returned error identify refused, forbidden, not found, rejected and unavailable",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "fakehub answering 401, 403, 404, 400, 422 with an {error:{code,message}} body, 429, 500, a transport error and non-JSON"
+            ]
+          }
         },
         {
-          "id": "13-REQ-2.5",
+          "id": "REQ-2.5",
           "pattern": "unwanted",
           "condition": "hub answers the workspace-record read with 403",
-          "system": "hub client",
           "action": "classify the answer as forbidden, not as not found",
-          "contract": "the returned error is forbidden and its message points to PUT /api/v1/workspaces/{slug}"
+          "contract": "the returned error is forbidden and its message points to PUT /api/v1/workspaces/{slug}",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "fakehub answering GET /api/v1/workspaces/{slug} with 403"
+            ],
+            "pseudocode": "err = client.WorkspaceRecord(...); assert errors.Is(err, ErrForbidden) && !errors.Is(err, ErrNotFound)"
+          }
         },
         {
-          "id": "13-REQ-2.6",
+          "id": "REQ-2.6",
           "pattern": "event_driven",
           "condition": "hub answers a sandbox release with 404",
-          "system": "hub client",
           "action": "treat the lease as released",
-          "contract": "the release returns a nil error"
+          "contract": "the release returns a nil error",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "fakehub answering DELETE …/sandboxes/{id} with 404"
+            ]
+          }
         },
         {
-          "id": "13-REQ-2.7",
+          "id": "REQ-2.7",
           "pattern": "ubiquitous",
-          "system": "hub client",
           "action": "keep hub's JSON field names inside the hub client package, and decode resolved variables given either as {\"vars\": {NAME: value}} or as a list of {name, value}",
-          "contract": "both forms decode to the same name-to-value map"
+          "contract": "both forms decode to the same name-to-value map",
+          "check": {
+            "kind": "property",
+            "setup": [
+              "fakehub serving vars either as {\"vars\":{...}} or as a list of {name,value}"
+            ],
+            "pseudocode": "for m in gen_maps(): assert decode(objForm(m)) == decode(listForm(m)) == m"
+          }
         }
       ]
     },
     {
-      "id": "13-REQ-3",
+      "id": "REQ-3",
       "title": "Every forge read and write goes through hub",
       "rationale": "The worker holds no forge token, so the loops' forge seam must be backed by hub's forge API.",
+      "system": "hub forge client",
       "criteria": [
         {
-          "id": "13-REQ-3.1",
+          "id": "REQ-3.1",
           "pattern": "ubiquitous",
-          "system": "hub forge client",
           "action": "implement issuex.Client bound to one workspace slug and its PAT, with a factory of toolio.App.NewForge's signature, mapping Authenticated to true, GetRepository to the workspace record, and ReadIssue (issue and comments), ListComments, UpdateIssue (body and title), CreateIssue, AddComment, AddLabels, RemoveLabel and CreatePullRequest (POST …/pulls {title, body, head, base, draft}) to hub's forge API under /api/v1/workspaces/{slug}",
-          "contract": "each method sends exactly one request at the mapped hub route and decodes the answer into the issuex type"
+          "contract": "each method sends exactly one request at the mapped hub route and decodes the answer into the issuex type",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a hub forge client bound to a slug and PAT, and fakehub with issue 42 and comments"
+            ]
+          }
         },
         {
-          "id": "13-REQ-3.2",
+          "id": "REQ-3.2",
           "pattern": "unwanted",
           "condition": "a factory call, ref or repo names a repository other than the workspace's forge repository, comparing host, owner and name without case",
-          "system": "hub forge client",
           "action": "fail before any request is sent",
-          "contract": "an error saying the issue is not on the workspace's repository; fakehub records no request"
+          "contract": "an error saying the issue is not on the workspace's repository; fakehub records no request",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a client for host/owner/name"
+            ]
+          }
         },
         {
-          "id": "13-REQ-3.3",
+          "id": "REQ-3.3",
           "pattern": "event_driven",
           "condition": "a repo or ref has an empty host",
-          "system": "hub forge client",
           "action": "take it to be on the workspace's host and compare it on owner and name alone",
-          "contract": "owner/name matching the workspace's repository is accepted"
+          "contract": "owner/name matching the workspace's repository is accepted",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a workspace repository on github.com"
+            ]
+          }
         },
         {
-          "id": "13-REQ-3.4",
+          "id": "REQ-3.4",
           "pattern": "event_driven",
           "condition": "ReadIssue reads an issue that hub reports is a pull or merge request",
-          "system": "hub forge client",
           "action": "mark the returned issue as a pull request so the loops' existing pull-request refusal applies",
-          "contract": "IssueThread.Issue.IsPR is true"
+          "contract": "IssueThread.Issue.IsPR is true",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "fakehub issues, one reported as a pull request and one as a merge request"
+            ]
+          }
         },
         {
-          "id": "13-REQ-3.5",
+          "id": "REQ-3.5",
           "pattern": "ubiquitous",
-          "system": "hub forge client",
           "action": "report the forge's body limit through issuex.BodyLimiter: GitLab's limit when the repository host is GitLab, GitHub's otherwise",
-          "contract": "issuex.MaxBodyLength(client) equals issuex.GitLabMaxBodyLength for a GitLab host"
+          "contract": "issuex.MaxBodyLength(client) equals issuex.GitLabMaxBodyLength for a GitLab host",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "clients for a GitLab host and a GitHub host"
+            ]
+          }
         },
         {
-          "id": "13-REQ-3.6",
+          "id": "REQ-3.6",
           "pattern": "unwanted",
           "condition": "a caller invokes any issuex.Client method not listed in 13-REQ-3.1",
-          "system": "hub forge client",
           "action": "send nothing and return an error",
-          "contract": "the error says the operation is not available through hub in this release; fakehub records no request"
+          "contract": "the error says the operation is not available through hub in this release; fakehub records no request",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a hub forge client and fakehub"
+            ]
+          }
         },
         {
-          "id": "13-REQ-3.7",
+          "id": "REQ-3.7",
           "pattern": "unwanted",
           "condition": "hub answers a forge call with an error",
-          "system": "hub forge client",
           "action": "return the issuex error type the loops already classify: refused or forbidden as *issuex.HTTPError with status 401 or 403 carrying the 13-REQ-2.4 message; not found as issuex's not-found error; 409 as issuex.ErrConflict; 429 as issuex's rate-limited error; any other unavailable answer as a retryable error",
-          "contract": "issuex.IsNotFound, issuex.IsRateLimited and errors.Is(err, issuex.ErrConflict) hold for 404, 429 and 409, and the loops yield auth, forge and retryable as with a direct forge"
+          "contract": "issuex.IsNotFound, issuex.IsRateLimited and errors.Is(err, issuex.ErrConflict) hold for 404, 429 and 409, and the loops yield auth, forge and retryable as with a direct forge",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "fakehub answering forge calls with 401, 403, 404, 409, 429 and 503"
+            ]
+          }
         }
       ]
     },
     {
-      "id": "13-REQ-4",
+      "id": "REQ-4",
       "title": "An attempt's settings come from hub variables read at the start of every attempt",
       "rationale": "Hub variables are the only per-workspace configuration the service has, and refusals must happen before anything is spent.",
+      "system": "worker",
       "criteria": [
         {
-          "id": "13-REQ-4.1",
+          "id": "REQ-4.1",
           "pattern": "event_driven",
           "condition": "an attempt starts",
-          "system": "worker",
           "action": "read the resolved variables and apply them with these defaults (triage / fix) and ranges: AF_BRAIN_TRIAGE or AF_BRAIN_FIX then AF_BRAIN, default agentkit / claude, accepting agentkit or claude; AF_MODEL, default the catalog's default Anthropic model, any non-empty string; AF_MAX_BUDGET_USD, default 2 / 10, finite and above 0; AF_MAX_TURNS, default 100 / 150, whole number ≥ 1; AF_TIMEOUT, default 15m / 45m, Go duration from 1m to 24h; AF_MAX_ATTEMPTS, default 2, whole number 1 to 10; AF_SANDBOX_PROFILE, default omitted, non-empty; AF_FIX_LAND, default pr, accepting pr, branch, none; taking the default for an unset or empty variable and ignoring unknown variables",
-          "contract": "the loop receives the resolved values as flags"
+          "contract": "the loop receives the resolved values as flags",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "variables set to valid boundary values (AF_TIMEOUT 1m and 24h, AF_MAX_ATTEMPTS 1 and 10), empty values, unknown variables, and AF_BRAIN_FIX overriding AF_BRAIN"
+            ]
+          }
         },
         {
-          "id": "13-REQ-4.2",
+          "id": "REQ-4.2",
           "pattern": "unwanted",
           "condition": "a variable's value is outside its accepted range, including AF_BRAIN set to scripted",
-          "system": "worker",
           "action": "fail the attempt before a session opens",
-          "contract": "a failed envelope with error.category config, retryable false, fix_hint.var naming the variable and a message naming the variable and its value; fakehub records no session request"
+          "contract": "a failed envelope with error.category config, retryable false, fix_hint.var naming the variable and a message naming the variable and its value; fakehub records no session request",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "variables out of range: AF_MAX_BUDGET_USD=0, NaN, AF_MAX_TURNS=0, AF_TIMEOUT=30s and 25h, AF_MAX_ATTEMPTS=11, AF_BRAIN=scripted, AF_FIX_LAND=weird"
+            ],
+            "pseudocode": "for v in bad: r = run(vars=v); assert r.env.error.category=='config' && !r.env.error.retryable && r.env.fix_hint.var==v.name && fake.Count('POST /sessions')==0"
+          }
         },
         {
-          "id": "13-REQ-4.3",
+          "id": "REQ-4.3",
           "pattern": "ubiquitous",
-          "system": "worker",
           "action": "prefix every status label and restored request label with the subscription's label_prefix, and not read AF_LABEL_PREFIX for the prefix",
-          "contract": "labels written to fakehub carry the subscription's prefix"
+          "contract": "labels written to fakehub carry the subscription's prefix",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a subscription label_prefix 'team:' and AF_LABEL_PREFIX='other:' set in the hub variables, and a run with it unset"
+            ]
+          }
         },
         {
-          "id": "13-REQ-4.4",
+          "id": "REQ-4.4",
           "pattern": "event_driven",
           "condition": "AF_LABEL_PREFIX is set and differs from the subscription's label_prefix",
-          "system": "worker",
           "action": "add a warning to the envelope and keep the subscription's prefix",
-          "contract": "the envelope's warnings include label_prefix_ignored"
+          "contract": "the envelope's warnings include label_prefix_ignored",
+          "check": {
+            "same_as": "REQ-4.3"
+          }
         },
         {
-          "id": "13-REQ-4.5",
+          "id": "REQ-4.5",
           "pattern": "ubiquitous",
-          "system": "worker",
           "action": "run the fix loop with --attempts 1 and return AF_MAX_ATTEMPTS in the attempt's result as the most attempts a round may make",
-          "contract": "the result's max-attempts field equals AF_MAX_ATTEMPTS; the fix envelope reports one in-run attempt"
+          "contract": "the result's max-attempts field equals AF_MAX_ATTEMPTS; the fix envelope reports one in-run attempt",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "AF_MAX_ATTEMPTS=5"
+            ]
+          }
         },
         {
-          "id": "13-REQ-4.6",
+          "id": "REQ-4.6",
           "pattern": "unwanted",
           "condition": "a fix attempt is on a workspace whose mode is carry_patch, or AF_FIX_LAND is patch",
-          "system": "worker",
           "action": "refuse the fix before any clone, lease, session, forge write or brain",
-          "contract": "a failed envelope with error.category unsupported, retryable false, and a message saying carry-patch landing comes in a later release; fakehub records no clone, lease, session request, label or comment, and no brain runs"
+          "contract": "a failed envelope with error.category unsupported, retryable false, and a message saying carry-patch landing comes in a later release; fakehub records no clone, lease, session request, label or comment, and no brain runs",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a carry_patch workspace, and separately a standard workspace with AF_FIX_LAND=patch, and a counting brain"
+            ]
+          }
         },
         {
-          "id": "13-REQ-4.7",
+          "id": "REQ-4.7",
           "pattern": "event_driven",
           "condition": "a triage attempt is on a workspace whose mode is carry_patch",
-          "system": "worker",
           "action": "run the triage as on a standard workspace",
-          "contract": "the triage envelope is not an unsupported refusal"
+          "contract": "the triage envelope is not an unsupported refusal",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a carry_patch workspace and a scripted brain submitting a probable diagnosis"
+            ]
+          }
         }
       ]
     },
     {
-      "id": "13-REQ-5",
+      "id": "REQ-5",
       "title": "The clone and the only git credential",
       "rationale": "The PAT must reach hub's git server without ever landing on a command line, in a file or in the box.",
+      "system": "worker",
       "criteria": [
         {
-          "id": "13-REQ-5.1",
+          "id": "REQ-5.1",
           "pattern": "ubiquitous",
-          "system": "worker",
           "action": "work only in the subdirectories clone/ and input/ of the attempt directory, each created with mode 0700, and never write, move or remove envelope.json, report.md or the attempt directory itself",
-          "contract": "after the attempt returns, the attempt directory exists and the worker created no other entry in it"
+          "contract": "after the attempt returns, the attempt directory exists and the worker created no other entry in it",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "an attempt directory pre-seeded with envelope.json and report.md with known contents"
+            ]
+          }
         },
         {
-          "id": "13-REQ-5.2",
+          "id": "REQ-5.2",
           "pattern": "event_driven",
           "condition": "the attempt reaches the clone step",
-          "system": "worker",
           "action": "clone the workspace's hub clone URL into clone/ with the workspace's base branch checked out, and set the committer identity agent-fox <agent-fox@noreply.invalid> in the clone's local configuration",
-          "contract": "git -C clone rev-parse --abbrev-ref HEAD prints the base branch; user.name is agent-fox and user.email is agent-fox@noreply.invalid"
+          "contract": "git -C clone rev-parse --abbrev-ref HEAD prints the base branch; user.name is agent-fox and user.email is agent-fox@noreply.invalid",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "fakehub's loopback git server with a repository whose base branch is 'develop'"
+            ]
+          }
         },
         {
-          "id": "13-REQ-5.3",
+          "id": "REQ-5.3",
           "pattern": "ubiquitous",
-          "system": "worker",
           "action": "pass the PAT to git only as the header Authorization: Basic <base64 of \"agent-fox:<PAT>\">, set as git configuration scoped to hub's URL through the command's environment, never on a command line, in .git/config or any other file, or in a log, the envelope, the events or a comment",
-          "contract": "no argv of any git command and no file under clone/ contains the PAT; the fake git server receives the Basic header"
+          "contract": "no argv of any git command and no file under clone/ contains the PAT; the fake git server receives the Basic header",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "fakehub's git server recording the Authorization header and a recording git runner"
+            ]
+          }
         },
         {
-          "id": "13-REQ-5.4",
+          "id": "REQ-5.4",
           "pattern": "ubiquitous",
-          "system": "worker",
           "action": "run every git command that carries the PAT or can reach a remote (the clone, every git command of the fix pipeline and the push) under a hermetic runner with no global or system git configuration, no prompt and no askpass, while the box's sync and checks.FileView keep the default runner",
-          "contract": "a credential helper in the operator's global git configuration is never invoked"
+          "contract": "a credential helper in the operator's global git configuration is never invoked",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a global git config with a credential helper and askpass that write a marker file when invoked",
+              "GIT_TERMINAL_PROMPT enabled in the environment"
+            ]
+          }
         },
         {
-          "id": "13-REQ-5.5",
+          "id": "REQ-5.5",
           "pattern": "unwanted",
           "condition": "hub's git server refuses the clone's credential with 401 or 403",
-          "system": "worker",
           "action": "stop the attempt and mirror it as a failure",
-          "contract": "a failed envelope with error.category auth and retryable false"
+          "contract": "a failed envelope with error.category auth and retryable false",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "fakehub git server answering the clone with 401, then with 403"
+            ]
+          }
         },
         {
-          "id": "13-REQ-5.6",
+          "id": "REQ-5.6",
           "pattern": "unwanted",
           "condition": "the clone fails for any other reason (a transport error, hub's 5xx, a timeout)",
-          "system": "worker",
           "action": "stop the attempt without an envelope",
-          "contract": "a transient error carrying *toolio.Failure with category git and retryable true"
+          "contract": "a transient error carrying *toolio.Failure with category git and retryable true",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "the git server answering 503, hanging up, or timing out"
+            ],
+            "pseudocode": "res, err = run(); var f *toolio.Failure; assert errors.As(err,&f) && f.Category=='git' && f.Retryable; assert res == nil"
+          }
         },
         {
-          "id": "13-REQ-5.7",
+          "id": "REQ-5.7",
           "pattern": "event_driven",
           "condition": "the attempt returns",
-          "system": "worker",
           "action": "remove clone/ and input/, except keep clone/ when the cancellation cause is a shutdown or the attempt returns a transient error",
-          "contract": "clone/ is absent after a normal return and present after a shutdown or transient error"
+          "contract": "clone/ is absent after a normal return and present after a shutdown or transient error",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "attempts ending normally, with a shutdown cause, and with a transient error"
+            ]
+          }
         },
         {
-          "id": "13-REQ-5.8",
+          "id": "REQ-5.8",
           "pattern": "event_driven",
           "condition": "a delivery finds a clone/ kept by an earlier delivery",
-          "system": "worker",
           "action": "remove the kept clone/ and clone afresh",
-          "contract": "the new clone/ is a fresh clone of the base branch"
+          "contract": "the new clone/ is a fresh clone of the base branch",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a clone/ left by an earlier delivery containing a marker file and a stale commit"
+            ]
+          }
         }
       ]
     },
     {
-      "id": "13-REQ-6",
+      "id": "REQ-6",
       "title": "The lease and the gateway box",
       "rationale": "The box the brain and the measuring run in is hub's, reached through the gateway with the lease token alone.",
       "criteria": [
         {
-          "id": "13-REQ-6.1",
+          "id": "REQ-6.1",
           "pattern": "event_driven",
           "condition": "every refusal of settings, mode, input and session has passed",
           "system": "worker",
           "action": "request a lease with {purpose: \"triage\"|\"fix\", labels: {job, attempt}}, adding profile set to AF_SANDBOX_PROFILE only when that is set, and report the granted sandbox id to the jobs recorder",
-          "contract": "fakehub records one lease request with that body; the recorder receives the sandbox id"
+          "contract": "fakehub records one lease request with that body; the recorder receives the sandbox id",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "fakehub granting leases, and runs with AF_SANDBOX_PROFILE set and unset"
+            ]
+          }
         },
         {
-          "id": "13-REQ-6.2",
+          "id": "REQ-6.2",
           "pattern": "unwanted",
           "condition": "hub answers the lease request with 401 or 403",
           "system": "worker",
           "action": "stop the attempt and mirror it as a failure",
-          "contract": "a failed envelope with error.category auth and retryable false"
+          "contract": "a failed envelope with error.category auth and retryable false",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "fakehub answering the lease with 401, then 403"
+            ]
+          }
         },
         {
-          "id": "13-REQ-6.3",
+          "id": "REQ-6.3",
           "pattern": "unwanted",
           "condition": "hub refuses the lease with any other answer, is unavailable or times out, the gateway cannot be reached or refuses to create the box, or the lease has less than 2 minutes left before expires_at",
           "system": "worker",
           "action": "stop the attempt without an envelope, with hub's reason in the message when hub gave one",
-          "contract": "a transient error carrying *toolio.Failure with category sandbox and retryable true"
+          "contract": "a transient error carrying *toolio.Failure with category sandbox and retryable true",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a lease answered 503, a capacity rejection (409) with a reason, a lease timeout, an unreachable gateway, a gateway refusing box creation, and a lease expiring in 90 s"
+            ]
+          }
         },
         {
-          "id": "13-REQ-6.4",
+          "id": "REQ-6.4",
           "pattern": "ubiquitous",
           "system": "gateway provider",
           "action": "be built from the lease's gateway URL and token in the attempt's own box registry, not offered as an af --sandbox choice, count as isolating, call processes by name from the image, and create the box with the labels af.run_id, af.tool, af.job and af.attempt and an empty Env",
-          "contract": "the gateway backend records a spec with those four labels and len(Spec.Env) == 0; af --sandbox gateway is a usage error"
+          "contract": "the gateway backend records a spec with those four labels and len(Spec.Env) == 0; af --sandbox gateway is a usage error",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a lease pointing at an in-process gateway whose backend records specs"
+            ]
+          }
         },
         {
-          "id": "13-REQ-6.5",
+          "id": "REQ-6.5",
           "pattern": "state_driven",
           "condition": "a brain that needs the vendor key runs in a gateway box",
           "system": "worker",
           "action": "check for no vendor key on the host, send none, and give a process started in the box the names of the brain's credentials as references to the box's own environment, never as values",
-          "contract": "the brain starts with no ANTHROPIC_API_KEY in the worker's environment lookup; the executed command contains NAME=\"$NAME\" and no key value"
+          "contract": "the brain starts with no ANTHROPIC_API_KEY in the worker's environment lookup; the executed command contains NAME=\"$NAME\" and no key value",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "the worker's environment lookup yields nothing and the process holds ANTHROPIC_API_KEY=sentinel"
+            ]
+          }
         },
         {
-          "id": "13-REQ-6.6",
+          "id": "REQ-6.6",
           "pattern": "event_driven",
           "condition": "AF_TIMEOUT would end later than 2 minutes before the lease's expires_at",
           "system": "worker",
           "action": "cut the attempt's timeout so it ends 2 minutes before expires_at",
-          "contract": "the loop's --timeout is the cut value and the envelope's warnings include lease_shortened_timeout"
+          "contract": "the loop's --timeout is the cut value and the envelope's warnings include lease_shortened_timeout",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "AF_TIMEOUT=45m and a lease expiring in 20 minutes, and a lease expiring in 2 hours"
+            ]
+          }
         },
         {
-          "id": "13-REQ-6.7",
+          "id": "REQ-6.7",
           "pattern": "ubiquitous",
           "system": "worker",
           "action": "release a granted lease after the box is closed on every path (success, failure, transient error, cancellation, shutdown and panic), on a context the attempt's cancellation does not reach, bounded to 30 seconds",
-          "contract": "fakehub records one DELETE …/sandboxes/{id} per granted lease, after the box's close"
+          "contract": "fakehub records one DELETE …/sandboxes/{id} per granted lease, after the box's close",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "attempts ending in success, failure, transient error, cancel, shutdown and a panic in the loop, with a recording backend"
+            ]
+          }
         },
         {
-          "id": "13-REQ-6.8",
+          "id": "REQ-6.8",
           "pattern": "unwanted",
           "condition": "the lease release fails",
           "system": "worker",
           "action": "keep the envelope's status unchanged and record the failure",
-          "contract": "the envelope's warnings include lease_release_failed; under a transient error the failure is logged"
+          "contract": "the envelope's warnings include lease_release_failed; under a transient error the failure is logged",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "fakehub answering the release with 500"
+            ]
+          }
         }
       ]
     },
     {
-      "id": "13-REQ-7",
+      "id": "REQ-7",
       "title": "In the service, measuring runs in the box",
       "rationale": "Brain-written tests must never run on the worker host, which holds every workspace's sealed PAT.",
+      "system": "fix pipeline",
       "criteria": [
         {
-          "id": "13-REQ-7.1",
+          "id": "REQ-7.1",
           "pattern": "state_driven",
           "condition": "a service fix attempt runs",
-          "system": "fix pipeline",
           "action": "run detection (af lang detect), the baseline and the gate after the change (af gate run) and the revert check (af revert-check) inside the leased box, syncing the host's tree into the box and placing the run's gate table before each run and reading each result from the command's envelope, and never call the host-side gate or revert-check functions",
-          "contract": "the gateway backend records each of the four commands as an execution; the host-side gate and revert-check seams record zero calls"
+          "contract": "the gateway backend records each of the four commands as an execution; the host-side gate and revert-check seams record zero calls",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a service fix attempt with a gateway backend recording executions and host gate and revert-check seams that count calls"
+            ]
+          }
         },
         {
-          "id": "13-REQ-7.2",
+          "id": "REQ-7.2",
           "pattern": "event_driven",
           "condition": "the first ring-1 command is about to run in a box",
-          "system": "fix pipeline",
           "action": "run af --version in that box once",
-          "contract": "the gateway backend records exactly one af --version per box"
+          "contract": "the gateway backend records exactly one af --version per box",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a gateway backend recording commands"
+            ]
+          }
         },
         {
-          "id": "13-REQ-7.3",
+          "id": "REQ-7.3",
           "pattern": "unwanted",
           "condition": "af is missing from the box image or af --version fails",
-          "system": "fix pipeline",
           "action": "end the attempt without running any ring-1 command",
-          "contract": "a failed envelope with error.category sandbox, retryable false, and a message naming the profile (AF_SANDBOX_PROFILE, or hub's default) and saying its image must provide af"
+          "contract": "a failed envelope with error.category sandbox, retryable false, and a message naming the profile (AF_SANDBOX_PROFILE, or hub's default) and saying its image must provide af",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a backend where af is missing, and another where af --version exits non-zero, with AF_SANDBOX_PROFILE=py"
+            ]
+          }
         },
         {
-          "id": "13-REQ-7.4",
+          "id": "REQ-7.4",
           "pattern": "event_driven",
           "condition": "the box's af reports another version or commit than the worker's",
-          "system": "fix pipeline",
           "action": "continue the attempt and add a warning",
-          "contract": "the envelope's warnings include box_af_version_mismatch"
+          "contract": "the envelope's warnings include box_af_version_mismatch",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a box af reporting another version/commit than the worker's"
+            ]
+          }
         },
         {
-          "id": "13-REQ-7.5",
+          "id": "REQ-7.5",
           "pattern": "unwanted",
           "condition": "a ring-1 envelope's schema_version has another major version than the worker's, or its result does not decode",
-          "system": "fix pipeline",
           "action": "end the attempt",
-          "contract": "a failed envelope with error.category sandbox, retryable false, naming the profile"
+          "contract": "a failed envelope with error.category sandbox, retryable false, naming the profile",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a box af answering schema_version with another major, and another answering invalid JSON"
+            ]
+          }
         },
         {
-          "id": "13-REQ-7.6",
+          "id": "REQ-7.6",
           "pattern": "state_driven",
           "condition": "measuring runs in the box",
-          "system": "fix pipeline",
           "action": "open the box before its preflight's detection and keep that one box for the whole attempt, while the file view, the repository map, path validation, applying the export, the commit and the push stay on the host",
-          "contract": "the gateway backend records one box creation per attempt"
+          "contract": "the gateway backend records one box creation per attempt",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a backend recording creations and executions in order"
+            ]
+          }
         },
         {
-          "id": "13-REQ-7.7",
+          "id": "REQ-7.7",
           "pattern": "ubiquitous",
-          "system": "fix pipeline",
           "action": "keep the verdict table, the brief's gate section and the result fields in the same shape in both modes, and keep measuring on the host under af --local",
-          "contract": "af fix --local tests pass unchanged"
+          "contract": "af fix --local tests pass unchanged",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "the same fix scenario run in service mode and under af --local"
+            ]
+          }
         },
         {
-          "id": "13-REQ-7.8",
+          "id": "REQ-7.8",
           "pattern": "unwanted",
           "condition": "a ring-1 command cannot run because the box or the gateway was lost",
-          "system": "fix pipeline",
           "action": "end the loop with a retryable sandbox failure, which the worker returns as a transient error",
-          "contract": "the worker returns a transient error carrying *toolio.Failure with category sandbox and retryable true, and no envelope"
+          "contract": "the worker returns a transient error carrying *toolio.Failure with category sandbox and retryable true, and no envelope",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a gateway backend that closes the connection during af gate run"
+            ]
+          }
         }
       ]
     },
     {
-      "id": "13-REQ-8",
+      "id": "REQ-8",
       "title": "The attempt pipeline",
       "rationale": "The worker is what turns a recorded job into a run, and the jobs layer's retry rules depend on transient errors and envelopes being told apart.",
+      "system": "worker",
       "criteria": [
         {
-          "id": "13-REQ-8.1",
+          "id": "REQ-8.1",
           "pattern": "event_driven",
           "condition": "the jobs layer hands the worker an attempt with its contract input plus its round position",
-          "system": "worker",
           "action": "run, in order: resolve (PAT from the store, workspace record, variables, and the issue for an issue input); session (open it and report session id and run id to the recorder); mark (set <prefix>in-progress on the issue when there is one); clone; lease and box; run the loop in-process with the hub forge factory, the workspace's forge repository as target, the hermetic git runner, the gateway registry, box-backed measuring, the earlier questions, the session's run id and the settings as flags; mirror; release; report to hub",
-          "contract": "fakehub's request log shows session open, in-progress label, clone, lease, loop requests, mirror writes, release, usage, events batch and session complete in that order"
+          "contract": "fakehub's request log shows session open, in-progress label, clone, lease, loop requests, mirror writes, release, usage, events batch and session complete in that order",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "fakehub, its git server, the in-process gateway and the scripted brain"
+            ],
+            "pseudocode": "log = fake.Requests(); assert indexOf('POST /sessions') < indexOf('add in-progress') < indexOf('git clone') < indexOf('POST sandboxes') < indexOf('push') < indexOf('POST pulls') < indexOf('comment') < indexOf('DELETE sandboxes') < indexOf('usage') < indexOf('events/batch') < indexOf('complete')"
+          }
         },
         {
-          "id": "13-REQ-8.2",
+          "id": "REQ-8.2",
           "pattern": "unwanted",
           "condition": "an infrastructure failure occurs: hub unavailable when reading the workspace record, variables or issue or opening the session (hub); a clone failing other than on a refused credential (git); a lease or box problem (sandbox); or a loop envelope that is failed with retryable true and category sandbox, forge or hub",
-          "system": "worker",
           "action": "return a transient error instead of a result",
-          "contract": "a transient error carrying *toolio.Failure with the category, the message and retryable true; no envelope is returned; with the jobs layer's fake retry the same attempt is handed over again"
+          "contract": "a transient error carrying *toolio.Failure with the category, the message and retryable true; no envelope is returned; with the jobs layer's fake retry the same attempt is handed over again",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "hub 503 on the workspace record, the variables, the issue and the session open, and a loop envelope failed retryable with category sandbox, forge (rate limit) and hub"
+            ]
+          }
         },
         {
-          "id": "13-REQ-8.3",
+          "id": "REQ-8.3",
           "pattern": "ubiquitous",
-          "system": "worker",
           "action": "return a result with an envelope for every other ending (brain-level outcomes including brain and no_result, a push or publish failure after the commit as git not retryable, and permanent refusals config, unsupported, usage, auth and non-retryable sandbox), building the envelope itself for a refusal before the loop with tool triage or fix, status failed or usage for an input refusal, error with retryable false, empty arrays and usage source none, encoded as toolio encodes envelopes; a refused PAT, a forbidden operation and an unreadable or missing subscription token are category auth with a message pointing to PUT /api/v1/workspaces/{slug}",
-          "contract": "the built envelope validates against the toolio envelope schema"
+          "contract": "the built envelope validates against the toolio envelope schema",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "refusals: config, unsupported, usage (input), auth (refused PAT, forbidden, unreadable token, missing subscription), and a push failure after the commit"
+            ]
+          }
         },
         {
-          "id": "13-REQ-8.4",
+          "id": "REQ-8.4",
           "pattern": "unwanted",
           "condition": "an attempt stops before the loop runs",
-          "system": "worker",
           "action": "apply the stop-early rules: a refusal at resolve, hub unavailable at resolve or session, or a 401/403 at session writes nothing to the forge, takes no lease and makes no hub report; a transient clone, lease or box failure removes in-progress, releases a granted lease, posts events and completes the session failed; a refused clone or lease credential mirrors failed with one comment, releases a granted lease, posts events and completes the session failed",
-          "contract": "fakehub's request log matches the rule for each stop point"
+          "contract": "fakehub's request log matches the rule for each stop point",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "stops at: resolve refusal, hub unavailable at resolve/session, session 401/403, transient clone/lease/box, refused clone or lease credential"
+            ]
+          }
         },
         {
-          "id": "13-REQ-8.5",
+          "id": "REQ-8.5",
           "pattern": "ubiquitous",
-          "system": "worker",
           "action": "turn the input into loop input: an issue number into the forge URL of that issue in the workspace's repository; <path>#<N> or a URL into that issue's URL when its repository matches the workspace's (path compared without case, full namespace on GitLab), else a usage refusal saying the issue is not on the workspace's repository; an issue hub reports is a pull or merge request into a usage refusal before any write; text onto stdin, with a given title as its first line as a Markdown heading; a file written as input/<base name> and passed by path; and --context values as the request's context strings in order then the answers in order, with earlier questions giving no question for each context string and the question with its options for each answer",
-          "contract": "refusals return a usage envelope and fakehub records no write; the brief carries each question with its answer and the envelope has no question_not_found warning"
+          "contract": "refusals return a usage envelope and fakehub records no write; the brief carries each question with its answer and the envelope has no question_not_found warning",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a workspace on github.com/Org/Repo and on a GitLab group/sub/project, issue inputs: 42, 'org/repo#42', 'other/repo#42', a URL on this repository, a URL on another, and a pull request",
+              "a text input with a title, a file input 'notes.md', context strings [c1,c2] and answers [a1 with question Q1]"
+            ]
+          }
         },
         {
-          "id": "13-REQ-8.6",
+          "id": "REQ-8.6",
           "pattern": "event_driven",
           "condition": "the fix pipeline's push of a branch to hub's git server succeeds",
-          "system": "worker",
           "action": "call hub's branch push route for that branch before any pull request is asked for, trying up to 3 times in all while hub is unavailable, and on a final failure end the loop failed with category git, not retryable, keeping the branch on hub's git server",
-          "contract": "fakehub records the branch push before POST …/pulls; after a final failure no pull request is requested and the envelope's next names the branch"
+          "contract": "fakehub records the branch push before POST …/pulls; after a final failure no pull request is requested and the envelope's next names the branch",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "fakehub whose branch push route answers 503 twice then 200, and in another run 503 always"
+            ]
+          }
         },
         {
-          "id": "13-REQ-8.7",
+          "id": "REQ-8.7",
           "pattern": "ubiquitous",
-          "system": "worker",
           "action": "send every loop event line to the jobs recorder as it is emitted, add its own step events {\"name\": …, \"source\": \"worker\"} for resolve, session, clone, lease, run, mirror, release and report, send the session id and run id to the recorder once the session opens and the sandbox id once the lease is granted, and add the artifacts {kind: \"hub_session\", name: <session id>} and {kind: \"sandbox\", name: <sandbox id>} to the envelope",
-          "contract": "the recorder receives the events and the three hub references; the envelope's artifacts include hub_session and sandbox"
+          "contract": "the recorder receives the events and the three hub references; the envelope's artifacts include hub_session and sandbox",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a recorder spy and a full attempt"
+            ]
+          }
         },
         {
-          "id": "13-REQ-8.8",
+          "id": "REQ-8.8",
           "pattern": "ubiquitous",
-          "system": "worker",
           "action": "return a result holding the envelope amended only by adding warnings, side effects and artifacts and encoded as toolio encodes envelopes, the run's report text or nothing, the labels it set (status label and any restored request label) and removed in mark, mirror and cancel cleanup, and AF_MAX_ATTEMPTS, or 2 when the attempt stopped before the variables were read",
-          "contract": "every field of the loop's envelope is byte-identical in the returned envelope apart from the added entries"
+          "contract": "every field of the loop's envelope is byte-identical in the returned envelope apart from the added entries",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a loop envelope captured from the toolio shell and the result returned by the worker"
+            ]
+          }
         }
       ]
     },
     {
-      "id": "13-REQ-9",
+      "id": "REQ-9",
       "title": "The label and comment mirror, cancel and shutdown",
       "rationale": "The issue is where a person sees what an attempt came to, and a cancelled or stopped attempt must leave it in a state the next actor expects.",
+      "system": "worker",
       "criteria": [
         {
-          "id": "13-REQ-9.1",
+          "id": "REQ-9.1",
           "pattern": "ubiquitous",
-          "system": "worker",
           "action": "write the mirror with the hub forge client to the issue the input named, or, for a triage of text or a file that ended done, to the issue the loop created, and write nothing to the forge when there is neither",
-          "contract": "a text triage ending needs_human returns a needs_human envelope and fakehub records no forge write"
+          "contract": "a text triage ending needs_human returns a needs_human envelope and fakehub records no forge write",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "text input with a scripted triage submission carrying a question, and another producing a created issue"
+            ]
+          }
         },
         {
-          "id": "13-REQ-9.2",
+          "id": "REQ-9.2",
           "pattern": "ubiquitous",
-          "system": "worker",
           "action": "when setting a status label, remove any of the other four status labels the issue carries, except that a fix attempt's in-progress does not remove ready, which a fix removes only when its outcome sets landed, needs-human or failed",
-          "contract": "after a fix's mark, an issue that carried ready carries both ready and in-progress"
+          "contract": "after a fix's mark, an issue that carried ready carries both ready and in-progress",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "issues carrying ready, needs-human or failed"
+            ]
+          }
         },
         {
-          "id": "13-REQ-9.3",
+          "id": "REQ-9.3",
           "pattern": "ubiquitous",
-          "system": "worker",
           "action": "map outcomes to the mirror: triage done with confidence confirmed or probable sets ready with no comment; triage done with suspected or not_reproducible sets needs-human with the reason comment; any needs_human sets needs-human with the question comment; fix done, or unverified with outcome landed, under AF_FIX_LAND pr or branch sets landed with a fix_summary comment; fix done with outcome landed under AF_FIX_LAND none removes in-progress and sets no label, with a fix_summary saying nothing was kept; fix unverified with outcome parked sets needs-human with a fix_summary; any other failed, or usage, sets failed with the failure comment",
-          "contract": "fakehub's issue labels and comments match the mapping for each outcome"
+          "contract": "fakehub's issue labels and comments match the mapping for each outcome",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "outcomes: triage confirmed, probable, suspected, not_reproducible, needs_human; fix done and unverified landed with pr, branch and none; fix parked; other failed; usage"
+            ]
+          }
         },
         {
-          "id": "13-REQ-9.4",
-          "pattern": "complex_event",
-          "condition": "an attempt ends",
-          "guard": "it returns a transient error, or its envelope is failed with category brain or no_result and retryable true and its round position is below AF_MAX_ATTEMPTS",
-          "system": "worker",
+          "id": "REQ-9.4",
+          "pattern": "event_driven",
+          "condition": "an attempt ends and it returns a transient error, or its envelope is failed with category brain or no_result and retryable true and its round position is below AF_MAX_ATTEMPTS",
           "action": "remove in-progress, set no status label and post no comment",
-          "contract": "the result's labels show in-progress removed and none set"
+          "contract": "the result's labels show in-progress removed and none set",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a transient error; a failed brain or no_result retryable envelope at position 1 with max 2; and the same at position 2"
+            ]
+          }
         },
         {
-          "id": "13-REQ-9.5",
+          "id": "REQ-9.5",
           "pattern": "ubiquitous",
-          "system": "worker",
           "action": "compose each comment with a marker naming the job, the attempt and the kind, and with no absolute path of the worker: the question with lettered options and how to answer (af jobs answer <job id> or POST /api/v1/jobs/{id}/answer); the reason with the confidence, where the diagnosis is and how to ask again through POST /api/v1/workspaces/{slug}/triage with context; the fix_summary with outcome, branch, pull request or its absence, verdict, Closes or Refs and what was not proven, plus for a parked fix what failed and af jobs retry <job id> or POST /api/v1/jobs/{id}/retry; the failure with category, message and POST /api/v1/jobs/{id}/retry; and not post a comment whose marker is already on the issue",
-          "contract": "a re-run of the same attempt adds no second comment"
+          "contract": "a re-run of the same attempt adds no second comment",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "needs_human, suspected triage, landed and parked fix, and failed attempts, with the worker's clone path in the envelope"
+            ]
+          }
         },
         {
-          "id": "13-REQ-9.6",
+          "id": "REQ-9.6",
           "pattern": "unwanted",
           "condition": "a forge write in the mark, the mirror or cancel cleanup fails",
-          "system": "worker",
           "action": "keep the status unchanged and record the failure",
-          "contract": "the envelope carries warning status_label_failed, comment_failed or request_label_failed with a matching side effect; under a transient error the failure is logged"
+          "contract": "the envelope carries warning status_label_failed, comment_failed or request_label_failed with a matching side effect; under a transient error the failure is logged",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "fakehub failing the label add, the comment and the request-label put-back"
+            ]
+          }
         },
         {
-          "id": "13-REQ-9.7",
+          "id": "REQ-9.7",
           "pattern": "event_driven",
           "condition": "the attempt's context is cancelled with a cancel or unsubscribe cause",
-          "system": "worker",
           "action": "within the jobs layer's 60 s grace and after the loop has stopped, remove <prefix>in-progress, put the job's request label back when it has one, leave ready in place, set no status label, post no comment, release the lease and report to hub, using the PAT read at resolve even after the subscription is gone, and build the envelope with category cancelled when the loop had not started",
-          "contract": "a result carrying the loop's envelope (or the cancelled envelope) whose labels show the request label set and in-progress removed"
+          "contract": "a result carrying the loop's envelope (or the cancelled envelope) whose labels show the request label set and in-progress removed",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a job with request label af:fix on an issue carrying af:ready, a blocking brain, and the subscription removed after resolve"
+            ]
+          }
         },
         {
-          "id": "13-REQ-9.8",
+          "id": "REQ-9.8",
           "pattern": "event_driven",
           "condition": "the attempt's context is cancelled with a shutdown cause",
-          "system": "worker",
           "action": "write nothing to the forge, keep clone/, release the lease, and complete the session as far as the jobs layer's shutdown wait allows",
-          "contract": "fakehub records no label or comment write after the cancel and one lease release"
+          "contract": "fakehub records no label or comment write after the cancel and one lease release",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a running attempt with in-progress set"
+            ]
+          }
         }
       ]
     },
     {
-      "id": "13-REQ-10",
+      "id": "REQ-10",
       "title": "Hub reporting, the credential invariant, the test hub and the documentation",
       "rationale": "Every attempt that reaches a session must be billed and traced, and the worker must never hold a vendor key or forge token.",
       "criteria": [
         {
-          "id": "13-REQ-10.1",
+          "id": "REQ-10.1",
           "pattern": "event_driven",
           "condition": "resolve has passed",
           "system": "worker",
           "action": "open the hub session before the mark with archetype triage or fix, model set to AF_MODEL or, when unset, the catalog's default Anthropic model id, and a run_id drawn in the format YYYYMMDD_HHMMSS_<6 hex>, then pass that model to the brain and that run id to the loop",
-          "contract": "the session's model equals the brain's model and the usage record's model; the envelope's run_id equals the session's run_id"
+          "contract": "the session's model equals the brain's model and the usage record's model; the envelope's run_id equals the session's run_id",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a run with AF_MODEL unset and one with AF_MODEL=m1"
+            ]
+          }
         },
         {
-          "id": "13-REQ-10.2",
+          "id": "REQ-10.2",
           "pattern": "unwanted",
           "condition": "hub is unavailable or answers 401 or 403 when the session opens",
           "system": "worker",
           "action": "stop the attempt with nothing written to the forge and no lease taken",
-          "contract": "unavailable gives a transient error with category hub and retryable true; 401 or 403 gives a failed envelope with category auth"
+          "contract": "unavailable gives a transient error with category hub and retryable true; 401 or 403 gives a failed envelope with category auth",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "fakehub answering the session open with 503, then 401, then 403"
+            ]
+          }
         },
         {
-          "id": "13-REQ-10.3",
+          "id": "REQ-10.3",
           "pattern": "event_driven",
           "condition": "the lease has been released",
           "system": "worker",
           "action": "post one usage record with the resolved model and the envelope usage's brain, tokens, cost, cost source and turns when a brain ran, post the loop's events in sequence order in batches of at most 500, and complete the session with the envelope's status, or failed when the worker returns a transient error",
-          "contract": "1200 events arrive as three batches of 500, 500 and 200 in sequence order; the session's completion status matches"
+          "contract": "1200 events arrive as three batches of 500, 500 and 200 in sequence order; the session's completion status matches",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "a loop that emitted 1200 events with brain usage, and a transient-error attempt"
+            ],
+            "pseudocode": "assert [len(b) for b in fake.EventBatches()] == [500,500,200]"
+          }
         },
         {
-          "id": "13-REQ-10.4",
+          "id": "REQ-10.4",
           "pattern": "unwanted",
           "condition": "posting usage, posting events or completing the session fails",
           "system": "worker",
           "action": "change nothing else about the result",
-          "contract": "the envelope carries hub_usage_failed, hub_events_failed or hub_session_failed respectively; under a transient error the failure is logged"
+          "contract": "the envelope carries hub_usage_failed, hub_events_failed or hub_session_failed respectively; under a transient error the failure is logged",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "fakehub failing usage, events batch and session complete in turn"
+            ]
+          }
         },
         {
-          "id": "13-REQ-10.5",
+          "id": "REQ-10.5",
           "pattern": "ubiquitous",
           "system": "worker",
           "action": "for any attempt, including two run concurrently on two workspaces in one process, send only that attempt's workspace PAT to hub and hub's git server and only its lease token to the gateway, read nothing through an environment lookup, and never send, place in a box spec, or write a vendor key or forge token even when the process environment holds ANTHROPIC_API_KEY, GITHUB_TOKEN, GH_TOKEN or GITLAB_TOKEN",
-          "contract": "no recorded request or box spec carries a sentinel value; every box spec has an empty Env; every request carries only its own workspace's PAT"
+          "contract": "no recorded request or box spec carries a sentinel value; every box spec has an empty Env; every request carries only its own workspace's PAT",
+          "check": {
+            "kind": "property",
+            "setup": [
+              "sentinels in ANTHROPIC_API_KEY, GITHUB_TOKEN, GH_TOKEN and GITLAB_TOKEN, a distinct PAT and lease token per workspace"
+            ],
+            "pseudocode": "for scenario in gen_attempts(): run_concurrently(a,b); for r in fake.Requests(): assert r.cred in {a.pat} for a's; for s in specs: assert len(s.Env)==0"
+          }
         },
         {
-          "id": "13-REQ-10.6",
+          "id": "REQ-10.6",
           "pattern": "ubiquitous",
           "system": "worker",
           "action": "keep the PAT and the lease token out of the envelope, the events, the comments, every file left on disk and every Spec.Env",
-          "contract": "a scan of all of these after a full fix attempt finds neither token"
+          "contract": "a scan of all of these after a full fix attempt finds neither token",
+          "check": {
+            "kind": "integration",
+            "setup": [
+              "a full fix attempt on fakehub with known PAT and lease token"
+            ]
+          }
         },
         {
-          "id": "13-REQ-10.7",
+          "id": "REQ-10.7",
           "pattern": "ubiquitous",
           "system": "fakehub",
           "action": "serve the endpoints of 13-REQ-2 and 13-REQ-3 offline from test-set state (workspaces with mode and base branch, resolved variables, issues with comments and labels including pull requests, pull requests, sessions with usage, events and completion, leases, branch pushes), record and count every request, inject failures by route, serve git smart-HTTP on loopback accepting only Authorization: Basic with user agent-fox and the workspace's PAT, and grant leases pointing at an in-process gateway over the local provider whose backend records every spec created and command executed",
-          "contract": "a bearer token or any other credential is refused by the git server with 401"
+          "contract": "a bearer token or any other credential is refused by the git server with 401",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "fakehub with workspace, vars, issues, pulls, sessions and leases set",
+              "a git server credentialed for agent-fox:<PAT>"
+            ]
+          }
         },
         {
-          "id": "13-REQ-10.8",
+          "id": "REQ-10.8",
           "pattern": "ubiquitous",
           "system": "documentation",
           "action": "after make doc, describe the worker pipeline, transient errors versus envelopes, the gateway box and the af its image must provide, measuring in the box and the label mirror in docs/architecture.md; the AF_* hub variables, defaults, ranges, default model and vendor-key source in docs/configuration.md and docs/model-usage.md; the hub_session and sandbox artifacts, the hub category, the carry-patch use of unsupported, the new warnings and that path artifacts are worker paths that cannot be retrieved in docs/api.md; the moved command package and the worker package in docs/development.md; and that the service runs attempts in README.md, leaving docs/cli.md unchanged",
-          "contract": "make check passes, including the docs tests"
+          "contract": "make check passes, including the docs tests",
+          "check": {
+            "kind": "unit",
+            "setup": [
+              "make doc has been run"
+            ]
+          }
         }
       ]
     }
   ],
   "execution_paths": [
     {
-      "id": "13-PATH-1",
+      "id": "PATH-1",
       "title": "A fix attempt on a standard workspace lands a pull request",
       "steps": [
         {
@@ -725,10 +1146,35 @@
           "actor": "jobs layer",
           "action": "receives a done envelope with pull request, hub_session and sandbox artifacts and labels af:landed set, af:in-progress removed"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "worker",
+          "toolio shell",
+          "fix loop",
+          "fakehub",
+          "fakehub git server",
+          "in-process gateway over local provider",
+          "hub forge client",
+          "git binary",
+          "fakeclaude af"
+        ],
+        "setup": [
+          "fakehub with a standard workspace and issue 42 carrying no status label",
+          "its git server, an in-process gateway over the local provider, and the scripted brain"
+        ],
+        "end_state": [
+          "a hub session opens and its session id and run id reach the recorder",
+          "af:in-progress is set, the clone comes from the git server, and the sandbox id is reported",
+          "fix/42-… is pushed, the branch push route is called, then POST …/pulls",
+          "one fix_summary comment is posted, af:landed set and af:in-progress removed",
+          "the lease is released, then usage, an events batch and the completion are posted",
+          "the envelope is done with pull request, hub_session and sandbox artifacts and labels af:landed set, af:in-progress removed"
+        ]
+      }
     },
     {
-      "id": "13-PATH-2",
+      "id": "PATH-2",
       "title": "A triage attempt on an issue replaces the body and sets ready",
       "steps": [
         {
@@ -751,10 +1197,30 @@
           "actor": "jobs layer",
           "action": "receives a done envelope with labels af:ready set"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "worker",
+          "toolio shell",
+          "triage loop",
+          "fakehub",
+          "fakehub git server",
+          "in-process gateway over local provider",
+          "hub forge client"
+        ],
+        "setup": [
+          "fakehub with an issue, the gateway and a scripted brain submitting a probable diagnosis"
+        ],
+        "end_state": [
+          "the body is replaced through hub and the ## Original report section is byte-identical to the original body",
+          "af:ready is set, af:in-progress removed and no comment posted",
+          "the lease is released and the session reported",
+          "the envelope is done with labels af:ready set"
+        ]
+      }
     },
     {
-      "id": "13-PATH-3",
+      "id": "PATH-3",
       "title": "A triage whose submission asks a question blocks on a person",
       "steps": [
         {
@@ -773,10 +1239,29 @@
           "actor": "jobs layer",
           "action": "receives a needs_human envelope"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "worker",
+          "toolio shell",
+          "triage loop",
+          "fakehub",
+          "fakehub git server",
+          "in-process gateway over local provider",
+          "hub forge client"
+        ],
+        "setup": [
+          "fakehub with an issue and a scripted triage submission carrying a question with lettered options"
+        ],
+        "end_state": [
+          "the envelope is needs_human",
+          "af:needs-human is set",
+          "exactly one comment holds the question, its lettered options and af jobs answer <job id>"
+        ]
+      }
     },
     {
-      "id": "13-PATH-4",
+      "id": "PATH-4",
       "title": "A fix on a carry_patch workspace is refused at resolve",
       "steps": [
         {
@@ -791,10 +1276,27 @@
           "actor": "jobs layer",
           "action": "receives a failed envelope with category unsupported, while fakehub records no clone, lease, session or forge write"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "worker",
+          "toolio shell",
+          "hub client",
+          "fakehub",
+          "fakehub git server"
+        ],
+        "setup": [
+          "fakehub with a carry_patch workspace and a counting brain"
+        ],
+        "end_state": [
+          "the result envelope is failed with error.category unsupported and retryable false",
+          "fakehub records no clone, lease, session request, label or comment",
+          "the brain ran zero times"
+        ]
+      }
     },
     {
-      "id": "13-PATH-5",
+      "id": "PATH-5",
       "title": "A cancelled fix attempt restores the request label",
       "steps": [
         {
@@ -817,10 +1319,30 @@
           "actor": "jobs layer",
           "action": "receives a result with labels af:fix set and af:in-progress removed and clears labels.restore"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "worker",
+          "toolio shell",
+          "fix loop",
+          "fakehub",
+          "fakehub git server",
+          "in-process gateway over local provider",
+          "hub forge client"
+        ],
+        "setup": [
+          "a fix job with request label af:fix on issue 42 carrying af:ready, a brain blocked in the loop"
+        ],
+        "end_state": [
+          "within the 60 s grace in-progress is removed, af:fix is put back and af:ready stays",
+          "no comment is posted",
+          "the lease is released and hub is reported to",
+          "the result's labels show af:fix set and af:in-progress removed"
+        ]
+      }
     },
     {
-      "id": "13-PATH-6",
+      "id": "PATH-6",
       "title": "A lease refused with 503 comes back as a transient error and is retried",
       "steps": [
         {
@@ -847,7 +1369,25 @@
           "actor": "jobs layer",
           "action": "hands the same attempt over again through its fake retry"
         }
-      ]
+      ],
+      "smoke": {
+        "real_components": [
+          "worker",
+          "toolio shell",
+          "fakehub",
+          "fakehub git server",
+          "hub forge client",
+          "jobs fake retry"
+        ],
+        "setup": [
+          "fakehub answering the first lease request with 503 and the jobs layer's fake retry"
+        ],
+        "end_state": [
+          "af:in-progress is removed, events are posted, the session is completed failed and clone/ is kept",
+          "the worker returns an error carrying a sandbox *toolio.Failure with retryable true and no envelope",
+          "the fake retry hands the same attempt over again"
+        ]
+      }
     }
   ],
   "external_apis": [

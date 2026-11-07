@@ -1,8 +1,8 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/tasks.v3.json",
   "spec_id": "15",
   "spec_name": "agent_fox_poll",
-  "schema_version": 2,
+  "schema_version": 3,
   "test_commands": {
     "all_tests": "make test",
     "linter": "make lint",
@@ -25,19 +25,9 @@
   "tasks": [
     {
       "id": 1,
-      "kind": "implement",
       "title": "Add ListIssues to the hub forge client and the issues list to the fake hub",
       "criteria": [
-        "15-REQ-3"
-      ],
-      "tests": [
-        "TS-15-15",
-        "TS-15-16",
-        "TS-15-17",
-        "TS-15-18",
-        "TS-15-19",
-        "TS-15-20",
-        "TS-15-21"
+        "REQ-3"
       ],
       "steps": [
         "Read internal/hub/forge.go, internal/hub/fakehub and the worker's unavailable-methods test (TS-13-25) as they exist; read internal/triage/fakeforge/fakeforge.go for the fake pattern",
@@ -58,19 +48,13 @@
       ],
       "done_when": [
         "ListIssues is absent from the hub forge client's unavailable-method list and its test"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 2,
-      "kind": "implement",
       "title": "Add the af_poll_requests migration and the poll record store",
       "criteria": [
-        "15-REQ-6.1"
-      ],
-      "tests": [
-        "TS-15-37"
+        "REQ-6.1"
       ],
       "steps": [
         "Read internal/service/store/migrations.go and the store's open/migrate code",
@@ -86,20 +70,13 @@
       ],
       "done_when": [
         "the new migration is the last entry of the migration list"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 3,
-      "kind": "implement",
       "title": "Jobs layer: atomic duplicate check and exported read of a job by id",
       "criteria": [
-        "15-REQ-9"
-      ],
-      "tests": [
-        "TS-15-61",
-        "TS-15-62"
+        "REQ-9"
       ],
       "steps": [
         "Read internal/service/jobs create.go, read.go/list.go, cancel.go, retain.go and the fakerunner as they exist",
@@ -121,30 +98,16 @@
       ],
       "done_when": [
         "`go test -race ./internal/service/jobs/...` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 4,
-      "kind": "implement",
       "title": "Poll cycle skeleton: variables, interval, prefix and listings",
       "criteria": [
-        "15-REQ-2",
-        "15-REQ-4.1",
-        "15-REQ-4.3",
-        "15-REQ-4.5"
-      ],
-      "tests": [
-        "TS-15-9",
-        "TS-15-10",
-        "TS-15-11",
-        "TS-15-12",
-        "TS-15-13",
-        "TS-15-14",
-        "TS-15-22",
-        "TS-15-24",
-        "TS-15-26"
+        "REQ-2",
+        "REQ-4.1",
+        "REQ-4.3",
+        "REQ-4.5"
       ],
       "steps": [
         "Read the store, internal/hub (WorkspaceRecord, ResolvedVars, forge factory) and fakehub APIs as they exist",
@@ -167,26 +130,13 @@
       ],
       "done_when": [
         "the fake hub records vars, workspace, issues(triage), issues(fix) in that order for an enabled cycle"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 5,
-      "kind": "implement",
       "title": "Poll supervisor, per-workspace loops, scheduling limits and wiring into agent-fox",
       "criteria": [
-        "15-REQ-1"
-      ],
-      "tests": [
-        "TS-15-1",
-        "TS-15-2",
-        "TS-15-3",
-        "TS-15-4",
-        "TS-15-5",
-        "TS-15-6",
-        "TS-15-7",
-        "TS-15-8"
+        "REQ-1"
       ],
       "steps": [
         "Read cmd/agent-fox/run.go and the jobs layer's start/stop as they exist",
@@ -212,36 +162,21 @@
       "done_when": [
         "no workspace ever has more than one loop",
         "at most 4 cycles are ever in flight"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 6,
-      "kind": "implement",
       "title": "Create a job for a new request and consume the label",
       "criteria": [
-        "15-REQ-4.2",
-        "15-REQ-4.6",
-        "15-REQ-4.7",
-        "15-REQ-5.5",
-        "15-REQ-5.6",
-        "15-REQ-5.7",
-        "15-REQ-5.8",
-        "15-REQ-6.2",
-        "15-REQ-6.3"
-      ],
-      "tests": [
-        "TS-15-23",
-        "TS-15-27",
-        "TS-15-28",
-        "TS-15-33",
-        "TS-15-34",
-        "TS-15-35",
-        "TS-15-36",
-        "TS-15-38",
-        "TS-15-39",
-        "TS-15-60"
+        "REQ-4.2",
+        "REQ-4.6",
+        "REQ-4.7",
+        "REQ-5.5",
+        "REQ-5.6",
+        "REQ-5.7",
+        "REQ-5.8",
+        "REQ-6.2",
+        "REQ-6.3"
       ],
       "steps": [
         "Read the jobs layer's Create (label source), OpenJob, ErrDuplicate, ErrNotSubscribed and the token-unreadable error as they exist",
@@ -268,33 +203,20 @@
       ],
       "done_when": [
         "`go test -race ./internal/service/poll/...` passes"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 7,
-      "kind": "implement",
       "title": "Absorb open jobs, owed removals, and reconcile records with their jobs",
       "criteria": [
-        "15-REQ-5.1",
-        "15-REQ-5.2",
-        "15-REQ-5.4",
-        "15-REQ-6.4",
-        "15-REQ-6.5",
-        "15-REQ-6.6",
-        "15-REQ-6.7",
-        "15-REQ-6.8"
-      ],
-      "tests": [
-        "TS-15-29",
-        "TS-15-30",
-        "TS-15-32",
-        "TS-15-40",
-        "TS-15-41",
-        "TS-15-42",
-        "TS-15-43",
-        "TS-15-44"
+        "REQ-5.1",
+        "REQ-5.2",
+        "REQ-5.4",
+        "REQ-6.4",
+        "REQ-6.5",
+        "REQ-6.6",
+        "REQ-6.7",
+        "REQ-6.8"
       ],
       "steps": [
         "Read internal/service/poll store, handler and the jobs Get/OpenJob entry points as they exist",
@@ -320,29 +242,15 @@
       ],
       "done_when": [
         "a failed removal never turns into a second job after the first job ended"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 8,
-      "kind": "implement",
       "title": "Holds: a label the service put back is left alone until released",
       "criteria": [
-        "15-REQ-4.4",
-        "15-REQ-5.3",
-        "15-REQ-7"
-      ],
-      "tests": [
-        "TS-15-25",
-        "TS-15-31",
-        "TS-15-45",
-        "TS-15-46",
-        "TS-15-47",
-        "TS-15-48",
-        "TS-15-49",
-        "TS-15-50",
-        "TS-15-51"
+        "REQ-4.4",
+        "REQ-5.3",
+        "REQ-7"
       ],
       "steps": [
         "Read the poll reconciler, handler and the jobs Get semantics as they exist",
@@ -365,26 +273,13 @@
       ],
       "done_when": [
         "after a hold is released, adding the label again makes exactly one new job"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 9,
-      "kind": "implement",
       "title": "Failure handling, log-once tracking and workspace isolation",
       "criteria": [
-        "15-REQ-8"
-      ],
-      "tests": [
-        "TS-15-52",
-        "TS-15-53",
-        "TS-15-54",
-        "TS-15-55",
-        "TS-15-56",
-        "TS-15-57",
-        "TS-15-58",
-        "TS-15-59"
+        "REQ-8"
       ],
       "steps": [
         "Read the hub client's answer classes (refused, forbidden, not found, rejected, unavailable) and the poll cycle as they exist",
@@ -407,20 +302,13 @@
       ],
       "done_when": [
         "three cycles of the same 403 produce exactly one ERROR record"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     },
     {
       "id": 10,
-      "kind": "implement",
       "title": "Documentation, offline guard and end-to-end acceptance",
       "criteria": [
-        "15-REQ-10"
-      ],
-      "tests": [
-        "TS-15-63",
-        "TS-15-64"
+        "REQ-10"
       ],
       "steps": [
         "Run `make doc` first to refresh docs/generated",
@@ -448,41 +336,7 @@
       ],
       "done_when": [
         "`make check` exits 0 with no network"
-      ],
-      "state": "done",
-      "optional": false
-    },
-    {
-      "id": 11,
-      "kind": "integration",
-      "title": "Verify the poll paths end to end against the real worker, jobs layer and API",
-      "tests": [
-        "TS-15-65",
-        "TS-15-66",
-        "TS-15-67",
-        "TS-15-68"
-      ],
-      "steps": [
-        "Write TS-15-65 using the worker's test harness (fake hub with its git server, in-process gateway over local, scripted brain), TS-15-66, TS-15-67 and TS-15-68 with the real jobs layer, API handler, fake runner, fake hub and poll store, and confirm they pass",
-        "Trace 15-PATH-1 to 15-PATH-4 through the real code: supervisor, loop, cycle, store reads, hub forge ListIssues, handler, jobs.Create, poll record, RemoveLabel; confirm each step calls the next and no stub remains",
-        "For every criterion with a contract (jobs.Get consumed by the reconciler, ListIssues consumed by the cycle, the atomic duplicate refusal consumed by the handler, Stop ordering consumed by cmd/agent-fox/run.go), confirm production code consumes the producer's result, not only tests",
-        "Confirm cmd/agent-fox/run.go starts the poll after the jobs layer and stops it before, and that the cancel cleanup of agent_fox_worker (entry point of another spec) is invoked from production code",
-        "Search every file listed in the tasks' touches for panic(\"not implemented\"), TODO, and bare `return nil` on a non-trivial path, and remove any; replace the no-op default handler and reconciler from the cycle skeleton with the real ones",
-        "Run `make check` and confirm it passes offline"
-      ],
-      "touches": [
-        "internal/service/poll/smoke_test.go",
-        "cmd/agent-fox/run.go"
-      ],
-      "depends_on": [
-        10
-      ],
-      "done_when": [
-        "`make check` passes offline",
-        "all four smoke tests pass under go test -race"
-      ],
-      "state": "done",
-      "optional": false
+      ]
     }
   ]
 }

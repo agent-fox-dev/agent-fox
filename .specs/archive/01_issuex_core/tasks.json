@@ -1,8 +1,8 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/tasks.v3.json",
   "spec_id": "01",
   "spec_name": "issuex_core",
-  "schema_version": 2,
+  "schema_version": 3,
   "test_commands": {
     "all_tests": "make test",
     "linter": "make lint",
@@ -12,19 +12,10 @@
   "tasks": [
     {
       "id": 1,
-      "kind": "implement",
       "title": "Define client interfaces and canonical domain models",
       "criteria": [
-        "01-REQ-1",
-        "01-REQ-2"
-      ],
-      "tests": [
-        "TS-01-1",
-        "TS-01-2",
-        "TS-01-3",
-        "TS-01-4",
-        "TS-01-5",
-        "TS-01-6"
+        "REQ-1",
+        "REQ-2"
       ],
       "steps": [
         "Write unit tests TS-01-1, TS-01-2, TS-01-5, TS-01-6 and property tests TS-01-3, TS-01-4 in issuex/client_test.go and issuex/types_test.go; verify they fail.",
@@ -40,24 +31,13 @@
         "issuex/types.go",
         "issuex/client_test.go",
         "issuex/types_test.go"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 2,
-      "kind": "implement",
       "title": "Implement git remote, repository path, and issue URL parsing",
       "criteria": [
-        "01-REQ-3"
-      ],
-      "tests": [
-        "TS-01-7",
-        "TS-01-8",
-        "TS-01-9",
-        "TS-01-10",
-        "TS-01-11",
-        "TS-01-12",
-        "TS-01-13"
+        "REQ-3"
       ],
       "steps": [
         "Write tests TS-01-7 through TS-01-13 covering ParseRepo, ParseRemote, DetectRepo, and ParseIssueURL in issuex/parse_test.go; verify they fail.",
@@ -73,20 +53,13 @@
       ],
       "depends_on": [
         1
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 3,
-      "kind": "implement",
       "title": "Implement standardized error hierarchy and rate-limit calculation",
       "criteria": [
-        "01-REQ-5"
-      ],
-      "tests": [
-        "TS-01-20",
-        "TS-01-21",
-        "TS-01-22"
+        "REQ-5"
       ],
       "steps": [
         "Write unit tests TS-01-20, TS-01-21, and TS-01-22 in issuex/errors_test.go covering sentinel errors, HTTPError formatting, RetryAfter calculation, and error classifiers; verify they fail.",
@@ -102,21 +75,13 @@
       ],
       "depends_on": [
         1
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 4,
-      "kind": "implement",
       "title": "Implement shared transport safety utilities and retry backoff",
       "criteria": [
-        "01-REQ-6"
-      ],
-      "tests": [
-        "TS-01-23",
-        "TS-01-24",
-        "TS-01-25",
-        "TS-01-26"
+        "REQ-6"
       ],
       "steps": [
         "Write unit tests TS-01-23 through TS-01-26 in issuex/transport_test.go covering body size limits, rate-limit retries, 120-second backoff ceilings, unauthenticated 404 annotations, and custom sleep functions; verify they fail.",
@@ -132,20 +97,13 @@
       ],
       "depends_on": [
         3
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 5,
-      "kind": "implement",
       "title": "Implement NoOpClient for offline and forge-disabled operations",
       "criteria": [
-        "01-REQ-7"
-      ],
-      "tests": [
-        "TS-01-27",
-        "TS-01-28",
-        "TS-01-29"
+        "REQ-7"
       ],
       "steps": [
         "Write unit tests TS-01-27, TS-01-28, and TS-01-29 in issuex/noop_test.go checking NoOpClient lifecycle, issue reads/writes, and PR operation rejections; verify they fail.",
@@ -162,23 +120,13 @@
       ],
       "depends_on": [
         1
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 6,
-      "kind": "implement",
       "title": "Implement forge type detection and client options configuration",
       "criteria": [
-        "01-REQ-4"
-      ],
-      "tests": [
-        "TS-01-14",
-        "TS-01-15",
-        "TS-01-16",
-        "TS-01-17",
-        "TS-01-18",
-        "TS-01-19"
+        "REQ-4"
       ],
       "steps": [
         "Write tests TS-01-14 through TS-01-19 in issuex/options_test.go covering NoOp option dispatch, BaseURL detection, environment variable precedence, git origin fallback, ErrAmbiguousForge, and ErrUnsupportedForge; verify they fail.",
@@ -202,43 +150,7 @@
         2,
         3,
         5
-      ],
-      "state": "done"
-    },
-    {
-      "id": 7,
-      "kind": "integration",
-      "title": "Verify end-to-end execution paths and production wiring",
-      "tests": [
-        "TS-01-30",
-        "TS-01-31",
-        "TS-01-32"
-      ],
-      "steps": [
-        "Implement smoke test TS-01-30 in issuex/smoke_test.go verifying execution path 01-PATH-1 (NewWithOptions with NoOp: true, Authenticated() check, silent CreateIssue execution).",
-        "Implement smoke test TS-01-31 in issuex/smoke_test.go verifying execution path 01-PATH-2 (ParseRemote with git remote URLs, ParseIssueURL with web URLs, String() and URL() formatting).",
-        "Implement smoke test TS-01-32 in issuex/smoke_test.go verifying execution path 01-PATH-3 (HTTPError response creation, IsRateLimited classification, RetryAfter backoff duration calculation with buffer).",
-        "Trace execution paths 01-PATH-1, 01-PATH-2, and 01-PATH-3 through production code in issuex/; confirm each step calls the next and no stub remains.",
-        "For every criterion with a contract (01-REQ-3.2, 01-REQ-3.4, 01-REQ-3.6, 01-REQ-3.8, 01-REQ-4.7, 01-REQ-4.8, 01-REQ-5.4, 01-REQ-6.3, 01-REQ-6.4, 01-REQ-7.6), confirm the contract result is produced and handled properly in production code.",
-        "Search all files under issuex/ for stub markers (panic(\"not implemented\"), TODO, NotImplementedError, bare return nil on non-trivial paths) and verify none remain.",
-        "Confirm that issuex package entry points are callable from external packages without import cycle or internal visibility restrictions.",
-        "Run `make check` (gofmt, go vet, and all tests) to verify clean repository state."
-      ],
-      "touches": [
-        "issuex/smoke_test.go"
-      ],
-      "depends_on": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "done_when": [
-        "`make check` passes with all tests and linters clean"
-      ],
-      "state": "done"
+      ]
     }
   ]
 }

@@ -1,8 +1,8 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/tasks.v3.json",
   "spec_id": "09",
   "spec_name": "af_fix",
-  "schema_version": 2,
+  "schema_version": 3,
   "test_commands": {
     "all_tests": "make test",
     "linter": "make lint",
@@ -29,21 +29,13 @@
   "tasks": [
     {
       "id": 1,
-      "kind": "implement",
       "title": "Add the fix_report submission kind and the scripted brain's multi-round form",
       "criteria": [
-        "09-REQ-4.1",
-        "09-REQ-4.2",
-        "09-REQ-4.3",
-        "09-REQ-4.4",
-        "09-REQ-10.3"
-      ],
-      "tests": [
-        "TS-09-26",
-        "TS-09-27",
-        "TS-09-28",
-        "TS-09-29",
-        "TS-09-69"
+        "REQ-4.1",
+        "REQ-4.2",
+        "REQ-4.3",
+        "REQ-4.4",
+        "REQ-10.3"
       ],
       "steps": [
         "Write TS-09-26..29 and TS-09-69 first and confirm they fail",
@@ -61,33 +53,20 @@
         "internal/fix/kind_test.go",
         "internal/brain/scripted.go",
         "internal/brain/scripted_test.go"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 2,
-      "kind": "implement",
       "title": "Register the fix command with usage validation and the ordered preflight",
       "criteria": [
-        "09-REQ-1.4",
-        "09-REQ-1.5",
-        "09-REQ-2.1",
-        "09-REQ-2.2",
-        "09-REQ-2.3",
-        "09-REQ-2.4",
-        "09-REQ-2.5",
-        "09-REQ-2.6"
-      ],
-      "tests": [
-        "TS-09-4",
-        "TS-09-5",
-        "TS-09-9",
-        "TS-09-10",
-        "TS-09-11",
-        "TS-09-12",
-        "TS-09-13",
-        "TS-09-14",
-        "TS-09-15"
+        "REQ-1.4",
+        "REQ-1.5",
+        "REQ-2.1",
+        "REQ-2.2",
+        "REQ-2.3",
+        "REQ-2.4",
+        "REQ-2.5",
+        "REQ-2.6"
       ],
       "steps": [
         "Write the listed tests first (temporary repos copied from gitx newRepo with a local bare origin, httptest forge via App.NewForge, a counting scripted brain and a box provider spy) and confirm they fail",
@@ -108,36 +87,22 @@
         "cmd/af/fix.go",
         "cmd/af/fix_test.go",
         "cmd/af/schemas/fix.json"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 3,
-      "kind": "implement",
       "title": "Baseline, fix.json, the brief builder and the fix brief and fix submit commands",
       "criteria": [
-        "09-REQ-1.7",
-        "09-REQ-2.7",
-        "09-REQ-2.8",
-        "09-REQ-3.1",
-        "09-REQ-3.2",
-        "09-REQ-3.3",
-        "09-REQ-3.4",
-        "09-REQ-3.5",
-        "09-REQ-3.6",
-        "09-REQ-3.8"
-      ],
-      "tests": [
-        "TS-09-7",
-        "TS-09-16",
-        "TS-09-17",
-        "TS-09-18",
-        "TS-09-19",
-        "TS-09-20",
-        "TS-09-21",
-        "TS-09-22",
-        "TS-09-23",
-        "TS-09-25"
+        "REQ-1.7",
+        "REQ-2.7",
+        "REQ-2.8",
+        "REQ-3.1",
+        "REQ-3.2",
+        "REQ-3.3",
+        "REQ-3.4",
+        "REQ-3.5",
+        "REQ-3.6",
+        "REQ-3.8"
       ],
       "steps": [
         "Write the listed tests first and confirm they fail",
@@ -164,27 +129,18 @@
       "depends_on": [
         1,
         2
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 4,
-      "kind": "implement",
       "title": "Apply the brain's exported tree to the host and add the fix run command",
       "criteria": [
-        "09-REQ-1.8",
-        "09-REQ-5.1",
-        "09-REQ-5.2",
-        "09-REQ-5.3",
-        "09-REQ-5.4",
-        "09-REQ-5.5"
-      ],
-      "tests": [
-        "TS-09-32",
-        "TS-09-33",
-        "TS-09-34",
-        "TS-09-35",
-        "TS-09-8"
+        "REQ-1.8",
+        "REQ-5.1",
+        "REQ-5.2",
+        "REQ-5.3",
+        "REQ-5.4",
+        "REQ-5.5"
       ],
       "steps": [
         "Write the listed tests first and confirm they fail",
@@ -207,27 +163,18 @@
       "depends_on": [
         1,
         3
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 5,
-      "kind": "implement",
       "title": "Measure the host tree: foreign commits, protected revert, scope, gate after, revert check",
       "criteria": [
-        "09-REQ-6.1",
-        "09-REQ-6.2",
-        "09-REQ-6.3",
-        "09-REQ-6.4",
-        "09-REQ-6.5",
-        "09-REQ-6.6"
-      ],
-      "tests": [
-        "TS-09-39",
-        "TS-09-40",
-        "TS-09-41",
-        "TS-09-42",
-        "TS-09-43"
+        "REQ-6.1",
+        "REQ-6.2",
+        "REQ-6.3",
+        "REQ-6.4",
+        "REQ-6.5",
+        "REQ-6.6"
       ],
       "steps": [
         "Write the listed tests first using the Makefile fixture gate (check target running a shell test under tests/ against a non-test script; skip when make is absent) and confirm they fail",
@@ -248,26 +195,17 @@
       ],
       "depends_on": [
         3
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 6,
-      "kind": "implement",
       "title": "Branch naming, issue creation for text/file input, and parking as wip",
       "criteria": [
-        "09-REQ-8.1",
-        "09-REQ-8.2",
-        "09-REQ-9.1",
-        "09-REQ-9.2",
-        "09-REQ-9.3"
-      ],
-      "tests": [
-        "TS-09-54",
-        "TS-09-53",
-        "TS-09-61",
-        "TS-09-62",
-        "TS-09-63"
+        "REQ-8.1",
+        "REQ-8.2",
+        "REQ-9.1",
+        "REQ-9.2",
+        "REQ-9.3"
       ],
       "steps": [
         "Write the listed tests first (real git, local bare origin, httptest GitHub) and confirm they fail",
@@ -285,30 +223,19 @@
       ],
       "depends_on": [
         3
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 7,
-      "kind": "implement",
       "title": "Land a measured change: commit, push, pull request, body, land modes",
       "criteria": [
-        "09-REQ-8.3",
-        "09-REQ-8.4",
-        "09-REQ-8.5",
-        "09-REQ-8.6",
-        "09-REQ-8.7",
-        "09-REQ-8.8",
-        "09-REQ-9.4"
-      ],
-      "tests": [
-        "TS-09-55",
-        "TS-09-56",
-        "TS-09-57",
-        "TS-09-58",
-        "TS-09-59",
-        "TS-09-60",
-        "TS-09-64"
+        "REQ-8.3",
+        "REQ-8.4",
+        "REQ-8.5",
+        "REQ-8.6",
+        "REQ-8.7",
+        "REQ-8.8",
+        "REQ-9.4"
       ],
       "steps": [
         "Write the listed tests first and confirm they fail",
@@ -330,25 +257,16 @@
       "depends_on": [
         5,
         6
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 8,
-      "kind": "implement",
       "title": "Add the fix land command and the shared fix result",
       "criteria": [
-        "09-REQ-1.6",
-        "09-REQ-4.6",
-        "09-REQ-6.8",
-        "09-REQ-10.1"
-      ],
-      "tests": [
-        "TS-09-6",
-        "TS-09-31",
-        "TS-09-38",
-        "TS-09-45",
-        "TS-09-67"
+        "REQ-1.6",
+        "REQ-4.6",
+        "REQ-6.8",
+        "REQ-10.1"
       ],
       "steps": [
         "Write the listed tests first and confirm they fail",
@@ -373,34 +291,21 @@
         4,
         5,
         7
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 9,
-      "kind": "implement",
       "title": "The fix loop: rounds, refusals, questions, attempts and bounds",
       "criteria": [
-        "09-REQ-3.7",
-        "09-REQ-4.5",
-        "09-REQ-5.6",
-        "09-REQ-5.7",
-        "09-REQ-6.7",
-        "09-REQ-7.1",
-        "09-REQ-7.2",
-        "09-REQ-7.3",
-        "09-REQ-7.4"
-      ],
-      "tests": [
-        "TS-09-24",
-        "TS-09-30",
-        "TS-09-36",
-        "TS-09-37",
-        "TS-09-44",
-        "TS-09-46",
-        "TS-09-47",
-        "TS-09-48",
-        "TS-09-49"
+        "REQ-3.7",
+        "REQ-4.5",
+        "REQ-5.6",
+        "REQ-5.7",
+        "REQ-6.7",
+        "REQ-7.1",
+        "REQ-7.2",
+        "REQ-7.3",
+        "REQ-7.4"
       ],
       "steps": [
         "Write the listed tests first (spy brain recording Brief fields, scripted multi-round scripts, box provider spy) and confirm they fail",
@@ -425,34 +330,21 @@
         4,
         5,
         7
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 10,
-      "kind": "implement",
       "title": "Loop endings, interruption, dry run, result wiring and schema golden",
       "criteria": [
-        "09-REQ-1.1",
-        "09-REQ-1.2",
-        "09-REQ-1.3",
-        "09-REQ-7.5",
-        "09-REQ-7.6",
-        "09-REQ-7.7",
-        "09-REQ-9.5",
-        "09-REQ-9.6",
-        "09-REQ-10.2"
-      ],
-      "tests": [
-        "TS-09-1",
-        "TS-09-2",
-        "TS-09-3",
-        "TS-09-50",
-        "TS-09-51",
-        "TS-09-52",
-        "TS-09-65",
-        "TS-09-66",
-        "TS-09-68"
+        "REQ-1.1",
+        "REQ-1.2",
+        "REQ-1.3",
+        "REQ-7.5",
+        "REQ-7.6",
+        "REQ-7.7",
+        "REQ-9.5",
+        "REQ-9.6",
+        "REQ-10.2"
       ],
       "steps": [
         "Write the listed tests first and confirm they fail",
@@ -478,22 +370,15 @@
       "depends_on": [
         8,
         9
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 11,
-      "kind": "implement",
       "title": "Offline agentkit and GitLab run, af-fix skill rewrite and documentation",
       "criteria": [
-        "09-REQ-10.4",
-        "09-REQ-10.5",
-        "09-REQ-10.6"
-      ],
-      "tests": [
-        "TS-09-70",
-        "TS-09-71",
-        "TS-09-72"
+        "REQ-10.4",
+        "REQ-10.5",
+        "REQ-10.6"
       ],
       "steps": [
         "Write TS-09-70, TS-09-71 and TS-09-72 first and confirm they fail",
@@ -520,42 +405,7 @@
       ],
       "done_when": [
         "`make check` passes with no vendor key and no network beyond loopback"
-      ],
-      "state": "done"
-    },
-    {
-      "id": 12,
-      "kind": "integration",
-      "title": "Verify every fix execution path end to end",
-      "tests": [
-        "TS-09-73",
-        "TS-09-74",
-        "TS-09-75",
-        "TS-09-76",
-        "TS-09-77",
-        "TS-09-78",
-        "TS-09-79"
-      ],
-      "steps": [
-        "Write TS-09-73..79 against the real toolio shell, real git with a local bare origin, the Makefile fixture gate, the local box, the scripted brain and httptest GitHub, and confirm they pass",
-        "Trace 09-PATH-1..7 through the real code (cmd/af/fix.go -> preflight -> loop -> round -> apply -> measure -> land/park, and fix brief -> submit -> land); confirm each step calls the next and no stub remains, including that the task 2 loop placeholder is gone",
-        "For every criterion with a contract, confirm the producer's result (Result fields, ledger entries, warnings, artifacts, side effects, next) is consumed by a caller in production code, not only by tests",
-        "Confirm cmd/af registers all five fix commands and that spec 05/06/07 entry points (toolio shell, checks.Run/Compare, conform.Check, brain.Execute, box.With, submission.Command) are called from production code",
-        "Search every file in the tasks' touches for panic(\"not implemented\"), TODO, and bare `return nil` on non-trivial paths, and remove any that remain",
-        "Run make check and confirm it passes offline"
-      ],
-      "touches": [
-        "internal/fix/smoke_test.go",
-        "cmd/af/fix_smoke_test.go"
-      ],
-      "depends_on": [
-        11
-      ],
-      "done_when": [
-        "`make check` passes",
-        "every execution path 09-PATH-1..7 is exercised by a smoke test"
-      ],
-      "state": "done"
+      ]
     }
   ]
 }

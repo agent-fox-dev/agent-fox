@@ -1,8 +1,8 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/tasks.v3.json",
   "spec_id": "11",
   "spec_name": "agent_fox_service_core",
-  "schema_version": 2,
+  "schema_version": 3,
   "test_commands": {
     "all_tests": "make test",
     "linter": "make lint",
@@ -17,24 +17,15 @@
   "tasks": [
     {
       "id": 1,
-      "kind": "implement",
       "title": "Load and validate config.toml",
       "criteria": [
-        "11-REQ-2.1",
-        "11-REQ-2.2",
-        "11-REQ-2.3",
-        "11-REQ-2.4",
-        "11-REQ-2.5",
-        "11-REQ-2.6",
-        "11-REQ-2.7"
-      ],
-      "tests": [
-        "TS-11-9",
-        "TS-11-10",
-        "TS-11-11",
-        "TS-11-12",
-        "TS-11-15",
-        "TS-11-16"
+        "REQ-2.1",
+        "REQ-2.2",
+        "REQ-2.3",
+        "REQ-2.4",
+        "REQ-2.5",
+        "REQ-2.6",
+        "REQ-2.7"
       ],
       "steps": [
         "Write TS-11-9, 10, 11, 12, 15, 16 as table-driven tests named like TestXxx_TS_11_N in internal/service/config/config_test.go (t.TempDir, t.Setenv, t.Chdir) and confirm they fail",
@@ -56,26 +47,17 @@
       ],
       "done_when": [
         "`go test ./internal/service/config/... -count=1` passes"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 2,
-      "kind": "implement",
       "title": "Load the key file and seal/open workspace tokens",
       "criteria": [
-        "11-REQ-3.1",
-        "11-REQ-3.2",
-        "11-REQ-3.3",
-        "11-REQ-3.4",
-        "11-REQ-3.5"
-      ],
-      "tests": [
-        "TS-11-18",
-        "TS-11-19",
-        "TS-11-20",
-        "TS-11-21",
-        "TS-11-22"
+        "REQ-3.1",
+        "REQ-3.2",
+        "REQ-3.3",
+        "REQ-3.4",
+        "REQ-3.5"
       ],
       "steps": [
         "Write TS-11-18..22 in internal/service/secrets/secrets_test.go (the property test seeds a math/rand source from the test and logs the seed) and confirm they fail",
@@ -92,29 +74,20 @@
       ],
       "done_when": [
         "`go test ./internal/service/secrets/... -count=1` passes"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 3,
-      "kind": "implement",
       "title": "Open the SQLite state store with migrations and subscription persistence",
       "criteria": [
-        "11-REQ-4.1",
-        "11-REQ-4.2",
-        "11-REQ-4.3",
-        "11-REQ-4.4",
-        "11-REQ-4.5",
-        "11-REQ-4.6",
-        "11-REQ-9.7",
-        "11-REQ-9.8"
-      ],
-      "tests": [
-        "TS-11-24",
-        "TS-11-25",
-        "TS-11-26",
-        "TS-11-29",
-        "TS-11-70"
+        "REQ-4.1",
+        "REQ-4.2",
+        "REQ-4.3",
+        "REQ-4.4",
+        "REQ-4.5",
+        "REQ-4.6",
+        "REQ-9.7",
+        "REQ-9.8"
       ],
       "steps": [
         "Write TS-11-24, 25, 26, 29, 70 in internal/service/store/store_test.go and confirm they fail",
@@ -140,33 +113,20 @@
       ],
       "done_when": [
         "`go test ./internal/service/store/... -count=1` passes"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 4,
-      "kind": "implement",
       "title": "Build the hub client and the fakehub test double",
       "criteria": [
-        "11-REQ-5.1",
-        "11-REQ-5.2",
-        "11-REQ-5.3",
-        "11-REQ-5.4",
-        "11-REQ-5.5",
-        "11-REQ-5.6",
-        "11-REQ-10.1",
-        "11-REQ-10.2"
-      ],
-      "tests": [
-        "TS-11-30",
-        "TS-11-31",
-        "TS-11-32",
-        "TS-11-33",
-        "TS-11-34",
-        "TS-11-35",
-        "TS-11-36",
-        "TS-11-71",
-        "TS-11-72"
+        "REQ-5.1",
+        "REQ-5.2",
+        "REQ-5.3",
+        "REQ-5.4",
+        "REQ-5.5",
+        "REQ-5.6",
+        "REQ-10.1",
+        "REQ-10.2"
       ],
       "steps": [
         "Write TS-11-71 and TS-11-72 in internal/hub/fakehub/fakehub_test.go and TS-11-30..36 in internal/hub/client_test.go and confirm they fail",
@@ -186,27 +146,19 @@
       ],
       "done_when": [
         "`go test ./internal/hub/... -count=1` passes"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 5,
-      "kind": "implement",
       "title": "Build the HTTP surface: probes, error envelope, panic recovery, request logging",
       "criteria": [
-        "11-REQ-7.1",
-        "11-REQ-7.2",
-        "11-REQ-7.3",
-        "11-REQ-7.5",
-        "11-REQ-7.6",
-        "11-REQ-7.7",
-        "11-REQ-7.8"
-      ],
-      "tests": [
-        "TS-11-47",
-        "TS-11-48",
-        "TS-11-51",
-        "TS-11-52"
+        "REQ-7.1",
+        "REQ-7.2",
+        "REQ-7.3",
+        "REQ-7.5",
+        "REQ-7.6",
+        "REQ-7.7",
+        "REQ-7.8"
       ],
       "steps": [
         "Write TS-11-47, 48, 51, 52 in internal/service/api/server_test.go using httptest and a captured slog JSON buffer, and confirm they fail",
@@ -228,32 +180,20 @@
       ],
       "done_when": [
         "`go test ./internal/service/api/... ./internal/toolio/... -count=1` passes"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 6,
-      "kind": "implement",
       "title": "Authenticate callers and check workspace visibility through hub with TTL caches",
       "criteria": [
-        "11-REQ-6.1",
-        "11-REQ-6.2",
-        "11-REQ-6.3",
-        "11-REQ-6.4",
-        "11-REQ-6.5",
-        "11-REQ-6.6",
-        "11-REQ-6.7",
-        "11-REQ-6.8"
-      ],
-      "tests": [
-        "TS-11-37",
-        "TS-11-38",
-        "TS-11-39",
-        "TS-11-40",
-        "TS-11-42",
-        "TS-11-43",
-        "TS-11-45",
-        "TS-11-46"
+        "REQ-6.1",
+        "REQ-6.2",
+        "REQ-6.3",
+        "REQ-6.4",
+        "REQ-6.5",
+        "REQ-6.6",
+        "REQ-6.7",
+        "REQ-6.8"
       ],
       "steps": [
         "Write TS-11-45 and TS-11-46 (property, run under -race) in internal/service/ttl/ttl_test.go and TS-11-37..40, 42, 43 in internal/service/api/auth_test.go using fakehub, an injected clock and a trivial authed route, and confirm they fail",
@@ -277,35 +217,21 @@
       ],
       "done_when": [
         "`go test -race ./internal/service/ttl/... ./internal/service/api/... -count=1` passes"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 7,
-      "kind": "implement",
       "title": "Implement PUT /api/v1/workspaces/{slug} subscribe",
       "criteria": [
-        "11-REQ-8.1",
-        "11-REQ-8.2",
-        "11-REQ-8.3",
-        "11-REQ-8.4",
-        "11-REQ-8.5",
-        "11-REQ-8.6",
-        "11-REQ-8.7",
-        "11-REQ-8.8",
-        "11-REQ-7.4"
-      ],
-      "tests": [
-        "TS-11-44",
-        "TS-11-50",
-        "TS-11-55",
-        "TS-11-56",
-        "TS-11-57",
-        "TS-11-58",
-        "TS-11-59",
-        "TS-11-60",
-        "TS-11-61",
-        "TS-11-62"
+        "REQ-8.1",
+        "REQ-8.2",
+        "REQ-8.3",
+        "REQ-8.4",
+        "REQ-8.5",
+        "REQ-8.6",
+        "REQ-8.7",
+        "REQ-8.8",
+        "REQ-7.4"
       ],
       "steps": [
         "Write the tests in internal/service/api/subscribe_test.go with fakehub, a real store in t.TempDir() and a generated key, and confirm they fail",
@@ -331,33 +257,19 @@
       ],
       "done_when": [
         "`go test ./internal/service/api/... -count=1` passes"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 8,
-      "kind": "implement",
       "title": "Implement subscription view, list, get and delete, and secrecy checks",
       "criteria": [
-        "11-REQ-9.1",
-        "11-REQ-9.2",
-        "11-REQ-9.3",
-        "11-REQ-9.4",
-        "11-REQ-9.5",
-        "11-REQ-9.6",
-        "11-REQ-3.6"
-      ],
-      "tests": [
-        "TS-11-23",
-        "TS-11-41",
-        "TS-11-54",
-        "TS-11-63",
-        "TS-11-64",
-        "TS-11-65",
-        "TS-11-66",
-        "TS-11-67",
-        "TS-11-68",
-        "TS-11-69"
+        "REQ-9.1",
+        "REQ-9.2",
+        "REQ-9.3",
+        "REQ-9.4",
+        "REQ-9.5",
+        "REQ-9.6",
+        "REQ-3.6"
       ],
       "steps": [
         "Write the tests in internal/service/api/workspaces_test.go with fakehub and a real store and confirm they fail",
@@ -379,22 +291,15 @@
       ],
       "done_when": [
         "`go test ./internal/service/api/... -count=1` passes"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 9,
-      "kind": "implement",
       "title": "Add the agent-fox binary skeleton, flags and make build target",
       "criteria": [
-        "11-REQ-1.1",
-        "11-REQ-1.2",
-        "11-REQ-1.3"
-      ],
-      "tests": [
-        "TS-11-1",
-        "TS-11-2",
-        "TS-11-3"
+        "REQ-1.1",
+        "REQ-1.2",
+        "REQ-1.3"
       ],
       "steps": [
         "Write TS-11-1, 2, 3 in cmd/agent-fox/main_test.go with a buildBinary helper copied from cmd/af/smoke_test.go (make build VERSION=9.9.9-test BIN_DIR=<tmp>; skip when make is missing) and confirm they fail",
@@ -415,32 +320,18 @@
       ],
       "done_when": [
         "`make build` writes both binaries into BIN_DIR"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 10,
-      "kind": "implement",
       "title": "Wire the service start, failure reporting, listening and graceful shutdown",
       "criteria": [
-        "11-REQ-1.4",
-        "11-REQ-1.5",
-        "11-REQ-1.6",
-        "11-REQ-1.7",
-        "11-REQ-1.8",
-        "11-REQ-2.8"
-      ],
-      "tests": [
-        "TS-11-4",
-        "TS-11-5",
-        "TS-11-6",
-        "TS-11-7",
-        "TS-11-8",
-        "TS-11-13",
-        "TS-11-14",
-        "TS-11-17",
-        "TS-11-27",
-        "TS-11-28"
+        "REQ-1.4",
+        "REQ-1.5",
+        "REQ-1.6",
+        "REQ-1.7",
+        "REQ-1.8",
+        "REQ-2.8"
       ],
       "steps": [
         "Write the tests in cmd/agent-fox/start_test.go (binary-level ones use the buildBinary helper, fakehub and temp dirs; TS-11-8 calls the run function with an injected failing net.Listener) and confirm they fail",
@@ -467,27 +358,18 @@
       ],
       "done_when": [
         "`go test ./cmd/agent-fox/... -count=1` passes"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 11,
-      "kind": "implement",
       "title": "Write the docs and commit generated docs",
       "criteria": [
-        "11-REQ-10.3",
-        "11-REQ-10.4",
-        "11-REQ-10.5",
-        "11-REQ-10.6",
-        "11-REQ-10.7",
-        "11-REQ-10.8"
-      ],
-      "tests": [
-        "TS-11-73",
-        "TS-11-74",
-        "TS-11-75",
-        "TS-11-76",
-        "TS-11-77"
+        "REQ-10.3",
+        "REQ-10.4",
+        "REQ-10.5",
+        "REQ-10.6",
+        "REQ-10.7",
+        "REQ-10.8"
       ],
       "steps": [
         "Write TS-11-73..77 as docs tests in docs/service_docs_test.go (read files relative to the docs directory and ../README.md) and confirm they fail",
@@ -514,46 +396,7 @@
       ],
       "done_when": [
         "`make check` exits 0"
-      ],
-      "state": "done"
-    },
-    {
-      "id": 12,
-      "kind": "integration",
-      "title": "Verify the service paths end to end against the real binary",
-      "tests": [
-        "TS-11-49",
-        "TS-11-53",
-        "TS-11-78",
-        "TS-11-79",
-        "TS-11-80",
-        "TS-11-81",
-        "TS-11-82",
-        "TS-11-83",
-        "TS-11-84"
-      ],
-      "steps": [
-        "Write TS-11-79..84 as smoke tests in cmd/agent-fox/smoke_test.go (build the real binary, fakehub, temp dir, 0600 key, server.listen 127.0.0.1:0, read addr from the listening record) and TS-11-49, 53, 78 and confirm they pass",
-        "Trace 11-PATH-1..6 through production code: main run -> config -> key -> store -> api server -> auth middleware -> hub client -> sealer -> store; confirm each step calls the next and no stub remains",
-        "For each criterion with a contract confirm the producer's result is consumed in production code: store.Token is exported for later specs (tested only), but the view, caches, hub client and exit codes are all used by handlers/main",
-        "Confirm the toolio version document export is called by both cmd/agent-fox and api GET /version",
-        "Grep every task's touches (cmd/agent-fox, internal/hub, internal/service, internal/toolio/version.go) for TODO, panic(\"not implemented\"), NotImplementedError and bare `return nil` on non-trivial paths and remove any",
-        "Confirm TS-11-78: no non-loopback URL or dial address in the service tests and keys generated in t.TempDir()",
-        "Run `make check` and confirm it passes offline"
-      ],
-      "touches": [
-        "cmd/agent-fox/smoke_test.go",
-        "cmd/agent-fox/scan_test.go",
-        "internal/service/api/errors_test.go"
-      ],
-      "depends_on": [
-        10,
-        11
-      ],
-      "done_when": [
-        "`make check` passes with no network beyond loopback"
-      ],
-      "state": "done"
+      ]
     }
   ]
 }

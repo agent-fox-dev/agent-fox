@@ -4,9 +4,8 @@ spec_name: "agent_fox_jobs"
 title: "agent-fox jobs: the job and attempt records, the per-workspace queue, the jobs API and its event stream"
 status: "active"
 created_at: "2026-10-21T20:45:10.458238Z"
-updated_at: "2026-10-21T20:45:10.458238Z"
 intent_hash: "ad748469564016ee6e893d4005c40809c2a5fe9c4d20ea8b8437fe68cb210f6c"
-schema_version: 2
+schema_version: 3
 source: "docs/prd/03-run-the-agent-fox-service.md"
 ---
 ## Intent
@@ -589,3 +588,20 @@ No concrete function names are assumed. The adapter reads the real API when it i
 - `context.WithCancelCause` and `context.Cause`;
 - `http.NewResponseController`, with `Flush` and `SetWriteDeadline`;
 - `crypto/rand`, `database/sql`, `encoding/base64` (for the cursor) and `log/slog`.
+
+## Glossary
+
+- **at rest**: A job that is blocked, done, failed or cancelled and has no running attempt.
+- **attempt**: One brain-level try at a job (af_attempts row keyed by job id and number n, starting at 1). States: queued, running, done, needs_human, failed, cancelled.
+- **automatic attempt**: A new attempt with trigger auto, queued by the jobs layer after a failed envelope of category brain or no_result with retryable true.
+- **cancel cause**: The cause attached to a cancelled attempt context: cancel, unsubscribe (which also reads as a cancel) or shutdown (which does not).
+- **cancel grace**: The 60 s a cancelled or unsubscribed runner has to return before its attempt is recorded cancelled without it.
+- **delivery**: One handover of an attempt to a runner. The attempt's deliveries count is the handover count passed to the runner (1 on the first delivery).
+- **job**: The durable record (af_jobs row) of one triage or fix request against one workspace, with its attempts and event log. States: queued, running, blocked, done, failed, cancelled.
+- **open job**: A job in state queued, running or blocked.
+- **recorder**: The concurrency-safe sink a runner reports through while it runs: events for the job log and the attempt's hub references.
+- **round**: The latest attempt whose trigger is not auto, plus the auto attempts after it. Its size is bounded by the maximum attempts the runner reports, clamped to 1-10 (0 means 2).
+- **runner**: The component behind the Runner seam that carries out one attempt and returns a result or an error. This spec ships a placeholder runner and an exported fake runner.
+- **synthesized envelope**: A failed toolio envelope the jobs layer writes for an attempt that ended without a usable envelope (error, panic, cancel, overrun grace, invalid envelope).
+- **transient failure**: An error a runner marks transient (infrastructure: box, lease, hub, forge connectivity). It asks for the same attempt to be handed over again after a backoff, up to three failures.
+- **unsubscribing**: The mark the workspace DELETE sets while it cancels and waits for a workspace's jobs; new work for the workspace is refused while it is set.

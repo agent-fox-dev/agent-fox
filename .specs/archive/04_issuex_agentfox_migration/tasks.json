@@ -1,8 +1,8 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "$schema": "https://agent-fox.dev/schemas/tasks.v3.json",
   "spec_id": "04",
   "spec_name": "issuex_agentfox_migration",
-  "schema_version": 2,
+  "schema_version": 3,
   "test_commands": {
     "all_tests": "make test",
     "linter": "make lint",
@@ -25,16 +25,12 @@
   "tasks": [
     {
       "id": 1,
-      "kind": "implement",
       "title": "Deprecate internal/ghapi and provide compatibility forwarding layer to issuex",
       "criteria": [
-        "04-REQ-9.1",
-        "04-REQ-9.2",
-        "04-REQ-9.3",
-        "04-REQ-9.4"
-      ],
-      "tests": [
-        "TS-04-34"
+        "REQ-9.1",
+        "REQ-9.2",
+        "REQ-9.3",
+        "REQ-9.4"
       ],
       "steps": [
         "Write TS-04-34 in internal/ghapi/ref_test.go verifying type aliases, forwarding functions, and deprecation documentation",
@@ -49,36 +45,24 @@
         "internal/ghapi/ref.go",
         "internal/ghapi/client.go",
         "internal/ghapi/ref_test.go"
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 2,
-      "kind": "implement",
       "title": "Migrate toolio input resolution and thread rendering to issuex",
       "criteria": [
-        "04-REQ-1.1",
-        "04-REQ-1.2",
-        "04-REQ-1.3",
-        "04-REQ-1.4",
-        "04-REQ-1.5",
-        "04-REQ-2.1",
-        "04-REQ-2.2",
-        "04-REQ-2.3",
-        "04-REQ-2.4",
-        "04-REQ-2.5",
-        "04-REQ-10.1",
-        "04-REQ-10.2"
-      ],
-      "tests": [
-        "TS-04-1",
-        "TS-04-2",
-        "TS-04-3",
-        "TS-04-4",
-        "TS-04-5",
-        "TS-04-6",
-        "TS-04-7",
-        "TS-04-8"
+        "REQ-1.1",
+        "REQ-1.2",
+        "REQ-1.3",
+        "REQ-1.4",
+        "REQ-1.5",
+        "REQ-2.1",
+        "REQ-2.2",
+        "REQ-2.3",
+        "REQ-2.4",
+        "REQ-2.5",
+        "REQ-10.1",
+        "REQ-10.2"
       ],
       "steps": [
         "Write TS-04-1 through TS-04-8 in internal/toolio/input_test.go for input resolution and deterministic thread rendering",
@@ -97,25 +81,17 @@
       ],
       "depends_on": [
         1
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 3,
-      "kind": "implement",
       "title": "Migrate toolio App shell and client factory integration",
       "criteria": [
-        "04-REQ-3.1",
-        "04-REQ-3.2",
-        "04-REQ-3.3",
-        "04-REQ-3.4",
-        "04-REQ-3.5"
-      ],
-      "tests": [
-        "TS-04-9",
-        "TS-04-10",
-        "TS-04-11",
-        "TS-04-12"
+        "REQ-3.1",
+        "REQ-3.2",
+        "REQ-3.3",
+        "REQ-3.4",
+        "REQ-3.5"
       ],
       "steps": [
         "Write TS-04-9, TS-04-10, TS-04-11, and TS-04-12 in internal/toolio/app_test.go verifying Deps.Forge and client construction logic",
@@ -132,28 +108,19 @@
       ],
       "depends_on": [
         2
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 4,
-      "kind": "implement",
       "title": "Migrate codefix pipeline runner to issuex",
       "criteria": [
-        "04-REQ-4.1",
-        "04-REQ-4.2",
-        "04-REQ-4.3",
-        "04-REQ-4.4",
-        "04-REQ-4.5",
-        "04-REQ-4.6",
-        "04-REQ-10.3"
-      ],
-      "tests": [
-        "TS-04-13",
-        "TS-04-14",
-        "TS-04-15",
-        "TS-04-16",
-        "TS-04-17"
+        "REQ-4.1",
+        "REQ-4.2",
+        "REQ-4.3",
+        "REQ-4.4",
+        "REQ-4.5",
+        "REQ-4.6",
+        "REQ-10.3"
       ],
       "steps": [
         "Write TS-04-13 through TS-04-17 in codefix/pipeline_test.go using mock issuex.Client and httptest.Server",
@@ -173,26 +140,17 @@
       ],
       "depends_on": [
         3
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 5,
-      "kind": "implement",
       "title": "Migrate codeimpl pipeline runner to issuex",
       "criteria": [
-        "04-REQ-5.1",
-        "04-REQ-5.2",
-        "04-REQ-5.3",
-        "04-REQ-5.4",
-        "04-REQ-5.5"
-      ],
-      "tests": [
-        "TS-04-18",
-        "TS-04-19",
-        "TS-04-20",
-        "TS-04-21",
-        "TS-04-22"
+        "REQ-5.1",
+        "REQ-5.2",
+        "REQ-5.3",
+        "REQ-5.4",
+        "REQ-5.5"
       ],
       "steps": [
         "Write TS-04-18 through TS-04-22 in codeimpl/pipeline_test.go using mock issuex.Client",
@@ -210,30 +168,20 @@
       ],
       "depends_on": [
         3
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 6,
-      "kind": "implement",
       "title": "Migrate issuetriage pipeline runner to issuex",
       "criteria": [
-        "04-REQ-6.1",
-        "04-REQ-6.2",
-        "04-REQ-6.3",
-        "04-REQ-6.4",
-        "04-REQ-6.5",
-        "04-REQ-6.6",
-        "04-REQ-6.7",
-        "04-REQ-10.4"
-      ],
-      "tests": [
-        "TS-04-23",
-        "TS-04-24",
-        "TS-04-25",
-        "TS-04-26",
-        "TS-04-27",
-        "TS-04-28"
+        "REQ-6.1",
+        "REQ-6.2",
+        "REQ-6.3",
+        "REQ-6.4",
+        "REQ-6.5",
+        "REQ-6.6",
+        "REQ-6.7",
+        "REQ-10.4"
       ],
       "steps": [
         "Write TS-04-23 through TS-04-28 in issuetriage/triage_test.go using mock issuex.Client and httptest.Server",
@@ -252,23 +200,16 @@
       ],
       "depends_on": [
         3
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 7,
-      "kind": "implement",
       "title": "Migrate specgen pipeline runner to issuex",
       "criteria": [
-        "04-REQ-7.1",
-        "04-REQ-7.2",
-        "04-REQ-7.3",
-        "04-REQ-7.4"
-      ],
-      "tests": [
-        "TS-04-29",
-        "TS-04-30",
-        "TS-04-31"
+        "REQ-7.1",
+        "REQ-7.2",
+        "REQ-7.3",
+        "REQ-7.4"
       ],
       "steps": [
         "Write TS-04-29, TS-04-30, and TS-04-31 in specgen/pipeline_test.go using mock issuex.Client",
@@ -284,23 +225,17 @@
       ],
       "depends_on": [
         3
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 8,
-      "kind": "implement",
       "title": "Migrate CLI commands (fix, impl, issue, spec) to issuex",
       "criteria": [
-        "04-REQ-8.1",
-        "04-REQ-8.2",
-        "04-REQ-8.3",
-        "04-REQ-8.4",
-        "04-REQ-8.5"
-      ],
-      "tests": [
-        "TS-04-32",
-        "TS-04-33"
+        "REQ-8.1",
+        "REQ-8.2",
+        "REQ-8.3",
+        "REQ-8.4",
+        "REQ-8.5"
       ],
       "steps": [
         "Write TS-04-32 and TS-04-33 in cmd/fix/main_test.go and CLI test helpers",
@@ -323,18 +258,13 @@
         5,
         6,
         7
-      ],
-      "state": "done"
+      ]
     },
     {
       "id": 9,
-      "kind": "implement",
       "title": "Verify repository test suite and linter across migrated packages",
       "criteria": [
-        "04-REQ-10.5"
-      ],
-      "tests": [
-        "TS-04-35"
+        "REQ-10.5"
       ],
       "steps": [
         "Write TS-04-35 in a top-level verification test or package test confirming clean build and test status",
@@ -347,37 +277,7 @@
       ],
       "depends_on": [
         8
-      ],
-      "state": "done"
-    },
-    {
-      "id": 10,
-      "kind": "integration",
-      "title": "End-to-end integration and smoke verification across GitHub and GitLab execution paths",
-      "tests": [
-        "TS-04-36",
-        "TS-04-37",
-        "TS-04-38",
-        "TS-04-39"
-      ],
-      "steps": [
-        "Write smoke tests TS-04-36, TS-04-37, TS-04-38, and TS-04-39 in internal/toolio/smoke_test.go exercising 04-PATH-1 through 04-PATH-4 against mock GitHub and GitLab servers",
-        "Trace 04-PATH-1 (GitLab issue triage) from cmd/issue through toolio.Resolve, toolio.RenderThread, and issuetriage.Run to verify live execution across real components",
-        "Trace 04-PATH-2 (GitHub bugfix PR) from cmd/fix through toolio.Resolve, codefix.Preflight, codefix.Run, and forge client PR creation and commenting",
-        "Trace 04-PATH-3 (GitLab spec PRD comment) from cmd/spec through toolio.Resolve, specgen.Run, and forge client issue commenting",
-        "Trace 04-PATH-4 (nested GitLab project implementation) from cmd/impl through issuex.ParseRepo, codeimpl.Preflight, and codeimpl.Run PR creation",
-        "Verify that all contract error outputs (04-REQ-1.3, 04-REQ-1.4, 04-REQ-4.3, 04-REQ-4.4, 04-REQ-5.3, 04-REQ-5.4, 04-REQ-6.2, 04-REQ-6.3, 04-REQ-6.4, 04-REQ-6.7, 04-REQ-7.2, 04-REQ-7.4, 04-REQ-8.5) are consumed by CLI envelopes and error handlers in production code",
-        "Confirm that issuex factory entry points from specs 01_issuex_core, 02_issuex_github, and 03_issuex_gitlab are invoked from production code in toolio and CLI packages",
-        "Search all touched files in internal/toolio, codefix, codeimpl, issuetriage, specgen, cmd, and internal/ghapi for stub markers (panic(\"not implemented\"), TODO, bare return nil) and resolve any that remain",
-        "Execute make check (lint and test) to ensure complete repository integrity and clean passing builds"
-      ],
-      "touches": [
-        "internal/toolio/smoke_test.go"
-      ],
-      "depends_on": [
-        9
-      ],
-      "state": "done"
+      ]
     }
   ]
 }
