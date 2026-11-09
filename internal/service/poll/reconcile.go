@@ -12,8 +12,9 @@ import (
 // never hub, so a cycle can do it before it makes a request, whether or not the poll turns out to be enabled.
 type recordReconciler struct{ s *Supervisor }
 
-// reconcile notes what has become of the job of each record of the workspace whose job the poll has not seen end, and
-// drops the records for which nothing is owed and nothing holds.
+// reconcile notes what has become of the job of each record of the workspace whose job the poll has not seen end,
+// releases the guards whose release delay has passed, and drops the records for which nothing is owed, nothing holds and
+// nothing guards.
 func (r recordReconciler) reconcile(ctx context.Context, workspace string) {
 	recs, err := r.s.records.ForWorkspace(ctx, workspace)
 	if err != nil {
@@ -26,15 +27,14 @@ func (r recordReconciler) reconcile(ctx context.Context, workspace string) {
 			r.s.report(ctx, workspace, r.s.stateOf(workspace), failure{row: rowStore, operation: "read how the job of a record stands", err: err})
 		}
 	}
+	if _, err := r.s.records.ExpireGuards(ctx, workspace, r.s.cfg.Clock.Now(), r.s.cfg.ReleaseDelay); err != nil {
+		r.s.cfg.Logger.Warn("the guards of the records of the poll could not be released", "workspace", workspace, "error", err.Error())
+	}
 	r.s.drop(ctx, workspace)
 }
 
-// drop releases the guards that are older than the release delay, and deletes the records of the workspace for which
-// nothing is owed, nothing holds and nothing guards.
+// drop deletes the records of the workspace for which nothing is owed, nothing holds and nothing guards.
 func (s *Supervisor) drop(ctx context.Context, workspace string) {
-	if _, err := s.records.ExpireGuards(ctx, workspace, s.cfg.Clock.Now().Add(-s.cfg.ReleaseDelay)); err != nil {
-		s.cfg.Logger.Warn("the guards of the records of the poll could not be released", "workspace", workspace, "error", err.Error())
-	}
 	if _, err := s.records.Drop(ctx, workspace); err != nil {
 		s.cfg.Logger.Warn("the records of the poll that hold nothing could not be dropped", "workspace", workspace, "error", err.Error())
 	}
