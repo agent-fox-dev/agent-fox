@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -154,31 +155,39 @@ func (r *Records) ClearOwed(ctx context.Context, workspace string, issue int, la
 	return r.exec(ctx, "UPDATE af_poll_requests SET owed = 0 WHERE workspace = ? AND issue = ? AND label = ? AND owed = 1", workspace, issue, label)
 }
 
-// ClearGuard releases the guard of every record of the label on the issue of the workspace, because a complete listing
-// asked for after them lacked the label. It returns how many records it released.
-func (r *Records) ClearGuard(ctx context.Context, workspace string, issue int, label string) (int, error) {
-	return r.exec(ctx, "UPDATE af_poll_requests SET guard = 0 WHERE workspace = ? AND issue = ? AND label = ? AND guard = 1", workspace, issue, label)
+// guards says that the record still guards its label at the time: it is of an answer or a retry, and the release delay
+// has not passed since it was made.
+func (r Record) guards(at time.Time, delay time.Duration) bool {
+	return r.Guard && at.Before(r.CreatedAt.Add(delay))
 }
 
-// ExpireGuards releases the guard of the records of the workspace that were made at or before the time. The times are
-// compared as times, not as the text they are stored as.
-func (r *Records) ExpireGuards(ctx context.Context, workspace string, before time.Time) (int, error) {
-	recs, err := r.query(ctx, "SELECT "+columns+" FROM af_poll_requests WHERE workspace = ? AND guard = 1 ORDER BY id", workspace)
+// ReleaseGuards releases the guard of the records, and returns how many it released.
+func (r *Records) ReleaseGuards(ctx context.Context, ids ...int64) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	return r.exec(ctx, "UPDATE af_poll_requests SET guard = 0 WHERE guard = 1 AND id IN (?"+strings.Repeat(", ?", len(ids)-1)+")", args...)
+}
+
+// ExpireGuards releases the guard of the records of the workspace that no longer guard at the time, the release delay
+// having passed since they were made. The times are compared as times, not as the text they are stored as, whose
+// fractional digits vary in number.
+func (r *Records) ExpireGuards(ctx context.Context, workspace string, now time.Time, delay time.Duration) (int, error) {
+	recs, err := r.query(ctx, "SELECT "+columns+" FROM af_poll_requests WHERE workspace = ? AND guard = 1", workspace)
 	if err != nil {
 		return 0, err
 	}
-	var released int
+	var ids []int64
 	for _, rec := range recs {
-		if rec.CreatedAt.After(before) {
-			continue
+		if !rec.guards(now, delay) {
+			ids = append(ids, rec.ID)
 		}
-		n, err := r.exec(ctx, "UPDATE af_poll_requests SET guard = 0 WHERE id = ?", rec.ID)
-		if err != nil {
-			return released, err
-		}
-		released += n
 	}
-	return released, nil
+	return r.ReleaseGuards(ctx, ids...)
 }
 
 // Drop deletes the records of the workspace for which nothing is owed, nothing holds and nothing guards: the removal was

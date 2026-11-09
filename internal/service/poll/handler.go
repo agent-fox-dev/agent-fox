@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
-	"time"
 
 	"github.com/agent-fox-dev/aflib/issuex"
 
@@ -42,13 +41,6 @@ func (c *cycleRun) report(ctx context.Context, f failure) {
 // a later time: a cycle of a loop that was replaced took the label since.
 func (l *listing) newer(r Record) bool {
 	return !l.Requested.IsZero() && (r.ID > l.Before || r.CreatedAt.After(l.Requested))
-}
-
-// lagging says that the record guards its label against a sighting that the forge's index may still show only because it
-// lags the removal: the record is of an answer or a retry, and the listing was asked for before the release delay passed since
-// it was made. A listing asked for before the record is covered by newer.
-func (l *listing) lagging(r Record, delay time.Duration) bool {
-	return r.Guard && !l.Requested.IsZero() && l.Requested.Before(r.CreatedAt.Add(delay))
 }
 
 // lockedIssue applies the rules to issue n under the workspace's lock, and gives it back before the next issue.
@@ -108,7 +100,7 @@ func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
 	open, err := c.s.cfg.Jobs.OpenJob(ctx, c.slug, l.Kind, int64(n))
 	switch {
 	case err == nil && open.State == jobs.StateBlocked && !owed:
-		if slices.ContainsFunc(recs, c.leaves(l)) {
+		if c.leftToNext(l, recs) {
 			return true
 		}
 		return c.answer(ctx, l, n, open)
@@ -128,7 +120,7 @@ func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
 	}
 	// A record of the label on the issue made at or after the listing was asked for is newer than what the listing
 	// shows: the other trigger took the label since. The label is left to the next cycle.
-	if slices.ContainsFunc(recs, c.leaves(l)) {
+	if c.leftToNext(l, recs) {
 		return true
 	}
 	latest, err := c.s.cfg.Jobs.LatestJob(ctx, c.slug, l.Kind, int64(n))
@@ -144,10 +136,13 @@ func (c *cycleRun) issue(ctx context.Context, l *listing, n int) bool {
 	return c.request(ctx, l, n)
 }
 
-// leaves says whether the record leaves the label of the sighting to the next cycle: the record is newer than the
-// listing, or guards the label against a listing that may lag the removal of an answer or a retry.
-func (c *cycleRun) leaves(l *listing) func(Record) bool {
-	return func(r Record) bool { return l.newer(r) || l.lagging(r, c.s.cfg.ReleaseDelay) }
+// leftToNext says whether a record of the label leaves the sighting to the next cycle: it is newer than the listing, or
+// it guards the label against a listing asked for within the release delay of an answer or a retry, which may show the
+// label only because the forge's index lags its removal.
+func (c *cycleRun) leftToNext(l *listing, recs []Record) bool {
+	return slices.ContainsFunc(recs, func(r Record) bool {
+		return l.newer(r) || (!l.Requested.IsZero() && r.guards(l.Requested, c.s.cfg.ReleaseDelay))
+	})
 }
 
 // request makes the job for a new request, and consumes the label. If the jobs layer refuses with a duplicate, a job of
@@ -196,6 +191,7 @@ func (c *cycleRun) settle(ctx context.Context, l *listing) {
 		return
 	}
 	settled := map[int]bool{}
+	var released []int64
 	for _, r := range recs {
 		// A record made at or after the listing was asked for is newer than what the listing says of its issue.
 		if r.Label != l.Label || slices.Contains(l.Issues, r.Issue) || l.newer(r) {
@@ -203,10 +199,7 @@ func (c *cycleRun) settle(ctx context.Context, l *listing) {
 		}
 		if r.Guard {
 			// The listing was asked for after the record and lacks the label: the forge's index shows the removal.
-			if _, err := c.s.records.ClearGuard(ctx, c.slug, r.Issue, l.Label); err != nil {
-				c.s.cfg.Logger.Warn("a guard of a request label could not be released",
-					"workspace", c.slug, "issue", r.Issue, "label", l.Label, "error", err.Error())
-			}
+			released = append(released, r.ID)
 		}
 		if r.Seen == SeenHolding && !r.ReleaseClock.IsZero() && !l.Requested.Before(r.ReleaseClock.Add(c.s.cfg.ReleaseDelay)) {
 			c.s.see(ctx, r, SeenEnded)
@@ -220,21 +213,34 @@ func (c *cycleRun) settle(ctx context.Context, l *listing) {
 				"workspace", c.slug, "issue", r.Issue, "label", l.Label, "error", err.Error())
 		}
 	}
+	if _, err := c.s.records.ReleaseGuards(ctx, released...); err != nil {
+		c.s.cfg.Logger.Warn("the guards of a request label could not be released", "workspace", c.slug, "label", l.Label, "error", err.Error())
+	}
 }
 
 // created records the job that was made for the label, and consumes the label.
 func (c *cycleRun) created(ctx context.Context, l *listing, n int, jobID string) bool {
 	c.s.cfg.Logger.Info("a request label became a job", "workspace", c.slug, "kind", l.Kind, "issue", n, "label", l.Label, "job", jobID)
-	return c.consume(ctx, l, n, jobID, false)
+	return c.consume(ctx, l, n, jobID)
 }
 
 // consume consumes the label of a sighting that was acted on: a new request, an answer, a retry or a reply. The record
 // is written before the removal, so that a removal that fails, or a service that ends, leaves the label owed; it names
 // the job when the label is the job's own request label, which a cancel puts back, and no job otherwise. If it cannot be
-// written the removal goes ahead all the same. The record of an answer or a retry (guard) is kept as a guard once the
-// removal is confirmed and the job ended, until the forge is known to show the label gone. A reply needs none: it is
-// not repeated for the same thread, since it carries a marker, and it changes no job.
-func (c *cycleRun) consume(ctx context.Context, l *listing, n int, jobID string, guard bool) bool {
+// written the removal goes ahead all the same.
+func (c *cycleRun) consume(ctx context.Context, l *listing, n int, jobID string) bool {
+	return c.consumeWith(ctx, l, n, jobID, false)
+}
+
+// consumeGuarded consumes the label of an answer or a retry as consume does, and its record is kept as a guard once the
+// removal is confirmed and the job ended, until the forge is known to show the label gone. A reply needs none: it is not
+// repeated for the same thread, since it carries a marker, and it changes no job.
+func (c *cycleRun) consumeGuarded(ctx context.Context, l *listing, n int, jobID string) bool {
+	return c.consumeWith(ctx, l, n, jobID, true)
+}
+
+// consumeWith is consume, with the guard of the record.
+func (c *cycleRun) consumeWith(ctx context.Context, l *listing, n int, jobID string, guard bool) bool {
 	seen := SeenOpen
 	if jobID == "" {
 		seen = SeenEnded
